@@ -4,11 +4,11 @@ import { insertAuditLog } from "../engine/event-action-audit";
 
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE = "marin";
-const DEFAULT_TTS_FORMAT = "mp3";
+const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 1.55;
 const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_TTS_INSTRUCTIONS =
-  "Speak as Kyro, a calm, practical AI assistant for a trades CRM. Keep the delivery natural, warm, concise, and easy to understand for a busy tradesperson.";
+  "Speak as Kyro, a practical AI assistant for a trades CRM. Use a normal, brisk conversational pace with short pauses. Keep the delivery warm, concise, and easy to understand for a busy tradesperson.";
 const DEFAULT_UNIT_COSTS_PER_SECOND: Record<string, number> = {};
 const MAX_TTS_CHARACTERS = 4096;
 

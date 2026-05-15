@@ -164,6 +164,7 @@ export function VoiceConsole({
         const generationSpeed = numberHeader(
           response.headers.get("X-Kyro-TTS-Speed"),
         );
+        const contentType = response.headers.get("Content-Type") ?? "audio";
         const playbackRate = VOICE_REPLY_PLAYBACK_RATE;
 
         applyAudioPlaybackRate(audio, playbackRate);
@@ -173,7 +174,14 @@ export function VoiceConsole({
 
         audio.onloadedmetadata = () => {
           applyAudioPlaybackRate(audio, playbackRate);
-          setSpeechStatus(speechPlaybackStatus(audio.playbackRate, generationSpeed));
+          setSpeechStatus(
+            speechPlaybackStatus(
+              audio.playbackRate,
+              generationSpeed,
+              audio.duration,
+              contentType,
+            ),
+          );
         };
         audio.onratechange = () => {
           if (Math.abs(audio.playbackRate - playbackRate) > 0.01) {
@@ -856,14 +864,25 @@ function applyAudioPlaybackRate(audio: HTMLAudioElement, playbackRate: number) {
 function speechPlaybackStatus(
   playbackRate: number,
   generationSpeed: number | null,
+  duration: number | null = null,
+  contentType: string | null = null,
 ) {
   const playbackLabel = `${playbackRate.toFixed(2)}x playback`;
+  const durationLabel =
+    typeof duration === "number" && Number.isFinite(duration)
+      ? `, ${duration.toFixed(1)}s audio`
+      : "";
+  const formatLabel = contentType?.includes("wav")
+    ? ", WAV"
+    : contentType?.includes("mpeg")
+      ? ", MP3"
+      : "";
 
   if (!generationSpeed) {
-    return `Speaking (${playbackLabel})...`;
+    return `Speaking (${playbackLabel}${durationLabel}${formatLabel})...`;
   }
 
-  return `Speaking (${playbackLabel}, ${generationSpeed.toFixed(2)}x voice)...`;
+  return `Speaking (${playbackLabel}, ${generationSpeed.toFixed(2)}x voice${durationLabel}${formatLabel})...`;
 }
 
 function lastMessageId(messages: AssistantThreadMessage[]) {
