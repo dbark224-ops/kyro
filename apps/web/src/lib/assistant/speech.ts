@@ -5,7 +5,7 @@ import { insertAuditLog } from "../engine/event-action-audit";
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE = "marin";
 const DEFAULT_TTS_FORMAT = "mp3";
-const DEFAULT_TTS_SPEED = 1.35;
+const DEFAULT_TTS_SPEED = 1.55;
 const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_TTS_INSTRUCTIONS =
   "Speak as Kyro, a calm, practical AI assistant for a trades CRM. Keep the delivery natural, warm, concise, and easy to understand for a busy tradesperson.";

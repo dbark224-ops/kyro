@@ -16,7 +16,7 @@ import type {
   AssistantThreadState,
 } from "../../lib/assistant/types";
 
-const VOICE_REPLY_PLAYBACK_RATE = 1.12;
+const VOICE_REPLY_PLAYBACK_RATE = 1.45;
 
 type VoiceCompletionMode = "draft" | "send";
 
@@ -161,12 +161,25 @@ export function VoiceConsole({
         const audioBlob = await response.blob();
         const audioUrl = window.URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
+        const generationSpeed = numberHeader(
+          response.headers.get("X-Kyro-TTS-Speed"),
+        );
+        const playbackRate = VOICE_REPLY_PLAYBACK_RATE;
 
-        audio.playbackRate = VOICE_REPLY_PLAYBACK_RATE;
-        (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+        applyAudioPlaybackRate(audio, playbackRate);
         assistantAudioUrlRef.current = audioUrl;
         assistantAudioRef.current = audio;
-        setSpeechStatus("Speaking...");
+        setSpeechStatus(speechPlaybackStatus(playbackRate, generationSpeed));
+
+        audio.onloadedmetadata = () => {
+          applyAudioPlaybackRate(audio, playbackRate);
+          setSpeechStatus(speechPlaybackStatus(audio.playbackRate, generationSpeed));
+        };
+        audio.onratechange = () => {
+          if (Math.abs(audio.playbackRate - playbackRate) > 0.01) {
+            applyAudioPlaybackRate(audio, playbackRate);
+          }
+        };
 
         audio.onended = () => {
           if (assistantAudioRef.current === audio) {
@@ -813,6 +826,44 @@ function jsonErrorMessage(payload: unknown) {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberHeader(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function applyAudioPlaybackRate(audio: HTMLAudioElement, playbackRate: number) {
+  const safePlaybackRate = Math.min(4, Math.max(0.25, playbackRate));
+  const pitchSafeAudio = audio as HTMLAudioElement & {
+    mozPreservesPitch?: boolean;
+    preservesPitch?: boolean;
+    webkitPreservesPitch?: boolean;
+  };
+
+  audio.defaultPlaybackRate = safePlaybackRate;
+  audio.playbackRate = safePlaybackRate;
+  pitchSafeAudio.preservesPitch = true;
+  pitchSafeAudio.mozPreservesPitch = true;
+  pitchSafeAudio.webkitPreservesPitch = true;
+}
+
+function speechPlaybackStatus(
+  playbackRate: number,
+  generationSpeed: number | null,
+) {
+  const playbackLabel = `${playbackRate.toFixed(2)}x playback`;
+
+  if (!generationSpeed) {
+    return `Speaking (${playbackLabel})...`;
+  }
+
+  return `Speaking (${playbackLabel}, ${generationSpeed.toFixed(2)}x voice)...`;
 }
 
 function lastMessageId(messages: AssistantThreadMessage[]) {
