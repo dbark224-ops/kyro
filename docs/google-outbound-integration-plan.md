@@ -1,6 +1,7 @@
-# Google Workspace And Outbound Integration Plan
+# Workspace Email And Outbound Integration Plan
 
-This is the integration spine for Gmail, Google Drive, and later SMS/voice providers.
+This is the integration spine for Gmail, Outlook/Microsoft Graph, Google Drive, and
+later SMS/voice providers.
 The product rule stays the same: external side effects go through Kyro's action engine
 and workspace communication policy before anything leaves the system.
 
@@ -17,7 +18,8 @@ and workspace communication policy before anything leaves the system.
 - Google OAuth routes:
   - `/integrations/google/start`
   - `/integrations/google/callback`
-- Settings UI section for Google Workspace connection status.
+- Combined Settings Integrations area for Google Workspace and Microsoft Outlook
+  connection status.
 - Gmail channel creation after Google connection, marked as `externalSendEnabled: true`.
 - Gmail access-token refresh helper:
   - decrypts the stored refresh token,
@@ -43,8 +45,41 @@ and workspace communication policy before anything leaves the system.
   billing summaries can count volume now and add pricing later.
 - The shared outbound helper is:
   - `apps/web/src/lib/communication/outbound.ts`
+- The shared email-provider router is:
+  - `apps/web/src/lib/integrations/mail.ts`
 - The Gmail provider helper is:
   - `apps/web/src/lib/integrations/gmail.ts`
+- The Outlook provider helper is:
+  - `apps/web/src/lib/integrations/outlook.ts`
+
+## Microsoft Outlook Setup Needed
+
+In Microsoft Entra / Azure Portal:
+
+1. Create an app registration.
+2. Use supported account types that match the product audience:
+   - personal Microsoft accounts and organizational accounts for broad testing, or
+   - organizational accounts only if Kyro is limited to Microsoft 365 tenants.
+3. Add a web redirect URI:
+   - `http://127.0.0.1:3000/integrations/microsoft/callback` for local development
+   - production app URL later.
+4. Create a client secret.
+5. Add delegated Microsoft Graph permissions:
+   - `User.Read`
+   - `Mail.Send`
+   - `openid`
+   - `email`
+   - `profile`
+   - `offline_access`
+6. Add local env vars:
+   - `MICROSOFT_CLIENT_ID`
+   - `MICROSOFT_CLIENT_SECRET`
+   - `MICROSOFT_TENANT_ID=common` for mixed personal/work accounts, or a tenant id later
+   - `NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000`
+   - `INTEGRATION_TOKEN_ENCRYPTION_KEY`
+
+Some Microsoft 365 tenant accounts may require an admin to approve `Mail.Send`.
+That is expected and should be surfaced in testing before public launch.
 
 ## Google Cloud Setup Needed
 
@@ -75,7 +110,7 @@ an AES-256-GCM key and never sent to the browser.
 
 ## Current Scopes
 
-Kyro currently requests:
+Kyro currently requests these Google scopes:
 
 - `openid`
 - `email`
@@ -90,6 +125,21 @@ Reasoning:
   opened/shared with the app, without asking for full Drive access.
 - `openid email profile` lets Kyro label the connected account in Settings.
 
+Kyro currently requests these Microsoft scopes:
+
+- `openid`
+- `email`
+- `profile`
+- `offline_access`
+- `https://graph.microsoft.com/User.Read`
+- `https://graph.microsoft.com/Mail.Send`
+
+Reasoning:
+
+- `Mail.Send` is enough for approved outbound Outlook email without broad mailbox read access.
+- `User.Read` lets Kyro label the connected account using Microsoft Graph `/me`.
+- `offline_access` lets Kyro refresh access tokens without asking the user to reconnect every hour.
+
 ## Remaining Build Steps
 
 1. Upgrade generated-document attachments:
@@ -102,7 +152,8 @@ Reasoning:
    - upload with Drive `files.create`,
    - save Google Drive file id/link in `files.metadata` or document metadata,
    - attach to outbound email when requested.
-3. Add provider switch in communication settings:
+3. Add a default sender/provider switch in communication settings:
+   - choose Gmail or Outlook when both are connected,
    - dry-run only,
    - real external send with approval required,
    - real external send without approval, if user policy allows.
@@ -116,7 +167,7 @@ Reasoning:
    - start with manual import or Gmail watch/history sync,
    - do not request broad Gmail read scopes until the product genuinely needs it.
 
-## Other Providers After Google
+## Other Providers After Email
 
 - Twilio SMS:
   - `integration_connections` provider `twilio`

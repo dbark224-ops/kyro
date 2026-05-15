@@ -12,6 +12,7 @@ import {
   type UsageLedgerRow,
 } from "../../lib/usage/queries";
 import { getGoogleIntegrationOverview } from "../../lib/integrations/google";
+import { getMicrosoftIntegrationOverview } from "../../lib/integrations/microsoft";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import Link from "next/link";
 import {
@@ -32,7 +33,11 @@ type SettingsPageProps = {
 };
 
 function normalizeSettingsSection(value: string | undefined) {
-  if (value === "communication" || value === "google" || value === "usage") {
+  if (value === "google" || value === "microsoft" || value === "integrations") {
+    return "integrations" satisfies SettingsSection;
+  }
+
+  if (value === "communication" || value === "usage") {
     return value satisfies SettingsSection;
   }
 
@@ -255,6 +260,14 @@ function UsageSettingsLedger({ rows }: Readonly<{ rows: UsageLedgerRow[] }>) {
 }
 
 type GoogleIntegrationOverview = Awaited<ReturnType<typeof getGoogleIntegrationOverview>>;
+type MicrosoftIntegrationOverview = Awaited<ReturnType<typeof getMicrosoftIntegrationOverview>>;
+type IntegrationOverview = {
+  configured: boolean;
+  connections: Array<{ lastError: string | null; status: string }>;
+  encryptionReady: boolean;
+  error: string | null;
+  migrationReady: boolean;
+};
 
 function SettingsDetailShell({
   children,
@@ -293,8 +306,8 @@ function EmptySettingsDetail() {
         <p className="eyebrow">Settings</p>
         <h2>Select a settings area</h2>
         <p>
-          Choose communication rules, Google Workspace, or billing and metering from
-          the settings list to view and edit the full details here.
+          Choose communication rules, workspace integrations, or billing and metering
+          from the settings list to view and edit the full details here.
         </p>
       </div>
     </section>
@@ -307,7 +320,7 @@ function integrationStatusLabel({
   encryptionReady,
   error,
   migrationReady,
-}: GoogleIntegrationOverview) {
+}: IntegrationOverview) {
   if (!migrationReady) {
     return "Migration pending";
   }
@@ -333,6 +346,43 @@ function integrationStatusLabel({
   }
 
   return "Ready to connect";
+}
+
+function combinedIntegrationStatusLabel(
+  googleStatus: string,
+  microsoftStatus: string,
+  connectedCount: number,
+) {
+  if (connectedCount > 0) {
+    return connectedCount === 1 ? "1 connected" : `${connectedCount} connected`;
+  }
+
+  if (
+    googleStatus === "Needs attention" ||
+    microsoftStatus === "Needs attention"
+  ) {
+    return "Needs attention";
+  }
+
+  if (
+    googleStatus === "Ready to connect" ||
+    microsoftStatus === "Ready to connect"
+  ) {
+    return "Ready to connect";
+  }
+
+  if (googleStatus === "Migration pending" || microsoftStatus === "Migration pending") {
+    return "Migration pending";
+  }
+
+  if (
+    googleStatus === "Encryption key needed" ||
+    microsoftStatus === "Encryption key needed"
+  ) {
+    return "Encryption key needed";
+  }
+
+  return "Keys needed";
 }
 
 function GoogleIntegrationSettings({
@@ -441,6 +491,293 @@ function GoogleIntegrationSettings({
   );
 }
 
+function MicrosoftIntegrationSettings({
+  overview,
+}: Readonly<{ overview: MicrosoftIntegrationOverview }>) {
+  const canConnect =
+    overview.configured && overview.encryptionReady && overview.migrationReady;
+
+  return (
+    <>
+      <div className="integration-summary-grid">
+        <article className="setting-card">
+          <strong>Outlook outbound</strong>
+          <span>
+            Approved and user-triggered email replies can send through the connected
+            Outlook or Microsoft 365 mailbox.
+          </span>
+        </article>
+        <article className="setting-card">
+          <strong>Microsoft Graph</strong>
+          <span>
+            Uses Microsoft OAuth and Graph Mail.Send, matching the same audit and
+            permission model as Gmail.
+          </span>
+        </article>
+      </div>
+
+      {overview.redirectUri ? (
+        <div className="detail-list compact-detail-list">
+          <div>
+            <span>Redirect URI</span>
+            <strong>{overview.redirectUri}</strong>
+            <small>Use this exact URL in the Microsoft Entra app registration.</small>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="module-list integration-scope-list">
+        {overview.scopes.map((scope) => (
+          <span key={scope}>
+            {scope.replace("https://graph.microsoft.com/", "")}
+          </span>
+        ))}
+      </div>
+
+      {overview.error ? <p className="form-alert error">{overview.error}</p> : null}
+      {!overview.migrationReady ? (
+        <p className="form-alert">
+          Integration tables are not in the database yet. Run{" "}
+          <code>npm.cmd run db:migrate</code> before connecting Microsoft.
+        </p>
+      ) : null}
+      {!overview.configured ? (
+        <p className="form-alert">
+          Add <code>MICROSOFT_CLIENT_ID</code>, <code>MICROSOFT_CLIENT_SECRET</code>,{" "}
+          <code>MICROSOFT_TENANT_ID</code>, and <code>NEXT_PUBLIC_APP_URL</code> before
+          starting OAuth.
+        </p>
+      ) : null}
+      {!overview.encryptionReady ? (
+        <p className="form-alert">
+          Add <code>INTEGRATION_TOKEN_ENCRYPTION_KEY</code> so refresh tokens are encrypted
+          before storage.
+        </p>
+      ) : null}
+
+      {overview.connections.length > 0 ? (
+        <div className="usage-ledger compact">
+          {overview.connections.map((connection) => (
+            <div className="usage-ledger-row" key={connection.id}>
+              <div className="usage-ledger-main">
+                <strong>
+                  {connection.accountEmail ?? connection.accountName ?? "Outlook account"}
+                </strong>
+                <span>{formatLabel(connection.status)}</span>
+                {connection.lastError ? <p>{connection.lastError}</p> : null}
+              </div>
+              <div className="usage-ledger-meta">
+                <span>{connection.scopes.length} scopes</span>
+                <time>
+                  {connection.lastConnectedAt
+                    ? formatDate(connection.lastConnectedAt)
+                    : "Not connected"}
+                </time>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-copy">No Outlook account is connected yet.</p>
+      )}
+
+      <div className="settings-footer">
+        <span>Connect once, then Kyro can send Outlook email through the same policies.</span>
+        {canConnect ? (
+          <Link
+            className="primary-button compact link-button"
+            href="/integrations/microsoft/start"
+          >
+            Connect Outlook
+          </Link>
+        ) : (
+          <span className="pill warning">Setup required</span>
+        )}
+      </div>
+    </>
+  );
+}
+
+type ProviderConnection = {
+  accountEmail: string | null;
+  accountName: string | null;
+  lastConnectedAt: string | null;
+  status: string;
+};
+
+function latestConnectedConnection(connections: ProviderConnection[]) {
+  return (
+    connections.find((connection) => connection.status === "connected") ?? null
+  );
+}
+
+function connectionName(
+  connection: ProviderConnection | null,
+  fallback: string,
+) {
+  return connection?.accountEmail ?? connection?.accountName ?? fallback;
+}
+
+function connectionTime(connection: ProviderConnection | null) {
+  return connection?.lastConnectedAt
+    ? new Date(connection.lastConnectedAt).getTime()
+    : 0;
+}
+
+function providerChoiceStatus({
+  anyConnected,
+  connected,
+  status,
+}: {
+  anyConnected: boolean;
+  connected: boolean;
+  status: string;
+}) {
+  if (connected) {
+    return "Connected";
+  }
+
+  if (anyConnected && status === "Keys needed") {
+    return "Optional setup";
+  }
+
+  return status;
+}
+
+function ProviderDetails({
+  children,
+  description,
+  isCurrent,
+  label,
+  provider,
+  status,
+}: Readonly<{
+  children: React.ReactNode;
+  description: string;
+  isCurrent: boolean;
+  label: string;
+  provider: string;
+  status: string;
+}>) {
+  return (
+    <details
+      className={
+        isCurrent
+          ? "integration-provider-section current"
+          : "integration-provider-section"
+      }
+    >
+      <summary className="integration-provider-summary">
+        <div className="integration-provider-main">
+          <p className="eyebrow">{provider}</p>
+          <h3>{label}</h3>
+          <span>{description}</span>
+        </div>
+        <div className="integration-provider-status">
+          {isCurrent ? <span>Current sender</span> : null}
+          <span className="pill">{status}</span>
+        </div>
+      </summary>
+      <div className="integration-provider-body">{children}</div>
+    </details>
+  );
+}
+
+function WorkspaceIntegrationsSettings({
+  googleOverview,
+  googleStatus,
+  microsoftOverview,
+  microsoftStatus,
+}: Readonly<{
+  googleOverview: GoogleIntegrationOverview;
+  googleStatus: string;
+  microsoftOverview: MicrosoftIntegrationOverview;
+  microsoftStatus: string;
+}>) {
+  const googleConnection = latestConnectedConnection(googleOverview.connections);
+  const microsoftConnection = latestConnectedConnection(
+    microsoftOverview.connections,
+  );
+  const googleConnected = Boolean(googleConnection);
+  const microsoftConnected = Boolean(microsoftConnection);
+  const anyConnected = googleConnected || microsoftConnected;
+  const currentProvider =
+    connectionTime(microsoftConnection) > connectionTime(googleConnection)
+      ? "microsoft"
+      : googleConnected
+        ? "google"
+        : microsoftConnected
+          ? "microsoft"
+          : null;
+  const currentProviderName =
+    currentProvider === "microsoft"
+      ? connectionName(microsoftConnection, "Outlook")
+      : currentProvider === "google"
+        ? connectionName(googleConnection, "Google Workspace")
+        : null;
+
+  return (
+    <div className="integration-provider-stack">
+      <section className="integration-choice-panel">
+        <div>
+          <p className="eyebrow">Email provider</p>
+          <h3>
+            {currentProviderName
+              ? `${currentProviderName} is connected`
+              : "Connect Gmail or Outlook"}
+          </h3>
+          <p>
+            Kyro only needs one outbound email provider. Connect Gmail or Outlook;
+            if both are connected during testing, Kyro uses the most recently
+            connected account until we add a default sender setting.
+          </p>
+        </div>
+        <span className="pill">
+          {anyConnected ? "Ready to send" : "Setup required"}
+        </span>
+      </section>
+
+      <ProviderDetails
+        description={
+          googleConnection
+            ? connectionName(googleConnection, "Google account")
+            : "Gmail outbound and Drive document access"
+        }
+        isCurrent={currentProvider === "google"}
+        label="Google Workspace"
+        provider="Google"
+        status={providerChoiceStatus({
+          anyConnected,
+          connected: googleConnected,
+          status: googleStatus,
+        })}
+      >
+        <GoogleIntegrationSettings overview={googleOverview} />
+      </ProviderDetails>
+
+      <ProviderDetails
+        description={
+          microsoftConnection
+            ? connectionName(microsoftConnection, "Outlook account")
+            : anyConnected
+              ? "Optional if you want to switch from Gmail to Outlook"
+              : "Outlook and Microsoft 365 email sending"
+        }
+        isCurrent={currentProvider === "microsoft"}
+        label="Microsoft Outlook"
+        provider="Microsoft"
+        status={providerChoiceStatus({
+          anyConnected,
+          connected: microsoftConnected,
+          status: microsoftStatus,
+        })}
+      >
+        <MicrosoftIntegrationSettings overview={microsoftOverview} />
+      </ProviderDetails>
+    </div>
+  );
+}
+
 function CommunicationSettingsDetail({
   communicationSettings,
 }: Readonly<{
@@ -452,7 +789,13 @@ function CommunicationSettingsDetail({
       className="settings-form"
       encType="multipart/form-data"
     >
-      <div className="settings-grid">
+      <input
+        name="defaultTone"
+        type="hidden"
+        value={communicationSettings.defaultTone}
+      />
+
+      <div className="settings-grid single">
         <label className="setting-card">
           <strong>Outbound permission</strong>
           <select
@@ -471,25 +814,9 @@ function CommunicationSettingsDetail({
             </option>
           </select>
           <span>
-            Email sends through connected Gmail. Other channels stay internal until
-            their providers are connected.
+            Email sends through the connected Gmail or Outlook account. Other
+            channels stay internal until their providers are connected.
           </span>
-        </label>
-
-        <label className="setting-card">
-          <strong>Default send style</strong>
-          <select
-            defaultValue={communicationSettings.defaultTone}
-            name="defaultTone"
-          >
-            <option value="friendly_direct">Friendly and direct</option>
-            <option value="professional_concise">
-              Professional and concise
-            </option>
-            <option value="warm_helpful">Warm and helpful</option>
-            <option value="short_trade">Short tradie style</option>
-          </select>
-          <span>This becomes the default style cue for outbound drafts.</span>
         </label>
       </div>
 
@@ -529,9 +856,9 @@ function CommunicationSettingsDetail({
             title="Default email signature"
           />
 
-          <fieldset className="settings-fieldset">
+          <fieldset className="settings-fieldset compact-checkbox-fieldset">
             <legend>Assistant email signature</legend>
-            <label className="channel-toggle signature-toggle">
+            <label className="compact-checkbox-row">
               <input
                 defaultChecked={communicationSettings.useSeparateAiSignature}
                 name="useSeparateAiSignature"
@@ -539,7 +866,7 @@ function CommunicationSettingsDetail({
               />
               <span>Use a different signature for untouched AI-sent emails</span>
             </label>
-            <label className="channel-toggle signature-toggle">
+            <label className="compact-checkbox-row">
               <input name="duplicateManualSignature" type="checkbox" />
               <span>Copy the default signature into the assistant signature when saving</span>
             </label>
@@ -562,7 +889,7 @@ function CommunicationSettingsDetail({
       </details>
 
       <div className="settings-footer">
-        <span>Gmail can send real email when Google is connected; SMS and phone are internal records.</span>
+        <span>Connected email providers can send real email; SMS and phone are internal records.</span>
         <button className="primary-button compact" type="submit">
           Save settings
         </button>
@@ -694,24 +1021,35 @@ export default async function SettingsPage({
     requireWorkspaceContext(),
   ]);
   const activeWindow = normalizeUsageWindow(query?.window);
-  const [communicationSettings, usageReport, googleOverview] = await Promise.all([
-    getCommunicationSettings(supabase, workspace.id),
-    getUsageReport(supabase, workspace.id, activeWindow),
-    getGoogleIntegrationOverview(supabase, workspace.id),
-  ]);
+  const [communicationSettings, usageReport, googleOverview, microsoftOverview] =
+    await Promise.all([
+      getCommunicationSettings(supabase, workspace.id),
+      getUsageReport(supabase, workspace.id, activeWindow),
+      getGoogleIntegrationOverview(supabase, workspace.id),
+      getMicrosoftIntegrationOverview(supabase, workspace.id),
+    ]);
   const selectedSection = normalizeSettingsSection(query?.section);
   const googleStatus = integrationStatusLabel(googleOverview);
+  const microsoftStatus = integrationStatusLabel(microsoftOverview);
   const gmailConnected = googleOverview.connections.some(
     (connection) => connection.status === "connected"
+  );
+  const outlookConnected = microsoftOverview.connections.some(
+    (connection) => connection.status === "connected"
+  );
+  const connectedEmailProviderCount =
+    Number(gmailConnected) + Number(outlookConnected);
+  const integrationsStatus = combinedIntegrationStatusLabel(
+    googleStatus,
+    microsoftStatus,
+    connectedEmailProviderCount,
   );
   const outboundStatus = communicationSettings.approvalRequired
     ? "Approval required"
     : "Direct send";
   const settingsItems: SettingsMenuItem[] = [
     {
-      detail: `${communicationSettings.allowedChannels.length} channels - ${formatLabel(
-        communicationSettings.defaultTone,
-      )}`,
+      detail: `${communicationSettings.allowedChannels.length} channels`,
       eyebrow: "Outbound",
       href: settingsSectionHref("communication", activeWindow),
       section: "communication",
@@ -719,12 +1057,12 @@ export default async function SettingsPage({
       title: "Communication settings",
     },
     {
-      detail: "Gmail outbound and Drive document access",
+      detail: "Gmail, Drive, Outlook and Microsoft 365",
       eyebrow: "Integrations",
-      href: settingsSectionHref("google", activeWindow),
-      section: "google",
-      status: googleStatus,
-      title: "Google Workspace",
+      href: settingsSectionHref("integrations", activeWindow),
+      section: "integrations",
+      status: integrationsStatus,
+      title: "Connected accounts",
     },
     {
       detail: `${usageReport.totals.events} ledger events - ${formatMoney(
@@ -759,7 +1097,11 @@ export default async function SettingsPage({
         communication={
           <SettingsDetailShell
             eyebrow="Outbound"
-            status={gmailConnected ? "Gmail active" : "Needs Google"}
+            status={
+              gmailConnected || outlookConnected
+                ? "Email active"
+                : "Needs email provider"
+            }
             title="Communication settings"
           >
             <CommunicationSettingsDetail
@@ -768,16 +1110,21 @@ export default async function SettingsPage({
           </SettingsDetailShell>
         }
         empty={<EmptySettingsDetail />}
-        google={
+        initialSection={selectedSection}
+        integrations={
           <SettingsDetailShell
             eyebrow="Integrations"
-            status={googleStatus}
-            title="Google Workspace"
+            status={integrationsStatus}
+            title="Connected accounts"
           >
-            <GoogleIntegrationSettings overview={googleOverview} />
+            <WorkspaceIntegrationsSettings
+              googleOverview={googleOverview}
+              googleStatus={googleStatus}
+              microsoftOverview={microsoftOverview}
+              microsoftStatus={microsoftStatus}
+            />
           </SettingsDetailShell>
         }
-        initialSection={selectedSection}
         items={settingsItems}
         usage={
           <SettingsDetailShell

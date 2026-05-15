@@ -39,6 +39,12 @@ This is the parking lot for useful ideas that should not pull us away from the c
 - Add workspace/user customization for outbound customer prompts, including tone, wording style, message length, sign-off, and trade-specific phrasing.
 - Let users store reusable reply instructions that the AI must apply when drafting email/SMS replies.
 
+## Voice and Vocabulary
+
+- Add a workspace vocabulary/pronunciation list for voice transcription and assistant prompts, including the product name, business name, staff names, customer names, supplier names, suburbs, streets, product brands, trade terms, and common acronyms.
+- Let users add and edit vocabulary items in Settings, with optional pronunciation hints and notes about whether the term is a person, place, supplier, product, or internal nickname.
+- Feed the relevant vocabulary into speech-to-text prompts and assistant turns so voice input handles names and local terminology reliably.
+
 ## Assistant Memory and Tools
 
 - Add automatic memory suggestions for user approval after the explicit `remember...` flow proves reliable.
@@ -49,5 +55,5 @@ This is the parking lot for useful ideas that should not pull us away from the c
 ## Future Channels
 
 - Add Gmail inbound sync after outbound email has been tested against real customer-style conversations.
-- Add Outlook OAuth after Gmail proves the provider abstraction.
+- Add Outlook inbound sync after outbound email has been tested against real customer-style conversations.
 - Add SMS, social DMs, and web chat only after email send/receive behavior and permission boundaries feel solid.

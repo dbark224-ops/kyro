@@ -1021,9 +1021,24 @@ export default async function ConversationReviewPage({
                 />
               </label>
               <div className="outbound-policy-strip">
-                <span>User-written replies send immediately</span>
-                <span>{formatLabel(communicationSettings.defaultTone)}</span>
-                {review.quoteDrafts.length > 0 ? <span>Can attach quote draft</span> : null}
+                <div className="email-signature-control">
+                  <label className="signature-include-control">
+                    <input
+                      defaultChecked
+                      name="includeSignature"
+                      type="checkbox"
+                    />
+                    <span>Signature</span>
+                  </label>
+                  <select
+                    aria-label="Email signature"
+                    defaultValue="manual"
+                    name="signatureVariant"
+                  >
+                    <option value="manual">User signature</option>
+                    <option value="ai_generated">Assistant signature</option>
+                  </select>
+                </div>
               </div>
               <button className="primary-button compact" type="submit">
                 Send outbound

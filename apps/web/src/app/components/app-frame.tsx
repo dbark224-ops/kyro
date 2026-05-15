@@ -1,5 +1,6 @@
 import { BrandMark } from "./brand-mark";
 import { RoutePreloader } from "./route-preloader";
+import { TextScaleControl } from "./text-scale-control";
 import { signOutAction } from "../auth/actions";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
 import Link from "next/link";
@@ -62,10 +63,6 @@ export function AppFrame({
         <div className="mobile-drawer-panel">
           <div className="brand-lockup">
             <BrandMark />
-            <div>
-              <p className="brand-name">Kyro</p>
-              <p className="brand-subtitle">Ops Console</p>
-            </div>
           </div>
 
           <nav className="mobile-drawer-list" aria-label="Mobile navigation">
@@ -97,10 +94,6 @@ export function AppFrame({
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="brand-lockup">
           <BrandMark />
-          <div>
-            <p className="brand-name">Kyro</p>
-            <p className="brand-subtitle">Ops Console</p>
-          </div>
         </div>
 
         <nav className="nav-list">
@@ -136,9 +129,12 @@ export function AppFrame({
       </aside>
 
       <section className="workspace">
-        <Suspense fallback={null}>
-          <LlmDevStatusPill />
-        </Suspense>
+        <div className="dev-top-controls">
+          <TextScaleControl />
+          <Suspense fallback={null}>
+            <LlmDevStatusPill />
+          </Suspense>
+        </div>
         {children}
       </section>
 

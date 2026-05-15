@@ -54,6 +54,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
     {
       userPrompt: input.prompt,
       threadSummary: input.threadSummary ?? null,
+      inputSource: input.inputSource ?? "typed",
       recentMessages: input.recentMessages ?? [],
       relevantMemories: input.memories ?? [],
       commandResult: input.command,
@@ -69,6 +70,8 @@ function buildAssistantPrompt(input: AssistantModelInput) {
         "Do not print raw URLs, UUIDs, hrefs, or markdown links; the UI renders commandResult.links as cards.",
         "For inquiry_lookup with an exact match, explain the reply/status in plain language and point to the card below.",
         "For inquiry_lookup with partial or multiple matches, ask the user to confirm which listed inquiry they mean.",
+        "If inputSource is voice, treat names like Cara, Kara, Cairo, Kiro, or Kyra near the start of the prompt as likely speech-to-text variants of Kyro unless the user is clearly talking about a real person.",
+        "Your name is Kyro. If the user appears to address you with a speech-to-text variant of Kyro, respond as Kyro rather than adopting that mistaken name.",
         "If a mutation was performed, state it plainly.",
       ],
     },
@@ -108,7 +111,7 @@ async function runOllamaAssistant(
         messages: [
           {
             content:
-              "You are Kyro, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done.",
+              "You are Kyro, pronounced like Cairo, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done. If a voice-transcribed message addresses you as Cara, Kara, Cairo, Kiro, or Kyra, treat it as Kyro unless the user is clearly referring to another person.",
             role: "system",
           },
           {

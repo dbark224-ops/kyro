@@ -162,12 +162,14 @@ export async function getAssistantTurnContext({
 
 export async function appendUserAssistantMessage({
   content,
+  inputSource = "typed",
   supabase,
   threadId,
   user,
   workspaceId,
 }: {
   content: string;
+  inputSource?: string;
   supabase: SupabaseClient;
   threadId: string;
   user: User;
@@ -178,7 +180,11 @@ export async function appendUserAssistantMessage({
     .insert({
       content,
       metadata: {
-        source: "assistant.page",
+        inputSource,
+        source:
+          inputSource === "voice"
+            ? "assistant.voice_input"
+            : "assistant.page",
       },
       role: "user",
       thread_id: threadId,
@@ -466,7 +472,11 @@ async function refreshAssistantConversationLinks(
     return messages;
   }
 
-  const conversations = await getConversationList(supabase, workspaceId);
+  const conversations = await getConversationList(supabase, workspaceId, {
+    ids: [...conversationHrefs]
+      .map((href) => conversationIdFromHref(href))
+      .filter((id): id is string => Boolean(id)),
+  });
   const refreshedLinksByHref = new Map<string, AssistantLink>();
 
   for (const conversation of conversations) {

@@ -1,35 +1,43 @@
 import {
-  GOOGLE_PROVIDER,
-  GOOGLE_SERVICE,
-  GOOGLE_WORKSPACE_SCOPES,
-  getGoogleOAuthConfig,
-  hashOAuthState
-} from "../../../../lib/integrations/google";
-import { encryptIntegrationTokenSet, hasIntegrationTokenEncryptionKey } from "../../../../lib/integrations/token-vault";
+  MICROSOFT_GRAPH_SCOPES,
+  MICROSOFT_PROVIDER,
+  MICROSOFT_SERVICE,
+  getMicrosoftOAuthConfig,
+  hashMicrosoftOAuthState,
+} from "../../../../lib/integrations/microsoft";
+import {
+  encryptIntegrationTokenSet,
+  hasIntegrationTokenEncryptionKey,
+} from "../../../../lib/integrations/token-vault";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-type GoogleTokenResponse = {
+type MicrosoftTokenResponse = {
   access_token?: string;
+  error?: string;
+  error_description?: string;
   expires_in?: number;
   id_token?: string;
   refresh_token?: string;
   scope?: string;
   token_type?: string;
-  error?: string;
-  error_description?: string;
 };
 
-type GoogleUserInfo = {
-  email?: string;
-  name?: string;
-  sub?: string;
+type MicrosoftProfile = {
+  displayName?: string;
+  id?: string;
+  mail?: string | null;
+  userPrincipalName?: string | null;
 };
 
-function settingsRedirect(request: Request, key: "engine_error" | "engine_message", message: string) {
+function settingsRedirect(
+  request: Request,
+  key: "engine_error" | "engine_message",
+  message: string,
+) {
   const url = new URL("/settings", request.url);
   url.searchParams.set("section", "integrations");
   url.searchParams.set(key, message);
@@ -41,25 +49,25 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function scopesFromToken(token: GoogleTokenResponse) {
+function scopesFromToken(token: MicrosoftTokenResponse) {
   const scopes = textValue(token.scope)?.split(/\s+/).filter(Boolean);
 
-  return scopes?.length ? scopes : [...GOOGLE_WORKSPACE_SCOPES];
+  return scopes?.length ? scopes : [...MICROSOFT_GRAPH_SCOPES];
 }
 
-async function exchangeGoogleCode({
+async function exchangeMicrosoftCode({
   code,
   codeVerifier,
-  redirectUri
+  redirectUri,
 }: {
   code: string;
   codeVerifier: string | null;
   redirectUri: string;
 }) {
-  const config = getGoogleOAuthConfig();
+  const config = getMicrosoftOAuthConfig();
 
   if (!config) {
-    throw new Error("Google OAuth is not configured.");
+    throw new Error("Microsoft OAuth is not configured.");
   }
 
   const body = new URLSearchParams({
@@ -67,69 +75,74 @@ async function exchangeGoogleCode({
     client_secret: config.clientSecret,
     code,
     grant_type: "authorization_code",
-    redirect_uri: redirectUri
+    redirect_uri: redirectUri,
   });
 
   if (codeVerifier) {
     body.set("code_verifier", codeVerifier);
   }
 
-  const response = await fetch("https://oauth2.googleapis.com/token", {
+  const response = await fetch(config.tokenEndpoint, {
     body,
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    method: "POST"
+    method: "POST",
   });
-  const token = (await response.json()) as GoogleTokenResponse;
+  const token = (await response.json()) as MicrosoftTokenResponse;
 
   if (!response.ok || token.error || !token.access_token) {
-    throw new Error(token.error_description ?? token.error ?? "Google token exchange failed.");
+    throw new Error(
+      token.error_description ?? token.error ?? "Microsoft token exchange failed.",
+    );
   }
 
   return token;
 }
 
-async function getGoogleUserInfo(accessToken: string): Promise<GoogleUserInfo> {
-  const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
+async function getMicrosoftProfile(accessToken: string): Promise<MicrosoftProfile> {
+  const response = await fetch(
+    "https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
 
   if (!response.ok) {
     return {};
   }
 
-  return (await response.json()) as GoogleUserInfo;
+  return (await response.json()) as MicrosoftProfile;
 }
 
-async function upsertGmailChannel({
+async function upsertOutlookChannel({
   accountEmail,
   connectionId,
   supabase,
-  workspaceId
+  workspaceId,
 }: {
   accountEmail: string | null;
   connectionId: string;
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>;
   workspaceId: string;
 }) {
-  const externalId = `google:gmail:${accountEmail ?? connectionId}`;
+  const externalId = `microsoft:outlook_mail:${accountEmail ?? connectionId}`;
   const channelPayload = {
     workspace_id: workspaceId,
     integration_id: connectionId,
     type: "email",
-    display_name: accountEmail ? `Gmail - ${accountEmail}` : "Gmail",
+    display_name: accountEmail ? `Outlook - ${accountEmail}` : "Outlook",
     external_id: externalId,
     status: "active",
     settings: {
-      provider: GOOGLE_PROVIDER,
-      service: "gmail",
+      provider: MICROSOFT_PROVIDER,
+      service: MICROSOFT_SERVICE,
       connectionId,
       externalSendEnabled: true,
-      dryRunUntilEnabled: false
-    }
+      dryRunUntilEnabled: false,
+    },
   };
   const { data: existingChannel, error: existingError } = await supabase
     .from("channels")
@@ -139,7 +152,7 @@ async function upsertGmailChannel({
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to inspect Gmail channel: ${existingError.message}`);
+    throw new Error(`Unable to inspect Outlook channel: ${existingError.message}`);
   }
 
   if (existingChannel) {
@@ -150,7 +163,7 @@ async function upsertGmailChannel({
       .eq("id", existingChannel.id);
 
     if (error) {
-      throw new Error(`Unable to update Gmail channel: ${error.message}`);
+      throw new Error(`Unable to update Outlook channel: ${error.message}`);
     }
 
     return String(existingChannel.id);
@@ -163,7 +176,7 @@ async function upsertGmailChannel({
     .single();
 
   if (error || !channel) {
-    throw new Error(`Unable to create Gmail channel: ${error?.message ?? "unknown error"}`);
+    throw new Error(`Unable to create Outlook channel: ${error?.message ?? "unknown error"}`);
   }
 
   return String(channel.id);
@@ -171,34 +184,38 @@ async function upsertGmailChannel({
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
-  const googleError = requestUrl.searchParams.get("error");
+  const microsoftError = requestUrl.searchParams.get("error");
   const code = requestUrl.searchParams.get("code");
   const state = requestUrl.searchParams.get("state");
-  const config = getGoogleOAuthConfig();
+  const config = getMicrosoftOAuthConfig();
 
-  if (googleError) {
-    return settingsRedirect(request, "engine_error", `Google OAuth was cancelled: ${googleError}`);
+  if (microsoftError) {
+    return settingsRedirect(
+      request,
+      "engine_error",
+      `Microsoft OAuth was cancelled: ${microsoftError}`,
+    );
   }
 
   if (!code || !state) {
-    return settingsRedirect(request, "engine_error", "Google OAuth returned without a code.");
+    return settingsRedirect(request, "engine_error", "Microsoft OAuth returned without a code.");
   }
 
   if (!config) {
-    return settingsRedirect(request, "engine_error", "Google OAuth is not configured.");
+    return settingsRedirect(request, "engine_error", "Microsoft OAuth is not configured.");
   }
 
   if (!hasIntegrationTokenEncryptionKey()) {
     return settingsRedirect(
       request,
       "engine_error",
-      "Set INTEGRATION_TOKEN_ENCRYPTION_KEY before connecting Google."
+      "Set INTEGRATION_TOKEN_ENCRYPTION_KEY before connecting Microsoft.",
     );
   }
 
   const supabase = await createServerSupabaseClient();
   const {
-    data: { user }
+    data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
@@ -208,36 +225,36 @@ export async function GET(request: Request) {
   const { data: oauthState, error: stateError } = await supabase
     .from("integration_oauth_states")
     .select("id,workspace_id,user_id,code_verifier,expires_at,consumed_at")
-    .eq("provider", GOOGLE_PROVIDER)
-    .eq("state_hash", hashOAuthState(state))
+    .eq("provider", MICROSOFT_PROVIDER)
+    .eq("state_hash", hashMicrosoftOAuthState(state))
     .maybeSingle();
 
   if (stateError || !oauthState) {
     return settingsRedirect(
       request,
       "engine_error",
-      stateError?.message ?? "Google OAuth state was not found."
+      stateError?.message ?? "Microsoft OAuth state was not found.",
     );
   }
 
   if (oauthState.user_id !== user.id) {
-    return settingsRedirect(request, "engine_error", "Google OAuth user did not match this session.");
+    return settingsRedirect(request, "engine_error", "Microsoft OAuth user did not match this session.");
   }
 
   if (oauthState.consumed_at || new Date(String(oauthState.expires_at)).getTime() < Date.now()) {
-    return settingsRedirect(request, "engine_error", "Google OAuth state has expired.");
+    return settingsRedirect(request, "engine_error", "Microsoft OAuth state has expired.");
   }
 
   try {
-    const token = await exchangeGoogleCode({
+    const token = await exchangeMicrosoftCode({
       code,
       codeVerifier: textValue(oauthState.code_verifier),
-      redirectUri: config.redirectUri
+      redirectUri: config.redirectUri,
     });
-    const profile = await getGoogleUserInfo(token.access_token!);
-    const accountEmail = textValue(profile.email);
-    const externalAccountId = textValue(profile.sub);
-    const connectionKey = `google:${externalAccountId ?? accountEmail ?? user.id}`;
+    const profile = await getMicrosoftProfile(token.access_token!);
+    const accountEmail = textValue(profile.mail) ?? textValue(profile.userPrincipalName);
+    const externalAccountId = textValue(profile.id);
+    const connectionKey = `microsoft:${externalAccountId ?? accountEmail ?? user.id}`;
     const now = new Date();
     const scopes = scopesFromToken(token);
     const tokenSet = encryptIntegrationTokenSet({
@@ -247,7 +264,7 @@ export async function GET(request: Request) {
       obtainedAt: now.toISOString(),
       refreshToken: token.refresh_token ?? null,
       scopes,
-      tokenType: token.token_type ?? null
+      tokenType: token.token_type ?? null,
     });
     const accessTokenExpiresAt =
       typeof token.expires_in === "number"
@@ -259,11 +276,11 @@ export async function GET(request: Request) {
         {
           workspace_id: oauthState.workspace_id,
           connected_by_user_id: user.id,
-          provider: GOOGLE_PROVIDER,
-          service: GOOGLE_SERVICE,
+          provider: MICROSOFT_PROVIDER,
+          service: MICROSOFT_SERVICE,
           connection_key: connectionKey,
           account_email: accountEmail,
-          account_name: textValue(profile.name),
+          account_name: textValue(profile.displayName),
           external_account_id: externalAccountId,
           status: "connected",
           scopes,
@@ -272,25 +289,26 @@ export async function GET(request: Request) {
           last_connected_at: now.toISOString(),
           last_error: null,
           metadata: {
-            source: "google_oauth_callback"
-          }
+            source: "microsoft_oauth_callback",
+            tenantId: config.tenantId,
+          },
         },
         {
-          onConflict: "workspace_id,provider,connection_key"
-        }
+          onConflict: "workspace_id,provider,connection_key",
+        },
       )
       .select("id")
       .single();
 
     if (connectionError || !connection) {
-      throw new Error(connectionError?.message ?? "Unable to save Google connection.");
+      throw new Error(connectionError?.message ?? "Unable to save Microsoft connection.");
     }
 
-    await upsertGmailChannel({
+    await upsertOutlookChannel({
       accountEmail,
       connectionId: String(connection.id),
       supabase,
-      workspaceId: String(oauthState.workspace_id)
+      workspaceId: String(oauthState.workspace_id),
     });
 
     await supabase
@@ -302,24 +320,24 @@ export async function GET(request: Request) {
       workspaceId: String(oauthState.workspace_id),
       actorType: "user",
       actorId: user.id,
-      action: "integration.google.connected",
+      action: "integration.microsoft.connected",
       entityType: "integration_connection",
       entityId: String(connection.id),
       after: {
         accountEmail,
-        provider: GOOGLE_PROVIDER,
+        provider: MICROSOFT_PROVIDER,
         scopes,
-        service: GOOGLE_SERVICE,
-        status: "connected"
-      }
+        service: MICROSOFT_SERVICE,
+        status: "connected",
+      },
     });
 
-    return settingsRedirect(request, "engine_message", "Google Workspace connected.");
+    return settingsRedirect(request, "engine_message", "Microsoft Outlook connected.");
   } catch (error) {
     return settingsRedirect(
       request,
       "engine_error",
-      error instanceof Error ? error.message : "Google OAuth callback failed."
+      error instanceof Error ? error.message : "Microsoft OAuth callback failed.",
     );
   }
 }

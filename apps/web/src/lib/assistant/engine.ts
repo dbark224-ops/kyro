@@ -19,6 +19,7 @@ type WorkspaceInput = {
 };
 
 type RunAssistantTurnInput = {
+  inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
   prompt: string;
   recentMessages?: Array<{
@@ -122,6 +123,7 @@ function toUsageEvent(input: UsageEventCreate) {
 }
 
 export async function runAssistantTurn({
+  inputSource = "typed",
   memories = [],
   prompt,
   recentMessages = [],
@@ -155,6 +157,7 @@ export async function runAssistantTurn({
       estimated_cost: "0",
       input_refs: {
         commandIntent: command.intent,
+        inputSource,
         mutation: command.mutation ?? null,
         source: "assistant.page",
         threadId,
@@ -181,6 +184,7 @@ export async function runAssistantTurn({
   const aiRunId = String(aiRun.id);
   const modelOutput = await runAssistantModel(route, {
     command,
+    inputSource,
     memories,
     prompt: trimmedPrompt,
     recentMessages,
@@ -211,6 +215,7 @@ export async function runAssistantTurn({
         memoryCount: memories.length,
         providerMode: assistantProviderMode(),
         recentMessageCount: recentMessages.length,
+        inputSource,
         threadId,
       },
       decision_reason: route.reason,

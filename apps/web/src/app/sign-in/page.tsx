@@ -23,10 +23,6 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         <section className="auth-panel">
           <div className="brand-lockup">
             <BrandMark />
-            <div>
-              <p className="brand-name">Kyro</p>
-              <p className="brand-subtitle">Setup required</p>
-            </div>
           </div>
           <h1>Supabase env vars are missing.</h1>
           <p className="form-copy">Add the values from `.env.example`, then restart the dev server.</p>
@@ -52,10 +48,6 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
       <section className="auth-panel wide">
         <div className="brand-lockup">
           <BrandMark />
-          <div>
-            <p className="brand-name">Kyro</p>
-            <p className="brand-subtitle">Account access</p>
-          </div>
         </div>
 
         <div className="auth-copy">

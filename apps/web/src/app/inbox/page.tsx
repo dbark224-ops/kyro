@@ -160,6 +160,7 @@ function conversationSearchText(
     conversation.leadServiceType,
     conversation.latestSubject,
     conversation.latestBody,
+    conversation.originalInquiryBody,
     conversation.nextActionLabel,
     conversation.status,
     conversation.workflowBucket,
@@ -581,8 +582,24 @@ function InboxManualReplyComposer({
           />
         </label>
         <div className="outbound-policy-strip">
-          <span>Email sends through Gmail; other channels are internal records</span>
-          <span>User-written replies send immediately</span>
+          <div className="email-signature-control">
+            <label className="signature-include-control">
+              <input
+                defaultChecked
+                name="includeSignature"
+                type="checkbox"
+              />
+              <span>Signature</span>
+            </label>
+            <select
+              aria-label="Email signature"
+              defaultValue="manual"
+              name="signatureVariant"
+            >
+              <option value="manual">User signature</option>
+              <option value="ai_generated">Assistant signature</option>
+            </select>
+          </div>
         </div>
         <button className="primary-button compact" type="submit">
           Send reply
@@ -988,26 +1005,19 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                   conversation.leadServiceType ??
                   conversation.leadTitle ??
                   "Unclassified inquiry";
-                const missingInfo =
-                  conversation.inquiryFacts?.missingInfo ?? [];
                 const isSelected =
                   selectedConversationReview?.conversation.id ===
                   conversation.id;
-                const leadNextStep =
-                  conversation.workflowBucket === "awaiting_customer"
-                    ? null
-                    : conversation.leadNextStep;
-                const detailParts = [
-                  conversation.contactName ?? "Unknown contact",
-                  conversation.leadTitle,
-                  conversation.inquiryFacts?.address
-                    ? `Address: ${conversation.inquiryFacts.address}`
-                    : null,
-                  missingInfo.length > 0
-                    ? `Missing: ${missingInfo.slice(0, 3).join(", ")}`
-                    : null,
-                  leadNextStep,
-                ].filter(Boolean);
+                const messagePreview =
+                  conversation.originalInquiryBody ??
+                  conversation.latestBody ??
+                  "No message body recorded.";
+                const rowMeta =
+                  conversation.pendingApprovalCount > 0
+                    ? `${conversation.pendingApprovalCount} approvals`
+                    : conversation.quoteDraftCount > 0
+                      ? `${conversation.quoteDraftCount} quote drafts`
+                      : "";
 
                 return (
                   <Link
@@ -1034,17 +1044,17 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       <div className="conversation-row-title">
                         <strong>{jobType}</strong>
                       </div>
-                      <span>{detailParts.join(" - ")}</span>
+                      <span className="conversation-message-preview">
+                        {messagePreview}
+                      </span>
                     </div>
                     <div className="data-meta">
-                      {conversation.pendingApprovalCount > 0 ? (
-                        <span>
-                          {conversation.pendingApprovalCount} approvals
-                        </span>
-                      ) : null}
-                      {conversation.quoteDraftCount > 0 ? (
-                        <span>{conversation.quoteDraftCount} quote drafts</span>
-                      ) : null}
+                      <span
+                        aria-hidden={rowMeta ? undefined : "true"}
+                        className="conversation-row-extra"
+                      >
+                        {rowMeta}
+                      </span>
                       <time>{formatDate(conversation.originalInquiryAt)}</time>
                       <span
                         className={

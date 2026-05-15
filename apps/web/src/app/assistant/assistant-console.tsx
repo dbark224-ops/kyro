@@ -3,6 +3,7 @@
 import {
   useActionState,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -31,6 +32,16 @@ const QUICK_PROMPTS = [
   "Create a bathroom quote draft",
   "Summarise my busiest customer",
 ];
+const MAX_ATTACHMENT_TEXT_BYTES = 48 * 1024;
+type VoiceCompletionMode = "draft" | "send";
+
+type AssistantAttachment = {
+  id: string;
+  name: string;
+  previewText: string | null;
+  size: number;
+  type: string;
+};
 
 type PreviewState =
   | {
@@ -63,8 +74,24 @@ export function AssistantConsole({
   );
   const [, startSubmitTransition] = useTransition();
   const chatRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const previousLastMessageIdRef = useRef(lastMessageId(state.messages));
+  const previewCacheRef = useRef<Map<string, AssistantResourcePreviewResult>>(new Map());
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const voiceCompletionModeRef = useRef<VoiceCompletionMode>("draft");
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserAnimationRef = useRef<number | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<AssistantAttachment[]>([]);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
+  const [voiceLevel, setVoiceLevel] = useState(0);
   const [optimisticMessage, setOptimisticMessage] =
     useState<AssistantThreadMessage | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>({
@@ -72,14 +99,22 @@ export function AssistantConsole({
   });
   const [previewActionId, setPreviewActionId] = useState<string | null>(null);
   const [linkOverrides, setLinkOverrides] = useState<Record<string, AssistantLink>>({});
-  const visibleOptimisticMessage =
-    optimisticMessage && !isOptimisticMessageSaved(state.messages, optimisticMessage)
-      ? optimisticMessage
-      : null;
-  const visibleMessages = visibleOptimisticMessage
-    ? [...state.messages, visibleOptimisticMessage]
-    : state.messages;
+  const visibleOptimisticMessage = useMemo(
+    () =>
+      optimisticMessage && !isOptimisticMessageSaved(state.messages, optimisticMessage)
+        ? optimisticMessage
+        : null,
+    [optimisticMessage, state.messages],
+  );
+  const visibleMessages = useMemo(
+    () =>
+      visibleOptimisticMessage
+        ? [...state.messages, visibleOptimisticMessage]
+        : state.messages,
+    [state.messages, visibleOptimisticMessage],
+  );
   const isAssistantGenerating = pending || Boolean(visibleOptimisticMessage);
+  const isVoiceBusy = isListening || isTranscribing;
 
   const appendQuickPrompt = (prompt: string) => {
     setDraft((currentDraft) => {
@@ -93,20 +128,22 @@ export function AssistantConsole({
     });
   };
 
-  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const prompt = draft.trim();
+  const submitAssistantPrompt = (
+    rawPrompt: string,
+    options: { inputSource?: "typed" | "voice" } = {},
+  ) => {
+    const prompt = buildPromptWithAttachments(rawPrompt, attachments);
 
     if (!prompt || isAssistantGenerating) {
       return;
     }
 
-    const formData = new FormData(event.currentTarget);
+    const formData = new FormData();
     const createdAt = new Date().toISOString();
 
     formData.set("prompt", prompt);
     formData.set("threadId", state.threadId ?? "");
+    formData.set("inputSource", options.inputSource ?? "typed");
     setOptimisticMessage({
       content: prompt,
       createdAt,
@@ -114,9 +151,252 @@ export function AssistantConsole({
       role: "user",
     });
     setDraft("");
+    setAttachments([]);
+    setVoiceStatus(null);
     startSubmitTransition(() => {
       formAction(formData);
     });
+  };
+
+  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (isListening) {
+      stopVoiceRecording("send");
+      return;
+    }
+
+    if (isTranscribing) {
+      return;
+    }
+
+    submitAssistantPrompt(draft);
+  };
+
+  const chooseAttachments = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleAttachmentChange = async () => {
+    const files = Array.from(fileInputRef.current?.files ?? []);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const nextAttachments = await Promise.all(files.map(fileToAssistantAttachment));
+
+    setAttachments((currentAttachments) => [
+      ...currentAttachments,
+      ...nextAttachments,
+    ]);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((currentAttachments) =>
+      currentAttachments.filter((attachment) => attachment.id !== id),
+    );
+  };
+
+  const stopRecordingTracks = () => {
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+  };
+
+  const stopVoiceAnalysis = () => {
+    if (analyserAnimationRef.current !== null) {
+      window.cancelAnimationFrame(analyserAnimationRef.current);
+      analyserAnimationRef.current = null;
+    }
+
+    void audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+    setVoiceLevel(0);
+  };
+
+  const startVoiceAnalysis = (stream: MediaStream) => {
+    const AudioContextConstructor =
+      window.AudioContext ??
+      (window as Window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+
+    if (!AudioContextConstructor) {
+      return;
+    }
+
+    try {
+      const audioContext = new AudioContextConstructor();
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
+      const data = new Uint8Array(analyser.fftSize);
+
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.78;
+      source.connect(analyser);
+      audioContextRef.current = audioContext;
+
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+
+        for (const value of data) {
+          const centered = (value - 128) / 128;
+          sum += centered * centered;
+        }
+
+        const rms = Math.sqrt(sum / data.length);
+        setVoiceLevel(Math.min(1, rms * 5));
+        analyserAnimationRef.current = window.requestAnimationFrame(tick);
+      };
+
+      tick();
+    } catch {
+      stopVoiceAnalysis();
+    }
+  };
+
+  const stopVoiceRecording = (completionMode: VoiceCompletionMode) => {
+    const recorder = mediaRecorderRef.current;
+
+    if (recorder && recorder.state !== "inactive") {
+      voiceCompletionModeRef.current = completionMode;
+      setVoiceStatus(
+        completionMode === "send"
+          ? "Transcribing and sending..."
+          : "Transcribing voice note...",
+      );
+      recorder.stop();
+    }
+  };
+
+  const toggleVoiceInput = async () => {
+    if (isListening) {
+      stopVoiceRecording("draft");
+      return;
+    }
+
+    if (isTranscribing) {
+      return;
+    }
+
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      setVoiceStatus("Voice recording is not available in this browser.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = preferredAudioMimeType();
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+
+      recordingStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      voiceCompletionModeRef.current = "draft";
+      audioChunksRef.current = [];
+      recordingStartedAtRef.current = Date.now();
+      setRecordingElapsedMs(0);
+      startVoiceAnalysis(stream);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        mediaRecorderRef.current = null;
+        recordingStartedAtRef.current = null;
+        audioChunksRef.current = [];
+        stopRecordingTracks();
+        stopVoiceAnalysis();
+        setIsListening(false);
+        setIsTranscribing(false);
+        setRecordingElapsedMs(0);
+        setVoiceStatus("Voice recording failed. Try again.");
+      };
+
+      recorder.onstop = async () => {
+        const completionMode = voiceCompletionModeRef.current;
+        const chunks = audioChunksRef.current;
+        const durationMs = recordingStartedAtRef.current
+          ? Date.now() - recordingStartedAtRef.current
+          : null;
+        const audioType = recorder.mimeType || mimeType || "audio/webm";
+
+        mediaRecorderRef.current = null;
+        recordingStartedAtRef.current = null;
+        audioChunksRef.current = [];
+        stopRecordingTracks();
+        stopVoiceAnalysis();
+        setIsListening(false);
+        setRecordingElapsedMs(0);
+        voiceCompletionModeRef.current = "draft";
+
+        if (chunks.length === 0) {
+          setVoiceStatus("No speech was captured.");
+          return;
+        }
+
+        const audioBlob = new Blob(chunks, { type: audioType });
+
+        setIsTranscribing(true);
+        setVoiceStatus("Transcribing voice note...");
+
+        try {
+          const transcript = await transcribeVoiceBlob(audioBlob, durationMs);
+
+          setIsTranscribing(false);
+          setVoiceStatus(null);
+
+          if (completionMode === "send") {
+            submitAssistantPrompt(transcript, { inputSource: "voice" });
+            return;
+          }
+
+          setDraft((currentDraft) =>
+            mergeTranscriptIntoDraft(currentDraft, transcript),
+          );
+          window.requestAnimationFrame(() => {
+            promptInputRef.current?.focus();
+          });
+        } catch (error) {
+          setIsTranscribing(false);
+          setVoiceStatus(
+            error instanceof Error
+              ? error.message
+              : "Unable to transcribe voice note.",
+          );
+        }
+      };
+
+      recorder.start();
+      setIsListening(true);
+      setVoiceStatus("Recording...");
+    } catch (error) {
+      mediaRecorderRef.current = null;
+      recordingStartedAtRef.current = null;
+      audioChunksRef.current = [];
+      stopRecordingTracks();
+      stopVoiceAnalysis();
+      setIsListening(false);
+      setRecordingElapsedMs(0);
+      setVoiceStatus(
+        error instanceof Error && error.name === "NotAllowedError"
+          ? "Microphone permission was blocked."
+          : "Unable to start voice recording.",
+      );
+    }
   };
 
   const applyRefreshedLink = (result: AssistantResourcePreviewResult) => {
@@ -140,13 +420,23 @@ export function AssistantConsole({
       return;
     }
 
-    setPreviewState({
-      href: link.href,
-      status: "loading",
-      title: link.label,
-    });
+    const cachedResult = previewCacheRef.current.get(link.href);
+
+    if (cachedResult?.preview) {
+      setPreviewState({
+        preview: cachedResult.preview,
+        status: "ready",
+      });
+    } else {
+      setPreviewState({
+        href: link.href,
+        status: "loading",
+        title: link.label,
+      });
+    }
 
     const result = await getAssistantResourcePreviewAction(link.href);
+    previewCacheRef.current.set(link.href, result);
     applyRefreshedLink(result);
 
     if (result.preview) {
@@ -182,6 +472,7 @@ export function AssistantConsole({
     applyRefreshedLink(result);
 
     if (result.preview) {
+      previewCacheRef.current.set(href, result);
       setPreviewState({
         preview: result.preview,
         status: "ready",
@@ -221,6 +512,7 @@ export function AssistantConsole({
     applyRefreshedLink(result);
 
     if (result.preview) {
+      previewCacheRef.current.set(href, result);
       setPreviewState({
         preview: result.preview,
         status: "ready",
@@ -303,6 +595,51 @@ export function AssistantConsole({
     previousLastMessageIdRef.current = currentLastMessageId;
   }, [state.error, state.messages]);
 
+  useEffect(() => {
+    return () => {
+      const recorder = mediaRecorderRef.current;
+
+      if (recorder && recorder.state !== "inactive") {
+        recorder.onstop = null;
+        recorder.stop();
+      }
+
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recordingStreamRef.current = null;
+      stopVoiceAnalysis();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isListening) {
+      return undefined;
+    }
+
+    const updateElapsed = () => {
+      setRecordingElapsedMs(
+        recordingStartedAtRef.current
+          ? Date.now() - recordingStartedAtRef.current
+          : 0,
+      );
+    };
+    const interval = window.setInterval(updateElapsed, 250);
+
+    updateElapsed();
+
+    return () => window.clearInterval(interval);
+  }, [isListening]);
+
+  useEffect(() => {
+    const promptInput = promptInputRef.current;
+
+    if (!promptInput) {
+      return;
+    }
+
+    promptInput.style.height = "auto";
+    promptInput.style.height = `${Math.min(promptInput.scrollHeight, 150)}px`;
+  }, [draft]);
+
   const isPreviewOpen = previewState.status !== "closed";
 
   return (
@@ -367,21 +704,111 @@ export function AssistantConsole({
         <form className="assistant-input-form" onSubmit={submitMessage}>
           <input name="threadId" type="hidden" value={state.threadId ?? ""} />
           <input
-            autoComplete="off"
-            disabled={isAssistantGenerating}
-            name="prompt"
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask Kyro about leads, quotes, customers, or next actions..."
-            type="text"
-            value={draft}
+            ref={fileInputRef}
+            className="assistant-file-input"
+            multiple
+            onChange={handleAttachmentChange}
+            type="file"
           />
-          <button
-            className="primary-button"
-            disabled={isAssistantGenerating || !draft.trim()}
-            type="submit"
-          >
-            {isAssistantGenerating ? "Sending" : "Send"}
-          </button>
+          <div className="assistant-input-row">
+            <button
+              aria-label="Attach files"
+              className="assistant-tool-button"
+              disabled={isAssistantGenerating || isTranscribing}
+              onClick={chooseAttachments}
+              title="Attach files"
+              type="button"
+            >
+              <PaperclipIcon />
+            </button>
+            <textarea
+              ref={promptInputRef}
+              className="assistant-prompt-input"
+              autoComplete="off"
+              disabled={isAssistantGenerating || isVoiceBusy}
+              name="prompt"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+              placeholder="Ask Kyro about leads, quotes, customers, or next actions..."
+              rows={1}
+              value={draft}
+            />
+            <button
+              aria-label={
+                isListening
+                  ? "Stop recording and edit transcript"
+                  : isTranscribing
+                    ? "Transcribing voice note"
+                    : "Start voice input"
+              }
+              aria-pressed={isListening}
+              className={
+                isListening
+                  ? "assistant-tool-button active"
+                  : "assistant-tool-button"
+              }
+              disabled={isAssistantGenerating || isTranscribing}
+              onClick={toggleVoiceInput}
+              title={
+                isListening
+                  ? "Stop recording and edit transcript"
+                  : isTranscribing
+                    ? "Transcribing voice note"
+                    : "Start voice input"
+              }
+              type="button"
+            >
+              {isListening ? <StopIcon /> : <MicrophoneIcon />}
+            </button>
+            <button
+              className="primary-button"
+              disabled={
+                isAssistantGenerating ||
+                isTranscribing ||
+                (!isListening && !draft.trim() && attachments.length === 0)
+              }
+              title={isListening ? "Transcribe and send voice note" : undefined}
+              type="submit"
+            >
+              {isAssistantGenerating
+                ? "Sending"
+                : isTranscribing
+                  ? "Transcribing"
+                  : "Send"}
+            </button>
+          </div>
+          {attachments.length > 0 || voiceStatus ? (
+            <div className="assistant-composer-meta">
+              {attachments.map((attachment) => (
+                <button
+                  className="assistant-attachment-pill"
+                  key={attachment.id}
+                  onClick={() => removeAttachment(attachment.id)}
+                  title="Remove attachment"
+                  type="button"
+                >
+                  {attachment.name}
+                  <span>{formatBytes(attachment.size)}</span>
+                </button>
+              ))}
+              {voiceStatus ? (
+                <VoiceStatus
+                  elapsedMs={recordingElapsedMs}
+                  isListening={isListening}
+                  isVoiceBusy={isVoiceBusy}
+                  level={voiceLevel}
+                  status={voiceStatus}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </form>
 
         <AssistantDevDiagnostics state={state} />
@@ -396,6 +823,296 @@ export function AssistantConsole({
         state={previewState}
       />
     </section>
+  );
+}
+
+function buildPromptWithAttachments(
+  rawPrompt: string,
+  attachments: AssistantAttachment[],
+) {
+  const prompt = rawPrompt.trim();
+
+  if (attachments.length === 0) {
+    return prompt;
+  }
+
+  const attachmentContext = attachments
+    .map((attachment) => {
+      const header = `File: ${attachment.name} (${attachment.type || "unknown type"}, ${formatBytes(attachment.size)})`;
+
+      if (!attachment.previewText) {
+        return `${header}\nContent: File selected, but browser-side text extraction is not available for this file type yet.`;
+      }
+
+      return `${header}\nContent preview:\n${attachment.previewText}`;
+    })
+    .join("\n\n");
+
+  return `${prompt || "Please review the attached file context."}\n\nAttached file context:\n${attachmentContext}`;
+}
+
+function mergeTranscriptIntoDraft(currentDraft: string, transcript: string) {
+  const trimmedDraft = currentDraft.trim();
+  const trimmedTranscript = transcript.trim();
+
+  if (!trimmedDraft) {
+    return trimmedTranscript;
+  }
+
+  if (!trimmedTranscript) {
+    return trimmedDraft;
+  }
+
+  return `${trimmedDraft} ${trimmedTranscript}`;
+}
+
+function formatRecordingTime(elapsedMs: number) {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function VoiceStatus({
+  elapsedMs,
+  isListening,
+  isVoiceBusy,
+  level,
+  status,
+}: {
+  elapsedMs: number;
+  isListening: boolean;
+  isVoiceBusy: boolean;
+  level: number;
+  status: string;
+}) {
+  return (
+    <span className={isVoiceBusy ? "voice-status active" : "voice-status"}>
+      {isListening ? (
+        <>
+          <VoiceLevelMeter level={level} />
+          <strong>{formatRecordingTime(elapsedMs)}</strong>
+        </>
+      ) : null}
+      <span>{status}</span>
+    </span>
+  );
+}
+
+function VoiceLevelMeter({ level }: { level: number }) {
+  const normalizedLevel = Math.min(1, Math.max(0.08, level || 0.08));
+  const multipliers = [0.45, 0.78, 1, 0.62, 0.9];
+
+  return (
+    <span className="voice-level-meter" aria-hidden="true">
+      {multipliers.map((multiplier, index) => (
+        <span
+          key={index}
+          style={{
+            transform: `scaleY(${Math.min(1, 0.22 + normalizedLevel * multiplier)})`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function preferredAudioMimeType() {
+  if (typeof MediaRecorder === "undefined") {
+    return "";
+  }
+
+  return [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/mpeg",
+  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+}
+
+function audioExtensionForType(mimeType: string) {
+  if (mimeType.includes("mp4")) {
+    return "m4a";
+  }
+
+  if (mimeType.includes("mpeg")) {
+    return "mp3";
+  }
+
+  if (mimeType.includes("wav")) {
+    return "wav";
+  }
+
+  return "webm";
+}
+
+function jsonErrorMessage(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  if ("error" in payload && typeof payload.error === "string") {
+    return payload.error;
+  }
+
+  return null;
+}
+
+async function transcribeVoiceBlob(audioBlob: Blob, durationMs: number | null) {
+  const formData = new FormData();
+  const extension = audioExtensionForType(audioBlob.type);
+  const audioFile = new File([audioBlob], `kyro-voice.${extension}`, {
+    type: audioBlob.type || "audio/webm",
+  });
+
+  formData.set("audio", audioFile);
+
+  if (durationMs) {
+    formData.set("durationMs", String(durationMs));
+  }
+
+  const response = await fetch("/api/assistant/transcribe", {
+    body: formData,
+    method: "POST",
+  });
+  const payload = (await response.json().catch(() => null)) as unknown;
+
+  if (!response.ok) {
+    throw new Error(
+      jsonErrorMessage(payload) ?? "Unable to transcribe voice note.",
+    );
+  }
+
+  const data =
+    payload && typeof payload === "object" && "data" in payload
+      ? payload.data
+      : null;
+  const text =
+    data && typeof data === "object" && "text" in data
+      ? data.text
+      : null;
+
+  if (typeof text !== "string" || !text.trim()) {
+    throw new Error("The transcription came back empty.");
+  }
+
+  return text.trim();
+}
+
+async function fileToAssistantAttachment(file: File): Promise<AssistantAttachment> {
+  const shouldReadText =
+    file.size <= MAX_ATTACHMENT_TEXT_BYTES && isTextLikeFile(file);
+  const previewText = shouldReadText ? await file.text() : null;
+
+  return {
+    id:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${file.name}-${file.lastModified}-${Math.random()}`,
+    name: file.name,
+    previewText: previewText?.slice(0, MAX_ATTACHMENT_TEXT_BYTES) ?? null,
+    size: file.size,
+    type: file.type,
+  };
+}
+
+function isTextLikeFile(file: File) {
+  const lowerName = file.name.toLowerCase();
+
+  return (
+    file.type.startsWith("text/") ||
+    [
+      ".csv",
+      ".json",
+      ".log",
+      ".md",
+      ".txt",
+      ".xml",
+      ".yaml",
+      ".yml",
+    ].some((extension) => lowerName.endsWith(extension))
+  );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function PaperclipIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="18"
+      viewBox="0 0 24 24"
+      width="18"
+    >
+      <path
+        d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function MicrophoneIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="18"
+      viewBox="0 0 24 24"
+      width="18"
+    >
+      <path
+        d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M19 11a7 7 0 0 1-14 0M12 18v3M8 21h8"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="18"
+      viewBox="0 0 24 24"
+      width="18"
+    >
+      <rect
+        height="16"
+        rx="2.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        width="16"
+        x="4"
+        y="4"
+      />
+    </svg>
   );
 }
 

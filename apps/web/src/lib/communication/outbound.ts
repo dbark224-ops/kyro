@@ -1,8 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendGmailMessage, type GmailAttachment } from "../integrations/gmail";
+import {
+  sendConnectedEmailMessage,
+  type EmailAttachment,
+  type EmailSendResult,
+} from "../integrations/mail";
 import { isOutboundChannel, type OutboundChannel } from "./settings";
 
-export type OutboundAttachment = GmailAttachment & {
+export type OutboundAttachment = EmailAttachment & {
   quoteDraftId?: string | null;
   source: "local_upload" | "quote_draft" | "signature_logo";
 };
@@ -77,8 +81,10 @@ function displayChannelName(channelType: OutboundChannel) {
   return "Manual Note";
 }
 
-function realChannelDisplayName(accountEmail: string | null) {
-  return accountEmail ? `Gmail - ${accountEmail}` : "Gmail";
+function realChannelDisplayName(result: EmailSendResult) {
+  const label = result.provider === "microsoft" ? "Outlook" : "Gmail";
+
+  return result.accountEmail ? `${label} - ${result.accountEmail}` : label;
 }
 
 function safeAttachmentBaseName(value: string) {
@@ -215,30 +221,30 @@ export async function findOrCreateMockOutboundChannel(
   return String(channel.id);
 }
 
-async function findOrCreateGmailOutboundChannel(
+async function findOrCreateEmailOutboundChannel(
   supabase: SupabaseClient,
   {
-    accountEmail,
-    connectionId,
+    result,
     workspaceId,
   }: {
-    accountEmail: string | null;
-    connectionId: string;
+    result: EmailSendResult;
     workspaceId: string;
   }
 ) {
-  const externalId = `google:gmail:${accountEmail ?? connectionId}`;
+  const externalId = `${result.provider}:${result.service}:${
+    result.accountEmail ?? result.connectionId
+  }`;
   const payload = {
     workspace_id: workspaceId,
-    integration_id: connectionId,
+    integration_id: result.connectionId,
     type: "email",
-    display_name: realChannelDisplayName(accountEmail),
+    display_name: realChannelDisplayName(result),
     external_id: externalId,
     status: "active",
     settings: {
-      provider: "google",
-      service: "gmail",
-      connectionId,
+      provider: result.provider,
+      service: result.service,
+      connectionId: result.connectionId,
       dryRunOnly: false,
       externalSendEnabled: true
     }
@@ -251,7 +257,7 @@ async function findOrCreateGmailOutboundChannel(
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to load Gmail outbound channel: ${existingError.message}`);
+    throw new Error(`Unable to load email outbound channel: ${existingError.message}`);
   }
 
   if (existingChannel) {
@@ -262,7 +268,7 @@ async function findOrCreateGmailOutboundChannel(
       .eq("id", existingChannel.id);
 
     if (error) {
-      throw new Error(`Unable to update Gmail outbound channel: ${error.message}`);
+      throw new Error(`Unable to update email outbound channel: ${error.message}`);
     }
 
     return String(existingChannel.id);
@@ -275,7 +281,7 @@ async function findOrCreateGmailOutboundChannel(
     .single();
 
   if (error || !channel) {
-    throw new Error(`Unable to create Gmail outbound channel: ${error?.message ?? "unknown error"}`);
+    throw new Error(`Unable to create email outbound channel: ${error?.message ?? "unknown error"}`);
   }
 
   return String(channel.id);
@@ -328,6 +334,7 @@ export async function recordOutboundMessage(
   let executor = "mock_outbound_channel";
   let externalMessageId: string | null = null;
   let externalThreadId: string | null = null;
+  let externalService: string | null = null;
   let provider: string | null = null;
   let sentTo: string | null = null;
 
@@ -379,10 +386,10 @@ export async function recordOutboundMessage(
     const recipientEmail = textValue(contact?.email);
 
     if (!recipientEmail) {
-      throw new Error("This contact does not have an email address, so Gmail cannot send this reply.");
+      throw new Error("This contact does not have an email address, so Kyro cannot send this reply.");
     }
 
-    const gmailResult = await sendGmailMessage(supabase, {
+    const emailResult = await sendConnectedEmailMessage(supabase, {
       attachments,
       body,
       htmlBody: input.htmlBody ?? null,
@@ -391,16 +398,16 @@ export async function recordOutboundMessage(
       workspaceId: input.workspaceId
     });
 
-    channelId = await findOrCreateGmailOutboundChannel(supabase, {
-      accountEmail: gmailResult.accountEmail,
-      connectionId: gmailResult.connectionId,
+    channelId = await findOrCreateEmailOutboundChannel(supabase, {
+      result: emailResult,
       workspaceId: input.workspaceId
     });
     dryRun = false;
-    executor = "gmail_api";
-    externalMessageId = gmailResult.messageId;
-    externalThreadId = gmailResult.threadId;
-    provider = "google";
+    executor = `${emailResult.service}_api`;
+    externalMessageId = emailResult.messageId;
+    externalThreadId = emailResult.threadId;
+    externalService = emailResult.service;
+    provider = emailResult.provider;
     sentTo = recipientEmail;
   } else {
     channelId = await findOrCreateMockOutboundChannel(
@@ -430,6 +437,7 @@ export async function recordOutboundMessage(
         channelType: input.channelType,
         dryRun,
         externalSend: !dryRun,
+        externalService,
         externalThreadId,
         htmlBodyAvailable: Boolean(input.htmlBody),
         provider,
@@ -498,7 +506,7 @@ export async function recordOutboundMessage(
       source_type: "message",
       source_id: message.id,
       provider: provider ?? "external",
-      service: "gmail",
+      service: externalService ?? "email",
       model: null,
       usage_type: "outbound_email",
       quantity: "1",
@@ -513,6 +521,7 @@ export async function recordOutboundMessage(
         channelType: input.channelType,
         conversationId: input.conversationId,
         executor,
+        externalService,
         attachments: attachmentMetadata,
         source: input.source,
         sentTo

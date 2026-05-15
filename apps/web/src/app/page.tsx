@@ -81,10 +81,6 @@ function SetupRequired() {
       <section className="auth-panel">
         <div className="brand-lockup">
           <BrandMark />
-          <div>
-            <p className="brand-name">Kyro</p>
-            <p className="brand-subtitle">Setup required</p>
-          </div>
         </div>
         <h1>Connect Supabase to continue.</h1>
         <p className="form-copy">

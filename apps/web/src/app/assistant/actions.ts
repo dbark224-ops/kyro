@@ -134,9 +134,9 @@ async function loadAssistantResourcePreview(
         "Inquiry",
       type: "conversation" as const,
     };
-    const refreshedConversation = (await getConversationList(supabase, workspace.id)).find(
-      (conversation) => conversation.id === target.id,
-    );
+    const refreshedConversation = (
+      await getConversationList(supabase, workspace.id, { ids: [target.id] })
+    )[0];
 
     return {
       preview: {
@@ -474,6 +474,7 @@ export async function sendAssistantMessageAction(
   formData: FormData,
 ): Promise<AssistantThreadState> {
   const prompt = formString(formData, "prompt");
+  const inputSource = formString(formData, "inputSource") === "voice" ? "voice" : "typed";
   const submittedThreadId = formString(formData, "threadId");
 
   if (!prompt) {
@@ -494,6 +495,7 @@ export async function sendAssistantMessageAction(
     const threadId = String(thread.id);
     const userMessageId = await appendUserAssistantMessage({
       content: prompt,
+      inputSource,
       supabase,
       threadId,
       user,
@@ -508,6 +510,7 @@ export async function sendAssistantMessageAction(
     });
     const assistantMessage = await runAssistantTurn({
       memories: context.memories,
+      inputSource,
       prompt,
       recentMessages: context.recentMessages,
       supabase,

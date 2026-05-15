@@ -50,6 +50,7 @@ export type AssistantToolCallRecord = {
 export type AssistantModelInput = {
   prompt: string;
   command: AssistantCommandResult;
+  inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
   recentMessages?: Array<{
     content: string;

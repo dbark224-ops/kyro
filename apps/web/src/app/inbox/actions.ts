@@ -4,6 +4,7 @@ import { ingestManualConversationFollowUp } from "../../lib/inbound/follow-up";
 import {
   getCommunicationSettings,
   isOutboundChannel,
+  type SignatureVariant,
 } from "../../lib/communication/settings";
 import {
   buildSignedEmailBody,
@@ -37,6 +38,16 @@ const MAX_LOCAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function formBoolean(formData: FormData, key: string) {
+  return formData.get(key) !== null;
+}
+
+function formSignatureVariant(formData: FormData): SignatureVariant {
+  return formString(formData, "signatureVariant") === "ai_generated"
+    ? "ai_generated"
+    : "manual";
 }
 
 function objectRecord(value: unknown) {
@@ -1087,6 +1098,8 @@ export async function createMockOutboundMessageAction(formData: FormData) {
   const attachmentQuoteDraftId = nullableText(
     formString(formData, "attachmentQuoteDraftId"),
   );
+  const includeSignature = formBoolean(formData, "includeSignature");
+  const signatureVariant = formSignatureVariant(formData);
 
   if (!conversationId) {
     redirect("/inbox?engine_error=Conversation id is required.");
@@ -1185,8 +1198,18 @@ export async function createMockOutboundMessageAction(formData: FormData) {
     }
   }
 
-  const signature = selectEmailSignature(settings, "manual");
-  const signedBody = buildSignedEmailBody({ body, signature });
+  const shouldApplySignature = channelType === "email" && includeSignature;
+  const signedBody = shouldApplySignature
+    ? buildSignedEmailBody({
+        body,
+        signature: selectEmailSignature(settings, signatureVariant),
+      })
+    : {
+        bodyText: body.trim(),
+        htmlBody: null,
+        inlineAttachments: [],
+        signatureApplied: false,
+      };
   const settingsSnapshot = {
     approvalRequired: settings.approvalRequired,
     approvalSatisfiedBy: "manual_user_send",
@@ -1195,7 +1218,8 @@ export async function createMockOutboundMessageAction(formData: FormData) {
     gmailExternalSendEnabled: channelType === "email",
     localAttachmentCount: localAttachments.length,
     signatureApplied: signedBody.signatureApplied,
-    signatureVariant: "manual",
+    signatureIncluded: shouldApplySignature,
+    signatureVariant: shouldApplySignature ? signatureVariant : null,
   };
 
   let outboundResult: Awaited<ReturnType<typeof recordOutboundMessage>>;

@@ -1,6 +1,6 @@
 import { AssistantConsole } from "./assistant-console";
 import { AppFrame } from "../components/app-frame";
-import { getConversationList } from "../../lib/crm/queries";
+import { getConversationWorkflowCounts } from "../../lib/crm/queries";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import type { AssistantThreadState } from "../../lib/assistant/types";
@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 
 export default async function AssistantPage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [conversations, readyQuotesResult, contactsResult] = await Promise.all([
-    getConversationList(supabase, workspace.id),
+  const [conversationCounts, readyQuotesResult, contactsResult] = await Promise.all([
+    getConversationWorkflowCounts(supabase, workspace.id),
     supabase
       .from("quote_drafts")
       .select("id", { count: "exact", head: true })
@@ -30,9 +30,7 @@ export default async function AssistantPage() {
     throw new Error(`Unable to count contacts: ${contactsResult.error.message}`);
   }
 
-  const needsReply = conversations.filter(
-    (conversation) => conversation.workflowBucket === "needs_reply",
-  ).length;
+  const needsReply = conversationCounts.needsReply;
   const readyQuotes = readyQuotesResult.count ?? 0;
   const contactCount = contactsResult.count ?? 0;
   const initialState: AssistantThreadState = await getAssistantThreadState({
@@ -54,35 +52,37 @@ export default async function AssistantPage() {
 
   return (
     <AppFrame active="Assistant">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">{workspace.name}</p>
-          <h1>Assistant</h1>
-        </div>
-        <div className="topbar-right">
-          <section className="metric-grid" aria-label="Assistant context metrics">
-            <article className="metric-card cyan">
-              <p>Inbox</p>
-              <strong>{needsReply}</strong>
-              <span>Need reply</span>
-            </article>
-            <article className="metric-card purple">
-              <p>Quotes</p>
-              <strong>{readyQuotes}</strong>
-              <span>Ready to send</span>
-            </article>
-            <article className="metric-card pink">
-              <p>Contacts</p>
-              <strong>{contactCount}</strong>
-              <span>Profiles indexed</span>
-            </article>
-          </section>
-        </div>
-      </header>
+      <div className="assistant-page-shell">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">{workspace.name}</p>
+            <h1>Assistant</h1>
+          </div>
+          <div className="topbar-right">
+            <section className="metric-grid" aria-label="Assistant context metrics">
+              <article className="metric-card cyan">
+                <p>Inbox</p>
+                <strong>{needsReply}</strong>
+                <span>Need reply</span>
+              </article>
+              <article className="metric-card purple">
+                <p>Quotes</p>
+                <strong>{readyQuotes}</strong>
+                <span>Ready to send</span>
+              </article>
+              <article className="metric-card pink">
+                <p>Contacts</p>
+                <strong>{contactCount}</strong>
+                <span>Profiles indexed</span>
+              </article>
+            </section>
+          </div>
+        </header>
 
-      <section className="assistant-page-grid">
-        <AssistantConsole initialState={initialState} />
-      </section>
+        <section className="assistant-page-grid">
+          <AssistantConsole initialState={initialState} />
+        </section>
+      </div>
     </AppFrame>
   );
 }

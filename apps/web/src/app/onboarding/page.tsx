@@ -32,10 +32,6 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
         <section className="auth-panel">
           <div className="brand-lockup">
             <BrandMark />
-            <div>
-              <p className="brand-name">Kyro</p>
-              <p className="brand-subtitle">Workspace ready</p>
-            </div>
           </div>
           <h1>{workspace.name}</h1>
           <p className="form-copy">This account already has a bootstrapped workspace.</p>
@@ -52,10 +48,6 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
       <section className="auth-panel">
         <div className="brand-lockup">
           <BrandMark />
-          <div>
-            <p className="brand-name">Kyro</p>
-            <p className="brand-subtitle">Workspace bootstrap</p>
-          </div>
         </div>
 
         <div className="auth-copy">

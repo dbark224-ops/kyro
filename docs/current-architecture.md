@@ -242,22 +242,23 @@ The inquiry review page shows:
 - usage events collapsed by default,
 - audit history collapsed by default.
 
-Outbound email can send through the connected Gmail account. Workspace communication
+Outbound email can send through the connected Gmail or Outlook account. Workspace communication
 settings use `workspace_policies` with policy type `communication_outbound` once the
 settings page has saved them, and fall back to strict defaults when that row does not
 exist yet. User-written manual replies are treated as already approved because the
-user typed the body and pressed send; email sends immediately through Gmail when a
+user typed the body and pressed send; email sends immediately through the connected
+email provider when a
 contact email exists. AI-generated/action-queue replies still go through the action
 engine and approval/execution controls. SMS, phone, and manual channels are still
-internal records until their providers are connected. Gmail sends can include local
+internal records until their providers are connected. Email sends can include local
 file uploads from the composer and a generated text snapshot of a selected quote
 draft; full Drive/PDF template attachments are still a later document-rendering step.
 Email signatures are Kyro-managed per workspace: one default signature for manual or
 user-edited sends, plus an optional assistant signature for untouched AI-generated
 replies. Signature settings live inside the `communication_outbound` policy, support
 text plus a small inline logo, and are applied during outbound execution rather than
-relying on the user's native Gmail signature.
-Real Gmail sends also write zero-cost `usage_events` rows so the billing endpoint can
+relying on the user's native email signature.
+Real Gmail/Outlook sends also write zero-cost `usage_events` rows so the billing endpoint can
 count outbound email volume before paid pricing is decided.
 
 ### CRM
@@ -327,10 +328,12 @@ Files:
 - `apps/web/src/app/assistant/page.tsx`
 - `apps/web/src/app/assistant/assistant-console.tsx`
 - `apps/web/src/app/assistant/actions.ts`
+- `apps/web/src/app/api/assistant/transcribe/route.ts`
 - `apps/web/src/lib/assistant/commands.ts`
 - `apps/web/src/lib/assistant/conversation-links.ts`
 - `apps/web/src/lib/assistant/providers.ts`
 - `apps/web/src/lib/assistant/engine.ts`
+- `apps/web/src/lib/assistant/transcription.ts`
 
 Purpose:
 
@@ -341,6 +344,7 @@ Purpose:
 - retrieve a compact rolling thread summary and relevant explicit memories before each turn,
 - route safe commands deterministically before involving a model,
 - use local Ollama to narrate answers while preserving deterministic links/actions,
+- accept browser-recorded voice notes, transcribe them server-side, and submit the transcript through the normal Assistant turn flow,
 - record assistant turns as `ai_runs`, `model_route_decisions`, `usage_events`, and `audit_logs`,
 - keep provider handling swappable for later cloud model APIs.
 
@@ -371,6 +375,15 @@ Assistant memory layers currently implemented:
 The LLM does not invent UI. It receives command results and optional thread/memory context, then writes short narration.
 The frontend renders known `ui_blocks`, currently link cards and memory notices.
 
+Assistant voice input uses the browser `MediaRecorder` API only for capture. Audio is posted to
+`/api/assistant/transcribe`, where the server calls OpenAI's audio transcription endpoint with the configured
+speech-to-text model and a Kyro-specific transcription prompt for product vocabulary and assistant-name variants.
+The OpenAI API key never goes to the browser. Successful transcriptions are metered into `usage_events` as
+`speech_to_text_minutes` and audited as `assistant.voice_transcribed`; the resulting text is then submitted through
+the normal Assistant turn flow with `inputSource=voice` so the model can treat terms like Cara/Kara/Cairo as likely
+voice variants of Kyro when appropriate. In the composer, pressing the mic/stop control transcribes the audio back
+into the draft box for editing, while pressing Send during recording transcribes and submits the voice note directly.
+
 Provider configuration:
 
 ```bash
@@ -379,6 +392,11 @@ ASSISTANT_MODEL=qwen3:8b
 ASSISTANT_OLLAMA_TIMEOUT_MS=60000
 ASSISTANT_OLLAMA_NUM_PREDICT=180
 ASSISTANT_OLLAMA_THINK=false
+OPENAI_API_KEY=
+OPENAI_STT_MODEL=gpt-4o-mini-transcribe
+OPENAI_STT_PROMPT=
+OPENAI_STT_UNIT_COST_PER_MINUTE_USD=0.003
+OPENAI_STT_MARKUP_RATE=0.25
 ```
 
 The provider abstraction lives in `apps/web/src/lib/assistant/providers.ts`. Future cloud providers should plug into
@@ -400,9 +418,9 @@ Purpose:
 
 - configure outbound approval mode,
 - choose allowed channels for email, SMS, phone, or manual notes,
-- set a default outbound draft style,
 - save a default email signature and optional assistant signature,
-- show Google Workspace connection readiness and launch the Google OAuth connect flow,
+- show Google Workspace and Microsoft Outlook readiness in one Integrations area,
+- launch Google or Microsoft OAuth connect flows from that combined area,
 - audit communication-setting changes,
 - show provider/API cost and customer charge from the `usage_events` ledger,
 - filter usage by today, 7 days, 30 days, or all time,
@@ -419,8 +437,9 @@ future payment system can consume the same ledger totals. It does not invoice, c
 payment, alter pricing rules, or push data to Stripe/Apple. It is a visibility layer
 over the metering data that triage, Assistant, and future API integrations record.
 
-Settings expose the Google connection state and outbound policy. Gmail is the first real
-external send provider. SMS, phone, and calendar remain future integrations.
+Settings expose outbound policy and a combined Integrations area for Google Workspace
+and Microsoft Outlook. Gmail and Outlook are the first real external send providers.
+SMS, phone, and calendar remain future integrations.
 
 ## Manual Inquiry Ingestion
 
@@ -685,10 +704,15 @@ Use this map before editing:
 - New assistant model provider: `apps/web/src/lib/assistant/providers.ts`
 - New assistant persistence/memory behavior: `apps/web/src/lib/assistant/persistence.ts`
 - New assistant UI block behavior: `apps/web/src/lib/assistant/ui-blocks.ts`
+- New assistant speech-to-text behavior: `apps/web/src/app/api/assistant/transcribe/route.ts`
+  and `apps/web/src/lib/assistant/transcription.ts`
 - New Google OAuth connection behavior: `apps/web/src/app/integrations/google/start/route.ts`,
   `apps/web/src/app/integrations/google/callback/route.ts`, and `apps/web/src/lib/integrations/google.ts`
-- New Gmail send behavior: `apps/web/src/lib/integrations/gmail.ts`, `apps/web/src/lib/communication/outbound.ts`, and
-  `apps/web/src/lib/communication/signatures.ts`
+- New Microsoft OAuth connection behavior: `apps/web/src/app/integrations/microsoft/start/route.ts`,
+  `apps/web/src/app/integrations/microsoft/callback/route.ts`, and `apps/web/src/lib/integrations/microsoft.ts`
+- New Gmail/Outlook send behavior: `apps/web/src/lib/integrations/gmail.ts`,
+  `apps/web/src/lib/integrations/outlook.ts`, `apps/web/src/lib/integrations/mail.ts`,
+  `apps/web/src/lib/communication/outbound.ts`, and `apps/web/src/lib/communication/signatures.ts`
 - New provider token encryption behavior: `apps/web/src/lib/integrations/token-vault.ts`
 - New usage/billing read behavior: `apps/web/src/lib/usage/queries.ts`, surfaced from Settings
 - New schema field/table: `packages/db/src/schema.ts`, then generate a migration.
@@ -701,13 +725,13 @@ Use this map before editing:
 
 These are not bugs:
 
-- Gmail OAuth and real outbound email are connected for approved/user-triggered sends.
+- Gmail and Outlook OAuth plus real outbound email are connected for approved/user-triggered sends.
 - Gmail inbound sync is not connected yet.
-- Outlook OAuth is not connected yet.
+- Outlook inbound sync is not connected yet.
 - SMS is not connected yet.
-- AI triage and Assistant can use local Ollama in development, but cloud model providers are not wired yet.
-- Action execution can send real Gmail email. Non-email side effects are still dry-run/internal.
-- Gmail can send uploaded local file attachments and generated text snapshots of selected quote drafts.
+- AI triage and Assistant narration can use local Ollama in development, but cloud LLM providers are not wired yet.
+- Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
+- Gmail/Outlook can send uploaded local file attachments and generated text snapshots of selected quote drafts.
 - Full PDF/invoice rendering from user-uploaded templates is not implemented yet. Current quote drafts are saved editable internal documents only.
 - Assistant chat is implemented as a persisted safe command/tool layer, not a free-roaming autonomous agent.
 - Assistant long-term memory only saves explicit user memory instructions for now; automatic inferred memory is intentionally not active yet.

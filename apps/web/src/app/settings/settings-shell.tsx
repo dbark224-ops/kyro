@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-export type SettingsSection = "communication" | "google" | "usage";
+export type SettingsSection = "communication" | "integrations" | "usage";
 
 export type SettingsMenuItem = {
   detail: string;
@@ -18,7 +18,11 @@ function sectionFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const section = params.get("section");
 
-  if (section === "communication" || section === "google" || section === "usage") {
+  if (section === "google" || section === "microsoft" || section === "integrations") {
+    return "integrations";
+  }
+
+  if (section === "communication" || section === "usage") {
     return section;
   }
 
@@ -28,15 +32,15 @@ function sectionFromLocation() {
 export function SettingsShell({
   communication,
   empty,
-  google,
   initialSection,
+  integrations,
   items,
   usage,
 }: Readonly<{
   communication: ReactNode;
   empty: ReactNode;
-  google: ReactNode;
   initialSection: SettingsSection | null;
+  integrations: ReactNode;
   items: SettingsMenuItem[];
   usage: ReactNode;
 }>) {
@@ -59,8 +63,8 @@ export function SettingsShell({
   const detail =
     selectedSection === "communication"
       ? communication
-      : selectedSection === "google"
-        ? google
+      : selectedSection === "integrations"
+        ? integrations
         : selectedSection === "usage"
           ? usage
           : empty;
@@ -77,7 +81,6 @@ export function SettingsShell({
             <p className="eyebrow">Settings</p>
             <h2>Workspace controls</h2>
           </div>
-          <span className="pill">{items.length} areas</span>
         </div>
 
         <div className="settings-menu-list">
@@ -97,7 +100,6 @@ export function SettingsShell({
                 <strong>{item.title}</strong>
                 <span>{item.detail}</span>
               </div>
-              <span className="pill">{item.status}</span>
             </button>
           ))}
         </div>

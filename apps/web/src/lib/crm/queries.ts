@@ -51,6 +51,7 @@ export type ConversationListItem = {
   id: string;
   status: string;
   originalInquiryAt: string | null;
+  originalInquiryBody: string | null;
   lastMessageAt: string | null;
   contactName: string | null;
   leadTitle: string | null;
@@ -78,6 +79,44 @@ export type ConversationListItem = {
   nextActionLabel: string;
   workflowBucket: string;
 };
+
+type ConversationListOptions = {
+  ids?: string[];
+  limit?: number;
+};
+
+type ConversationWorkflowCounts = {
+  awaitingCustomer: number;
+  missingInfo: number;
+  needsReply: number;
+  needsReview: number;
+  open: number;
+  readyToQuote: number;
+  resolved: number;
+  siteVisitNeeded: number;
+  total: number;
+};
+
+type QuoteDraftSummary = {
+  draft: number;
+  ready: number;
+  sent: number;
+  total: number;
+};
+
+type ActionSummary = {
+  activeActionTypes: string[];
+  approvedActionCount: number;
+  completedActionTypes: string[];
+  latestActionStatus: string | null;
+  latestActionType: string | null;
+  pendingApprovalCount: number;
+};
+
+type ConversationFactsSummary = {
+  fit: string | null;
+  missingInfo: string[];
+} | null;
 
 export type ConversationReview = {
   conversation: {
@@ -521,13 +560,27 @@ export async function getContactList(
 export async function getConversationList(
   supabase: SupabaseClient,
   workspaceId: string,
+  options: ConversationListOptions = {},
 ) {
-  const { data: conversations, error } = await supabase
+  const selectedIds = uniqueIds(options.ids ?? []);
+
+  if (options.ids && selectedIds.length === 0) {
+    return [] satisfies ConversationListItem[];
+  }
+
+  let conversationsQuery = supabase
     .from("conversations")
     .select("id,status,last_message_at,contact_id,lead_id,created_at")
     .eq("workspace_id", workspaceId)
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(100);
+    .order("last_message_at", { ascending: false, nullsFirst: false });
+
+  if (selectedIds.length > 0) {
+    conversationsQuery = conversationsQuery.in("id", selectedIds);
+  }
+
+  const { data: conversations, error } = await conversationsQuery.limit(
+    options.limit ?? (selectedIds.length > 0 ? selectedIds.length : 100),
+  );
 
   if (error) {
     throw new Error(`Unable to load conversations: ${error.message}`);
@@ -747,15 +800,7 @@ export async function getConversationList(
       },
     ]),
   );
-  const quoteDraftsByConversation = new Map<
-    string,
-    {
-      draft: number;
-      ready: number;
-      sent: number;
-      total: number;
-    }
-  >();
+  const quoteDraftsByConversation = new Map<string, QuoteDraftSummary>();
 
   for (const quoteDraft of quoteDraftsResult.data ?? []) {
     const conversationId = quoteDraft.conversation_id
@@ -787,17 +832,7 @@ export async function getConversationList(
     quoteDraftsByConversation.set(conversationId, summary);
   }
 
-  const actionsByConversation = new Map<
-    string,
-    {
-      latestActionType: string | null;
-      latestActionStatus: string | null;
-      pendingApprovalCount: number;
-      approvedActionCount: number;
-      activeActionTypes: string[];
-      completedActionTypes: string[];
-    }
-  >();
+  const actionsByConversation = new Map<string, ActionSummary>();
 
   for (const action of actionsResult.data ?? []) {
     const conversationId = action.target_id ? String(action.target_id) : null;
@@ -879,75 +914,21 @@ export async function getConversationList(
       total: 0,
     };
     const quoteDraftCount = quoteDraftSummary.total;
-    const hasActiveQuoteDraft =
-      quoteDraftSummary.draft > 0 || quoteDraftSummary.ready > 0;
-    const hasSentQuoteDraft = quoteDraftSummary.sent > 0;
     const activeActionTypes = [...new Set(actionSummary.activeActionTypes)];
     const completedActionTypes = [
       ...new Set(actionSummary.completedActionTypes),
     ];
-    const hasMissingInfo = Boolean(facts?.missingInfo.length);
-    const hasCompletedReply =
-      status === "replied" ||
-      latestDirection === "outbound" ||
-      completedActionTypes.includes("draft_reply") ||
-      completedActionTypes.includes("send_outbound_message");
-    const hasSiteVisitAction = [
-      ...activeActionTypes,
-      ...completedActionTypes,
-    ].includes("book_site_visit");
-    const hasQuoteAction = [
-      ...activeActionTypes,
-      ...completedActionTypes,
-    ].includes("create_quote_draft");
-    const isAwaitingCustomer =
-      (hasCompletedReply && status !== "resolved") ||
-      completedActionTypes.includes("ask_missing_info") ||
-      completedActionTypes.includes("schedule_follow_up");
-    const workflowBucket =
-      status === "resolved"
-        ? "resolved"
-        : lead?.priority === "high"
-          ? "needs_review"
-          : isAwaitingCustomer || hasSentQuoteDraft
-            ? "awaiting_customer"
-            : hasMissingInfo
-              ? "missing_info"
-              : actionSummary.pendingApprovalCount > 0 ||
-                  status === "reply_drafted" ||
-                  latestDirection === "inbound"
-                ? "needs_reply"
-                : hasSiteVisitAction
-                  ? "site_visit_needed"
-                  : hasQuoteAction || hasActiveQuoteDraft
-                    ? "ready_to_quote"
-                    : facts?.fit === "needs_review"
-                      ? "needs_review"
-                      : "open";
-    const nextActionLabel =
-      lead?.priority === "high"
-        ? "Profile check"
-        : isAwaitingCustomer
-          ? "Awaiting customer"
-          : actionSummary.pendingApprovalCount > 0
-            ? "Needs approval"
-            : hasMissingInfo
-              ? "Missing info"
-              : actionSummary.approvedActionCount > 0
-                ? "Ready to record"
-                : hasSiteVisitAction
-                  ? "Site visit"
-                  : hasQuoteAction || hasActiveQuoteDraft
-                    ? "Ready to quote"
-                    : hasSentQuoteDraft
-                      ? "Quote sent"
-                      : status === "reply_drafted"
-                        ? "Review draft"
-                        : status === "resolved"
-                          ? "Resolved"
-                          : latestDirection === "inbound"
-                            ? "Needs reply"
-                            : "Open";
+    const { nextActionLabel, workflowBucket } = deriveConversationWorkflow({
+      activeActionTypes,
+      approvedActionCount: actionSummary.approvedActionCount,
+      completedActionTypes,
+      facts,
+      latestDirection,
+      leadPriority: lead?.priority ?? null,
+      pendingApprovalCount: actionSummary.pendingApprovalCount,
+      quoteDraftSummary,
+      status,
+    });
 
     return {
       id: String(conversation.id),
@@ -959,6 +940,11 @@ export async function getConversationList(
           : conversation.created_at
             ? String(conversation.created_at)
             : null,
+      originalInquiryBody: originalInquiry?.body_text
+        ? String(originalInquiry.body_text)
+        : latestMessage?.body_text
+          ? String(latestMessage.body_text)
+          : null,
       lastMessageAt: conversation.last_message_at
         ? String(conversation.last_message_at)
         : null,
@@ -986,6 +972,372 @@ export async function getConversationList(
       workflowBucket,
     };
   }) satisfies ConversationListItem[];
+}
+
+export async function getConversationWorkflowCounts(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<ConversationWorkflowCounts> {
+  const { data: conversations, error } = await supabase
+    .from("conversations")
+    .select("id,status,lead_id")
+    .eq("workspace_id", workspaceId)
+    .limit(500);
+
+  if (error) {
+    throw new Error(`Unable to load conversation counts: ${error.message}`);
+  }
+
+  const conversationIds = uniqueIds(
+    (conversations ?? []).map((conversation) => String(conversation.id)),
+  );
+  const leadIds = uniqueIds(
+    (conversations ?? []).map((conversation) =>
+      String(conversation.lead_id ?? ""),
+    ),
+  );
+
+  const [messagesResult, leadsResult, actionsResult, factsResult, quoteDraftsResult] =
+    await Promise.all([
+      conversationIds.length > 0
+        ? supabase
+            .from("messages")
+            .select("conversation_id,direction,created_at")
+            .eq("workspace_id", workspaceId)
+            .in("conversation_id", conversationIds)
+            .order("created_at", { ascending: false })
+            .limit(LIST_MESSAGE_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      leadIds.length > 0
+        ? supabase
+            .from("leads")
+            .select("id,priority")
+            .eq("workspace_id", workspaceId)
+            .in("id", leadIds)
+        : Promise.resolve({ data: [], error: null }),
+      conversationIds.length > 0
+        ? supabase
+            .from("actions")
+            .select("target_id,type,status,created_at")
+            .eq("workspace_id", workspaceId)
+            .eq("target_type", "conversation")
+            .in("target_id", conversationIds)
+            .order("created_at", { ascending: false })
+            .limit(LIST_ACTION_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+      conversationIds.length > 0
+        ? supabase
+            .from("inquiry_facts")
+            .select("conversation_id,fit,missing_info")
+            .eq("workspace_id", workspaceId)
+            .in("conversation_id", conversationIds)
+        : Promise.resolve({ data: [], error: null }),
+      conversationIds.length > 0
+        ? supabase
+            .from("quote_drafts")
+            .select("conversation_id,status")
+            .eq("workspace_id", workspaceId)
+            .in("conversation_id", conversationIds)
+            .limit(LIST_QUOTE_DRAFT_LIMIT)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+  if (messagesResult.error) {
+    throw new Error(
+      `Unable to load conversation message counts: ${messagesResult.error.message}`,
+    );
+  }
+
+  if (leadsResult.error) {
+    throw new Error(
+      `Unable to load conversation lead counts: ${leadsResult.error.message}`,
+    );
+  }
+
+  if (actionsResult.error) {
+    throw new Error(
+      `Unable to load conversation action counts: ${actionsResult.error.message}`,
+    );
+  }
+
+  if (factsResult.error) {
+    throw new Error(
+      `Unable to load conversation fact counts: ${factsResult.error.message}`,
+    );
+  }
+
+  if (quoteDraftsResult.error) {
+    throw new Error(
+      `Unable to load conversation quote counts: ${quoteDraftsResult.error.message}`,
+    );
+  }
+
+  const latestDirectionByConversation = new Map<string, string>();
+
+  for (const message of messagesResult.data ?? []) {
+    const conversationId = String(message.conversation_id);
+
+    if (!latestDirectionByConversation.has(conversationId)) {
+      latestDirectionByConversation.set(conversationId, String(message.direction));
+    }
+  }
+
+  const leadPriorityById = new Map(
+    (leadsResult.data ?? []).map((lead) => [
+      String(lead.id),
+      lead.priority ? String(lead.priority) : null,
+    ]),
+  );
+  const factsByConversation = new Map<string, ConversationFactsSummary>(
+    (factsResult.data ?? []).map((facts) => [
+      String(facts.conversation_id),
+      {
+        fit: facts.fit ? String(facts.fit) : "needs_review",
+        missingInfo: Array.isArray(facts.missing_info)
+          ? facts.missing_info
+              .map((item) => (typeof item === "string" ? item.trim() : null))
+              .filter((item): item is string => Boolean(item))
+          : [],
+      },
+    ]),
+  );
+  const quoteDraftsByConversation = new Map<string, QuoteDraftSummary>();
+
+  for (const quoteDraft of quoteDraftsResult.data ?? []) {
+    const conversationId = quoteDraft.conversation_id
+      ? String(quoteDraft.conversation_id)
+      : null;
+
+    if (!conversationId) {
+      continue;
+    }
+
+    const summary = quoteDraftsByConversation.get(conversationId) ?? {
+      draft: 0,
+      ready: 0,
+      sent: 0,
+      total: 0,
+    };
+    const status = String(quoteDraft.status);
+
+    summary.total += 1;
+
+    if (status === "ready") {
+      summary.ready += 1;
+    } else if (status === "sent") {
+      summary.sent += 1;
+    } else if (status !== "archived") {
+      summary.draft += 1;
+    }
+
+    quoteDraftsByConversation.set(conversationId, summary);
+  }
+
+  const actionsByConversation = new Map<string, ActionSummary>();
+
+  for (const action of actionsResult.data ?? []) {
+    const conversationId = action.target_id ? String(action.target_id) : null;
+
+    if (!conversationId) {
+      continue;
+    }
+
+    const summary = actionsByConversation.get(conversationId) ?? {
+      activeActionTypes: [],
+      approvedActionCount: 0,
+      completedActionTypes: [],
+      latestActionStatus: null,
+      latestActionType: null,
+      pendingApprovalCount: 0,
+    };
+    const type = String(action.type);
+    const status = String(action.status);
+    const isLegacyReplyPlanningAction =
+      type === "ask_missing_info" || type === "schedule_follow_up";
+
+    if (isLegacyReplyPlanningAction && status !== "completed") {
+      continue;
+    }
+
+    if (!summary.latestActionType) {
+      summary.latestActionType = type;
+      summary.latestActionStatus = status;
+    }
+
+    if (status === "pending_approval") {
+      summary.pendingApprovalCount += 1;
+    }
+
+    if (status === "approved") {
+      summary.approvedActionCount += 1;
+    }
+
+    if (["pending_approval", "approved", "executing"].includes(status)) {
+      summary.activeActionTypes.push(type);
+    }
+
+    if (status === "completed") {
+      summary.completedActionTypes.push(type);
+    }
+
+    actionsByConversation.set(conversationId, summary);
+  }
+
+  const counts: ConversationWorkflowCounts = {
+    awaitingCustomer: 0,
+    missingInfo: 0,
+    needsReply: 0,
+    needsReview: 0,
+    open: 0,
+    readyToQuote: 0,
+    resolved: 0,
+    siteVisitNeeded: 0,
+    total: conversations?.length ?? 0,
+  };
+
+  for (const conversation of conversations ?? []) {
+    const conversationId = String(conversation.id);
+    const actionSummary = actionsByConversation.get(conversationId) ?? {
+      activeActionTypes: [],
+      approvedActionCount: 0,
+      completedActionTypes: [],
+      latestActionStatus: null,
+      latestActionType: null,
+      pendingApprovalCount: 0,
+    };
+    const quoteDraftSummary = quoteDraftsByConversation.get(conversationId) ?? {
+      draft: 0,
+      ready: 0,
+      sent: 0,
+      total: 0,
+    };
+    const { workflowBucket } = deriveConversationWorkflow({
+      activeActionTypes: [...new Set(actionSummary.activeActionTypes)],
+      approvedActionCount: actionSummary.approvedActionCount,
+      completedActionTypes: [...new Set(actionSummary.completedActionTypes)],
+      facts: factsByConversation.get(conversationId) ?? null,
+      latestDirection: latestDirectionByConversation.get(conversationId) ?? null,
+      leadPriority: conversation.lead_id
+        ? (leadPriorityById.get(String(conversation.lead_id)) ?? null)
+        : null,
+      pendingApprovalCount: actionSummary.pendingApprovalCount,
+      quoteDraftSummary,
+      status: String(conversation.status),
+    });
+
+    if (workflowBucket === "awaiting_customer") {
+      counts.awaitingCustomer += 1;
+    } else if (workflowBucket === "missing_info") {
+      counts.missingInfo += 1;
+    } else if (workflowBucket === "needs_reply") {
+      counts.needsReply += 1;
+    } else if (workflowBucket === "needs_review") {
+      counts.needsReview += 1;
+    } else if (workflowBucket === "ready_to_quote") {
+      counts.readyToQuote += 1;
+    } else if (workflowBucket === "resolved") {
+      counts.resolved += 1;
+    } else if (workflowBucket === "site_visit_needed") {
+      counts.siteVisitNeeded += 1;
+    } else {
+      counts.open += 1;
+    }
+  }
+
+  return counts;
+}
+
+function deriveConversationWorkflow({
+  activeActionTypes,
+  approvedActionCount,
+  completedActionTypes,
+  facts,
+  latestDirection,
+  leadPriority,
+  pendingApprovalCount,
+  quoteDraftSummary,
+  status,
+}: {
+  activeActionTypes: string[];
+  approvedActionCount: number;
+  completedActionTypes: string[];
+  facts: ConversationFactsSummary;
+  latestDirection: string | null;
+  leadPriority: string | null;
+  pendingApprovalCount: number;
+  quoteDraftSummary: QuoteDraftSummary;
+  status: string;
+}) {
+  const hasMissingInfo = Boolean(facts?.missingInfo.length);
+  const hasActiveQuoteDraft =
+    quoteDraftSummary.draft > 0 || quoteDraftSummary.ready > 0;
+  const hasSentQuoteDraft = quoteDraftSummary.sent > 0;
+  const hasCompletedReply =
+    status === "replied" ||
+    latestDirection === "outbound" ||
+    completedActionTypes.includes("draft_reply") ||
+    completedActionTypes.includes("send_outbound_message");
+  const hasSiteVisitAction = [
+    ...activeActionTypes,
+    ...completedActionTypes,
+  ].includes("book_site_visit");
+  const hasQuoteAction = [
+    ...activeActionTypes,
+    ...completedActionTypes,
+  ].includes("create_quote_draft");
+  const isAwaitingCustomer =
+    (hasCompletedReply && status !== "resolved") ||
+    completedActionTypes.includes("ask_missing_info") ||
+    completedActionTypes.includes("schedule_follow_up");
+  const workflowBucket =
+    status === "resolved"
+      ? "resolved"
+      : leadPriority === "high"
+        ? "needs_review"
+        : isAwaitingCustomer || hasSentQuoteDraft
+          ? "awaiting_customer"
+          : hasMissingInfo
+            ? "missing_info"
+            : pendingApprovalCount > 0 ||
+                status === "reply_drafted" ||
+                latestDirection === "inbound"
+              ? "needs_reply"
+              : hasSiteVisitAction
+                ? "site_visit_needed"
+                : hasQuoteAction || hasActiveQuoteDraft
+                  ? "ready_to_quote"
+                  : facts?.fit === "needs_review"
+                    ? "needs_review"
+                    : "open";
+  const nextActionLabel =
+    leadPriority === "high"
+      ? "Profile check"
+      : isAwaitingCustomer
+        ? "Awaiting customer"
+        : pendingApprovalCount > 0
+          ? "Needs approval"
+          : hasMissingInfo
+            ? "Missing info"
+            : approvedActionCount > 0
+              ? "Ready to record"
+              : hasSiteVisitAction
+                ? "Site visit"
+                : hasQuoteAction || hasActiveQuoteDraft
+                  ? "Ready to quote"
+                  : hasSentQuoteDraft
+                    ? "Quote sent"
+                    : status === "reply_drafted"
+                      ? "Review draft"
+                      : status === "resolved"
+                        ? "Resolved"
+                        : latestDirection === "inbound"
+                          ? "Needs reply"
+                          : "Open";
+
+  return {
+    nextActionLabel,
+    workflowBucket,
+  };
 }
 
 function objectRecord(value: unknown) {

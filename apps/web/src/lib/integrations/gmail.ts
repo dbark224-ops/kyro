@@ -8,6 +8,7 @@ import {
   decryptIntegrationTokenSet,
   encryptIntegrationTokenSet,
 } from "./token-vault";
+import type { EmailAttachment, EmailSendResult } from "./mail-types";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
@@ -35,14 +36,7 @@ type GmailSendResponse = {
   threadId?: string;
 };
 
-export type GmailAttachment = {
-  contentBase64: string;
-  contentId?: string | null;
-  contentType: string;
-  disposition?: "attachment" | "inline";
-  filename: string;
-  sizeBytes: number;
-};
+export type GmailAttachment = EmailAttachment;
 
 type GoogleApiErrorPayload = {
   error?: {
@@ -56,12 +50,7 @@ type GoogleApiErrorPayload = {
   };
 };
 
-export type GmailSendResult = {
-  accountEmail: string | null;
-  connectionId: string;
-  messageId: string;
-  threadId: string | null;
-};
+export type GmailSendResult = EmailSendResult;
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -498,6 +487,8 @@ export async function sendGmailMessage(
     accountEmail: textValue(connection.account_email),
     connectionId: connection.id,
     messageId: sent.id,
+    provider: "google",
+    service: "gmail",
     threadId: textValue(sent.threadId),
   };
 }
