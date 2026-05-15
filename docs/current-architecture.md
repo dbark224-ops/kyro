@@ -408,9 +408,11 @@ Purpose:
 - meter speech-to-text minutes and estimated text-to-speech seconds in `usage_events`.
 
 Voice mode is currently push-to-talk, post-response TTS. It is intentionally not a true realtime duplex voice agent
-yet: there is no barge-in, partial assistant audio streaming, or interruption handling. That keeps the product using
-one assistant brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI,
-ElevenLabs, or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
+yet: there is no barge-in, partial assistant audio streaming, or interruption handling. Kyro normalizes the WAV
+header returned by OpenAI before sending it to the browser, then plays the decoded audio through Web Audio so dev
+playback speed can be enforced outside the normal media-element path. That keeps the product using one assistant
+brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI, ElevenLabs,
+or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
 
 Provider configuration:
 

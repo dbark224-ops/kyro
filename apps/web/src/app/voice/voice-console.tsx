@@ -38,8 +38,8 @@ export function VoiceConsole({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserAnimationRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const assistantAudioRef = useRef<HTMLAudioElement | null>(null);
-  const assistantAudioUrlRef = useRef<string | null>(null);
+  const speechAudioContextRef = useRef<AudioContext | null>(null);
+  const speechSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const speechAbortControllerRef = useRef<AbortController | null>(null);
   const previousLastMessageIdRef = useRef(lastMessageId(state.messages));
   const spokenReplyQueuedRef = useRef(false);
@@ -107,16 +107,16 @@ export function VoiceConsole({
     speechAbortControllerRef.current?.abort();
     speechAbortControllerRef.current = null;
 
-    if (assistantAudioRef.current) {
-      assistantAudioRef.current.pause();
-      assistantAudioRef.current.src = "";
-      assistantAudioRef.current = null;
+    try {
+      speechSourceRef.current?.stop();
+    } catch {
+      // The source may already be stopped; that is fine during cleanup.
     }
 
-    if (assistantAudioUrlRef.current) {
-      window.URL.revokeObjectURL(assistantAudioUrlRef.current);
-      assistantAudioUrlRef.current = null;
-    }
+    speechSourceRef.current?.disconnect();
+    speechSourceRef.current = null;
+    void speechAudioContextRef.current?.close().catch(() => undefined);
+    speechAudioContextRef.current = null;
 
     setSpeakingMessageId(null);
     setSpeechStatus(null);
@@ -158,80 +158,71 @@ export function VoiceConsole({
           );
         }
 
-        const audioBlob = await response.blob();
-        const audioUrl = window.URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
+        const audioBuffer = await response.arrayBuffer();
         const generationSpeed = numberHeader(
           response.headers.get("X-Kyro-TTS-Speed"),
         );
         const contentType = response.headers.get("Content-Type") ?? "audio";
         const playbackRate = VOICE_REPLY_PLAYBACK_RATE;
+        const AudioContextConstructor = browserAudioContextConstructor();
 
-        applyAudioPlaybackRate(audio, playbackRate);
-        assistantAudioUrlRef.current = audioUrl;
-        assistantAudioRef.current = audio;
-        setSpeechStatus(speechPlaybackStatus(playbackRate, generationSpeed));
+        if (!AudioContextConstructor) {
+          throw new Error("This browser does not support Web Audio playback.");
+        }
 
-        audio.onloadedmetadata = () => {
-          applyAudioPlaybackRate(audio, playbackRate);
-          setSpeechStatus(
-            speechPlaybackStatus(
-              audio.playbackRate,
-              generationSpeed,
-              audio.duration,
-              contentType,
-            ),
-          );
-        };
-        audio.onratechange = () => {
-          if (Math.abs(audio.playbackRate - playbackRate) > 0.01) {
-            applyAudioPlaybackRate(audio, playbackRate);
+        const audioContext = new AudioContextConstructor();
+        const decodedAudio = await audioContext.decodeAudioData(audioBuffer.slice(0));
+        const source = audioContext.createBufferSource();
+
+        source.buffer = decodedAudio;
+        source.playbackRate.value = playbackRate;
+        source.connect(audioContext.destination);
+        speechAudioContextRef.current = audioContext;
+        speechSourceRef.current = source;
+        setSpeechStatus(
+          speechPlaybackStatus(
+            playbackRate,
+            generationSpeed,
+            decodedAudio.duration,
+            contentType,
+            decodedAudio.duration / playbackRate,
+          ),
+        );
+
+        source.onended = () => {
+          if (speechSourceRef.current === source) {
+            speechSourceRef.current = null;
           }
-        };
 
-        audio.onended = () => {
-          if (assistantAudioRef.current === audio) {
-            assistantAudioRef.current = null;
-          }
-
-          if (assistantAudioUrlRef.current === audioUrl) {
-            window.URL.revokeObjectURL(audioUrl);
-            assistantAudioUrlRef.current = null;
+          if (speechAudioContextRef.current === audioContext) {
+            void audioContext.close().catch(() => undefined);
+            speechAudioContextRef.current = null;
           }
 
           setSpeakingMessageId(null);
           setSpeechStatus(null);
         };
-        audio.onerror = () => {
-          if (assistantAudioUrlRef.current === audioUrl) {
-            window.URL.revokeObjectURL(audioUrl);
-            assistantAudioUrlRef.current = null;
-          }
 
-          if (assistantAudioRef.current === audio) {
-            assistantAudioRef.current = null;
-          }
+        if (audioContext.state === "suspended") {
+          await audioContext.resume();
+        }
 
-          setSpeakingMessageId(null);
-          setSpeechStatus("Unable to play the voice reply.");
-        };
-
-        await audio.play();
+        source.start();
       } catch (error) {
         if (controller.signal.aborted) {
           return;
         }
 
-        if (assistantAudioRef.current) {
-          assistantAudioRef.current.pause();
-          assistantAudioRef.current.src = "";
-          assistantAudioRef.current = null;
+        try {
+          speechSourceRef.current?.stop();
+        } catch {
+          // The source may already be stopped; that is fine during cleanup.
         }
 
-        if (assistantAudioUrlRef.current) {
-          window.URL.revokeObjectURL(assistantAudioUrlRef.current);
-          assistantAudioUrlRef.current = null;
-        }
+        speechSourceRef.current?.disconnect();
+        speechSourceRef.current = null;
+        void speechAudioContextRef.current?.close().catch(() => undefined);
+        speechAudioContextRef.current = null;
 
         setSpeakingMessageId(null);
         setSpeechStatus(
@@ -846,19 +837,17 @@ function numberHeader(value: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function applyAudioPlaybackRate(audio: HTMLAudioElement, playbackRate: number) {
-  const safePlaybackRate = Math.min(4, Math.max(0.25, playbackRate));
-  const pitchSafeAudio = audio as HTMLAudioElement & {
-    mozPreservesPitch?: boolean;
-    preservesPitch?: boolean;
-    webkitPreservesPitch?: boolean;
-  };
+function browserAudioContextConstructor() {
+  if (typeof window === "undefined") {
+    return null;
+  }
 
-  audio.defaultPlaybackRate = safePlaybackRate;
-  audio.playbackRate = safePlaybackRate;
-  pitchSafeAudio.preservesPitch = true;
-  pitchSafeAudio.mozPreservesPitch = true;
-  pitchSafeAudio.webkitPreservesPitch = true;
+  return (
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext ||
+    null
+  );
 }
 
 function speechPlaybackStatus(
@@ -866,11 +855,17 @@ function speechPlaybackStatus(
   generationSpeed: number | null,
   duration: number | null = null,
   contentType: string | null = null,
+  expectedPlaybackSeconds: number | null = null,
 ) {
   const playbackLabel = `${playbackRate.toFixed(2)}x playback`;
   const durationLabel =
     typeof duration === "number" && Number.isFinite(duration)
       ? `, ${duration.toFixed(1)}s audio`
+      : "";
+  const expectedLabel =
+    typeof expectedPlaybackSeconds === "number" &&
+    Number.isFinite(expectedPlaybackSeconds)
+      ? `, ~${expectedPlaybackSeconds.toFixed(1)}s played`
       : "";
   const formatLabel = contentType?.includes("wav")
     ? ", WAV"
@@ -879,10 +874,10 @@ function speechPlaybackStatus(
       : "";
 
   if (!generationSpeed) {
-    return `Speaking (${playbackLabel}${durationLabel}${formatLabel})...`;
+    return `Speaking (${playbackLabel}${durationLabel}${expectedLabel}${formatLabel})...`;
   }
 
-  return `Speaking (${playbackLabel}, ${generationSpeed.toFixed(2)}x voice${durationLabel}${formatLabel})...`;
+  return `Speaking (${playbackLabel}, ${generationSpeed.toFixed(2)}x voice${durationLabel}${expectedLabel}${formatLabel})...`;
 }
 
 function lastMessageId(messages: AssistantThreadMessage[]) {

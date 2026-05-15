@@ -151,6 +151,55 @@ function contentTypeForFormat(format: string) {
   return "audio/mpeg";
 }
 
+function fourCc(bytes: Uint8Array, offset: number) {
+  return String.fromCharCode(
+    bytes[offset] ?? 0,
+    bytes[offset + 1] ?? 0,
+    bytes[offset + 2] ?? 0,
+    bytes[offset + 3] ?? 0,
+  );
+}
+
+function normalizeWavHeader(audio: ArrayBuffer, format: string) {
+  if (format !== "wav" || audio.byteLength < 44) {
+    return audio;
+  }
+
+  const input = new Uint8Array(audio);
+
+  if (fourCc(input, 0) !== "RIFF" || fourCc(input, 8) !== "WAVE") {
+    return audio;
+  }
+
+  const output = new Uint8Array(audio.byteLength);
+
+  output.set(input);
+
+  const view = new DataView(output.buffer);
+
+  view.setUint32(4, Math.max(0, output.byteLength - 8), true);
+
+  let offset = 12;
+
+  while (offset + 8 <= output.byteLength) {
+    const chunkId = fourCc(output, offset);
+    const rawChunkSize = view.getUint32(offset + 4, true);
+
+    if (chunkId === "data") {
+      view.setUint32(offset + 4, Math.max(0, output.byteLength - offset - 8), true);
+      break;
+    }
+
+    if (rawChunkSize === 0xffffffff) {
+      break;
+    }
+
+    offset += 8 + rawChunkSize + (rawChunkSize % 2);
+  }
+
+  return output.buffer;
+}
+
 function toUsageEventRow(input: {
   costSnapshot: number;
   customerChargeSnapshot: number;
@@ -259,7 +308,7 @@ export async function synthesizeAssistantSpeech({
     );
   }
 
-  const audio = await response.arrayBuffer();
+  const audio = normalizeWavHeader(await response.arrayBuffer(), responseFormat);
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
   const unitCost = ttsUnitCostPerSecond(model);
   const markup = ttsMarkupRate();
