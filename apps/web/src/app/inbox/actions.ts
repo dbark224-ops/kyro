@@ -1,0 +1,1438 @@
+"use server";
+
+import { ingestManualConversationFollowUp } from "../../lib/inbound/follow-up";
+import {
+  getCommunicationSettings,
+  isOutboundChannel,
+} from "../../lib/communication/settings";
+import {
+  buildSignedEmailBody,
+  selectEmailSignature,
+} from "../../lib/communication/signatures";
+import {
+  recordOutboundMessage,
+  type OutboundAttachment,
+} from "../../lib/communication/outbound";
+import { runStubAiTriage, type InquiryFacts } from "../../lib/ai/triage";
+import {
+  approveAction,
+  executeAction,
+  insertAuditLog,
+} from "../../lib/engine/event-action-audit";
+import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
+const CONVERSATION_STATUSES = new Set([
+  "open",
+  "reply_drafted",
+  "replied",
+  "resolved",
+]);
+const URGENCY_OPTIONS = new Set(["low", "normal", "urgent"]);
+const FIT_OPTIONS = new Set(["likely_fit", "needs_review", "not_fit"]);
+const MAX_LOCAL_ATTACHMENT_COUNT = 5;
+const MAX_LOCAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+function formString(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function objectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function nullableText(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function titleCaseJobType(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim().replace(/\s+/g, " ");
+
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.replace(/[a-zA-Z][a-zA-Z'/-]*/g, (word) => {
+    if (word.length <= 4 && word === word.toUpperCase()) {
+      return word;
+    }
+
+    return word
+      .split(/([/-])/)
+      .map((part) =>
+        part === "/" || part === "-"
+          ? part
+          : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`,
+      )
+      .join("");
+  });
+}
+
+function parseMissingInfo(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+type EditableInquiryFacts = {
+  jobType: string | null;
+  address: string | null;
+  preferredTime: string | null;
+  urgency: "low" | "normal" | "urgent";
+  budget: string | null;
+  fit: "likely_fit" | "needs_review" | "not_fit";
+  missingInfo: string[];
+};
+
+function quoteLineItems(facts: EditableInquiryFacts) {
+  return [
+    {
+      description: facts.jobType ?? "Trade Service",
+      quantity: 1,
+      unit: "job",
+      unitPrice: null,
+      total: null,
+      notes: "Draft placeholder. Pricing to be confirmed by the user.",
+    },
+  ];
+}
+
+function quoteNotes(facts: EditableInquiryFacts) {
+  return [
+    facts.address ? `Job address: ${facts.address}` : null,
+    facts.preferredTime ? `Preferred time: ${facts.preferredTime}` : null,
+    facts.budget ? `Mentioned budget: ${facts.budget}` : null,
+    "Pricing is intentionally blank until the user confirms it.",
+  ].filter(Boolean);
+}
+
+function factsForJson(facts: EditableInquiryFacts) {
+  return {
+    address: facts.address,
+    budget: facts.budget,
+    fit: facts.fit,
+    jobType: facts.jobType,
+    missingInfo: facts.missingInfo,
+    preferredTime: facts.preferredTime,
+    urgency: facts.urgency,
+  };
+}
+
+function preview(value: string | null, maxLength = 120) {
+  if (!value) {
+    return "No message body.";
+  }
+
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function buildThreadSummary(
+  messages: Array<{
+    direction: unknown;
+    subject: unknown;
+    body_text: unknown;
+  }>,
+) {
+  return messages
+    .slice(-8)
+    .map((message, index) => {
+      const direction = String(message.direction);
+      const body = preview(
+        message.body_text
+          ? String(message.body_text)
+          : message.subject
+            ? String(message.subject)
+            : null,
+      );
+
+      return `${index + 1}. ${direction}: ${body}`;
+    })
+    .join("\n");
+}
+
+function toInquiryFacts(input: {
+  job_type: unknown;
+  address: unknown;
+  preferred_time: unknown;
+  urgency: unknown;
+  budget: unknown;
+  fit: unknown;
+  missing_info: unknown;
+}): InquiryFacts {
+  const urgency = String(input.urgency);
+  const fit = String(input.fit);
+
+  return {
+    address:
+      typeof input.address === "string" && input.address.trim()
+        ? input.address.trim()
+        : null,
+    budget:
+      typeof input.budget === "string" && input.budget.trim()
+        ? input.budget.trim()
+        : null,
+    fit: FIT_OPTIONS.has(fit) ? (fit as InquiryFacts["fit"]) : "needs_review",
+    jobType: titleCaseJobType(
+      typeof input.job_type === "string" && input.job_type.trim()
+        ? input.job_type.trim()
+        : null,
+    ),
+    missingInfo: Array.isArray(input.missing_info)
+      ? input.missing_info
+          .map((item) => (typeof item === "string" ? item.trim() : null))
+          .filter((item): item is string => Boolean(item))
+      : [],
+    preferredTime:
+      typeof input.preferred_time === "string" && input.preferred_time.trim()
+        ? input.preferred_time.trim()
+        : null,
+    urgency: URGENCY_OPTIONS.has(urgency)
+      ? (urgency as InquiryFacts["urgency"])
+      : "normal",
+  };
+}
+
+async function syncPendingActionFacts(
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"],
+  workspaceId: string,
+  conversationId: string,
+  facts: EditableInquiryFacts,
+  editedByUserId: string,
+) {
+  const { data: actions, error } = await supabase
+    .from("actions")
+    .select("id,type,input")
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "conversation")
+    .eq("target_id", conversationId)
+    .in("status", ["pending_approval", "approved"]);
+
+  if (error) {
+    throw new Error(`Unable to load actions for fact sync: ${error.message}`);
+  }
+
+  const factsJson = factsForJson(facts);
+  const editedAt = new Date().toISOString();
+
+  for (const action of actions ?? []) {
+    const input = objectRecord(action.input);
+    const nextInput: Record<string, unknown> = {
+      ...input,
+      inquiryFacts: factsJson,
+      inquiryFactsEditedAt: editedAt,
+      inquiryFactsEditedByUserId: editedByUserId,
+    };
+    const type = String(action.type);
+
+    if (type === "ask_missing_info") {
+      nextInput.missingInfo = facts.missingInfo;
+      nextInput.prompt = facts.missingInfo.length
+        ? `Ask customer for: ${facts.missingInfo.join(", ")}`
+        : "No missing information is currently flagged.";
+    }
+
+    if (type === "book_site_visit") {
+      nextInput.address = facts.address;
+      nextInput.preferredTime = facts.preferredTime;
+      nextInput.title = `Site visit for ${facts.jobType ?? "quote inquiry"}`;
+    }
+
+    if (type === "create_quote_draft") {
+      nextInput.quoteDraft = {
+        ...objectRecord(input.quoteDraft),
+        title: `${facts.jobType ?? "Trade Service"} quote draft`,
+        lineItems: quoteLineItems(facts),
+        notes: quoteNotes(facts),
+      };
+    }
+
+    if (type === "schedule_follow_up") {
+      nextInput.reason = facts.missingInfo.length
+        ? `Waiting on ${facts.missingInfo.join(", ")}.`
+        : "Follow up based on the corrected inquiry facts.";
+    }
+
+    const { error: updateError } = await supabase
+      .from("actions")
+      .update({
+        input: nextInput,
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("id", action.id);
+
+    if (updateError) {
+      throw new Error(`Unable to sync action facts: ${updateError.message}`);
+    }
+  }
+}
+
+async function cancelStalePlanActions(
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"],
+  workspaceId: string,
+  userId: string,
+  conversationId: string,
+  leadId?: string | null,
+) {
+  const now = new Date().toISOString();
+  const { data: conversationActions, error } = await supabase
+    .from("actions")
+    .update({
+      status: "cancelled",
+      result: {
+        cancelledReason: "user_corrected_facts_regenerated",
+        cancelledAt: now,
+      },
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "conversation")
+    .eq("target_id", conversationId)
+    .in("type", [
+      "draft_reply",
+      "ask_missing_info",
+      "book_site_visit",
+      "create_quote_draft",
+      "schedule_follow_up",
+    ])
+    .in("status", ["pending_approval", "approved"])
+    .select("id,type,status,target_type,target_id");
+
+  if (error) {
+    throw new Error(`Unable to cancel stale actions: ${error.message}`);
+  }
+
+  const cancelledActions = [...(conversationActions ?? [])];
+
+  if (leadId) {
+    const { data: leadActions, error: leadError } = await supabase
+      .from("actions")
+      .update({
+        status: "cancelled",
+        result: {
+          cancelledReason: "user_corrected_facts_regenerated",
+          cancelledAt: now,
+        },
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "lead")
+      .eq("target_id", leadId)
+      .eq("type", "mark_not_fit")
+      .in("status", ["pending_approval", "approved"])
+      .select("id,type,status,target_type,target_id");
+
+    if (leadError) {
+      throw new Error(
+        `Unable to cancel stale lead actions: ${leadError.message}`,
+      );
+    }
+
+    cancelledActions.push(...(leadActions ?? []));
+  }
+
+  for (const action of cancelledActions ?? []) {
+    await insertAuditLog(supabase, {
+      workspaceId,
+      actorType: "user",
+      actorId: userId,
+      action: "action.cancelled_due_to_fact_regeneration",
+      entityType: "action",
+      entityId: String(action.id),
+      after: {
+        type: action.type,
+        status: "cancelled",
+      },
+      metadata: {
+        conversationId,
+        previousTargetId: action.target_id,
+        previousTargetType: action.target_type,
+      },
+    });
+  }
+
+  return cancelledActions.length;
+}
+
+function conversationPath(conversationId: string) {
+  return `/inbox/${encodeURIComponent(conversationId)}`;
+}
+
+function safeRedirectPath(value: string, fallback: string) {
+  return value.startsWith("/") && !value.startsWith("//") ? value : fallback;
+}
+
+function redirectWithConversationMessage(
+  conversationId: string,
+  key: "engine_error" | "engine_message",
+  message: string,
+  redirectTo?: string,
+): never {
+  const target = safeRedirectPath(
+    redirectTo ?? "",
+    conversationPath(conversationId),
+  );
+  const separator = target.includes("?") ? "&" : "?";
+
+  redirect(`${target}${separator}${key}=${encodeURIComponent(message)}`);
+}
+
+function isUploadFile(value: FormDataEntryValue): value is File {
+  if (typeof value !== "object" || !value) {
+    return false;
+  }
+
+  const maybeFile = value as {
+    arrayBuffer?: unknown;
+    name?: unknown;
+    size?: unknown;
+    type?: unknown;
+  };
+
+  return (
+    typeof maybeFile.arrayBuffer === "function" &&
+    typeof maybeFile.name === "string" &&
+    typeof maybeFile.size === "number"
+  );
+}
+
+async function readLocalAttachments(
+  formData: FormData,
+  conversationId: string,
+  redirectTo: string,
+) {
+  const uploads = formData
+    .getAll("localAttachments")
+    .filter(isUploadFile)
+    .filter((file) => file.name.trim() && file.size > 0);
+
+  if (uploads.length > MAX_LOCAL_ATTACHMENT_COUNT) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      `Attach up to ${MAX_LOCAL_ATTACHMENT_COUNT} local files at a time.`,
+      redirectTo,
+    );
+  }
+
+  const totalBytes = uploads.reduce((sum, file) => sum + file.size, 0);
+
+  if (totalBytes > MAX_LOCAL_ATTACHMENT_BYTES) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Local attachments are limited to 10 MB total for now.",
+      redirectTo,
+    );
+  }
+
+  const attachments: OutboundAttachment[] = [];
+
+  for (const file of uploads) {
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    attachments.push({
+      contentBase64: buffer.toString("base64"),
+      contentType: file.type || "application/octet-stream",
+      filename: file.name,
+      sizeBytes: buffer.byteLength,
+      source: "local_upload",
+    });
+  }
+
+  return attachments;
+}
+
+export async function updateInquiryFactsAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const urgency = formString(formData, "urgency") || "normal";
+  const fit = formString(formData, "fit") || "needs_review";
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  if (!URGENCY_OPTIONS.has(urgency)) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Urgency is invalid.",
+    );
+  }
+
+  if (!FIT_OPTIONS.has(fit)) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Lead suitability is invalid.",
+    );
+  }
+
+  const facts: EditableInquiryFacts = {
+    address: nullableText(formString(formData, "address")),
+    budget: nullableText(formString(formData, "budget")),
+    fit: fit as EditableInquiryFacts["fit"],
+    jobType: titleCaseJobType(nullableText(formString(formData, "jobType"))),
+    missingInfo: parseMissingInfo(formString(formData, "missingInfo")),
+    preferredTime: nullableText(formString(formData, "preferredTime")),
+    urgency: urgency as EditableInquiryFacts["urgency"],
+  };
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: conversation, error: conversationError } = await supabase
+    .from("conversations")
+    .select("id,contact_id,lead_id")
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (conversationError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      conversationError.message,
+    );
+  }
+
+  if (!conversation) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Conversation was not found.",
+    );
+  }
+
+  const { data: beforeFacts, error: beforeError } = await supabase
+    .from("inquiry_facts")
+    .select("*")
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      beforeError.message,
+    );
+  }
+
+  const { data: savedFacts, error: saveError } = await supabase
+    .from("inquiry_facts")
+    .upsert(
+      {
+        workspace_id: workspace.id,
+        conversation_id: conversationId,
+        contact_id: conversation.contact_id ?? null,
+        lead_id: conversation.lead_id ?? null,
+        job_type: facts.jobType,
+        address: facts.address,
+        preferred_time: facts.preferredTime,
+        urgency: facts.urgency,
+        budget: facts.budget,
+        fit: facts.fit,
+        missing_info: facts.missingInfo,
+        source: "user_edit",
+        edited_by_user_id: user.id,
+        metadata: {
+          editedFrom: beforeFacts ? "existing_facts" : "manual_entry",
+        },
+      },
+      {
+        onConflict: "workspace_id,conversation_id",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedFacts) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      saveError?.message ?? "Unable to save inquiry facts.",
+    );
+  }
+
+  try {
+    await syncPendingActionFacts(
+      supabase,
+      workspace.id,
+      conversationId,
+      facts,
+      user.id,
+    );
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error ? error.message : "Unable to sync action facts.",
+    );
+  }
+
+  if (conversation.lead_id && facts.jobType) {
+    const { error: leadUpdateError } = await supabase
+      .from("leads")
+      .update({
+        service_type: facts.jobType,
+      })
+      .eq("workspace_id", workspace.id)
+      .eq("id", conversation.lead_id);
+
+    if (leadUpdateError) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        leadUpdateError.message,
+      );
+    }
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "inquiry_facts.updated",
+    entityType: "inquiry_facts",
+    entityId: String(savedFacts.id),
+    before: beforeFacts ? objectRecord(beforeFacts) : null,
+    after: {
+      conversationId,
+      inquiryFacts: factsForJson(facts),
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Inquiry facts saved.",
+  );
+}
+
+export async function regenerateAiPlanAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: conversation, error: conversationError } = await supabase
+    .from("conversations")
+    .select("id,contact_id,lead_id")
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (conversationError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      conversationError.message,
+    );
+  }
+
+  if (!conversation) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Conversation was not found.",
+    );
+  }
+
+  const { data: factsRecord, error: factsError } = await supabase
+    .from("inquiry_facts")
+    .select("job_type,address,preferred_time,urgency,budget,fit,missing_info")
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .maybeSingle();
+
+  if (factsError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      factsError.message,
+    );
+  }
+
+  if (!factsRecord) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Save the inquiry facts before regenerating the plan.",
+    );
+  }
+
+  const inquiryFacts = toInquiryFacts(factsRecord);
+  const { data: threadMessages, error: threadError } = await supabase
+    .from("messages")
+    .select("direction,subject,body_text")
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true });
+
+  if (threadError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      threadError.message,
+    );
+  }
+
+  let cancelledCount = 0;
+
+  try {
+    cancelledCount = await cancelStalePlanActions(
+      supabase,
+      workspace.id,
+      user.id,
+      conversationId,
+      conversation.lead_id ? String(conversation.lead_id) : null,
+    );
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to cancel stale actions.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "ai_plan.regeneration_requested",
+    entityType: "conversation",
+    entityId: conversationId,
+    after: {
+      cancelledActionCount: cancelledCount,
+      inquiryFacts: factsForJson(inquiryFacts),
+    },
+  });
+
+  try {
+    await runStubAiTriage(supabase, user, workspace.id, {
+      source: "user_corrected_facts",
+      contactId: conversation.contact_id
+        ? String(conversation.contact_id)
+        : undefined,
+      leadId: conversation.lead_id ? String(conversation.lead_id) : undefined,
+      conversationId,
+      leadTitle: inquiryFacts.jobType ?? undefined,
+      serviceType: inquiryFacts.jobType,
+      contactAddress: inquiryFacts.address,
+      summary: `Regenerate plan from user-corrected inquiry facts for ${
+        inquiryFacts.jobType ?? "general inquiry"
+      }.`,
+      threadMessageCount: threadMessages?.length ?? 0,
+      threadSummary: buildThreadSummary(threadMessages ?? []),
+      inquiryFactsOverride: inquiryFacts,
+    });
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error ? error.message : "Unable to regenerate AI plan.",
+    );
+  }
+
+  revalidatePath("/");
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "AI plan regenerated from corrected facts.",
+  );
+}
+
+export async function updateDraftReplyAction(formData: FormData) {
+  const actionId = formString(formData, "actionId");
+  const conversationId = formString(formData, "conversationId");
+  const subject = formString(formData, "subject") || "Thanks for reaching out";
+  const body = formString(formData, "body");
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationPath(conversationId),
+  );
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  if (!actionId) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Action id is required.",
+      redirectTo,
+    );
+  }
+
+  if (!body) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Reply body is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: action, error: loadError } = await supabase
+    .from("actions")
+    .select("id,type,status,input,target_type,target_id")
+    .eq("workspace_id", workspace.id)
+    .eq("id", actionId)
+    .maybeSingle();
+
+  if (loadError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      loadError.message,
+      redirectTo,
+    );
+  }
+
+  if (!action) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Draft reply action was not found.",
+      redirectTo,
+    );
+  }
+
+  if (
+    String(action.type) !== "draft_reply" ||
+    String(action.target_type) !== "conversation" ||
+    String(action.target_id) !== conversationId
+  ) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "That action is not attached to this conversation.",
+      redirectTo,
+    );
+  }
+
+  if (String(action.status) !== "pending_approval") {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Only pending draft replies can be edited.",
+      redirectTo,
+    );
+  }
+
+  const before = objectRecord(action.input);
+  const subjectChanged =
+    (textValue(before.subject) ?? "Thanks for reaching out") !== subject;
+  const bodyChanged = (textValue(before.body) ?? "") !== body;
+  const userEditedDraft =
+    Boolean(before.userEditedDraft) ||
+    Boolean(before.editedByUserId) ||
+    subjectChanged ||
+    bodyChanged;
+  const after = {
+    ...before,
+    subject,
+    body,
+    dryRun: true,
+    userEditedDraft,
+    ...(userEditedDraft
+      ? {
+          editedAt: new Date().toISOString(),
+          editedByUserId: user.id,
+        }
+      : {}),
+  };
+
+  const { error: updateError } = await supabase
+    .from("actions")
+    .update({
+      input: after,
+    })
+    .eq("workspace_id", workspace.id)
+    .eq("id", actionId);
+
+  if (updateError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      updateError.message,
+      redirectTo,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "draft_reply.updated",
+    entityType: "action",
+    entityId: actionId,
+    before: {
+      input: before,
+    },
+    after: {
+      input: after,
+    },
+    metadata: {
+      conversationId,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Draft reply saved.",
+    redirectTo,
+  );
+}
+
+export async function sendDraftReplyAction(formData: FormData) {
+  const actionId = formString(formData, "actionId");
+  const conversationId = formString(formData, "conversationId");
+  const subject = formString(formData, "subject") || "Thanks for reaching out";
+  const body = formString(formData, "body");
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationPath(conversationId),
+  );
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  if (!actionId) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Action id is required.",
+      redirectTo,
+    );
+  }
+
+  if (!body) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Reply body is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: action, error: loadError } = await supabase
+    .from("actions")
+    .select("id,type,status,input,target_type,target_id")
+    .eq("workspace_id", workspace.id)
+    .eq("id", actionId)
+    .maybeSingle();
+
+  if (loadError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      loadError.message,
+      redirectTo,
+    );
+  }
+
+  if (!action) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Draft reply action was not found.",
+      redirectTo,
+    );
+  }
+
+  if (
+    String(action.type) !== "draft_reply" ||
+    String(action.target_type) !== "conversation" ||
+    String(action.target_id) !== conversationId
+  ) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "That action is not attached to this conversation.",
+      redirectTo,
+    );
+  }
+
+  if (String(action.status) !== "pending_approval") {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Only pending generated replies can be edited and sent from this form.",
+      redirectTo,
+    );
+  }
+
+  const before = objectRecord(action.input);
+  const subjectChanged =
+    (textValue(before.subject) ?? "Thanks for reaching out") !== subject;
+  const bodyChanged = (textValue(before.body) ?? "") !== body;
+  const userEditedDraft =
+    Boolean(before.userEditedDraft) ||
+    Boolean(before.editedByUserId) ||
+    subjectChanged ||
+    bodyChanged;
+  const signatureVariant = userEditedDraft ? "manual" : "ai_generated";
+  const after = {
+    ...before,
+    subject,
+    body,
+    gmailExternalSendEnabled: true,
+    settingsSnapshot: {
+      ...objectRecord(before.settingsSnapshot),
+      signatureVariant,
+      userEditedDraft,
+    },
+    signatureVariant,
+    userEditedDraft,
+    ...(userEditedDraft
+      ? {
+          editedAt: new Date().toISOString(),
+          editedByUserId: user.id,
+        }
+      : {}),
+  };
+
+  const { error: updateError } = await supabase
+    .from("actions")
+    .update({
+      input: after,
+    })
+    .eq("workspace_id", workspace.id)
+    .eq("id", actionId);
+
+  if (updateError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      updateError.message,
+      redirectTo,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "draft_reply.updated",
+    entityType: "action",
+    entityId: actionId,
+    before: {
+      input: before,
+    },
+    after: {
+      input: after,
+    },
+    metadata: {
+      conversationId,
+      source: "send_generated_reply",
+    },
+  });
+
+  try {
+    await approveAction(supabase, user, actionId);
+    await executeAction(supabase, user, actionId);
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error ? error.message : "Unable to send generated reply.",
+      redirectTo,
+    );
+  }
+
+  revalidatePath("/");
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Generated reply sent.",
+    redirectTo,
+  );
+}
+
+export async function createMockOutboundMessageAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const channelType = formString(formData, "channelType");
+  const subject = nullableText(formString(formData, "subject"));
+  const body = formString(formData, "body");
+  const attachmentQuoteDraftId = nullableText(
+    formString(formData, "attachmentQuoteDraftId"),
+  );
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationPath(conversationId),
+  );
+
+  if (!isOutboundChannel(channelType)) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Outbound channel is invalid.",
+      redirectTo,
+    );
+  }
+
+  if (!body) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Outbound message body is required.",
+      redirectTo,
+    );
+  }
+
+  const localAttachments = await readLocalAttachments(
+    formData,
+    conversationId,
+    redirectTo,
+  );
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const settings = await getCommunicationSettings(supabase, workspace.id);
+
+  if (!settings.allowedChannels.includes(channelType)) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      `${channelType.toUpperCase()} is disabled in communication settings.`,
+      redirectTo,
+    );
+  }
+
+  const { data: conversation, error: conversationError } = await supabase
+    .from("conversations")
+    .select("id,contact_id,lead_id")
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (conversationError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      conversationError.message,
+      redirectTo,
+    );
+  }
+
+  if (!conversation) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Conversation was not found.",
+      redirectTo,
+    );
+  }
+
+  if (attachmentQuoteDraftId) {
+    const { data: quoteDraft, error: quoteDraftError } = await supabase
+      .from("quote_drafts")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("conversation_id", conversationId)
+      .eq("id", attachmentQuoteDraftId)
+      .maybeSingle();
+
+    if (quoteDraftError) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        quoteDraftError.message,
+        redirectTo,
+      );
+    }
+
+    if (!quoteDraft) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        "That quote draft is not attached to this conversation.",
+        redirectTo,
+      );
+    }
+  }
+
+  const signature = selectEmailSignature(settings, "manual");
+  const signedBody = buildSignedEmailBody({ body, signature });
+  const settingsSnapshot = {
+    approvalRequired: settings.approvalRequired,
+    approvalSatisfiedBy: "manual_user_send",
+    allowedChannels: settings.allowedChannels,
+    defaultTone: settings.defaultTone,
+    gmailExternalSendEnabled: channelType === "email",
+    localAttachmentCount: localAttachments.length,
+    signatureApplied: signedBody.signatureApplied,
+    signatureVariant: "manual",
+  };
+
+  let outboundResult: Awaited<ReturnType<typeof recordOutboundMessage>>;
+
+  try {
+    outboundResult = await recordOutboundMessage(supabase, {
+      workspaceId: workspace.id,
+      userId: user.id,
+      conversationId,
+      channelType,
+      subject,
+      body: signedBody.bodyText,
+      htmlBody: signedBody.htmlBody,
+      attachmentQuoteDraftId,
+      attachments: [...signedBody.inlineAttachments, ...localAttachments],
+      source: "composer.outbound",
+      settingsSnapshot,
+    });
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to send outbound message.",
+      redirectTo,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "system",
+    action: outboundResult.externalSend
+      ? "message.outbound_sent"
+      : "message.outbound_dry_run_recorded",
+    entityType: "message",
+    entityId: outboundResult.outboundMessageId,
+    before: {
+      conversationStatus: outboundResult.previousConversationStatus,
+    },
+    after: {
+      attachmentQuoteDraftId: outboundResult.attachmentQuoteDraftId,
+      channelType: outboundResult.channelType,
+      conversationId: outboundResult.conversationId,
+      direction: "outbound",
+      dryRun: outboundResult.dryRun,
+      externalMessageId: outboundResult.externalMessageId,
+      externalSend: outboundResult.externalSend,
+      attachments: outboundResult.attachments,
+      sentTo: outboundResult.sentTo,
+      subject: outboundResult.subject,
+    },
+    metadata: {
+      requestedByUserId: user.id,
+      source: "composer.outbound",
+    },
+  });
+
+  if (
+    outboundResult.attachmentQuoteDraftId &&
+    outboundResult.quoteDraftStatusAfter
+  ) {
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "system",
+      action: outboundResult.externalSend
+        ? "quote_draft.sent_external"
+        : "quote_draft.sent_dry_run",
+      entityType: "quote_draft",
+      entityId: outboundResult.attachmentQuoteDraftId,
+      before: {
+        status: outboundResult.quoteDraftStatusBefore,
+      },
+      after: {
+        status: outboundResult.quoteDraftStatusAfter,
+        channelType: outboundResult.channelType,
+        conversationId: outboundResult.conversationId,
+        dryRun: outboundResult.dryRun,
+        externalMessageId: outboundResult.externalMessageId,
+        externalSend: outboundResult.externalSend,
+        outboundMessageId: outboundResult.outboundMessageId,
+      },
+      metadata: {
+        requestedByUserId: user.id,
+        source: "composer.outbound",
+      },
+    });
+  }
+
+  revalidatePath("/");
+  revalidatePath("/inbox");
+  revalidatePath("/documents");
+  if (outboundResult.attachmentQuoteDraftId) {
+    revalidatePath(`/documents/${outboundResult.attachmentQuoteDraftId}`);
+  }
+  revalidatePath(conversationPath(conversationId));
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    outboundResult.externalSend
+      ? "Reply sent and recorded in the thread."
+      : "Outbound message recorded in the thread.",
+    redirectTo,
+  );
+}
+
+export async function updateConversationStatusAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const status = formString(formData, "status");
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  if (!CONVERSATION_STATUSES.has(status)) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Conversation status is invalid.",
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: conversation, error: loadError } = await supabase
+    .from("conversations")
+    .select("id,status")
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (loadError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      loadError.message,
+    );
+  }
+
+  if (!conversation) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Conversation was not found.",
+    );
+  }
+
+  const beforeStatus = String(conversation.status);
+  const { error: updateError } = await supabase
+    .from("conversations")
+    .update({
+      status,
+    })
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId);
+
+  if (updateError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      updateError.message,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "conversation.status_updated",
+    entityType: "conversation",
+    entityId: conversationId,
+    before: {
+      status: beforeStatus,
+    },
+    after: {
+      status,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Conversation status updated.",
+  );
+}
+
+export async function createManualFollowUpAction(formData: FormData) {
+  const submissionKey = formString(formData, "submissionKey");
+  const conversationId = formString(formData, "conversationId");
+  const message = formString(formData, "message");
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  if (!message) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Follow-up message is required.",
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let wasDuplicate = false;
+
+  try {
+    const result = await ingestManualConversationFollowUp(
+      supabase,
+      user,
+      workspace.id,
+      {
+        submissionKey,
+        conversationId,
+        message,
+      },
+    );
+    wasDuplicate = Boolean(result.duplicate);
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to ingest follow-up message.",
+    );
+  }
+
+  revalidatePath("/");
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    wasDuplicate
+      ? "Duplicate follow-up ignored. The first message was already recorded."
+      : "Follow-up message recorded and triaged.",
+  );
+}

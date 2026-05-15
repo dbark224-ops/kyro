@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1778304788273,
+      "tag": "20260509053308_initial_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778304800653,
+      "tag": "20260509053320_tenant_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778388472345,
+      "tag": "20260510044752_contact_profile_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778393482662,
+      "tag": "20260510061122_quote_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778398276375,
+      "tag": "20260510073116_inquiry_facts",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778613355852,
+      "tag": "20260512191555_assistant_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778702780005,
+      "tag": "20260513200620_google_integrations",
+      "breakpoints": true
+    }
+  ]
+}

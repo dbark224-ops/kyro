@@ -1,0 +1,1082 @@
+import { AppFrame } from "../components/app-frame";
+import {
+  getConversationList,
+  getConversationReview,
+  type ConversationReview,
+} from "../../lib/crm/queries";
+import {
+  OUTBOUND_CHANNELS,
+  getCommunicationSettings,
+} from "../../lib/communication/settings";
+import { requireWorkspaceContext } from "../../lib/workspace/context";
+import {
+  createMockOutboundMessageAction,
+  sendDraftReplyAction,
+  updateDraftReplyAction,
+} from "./actions";
+import {
+  approveAndExecuteDashboardAction,
+  approveDashboardAction,
+  executeDashboardAction,
+} from "../engine/actions";
+import Link from "next/link";
+import type { ReactNode } from "react";
+
+type CommunicationSettings = Awaited<
+  ReturnType<typeof getCommunicationSettings>
+>;
+
+export const dynamic = "force-dynamic";
+
+type InboxPageProps = {
+  searchParams?: Promise<{
+    filter?: string;
+    conversationId?: string;
+    q?: string;
+    sort?: string;
+  }>;
+};
+
+const FILTERS = [
+  { value: "all", label: "All" },
+  { value: "needs_reply", label: "Needs reply" },
+  { value: "missing_info", label: "Missing info" },
+  { value: "ready_to_quote", label: "Ready to quote" },
+  { value: "site_visit_needed", label: "Site visit needed" },
+  { value: "awaiting_customer", label: "Awaiting customer" },
+  { value: "resolved", label: "Resolved" },
+  { value: "needs_review", label: "Needs review" },
+  { value: "needs_approval", label: "Needs approval" },
+] as const;
+
+const SORT_OPTIONS = [
+  { value: "recent", label: "Most recent" },
+  { value: "urgent", label: "Urgent first" },
+  { value: "action", label: "Next action" },
+  { value: "customer", label: "Customer" },
+] as const;
+
+const WORKFLOW_RANK: Record<string, number> = {
+  needs_reply: 1,
+  missing_info: 2,
+  site_visit_needed: 3,
+  ready_to_quote: 4,
+  needs_review: 5,
+  awaiting_customer: 6,
+  open: 7,
+  resolved: 8,
+};
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "No messages";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(new Date(value));
+}
+
+function formatLabel(value: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  return value
+    .split("_")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function isFilter(
+  value: string | undefined,
+): value is (typeof FILTERS)[number]["value"] {
+  return FILTERS.some((filter) => filter.value === value);
+}
+
+function isSort(
+  value: string | undefined,
+): value is (typeof SORT_OPTIONS)[number]["value"] {
+  return SORT_OPTIONS.some((sort) => sort.value === value);
+}
+
+function inboxHref({
+  conversationId,
+  filter,
+  query,
+  sort,
+}: {
+  conversationId?: string | null;
+  filter: string;
+  query: string;
+  sort: string;
+}) {
+  const params = new URLSearchParams();
+
+  if (filter !== "all") {
+    params.set("filter", filter);
+  }
+
+  if (conversationId) {
+    params.set("conversationId", conversationId);
+  }
+
+  if (query) {
+    params.set("q", query);
+  }
+
+  if (sort !== "recent") {
+    params.set("sort", sort);
+  }
+
+  const nextQuery = params.toString();
+
+  return nextQuery ? `/inbox?${nextQuery}` : "/inbox";
+}
+
+function filterHref(
+  filter: string,
+  query: string,
+  sort: string,
+  conversationId?: string | null,
+) {
+  return inboxHref({ conversationId, filter, query, sort });
+}
+
+function dateValue(value: string | null) {
+  return value ? new Date(value).getTime() : 0;
+}
+
+function conversationSearchText(
+  conversation: Awaited<ReturnType<typeof getConversationList>>[number],
+) {
+  return [
+    conversation.contactName,
+    conversation.leadTitle,
+    conversation.leadNextStep,
+    conversation.leadServiceType,
+    conversation.latestSubject,
+    conversation.latestBody,
+    conversation.nextActionLabel,
+    conversation.status,
+    conversation.workflowBucket,
+    conversation.inquiryFacts?.jobType,
+    conversation.inquiryFacts?.address,
+    conversation.inquiryFacts?.preferredTime,
+    conversation.inquiryFacts?.urgency,
+    conversation.inquiryFacts?.fit,
+    conversation.inquiryFacts?.missingInfo.join(" "),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function workflowRank(value: string) {
+  return WORKFLOW_RANK[value] ?? 99;
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function arrayValue(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValues(value: unknown) {
+  return arrayValue(value)
+    .map((item) => textValue(item))
+    .filter((item): item is string => Boolean(item));
+}
+
+function channelLabel(
+  channelType: string | null,
+  channelDisplayName: string | null,
+) {
+  if (channelType === "manual_inbound") {
+    return "Manual";
+  }
+
+  if (channelType === "sms") {
+    return "SMS";
+  }
+
+  if (channelType === "phone") {
+    return "Phone";
+  }
+
+  if (channelType === "email") {
+    return "Email";
+  }
+
+  return channelDisplayName ?? formatLabel(channelType);
+}
+
+function previewActionTitle(action: ConversationReview["actions"][number]) {
+  if (action.type === "draft_reply") {
+    return "Draft Reply";
+  }
+
+  if (action.type === "send_outbound_message") {
+    return "Outbound Reply";
+  }
+
+  if (action.type === "create_quote_draft") {
+    return "Quote Draft";
+  }
+
+  if (action.type === "book_site_visit") {
+    return "Site Visit";
+  }
+
+  if (action.type === "mark_not_fit") {
+    return "Mark Not Fit";
+  }
+
+  return formatLabel(action.type);
+}
+
+function previewActionSummary(action: ConversationReview["actions"][number]) {
+  const body =
+    textValue(action.input.body) ??
+    textValue(action.input.replyBody) ??
+    textValue(action.input.message);
+  const subject = textValue(action.input.subject);
+  const missingInfo = stringValues(action.input.missingInfo);
+  const quoteDraft = action.input.quoteDraft;
+  const quoteTitle =
+    quoteDraft && typeof quoteDraft === "object" && !Array.isArray(quoteDraft)
+      ? textValue((quoteDraft as Record<string, unknown>).title)
+      : null;
+
+  if (subject && body) {
+    return `${subject}: ${body}`;
+  }
+
+  if (body) {
+    return body;
+  }
+
+  if (quoteTitle) {
+    return quoteTitle;
+  }
+
+  if (missingInfo.length > 0) {
+    return `Missing: ${missingInfo.join(", ")}`;
+  }
+
+  return "Ready for review.";
+}
+
+function previewActionExecuteLabel(
+  action: ConversationReview["actions"][number],
+) {
+  if (action.type === "draft_reply") {
+    return "Send generated reply";
+  }
+
+  if (action.type === "send_outbound_message") {
+    return "Send reply";
+  }
+
+  if (action.type === "create_quote_draft") {
+    return "Create draft";
+  }
+
+  return "Execute";
+}
+
+function isReplySendAction(action: ConversationReview["actions"][number]) {
+  return action.type === "draft_reply" || action.type === "send_outbound_message";
+}
+
+function shouldShowPreviewAction(
+  action: ConversationReview["actions"][number],
+) {
+  return !["ask_missing_info", "schedule_follow_up"].includes(action.type);
+}
+
+function isActionablePreviewAction(
+  action: ConversationReview["actions"][number],
+) {
+  return (
+    shouldShowPreviewAction(action) &&
+    ["approved", "pending_approval"].includes(action.status)
+  );
+}
+
+function InboxActionControls({
+  action,
+  redirectTo,
+}: {
+  action: ConversationReview["actions"][number];
+  redirectTo: string;
+}) {
+  return (
+    <div className="action-button-row">
+      {action.status === "pending_approval" ? (
+        <form
+          action={
+            isReplySendAction(action)
+              ? approveAndExecuteDashboardAction
+              : approveDashboardAction
+          }
+        >
+          <input name="actionId" type="hidden" value={action.id} />
+          <input name="redirectTo" type="hidden" value={redirectTo} />
+          <button
+            className={
+              isReplySendAction(action)
+                ? "primary-button compact"
+                : "secondary-button compact"
+            }
+            type="submit"
+          >
+            {isReplySendAction(action)
+              ? previewActionExecuteLabel(action)
+              : "Approve"}
+          </button>
+        </form>
+      ) : null}
+      {action.status === "approved" ? (
+        <form action={executeDashboardAction}>
+          <input name="actionId" type="hidden" value={action.id} />
+          <input name="redirectTo" type="hidden" value={redirectTo} />
+          <button className="secondary-button compact" type="submit">
+            {previewActionExecuteLabel(action)}
+          </button>
+        </form>
+      ) : null}
+      {action.status === "completed" ? (
+        <span className="pill">Completed</span>
+      ) : null}
+      {action.status === "cancelled" ? (
+        <span className="pill warning">Cancelled</span>
+      ) : null}
+    </div>
+  );
+}
+
+function InboxDraftReplyAction({
+  action,
+  conversationId,
+  redirectTo,
+}: {
+  action: ConversationReview["actions"][number];
+  conversationId: string;
+  redirectTo: string;
+}) {
+  const canEdit = action.status === "pending_approval";
+  const draftSubject = textValue(action.input.subject) ?? "Thanks for reaching out";
+  const draftBody = textValue(action.input.body) ?? "";
+
+  return (
+    <article className="assistant-preview-row draft-reply-inline-card">
+      <form
+        action={canEdit ? sendDraftReplyAction : executeDashboardAction}
+        className="draft-reply-form"
+      >
+        <input name="actionId" type="hidden" value={action.id} />
+        <input name="conversationId" type="hidden" value={conversationId} />
+        <input name="redirectTo" type="hidden" value={redirectTo} />
+        <div className="draft-reply-header compact-header">
+          <div>
+            <strong>Generated reply</strong>
+            <span>
+              {formatLabel(action.status)} - {formatDate(action.createdAt)}
+            </span>
+          </div>
+          <span className="pill">AI draft</span>
+        </div>
+        <label>
+          Subject
+          <input
+            defaultValue={draftSubject}
+            name="subject"
+            readOnly={!canEdit}
+            type="text"
+          />
+        </label>
+        <label>
+          Reply
+          <textarea defaultValue={draftBody} name="body" readOnly={!canEdit} />
+        </label>
+        <div className="action-button-row">
+          {canEdit ? (
+            <button
+              className="secondary-button compact"
+              formAction={updateDraftReplyAction}
+              type="submit"
+            >
+              Save edits
+            </button>
+          ) : null}
+          <button className="primary-button compact" type="submit">
+            {action.status === "completed" ? "Completed" : "Send generated reply"}
+          </button>
+        </div>
+      </form>
+    </article>
+  );
+}
+
+function InboxPreviewFacts({
+  facts,
+}: {
+  facts: Array<[label: string, value: string | null]>;
+}) {
+  return (
+    <div className="assistant-preview-facts">
+      {facts.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{value || "-"}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InboxPreviewPanel({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <section className="assistant-preview-panel">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function preferredReplyChannel(
+  profile: ConversationReview,
+  settings: CommunicationSettings,
+) {
+  if (profile.contact?.email && settings.allowedChannels.includes("email")) {
+    return "email";
+  }
+
+  if (profile.contact?.phone && settings.allowedChannels.includes("sms")) {
+    return "sms";
+  }
+
+  return settings.allowedChannels[0] ?? "email";
+}
+
+function defaultReplySubject(profile: ConversationReview) {
+  const messageSubject = profile.messages.find((message) =>
+    Boolean(message.subject),
+  )?.subject;
+  const subject =
+    messageSubject ?? profile.lead?.title ?? "Thanks for reaching out";
+
+  return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
+}
+
+function InboxManualReplyComposer({
+  profile,
+  redirectTo,
+  settings,
+}: {
+  profile: ConversationReview;
+  redirectTo: string;
+  settings: CommunicationSettings;
+}) {
+  const defaultChannel = preferredReplyChannel(profile, settings);
+  const defaultSubject = defaultReplySubject(profile);
+
+  return (
+    <InboxPreviewPanel title="Manual reply">
+      <form
+        action={createMockOutboundMessageAction}
+        className="outbound-composer-form inbox-preview-composer"
+        encType="multipart/form-data"
+      >
+        <input
+          name="conversationId"
+          type="hidden"
+          value={profile.conversation.id}
+        />
+        <input name="redirectTo" type="hidden" value={redirectTo} />
+        <div className="mini-facts-grid">
+          <label>
+            <strong>Channel</strong>
+            <select defaultValue={defaultChannel} name="channelType">
+              {OUTBOUND_CHANNELS.map((channel) => (
+                <option
+                  disabled={!settings.allowedChannels.includes(channel)}
+                  key={channel}
+                  value={channel}
+                >
+                  {formatLabel(channel)}
+                  {settings.allowedChannels.includes(channel)
+                    ? ""
+                    : " disabled"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="attachment-field">
+            <strong>Attach</strong>
+            <div className="attachment-control-row">
+              <select
+                aria-label="Attach Kyro hosted file"
+                defaultValue=""
+                name="attachmentQuoteDraftId"
+              >
+                <option value="">No attachment</option>
+                {profile.quoteDrafts.map((quoteDraft) => (
+                  <option key={quoteDraft.id} value={quoteDraft.id}>
+                    {quoteDraft.title}
+                  </option>
+                ))}
+              </select>
+              <label
+                className="local-attachment-button"
+                title="Attach local files, up to 5 files and 10 MB total"
+              >
+                <input
+                  aria-label="Attach local files"
+                  multiple
+                  name="localAttachments"
+                  type="file"
+                />
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  width="18"
+                >
+                  <path
+                    d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                </svg>
+              </label>
+            </div>
+          </div>
+        </div>
+        <label>
+          Subject
+          <input defaultValue={defaultSubject} name="subject" type="text" />
+        </label>
+        <label>
+          Reply
+          <textarea
+            name="body"
+            placeholder="Type the reply you want recorded in this conversation..."
+            required
+          />
+        </label>
+        <div className="outbound-policy-strip">
+          <span>Email sends through Gmail; other channels are internal records</span>
+          <span>User-written replies send immediately</span>
+        </div>
+        <button className="primary-button compact" type="submit">
+          Send reply
+        </button>
+      </form>
+    </InboxPreviewPanel>
+  );
+}
+
+function InboxSplitPreview({
+  closeHref,
+  communicationSettings,
+  profile,
+  redirectTo,
+}: {
+  closeHref: string;
+  communicationSettings: CommunicationSettings;
+  profile: ConversationReview;
+  redirectTo: string;
+}) {
+  const title =
+    profile.lead?.title ??
+    profile.contact?.name ??
+    profile.messages[0]?.subject ??
+    "Conversation";
+  const visibleActions = profile.actions.filter(isActionablePreviewAction);
+  const recentMessages = profile.messages.slice(-6);
+  const latestMessage = [...profile.messages].sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  )[0];
+  const isAwaitingCustomer =
+    profile.conversation.status === "replied" ||
+    latestMessage?.direction === "outbound";
+  const leadNextStep = isAwaitingCustomer
+    ? "Awaiting customer"
+    : profile.lead?.nextStep;
+
+  return (
+    <section className="panel assistant-inline-preview inbox-inline-preview">
+      <header className="assistant-preview-header">
+        <div>
+          <p className="eyebrow">Message preview</p>
+          <h2>{title}</h2>
+        </div>
+        <div className="button-row">
+          <Link
+            className="secondary-button compact"
+            href={`/inbox/${profile.conversation.id}`}
+            prefetch={false}
+          >
+            Open full screen
+          </Link>
+          <Link
+            className="secondary-button compact"
+            href={closeHref}
+            prefetch={false}
+          >
+            Close
+          </Link>
+        </div>
+      </header>
+
+      <div className="assistant-preview-body">
+        <div className="assistant-preview-status-row">
+          <span className="pill">
+            {formatLabel(profile.conversation.status)}
+          </span>
+          <span>
+            Last message {formatDate(profile.conversation.lastMessageAt)}
+          </span>
+        </div>
+
+        <div className="assistant-preview-grid two-column">
+          <InboxPreviewPanel title="Contact">
+            <InboxPreviewFacts
+              facts={[
+                ["Name", profile.contact?.name ?? null],
+                ["Email", profile.contact?.email ?? null],
+                ["Phone", profile.contact?.phone ?? null],
+                ["Address", profile.contact?.address ?? null],
+                ["Type", formatLabel(profile.contact?.contactType ?? null)],
+                ["Company", profile.contact?.company ?? null],
+              ]}
+            />
+          </InboxPreviewPanel>
+
+          <InboxPreviewPanel title="Lead">
+            <InboxPreviewFacts
+              facts={[
+                ["Title", profile.lead?.title ?? null],
+                ["Service", profile.lead?.serviceType ?? null],
+                ["Status", formatLabel(profile.lead?.status ?? null)],
+                ["Priority", formatLabel(profile.lead?.priority ?? null)],
+                ["Next step", leadNextStep ?? null],
+                ["Value", profile.lead?.estimatedValue ?? null],
+              ]}
+            />
+          </InboxPreviewPanel>
+        </div>
+
+        <InboxPreviewPanel title="Messages">
+          {recentMessages.length > 0 ? (
+            <div className="assistant-preview-thread">
+              {recentMessages.map((message) => (
+                <article
+                  className={`preview-message ${
+                    message.direction === "outbound" ? "outbound" : "inbound"
+                  }`}
+                  key={message.id}
+                >
+                  <div className="preview-message-meta">
+                    <strong>{formatLabel(message.direction)}</strong>
+                    <span>
+                      {channelLabel(
+                        message.channelType,
+                        message.channelDisplayName,
+                      )}
+                    </span>
+                    <span>{formatDate(message.createdAt)}</span>
+                  </div>
+                  {message.subject ? <strong>{message.subject}</strong> : null}
+                  <p>{message.bodyText ?? "No message body recorded."}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">No messages recorded yet.</p>
+          )}
+        </InboxPreviewPanel>
+
+        <InboxManualReplyComposer
+          profile={profile}
+          redirectTo={redirectTo}
+          settings={communicationSettings}
+        />
+
+        {visibleActions.length > 0 ? (
+          <InboxPreviewPanel title="Action queue">
+            <div className="assistant-preview-list compact">
+              {visibleActions.map((action) => (
+                action.type === "draft_reply" ? (
+                  <InboxDraftReplyAction
+                    action={action}
+                    conversationId={profile.conversation.id}
+                    key={action.id}
+                    redirectTo={redirectTo}
+                  />
+                ) : (
+                  <article className="assistant-preview-row" key={action.id}>
+                    <div>
+                      <strong>{previewActionTitle(action)}</strong>
+                      <span>
+                        {formatLabel(action.status)} -{" "}
+                        {formatDate(action.createdAt)}
+                      </span>
+                      <p>{previewActionSummary(action)}</p>
+                    </div>
+                    <InboxActionControls
+                      action={action}
+                      redirectTo={redirectTo}
+                    />
+                  </article>
+                )
+              ))}
+            </div>
+          </InboxPreviewPanel>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export default async function InboxPage({ searchParams }: InboxPageProps) {
+  const query = await searchParams;
+  const { supabase, workspace } = await requireWorkspaceContext();
+  const activeFilter = isFilter(query?.filter) ? query.filter : "all";
+  const activeSort = isSort(query?.sort) ? query.sort : "recent";
+  const searchQuery = query?.q?.trim() ?? "";
+  const selectedConversationId = query?.conversationId?.trim() ?? "";
+  const [conversations, selectedConversationReview, communicationSettings] =
+    await Promise.all([
+      getConversationList(supabase, workspace.id),
+      selectedConversationId
+        ? getConversationReview(supabase, workspace.id, selectedConversationId)
+        : Promise.resolve(null),
+      selectedConversationId
+        ? getCommunicationSettings(supabase, workspace.id)
+        : Promise.resolve(null),
+    ]);
+  const closePreviewHref = inboxHref({
+    filter: activeFilter,
+    query: searchQuery,
+    sort: activeSort,
+  });
+  const selectedRedirectHref = selectedConversationReview
+    ? inboxHref({
+        conversationId: selectedConversationReview.conversation.id,
+        filter: activeFilter,
+        query: searchQuery,
+        sort: activeSort,
+      })
+    : closePreviewHref;
+  const searchedConversations = searchQuery
+    ? conversations.filter((conversation) =>
+        conversationSearchText(conversation).includes(
+          searchQuery.toLowerCase(),
+        ),
+      )
+    : conversations;
+  const filteredConversations = searchedConversations.filter((conversation) => {
+    if (activeFilter === "all") {
+      return true;
+    }
+
+    if (activeFilter === "needs_approval") {
+      return conversation.pendingApprovalCount > 0;
+    }
+
+    if (activeFilter === "needs_reply") {
+      return conversation.workflowBucket === "needs_reply";
+    }
+
+    if (activeFilter === "missing_info") {
+      return Boolean(conversation.inquiryFacts?.missingInfo.length);
+    }
+
+    return conversation.workflowBucket === activeFilter;
+  });
+  const sortedConversations = [...filteredConversations].sort((left, right) => {
+    if (activeSort === "urgent") {
+      const urgencyScore = (conversation: (typeof conversations)[number]) =>
+        (conversation.inquiryFacts?.urgency === "urgent" ? 0 : 10) +
+        (conversation.leadPriority === "high" ? 0 : 2) +
+        workflowRank(conversation.workflowBucket);
+
+      return (
+        urgencyScore(left) - urgencyScore(right) ||
+        dateValue(right.lastMessageAt) - dateValue(left.lastMessageAt)
+      );
+    }
+
+    if (activeSort === "action") {
+      return (
+        workflowRank(left.workflowBucket) -
+          workflowRank(right.workflowBucket) ||
+        dateValue(right.lastMessageAt) - dateValue(left.lastMessageAt)
+      );
+    }
+
+    if (activeSort === "customer") {
+      return (
+        (left.contactName ?? "").localeCompare(right.contactName ?? "") ||
+        dateValue(right.lastMessageAt) - dateValue(left.lastMessageAt)
+      );
+    }
+
+    return dateValue(right.lastMessageAt) - dateValue(left.lastMessageAt);
+  });
+  const filterCounts = new Map<string, number>(
+    FILTERS.map((filter) => [
+      filter.value,
+      filter.value === "all"
+        ? conversations.length
+        : filter.value === "needs_approval"
+          ? conversations.filter(
+              (conversation) => conversation.pendingApprovalCount > 0,
+            ).length
+          : filter.value === "needs_reply"
+            ? conversations.filter(
+                (conversation) => conversation.workflowBucket === "needs_reply",
+              ).length
+            : filter.value === "missing_info"
+              ? conversations.filter((conversation) =>
+                  Boolean(conversation.inquiryFacts?.missingInfo.length),
+                ).length
+              : conversations.filter(
+                  (conversation) =>
+                    conversation.workflowBucket === filter.value,
+                ).length,
+    ]),
+  );
+  const needsReplyCount = conversations.filter(
+    (conversation) => conversation.workflowBucket === "needs_reply",
+  ).length;
+  const readyToQuoteCount = conversations.filter(
+    (conversation) => conversation.workflowBucket === "ready_to_quote",
+  ).length;
+  const awaitingCustomerCount = conversations.filter(
+    (conversation) => conversation.workflowBucket === "awaiting_customer",
+  ).length;
+  const approvalConversations = conversations.filter(
+    (conversation) => conversation.pendingApprovalCount > 0,
+  ).length;
+
+  return (
+    <AppFrame active="Inbox">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">{workspace.name}</p>
+          <h1>Inbox</h1>
+        </div>
+        <div className="topbar-right">
+          <section className="metric-grid" aria-label="Inbox metrics">
+            <article className="metric-card cyan">
+              <p>Needs reply</p>
+              <strong>{needsReplyCount}</strong>
+              <span>Drafts or inbound threads</span>
+            </article>
+            <article className="metric-card purple">
+              <p>Ready to quote</p>
+              <strong>{readyToQuoteCount}</strong>
+              <span>Quote draft work</span>
+            </article>
+            <article className="metric-card pink">
+              <p>Awaiting customer</p>
+              <strong>{awaitingCustomerCount}</strong>
+              <span>{approvalConversations} needing approval</span>
+            </article>
+          </section>
+        </div>
+      </header>
+
+      <section
+        className={
+          selectedConversationReview
+            ? "inbox-workspace has-preview"
+            : "inbox-workspace"
+        }
+      >
+        <section className="panel page-panel inbox-work-queue-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Messages</p>
+              <h2>Work queue</h2>
+            </div>
+            <span className="pill">{sortedConversations.length} shown</span>
+          </div>
+
+          <nav className="filter-bar" aria-label="Inbox filters">
+            {FILTERS.map((filter) => (
+              <Link
+                className={
+                  activeFilter === filter.value
+                    ? "filter-pill active"
+                    : "filter-pill"
+                }
+                href={filterHref(
+                  filter.value,
+                  searchQuery,
+                  activeSort,
+                  selectedConversationReview?.conversation.id,
+                )}
+                key={filter.value}
+                prefetch={false}
+              >
+                {filter.label}
+                <span>{filterCounts.get(filter.value) ?? 0}</span>
+              </Link>
+            ))}
+          </nav>
+
+          <form action="/inbox" className="inbox-toolbar" method="get">
+            {activeFilter !== "all" ? (
+              <input name="filter" type="hidden" value={activeFilter} />
+            ) : null}
+            {selectedConversationReview ? (
+              <input
+                name="conversationId"
+                type="hidden"
+                value={selectedConversationReview.conversation.id}
+              />
+            ) : null}
+            <label>
+              Search
+              <input
+                defaultValue={searchQuery}
+                name="q"
+                placeholder="Customer, job type, urgent, bathroom..."
+                type="search"
+              />
+            </label>
+            <label>
+              Sort
+              <select defaultValue={activeSort} name="sort">
+                {SORT_OPTIONS.map((sort) => (
+                  <option key={sort.value} value={sort.value}>
+                    {sort.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="secondary-button compact" type="submit">
+              Apply
+            </button>
+          </form>
+
+          <div className="data-list">
+            {sortedConversations.length > 0 ? (
+              sortedConversations.map((conversation) => {
+                const jobType =
+                  conversation.inquiryFacts?.jobType ??
+                  conversation.leadServiceType ??
+                  conversation.leadTitle ??
+                  "Unclassified inquiry";
+                const missingInfo =
+                  conversation.inquiryFacts?.missingInfo ?? [];
+                const isSelected =
+                  selectedConversationReview?.conversation.id ===
+                  conversation.id;
+                const leadNextStep =
+                  conversation.workflowBucket === "awaiting_customer"
+                    ? null
+                    : conversation.leadNextStep;
+                const detailParts = [
+                  conversation.contactName ?? "Unknown contact",
+                  conversation.leadTitle,
+                  conversation.inquiryFacts?.address
+                    ? `Address: ${conversation.inquiryFacts.address}`
+                    : null,
+                  missingInfo.length > 0
+                    ? `Missing: ${missingInfo.slice(0, 3).join(", ")}`
+                    : null,
+                  leadNextStep,
+                ].filter(Boolean);
+
+                return (
+                  <Link
+                    className={[
+                      "data-row conversation-row",
+                      conversation.leadPriority === "high" ||
+                      conversation.workflowBucket === "needs_review"
+                        ? "flagged"
+                        : null,
+                      isSelected ? "active" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    href={inboxHref({
+                      conversationId: conversation.id,
+                      filter: activeFilter,
+                      query: searchQuery,
+                      sort: activeSort,
+                    })}
+                    key={conversation.id}
+                    prefetch={false}
+                  >
+                    <div className="data-main">
+                      <div className="conversation-row-title">
+                        <strong>{jobType}</strong>
+                      </div>
+                      <span>{detailParts.join(" - ")}</span>
+                    </div>
+                    <div className="data-meta">
+                      {conversation.pendingApprovalCount > 0 ? (
+                        <span>
+                          {conversation.pendingApprovalCount} approvals
+                        </span>
+                      ) : null}
+                      {conversation.quoteDraftCount > 0 ? (
+                        <span>{conversation.quoteDraftCount} quote drafts</span>
+                      ) : null}
+                      <time>{formatDate(conversation.originalInquiryAt)}</time>
+                      <span
+                        className={
+                          conversation.leadPriority === "high"
+                            ? "pill warning"
+                            : "pill"
+                        }
+                      >
+                        {conversation.nextActionLabel}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })
+            ) : (
+              <p className="empty-copy">
+                {conversations.length > 0
+                  ? "No conversations match this view."
+                  : "No conversations yet."}
+              </p>
+            )}
+          </div>
+        </section>
+        {selectedConversationReview ? (
+          <InboxSplitPreview
+            closeHref={closePreviewHref}
+            communicationSettings={communicationSettings!}
+            profile={selectedConversationReview}
+            redirectTo={selectedRedirectHref}
+          />
+        ) : null}
+      </section>
+    </AppFrame>
+  );
+}

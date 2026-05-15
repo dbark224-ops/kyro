@@ -1,0 +1,29 @@
+{
+  "name": "kyro",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.9.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @kyro/web run dev --",
+    "build": "npm --workspace @kyro/web run build",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts --prefix supabase",
+    "db:generate:custom": "drizzle-kit generate --config drizzle.config.ts --prefix supabase --custom",
+    "db:check": "drizzle-kit check --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "format": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "drizzle-kit": "^0.31.10",
+    "prettier": "latest",
+    "tsx": "^4.21.0",
+    "typescript": "latest"
+  }
+}
