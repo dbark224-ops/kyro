@@ -18,11 +18,12 @@ import type {
 
 const VOICE_REPLY_PLAYBACK_RATE = 1;
 const VOICE_AUTO_SILENCE_MS = 900;
+const VOICE_CALIBRATION_MS = 550;
 const VOICE_MAX_TURN_MS = 45000;
 const VOICE_MIN_CAPTURE_MS = 700;
-const VOICE_NOISE_FLOOR_INITIAL_RMS = 0.012;
-const VOICE_SPEECH_CONTINUE_RMS = 0.018;
-const VOICE_SPEECH_START_RMS = 0.032;
+const VOICE_MIN_QUIET_RMS = 0.01;
+const VOICE_MIN_SPEECH_RMS = 0.014;
+const VOICE_NOISE_FLOOR_INITIAL_RMS = 0.004;
 
 type VoiceCompletionMode = "draft" | "send";
 
@@ -47,6 +48,7 @@ export function VoiceConsole({
   const liveModeRef = useRef(true);
   const lastSpeechAtRef = useRef<number | null>(null);
   const noiseFloorRmsRef = useRef(VOICE_NOISE_FLOOR_INITIAL_RMS);
+  const peakSpeechRmsRef = useRef(VOICE_NOISE_FLOOR_INITIAL_RMS);
   const currentlySpeakingRef = useRef(false);
   const recordingHadSignalRef = useRef(false);
   const shouldResumeAfterSpeechRef = useRef(false);
@@ -345,6 +347,7 @@ export function VoiceConsole({
     currentlySpeakingRef.current = false;
     lastSpeechAtRef.current = null;
     noiseFloorRmsRef.current = VOICE_NOISE_FLOOR_INITIAL_RMS;
+    peakSpeechRmsRef.current = VOICE_NOISE_FLOOR_INITIAL_RMS;
     recordingHadSignalRef.current = false;
     setVoiceLevel(0);
     voiceSignalDetectedRef.current = false;
@@ -379,30 +382,43 @@ export function VoiceConsole({
         return total + centered * centered;
       }, 0);
       const rms = Math.sqrt(sum / data.length) / 128;
-      const amplifiedLevel = Math.min(1, rms * 12);
+      const amplifiedLevel = Math.min(1, rms * 18);
       const now = Date.now();
+      const startedAt = recordingStartedAtRef.current;
+      const elapsedMs = startedAt ? now - startedAt : 0;
+      const isCalibrating = elapsedMs < VOICE_CALIBRATION_MS;
       const noiseFloor = noiseFloorRmsRef.current;
       const speechStartThreshold = Math.max(
-        VOICE_SPEECH_START_RMS,
-        noiseFloor * 3.2,
+        VOICE_MIN_SPEECH_RMS,
+        noiseFloor + 0.008,
+        noiseFloor * 1.55,
       );
-      const speechContinueThreshold = Math.max(
-        VOICE_SPEECH_CONTINUE_RMS,
-        noiseFloor * 2.1,
+      const quietThreshold = Math.max(
+        VOICE_MIN_QUIET_RMS,
+        noiseFloor + 0.005,
+        peakSpeechRmsRef.current * 0.42,
       );
-      const hasSignal = currentlySpeakingRef.current
-        ? rms > speechContinueThreshold
-        : rms > speechStartThreshold;
+      const hasSignal = !isCalibrating && rms > speechStartThreshold;
+      const isQuietAfterSpeech =
+        recordingHadSignalRef.current && rms < quietThreshold;
 
       if (hasSignal) {
         currentlySpeakingRef.current = true;
         recordingHadSignalRef.current = true;
         lastSpeechAtRef.current = now;
+        peakSpeechRmsRef.current = Math.max(peakSpeechRmsRef.current, rms);
       } else {
-        currentlySpeakingRef.current = false;
+        currentlySpeakingRef.current = recordingHadSignalRef.current
+          ? !isQuietAfterSpeech
+          : false;
 
         if (!recordingHadSignalRef.current) {
-          noiseFloorRmsRef.current = noiseFloor * 0.95 + rms * 0.05;
+          const floorWeight = isCalibrating ? 0.18 : 0.06;
+
+          noiseFloorRmsRef.current =
+            noiseFloor * (1 - floorWeight) + rms * floorWeight;
+        } else if (!isQuietAfterSpeech) {
+          lastSpeechAtRef.current = now;
         }
       }
 
@@ -411,13 +427,11 @@ export function VoiceConsole({
         setVoiceSignalDetected(recordingHadSignalRef.current);
       }
 
-      const startedAt = recordingStartedAtRef.current;
-      const elapsedMs = startedAt ? now - startedAt : 0;
       const silentMs = lastSpeechAtRef.current ? now - lastSpeechAtRef.current : 0;
       const shouldAutoStopForSilence =
         liveModeRef.current &&
         recordingHadSignalRef.current &&
-        !currentlySpeakingRef.current &&
+        isQuietAfterSpeech &&
         elapsedMs > VOICE_MIN_CAPTURE_MS &&
         silentMs > VOICE_AUTO_SILENCE_MS;
       const shouldAutoStopForLength =
@@ -470,6 +484,7 @@ export function VoiceConsole({
       currentlySpeakingRef.current = false;
       lastSpeechAtRef.current = null;
       noiseFloorRmsRef.current = VOICE_NOISE_FLOOR_INITIAL_RMS;
+      peakSpeechRmsRef.current = VOICE_NOISE_FLOOR_INITIAL_RMS;
       recordingHadSignalRef.current = false;
       recordingStartedAtRef.current = nowMs();
       recordingStreamRef.current = stream;
