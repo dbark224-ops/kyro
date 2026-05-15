@@ -16,7 +16,7 @@ import type {
   AssistantThreadState,
 } from "../../lib/assistant/types";
 
-const VOICE_REPLY_PLAYBACK_RATE = 1.45;
+const VOICE_REPLY_PLAYBACK_RATE = 1;
 
 type VoiceCompletionMode = "draft" | "send";
 

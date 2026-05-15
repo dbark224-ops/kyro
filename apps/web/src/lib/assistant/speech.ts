@@ -2,10 +2,10 @@ import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
 
-const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
-const DEFAULT_TTS_VOICE = "marin";
+const DEFAULT_TTS_MODEL = "tts-1";
+const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "wav";
-const DEFAULT_TTS_SPEED = 1.55;
+const DEFAULT_TTS_SPEED = 2;
 const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_TTS_INSTRUCTIONS =
   "Speak as Kyro, a practical AI assistant for a trades CRM. Use a normal, brisk conversational pace with short pauses. Keep the delivery warm, concise, and easy to understand for a busy tradesperson.";
