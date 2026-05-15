@@ -407,17 +407,18 @@ Purpose:
 - synthesize each new Kyro response with the configured text-to-speech provider and play it back in the browser,
 - meter speech-to-text minutes and text-to-speech usage in `usage_events`.
 
-Voice mode is currently push-to-talk, post-response TTS. It is intentionally not a true realtime duplex voice agent
-yet: there is no barge-in, partial assistant audio streaming, or interruption handling. Kyro can synthesize replies
-through OpenAI TTS or ElevenLabs TTS using the same `/api/assistant/speech` route. The active provider, ElevenLabs
-output format, voice preset, and voice tuning are workspace settings stored in `workspace_policies` with policy type
-`assistant_voice`, surfaced from the Settings page as its own Voice Assistant section. The ElevenLabs model is a
-backend/developer setting, defaulting to `eleven_v3`, so users choose the voice but not the model tier. OpenAI WAV
-output is normalized before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio
-through Web Audio so dev playback speed can be enforced outside the normal media-element path. That keeps the product
-using one assistant brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime,
-VAPI, ElevenLabs Conversational AI, or another realtime speech layer while still calling the same Kyro tools and
-permission boundaries.
+Voice mode is currently a hands-free turn loop rather than a true realtime duplex voice agent. In live mode, the user
+starts the mic once, Kyro detects speech, auto-submits the transcript after a short pause, speaks the assistant reply,
+then reopens the mic for the next turn. It is intentionally not full WebRTC/realtime audio yet: there is no barge-in,
+partial assistant audio streaming, or interruption handling. Kyro can synthesize replies through OpenAI TTS or
+ElevenLabs TTS using the same `/api/assistant/speech` route. The active provider, ElevenLabs output format, voice
+preset, and voice tuning are workspace settings stored in `workspace_policies` with policy type `assistant_voice`,
+surfaced from the Settings page as its own Voice Assistant section. The ElevenLabs model is a backend/developer
+setting, defaulting to `eleven_v3`, so users choose the voice but not the model tier. OpenAI WAV output is normalized
+before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio through Web Audio so dev
+playback speed can be enforced outside the normal media-element path. That keeps the product using one assistant brain
+for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI, ElevenLabs
+Conversational AI, or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
 Kyro treats `OPENAI_TTS_SPEED` values below `1` as a misconfiguration and falls back to the default normal voice speed,
 so stale dev environment values cannot accidentally produce quarter-speed assistant audio.
 

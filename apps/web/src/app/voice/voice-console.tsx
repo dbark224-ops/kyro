@@ -17,6 +17,9 @@ import type {
 } from "../../lib/assistant/types";
 
 const VOICE_REPLY_PLAYBACK_RATE = 1;
+const VOICE_AUTO_SILENCE_MS = 1150;
+const VOICE_MAX_TURN_MS = 45000;
+const VOICE_MIN_CAPTURE_MS = 700;
 
 type VoiceCompletionMode = "draft" | "send";
 
@@ -38,9 +41,14 @@ export function VoiceConsole({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserAnimationRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const liveModeRef = useRef(true);
+  const recordingHadSignalRef = useRef(false);
+  const shouldResumeAfterSpeechRef = useRef(false);
+  const silenceStartedAtRef = useRef<number | null>(null);
   const speechAudioContextRef = useRef<AudioContext | null>(null);
   const speechSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const speechAbortControllerRef = useRef<AbortController | null>(null);
+  const startRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const previousLastMessageIdRef = useRef(lastMessageId(state.messages));
   const spokenReplyQueuedRef = useRef(false);
   const voiceSignalDetectedRef = useRef(false);
@@ -57,6 +65,7 @@ export function VoiceConsole({
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [liveMode, setLiveMode] = useState(true);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [voiceLevel, setVoiceLevel] = useState(0);
   const [voiceSignalDetected, setVoiceSignalDetected] = useState(false);
@@ -83,7 +92,9 @@ export function VoiceConsole({
   const isAssistantGenerating = pending || Boolean(visibleOptimisticMessage);
   const isVoiceBusy = isListening || isTranscribing || isAssistantGenerating;
   const statusLabel = isListening
-    ? "Listening"
+    ? liveMode
+      ? "Live listening"
+      : "Listening"
     : isTranscribing
       ? "Transcribing"
       : isAssistantGenerating
@@ -93,17 +104,27 @@ export function VoiceConsole({
           : "Ready";
   const statusDetail = isListening
     ? voiceSignalDetected
-      ? "Audio detected. Tap stop to send this turn."
-      : "Listening for your voice..."
+      ? liveMode
+        ? "Audio detected. Kyro will send when you pause."
+        : "Audio detected. Tap stop to send this turn."
+      : liveMode
+        ? "Listening. Start talking and Kyro will send after a pause."
+        : "Listening for your voice..."
     : isTranscribing
       ? "Converting your audio into text."
       : isAssistantGenerating
         ? "Kyro is working through the CRM context."
         : speakingMessageId
           ? "Playing Kyro's response."
-          : "Tap the mic to start a voice turn.";
+          : liveMode
+            ? "Tap the mic once to start a hands-free voice conversation."
+            : "Tap the mic to start a voice turn.";
 
-  const stopAssistantSpeech = useCallback(() => {
+  const stopAssistantSpeech = useCallback((preserveLiveResume = false) => {
+    if (!preserveLiveResume) {
+      shouldResumeAfterSpeechRef.current = false;
+    }
+
     speechAbortControllerRef.current?.abort();
     speechAbortControllerRef.current = null;
 
@@ -130,7 +151,10 @@ export function VoiceConsole({
         return;
       }
 
-      stopAssistantSpeech();
+      const resumeAfterSpeech = shouldResumeAfterSpeechRef.current;
+
+      stopAssistantSpeech(true);
+      shouldResumeAfterSpeechRef.current = resumeAfterSpeech;
 
       const controller = new AbortController();
       speechAbortControllerRef.current = controller;
@@ -194,6 +218,11 @@ export function VoiceConsole({
         );
 
         source.onended = () => {
+          const shouldResume =
+            shouldResumeAfterSpeechRef.current && liveModeRef.current;
+
+          shouldResumeAfterSpeechRef.current = false;
+
           if (speechSourceRef.current === source) {
             speechSourceRef.current = null;
           }
@@ -205,6 +234,12 @@ export function VoiceConsole({
 
           setSpeakingMessageId(null);
           setSpeechStatus(null);
+
+          if (shouldResume) {
+            window.setTimeout(() => {
+              void startRecordingRef.current?.();
+            }, 360);
+          }
         };
 
         if (audioContext.state === "suspended") {
@@ -255,10 +290,11 @@ export function VoiceConsole({
 
     const formData = new FormData();
     const createdAt = new Date().toISOString();
+    const inputSource = options.inputSource ?? "typed";
 
     formData.set("prompt", prompt);
     formData.set("threadId", state.threadId ?? "");
-    formData.set("inputSource", options.inputSource ?? "typed");
+    formData.set("inputSource", inputSource);
 
     setOptimisticMessage({
       content: prompt,
@@ -269,6 +305,7 @@ export function VoiceConsole({
     setDraft("");
     setVoiceStatus(null);
     setSpeechStatus("Voice reply queued...");
+    shouldResumeAfterSpeechRef.current = inputSource === "voice" && liveModeRef.current;
     spokenReplyQueuedRef.current = true;
 
     startSubmitTransition(() => {
@@ -300,6 +337,8 @@ export function VoiceConsole({
 
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
+    recordingHadSignalRef.current = false;
+    silenceStartedAtRef.current = null;
     setVoiceLevel(0);
     voiceSignalDetectedRef.current = false;
     setVoiceSignalDetected(false);
@@ -335,10 +374,36 @@ export function VoiceConsole({
       const rms = Math.sqrt(sum / data.length) / 128;
       const amplifiedLevel = Math.min(1, rms * 8);
       const hasSignal = amplifiedLevel > 0.07;
+      const now = Date.now();
 
-      if (hasSignal !== voiceSignalDetectedRef.current) {
-        voiceSignalDetectedRef.current = hasSignal;
-        setVoiceSignalDetected(hasSignal);
+      if (hasSignal) {
+        recordingHadSignalRef.current = true;
+        silenceStartedAtRef.current = null;
+      } else if (recordingHadSignalRef.current && !silenceStartedAtRef.current) {
+        silenceStartedAtRef.current = now;
+      }
+
+      if (recordingHadSignalRef.current !== voiceSignalDetectedRef.current) {
+        voiceSignalDetectedRef.current = recordingHadSignalRef.current;
+        setVoiceSignalDetected(recordingHadSignalRef.current);
+      }
+
+      const startedAt = recordingStartedAtRef.current;
+      const elapsedMs = startedAt ? now - startedAt : 0;
+      const silentMs = silenceStartedAtRef.current
+        ? now - silenceStartedAtRef.current
+        : 0;
+      const shouldAutoStopForSilence =
+        liveModeRef.current &&
+        recordingHadSignalRef.current &&
+        elapsedMs > VOICE_MIN_CAPTURE_MS &&
+        silentMs > VOICE_AUTO_SILENCE_MS;
+      const shouldAutoStopForLength =
+        liveModeRef.current && elapsedMs > VOICE_MAX_TURN_MS;
+
+      if (shouldAutoStopForSilence || shouldAutoStopForLength) {
+        stopRecording("send");
+        return;
       }
 
       setVoiceLevel((currentLevel) => currentLevel * 0.58 + amplifiedLevel * 0.42);
@@ -380,10 +445,12 @@ export function VoiceConsole({
       );
 
       audioChunksRef.current = [];
-      recordingStartedAtRef.current = Date.now();
+      recordingHadSignalRef.current = false;
+      recordingStartedAtRef.current = nowMs();
       recordingStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
       voiceCompletionModeRef.current = "send";
+      silenceStartedAtRef.current = null;
       setRecordingElapsedMs(0);
       setVoiceStatus(null);
       setVoiceSignalDetected(false);
@@ -491,8 +558,23 @@ export function VoiceConsole({
 
   const draftTranscript = () => {
     if (isListening) {
+      shouldResumeAfterSpeechRef.current = false;
       stopRecording("draft");
     }
+  };
+
+  const toggleLiveMode = () => {
+    setLiveMode((current) => {
+      const next = !current;
+
+      liveModeRef.current = next;
+
+      if (!next) {
+        shouldResumeAfterSpeechRef.current = false;
+      }
+
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -511,6 +593,10 @@ export function VoiceConsole({
 
     return () => window.cancelAnimationFrame(animationFrame);
   }, [isAssistantGenerating, state.threadId, visibleMessages.length]);
+
+  useEffect(() => {
+    startRecordingRef.current = startRecording;
+  });
 
   useEffect(() => {
     const currentLastMessageId = lastMessageId(state.messages);
@@ -557,10 +643,19 @@ export function VoiceConsole({
 
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
       recordingStreamRef.current = null;
+      shouldResumeAfterSpeechRef.current = false;
       stopVoiceAnalysis();
       stopAssistantSpeech();
     };
   }, [stopAssistantSpeech]);
+
+  useEffect(() => {
+    liveModeRef.current = liveMode;
+
+    if (!liveMode) {
+      shouldResumeAfterSpeechRef.current = false;
+    }
+  }, [liveMode]);
 
   useEffect(() => {
     if (!isListening) {
@@ -618,6 +713,13 @@ export function VoiceConsole({
             </div>
           ) : null}
         </div>
+        <button
+          className={liveMode ? "voice-mode-toggle active" : "voice-mode-toggle"}
+          onClick={toggleLiveMode}
+          type="button"
+        >
+          {liveMode ? "Live on" : "Manual"}
+        </button>
         {isListening ? (
           <button
             className="secondary-button"
@@ -630,7 +732,7 @@ export function VoiceConsole({
         {speakingMessageId ? (
           <button
             className="secondary-button"
-            onClick={stopAssistantSpeech}
+            onClick={() => stopAssistantSpeech()}
             type="button"
           >
             Stop audio
@@ -829,6 +931,10 @@ function jsonErrorMessage(payload: unknown) {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function nowMs() {
+  return Date.now();
 }
 
 function numberHeader(value: string | null) {

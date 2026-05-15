@@ -1814,6 +1814,23 @@ h2 {
   opacity: 0.72;
 }
 
+.voice-mode-toggle {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 9px 13px;
+}
+
+.voice-mode-toggle.active {
+  border-color: color-mix(in srgb, var(--cyan) 66%, var(--purple));
+  background: color-mix(in srgb, var(--cyan) 10%, var(--surface));
+  color: var(--text);
+}
+
 .voice-state-copy {
   display: grid;
   flex: 1;
