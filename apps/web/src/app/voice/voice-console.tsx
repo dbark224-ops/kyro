@@ -16,6 +16,8 @@ import type {
   AssistantThreadState,
 } from "../../lib/assistant/types";
 
+const VOICE_REPLY_PLAYBACK_RATE = 1.12;
+
 type VoiceCompletionMode = "draft" | "send";
 
 export function VoiceConsole({
@@ -160,6 +162,8 @@ export function VoiceConsole({
         const audioUrl = window.URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
 
+        audio.playbackRate = VOICE_REPLY_PLAYBACK_RATE;
+        (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
         assistantAudioUrlRef.current = audioUrl;
         assistantAudioRef.current = audio;
         setSpeechStatus("Speaking...");
