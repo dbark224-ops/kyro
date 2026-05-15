@@ -40,6 +40,7 @@ export function VoiceConsole({
   const assistantAudioUrlRef = useRef<string | null>(null);
   const speechAbortControllerRef = useRef<AbortController | null>(null);
   const previousLastMessageIdRef = useRef(lastMessageId(state.messages));
+  const spokenReplyQueuedRef = useRef(false);
   const voiceSignalDetectedRef = useRef(false);
   const spokenAssistantMessageIdsRef = useRef<Set<string>>(
     new Set(
@@ -247,6 +248,8 @@ export function VoiceConsole({
     });
     setDraft("");
     setVoiceStatus(null);
+    setSpeechStatus("Voice reply queued...");
+    spokenReplyQueuedRef.current = true;
 
     startSubmitTransition(() => {
       formAction(formData);
@@ -500,7 +503,12 @@ export function VoiceConsole({
   }, [state.error, state.messages]);
 
   useEffect(() => {
-    if (isAssistantGenerating || !latestAssistantMessage || state.error) {
+    if (
+      !spokenReplyQueuedRef.current ||
+      isAssistantGenerating ||
+      !latestAssistantMessage ||
+      state.error
+    ) {
       return;
     }
 
@@ -508,6 +516,7 @@ export function VoiceConsole({
       return;
     }
 
+    spokenReplyQueuedRef.current = false;
     spokenAssistantMessageIdsRef.current.add(latestAssistantMessage.id);
     void speakAssistantMessage(latestAssistantMessage);
   }, [
@@ -605,6 +614,19 @@ export function VoiceConsole({
             type="button"
           >
             Stop audio
+          </button>
+        ) : latestAssistantMessage ? (
+          <button
+            className="secondary-button"
+            disabled={isAssistantGenerating || isTranscribing}
+            onClick={() => {
+              spokenAssistantMessageIdsRef.current.delete(latestAssistantMessage.id);
+              spokenReplyQueuedRef.current = false;
+              void speakAssistantMessage(latestAssistantMessage);
+            }}
+            type="button"
+          >
+            Replay
           </button>
         ) : null}
       </section>
