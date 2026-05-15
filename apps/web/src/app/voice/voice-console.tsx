@@ -40,6 +40,7 @@ export function VoiceConsole({
   const assistantAudioUrlRef = useRef<string | null>(null);
   const speechAbortControllerRef = useRef<AbortController | null>(null);
   const previousLastMessageIdRef = useRef(lastMessageId(state.messages));
+  const voiceSignalDetectedRef = useRef(false);
   const spokenAssistantMessageIdsRef = useRef<Set<string>>(
     new Set(
       initialState.messages
@@ -55,6 +56,7 @@ export function VoiceConsole({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [voiceLevel, setVoiceLevel] = useState(0);
+  const [voiceSignalDetected, setVoiceSignalDetected] = useState(false);
   const [optimisticMessage, setOptimisticMessage] =
     useState<AssistantThreadMessage | null>(null);
   const visibleOptimisticMessage = useMemo(
@@ -87,7 +89,9 @@ export function VoiceConsole({
           ? "Speaking"
           : "Ready";
   const statusDetail = isListening
-    ? "Tap stop to send this turn."
+    ? voiceSignalDetected
+      ? "Audio detected. Tap stop to send this turn."
+      : "Listening for your voice..."
     : isTranscribing
       ? "Converting your audio into text."
       : isAssistantGenerating
@@ -274,6 +278,8 @@ export function VoiceConsole({
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
     setVoiceLevel(0);
+    voiceSignalDetectedRef.current = false;
+    setVoiceSignalDetected(false);
   };
 
   const startVoiceAnalysis = (stream: MediaStream) => {
@@ -304,8 +310,15 @@ export function VoiceConsole({
         return total + centered * centered;
       }, 0);
       const rms = Math.sqrt(sum / data.length) / 128;
+      const amplifiedLevel = Math.min(1, rms * 8);
+      const hasSignal = amplifiedLevel > 0.07;
 
-      setVoiceLevel((currentLevel) => currentLevel * 0.68 + rms * 0.32);
+      if (hasSignal !== voiceSignalDetectedRef.current) {
+        voiceSignalDetectedRef.current = hasSignal;
+        setVoiceSignalDetected(hasSignal);
+      }
+
+      setVoiceLevel((currentLevel) => currentLevel * 0.58 + amplifiedLevel * 0.42);
       analyserAnimationRef.current = window.requestAnimationFrame(tick);
     };
 
@@ -317,10 +330,26 @@ export function VoiceConsole({
       return;
     }
 
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setVoiceStatus("This browser does not support microphone recording here.");
+      return;
+    }
+
     stopAssistantSpeech();
 
     try {
+      setVoiceStatus("Requesting microphone permission...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioTrack = stream.getAudioTracks()[0];
+
+      if (!audioTrack) {
+        throw new Error("No microphone audio track was found.");
+      }
+
+      audioTrack.addEventListener("ended", () => {
+        setVoiceStatus("Microphone stream ended.");
+      });
+
       const audioType = preferredAudioMimeType();
       const recorder = new MediaRecorder(
         stream,
@@ -333,7 +362,8 @@ export function VoiceConsole({
       mediaRecorderRef.current = recorder;
       voiceCompletionModeRef.current = "send";
       setRecordingElapsedMs(0);
-      setVoiceStatus("Listening...");
+      setVoiceStatus(null);
+      setVoiceSignalDetected(false);
       setIsListening(true);
       startVoiceAnalysis(stream);
 
@@ -400,7 +430,7 @@ export function VoiceConsole({
         }
       };
 
-      recorder.start();
+      recorder.start(250);
     } catch (error) {
       recordingStartedAtRef.current = null;
       audioChunksRef.current = [];
@@ -614,7 +644,7 @@ function VoiceTurn({ message }: { message: AssistantThreadMessage }) {
       {!isUser ? (
         <div className="voice-turn-meta">
           <strong>Kyro</strong>
-          <span>{formatMessageTime(message.createdAt)}</span>
+          <ClientMessageTime value={message.createdAt} />
           <AssistantProviderPill message={message} />
         </div>
       ) : null}
@@ -641,6 +671,10 @@ function VoiceThinking() {
       <span />
     </div>
   );
+}
+
+function ClientMessageTime({ value }: { value: string | undefined }) {
+  return <span suppressHydrationWarning>{formatMessageTime(value)}</span>;
 }
 
 function AssistantProviderPill({ message }: { message: AssistantThreadMessage }) {
@@ -775,8 +809,9 @@ function formatMessageTime(value: string | undefined) {
     return "";
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
+    hour12: true,
     minute: "2-digit",
   }).format(new Date(value));
 }
