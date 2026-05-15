@@ -5,7 +5,7 @@ import { insertAuditLog } from "../engine/event-action-audit";
 const DEFAULT_TTS_MODEL = "tts-1";
 const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "wav";
-const DEFAULT_TTS_SPEED = 2;
+const DEFAULT_TTS_SPEED = 1;
 const MIN_USABLE_TTS_SPEED = 1;
 const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_TTS_INSTRUCTIONS =

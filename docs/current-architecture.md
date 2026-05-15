@@ -413,7 +413,7 @@ header returned by OpenAI before sending it to the browser, then plays the decod
 playback speed can be enforced outside the normal media-element path. That keeps the product using one assistant
 brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI, ElevenLabs,
 or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
-Kyro treats `OPENAI_TTS_SPEED` values below `1` as a misconfiguration and falls back to the default fast voice speed,
+Kyro treats `OPENAI_TTS_SPEED` values below `1` as a misconfiguration and falls back to the default normal voice speed,
 so stale dev environment values cannot accidentally produce quarter-speed assistant audio.
 
 Provider configuration:
@@ -432,7 +432,7 @@ OPENAI_STT_MARKUP_RATE=0.25
 OPENAI_TTS_MODEL=tts-1
 OPENAI_TTS_VOICE=alloy
 OPENAI_TTS_FORMAT=wav
-OPENAI_TTS_SPEED=2
+OPENAI_TTS_SPEED=1
 OPENAI_TTS_INSTRUCTIONS=
 OPENAI_TTS_UNIT_COST_PER_SECOND_USD=0
 OPENAI_TTS_MARKUP_RATE=0.25
