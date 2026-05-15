@@ -144,6 +144,7 @@ export function AssistantConsole({
     formData.set("prompt", prompt);
     formData.set("threadId", state.threadId ?? "");
     formData.set("inputSource", options.inputSource ?? "typed");
+
     setOptimisticMessage({
       content: prompt,
       createdAt,
@@ -781,7 +782,9 @@ export function AssistantConsole({
                 ? "Sending"
                 : isTranscribing
                   ? "Transcribing"
-                  : "Send"}
+                  : isListening
+                    ? "Send voice"
+                    : "Send"}
             </button>
           </div>
           {attachments.length > 0 || voiceStatus ? (

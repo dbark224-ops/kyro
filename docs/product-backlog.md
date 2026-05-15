@@ -41,9 +41,10 @@ This is the parking lot for useful ideas that should not pull us away from the c
 
 ## Voice and Vocabulary
 
-- Add a workspace vocabulary/pronunciation list for voice transcription and assistant prompts, including the product name, business name, staff names, customer names, supplier names, suburbs, streets, product brands, trade terms, and common acronyms.
+- Add workspace and per-user vocabulary/pronunciation lists for voice transcription and assistant prompts, including the product name, business name, staff names, customer names, supplier names, suburbs, streets, product brands, trade terms, and common acronyms.
 - Let users add and edit vocabulary items in Settings, with optional pronunciation hints and notes about whether the term is a person, place, supplier, product, or internal nickname.
 - Feed the relevant vocabulary into speech-to-text prompts and assistant turns so voice input handles names and local terminology reliably.
+- Upgrade the current post-response voice playback into true realtime voice mode for mobile, including interruption/barge-in behavior, partial audio streaming, and lower-latency model routing.
 
 ## Assistant Memory and Tools
 

@@ -137,6 +137,7 @@ side-by-side split views.
 The app shell currently exposes:
 
 - Assistant: `/assistant`
+- Voice: `/voice`
 - Inbox: `/inbox`
 - CRM: `/contacts`
 - Documents: `/documents`
@@ -378,11 +379,38 @@ The frontend renders known `ui_blocks`, currently link cards and memory notices.
 Assistant voice input uses the browser `MediaRecorder` API only for capture. Audio is posted to
 `/api/assistant/transcribe`, where the server calls OpenAI's audio transcription endpoint with the configured
 speech-to-text model and a Kyro-specific transcription prompt for product vocabulary and assistant-name variants.
+The server also applies a small deterministic Kyro-name normalization pass after transcription so common address
+forms such as "hey Cairo", "hi Kara", or "okay Kyra" become "Kyro" without changing unrelated uses of Cairo.
 The OpenAI API key never goes to the browser. Successful transcriptions are metered into `usage_events` as
 `speech_to_text_minutes` and audited as `assistant.voice_transcribed`; the resulting text is then submitted through
 the normal Assistant turn flow with `inputSource=voice` so the model can treat terms like Cara/Kara/Cairo as likely
 voice variants of Kyro when appropriate. In the composer, pressing the mic/stop control transcribes the audio back
 into the draft box for editing, while pressing Send during recording transcribes and submits the voice note directly.
+
+### Voice
+
+Files:
+
+- `apps/web/src/app/voice/page.tsx`
+- `apps/web/src/app/voice/voice-console.tsx`
+- `apps/web/src/app/api/assistant/transcribe/route.ts`
+- `apps/web/src/app/api/assistant/speech/route.ts`
+- `apps/web/src/lib/assistant/transcription.ts`
+- `apps/web/src/lib/assistant/speech.ts`
+
+Purpose:
+
+- provide a separate voice-first test surface without crowding the main Assistant chat UI,
+- reuse the same Assistant thread, command router, model provider, memory context, and CRM tools,
+- transcribe each user voice turn with OpenAI speech-to-text,
+- submit the transcript through the normal Assistant turn flow with `inputSource=voice`,
+- synthesize each new Kyro response with OpenAI text-to-speech and play it back in the browser,
+- meter speech-to-text minutes and estimated text-to-speech seconds in `usage_events`.
+
+Voice mode is currently push-to-talk, post-response TTS. It is intentionally not a true realtime duplex voice agent
+yet: there is no barge-in, partial assistant audio streaming, or interruption handling. That keeps the product using
+one assistant brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI,
+ElevenLabs, or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
 
 Provider configuration:
 
@@ -397,6 +425,13 @@ OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 OPENAI_STT_PROMPT=
 OPENAI_STT_UNIT_COST_PER_MINUTE_USD=0.003
 OPENAI_STT_MARKUP_RATE=0.25
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
+OPENAI_TTS_VOICE=marin
+OPENAI_TTS_FORMAT=mp3
+OPENAI_TTS_SPEED=1.12
+OPENAI_TTS_INSTRUCTIONS=
+OPENAI_TTS_UNIT_COST_PER_SECOND_USD=0
+OPENAI_TTS_MARKUP_RATE=0.25
 ```
 
 The provider abstraction lives in `apps/web/src/lib/assistant/providers.ts`. Future cloud providers should plug into
@@ -659,7 +694,7 @@ Current performance approach:
 
 Do not preload everything. The current reasonable preload set is:
 
-- main app routes: Assistant, Inbox, CRM, Documents, Log, Settings,
+- main app routes: Assistant, Voice, Inbox, CRM, Documents, Log, Settings,
 - already-open split-view records,
 - compact list summaries and counts for the active screen.
 
@@ -706,6 +741,10 @@ Use this map before editing:
 - New assistant UI block behavior: `apps/web/src/lib/assistant/ui-blocks.ts`
 - New assistant speech-to-text behavior: `apps/web/src/app/api/assistant/transcribe/route.ts`
   and `apps/web/src/lib/assistant/transcription.ts`
+- New assistant text-to-speech behavior: `apps/web/src/app/api/assistant/speech/route.ts`
+  and `apps/web/src/lib/assistant/speech.ts`
+- New voice-first UI behavior: `apps/web/src/app/voice/page.tsx`
+  and `apps/web/src/app/voice/voice-console.tsx`
 - New Google OAuth connection behavior: `apps/web/src/app/integrations/google/start/route.ts`,
   `apps/web/src/app/integrations/google/callback/route.ts`, and `apps/web/src/lib/integrations/google.ts`
 - New Microsoft OAuth connection behavior: `apps/web/src/app/integrations/microsoft/start/route.ts`,
@@ -730,6 +769,7 @@ These are not bugs:
 - Outlook inbound sync is not connected yet.
 - SMS is not connected yet.
 - AI triage and Assistant narration can use local Ollama in development, but cloud LLM providers are not wired yet.
+- Voice mode uses OpenAI text-to-speech as a post-response playback layer. It is not true realtime speech-to-speech yet.
 - Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
 - Gmail/Outlook can send uploaded local file attachments and generated text snapshots of selected quote drafts.
 - Full PDF/invoice rendering from user-uploaded templates is not implemented yet. Current quote drafts are saved editable internal documents only.

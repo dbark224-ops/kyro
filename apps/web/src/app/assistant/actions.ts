@@ -546,6 +546,7 @@ export async function sendAssistantMessageAction(
 
     revalidatePath("/");
     revalidatePath("/assistant");
+    revalidatePath("/voice");
     revalidatePath("/documents");
     revalidatePath("/inbox");
 

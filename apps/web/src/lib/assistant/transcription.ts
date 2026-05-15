@@ -68,6 +68,18 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizeKyroAssistantName(transcript: string) {
+  const variant = "(?:cairo|kiro|kyro|kyra|cara|kara|chiro|caira)";
+
+  return transcript
+    .replace(
+      new RegExp(`\\b(hey|hi|hello|yo|okay|ok|thanks|thank you|dear)\\s+${variant}\\b`, "gi"),
+      (_match, prefix: string) => `${prefix} Kyro`,
+    )
+    .replace(new RegExp(`^\\s*${variant}\\b`, "i"), "Kyro")
+    .replace(new RegExp(`\\b${variant}\\s*,`, "gi"), "Kyro,");
+}
+
 function openAiErrorMessage(payload: unknown) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -185,16 +197,17 @@ export async function transcribeAssistantAudio({
     );
   }
 
-  const text = textValue(
+  const rawText = textValue(
     payload && typeof payload === "object" && "text" in payload
       ? payload.text
       : null,
   );
 
-  if (!text) {
+  if (!rawText) {
     throw new Error("OpenAI returned an empty transcription.");
   }
 
+  const text = normalizeKyroAssistantName(rawText);
   const durationMinutes = durationMinutesForBilling(durationMs);
   const unitCost = sttUnitCostPerMinute(model);
   const markup = sttMarkupRate();
@@ -227,6 +240,7 @@ export async function transcribeAssistantAudio({
       audioBytes: audioFile.size,
       durationMinutes,
       model,
+      normalizedAssistantName: text !== rawText,
       promptProfile: "kyro_assistant_voice",
       provider: "openai",
       transcriptCharacters: text.length,
