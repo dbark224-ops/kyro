@@ -945,20 +945,7 @@ function VoiceSettingsDetail({
         </label>
       </div>
 
-      <div className="settings-grid">
-        <label className="setting-card">
-          <strong>ElevenLabs model</strong>
-          <select
-            defaultValue={voiceSettings.elevenLabsModel}
-            name="elevenLabsModel"
-          >
-            <option value="eleven_flash_v2_5">eleven_flash_v2_5</option>
-            <option value="eleven_turbo_v2_5">eleven_turbo_v2_5</option>
-            <option value="eleven_multilingual_v2">eleven_multilingual_v2</option>
-          </select>
-          <span>Flash is the fastest option for push-to-talk testing.</span>
-        </label>
-
+      <div className="settings-grid single">
         <label className="setting-card">
           <strong>Audio format</strong>
           <select
@@ -969,7 +956,10 @@ function VoiceSettingsDetail({
             <option value="mp3_44100_192">MP3 44.1 kHz high</option>
             <option value="mp3_22050_32">MP3 22.05 kHz small</option>
           </select>
-          <span>MP3 avoids the WAV playback-speed weirdness we hit earlier.</span>
+          <span>
+            The ElevenLabs model is controlled by backend config; users only choose
+            the voice.
+          </span>
         </label>
       </div>
 
@@ -1034,8 +1024,8 @@ function VoiceSettingsDetail({
 
       <div className="settings-footer">
         <span>
-          Current ElevenLabs default: {selectedPreset.label}. OpenAI still uses its
-          own voice env setting.
+          Current ElevenLabs voice: {selectedPreset.label}. The active model is
+          managed by the dev team.
         </span>
         <button className="primary-button compact" type="submit">
           Save voice settings

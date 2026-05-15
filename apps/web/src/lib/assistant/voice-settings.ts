@@ -64,7 +64,7 @@ export const ELEVENLABS_VOICE_PRESETS = [
 ] as const satisfies ElevenLabsVoicePreset[];
 
 export const DEFAULT_VOICE_TTS_PROVIDER: VoiceTtsProvider = "openai";
-export const DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5";
+export const DEFAULT_ELEVENLABS_MODEL = "eleven_v3";
 export const DEFAULT_ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128";
 export const DEFAULT_ELEVENLABS_VOICE_PRESET_ID = "british_male_manchester";
 export const DEFAULT_ELEVENLABS_STABILITY = 0.45;
@@ -190,7 +190,6 @@ export function normalizeVoiceSettings(value: unknown): VoiceSettings {
 
   return {
     elevenLabsModel:
-      textValue(settings.elevenLabsModel) ??
       textValue(envValue("ELEVENLABS_TTS_MODEL")) ??
       DEFAULT_ELEVENLABS_MODEL,
     elevenLabsOutputFormat:

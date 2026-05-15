@@ -211,7 +211,6 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     ELEVENLABS_VOICE_PRESETS.find((preset) => preset.id === requestedPresetId) ??
     elevenLabsVoicePresetById(requestedPresetId);
   const settings: VoiceSettings = normalizeVoiceSettings({
-    elevenLabsModel: formString(formData, "elevenLabsModel"),
     elevenLabsOutputFormat: formString(formData, "elevenLabsOutputFormat"),
     elevenLabsSimilarityBoost: formString(formData, "elevenLabsSimilarityBoost"),
     elevenLabsStability: formString(formData, "elevenLabsStability"),

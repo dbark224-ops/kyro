@@ -410,13 +410,14 @@ Purpose:
 Voice mode is currently push-to-talk, post-response TTS. It is intentionally not a true realtime duplex voice agent
 yet: there is no barge-in, partial assistant audio streaming, or interruption handling. Kyro can synthesize replies
 through OpenAI TTS or ElevenLabs TTS using the same `/api/assistant/speech` route. The active provider, ElevenLabs
-model, output format, voice preset, and voice tuning are workspace settings stored in `workspace_policies` with policy
-type `assistant_voice`, surfaced from the Settings page as its own Voice Assistant section. OpenAI WAV output is
-normalized before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio through Web
-Audio so dev playback speed can be enforced outside the normal media-element path. That keeps the product using one
-assistant brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI,
-ElevenLabs Conversational AI, or another realtime speech layer while still calling the same Kyro tools and permission
-boundaries.
+output format, voice preset, and voice tuning are workspace settings stored in `workspace_policies` with policy type
+`assistant_voice`, surfaced from the Settings page as its own Voice Assistant section. The ElevenLabs model is a
+backend/developer setting, defaulting to `eleven_v3`, so users choose the voice but not the model tier. OpenAI WAV
+output is normalized before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio
+through Web Audio so dev playback speed can be enforced outside the normal media-element path. That keeps the product
+using one assistant brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime,
+VAPI, ElevenLabs Conversational AI, or another realtime speech layer while still calling the same Kyro tools and
+permission boundaries.
 Kyro treats `OPENAI_TTS_SPEED` values below `1` as a misconfiguration and falls back to the default normal voice speed,
 so stale dev environment values cannot accidentally produce quarter-speed assistant audio.
 
@@ -442,7 +443,7 @@ OPENAI_TTS_INSTRUCTIONS=
 OPENAI_TTS_UNIT_COST_PER_SECOND_USD=0
 OPENAI_TTS_MARKUP_RATE=0.25
 ELEVENLABS_API_KEY=
-ELEVENLABS_TTS_MODEL=eleven_flash_v2_5
+ELEVENLABS_TTS_MODEL=eleven_v3
 ELEVENLABS_TTS_VOICE_PRESET_ID=british_male_manchester
 ELEVENLABS_TTS_VOICE_ID=c8MZcZcr0JnMAwkwnTIu
 ELEVENLABS_TTS_OUTPUT_FORMAT=mp3_44100_128
@@ -460,6 +461,7 @@ currently exposed in Settings are Australian Male, Australian Female, Australian
 intentionally not listed twice. The voice page sends the server-held `voice_id`, model, output format, and voice
 settings to ElevenLabs. The API key never reaches the browser. ElevenLabs usage is metered as
 `text_to_speech_characters` because its commercial model maps more naturally to text length/credits than seconds.
+The model is not stored from user input; `ELEVENLABS_TTS_MODEL` remains the dev-team override.
 
 The provider abstraction lives in `apps/web/src/lib/assistant/providers.ts`. Future cloud providers should plug into
 `runAssistantModel()` without changing the Assistant UI or deterministic command router.
