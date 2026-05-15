@@ -7,11 +7,34 @@ const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 1;
 const MIN_USABLE_TTS_SPEED = 1;
+const DEFAULT_TTS_PROVIDER = "openai";
+const DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5";
+const DEFAULT_ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128";
+const DEFAULT_ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
+const DEFAULT_ELEVENLABS_STABILITY = 0.45;
+const DEFAULT_ELEVENLABS_SIMILARITY_BOOST = 0.85;
+const DEFAULT_ELEVENLABS_STYLE = 0;
 const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_TTS_INSTRUCTIONS =
   "Speak as Kyro, a practical AI assistant for a trades CRM. Use a normal, brisk conversational pace with short pauses. Keep the delivery warm, concise, and easy to understand for a busy tradesperson.";
 const DEFAULT_UNIT_COSTS_PER_SECOND: Record<string, number> = {};
 const MAX_TTS_CHARACTERS = 4096;
+
+type TtsProvider = "openai" | "elevenlabs";
+type TtsUsageType = "text_to_speech_characters" | "text_to_speech_seconds";
+
+type ProviderSpeechResult = SynthesizeAssistantSpeechResult & {
+  responseFormat: string;
+  usage: {
+    costSnapshot: number;
+    customerChargeSnapshot: number;
+    markupSnapshot: number;
+    quantity: number;
+    unit: string;
+    unitCostSnapshot: number;
+    usageType: TtsUsageType;
+  };
+};
 
 type WorkspaceInput = {
   id: string;
@@ -30,7 +53,7 @@ export type SynthesizeAssistantSpeechResult = {
   contentType: string;
   estimatedSeconds: number;
   model: string;
-  provider: "openai";
+  provider: TtsProvider;
   speed: number;
   voice: string;
 };
@@ -43,29 +66,39 @@ function openAiApiKey() {
   return envValue("OPENAI_API_KEY");
 }
 
-function ttsModel() {
+function ttsProvider(): TtsProvider {
+  const provider = (envValue("VOICE_TTS_PROVIDER") || envValue("TTS_PROVIDER")).toLowerCase();
+
+  if (provider === "elevenlabs") {
+    return "elevenlabs";
+  }
+
+  return DEFAULT_TTS_PROVIDER;
+}
+
+function openAiTtsModel() {
   return envValue("OPENAI_TTS_MODEL") || DEFAULT_TTS_MODEL;
 }
 
-function ttsVoice() {
+function openAiTtsVoice() {
   return envValue("OPENAI_TTS_VOICE") || DEFAULT_TTS_VOICE;
 }
 
-function ttsFormat() {
+function openAiTtsFormat() {
   return envValue("OPENAI_TTS_FORMAT") || DEFAULT_TTS_FORMAT;
 }
 
-function ttsInstructions() {
+function openAiTtsInstructions() {
   return envValue("OPENAI_TTS_INSTRUCTIONS") || DEFAULT_TTS_INSTRUCTIONS;
 }
 
-function ttsMarkupRate() {
+function openAiTtsMarkupRate() {
   const parsed = Number(envValue("OPENAI_TTS_MARKUP_RATE"));
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
 }
 
-function ttsSpeed() {
+function openAiTtsSpeed() {
   const parsed = Number(envValue("OPENAI_TTS_SPEED"));
 
   if (!Number.isFinite(parsed) || parsed < MIN_USABLE_TTS_SPEED) {
@@ -75,7 +108,7 @@ function ttsSpeed() {
   return Math.min(4, parsed);
 }
 
-function ttsUnitCostPerSecond(model: string) {
+function openAiTtsUnitCostPerSecond(model: string) {
   const parsed = Number(envValue("OPENAI_TTS_UNIT_COST_PER_SECOND_USD"));
 
   if (Number.isFinite(parsed) && parsed >= 0) {
@@ -83,6 +116,86 @@ function ttsUnitCostPerSecond(model: string) {
   }
 
   return DEFAULT_UNIT_COSTS_PER_SECOND[model] ?? 0;
+}
+
+function elevenLabsApiKey() {
+  return envValue("ELEVENLABS_API_KEY");
+}
+
+function elevenLabsTtsModel() {
+  return envValue("ELEVENLABS_TTS_MODEL") || DEFAULT_ELEVENLABS_MODEL;
+}
+
+function elevenLabsTtsVoiceId() {
+  return (
+    envValue("ELEVENLABS_TTS_VOICE_ID") ||
+    envValue("ELEVENLABS_VOICE_ID") ||
+    DEFAULT_ELEVENLABS_VOICE_ID
+  );
+}
+
+function elevenLabsTtsOutputFormat() {
+  return (
+    envValue("ELEVENLABS_TTS_OUTPUT_FORMAT") || DEFAULT_ELEVENLABS_OUTPUT_FORMAT
+  );
+}
+
+function elevenLabsTtsMarkupRate() {
+  const parsed = Number(envValue("ELEVENLABS_TTS_MARKUP_RATE"));
+
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
+}
+
+function elevenLabsTtsUnitCostPerCharacter() {
+  const parsed = Number(envValue("ELEVENLABS_TTS_UNIT_COST_PER_CHARACTER_USD"));
+
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function numberEnvValue(key: string, fallback: number, min: number, max: number) {
+  const parsed = Number(envValue(key));
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function booleanEnvValue(key: string, fallback: boolean) {
+  const value = envValue(key).toLowerCase();
+
+  if (["1", "true", "yes", "on"].includes(value)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(value)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function elevenLabsVoiceSettings() {
+  return {
+    similarity_boost: numberEnvValue(
+      "ELEVENLABS_TTS_SIMILARITY_BOOST",
+      DEFAULT_ELEVENLABS_SIMILARITY_BOOST,
+      0,
+      1,
+    ),
+    stability: numberEnvValue(
+      "ELEVENLABS_TTS_STABILITY",
+      DEFAULT_ELEVENLABS_STABILITY,
+      0,
+      1,
+    ),
+    style: numberEnvValue("ELEVENLABS_TTS_STYLE", DEFAULT_ELEVENLABS_STYLE, 0, 1),
+    use_speaker_boost: booleanEnvValue(
+      "ELEVENLABS_TTS_USE_SPEAKER_BOOST",
+      true,
+    ),
+  };
 }
 
 function textValue(value: unknown) {
@@ -98,7 +211,11 @@ function uuidValue(value: string | null) {
     : null;
 }
 
-function openAiErrorMessage(payload: unknown) {
+function providerErrorMessage(payload: unknown) {
+  if (typeof payload === "string" && payload.trim()) {
+    return payload.trim();
+  }
+
   if (!payload || typeof payload !== "object") {
     return null;
   }
@@ -107,6 +224,24 @@ function openAiErrorMessage(payload: unknown) {
 
   if (error && typeof error === "object" && "message" in error) {
     return textValue(error.message);
+  }
+
+  if (error && typeof error === "string") {
+    return textValue(error);
+  }
+
+  const detail = "detail" in payload ? payload.detail : null;
+
+  if (typeof detail === "string") {
+    return textValue(detail);
+  }
+
+  if (detail && typeof detail === "object" && "message" in detail) {
+    return textValue(detail.message);
+  }
+
+  if ("message" in payload) {
+    return textValue(payload.message);
   }
 
   return null;
@@ -147,6 +282,26 @@ function contentTypeForFormat(format: string) {
 
   if (format === "wav") {
     return "audio/wav";
+  }
+
+  return "audio/mpeg";
+}
+
+function contentTypeForElevenLabsFormat(format: string) {
+  if (format.startsWith("pcm_")) {
+    return "audio/pcm";
+  }
+
+  if (format.startsWith("opus_")) {
+    return "audio/opus";
+  }
+
+  if (format.startsWith("ulaw_") || format.startsWith("mulaw_")) {
+    return "audio/basic";
+  }
+
+  if (format.startsWith("alaw_")) {
+    return "audio/alaw";
   }
 
   return "audio/mpeg";
@@ -206,9 +361,12 @@ function toUsageEventRow(input: {
   customerChargeSnapshot: number;
   markupSnapshot: number;
   model: string;
+  provider: TtsProvider;
   quantity: number;
   sourceMessageId: string | null;
+  unit: string;
   unitCostSnapshot: number;
+  usageType: TtsUsageType;
   userId: string;
   workspaceId: string;
 }) {
@@ -219,14 +377,14 @@ function toUsageEventRow(input: {
     customerChargeSnapshot: input.customerChargeSnapshot,
     markupSnapshot: input.markupSnapshot,
     model: input.model,
-    provider: "openai",
+    provider: input.provider,
     quantity: input.quantity,
     service: "text_to_speech",
     sourceId: sourceMessageId ?? undefined,
     sourceType: "assistant_message",
-    unit: "second",
+    unit: input.unit,
     unitCostSnapshot: input.unitCostSnapshot,
-    usageType: "text_to_speech_seconds",
+    usageType: input.usageType,
     userId: input.userId,
     workspaceId: input.workspaceId,
   });
@@ -259,29 +417,29 @@ function toUsageEventRow(input: {
   };
 }
 
-export async function synthesizeAssistantSpeech({
-  sourceMessageId,
-  supabase,
-  text,
-  user,
-  workspace,
-}: SynthesizeAssistantSpeechInput): Promise<SynthesizeAssistantSpeechResult> {
+async function parseProviderErrorPayload(response: Response) {
+  const contentType = response.headers.get("Content-Type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    return (await response.json().catch(() => null)) as unknown;
+  }
+
+  return response.text().catch(() => null);
+}
+
+async function synthesizeOpenAiSpeech(
+  input: string,
+): Promise<ProviderSpeechResult> {
   const apiKey = openAiApiKey();
 
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured for text-to-speech.");
   }
 
-  const input = sanitizeSpeechText(text);
-
-  if (!input) {
-    throw new Error("No assistant text was provided for speech.");
-  }
-
-  const model = ttsModel();
-  const voice = ttsVoice();
-  const responseFormat = ttsFormat();
-  const speed = ttsSpeed();
+  const model = openAiTtsModel();
+  const voice = openAiTtsVoice();
+  const responseFormat = openAiTtsFormat();
+  const speed = openAiTtsSpeed();
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
     body: JSON.stringify({
       input,
@@ -290,7 +448,7 @@ export async function synthesizeAssistantSpeech({
       speed,
       voice,
       ...(!["tts-1", "tts-1-hd"].includes(model)
-        ? { instructions: ttsInstructions() }
+        ? { instructions: openAiTtsInstructions() }
         : {}),
     }),
     headers: {
@@ -301,30 +459,142 @@ export async function synthesizeAssistantSpeech({
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as unknown;
+    const payload = await parseProviderErrorPayload(response);
 
     throw new Error(
-      openAiErrorMessage(payload) ??
+      providerErrorMessage(payload) ??
         `OpenAI speech synthesis failed with HTTP ${response.status}.`,
     );
   }
 
   const audio = normalizeWavHeader(await response.arrayBuffer(), responseFormat);
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
-  const unitCost = ttsUnitCostPerSecond(model);
-  const markup = ttsMarkupRate();
+  const unitCost = openAiTtsUnitCostPerSecond(model);
+  const markup = openAiTtsMarkupRate();
   const cost = Number((estimatedSeconds * unitCost).toFixed(8));
-  const customerCharge = Number((cost * (1 + markup)).toFixed(8));
+
+  return {
+    audio,
+    contentType: contentTypeForFormat(responseFormat),
+    estimatedSeconds,
+    model,
+    provider: "openai",
+    responseFormat,
+    speed,
+    usage: {
+      costSnapshot: cost,
+      customerChargeSnapshot: Number((cost * (1 + markup)).toFixed(8)),
+      markupSnapshot: markup,
+      quantity: estimatedSeconds,
+      unit: "second",
+      unitCostSnapshot: unitCost,
+      usageType: "text_to_speech_seconds",
+    },
+    voice,
+  };
+}
+
+async function synthesizeElevenLabsSpeech(
+  input: string,
+): Promise<ProviderSpeechResult> {
+  const apiKey = elevenLabsApiKey();
+
+  if (!apiKey) {
+    throw new Error("ELEVENLABS_API_KEY is not configured for text-to-speech.");
+  }
+
+  const model = elevenLabsTtsModel();
+  const voice = elevenLabsTtsVoiceId();
+  const responseFormat = elevenLabsTtsOutputFormat();
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
+      voice,
+    )}/stream?output_format=${encodeURIComponent(responseFormat)}`,
+    {
+      body: JSON.stringify({
+        model_id: model,
+        text: input,
+        voice_settings: elevenLabsVoiceSettings(),
+      }),
+      headers: {
+        Accept: contentTypeForElevenLabsFormat(responseFormat),
+        "Content-Type": "application/json",
+        "xi-api-key": apiKey,
+      },
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    const payload = await parseProviderErrorPayload(response);
+
+    throw new Error(
+      providerErrorMessage(payload) ??
+        `ElevenLabs speech synthesis failed with HTTP ${response.status}.`,
+    );
+  }
+
+  const audio = await response.arrayBuffer();
+  const speed = 1;
+  const estimatedSeconds = estimatedSpeechSeconds(input, speed);
+  const quantity = input.length;
+  const unitCost = elevenLabsTtsUnitCostPerCharacter();
+  const markup = elevenLabsTtsMarkupRate();
+  const cost = Number((quantity * unitCost).toFixed(8));
+
+  return {
+    audio,
+    contentType:
+      response.headers.get("Content-Type") ??
+      contentTypeForElevenLabsFormat(responseFormat),
+    estimatedSeconds,
+    model,
+    provider: "elevenlabs",
+    responseFormat,
+    speed,
+    usage: {
+      costSnapshot: cost,
+      customerChargeSnapshot: Number((cost * (1 + markup)).toFixed(8)),
+      markupSnapshot: markup,
+      quantity,
+      unit: "character",
+      unitCostSnapshot: unitCost,
+      usageType: "text_to_speech_characters",
+    },
+    voice,
+  };
+}
+
+export async function synthesizeAssistantSpeech({
+  sourceMessageId,
+  supabase,
+  text,
+  user,
+  workspace,
+}: SynthesizeAssistantSpeechInput): Promise<SynthesizeAssistantSpeechResult> {
+  const input = sanitizeSpeechText(text);
+
+  if (!input) {
+    throw new Error("No assistant text was provided for speech.");
+  }
+
+  const speech =
+    ttsProvider() === "elevenlabs"
+      ? await synthesizeElevenLabsSpeech(input)
+      : await synthesizeOpenAiSpeech(input);
 
   const { error: usageError } = await supabase.from("usage_events").insert(
     toUsageEventRow({
-      costSnapshot: cost,
-      customerChargeSnapshot: customerCharge,
-      markupSnapshot: markup,
-      model,
-      quantity: estimatedSeconds,
+      costSnapshot: speech.usage.costSnapshot,
+      customerChargeSnapshot: speech.usage.customerChargeSnapshot,
+      markupSnapshot: speech.usage.markupSnapshot,
+      model: speech.model,
+      provider: speech.provider,
+      quantity: speech.usage.quantity,
       sourceMessageId,
-      unitCostSnapshot: unitCost,
+      unit: speech.usage.unit,
+      unitCostSnapshot: speech.usage.unitCostSnapshot,
+      usageType: speech.usage.usageType,
       userId: user.id,
       workspaceId: workspace.id,
     }),
@@ -340,30 +610,30 @@ export async function synthesizeAssistantSpeech({
     actorId: user.id,
     actorType: "user",
     after: {
-      audioBytes: audio.byteLength,
-      estimatedSeconds,
-      model,
-      provider: "openai",
+      audioBytes: speech.audio.byteLength,
+      estimatedSeconds: speech.estimatedSeconds,
+      model: speech.model,
+      provider: speech.provider,
       sourceMessageId,
-      speed,
+      speed: speech.speed,
       textCharacters: input.length,
-      voice,
+      voice: speech.voice,
     },
     entityId: uuidValue(sourceMessageId) ?? undefined,
     entityType: "assistant_message",
     metadata: {
-      responseFormat,
+      responseFormat: speech.responseFormat,
       source: "assistant.voice_reply",
     },
   });
 
   return {
-    audio,
-    contentType: contentTypeForFormat(responseFormat),
-    estimatedSeconds,
-    model,
-    provider: "openai",
-    speed,
-    voice,
+    audio: speech.audio,
+    contentType: speech.contentType,
+    estimatedSeconds: speech.estimatedSeconds,
+    model: speech.model,
+    provider: speech.provider,
+    speed: speech.speed,
+    voice: speech.voice,
   };
 }

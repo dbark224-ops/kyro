@@ -162,6 +162,9 @@ export function VoiceConsole({
         const generationSpeed = numberHeader(
           response.headers.get("X-Kyro-TTS-Speed"),
         );
+        const generationProvider = textHeader(
+          response.headers.get("X-Kyro-TTS-Provider"),
+        );
         const contentType = response.headers.get("Content-Type") ?? "audio";
         const playbackRate = VOICE_REPLY_PLAYBACK_RATE;
         const AudioContextConstructor = browserAudioContextConstructor();
@@ -183,6 +186,7 @@ export function VoiceConsole({
           speechPlaybackStatus(
             playbackRate,
             generationSpeed,
+            generationProvider,
             decodedAudio.duration,
             contentType,
             decodedAudio.duration / playbackRate,
@@ -837,6 +841,10 @@ function numberHeader(value: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function textHeader(value: string | null) {
+  return value && value.trim() ? value.trim() : null;
+}
+
 function browserAudioContextConstructor() {
   if (typeof window === "undefined") {
     return null;
@@ -853,11 +861,13 @@ function browserAudioContextConstructor() {
 function speechPlaybackStatus(
   playbackRate: number,
   generationSpeed: number | null,
+  generationProvider: string | null,
   duration: number | null = null,
   contentType: string | null = null,
   expectedPlaybackSeconds: number | null = null,
 ) {
   const playbackLabel = `${playbackRate.toFixed(2)}x playback`;
+  const providerLabel = generationProvider ? `${generationProvider}, ` : "";
   const durationLabel =
     typeof duration === "number" && Number.isFinite(duration)
       ? `, ${duration.toFixed(1)}s audio`
@@ -874,10 +884,10 @@ function speechPlaybackStatus(
       : "";
 
   if (!generationSpeed) {
-    return `Speaking (${playbackLabel}${durationLabel}${expectedLabel}${formatLabel})...`;
+    return `Speaking (${providerLabel}${playbackLabel}${durationLabel}${expectedLabel}${formatLabel})...`;
   }
 
-  return `Speaking (${playbackLabel}, ${generationSpeed.toFixed(2)}x voice${durationLabel}${expectedLabel}${formatLabel})...`;
+  return `Speaking (${providerLabel}${playbackLabel}, ${generationSpeed.toFixed(2)}x voice${durationLabel}${expectedLabel}${formatLabel})...`;
 }
 
 function lastMessageId(messages: AssistantThreadMessage[]) {

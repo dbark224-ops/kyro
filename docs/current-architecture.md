@@ -404,15 +404,16 @@ Purpose:
 - reuse the same Assistant thread, command router, model provider, memory context, and CRM tools,
 - transcribe each user voice turn with OpenAI speech-to-text,
 - submit the transcript through the normal Assistant turn flow with `inputSource=voice`,
-- synthesize each new Kyro response with OpenAI text-to-speech and play it back in the browser,
-- meter speech-to-text minutes and estimated text-to-speech seconds in `usage_events`.
+- synthesize each new Kyro response with the configured text-to-speech provider and play it back in the browser,
+- meter speech-to-text minutes and text-to-speech usage in `usage_events`.
 
 Voice mode is currently push-to-talk, post-response TTS. It is intentionally not a true realtime duplex voice agent
-yet: there is no barge-in, partial assistant audio streaming, or interruption handling. Kyro normalizes the WAV
-header returned by OpenAI before sending it to the browser, then plays the decoded audio through Web Audio so dev
+yet: there is no barge-in, partial assistant audio streaming, or interruption handling. Kyro can synthesize replies
+through OpenAI TTS or ElevenLabs TTS using the same `/api/assistant/speech` route. OpenAI WAV output is normalized
+before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio through Web Audio so dev
 playback speed can be enforced outside the normal media-element path. That keeps the product using one assistant
-brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI, ElevenLabs,
-or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
+brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI, ElevenLabs
+Conversational AI, or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
 Kyro treats `OPENAI_TTS_SPEED` values below `1` as a misconfiguration and falls back to the default normal voice speed,
 so stale dev environment values cannot accidentally produce quarter-speed assistant audio.
 
@@ -429,6 +430,7 @@ OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 OPENAI_STT_PROMPT=
 OPENAI_STT_UNIT_COST_PER_MINUTE_USD=0.003
 OPENAI_STT_MARKUP_RATE=0.25
+VOICE_TTS_PROVIDER=openai
 OPENAI_TTS_MODEL=tts-1
 OPENAI_TTS_VOICE=alloy
 OPENAI_TTS_FORMAT=wav
@@ -436,7 +438,21 @@ OPENAI_TTS_SPEED=1
 OPENAI_TTS_INSTRUCTIONS=
 OPENAI_TTS_UNIT_COST_PER_SECOND_USD=0
 OPENAI_TTS_MARKUP_RATE=0.25
+ELEVENLABS_API_KEY=
+ELEVENLABS_TTS_MODEL=eleven_flash_v2_5
+ELEVENLABS_TTS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb
+ELEVENLABS_TTS_OUTPUT_FORMAT=mp3_44100_128
+ELEVENLABS_TTS_STABILITY=0.45
+ELEVENLABS_TTS_SIMILARITY_BOOST=0.85
+ELEVENLABS_TTS_STYLE=0
+ELEVENLABS_TTS_USE_SPEAKER_BOOST=true
+ELEVENLABS_TTS_UNIT_COST_PER_CHARACTER_USD=0
+ELEVENLABS_TTS_MARKUP_RATE=0.25
 ```
+
+ElevenLabs is selected with `VOICE_TTS_PROVIDER=elevenlabs`. The voice page sends the server-held `voice_id`, model,
+output format, and voice settings to ElevenLabs. The API key never reaches the browser. ElevenLabs usage is metered as
+`text_to_speech_characters` because its commercial model maps more naturally to text length/credits than seconds.
 
 The provider abstraction lives in `apps/web/src/lib/assistant/providers.ts`. Future cloud providers should plug into
 `runAssistantModel()` without changing the Assistant UI or deterministic command router.

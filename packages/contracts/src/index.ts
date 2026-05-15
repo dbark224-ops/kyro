@@ -66,6 +66,7 @@ export const usageTypeSchema = z.enum([
   "embedding_tokens",
   "image_generation",
   "speech_to_text_minutes",
+  "text_to_speech_characters",
   "text_to_speech_seconds",
   "sms_segments",
   "voice_minutes",
