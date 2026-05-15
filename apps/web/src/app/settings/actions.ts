@@ -8,6 +8,15 @@ import {
   normalizeEmailSignatureSettings,
   type CommunicationSettings
 } from "../../lib/communication/settings";
+import {
+  ELEVENLABS_VOICE_PRESETS,
+  VOICE_SETTINGS_POLICY_TYPE,
+  VOICE_TTS_PROVIDERS,
+  elevenLabsVoicePresetById,
+  normalizeVoiceSettings,
+  type VoiceSettings,
+  type VoiceTtsProvider,
+} from "../../lib/assistant/voice-settings";
 import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
@@ -81,8 +90,16 @@ async function signatureLogoPayload(
   };
 }
 
+function redirectWithSectionMessage(
+  section: "communication" | "voice",
+  key: "engine_error" | "engine_message",
+  message: string,
+): never {
+  redirect(`/settings?section=${section}&${key}=${encodeURIComponent(message)}`);
+}
+
 function redirectWithSettingsMessage(key: "engine_error" | "engine_message", message: string): never {
-  redirect(`/settings?section=communication&${key}=${encodeURIComponent(message)}`);
+  redirectWithSectionMessage("communication", key, message);
 }
 
 export async function updateCommunicationSettingsAction(formData: FormData) {
@@ -180,4 +197,78 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
   revalidatePath("/settings");
   revalidatePath("/inbox");
   redirectWithSettingsMessage("engine_message", "Communication settings saved.");
+}
+
+export async function updateVoiceSettingsAction(formData: FormData) {
+  const provider = formString(formData, "voiceProvider") as VoiceTtsProvider;
+
+  if (!VOICE_TTS_PROVIDERS.includes(provider)) {
+    redirectWithSectionMessage("voice", "engine_error", "Voice provider is invalid.");
+  }
+
+  const requestedPresetId = formString(formData, "elevenLabsVoicePresetId");
+  const requestedPreset =
+    ELEVENLABS_VOICE_PRESETS.find((preset) => preset.id === requestedPresetId) ??
+    elevenLabsVoicePresetById(requestedPresetId);
+  const settings: VoiceSettings = normalizeVoiceSettings({
+    elevenLabsModel: formString(formData, "elevenLabsModel"),
+    elevenLabsOutputFormat: formString(formData, "elevenLabsOutputFormat"),
+    elevenLabsSimilarityBoost: formString(formData, "elevenLabsSimilarityBoost"),
+    elevenLabsStability: formString(formData, "elevenLabsStability"),
+    elevenLabsStyle: formString(formData, "elevenLabsStyle"),
+    elevenLabsUseSpeakerBoost: formBoolean(formData, "elevenLabsUseSpeakerBoost"),
+    elevenLabsVoiceId: requestedPreset.voiceId,
+    elevenLabsVoicePresetId: requestedPreset.id,
+    provider,
+  });
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage("voice", "engine_error", beforeError.message);
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      saveError?.message ?? "Unable to save voice assistant settings.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "assistant_voice_settings.updated",
+    actorId: user.id,
+    actorType: "user",
+    after: { settings },
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/voice");
+  redirectWithSectionMessage("voice", "engine_message", "Voice assistant settings saved.");
 }

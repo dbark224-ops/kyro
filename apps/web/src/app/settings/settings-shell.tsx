@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-export type SettingsSection = "communication" | "integrations" | "usage";
+export type SettingsSection = "communication" | "integrations" | "usage" | "voice";
 
 export type SettingsMenuItem = {
   detail: string;
@@ -22,7 +22,7 @@ function sectionFromLocation() {
     return "integrations";
   }
 
-  if (section === "communication" || section === "usage") {
+  if (section === "communication" || section === "usage" || section === "voice") {
     return section;
   }
 
@@ -36,6 +36,7 @@ export function SettingsShell({
   integrations,
   items,
   usage,
+  voice,
 }: Readonly<{
   communication: ReactNode;
   empty: ReactNode;
@@ -43,6 +44,7 @@ export function SettingsShell({
   integrations: ReactNode;
   items: SettingsMenuItem[];
   usage: ReactNode;
+  voice: ReactNode;
 }>) {
   const [selectedSection, setSelectedSection] = useState<SettingsSection | null>(
     initialSection,
@@ -67,7 +69,9 @@ export function SettingsShell({
         ? integrations
         : selectedSection === "usage"
           ? usage
-          : empty;
+          : selectedSection === "voice"
+            ? voice
+            : empty;
 
   return (
     <section

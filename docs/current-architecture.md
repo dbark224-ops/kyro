@@ -409,11 +409,14 @@ Purpose:
 
 Voice mode is currently push-to-talk, post-response TTS. It is intentionally not a true realtime duplex voice agent
 yet: there is no barge-in, partial assistant audio streaming, or interruption handling. Kyro can synthesize replies
-through OpenAI TTS or ElevenLabs TTS using the same `/api/assistant/speech` route. OpenAI WAV output is normalized
-before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio through Web Audio so dev
-playback speed can be enforced outside the normal media-element path. That keeps the product using one assistant
-brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI, ElevenLabs
-Conversational AI, or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
+through OpenAI TTS or ElevenLabs TTS using the same `/api/assistant/speech` route. The active provider, ElevenLabs
+model, output format, voice preset, and voice tuning are workspace settings stored in `workspace_policies` with policy
+type `assistant_voice`, surfaced from the Settings page as its own Voice Assistant section. OpenAI WAV output is
+normalized before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio through Web
+Audio so dev playback speed can be enforced outside the normal media-element path. That keeps the product using one
+assistant brain for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI,
+ElevenLabs Conversational AI, or another realtime speech layer while still calling the same Kyro tools and permission
+boundaries.
 Kyro treats `OPENAI_TTS_SPEED` values below `1` as a misconfiguration and falls back to the default normal voice speed,
 so stale dev environment values cannot accidentally produce quarter-speed assistant audio.
 
@@ -440,7 +443,8 @@ OPENAI_TTS_UNIT_COST_PER_SECOND_USD=0
 OPENAI_TTS_MARKUP_RATE=0.25
 ELEVENLABS_API_KEY=
 ELEVENLABS_TTS_MODEL=eleven_flash_v2_5
-ELEVENLABS_TTS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb
+ELEVENLABS_TTS_VOICE_PRESET_ID=british_male_manchester
+ELEVENLABS_TTS_VOICE_ID=c8MZcZcr0JnMAwkwnTIu
 ELEVENLABS_TTS_OUTPUT_FORMAT=mp3_44100_128
 ELEVENLABS_TTS_STABILITY=0.45
 ELEVENLABS_TTS_SIMILARITY_BOOST=0.85
@@ -450,8 +454,11 @@ ELEVENLABS_TTS_UNIT_COST_PER_CHARACTER_USD=0
 ELEVENLABS_TTS_MARKUP_RATE=0.25
 ```
 
-ElevenLabs is selected with `VOICE_TTS_PROVIDER=elevenlabs`. The voice page sends the server-held `voice_id`, model,
-output format, and voice settings to ElevenLabs. The API key never reaches the browser. ElevenLabs usage is metered as
+ElevenLabs is selected with `VOICE_TTS_PROVIDER=elevenlabs` or the saved Voice Assistant settings. The named presets
+currently exposed in Settings are Australian Male, Australian Female, Australian Male 2, British Male Manchester
+(default), British Male 1, British Female 1, British Female 2, and American Male 2. Duplicate pasted voice IDs are
+intentionally not listed twice. The voice page sends the server-held `voice_id`, model, output format, and voice
+settings to ElevenLabs. The API key never reaches the browser. ElevenLabs usage is metered as
 `text_to_speech_characters` because its commercial model maps more naturally to text length/credits than seconds.
 
 The provider abstraction lives in `apps/web/src/lib/assistant/providers.ts`. Future cloud providers should plug into
@@ -474,6 +481,7 @@ Purpose:
 - configure outbound approval mode,
 - choose allowed channels for email, SMS, phone, or manual notes,
 - save a default email signature and optional assistant signature,
+- choose the Voice Assistant text-to-speech provider and ElevenLabs voice preset,
 - show Google Workspace and Microsoft Outlook readiness in one Integrations area,
 - launch Google or Microsoft OAuth connect flows from that combined area,
 - audit communication-setting changes,
@@ -763,6 +771,8 @@ Use this map before editing:
   and `apps/web/src/lib/assistant/transcription.ts`
 - New assistant text-to-speech behavior: `apps/web/src/app/api/assistant/speech/route.ts`
   and `apps/web/src/lib/assistant/speech.ts`
+- New assistant voice settings behavior: `apps/web/src/lib/assistant/voice-settings.ts`
+  and `apps/web/src/app/settings/page.tsx`
 - New voice-first UI behavior: `apps/web/src/app/voice/page.tsx`
   and `apps/web/src/app/voice/voice-console.tsx`
 - New Google OAuth connection behavior: `apps/web/src/app/integrations/google/start/route.ts`,
@@ -789,7 +799,7 @@ These are not bugs:
 - Outlook inbound sync is not connected yet.
 - SMS is not connected yet.
 - AI triage and Assistant narration can use local Ollama in development, but cloud LLM providers are not wired yet.
-- Voice mode uses OpenAI text-to-speech as a post-response playback layer. It is not true realtime speech-to-speech yet.
+- Voice mode uses OpenAI or ElevenLabs text-to-speech as a post-response playback layer. It is not true realtime speech-to-speech yet.
 - Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
 - Gmail/Outlook can send uploaded local file attachments and generated text snapshots of selected quote drafts.
 - Full PDF/invoice rendering from user-uploaded templates is not implemented yet. Current quote drafts are saved editable internal documents only.

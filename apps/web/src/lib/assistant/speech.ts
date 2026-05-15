@@ -1,19 +1,13 @@
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { getVoiceSettings, type VoiceSettings } from "./voice-settings";
 
 const DEFAULT_TTS_MODEL = "tts-1";
 const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 1;
 const MIN_USABLE_TTS_SPEED = 1;
-const DEFAULT_TTS_PROVIDER = "openai";
-const DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5";
-const DEFAULT_ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128";
-const DEFAULT_ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
-const DEFAULT_ELEVENLABS_STABILITY = 0.45;
-const DEFAULT_ELEVENLABS_SIMILARITY_BOOST = 0.85;
-const DEFAULT_ELEVENLABS_STYLE = 0;
 const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_TTS_INSTRUCTIONS =
   "Speak as Kyro, a practical AI assistant for a trades CRM. Use a normal, brisk conversational pace with short pauses. Keep the delivery warm, concise, and easy to understand for a busy tradesperson.";
@@ -66,16 +60,6 @@ function openAiApiKey() {
   return envValue("OPENAI_API_KEY");
 }
 
-function ttsProvider(): TtsProvider {
-  const provider = (envValue("VOICE_TTS_PROVIDER") || envValue("TTS_PROVIDER")).toLowerCase();
-
-  if (provider === "elevenlabs") {
-    return "elevenlabs";
-  }
-
-  return DEFAULT_TTS_PROVIDER;
-}
-
 function openAiTtsModel() {
   return envValue("OPENAI_TTS_MODEL") || DEFAULT_TTS_MODEL;
 }
@@ -122,24 +106,6 @@ function elevenLabsApiKey() {
   return envValue("ELEVENLABS_API_KEY");
 }
 
-function elevenLabsTtsModel() {
-  return envValue("ELEVENLABS_TTS_MODEL") || DEFAULT_ELEVENLABS_MODEL;
-}
-
-function elevenLabsTtsVoiceId() {
-  return (
-    envValue("ELEVENLABS_TTS_VOICE_ID") ||
-    envValue("ELEVENLABS_VOICE_ID") ||
-    DEFAULT_ELEVENLABS_VOICE_ID
-  );
-}
-
-function elevenLabsTtsOutputFormat() {
-  return (
-    envValue("ELEVENLABS_TTS_OUTPUT_FORMAT") || DEFAULT_ELEVENLABS_OUTPUT_FORMAT
-  );
-}
-
 function elevenLabsTtsMarkupRate() {
   const parsed = Number(envValue("ELEVENLABS_TTS_MARKUP_RATE"));
 
@@ -150,52 +116,6 @@ function elevenLabsTtsUnitCostPerCharacter() {
   const parsed = Number(envValue("ELEVENLABS_TTS_UNIT_COST_PER_CHARACTER_USD"));
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-}
-
-function numberEnvValue(key: string, fallback: number, min: number, max: number) {
-  const parsed = Number(envValue(key));
-
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-
-  return Math.min(max, Math.max(min, parsed));
-}
-
-function booleanEnvValue(key: string, fallback: boolean) {
-  const value = envValue(key).toLowerCase();
-
-  if (["1", "true", "yes", "on"].includes(value)) {
-    return true;
-  }
-
-  if (["0", "false", "no", "off"].includes(value)) {
-    return false;
-  }
-
-  return fallback;
-}
-
-function elevenLabsVoiceSettings() {
-  return {
-    similarity_boost: numberEnvValue(
-      "ELEVENLABS_TTS_SIMILARITY_BOOST",
-      DEFAULT_ELEVENLABS_SIMILARITY_BOOST,
-      0,
-      1,
-    ),
-    stability: numberEnvValue(
-      "ELEVENLABS_TTS_STABILITY",
-      DEFAULT_ELEVENLABS_STABILITY,
-      0,
-      1,
-    ),
-    style: numberEnvValue("ELEVENLABS_TTS_STYLE", DEFAULT_ELEVENLABS_STYLE, 0, 1),
-    use_speaker_boost: booleanEnvValue(
-      "ELEVENLABS_TTS_USE_SPEAKER_BOOST",
-      true,
-    ),
-  };
 }
 
 function textValue(value: unknown) {
@@ -496,6 +416,7 @@ async function synthesizeOpenAiSpeech(
 
 async function synthesizeElevenLabsSpeech(
   input: string,
+  voiceSettings: VoiceSettings,
 ): Promise<ProviderSpeechResult> {
   const apiKey = elevenLabsApiKey();
 
@@ -503,9 +424,9 @@ async function synthesizeElevenLabsSpeech(
     throw new Error("ELEVENLABS_API_KEY is not configured for text-to-speech.");
   }
 
-  const model = elevenLabsTtsModel();
-  const voice = elevenLabsTtsVoiceId();
-  const responseFormat = elevenLabsTtsOutputFormat();
+  const model = voiceSettings.elevenLabsModel;
+  const voice = voiceSettings.elevenLabsVoiceId;
+  const responseFormat = voiceSettings.elevenLabsOutputFormat;
   const response = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
       voice,
@@ -514,7 +435,12 @@ async function synthesizeElevenLabsSpeech(
       body: JSON.stringify({
         model_id: model,
         text: input,
-        voice_settings: elevenLabsVoiceSettings(),
+        voice_settings: {
+          similarity_boost: voiceSettings.elevenLabsSimilarityBoost,
+          stability: voiceSettings.elevenLabsStability,
+          style: voiceSettings.elevenLabsStyle,
+          use_speaker_boost: voiceSettings.elevenLabsUseSpeakerBoost,
+        },
       }),
       headers: {
         Accept: contentTypeForElevenLabsFormat(responseFormat),
@@ -578,9 +504,10 @@ export async function synthesizeAssistantSpeech({
     throw new Error("No assistant text was provided for speech.");
   }
 
+  const voiceSettings = await getVoiceSettings(supabase, workspace.id);
   const speech =
-    ttsProvider() === "elevenlabs"
-      ? await synthesizeElevenLabsSpeech(input)
+    voiceSettings.provider === "elevenlabs"
+      ? await synthesizeElevenLabsSpeech(input, voiceSettings)
       : await synthesizeOpenAiSpeech(input);
 
   const { error: usageError } = await supabase.from("usage_events").insert(

@@ -1,5 +1,13 @@
 import { AppFrame } from "../components/app-frame";
-import { updateCommunicationSettingsAction } from "./actions";
+import {
+  updateCommunicationSettingsAction,
+  updateVoiceSettingsAction,
+} from "./actions";
+import {
+  ELEVENLABS_VOICE_PRESETS,
+  getVoiceSettings,
+  elevenLabsVoicePresetById,
+} from "../../lib/assistant/voice-settings";
 import {
   OUTBOUND_CHANNELS,
   getCommunicationSettings,
@@ -37,7 +45,7 @@ function normalizeSettingsSection(value: string | undefined) {
     return "integrations" satisfies SettingsSection;
   }
 
-  if (value === "communication" || value === "usage") {
+  if (value === "communication" || value === "usage" || value === "voice") {
     return value satisfies SettingsSection;
   }
 
@@ -898,6 +906,145 @@ function CommunicationSettingsDetail({
   );
 }
 
+function VoiceSettingsDetail({
+  voiceSettings,
+}: Readonly<{
+  voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
+}>) {
+  const selectedPreset = elevenLabsVoicePresetById(
+    voiceSettings.elevenLabsVoicePresetId,
+  );
+
+  return (
+    <form action={updateVoiceSettingsAction} className="settings-form">
+      <div className="settings-grid">
+        <label className="setting-card">
+          <strong>Speech provider</strong>
+          <select defaultValue={voiceSettings.provider} name="voiceProvider">
+            <option value="elevenlabs">ElevenLabs</option>
+            <option value="openai">OpenAI</option>
+          </select>
+          <span>
+            Voice replies use this provider after Kyro has generated the text response.
+          </span>
+        </label>
+
+        <label className="setting-card">
+          <strong>ElevenLabs voice</strong>
+          <select
+            defaultValue={selectedPreset.id}
+            name="elevenLabsVoicePresetId"
+          >
+            {ELEVENLABS_VOICE_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+          <span>{selectedPreset.accent} voice preset for live voice replies.</span>
+        </label>
+      </div>
+
+      <div className="settings-grid">
+        <label className="setting-card">
+          <strong>ElevenLabs model</strong>
+          <select
+            defaultValue={voiceSettings.elevenLabsModel}
+            name="elevenLabsModel"
+          >
+            <option value="eleven_flash_v2_5">eleven_flash_v2_5</option>
+            <option value="eleven_turbo_v2_5">eleven_turbo_v2_5</option>
+            <option value="eleven_multilingual_v2">eleven_multilingual_v2</option>
+          </select>
+          <span>Flash is the fastest option for push-to-talk testing.</span>
+        </label>
+
+        <label className="setting-card">
+          <strong>Audio format</strong>
+          <select
+            defaultValue={voiceSettings.elevenLabsOutputFormat}
+            name="elevenLabsOutputFormat"
+          >
+            <option value="mp3_44100_128">MP3 44.1 kHz</option>
+            <option value="mp3_44100_192">MP3 44.1 kHz high</option>
+            <option value="mp3_22050_32">MP3 22.05 kHz small</option>
+          </select>
+          <span>MP3 avoids the WAV playback-speed weirdness we hit earlier.</span>
+        </label>
+      </div>
+
+      <details className="settings-accordion">
+        <summary>
+          <div>
+            <strong>Voice tuning</strong>
+            <span>Stability, similarity, style, and speaker boost.</span>
+          </div>
+          <span className="pill">Advanced</span>
+        </summary>
+
+        <div className="settings-accordion-body">
+          <div className="settings-grid">
+            <label className="setting-card">
+              <strong>Stability</strong>
+              <input
+                defaultValue={voiceSettings.elevenLabsStability}
+                max={1}
+                min={0}
+                name="elevenLabsStability"
+                step={0.05}
+                type="number"
+              />
+              <span>Lower can sound more expressive; higher is steadier.</span>
+            </label>
+            <label className="setting-card">
+              <strong>Similarity boost</strong>
+              <input
+                defaultValue={voiceSettings.elevenLabsSimilarityBoost}
+                max={1}
+                min={0}
+                name="elevenLabsSimilarityBoost"
+                step={0.05}
+                type="number"
+              />
+              <span>How closely ElevenLabs should preserve the selected voice.</span>
+            </label>
+            <label className="setting-card">
+              <strong>Style</strong>
+              <input
+                defaultValue={voiceSettings.elevenLabsStyle}
+                max={1}
+                min={0}
+                name="elevenLabsStyle"
+                step={0.05}
+                type="number"
+              />
+              <span>Extra expressiveness. Keep low for a practical assistant.</span>
+            </label>
+            <label className="compact-checkbox-row setting-card">
+              <input
+                defaultChecked={voiceSettings.elevenLabsUseSpeakerBoost}
+                name="elevenLabsUseSpeakerBoost"
+                type="checkbox"
+              />
+              <span>Use speaker boost</span>
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <div className="settings-footer">
+        <span>
+          Current ElevenLabs default: {selectedPreset.label}. OpenAI still uses its
+          own voice env setting.
+        </span>
+        <button className="primary-button compact" type="submit">
+          Save voice settings
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function UsageSettingsDetail({
   activeWindow,
   usageReport,
@@ -1021,12 +1168,18 @@ export default async function SettingsPage({
     requireWorkspaceContext(),
   ]);
   const activeWindow = normalizeUsageWindow(query?.window);
-  const [communicationSettings, usageReport, googleOverview, microsoftOverview] =
-    await Promise.all([
+  const [
+    communicationSettings,
+    usageReport,
+    googleOverview,
+    microsoftOverview,
+    voiceSettings,
+  ] = await Promise.all([
       getCommunicationSettings(supabase, workspace.id),
       getUsageReport(supabase, workspace.id, activeWindow),
       getGoogleIntegrationOverview(supabase, workspace.id),
       getMicrosoftIntegrationOverview(supabase, workspace.id),
+      getVoiceSettings(supabase, workspace.id),
     ]);
   const selectedSection = normalizeSettingsSection(query?.section);
   const googleStatus = integrationStatusLabel(googleOverview);
@@ -1047,6 +1200,9 @@ export default async function SettingsPage({
   const outboundStatus = communicationSettings.approvalRequired
     ? "Approval required"
     : "Direct send";
+  const voicePreset = elevenLabsVoicePresetById(
+    voiceSettings.elevenLabsVoicePresetId,
+  );
   const settingsItems: SettingsMenuItem[] = [
     {
       detail: `${communicationSettings.allowedChannels.length} channels`,
@@ -1055,6 +1211,17 @@ export default async function SettingsPage({
       section: "communication",
       status: outboundStatus,
       title: "Communication settings",
+    },
+    {
+      detail:
+        voiceSettings.provider === "elevenlabs"
+          ? voicePreset.label
+          : "OpenAI text-to-speech",
+      eyebrow: "Voice",
+      href: settingsSectionHref("voice", activeWindow),
+      section: "voice",
+      status: formatLabel(voiceSettings.provider),
+      title: "Voice assistant",
     },
     {
       detail: "Gmail, Drive, Outlook and Microsoft 365",
@@ -1136,6 +1303,19 @@ export default async function SettingsPage({
               activeWindow={activeWindow}
               usageReport={usageReport}
             />
+          </SettingsDetailShell>
+        }
+        voice={
+          <SettingsDetailShell
+            eyebrow="Voice"
+            status={
+              voiceSettings.provider === "elevenlabs"
+                ? "ElevenLabs"
+                : "OpenAI"
+            }
+            title="Voice assistant"
+          >
+            <VoiceSettingsDetail voiceSettings={voiceSettings} />
           </SettingsDetailShell>
         }
       />
