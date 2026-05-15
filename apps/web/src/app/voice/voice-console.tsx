@@ -17,9 +17,12 @@ import type {
 } from "../../lib/assistant/types";
 
 const VOICE_REPLY_PLAYBACK_RATE = 1;
-const VOICE_AUTO_SILENCE_MS = 1150;
+const VOICE_AUTO_SILENCE_MS = 900;
 const VOICE_MAX_TURN_MS = 45000;
 const VOICE_MIN_CAPTURE_MS = 700;
+const VOICE_NOISE_FLOOR_INITIAL_RMS = 0.012;
+const VOICE_SPEECH_CONTINUE_RMS = 0.018;
+const VOICE_SPEECH_START_RMS = 0.032;
 
 type VoiceCompletionMode = "draft" | "send";
 
@@ -42,9 +45,11 @@ export function VoiceConsole({
   const analyserAnimationRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const liveModeRef = useRef(true);
+  const lastSpeechAtRef = useRef<number | null>(null);
+  const noiseFloorRmsRef = useRef(VOICE_NOISE_FLOOR_INITIAL_RMS);
+  const currentlySpeakingRef = useRef(false);
   const recordingHadSignalRef = useRef(false);
   const shouldResumeAfterSpeechRef = useRef(false);
-  const silenceStartedAtRef = useRef<number | null>(null);
   const speechAudioContextRef = useRef<AudioContext | null>(null);
   const speechSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const speechAbortControllerRef = useRef<AbortController | null>(null);
@@ -337,8 +342,10 @@ export function VoiceConsole({
 
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
+    currentlySpeakingRef.current = false;
+    lastSpeechAtRef.current = null;
+    noiseFloorRmsRef.current = VOICE_NOISE_FLOOR_INITIAL_RMS;
     recordingHadSignalRef.current = false;
-    silenceStartedAtRef.current = null;
     setVoiceLevel(0);
     voiceSignalDetectedRef.current = false;
     setVoiceSignalDetected(false);
@@ -372,15 +379,31 @@ export function VoiceConsole({
         return total + centered * centered;
       }, 0);
       const rms = Math.sqrt(sum / data.length) / 128;
-      const amplifiedLevel = Math.min(1, rms * 8);
-      const hasSignal = amplifiedLevel > 0.07;
+      const amplifiedLevel = Math.min(1, rms * 12);
       const now = Date.now();
+      const noiseFloor = noiseFloorRmsRef.current;
+      const speechStartThreshold = Math.max(
+        VOICE_SPEECH_START_RMS,
+        noiseFloor * 3.2,
+      );
+      const speechContinueThreshold = Math.max(
+        VOICE_SPEECH_CONTINUE_RMS,
+        noiseFloor * 2.1,
+      );
+      const hasSignal = currentlySpeakingRef.current
+        ? rms > speechContinueThreshold
+        : rms > speechStartThreshold;
 
       if (hasSignal) {
+        currentlySpeakingRef.current = true;
         recordingHadSignalRef.current = true;
-        silenceStartedAtRef.current = null;
-      } else if (recordingHadSignalRef.current && !silenceStartedAtRef.current) {
-        silenceStartedAtRef.current = now;
+        lastSpeechAtRef.current = now;
+      } else {
+        currentlySpeakingRef.current = false;
+
+        if (!recordingHadSignalRef.current) {
+          noiseFloorRmsRef.current = noiseFloor * 0.95 + rms * 0.05;
+        }
       }
 
       if (recordingHadSignalRef.current !== voiceSignalDetectedRef.current) {
@@ -390,12 +413,11 @@ export function VoiceConsole({
 
       const startedAt = recordingStartedAtRef.current;
       const elapsedMs = startedAt ? now - startedAt : 0;
-      const silentMs = silenceStartedAtRef.current
-        ? now - silenceStartedAtRef.current
-        : 0;
+      const silentMs = lastSpeechAtRef.current ? now - lastSpeechAtRef.current : 0;
       const shouldAutoStopForSilence =
         liveModeRef.current &&
         recordingHadSignalRef.current &&
+        !currentlySpeakingRef.current &&
         elapsedMs > VOICE_MIN_CAPTURE_MS &&
         silentMs > VOICE_AUTO_SILENCE_MS;
       const shouldAutoStopForLength =
@@ -445,12 +467,14 @@ export function VoiceConsole({
       );
 
       audioChunksRef.current = [];
+      currentlySpeakingRef.current = false;
+      lastSpeechAtRef.current = null;
+      noiseFloorRmsRef.current = VOICE_NOISE_FLOOR_INITIAL_RMS;
       recordingHadSignalRef.current = false;
       recordingStartedAtRef.current = nowMs();
       recordingStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
       voiceCompletionModeRef.current = "send";
-      silenceStartedAtRef.current = null;
       setRecordingElapsedMs(0);
       setVoiceStatus(null);
       setVoiceSignalDetected(false);
