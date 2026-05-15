@@ -6,6 +6,7 @@ const DEFAULT_TTS_MODEL = "tts-1";
 const DEFAULT_TTS_VOICE = "alloy";
 const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 2;
+const MIN_USABLE_TTS_SPEED = 1;
 const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_TTS_INSTRUCTIONS =
   "Speak as Kyro, a practical AI assistant for a trades CRM. Use a normal, brisk conversational pace with short pauses. Keep the delivery warm, concise, and easy to understand for a busy tradesperson.";
@@ -67,11 +68,11 @@ function ttsMarkupRate() {
 function ttsSpeed() {
   const parsed = Number(envValue("OPENAI_TTS_SPEED"));
 
-  if (!Number.isFinite(parsed)) {
+  if (!Number.isFinite(parsed) || parsed < MIN_USABLE_TTS_SPEED) {
     return DEFAULT_TTS_SPEED;
   }
 
-  return Math.min(4, Math.max(0.25, parsed));
+  return Math.min(4, parsed);
 }
 
 function ttsUnitCostPerSecond(model: string) {
