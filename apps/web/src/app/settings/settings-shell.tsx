@@ -1,9 +1,11 @@
-"use client";
-
+import Link from "next/link";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
 
-export type SettingsSection = "communication" | "integrations" | "usage" | "voice";
+export type SettingsSection =
+  | "communication"
+  | "integrations"
+  | "usage"
+  | "voice";
 
 export type SettingsMenuItem = {
   detail: string;
@@ -14,69 +16,23 @@ export type SettingsMenuItem = {
   title: string;
 };
 
-function sectionFromLocation() {
-  const params = new URLSearchParams(window.location.search);
-  const section = params.get("section");
-
-  if (section === "google" || section === "microsoft" || section === "integrations") {
-    return "integrations";
-  }
-
-  if (section === "communication" || section === "usage" || section === "voice") {
-    return section;
-  }
-
-  return null;
-}
-
 export function SettingsShell({
-  communication,
+  detail,
   empty,
-  initialSection,
-  integrations,
   items,
-  usage,
-  voice,
+  selectedSection,
 }: Readonly<{
-  communication: ReactNode;
+  detail: ReactNode | null;
   empty: ReactNode;
-  initialSection: SettingsSection | null;
-  integrations: ReactNode;
   items: SettingsMenuItem[];
-  usage: ReactNode;
-  voice: ReactNode;
+  selectedSection: SettingsSection | null;
 }>) {
-  const [selectedSection, setSelectedSection] = useState<SettingsSection | null>(
-    initialSection,
-  );
-
-  useEffect(() => {
-    const handlePopState = () => setSelectedSection(sectionFromLocation());
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  function openSection(item: SettingsMenuItem) {
-    setSelectedSection(item.section);
-    window.history.pushState(null, "", item.href);
-  }
-
-  const detail =
-    selectedSection === "communication"
-      ? communication
-      : selectedSection === "integrations"
-        ? integrations
-        : selectedSection === "usage"
-          ? usage
-          : selectedSection === "voice"
-            ? voice
-            : empty;
+  const hasDetail = Boolean(selectedSection && detail);
 
   return (
     <section
       className={
-        selectedSection ? "settings-workspace has-detail" : "settings-workspace"
+        hasDetail ? "settings-workspace has-detail" : "settings-workspace"
       }
     >
       <section className="panel settings-list-panel">
@@ -89,27 +45,30 @@ export function SettingsShell({
 
         <div className="settings-menu-list">
           {items.map((item) => (
-            <button
+            <Link
+              aria-current={
+                selectedSection === item.section ? "page" : undefined
+              }
               className={
                 selectedSection === item.section
                   ? "settings-menu-row active"
                   : "settings-menu-row"
               }
+              href={item.href}
               key={item.section}
-              onClick={() => openSection(item)}
-              type="button"
+              prefetch={false}
             >
               <div className="settings-menu-main">
                 <p className="eyebrow">{item.eyebrow}</p>
                 <strong>{item.title}</strong>
                 <span>{item.detail}</span>
               </div>
-            </button>
+            </Link>
           ))}
         </div>
       </section>
 
-      {detail}
+      {hasDetail ? detail : empty}
     </section>
   );
 }

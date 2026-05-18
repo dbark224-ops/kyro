@@ -121,7 +121,8 @@ Shared visual helpers:
 
 The shell also mounts a small client-side route preloader. After the browser is idle,
 it staggers prefetches for the main logged-in routes so the high-traffic tabs feel
-warmer without preloading every row/detail page.
+warmer without preloading every row/detail page. The nav links leave automatic Next
+prefetching off so this controlled preloader is the single warmup mechanism.
 
 On narrow mobile viewports, the shell hides the desktop sidebar, exposes the full
 navigation through a drawer menu, and pins a bottom quick-nav for Assistant, CRM,
@@ -205,17 +206,19 @@ sorting without adding a separate search service.
 
 Performance notes:
 
-- the app shell uses Next link prefetching plus `RoutePreloader` to idle-prefetch
-  the main tabs with a short stagger,
+- the app shell uses `RoutePreloader` to idle-prefetch the main tabs with a short stagger,
 - list pages disable prefetch on long repeated rows so the app does not pre-render
   dozens of detail pages at once,
 - list/review queries are bounded so mock data growth does not silently make every
   tab click heavier,
 - inbox split-view loads the conversation list, selected preview, and communication
   settings in parallel once workspace context is resolved,
+- Settings renders its menu without fetching every detail panel; each selected
+  section loads only its own server data, and the full usage ledger is loaded only
+  for `?section=usage`,
 - route loading skeletons exist for the log, inbox, inquiry review, CRM, contact
-  profile, leads redirect, documents, quote draft profile, assistant, usage redirect,
-  and settings pages,
+  profile, leads redirect, documents, quote draft profile, assistant, voice, usage
+  redirect, and settings pages,
 - the development LLM status pill caches its local Ollama health check briefly and is
   rendered behind a Suspense boundary so page content is not blocked by a local model probe.
 
@@ -392,7 +395,11 @@ into the draft box for editing, while pressing Send during recording transcribes
 Files:
 
 - `apps/web/src/app/voice/page.tsx`
+- `apps/web/src/app/voice/realtime-voice-console.tsx`
 - `apps/web/src/app/voice/voice-console.tsx`
+- `apps/web/src/app/api/assistant/realtime/call/route.ts`
+- `apps/web/src/app/api/assistant/realtime/tool/route.ts`
+- `apps/web/src/app/api/assistant/realtime/persist/route.ts`
 - `apps/web/src/app/api/assistant/transcribe/route.ts`
 - `apps/web/src/app/api/assistant/speech/route.ts`
 - `apps/web/src/lib/assistant/transcription.ts`
@@ -400,36 +407,52 @@ Files:
 
 Purpose:
 
-- provide a separate voice-first test surface without crowding the main Assistant chat UI,
+- provide a separate realtime voice-first test surface without crowding the main Assistant chat UI,
 - reuse the same Assistant thread, command router, model provider, memory context, and CRM tools,
-- transcribe each user voice turn with OpenAI speech-to-text,
-- submit the transcript through the normal Assistant turn flow with `inputSource=voice`,
-- synthesize each new Kyro response with the configured text-to-speech provider and play it back in the browser,
+- stream microphone audio through OpenAI Realtime over WebRTC,
+- let the realtime session call the same Kyro tool boundary used by Assistant where possible,
+- persist user/assistant transcripts back into the same Assistant thread,
+- support web-search source cards when assistant web search is enabled,
 - meter speech-to-text minutes and text-to-speech usage in `usage_events`.
 
-Voice mode is currently a hands-free turn loop rather than a true realtime duplex voice agent. In live mode, the user
-starts the mic once, Kyro detects speech, auto-submits the transcript after a short pause, speaks the assistant reply,
-then reopens the mic for the next turn. It is intentionally not full WebRTC/realtime audio yet: there is no barge-in,
-partial assistant audio streaming, or interruption handling. Kyro can synthesize replies through OpenAI TTS or
-ElevenLabs TTS using the same `/api/assistant/speech` route. The active provider, ElevenLabs output format, voice
-preset, and voice tuning are workspace settings stored in `workspace_policies` with policy type `assistant_voice`,
-surfaced from the Settings page as its own Voice Assistant section. The ElevenLabs model is a backend/developer
-setting, defaulting to `eleven_v3`, so users choose the voice but not the model tier. OpenAI WAV output is normalized
-before browser playback; ElevenLabs uses an MP3 stream by default. The browser decodes audio through Web Audio so dev
-playback speed can be enforced outside the normal media-element path. That keeps the product using one assistant brain
-for now. A later mobile-ready implementation can swap the voice page onto OpenAI Realtime, VAPI, ElevenLabs
-Conversational AI, or another realtime speech layer while still calling the same Kyro tools and permission boundaries.
-Kyro treats `OPENAI_TTS_SPEED` values below `1` as a misconfiguration and falls back to the default normal voice speed,
-so stale dev environment values cannot accidentally produce quarter-speed assistant audio.
+Voice mode now uses OpenAI Realtime as the primary local development path. The server creates an ephemeral realtime
+session with the same workspace/user context, the browser connects over WebRTC, and the voice client persists the final
+transcript back into the Assistant thread so a user can move between chat and voice without losing context. The older
+turn-based `voice-console.tsx`, transcription route, and speech route remain useful as fallback/test surfaces for
+non-realtime experiments.
+
+The active realtime voice, voice style instructions, VAD threshold, silence duration, and prefix padding are backend
+environment settings. The current local setup uses the `ballad` OpenAI voice with assistant-suitable tone guidance.
+Future iOS work should treat this realtime flow as the contract to preserve: native UI and audio handling can change,
+but the session should still share Assistant memory, tools, permissions, and persisted transcript state.
 
 Provider configuration:
 
 ```bash
-ASSISTANT_PROVIDER=ollama
-ASSISTANT_MODEL=qwen3:8b
+AI_PROVIDER=openai
+ASSISTANT_PROVIDER=openai
+ASSISTANT_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_LOW_COST_MODEL=gpt-4.1-mini
+OPENAI_BALANCED_MODEL=gpt-4.1-mini
+OPENAI_STRONG_MODEL=gpt-4.1
+OPENAI_TRIAGE_MODEL=gpt-4.1-mini
+OPENAI_ASSISTANT_MAX_OUTPUT_TOKENS=360
+OPENAI_TRIAGE_MAX_OUTPUT_TOKENS=700
+OPENAI_REALTIME_MODEL=gpt-realtime-2
+OPENAI_REALTIME_VOICE=ballad
+OPENAI_REALTIME_STYLE_INSTRUCTIONS=
+OPENAI_REALTIME_VAD_THRESHOLD=0.74
+OPENAI_REALTIME_VAD_SILENCE_DURATION_MS=1200
+OPENAI_REALTIME_VAD_PREFIX_PADDING_MS=300
 ASSISTANT_OLLAMA_TIMEOUT_MS=60000
 ASSISTANT_OLLAMA_NUM_PREDICT=180
 ASSISTANT_OLLAMA_THINK=false
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_TIMEOUT_MS=60000
+OLLAMA_NUM_PREDICT=320
+OLLAMA_THINK=false
 OPENAI_API_KEY=
 OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 OPENAI_STT_PROMPT=
@@ -497,11 +520,16 @@ Purpose:
 - show the current pricing posture without connecting payment collection.
 
 Usage visibility is now incorporated into Settings. `/usage` redirects to
-`/settings#usage`. The usage area is read-only. The billing endpoint is also read-only:
+`/settings?section=usage`. The usage area is read-only. The billing endpoint is also read-only:
 it sums stored `usage_events.customer_charge_snapshot` values by period and user so a
 future payment system can consume the same ledger totals. It does not invoice, collect
 payment, alter pricing rules, or push data to Stripe/Apple. It is a visibility layer
 over the metering data that triage, Assistant, and future API integrations record.
+
+Settings sections are URL-addressable (`?section=communication`, `?section=voice`,
+`?section=integrations`, `?section=usage`) and fetch data on demand for the selected
+section. This keeps the default Settings route light and makes each section a cleaner
+future API/native-screen boundary.
 
 Settings expose outbound policy and a combined Integrations area for Google Workspace
 and Microsoft Outlook. Gmail and Outlook are the first real external send providers.
@@ -704,20 +732,21 @@ and avoids timeout fallbacks while preserving the same provider abstraction for
 future cloud APIs.
 
 The Assistant uses the same general model-routing idea, but its provider layer is separate from triage so chat/command
-behavior can be upgraded independently. It defaults to local Ollama for development through `ASSISTANT_PROVIDER`.
+behavior can be upgraded independently. This local setup uses OpenAI by default through `ASSISTANT_PROVIDER`; Ollama
+remains a supported development option on machines that can run it.
 
 ## Performance Pattern
 
 Current performance approach:
 
 - routes are server-rendered for fresh authenticated data,
-- high-value nav links use Next prefetching,
 - `RoutePreloader` idle-prefetches core logged-in tabs with a stagger so navigation
-  is warm without hammering every detail route,
+  is warm without hammering every detail route or duplicating nav-link prefetches,
 - long repeated list rows intentionally keep `prefetch={false}`,
 - list/detail pages have skeleton loading states,
 - CRM filter/search/sort state is URL-backed and rendered server-side so the split profile panel can preserve context across clicks and saves,
 - inbox split-view fetches the list, selected preview, and communication settings in parallel after workspace resolution,
+- Settings fetches only the selected section's data so the heavy usage ledger is not loaded for communication, voice, or integrations changes,
 - log data, engine queues, and AI ledger data are fetched in parallel after workspace resolution,
 - log counts are workspace-scoped,
 - the Assistant landing page uses count queries where possible and reuses the bounded
@@ -768,6 +797,7 @@ Use this map before editing:
 - New quote draft action-execution behavior: `apps/web/src/lib/engine/event-action-audit.ts`
 - New assistant command behavior: `apps/web/src/lib/assistant/commands.ts`
 - New assistant model provider: `apps/web/src/lib/assistant/providers.ts`
+- New assistant route metrics behavior: `apps/web/src/lib/assistant/route-metrics.ts`
 - New assistant persistence/memory behavior: `apps/web/src/lib/assistant/persistence.ts`
 - New assistant UI block behavior: `apps/web/src/lib/assistant/ui-blocks.ts`
 - New assistant speech-to-text behavior: `apps/web/src/app/api/assistant/transcribe/route.ts`
@@ -776,8 +806,12 @@ Use this map before editing:
   and `apps/web/src/lib/assistant/speech.ts`
 - New assistant voice settings behavior: `apps/web/src/lib/assistant/voice-settings.ts`
   and `apps/web/src/app/settings/page.tsx`
-- New voice-first UI behavior: `apps/web/src/app/voice/page.tsx`
-  and `apps/web/src/app/voice/voice-console.tsx`
+- New realtime voice UI behavior: `apps/web/src/app/voice/page.tsx`
+  and `apps/web/src/app/voice/realtime-voice-console.tsx`
+- New realtime voice session/tool/persistence behavior:
+  `apps/web/src/app/api/assistant/realtime/call/route.ts`,
+  `apps/web/src/app/api/assistant/realtime/tool/route.ts`, and
+  `apps/web/src/app/api/assistant/realtime/persist/route.ts`
 - New Google OAuth connection behavior: `apps/web/src/app/integrations/google/start/route.ts`,
   `apps/web/src/app/integrations/google/callback/route.ts`, and `apps/web/src/lib/integrations/google.ts`
 - New Microsoft OAuth connection behavior: `apps/web/src/app/integrations/microsoft/start/route.ts`,
@@ -801,8 +835,8 @@ These are not bugs:
 - Gmail inbound sync is not connected yet.
 - Outlook inbound sync is not connected yet.
 - SMS is not connected yet.
-- AI triage and Assistant narration can use local Ollama in development, but cloud LLM providers are not wired yet.
-- Voice mode uses OpenAI or ElevenLabs text-to-speech as a post-response playback layer. It is not true realtime speech-to-speech yet.
+- AI triage and Assistant narration can use OpenAI in this local setup; local Ollama remains a development option on machines that support it.
+- Voice mode has a WebRTC/OpenAI Realtime path, but the native mobile shell, deeper barge-in tuning, and user-facing realtime voice controls are still future work.
 - Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
 - Gmail/Outlook can send uploaded local file attachments and generated text snapshots of selected quote drafts.
 - Full PDF/invoice rendering from user-uploaded templates is not implemented yet. Current quote drafts are saved editable internal documents only.

@@ -24,6 +24,10 @@ function ollamaModel() {
   return envValue("ASSISTANT_MODEL") || envValue("OLLAMA_MODEL") || "qwen3:8b";
 }
 
+function openAiModel() {
+  return envValue("ASSISTANT_MODEL") || envValue("OPENAI_MODEL") || "gpt-4.1-mini";
+}
+
 function aiProvider() {
   return (
     envValue("ASSISTANT_PROVIDER") ||
@@ -48,6 +52,18 @@ export async function getLlmDevStatus(): Promise<LlmDevStatus | null> {
   }
 
   const provider = aiProvider();
+
+  if (provider === "openai") {
+    return {
+      detail: envValue("OPENAI_API_KEY")
+        ? "OpenAI API key is configured for assistant calls."
+        : "OPENAI_API_KEY is missing.",
+      label: envValue("OPENAI_API_KEY")
+        ? `LLM: ${openAiModel()} via OpenAI`
+        : "LLM: OpenAI key missing",
+      tone: envValue("OPENAI_API_KEY") ? "connected" : "offline"
+    };
+  }
 
   if (!["ollama", "local"].includes(provider)) {
     return {

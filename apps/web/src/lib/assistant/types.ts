@@ -65,6 +65,8 @@ export type AssistantModelOutput = {
   inputTokens: number;
   outputTokens: number;
   fallbackReason?: string;
+  webSearchUsed?: boolean;
+  webSources?: AssistantLink[];
 };
 
 export type AssistantModelRoute = {

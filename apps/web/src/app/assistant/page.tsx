@@ -1,7 +1,7 @@
 import { AssistantConsole } from "./assistant-console";
 import { AppFrame } from "../components/app-frame";
-import { getConversationWorkflowCounts } from "../../lib/crm/queries";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
+import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import type { AssistantThreadState } from "../../lib/assistant/types";
 
@@ -9,46 +9,37 @@ export const dynamic = "force-dynamic";
 
 export default async function AssistantPage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [conversationCounts, readyQuotesResult, contactsResult] = await Promise.all([
-    getConversationWorkflowCounts(supabase, workspace.id),
-    supabase
-      .from("quote_drafts")
-      .select("id", { count: "exact", head: true })
-      .eq("workspace_id", workspace.id)
-      .eq("status", "ready"),
-    supabase
-      .from("contacts")
-      .select("id", { count: "exact", head: true })
-      .eq("workspace_id", workspace.id),
-  ]);
-
-  if (readyQuotesResult.error) {
-    throw new Error(`Unable to count ready quote drafts: ${readyQuotesResult.error.message}`);
-  }
-
-  if (contactsResult.error) {
-    throw new Error(`Unable to count contacts: ${contactsResult.error.message}`);
-  }
-
-  const needsReply = conversationCounts.needsReply;
-  const readyQuotes = readyQuotesResult.count ?? 0;
-  const contactCount = contactsResult.count ?? 0;
-  const initialState: AssistantThreadState = await getAssistantThreadState({
+  const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
+  const threadStatePromise = getAssistantThreadState({
     supabase,
     user,
-    welcomeMessage: {
-      content:
-        "I am connected to Kyro's CRM data and the local model. Ask me about work queue, quotes, customers, or creating a draft document.",
-      createdAt: new Date().toISOString(),
-      id: "assistant-welcome",
-      links: [
-        { href: "/inbox", label: "Inbox", meta: `${needsReply} need reply` },
-        { href: "/documents", label: "Documents", meta: `${readyQuotes} ready quotes` },
-      ],
-      role: "assistant",
-    },
     workspace,
   });
+  const [metrics, threadState] = await Promise.all([
+    metricsPromise,
+    threadStatePromise,
+  ]);
+
+  const { contactCount, needsReply, readyQuotes } = metrics;
+  const welcomeMessage: AssistantThreadState["messages"][number] = {
+    content:
+      "I am connected to Kyro's CRM data and the assistant model. Ask me about work queue, quotes, customers, or creating a draft document.",
+    createdAt: new Date().toISOString(),
+    id: "assistant-welcome",
+    links: [
+      { href: "/inbox", label: "Inbox", meta: `${needsReply} need reply` },
+      {
+        href: "/documents",
+        label: "Documents",
+        meta: `${readyQuotes} ready quotes`,
+      },
+    ],
+    role: "assistant",
+  };
+  const initialState: AssistantThreadState =
+    threadState.messages.length > 0
+      ? threadState
+      : { ...threadState, messages: [welcomeMessage] };
 
   return (
     <AppFrame active="Assistant">
@@ -59,7 +50,10 @@ export default async function AssistantPage() {
             <h1>Assistant</h1>
           </div>
           <div className="topbar-right">
-            <section className="metric-grid" aria-label="Assistant context metrics">
+            <section
+              className="metric-grid"
+              aria-label="Assistant context metrics"
+            >
               <article className="metric-card cyan">
                 <p>Inbox</p>
                 <strong>{needsReply}</strong>

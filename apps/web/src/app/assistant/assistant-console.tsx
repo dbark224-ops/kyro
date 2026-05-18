@@ -1272,6 +1272,20 @@ function AssistantResourceCard({
   link: AssistantLink;
   onOpenPreview: (link: AssistantLink) => void;
 }) {
+  if (isExternalHref(link.href)) {
+    return (
+      <a
+        className="assistant-link-card"
+        href={link.href}
+        rel="noreferrer"
+        target="_blank"
+      >
+        <strong>{link.label}</strong>
+        {link.meta ? <span>{link.meta}</span> : null}
+      </a>
+    );
+  }
+
   if (isPreviewableHref(link.href)) {
     return (
       <button
@@ -1295,6 +1309,16 @@ function AssistantResourceCard({
       {link.meta ? <span>{link.meta}</span> : null}
     </Link>
   );
+}
+
+function isExternalHref(href: string) {
+  try {
+    const url = new URL(href);
+
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
 }
 
 function mergeAssistantLink(

@@ -1,7 +1,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { getConversationList } from "../crm/queries";
 import { conversationToAssistantLink } from "./conversation-links";
-import { linksFromBlocks, memoryNoticeBlock } from "./ui-blocks";
+import { linkCardsBlock, linksFromBlocks, memoryNoticeBlock } from "./ui-blocks";
 import type {
   AssistantLink,
   AssistantMemoryItem,
@@ -242,6 +242,49 @@ export async function appendAssistantTurnMessage({
 
   if (error) {
     throw new Error(`Unable to save assistant response: ${error.message}`);
+  }
+
+  await touchThread(supabase, workspaceId, threadId);
+}
+
+export async function appendRealtimeAssistantMessage({
+  content,
+  links = [],
+  model,
+  provider,
+  supabase,
+  threadId,
+  user,
+  workspaceId,
+}: {
+  content: string;
+  links?: AssistantLink[];
+  model: string;
+  provider: string;
+  supabase: SupabaseClient;
+  threadId: string;
+  user: User;
+  workspaceId: string;
+}) {
+  const { error } = await supabase.from("assistant_messages").insert({
+    content,
+    intent: "realtime_voice",
+    metadata: {
+      linkCount: links.length,
+      source: "assistant.realtime_voice",
+    },
+    model,
+    provider,
+    role: "assistant",
+    thread_id: threadId,
+    tool_calls: [],
+    ui_blocks: linkCardsBlock("Web sources", links),
+    user_id: user.id,
+    workspace_id: workspaceId,
+  });
+
+  if (error) {
+    throw new Error(`Unable to save realtime assistant response: ${error.message}`);
   }
 
   await touchThread(supabase, workspaceId, threadId);

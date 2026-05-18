@@ -75,7 +75,7 @@ type TriageDecision = {
     subject: string | null;
     body: string | null;
   };
-  providerUsed: "stub" | "ollama";
+  providerUsed: "stub" | "ollama" | "openai";
   fallbackReason?: string;
   inputTokens?: number;
   outputTokens?: number;
@@ -471,6 +471,25 @@ function ollamaThinkEnabled() {
   return ["1", "true", "yes", "on"].includes(value);
 }
 
+function openAiApiKey() {
+  return process.env.OPENAI_API_KEY?.trim() ?? "";
+}
+
+function openAiTriageModel(fallbackModel: string) {
+  return (
+    process.env.OPENAI_TRIAGE_MODEL?.trim() ||
+    process.env.OPENAI_LOW_COST_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    fallbackModel ||
+    "gpt-4.1-mini"
+  );
+}
+
+function openAiTriageMaxOutputTokens() {
+  const parsed = Number(process.env.OPENAI_TRIAGE_MAX_OUTPUT_TOKENS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 700;
+}
+
 function describeOllamaError(error: unknown, timeoutMs: number) {
   if (error instanceof Error && error.name === "AbortError") {
     return `Local Ollama triage timed out after ${timeoutMs}ms.`;
@@ -479,8 +498,17 @@ function describeOllamaError(error: unknown, timeoutMs: number) {
   return error instanceof Error ? error.message : "Local Ollama triage failed.";
 }
 
+function providerErrorMessage(payload: unknown) {
+  const error = objectRecord(objectRecord(payload).error);
+  return textValue(error.message) ?? "OpenAI triage request failed.";
+}
+
 function estimateTokens(text: string) {
   return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function extractJsonObject(text: string) {
@@ -494,6 +522,44 @@ function extractJsonObject(text: string) {
   }
 
   return JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
+}
+
+function responseOutputText(payload: unknown) {
+  const root = objectRecord(payload);
+  const direct = textValue(root.output_text);
+
+  if (direct) {
+    return direct;
+  }
+
+  const output = Array.isArray(root.output) ? root.output : [];
+
+  for (const item of output) {
+    const content = objectRecord(item).content;
+
+    if (!Array.isArray(content)) {
+      continue;
+    }
+
+    for (const part of content) {
+      const text = textValue(objectRecord(part).text);
+
+      if (text) {
+        return text;
+      }
+    }
+  }
+
+  return null;
+}
+
+function responseUsage(payload: unknown, prompt: string, text: string) {
+  const usage = objectRecord(objectRecord(payload).usage);
+
+  return {
+    inputTokens: numberValue(usage.input_tokens) ?? estimateTokens(prompt),
+    outputTokens: numberValue(usage.output_tokens) ?? estimateTokens(text)
+  };
 }
 
 function normalizeStringArray(value: unknown) {
@@ -681,7 +747,116 @@ async function runOllamaTriage(context: StubAiTriageContext): Promise<TriageDeci
   }
 }
 
-async function resolveTriageDecision(context: StubAiTriageContext) {
+async function runOpenAiTriage(
+  context: StubAiTriageContext,
+  fallbackModel: string
+): Promise<TriageDecision> {
+  const apiKey = openAiApiKey();
+  const fallbackFacts = context.inquiryFactsOverride ?? extractInquiryFacts(context);
+  const prompt = buildOllamaPrompt(context);
+  const model = openAiTriageModel(fallbackModel);
+
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not configured for inbound triage.");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    body: JSON.stringify({
+      input: prompt,
+      instructions:
+        "You are Kyro's trades CRM triage engine. Return compact JSON matching the requested contract.",
+      max_output_tokens: openAiTriageMaxOutputTokens(),
+      model,
+      text: {
+        format: {
+          name: "kyro_inbound_triage",
+          schema: {
+            additionalProperties: false,
+            properties: {
+              inquiryFacts: {
+                additionalProperties: false,
+                properties: {
+                  address: { type: ["string", "null"] },
+                  budget: { type: ["string", "null"] },
+                  fit: { enum: ["likely_fit", "needs_review", "not_fit"], type: "string" },
+                  jobType: { type: ["string", "null"] },
+                  missingInfo: {
+                    items: { type: "string" },
+                    type: "array"
+                  },
+                  preferredTime: { type: ["string", "null"] },
+                  urgency: { enum: ["low", "normal", "urgent"], type: "string" }
+                },
+                required: [
+                  "jobType",
+                  "address",
+                  "preferredTime",
+                  "urgency",
+                  "budget",
+                  "fit",
+                  "missingInfo"
+                ],
+                type: "object"
+              },
+              replyDraft: {
+                additionalProperties: false,
+                properties: {
+                  body: { type: ["string", "null"] },
+                  subject: { type: ["string", "null"] }
+                },
+                required: ["subject", "body"],
+                type: "object"
+              },
+              summary: { type: "string" }
+            },
+            required: ["summary", "inquiryFacts", "replyDraft"],
+            type: "object"
+          },
+          strict: true,
+          type: "json_schema"
+        }
+      }
+    }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    method: "POST"
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(providerErrorMessage(payload));
+  }
+
+  const content = responseOutputText(payload);
+
+  if (!content) {
+    throw new Error("OpenAI returned an empty triage response.");
+  }
+
+  const parsed = extractJsonObject(content);
+  const replyDraft = objectRecord(parsed.replyDraft);
+  const facts = context.inquiryFactsOverride ?? normalizeLocalFacts(parsed.inquiryFacts, fallbackFacts);
+
+  return {
+    ...responseUsage(payload, prompt, content),
+    inquiryFacts: facts,
+    providerUsed: "openai",
+    replyDraft: {
+      body: textValue(replyDraft.body) ?? buildReplyBody(facts),
+      subject:
+        textValue(replyDraft.subject) ??
+        (facts.missingInfo.length > 0 ? "A few details for your quote" : "Thanks for the details")
+    },
+    summary:
+      textValue(parsed.summary) ??
+      context.summary ??
+      "OpenAI triage extracted inquiry facts and prepared action proposals."
+  };
+}
+
+async function resolveTriageDecision(context: StubAiTriageContext, routeModel: string) {
   if (["local", "ollama"].includes(aiProviderMode())) {
     try {
       return await runOllamaTriage(context);
@@ -689,6 +864,17 @@ async function resolveTriageDecision(context: StubAiTriageContext) {
       return buildStubDecision(
         context,
         error instanceof Error ? error.message : "Local Ollama triage failed."
+      );
+    }
+  }
+
+  if (aiProviderMode() === "openai") {
+    try {
+      return await runOpenAiTriage(context, routeModel);
+    } catch (error) {
+      return buildStubDecision(
+        context,
+        error instanceof Error ? error.message : "OpenAI triage request failed."
       );
     }
   }
@@ -894,7 +1080,7 @@ export async function runStubAiTriage(
     }
   });
 
-  const triageDecision = await resolveTriageDecision(context);
+  const triageDecision = await resolveTriageDecision(context, route.model);
   const { error: routeError } = await supabase.from("model_route_decisions").insert({
     workspace_id: workspaceId,
     user_id: user.id,
@@ -903,7 +1089,9 @@ export async function runStubAiTriage(
     risk_level: routeRequest.riskLevel,
     selected_provider: route.provider,
     selected_model: route.model,
-    fallback_used: route.provider === "ollama" && triageDecision.providerUsed !== "ollama",
+    fallback_used:
+      (route.provider === "ollama" && triageDecision.providerUsed !== "ollama") ||
+      (route.provider === "openai" && triageDecision.providerUsed !== "openai"),
     decision_reason: route.reason,
     budget_snapshot: {
       fallbackReason: triageDecision.fallbackReason ?? null,

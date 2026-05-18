@@ -20,7 +20,9 @@ const navItems = [
 const bottomNavItems = ["Assistant", "CRM", "Inbox", "Settings"]
   .map((label) => navItems.find((item) => item.label === label))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
-const preloadRoutes = navItems.map((item) => item.href);
+const preloadRoutes = navItems
+  .filter((item) => item.label !== "Developer")
+  .map((item) => item.href);
 
 async function LlmDevStatusPill() {
   const status = await getLlmDevStatus();
@@ -78,7 +80,7 @@ export function AppFrame({
                   .filter(Boolean)
                   .join(" ")}
                 key={item.label}
-                prefetch
+                prefetch={false}
               >
                 {item.label}
               </Link>
@@ -110,7 +112,7 @@ export function AppFrame({
                   .filter(Boolean)
                   .join(" ")}
                 key={item.label}
-                prefetch
+                prefetch={false}
               >
                 {item.label}
               </Link>
@@ -150,7 +152,7 @@ export function AppFrame({
               .join(" ")}
             href={item.href}
             key={item.label}
-            prefetch
+            prefetch={false}
           >
             {item.label}
           </Link>

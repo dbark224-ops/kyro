@@ -6,6 +6,7 @@ import { insertAuditLog } from "../engine/event-action-audit";
 import { resolveAssistantCommand } from "./commands";
 import { runAssistantModel } from "./providers";
 import { linkCardsBlock } from "./ui-blocks";
+import { dedupeAssistantLinks } from "./web-search";
 import type {
   AssistantMemoryItem,
   AssistantModelRoute,
@@ -145,7 +146,7 @@ export async function runAssistantTurn({
     user,
     workspace,
   });
-  const toolCalls = commandToToolCalls(command, trimmedPrompt);
+  const commandToolCalls = commandToToolCalls(command, trimmedPrompt);
   const route = routeAssistantModel(workspace, user);
   const inputTokensEstimate = estimateTokens(
     JSON.stringify({ command, prompt: trimmedPrompt }),
@@ -169,7 +170,7 @@ export async function runAssistantTurn({
       risk_level: "low",
       status: "running",
       task_type: "assistant_chat",
-      tool_calls: toolCalls,
+      tool_calls: commandToolCalls,
       usage: {},
       user_id: user.id,
       workspace_id: workspace.id,
@@ -190,6 +191,12 @@ export async function runAssistantTurn({
     recentMessages,
     threadSummary,
   });
+  const webSourceLinks = modelOutput.webSources ?? [];
+  const resultLinks = dedupeAssistantLinks([...command.links, ...webSourceLinks]);
+  const toolCalls = [
+    ...commandToolCalls,
+    ...webSearchToToolCalls(modelOutput, trimmedPrompt),
+  ];
   const inputTokens = modelOutput.inputTokens || inputTokensEstimate;
   const outputTokens =
     modelOutput.outputTokens || estimateTokens(modelOutput.text);
@@ -215,6 +222,8 @@ export async function runAssistantTurn({
         memoryCount: memories.length,
         providerMode: assistantProviderMode(),
         recentMessageCount: recentMessages.length,
+        webSearchSourceCount: webSourceLinks.length,
+        webSearchUsed: Boolean(modelOutput.webSearchUsed),
         inputSource,
         threadId,
       },
@@ -281,11 +290,12 @@ export async function runAssistantTurn({
     command: {
       context: command.context,
       intent: command.intent,
-      links: command.links,
+      links: resultLinks,
       mutation: command.mutation ?? null,
       title: command.title,
     },
     fallbackReason: modelOutput.fallbackReason ?? null,
+    webSources: webSourceLinks,
   };
   const { error: completeError } = await supabase
     .from("ai_runs")
@@ -315,9 +325,11 @@ export async function runAssistantTurn({
     actorType: "ai",
     after: {
       intent: command.intent,
-      linkCount: command.links.length,
+      linkCount: resultLinks.length,
       mutation: command.mutation ?? null,
       provider: route.provider,
+      webSearchSourceCount: webSourceLinks.length,
+      webSearchUsed: Boolean(modelOutput.webSearchUsed),
     },
     entityId: aiRunId,
     entityType: "ai_run",
@@ -331,13 +343,39 @@ export async function runAssistantTurn({
     fallbackReason: modelOutput.fallbackReason,
     id: aiRunId,
     intent: command.intent,
-    links: command.links,
+    links: resultLinks,
     model: route.model,
     provider: route.provider,
     role: "assistant",
     toolCalls,
-    uiBlocks: linkCardsBlock(command.title, command.links),
+    uiBlocks: [
+      ...linkCardsBlock(command.title, command.links),
+      ...linkCardsBlock("Web sources", webSourceLinks),
+    ],
   };
+}
+
+function webSearchToToolCalls(
+  modelOutput: Awaited<ReturnType<typeof runAssistantModel>>,
+  prompt: string,
+): AssistantToolCallRecord[] {
+  if (!modelOutput.webSearchUsed && !modelOutput.webSources?.length) {
+    return [];
+  }
+
+  return [
+    {
+      input: {
+        prompt,
+      },
+      name: "web_search",
+      result: {
+        sourceCount: modelOutput.webSources?.length ?? 0,
+        sources: modelOutput.webSources ?? [],
+      },
+      status: modelOutput.fallbackReason ? "blocked" : "completed",
+    },
+  ];
 }
 
 function commandToToolCalls(

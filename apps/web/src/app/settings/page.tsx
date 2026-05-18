@@ -160,11 +160,7 @@ function EmailSignatureEditor({
       <div className="settings-grid">
         <label className="setting-card">
           <strong>Logo file</strong>
-          <input
-            accept="image/*"
-            name={`${namePrefix}LogoFile`}
-            type="file"
-          />
+          <input accept="image/*" name={`${namePrefix}LogoFile`} type="file" />
           <span>
             Upload a small logo, up to 512 KB. This is sent inline with email
             signatures.
@@ -179,9 +175,7 @@ function EmailSignatureEditor({
             placeholder="https://example.com/logo.png"
             type="url"
           />
-          <span>
-            Optional fallback if no logo file is uploaded.
-          </span>
+          <span>Optional fallback if no logo file is uploaded.</span>
         </label>
 
         <label className="setting-card">
@@ -267,8 +261,12 @@ function UsageSettingsLedger({ rows }: Readonly<{ rows: UsageLedgerRow[] }>) {
   );
 }
 
-type GoogleIntegrationOverview = Awaited<ReturnType<typeof getGoogleIntegrationOverview>>;
-type MicrosoftIntegrationOverview = Awaited<ReturnType<typeof getMicrosoftIntegrationOverview>>;
+type GoogleIntegrationOverview = Awaited<
+  ReturnType<typeof getGoogleIntegrationOverview>
+>;
+type MicrosoftIntegrationOverview = Awaited<
+  ReturnType<typeof getMicrosoftIntegrationOverview>
+>;
 type IntegrationOverview = {
   configured: boolean;
   connections: Array<{ lastError: string | null; status: string }>;
@@ -297,7 +295,11 @@ function SettingsDetailShell({
         </div>
         <div className="row-actions">
           <span className="pill">{status}</span>
-          <Link className="secondary-button compact" href="/settings" prefetch={false}>
+          <Link
+            className="secondary-button compact"
+            href="/settings"
+            prefetch={false}
+          >
             Close
           </Link>
         </div>
@@ -314,8 +316,9 @@ function EmptySettingsDetail() {
         <p className="eyebrow">Settings</p>
         <h2>Select a settings area</h2>
         <p>
-          Choose communication rules, workspace integrations, or billing and metering
-          from the settings list to view and edit the full details here.
+          Choose communication rules, workspace integrations, or billing and
+          metering from the settings list to view and edit the full details
+          here.
         </p>
       </div>
     </section>
@@ -379,7 +382,10 @@ function combinedIntegrationStatusLabel(
     return "Ready to connect";
   }
 
-  if (googleStatus === "Migration pending" || microsoftStatus === "Migration pending") {
+  if (
+    googleStatus === "Migration pending" ||
+    microsoftStatus === "Migration pending"
+  ) {
     return "Migration pending";
   }
 
@@ -405,15 +411,15 @@ function GoogleIntegrationSettings({
         <article className="setting-card">
           <strong>Gmail outbound</strong>
           <span>
-            Approved and user-triggered email replies can send through the connected
-            Gmail account.
+            Approved and user-triggered email replies can send through the
+            connected Gmail account.
           </span>
         </article>
         <article className="setting-card">
           <strong>Google Drive documents</strong>
           <span>
-            Drive access for quote and invoice documents Kyro creates or the user explicitly
-            opens with Kyro.
+            Drive access for quote and invoice documents Kyro creates or the
+            user explicitly opens with Kyro.
           </span>
         </article>
       </div>
@@ -436,7 +442,9 @@ function GoogleIntegrationSettings({
         ))}
       </div>
 
-      {overview.error ? <p className="form-alert error">{overview.error}</p> : null}
+      {overview.error ? (
+        <p className="form-alert error">{overview.error}</p>
+      ) : null}
       {!overview.migrationReady ? (
         <p className="form-alert">
           Integration tables are not in the database yet. Run{" "}
@@ -445,14 +453,14 @@ function GoogleIntegrationSettings({
       ) : null}
       {!overview.configured ? (
         <p className="form-alert">
-          Add <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>, and{" "}
-          <code>NEXT_PUBLIC_APP_URL</code> before starting OAuth.
+          Add <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>,
+          and <code>NEXT_PUBLIC_APP_URL</code> before starting OAuth.
         </p>
       ) : null}
       {!overview.encryptionReady ? (
         <p className="form-alert">
-          Add <code>INTEGRATION_TOKEN_ENCRYPTION_KEY</code> so refresh tokens are encrypted
-          before storage.
+          Add <code>INTEGRATION_TOKEN_ENCRYPTION_KEY</code> so refresh tokens
+          are encrypted before storage.
         </p>
       ) : null}
 
@@ -462,7 +470,9 @@ function GoogleIntegrationSettings({
             <div className="usage-ledger-row" key={connection.id}>
               <div className="usage-ledger-main">
                 <strong>
-                  {connection.accountEmail ?? connection.accountName ?? "Google account"}
+                  {connection.accountEmail ??
+                    connection.accountName ??
+                    "Google account"}
                 </strong>
                 <span>{formatLabel(connection.status)}</span>
                 {connection.lastError ? <p>{connection.lastError}</p> : null}
@@ -483,7 +493,9 @@ function GoogleIntegrationSettings({
       )}
 
       <div className="settings-footer">
-        <span>Connect once, then Kyro can use Gmail and Drive through policies.</span>
+        <span>
+          Connect once, then Kyro can use Gmail and Drive through policies.
+        </span>
         {canConnect ? (
           <Link
             className="primary-button compact link-button"
@@ -511,15 +523,15 @@ function MicrosoftIntegrationSettings({
         <article className="setting-card">
           <strong>Outlook outbound</strong>
           <span>
-            Approved and user-triggered email replies can send through the connected
-            Outlook or Microsoft 365 mailbox.
+            Approved and user-triggered email replies can send through the
+            connected Outlook or Microsoft 365 mailbox.
           </span>
         </article>
         <article className="setting-card">
           <strong>Microsoft Graph</strong>
           <span>
-            Uses Microsoft OAuth and Graph Mail.Send, matching the same audit and
-            permission model as Gmail.
+            Uses Microsoft OAuth and Graph Mail.Send, matching the same audit
+            and permission model as Gmail.
           </span>
         </article>
       </div>
@@ -529,7 +541,9 @@ function MicrosoftIntegrationSettings({
           <div>
             <span>Redirect URI</span>
             <strong>{overview.redirectUri}</strong>
-            <small>Use this exact URL in the Microsoft Entra app registration.</small>
+            <small>
+              Use this exact URL in the Microsoft Entra app registration.
+            </small>
           </div>
         </div>
       ) : null}
@@ -542,7 +556,9 @@ function MicrosoftIntegrationSettings({
         ))}
       </div>
 
-      {overview.error ? <p className="form-alert error">{overview.error}</p> : null}
+      {overview.error ? (
+        <p className="form-alert error">{overview.error}</p>
+      ) : null}
       {!overview.migrationReady ? (
         <p className="form-alert">
           Integration tables are not in the database yet. Run{" "}
@@ -551,15 +567,15 @@ function MicrosoftIntegrationSettings({
       ) : null}
       {!overview.configured ? (
         <p className="form-alert">
-          Add <code>MICROSOFT_CLIENT_ID</code>, <code>MICROSOFT_CLIENT_SECRET</code>,{" "}
-          <code>MICROSOFT_TENANT_ID</code>, and <code>NEXT_PUBLIC_APP_URL</code> before
-          starting OAuth.
+          Add <code>MICROSOFT_CLIENT_ID</code>,{" "}
+          <code>MICROSOFT_CLIENT_SECRET</code>, <code>MICROSOFT_TENANT_ID</code>
+          , and <code>NEXT_PUBLIC_APP_URL</code> before starting OAuth.
         </p>
       ) : null}
       {!overview.encryptionReady ? (
         <p className="form-alert">
-          Add <code>INTEGRATION_TOKEN_ENCRYPTION_KEY</code> so refresh tokens are encrypted
-          before storage.
+          Add <code>INTEGRATION_TOKEN_ENCRYPTION_KEY</code> so refresh tokens
+          are encrypted before storage.
         </p>
       ) : null}
 
@@ -569,7 +585,9 @@ function MicrosoftIntegrationSettings({
             <div className="usage-ledger-row" key={connection.id}>
               <div className="usage-ledger-main">
                 <strong>
-                  {connection.accountEmail ?? connection.accountName ?? "Outlook account"}
+                  {connection.accountEmail ??
+                    connection.accountName ??
+                    "Outlook account"}
                 </strong>
                 <span>{formatLabel(connection.status)}</span>
                 {connection.lastError ? <p>{connection.lastError}</p> : null}
@@ -590,7 +608,10 @@ function MicrosoftIntegrationSettings({
       )}
 
       <div className="settings-footer">
-        <span>Connect once, then Kyro can send Outlook email through the same policies.</span>
+        <span>
+          Connect once, then Kyro can send Outlook email through the same
+          policies.
+        </span>
         {canConnect ? (
           <Link
             className="primary-button compact link-button"
@@ -702,7 +723,9 @@ function WorkspaceIntegrationsSettings({
   microsoftOverview: MicrosoftIntegrationOverview;
   microsoftStatus: string;
 }>) {
-  const googleConnection = latestConnectedConnection(googleOverview.connections);
+  const googleConnection = latestConnectedConnection(
+    googleOverview.connections,
+  );
   const microsoftConnection = latestConnectedConnection(
     microsoftOverview.connections,
   );
@@ -735,9 +758,9 @@ function WorkspaceIntegrationsSettings({
               : "Connect Gmail or Outlook"}
           </h3>
           <p>
-            Kyro only needs one outbound email provider. Connect Gmail or Outlook;
-            if both are connected during testing, Kyro uses the most recently
-            connected account until we add a default sender setting.
+            Kyro only needs one outbound email provider. Connect Gmail or
+            Outlook; if both are connected during testing, Kyro uses the most
+            recently connected account until we add a default sender setting.
           </p>
         </div>
         <span className="pill">
@@ -872,11 +895,16 @@ function CommunicationSettingsDetail({
                 name="useSeparateAiSignature"
                 type="checkbox"
               />
-              <span>Use a different signature for untouched AI-sent emails</span>
+              <span>
+                Use a different signature for untouched AI-sent emails
+              </span>
             </label>
             <label className="compact-checkbox-row">
               <input name="duplicateManualSignature" type="checkbox" />
-              <span>Copy the default signature into the assistant signature when saving</span>
+              <span>
+                Copy the default signature into the assistant signature when
+                saving
+              </span>
             </label>
           </fieldset>
 
@@ -888,7 +916,10 @@ function CommunicationSettingsDetail({
           />
 
           <div className="settings-footer compact-settings-footer">
-            <span>Save to refresh the signature previews and apply them to future Gmail sends.</span>
+            <span>
+              Save to refresh the signature previews and apply them to future
+              Gmail sends.
+            </span>
             <button className="primary-button compact" type="submit">
               Save and preview signatures
             </button>
@@ -897,7 +928,10 @@ function CommunicationSettingsDetail({
       </details>
 
       <div className="settings-footer">
-        <span>Connected email providers can send real email; SMS and phone are internal records.</span>
+        <span>
+          Connected email providers can send real email; SMS and phone are
+          internal records.
+        </span>
         <button className="primary-button compact" type="submit">
           Save settings
         </button>
@@ -925,7 +959,8 @@ function VoiceSettingsDetail({
             <option value="openai">OpenAI</option>
           </select>
           <span>
-            Voice replies use this provider after Kyro has generated the text response.
+            Voice replies use this provider after Kyro has generated the text
+            response.
           </span>
         </label>
 
@@ -941,7 +976,9 @@ function VoiceSettingsDetail({
               </option>
             ))}
           </select>
-          <span>{selectedPreset.accent} voice preset for live voice replies.</span>
+          <span>
+            {selectedPreset.accent} voice preset for live voice replies.
+          </span>
         </label>
       </div>
 
@@ -957,8 +994,8 @@ function VoiceSettingsDetail({
             <option value="mp3_22050_32">MP3 22.05 kHz small</option>
           </select>
           <span>
-            The ElevenLabs model is controlled by backend config; users only choose
-            the voice.
+            The ElevenLabs model is controlled by backend config; users only
+            choose the voice.
           </span>
         </label>
       </div>
@@ -996,7 +1033,9 @@ function VoiceSettingsDetail({
                 step={0.05}
                 type="number"
               />
-              <span>How closely ElevenLabs should preserve the selected voice.</span>
+              <span>
+                How closely ElevenLabs should preserve the selected voice.
+              </span>
             </label>
             <label className="setting-card">
               <strong>Style</strong>
@@ -1008,7 +1047,9 @@ function VoiceSettingsDetail({
                 step={0.05}
                 type="number"
               />
-              <span>Extra expressiveness. Keep low for a practical assistant.</span>
+              <span>
+                Extra expressiveness. Keep low for a practical assistant.
+              </span>
             </label>
             <label className="compact-checkbox-row setting-card">
               <input
@@ -1066,9 +1107,7 @@ function UsageSettingsDetail({
               usageReport.totals.currency,
             )}
           </strong>
-          <span>
-            {formatNumber(usageReport.totals.quantity)} metered units
-          </span>
+          <span>{formatNumber(usageReport.totals.quantity)} metered units</span>
         </article>
         <article className="metric-card pink">
           <p>Gross margin</p>
@@ -1132,7 +1171,9 @@ function UsageSettingsDetail({
               ))}
             </div>
           ) : (
-            <p className="empty-copy">No metered usage in this date range yet.</p>
+            <p className="empty-copy">
+              No metered usage in this date range yet.
+            </p>
           )}
         </article>
 
@@ -1158,44 +1199,70 @@ export default async function SettingsPage({
     requireWorkspaceContext(),
   ]);
   const activeWindow = normalizeUsageWindow(query?.window);
+  const selectedSection = normalizeSettingsSection(query?.section);
   const [
     communicationSettings,
+    integrationOverviews,
     usageReport,
-    googleOverview,
-    microsoftOverview,
     voiceSettings,
   ] = await Promise.all([
-      getCommunicationSettings(supabase, workspace.id),
-      getUsageReport(supabase, workspace.id, activeWindow),
-      getGoogleIntegrationOverview(supabase, workspace.id),
-      getMicrosoftIntegrationOverview(supabase, workspace.id),
-      getVoiceSettings(supabase, workspace.id),
-    ]);
-  const selectedSection = normalizeSettingsSection(query?.section);
-  const googleStatus = integrationStatusLabel(googleOverview);
-  const microsoftStatus = integrationStatusLabel(microsoftOverview);
-  const gmailConnected = googleOverview.connections.some(
-    (connection) => connection.status === "connected"
+    selectedSection === "communication"
+      ? getCommunicationSettings(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "integrations"
+      ? Promise.all([
+          getGoogleIntegrationOverview(supabase, workspace.id),
+          getMicrosoftIntegrationOverview(supabase, workspace.id),
+        ])
+      : Promise.resolve(null),
+    selectedSection === "usage"
+      ? getUsageReport(supabase, workspace.id, activeWindow)
+      : Promise.resolve(null),
+    selectedSection === "voice"
+      ? getVoiceSettings(supabase, workspace.id)
+      : Promise.resolve(null),
+  ]);
+  const googleOverview = integrationOverviews?.[0] ?? null;
+  const microsoftOverview = integrationOverviews?.[1] ?? null;
+  const googleStatus = googleOverview
+    ? integrationStatusLabel(googleOverview)
+    : "Open";
+  const microsoftStatus = microsoftOverview
+    ? integrationStatusLabel(microsoftOverview)
+    : "Open";
+  const gmailConnected = Boolean(
+    googleOverview?.connections.some(
+      (connection) => connection.status === "connected",
+    ),
   );
-  const outlookConnected = microsoftOverview.connections.some(
-    (connection) => connection.status === "connected"
+  const outlookConnected = Boolean(
+    microsoftOverview?.connections.some(
+      (connection) => connection.status === "connected",
+    ),
   );
   const connectedEmailProviderCount =
     Number(gmailConnected) + Number(outlookConnected);
-  const integrationsStatus = combinedIntegrationStatusLabel(
-    googleStatus,
-    microsoftStatus,
-    connectedEmailProviderCount,
-  );
-  const outboundStatus = communicationSettings.approvalRequired
-    ? "Approval required"
-    : "Direct send";
-  const voicePreset = elevenLabsVoicePresetById(
-    voiceSettings.elevenLabsVoicePresetId,
-  );
+  const integrationsStatus =
+    googleOverview && microsoftOverview
+      ? combinedIntegrationStatusLabel(
+          googleStatus,
+          microsoftStatus,
+          connectedEmailProviderCount,
+        )
+      : "Open";
+  const outboundStatus = communicationSettings
+    ? communicationSettings.approvalRequired
+      ? "Approval required"
+      : "Direct send"
+    : "Open";
+  const voicePreset = voiceSettings
+    ? elevenLabsVoicePresetById(voiceSettings.elevenLabsVoicePresetId)
+    : null;
   const settingsItems: SettingsMenuItem[] = [
     {
-      detail: `${communicationSettings.allowedChannels.length} channels`,
+      detail: communicationSettings
+        ? `${communicationSettings.allowedChannels.length} channels`
+        : "Approval rules, channels, and signatures",
       eyebrow: "Outbound",
       href: settingsSectionHref("communication", activeWindow),
       section: "communication",
@@ -1203,14 +1270,15 @@ export default async function SettingsPage({
       title: "Communication settings",
     },
     {
-      detail:
-        voiceSettings.provider === "elevenlabs"
-          ? voicePreset.label
-          : "OpenAI text-to-speech",
+      detail: voiceSettings
+        ? voiceSettings.provider === "elevenlabs"
+          ? (voicePreset?.label ?? "ElevenLabs voice")
+          : "OpenAI text-to-speech"
+        : "Realtime and playback voice controls",
       eyebrow: "Voice",
       href: settingsSectionHref("voice", activeWindow),
       section: "voice",
-      status: formatLabel(voiceSettings.provider),
+      status: voiceSettings ? formatLabel(voiceSettings.provider) : "Open",
       title: "Voice assistant",
     },
     {
@@ -1222,17 +1290,67 @@ export default async function SettingsPage({
       title: "Connected accounts",
     },
     {
-      detail: `${usageReport.totals.events} ledger events - ${formatMoney(
-        usageReport.totals.providerCost,
-        usageReport.totals.currency,
-      )} provider cost`,
+      detail: usageReport
+        ? `${usageReport.totals.events} ledger events - ${formatMoney(
+            usageReport.totals.providerCost,
+            usageReport.totals.currency,
+          )} provider cost`
+        : "Ledger, provider cost, and metering",
       eyebrow: "Usage",
       href: settingsSectionHref("usage", activeWindow),
       section: "usage",
-      status: formatDate(usageReport.generatedAt),
+      status: usageReport ? formatDate(usageReport.generatedAt) : "Open",
       title: "Billing and metering",
     },
   ];
+  const selectedDetail =
+    selectedSection === "communication" && communicationSettings ? (
+      <SettingsDetailShell
+        eyebrow="Outbound"
+        status={outboundStatus}
+        title="Communication settings"
+      >
+        <CommunicationSettingsDetail
+          communicationSettings={communicationSettings}
+        />
+      </SettingsDetailShell>
+    ) : selectedSection === "integrations" &&
+      googleOverview &&
+      microsoftOverview ? (
+      <SettingsDetailShell
+        eyebrow="Integrations"
+        status={integrationsStatus}
+        title="Connected accounts"
+      >
+        <WorkspaceIntegrationsSettings
+          googleOverview={googleOverview}
+          googleStatus={googleStatus}
+          microsoftOverview={microsoftOverview}
+          microsoftStatus={microsoftStatus}
+        />
+      </SettingsDetailShell>
+    ) : selectedSection === "usage" && usageReport ? (
+      <SettingsDetailShell
+        eyebrow="Usage"
+        status={`Generated ${formatDate(usageReport.generatedAt)}`}
+        title="Billing and metering"
+      >
+        <UsageSettingsDetail
+          activeWindow={activeWindow}
+          usageReport={usageReport}
+        />
+      </SettingsDetailShell>
+    ) : selectedSection === "voice" && voiceSettings ? (
+      <SettingsDetailShell
+        eyebrow="Voice"
+        status={
+          voiceSettings.provider === "elevenlabs" ? "ElevenLabs" : "OpenAI"
+        }
+        title="Voice assistant"
+      >
+        <VoiceSettingsDetail voiceSettings={voiceSettings} />
+      </SettingsDetailShell>
+    ) : null;
 
   return (
     <AppFrame active="Settings">
@@ -1251,63 +1369,10 @@ export default async function SettingsPage({
       ) : null}
 
       <SettingsShell
-        communication={
-          <SettingsDetailShell
-            eyebrow="Outbound"
-            status={
-              gmailConnected || outlookConnected
-                ? "Email active"
-                : "Needs email provider"
-            }
-            title="Communication settings"
-          >
-            <CommunicationSettingsDetail
-              communicationSettings={communicationSettings}
-            />
-          </SettingsDetailShell>
-        }
+        detail={selectedDetail}
         empty={<EmptySettingsDetail />}
-        initialSection={selectedSection}
-        integrations={
-          <SettingsDetailShell
-            eyebrow="Integrations"
-            status={integrationsStatus}
-            title="Connected accounts"
-          >
-            <WorkspaceIntegrationsSettings
-              googleOverview={googleOverview}
-              googleStatus={googleStatus}
-              microsoftOverview={microsoftOverview}
-              microsoftStatus={microsoftStatus}
-            />
-          </SettingsDetailShell>
-        }
         items={settingsItems}
-        usage={
-          <SettingsDetailShell
-            eyebrow="Usage"
-            status={`Generated ${formatDate(usageReport.generatedAt)}`}
-            title="Billing and metering"
-          >
-            <UsageSettingsDetail
-              activeWindow={activeWindow}
-              usageReport={usageReport}
-            />
-          </SettingsDetailShell>
-        }
-        voice={
-          <SettingsDetailShell
-            eyebrow="Voice"
-            status={
-              voiceSettings.provider === "elevenlabs"
-                ? "ElevenLabs"
-                : "OpenAI"
-            }
-            title="Voice assistant"
-          >
-            <VoiceSettingsDetail voiceSettings={voiceSettings} />
-          </SettingsDetailShell>
-        }
+        selectedSection={selectedSection}
       />
     </AppFrame>
   );

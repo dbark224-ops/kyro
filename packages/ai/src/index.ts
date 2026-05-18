@@ -1,8 +1,8 @@
 import type { ModelRouteDecision, ModelRouteRequest } from "@kyro/contracts";
 
-const LOW_COST_MODEL = "fast-classifier";
-const BALANCED_MODEL = "balanced-assistant";
-const STRONG_MODEL = "strong-reasoner";
+const DEFAULT_OPENAI_LOW_COST_MODEL = "gpt-4.1-mini";
+const DEFAULT_OPENAI_BALANCED_MODEL = "gpt-4.1-mini";
+const DEFAULT_OPENAI_STRONG_MODEL = "gpt-4.1";
 const DEFAULT_OLLAMA_MODEL = "qwen3:8b";
 
 function envValue(key: string) {
@@ -23,6 +23,25 @@ function configuredOllamaModel() {
   return envValue("OLLAMA_MODEL")?.trim() || DEFAULT_OLLAMA_MODEL;
 }
 
+function configuredOpenAiModel(tier: "balanced" | "low-cost" | "strong") {
+  const model = envValue("OPENAI_MODEL")?.trim();
+
+  if (tier === "low-cost") {
+    return envValue("OPENAI_LOW_COST_MODEL")?.trim() || model || DEFAULT_OPENAI_LOW_COST_MODEL;
+  }
+
+  if (tier === "strong") {
+    return envValue("OPENAI_STRONG_MODEL")?.trim() || model || DEFAULT_OPENAI_STRONG_MODEL;
+  }
+
+  return (
+    envValue("OPENAI_BALANCED_MODEL")?.trim() ||
+    envValue("ASSISTANT_MODEL")?.trim() ||
+    model ||
+    DEFAULT_OPENAI_BALANCED_MODEL
+  );
+}
+
 export function selectModelRoute(request: ModelRouteRequest): ModelRouteDecision {
   if (["local", "ollama"].includes(configuredProvider())) {
     return {
@@ -35,7 +54,7 @@ export function selectModelRoute(request: ModelRouteRequest): ModelRouteDecision
   if (request.riskLevel === "high" || request.taskType === "action_planning") {
     return {
       provider: "openai",
-      model: STRONG_MODEL,
+      model: configuredOpenAiModel("strong"),
       reason: "High-risk or planning task requires stronger reasoning."
     };
   }
@@ -43,14 +62,14 @@ export function selectModelRoute(request: ModelRouteRequest): ModelRouteDecision
   if (request.taskType === "assistant_chat" || request.taskType === "reply_drafting") {
     return {
       provider: "openai",
-      model: BALANCED_MODEL,
+      model: configuredOpenAiModel("balanced"),
       reason: "Assistant-facing work needs quality and latency balance."
     };
   }
 
   return {
     provider: "openai",
-    model: LOW_COST_MODEL,
+    model: configuredOpenAiModel("low-cost"),
     reason: "Routine processing task can use a lower-cost route."
   };
 }

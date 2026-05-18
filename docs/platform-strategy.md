@@ -171,3 +171,20 @@ Reason:
 - Backend contracts need to stabilize before native work.
 - Usage metering must work before billing.
 - iOS becomes much easier once core endpoints exist.
+
+## Near-Term iOS Readiness
+
+The web UI is still the fastest place to prove product behavior, but new work should avoid
+making the web shell the product boundary.
+
+Default implementation posture:
+
+- Keep assistant orchestration, CRM actions, permissions, model routing, usage metering, and
+  realtime voice session creation in server/lib modules that can later sit behind API routes.
+- Treat React screens as clients of those modules, not the owners of business behavior.
+- Prefer explicit request/response shapes for new actions so they can become generated iOS
+  contracts later.
+- Keep realtime voice sharing the Assistant thread, memory, tools, permissions, and transcript
+  persistence; native iOS should replace browser audio plumbing, not fork the assistant brain.
+- Avoid browser-only assumptions in shared libraries. Browser APIs belong in web components or
+  web-specific route handlers.

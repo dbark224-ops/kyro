@@ -1650,25 +1650,32 @@ h2 {
 
 .voice-page-shell {
   display: grid;
-  min-height: calc(100vh - 56px);
+  height: calc(100vh - 56px);
+  min-height: 0;
+  overflow: hidden;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 18px;
+  gap: 14px;
 }
 
 .voice-console {
   display: grid;
+  height: 100%;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
+  overflow: hidden;
 }
 
 .voice-transcript {
   display: grid;
   align-content: start;
+  align-self: start;
   gap: 22px;
+  height: 100%;
   min-height: 0;
   overflow: auto;
-  padding: 10px max(42px, 11vw) 18px;
+  padding: 0 max(42px, 11vw) 18px;
+  scroll-padding-top: 0;
   scrollbar-color: color-mix(in srgb, var(--muted) 28%, transparent) transparent;
   scrollbar-width: thin;
 }
@@ -1710,6 +1717,15 @@ h2 {
   margin: 0;
   color: color-mix(in srgb, var(--text) 90%, var(--muted));
   line-height: 1.65;
+}
+
+.voice-live-caption {
+  justify-self: end;
+  max-width: min(620px, 74%);
+  margin: -8px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .voice-turn-meta {
@@ -1784,6 +1800,9 @@ h2 {
   border-radius: 28px;
   background: color-mix(in srgb, var(--surface) 90%, var(--background));
   padding: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
 }
 
 .voice-orb {
@@ -4709,12 +4728,13 @@ button:disabled {
   }
 
   .voice-page-shell {
-    min-height: calc(100vh - 92px);
+    height: calc(100vh - 92px);
+    min-height: 0;
     gap: 12px;
   }
 
   .voice-transcript {
-    min-height: 46vh;
+    min-height: 0;
     padding: 10px 6px 14px;
   }
 

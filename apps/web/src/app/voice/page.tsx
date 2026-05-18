@@ -1,50 +1,37 @@
 import { AppFrame } from "../components/app-frame";
-import { getConversationWorkflowCounts } from "../../lib/crm/queries";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
+import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
-import { VoiceConsole } from "./voice-console";
+import { RealtimeVoiceConsole } from "./realtime-voice-console";
 import type { AssistantThreadState } from "../../lib/assistant/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function VoicePage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [conversationCounts, readyQuotesResult, contactsResult] = await Promise.all([
-    getConversationWorkflowCounts(supabase, workspace.id),
-    supabase
-      .from("quote_drafts")
-      .select("id", { count: "exact", head: true })
-      .eq("workspace_id", workspace.id)
-      .eq("status", "ready"),
-    supabase
-      .from("contacts")
-      .select("id", { count: "exact", head: true })
-      .eq("workspace_id", workspace.id),
-  ]);
-
-  if (readyQuotesResult.error) {
-    throw new Error(`Unable to count ready quote drafts: ${readyQuotesResult.error.message}`);
-  }
-
-  if (contactsResult.error) {
-    throw new Error(`Unable to count contacts: ${contactsResult.error.message}`);
-  }
-
-  const needsReply = conversationCounts.needsReply;
-  const readyQuotes = readyQuotesResult.count ?? 0;
-  const contactCount = contactsResult.count ?? 0;
-  const initialState: AssistantThreadState = await getAssistantThreadState({
+  const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
+  const threadStatePromise = getAssistantThreadState({
     supabase,
     user,
-    welcomeMessage: {
-      content:
-        "Voice mode is ready. Hold the button, speak naturally, and Kyro will answer back using the same CRM context as the Assistant.",
-      createdAt: new Date().toISOString(),
-      id: "voice-welcome",
-      role: "assistant",
-    },
     workspace,
   });
+  const [metrics, threadState] = await Promise.all([
+    metricsPromise,
+    threadStatePromise,
+  ]);
+
+  const { contactCount, needsReply, readyQuotes } = metrics;
+  const welcomeMessage: AssistantThreadState["messages"][number] = {
+    content:
+      "Realtime voice mode is ready. Tap the mic, speak naturally, and Kyro will answer using the same CRM context as the Assistant.",
+    createdAt: new Date().toISOString(),
+    id: "voice-welcome",
+    role: "assistant",
+  };
+  const initialState: AssistantThreadState =
+    threadState.messages.length > 0
+      ? threadState
+      : { ...threadState, messages: [welcomeMessage] };
 
   return (
     <AppFrame active="Voice">
@@ -75,7 +62,7 @@ export default async function VoicePage() {
           </div>
         </header>
 
-        <VoiceConsole initialState={initialState} />
+        <RealtimeVoiceConsole initialState={initialState} />
       </div>
     </AppFrame>
   );
