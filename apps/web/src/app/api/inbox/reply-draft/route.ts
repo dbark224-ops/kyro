@@ -12,7 +12,7 @@ type ReplyDraftRequest = {
   skippedEmailId?: unknown;
 };
 
-type ReplyDraftContext = {
+export type ReplyDraftContext = {
   businessProfile?: {
     businessName: string | null;
     defaultReplyInstructions: string | null;
@@ -148,7 +148,7 @@ function replySubject(value: string | null) {
   return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 }
 
-function buildPrompt(context: ReplyDraftContext) {
+export function buildReplyDraftPrompt(context: ReplyDraftContext) {
   const skippedEmailRules =
     context.source === "skipped_email"
       ? [
@@ -208,7 +208,7 @@ async function runOpenAiReplyDraft(context: ReplyDraftContext) {
   }
 
   const model = replyDraftModel();
-  const prompt = buildPrompt(context);
+  const prompt = buildReplyDraftPrompt(context);
   const response = await fetch("https://api.openai.com/v1/responses", {
     body: JSON.stringify({
       input: prompt,

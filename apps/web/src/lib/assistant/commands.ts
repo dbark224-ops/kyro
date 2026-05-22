@@ -252,31 +252,93 @@ function looksLikeEmailSyncRequest(prompt: string) {
 
 function looksLikeHelpRequest(prompt: string) {
   const text = normalized(prompt);
-  const helpIntent =
+  const directHelpIntent =
     text.includes("help") ||
     text.includes("manual") ||
     text.includes("guide") ||
-    text.includes("how do i") ||
-    text.includes("how does") ||
-    text.includes("what does") ||
-    text.includes("explain");
-  const kyroTopic =
+    text.includes("docs") ||
+    text.includes("documentation") ||
+    text.includes("support article") ||
+    text.includes("what can you do") ||
+    text.includes("what can kyro do") ||
+    text.includes("what are you able to do") ||
+    text.includes("how do i use kyro") ||
+    text.includes("how to use kyro");
+  const definitionTopic =
     text.includes("kyro") ||
     text.includes("setting") ||
+    text.includes("settings") ||
     text.includes("quiet hours") ||
     text.includes("lookback") ||
     text.includes("fetch cap") ||
-    text.includes("inbound email") ||
-    text.includes("gmail") ||
-    text.includes("outlook") ||
-    text.includes("voice") ||
+    text.includes("poll frequency") ||
+    text.includes("filtered out") ||
+    text.includes("filtered email") ||
+    text.includes("skipped email") ||
+    text.includes("skipped mail") ||
+    text.includes("timezone") ||
+    text.includes("time zone") ||
     text.includes("pronunciation") ||
+    text.includes("pronounciation") ||
+    text.includes("aliases") ||
     text.includes("usage") ||
     text.includes("billing") ||
+    text.includes("web search") ||
+    text.includes("inbox") ||
+    text.includes("crm");
+  const explainerIntent =
+    /\b(what does|what do|explain|how does|how do|why does|where do i|where is)\b/.test(
+      text,
+    ) ||
+    /\b(mean|means|meaning)\b/.test(text) ||
+    (/\b(what is|whats|what are)\b/.test(text) && definitionTopic);
+  const kyroTopic =
+    text.includes("kyro") ||
+    text.includes("assistant") ||
+    text.includes("voice") ||
+    text.includes("realtime") ||
+    text.includes("microphone") ||
+    text.includes("setting") ||
+    text.includes("settings") ||
+    text.includes("general") ||
+    text.includes("communication") ||
+    text.includes("integrations") ||
+    text.includes("quiet hours") ||
+    text.includes("lookback") ||
+    text.includes("fetch cap") ||
+    text.includes("poll") ||
+    text.includes("polling") ||
+    text.includes("email sync") ||
+    text.includes("inbound sync") ||
+    text.includes("inbound email") ||
+    text.includes("filtered out") ||
+    text.includes("filtered email") ||
+    text.includes("skipped email") ||
+    text.includes("skipped mail") ||
+    text.includes("gmail") ||
+    text.includes("outlook") ||
+    text.includes("pronunciation") ||
+    text.includes("pronounciation") ||
+    text.includes("vocabulary") ||
+    text.includes("alias") ||
+    text.includes("aliases") ||
+    text.includes("usage") ||
+    text.includes("cost") ||
+    text.includes("billing") ||
+    text.includes("crm") ||
+    text.includes("documents") ||
+    text.includes("quote draft") ||
+    text.includes("work queue") ||
+    text.includes("inbox") ||
+    text.includes("log") ||
+    text.includes("web search") ||
+    text.includes("memory") ||
+    text.includes("memories") ||
+    text.includes("reconnect") ||
     text.includes("timezone") ||
     text.includes("time zone");
 
-  return helpIntent && kyroTopic;
+  return directHelpIntent || (explainerIntent && kyroTopic);
 }
 
 export async function resolveAssistantCommand({
@@ -304,12 +366,12 @@ export async function resolveAssistantCommand({
     });
   }
 
-  if (looksLikeEmailSyncRequest(prompt)) {
-    return emailSyncCommand({ supabase, user, workspace });
-  }
-
   if (looksLikeHelpRequest(prompt)) {
     return helpCommand({ prompt });
+  }
+
+  if (looksLikeEmailSyncRequest(prompt)) {
+    return emailSyncCommand({ supabase, user, workspace });
   }
 
   if (/\b(create|make|start|generate)\b/.test(text) && text.includes("quote")) {

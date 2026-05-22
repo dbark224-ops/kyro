@@ -1075,7 +1075,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
   return (
     <AppFrame active="Inbox">
-      <header className="topbar">
+      <header className="topbar inbox-topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>
           <h1>Inbox</h1>

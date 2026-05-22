@@ -24,6 +24,8 @@ export type GoogleIntegrationConnection = {
   scopes: string[];
   lastConnectedAt: string | null;
   lastError: string | null;
+  lastCheckedAt: string | null;
+  lastSyncAt: string | null;
 };
 
 export type GoogleIntegrationOverview = {
@@ -72,6 +74,20 @@ function normalizeScopes(value: unknown): string[] {
   return value.filter((scope): scope is string => typeof scope === "string" && scope.length > 0);
 }
 
+function objectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function inboundEmailMetadata(value: unknown) {
+  return objectRecord(objectRecord(value).inboundEmail);
+}
+
 export async function getGoogleIntegrationOverview(
   supabase: SupabaseClient,
   workspaceId: string
@@ -79,7 +95,7 @@ export async function getGoogleIntegrationOverview(
   const config = getGoogleOAuthConfig();
   const { data, error } = await supabase
     .from("integration_connections")
-    .select("id,account_email,account_name,status,scopes,last_connected_at,last_error")
+    .select("id,account_email,account_name,status,scopes,last_connected_at,last_error,last_sync_at,metadata")
     .eq("workspace_id", workspaceId)
     .eq("provider", GOOGLE_PROVIDER)
     .order("last_connected_at", { ascending: false });
@@ -111,7 +127,10 @@ export async function getGoogleIntegrationOverview(
       scopes: normalizeScopes(connection.scopes),
       lastConnectedAt:
         typeof connection.last_connected_at === "string" ? connection.last_connected_at : null,
-      lastError: typeof connection.last_error === "string" ? connection.last_error : null
+      lastError: typeof connection.last_error === "string" ? connection.last_error : null,
+      lastCheckedAt: textValue(inboundEmailMetadata(connection.metadata).lastCheckedAt),
+      lastSyncAt:
+        typeof connection.last_sync_at === "string" ? connection.last_sync_at : null,
     })),
     error: null
   };

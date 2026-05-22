@@ -115,11 +115,22 @@ const INPUT_TOKEN_UNIT_COST = 0.00000015;
 const OUTPUT_TOKEN_UNIT_COST = 0.0000006;
 const MARKUP_RATE = 0.25;
 const MAX_CLASSIFIER_BODY_CHARS = 4000;
+const TOKEN_DECRYPT_RECONNECT_MESSAGE =
+  "Reconnect this account because Kyro cannot decrypt the stored OAuth token with the current integration encryption key.";
 
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+export function isRecoverableTokenAccessError(message: string) {
+  return (
+    /unable to authenticate data/i.test(message) ||
+    /unsupported state/i.test(message) ||
+    /invalid authentication tag/i.test(message) ||
+    /bad decrypt/i.test(message)
+  );
 }
 
 function textValue(value: unknown) {
@@ -2027,6 +2038,21 @@ async function syncConnection({
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Inbound email sync failed.";
+
+    if (isRecoverableTokenAccessError(message)) {
+      result.needsReconnect.push({
+        accountEmail: connection.account_email,
+        missingScope: "stored OAuth token refresh",
+        provider,
+      });
+      await updateConnectionStatus({
+        connection,
+        lastError: TOKEN_DECRYPT_RECONNECT_MESSAGE,
+        supabase,
+        workspaceId,
+      });
+      return;
+    }
 
     result.errors.push({
       accountEmail: connection.account_email,

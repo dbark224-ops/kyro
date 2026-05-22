@@ -102,6 +102,21 @@ export type SkippedEmailSummaries = {
   last24HoursCount: number;
 };
 
+export type SkippedEmailEventRow = {
+  created_at?: string | null;
+  id: string;
+  payload: unknown;
+  processed_at?: string | null;
+  source: string;
+};
+
+export type SkippedEmailReplyEventRow = {
+  created_at?: string | null;
+  id: string;
+  payload: unknown;
+  processed_at?: string | null;
+};
+
 type ConversationListOptions = {
   ids?: string[];
   limit?: number;
@@ -137,6 +152,88 @@ type ActionSummary = {
 
 function skippedEmailLast24HoursStart() {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+}
+
+export function buildSkippedEmailSummaryItems(
+  events: SkippedEmailEventRow[],
+  replyEvents: SkippedEmailReplyEventRow[] = [],
+) {
+  const items: SkippedEmailSummaryItem[] = events.map((event) => {
+    const payload = objectRecord(event.payload);
+    const classification = objectRecord(payload.classification);
+    const confidence =
+      typeof classification.confidence === "number"
+        ? classification.confidence
+        : null;
+
+    return {
+      id: String(event.id),
+      category: textValue(classification.category) ?? "observed",
+      confidence,
+      fromEmail: textValue(payload.fromEmail),
+      lastReplySubject: null,
+      lastRepliedAt: null,
+      processedAt: textValue(event.processed_at),
+      provider: textValue(payload.provider),
+      reason: textValue(classification.reason),
+      receivedAt: textValue(payload.receivedAt),
+      replyCount: 0,
+      source: String(event.source),
+      subject: textValue(payload.subject) ?? "Skipped email",
+      summary:
+        textValue(payload.summary) ??
+        textValue(classification.summary) ??
+        textValue(classification.actionHint),
+    };
+  });
+  const itemIds = new Set(items.map((item) => item.id));
+  const replyStateByEventId = new Map<
+    string,
+    {
+      count: number;
+      lastReplySubject: string | null;
+      lastRepliedAt: string | null;
+    }
+  >();
+
+  for (const replyEvent of replyEvents) {
+    const payload = objectRecord(replyEvent.payload);
+    const originalEventId = textValue(payload.originalEventId);
+
+    if (!originalEventId || !itemIds.has(originalEventId)) {
+      continue;
+    }
+
+    const current = replyStateByEventId.get(originalEventId) ?? {
+      count: 0,
+      lastReplySubject: null,
+      lastRepliedAt: null,
+    };
+    const sentAt =
+      textValue(payload.sentAt) ??
+      textValue(replyEvent.processed_at) ??
+      textValue(replyEvent.created_at);
+
+    replyStateByEventId.set(originalEventId, {
+      count: current.count + 1,
+      lastReplySubject: current.lastReplySubject ?? textValue(payload.subject),
+      lastRepliedAt: current.lastRepliedAt ?? sentAt,
+    });
+  }
+
+  for (const item of items) {
+    const replyState = replyStateByEventId.get(item.id);
+
+    if (!replyState) {
+      continue;
+    }
+
+    item.replyCount = replyState.count;
+    item.lastReplySubject = replyState.lastReplySubject;
+    item.lastRepliedAt = replyState.lastRepliedAt;
+  }
+
+  return items;
 }
 
 type ConversationFactsSummary = {
@@ -1038,39 +1135,10 @@ export async function getSkippedEmailSummaries(
     );
   }
 
-  const items: SkippedEmailSummaryItem[] = (data ?? []).map((event) => {
-    const payload = objectRecord(event.payload);
-    const classification = objectRecord(payload.classification);
-    const confidence =
-      typeof classification.confidence === "number"
-        ? classification.confidence
-        : null;
+  let replyEvents: SkippedEmailReplyEventRow[] = [];
 
-    return {
-      id: String(event.id),
-      category: textValue(classification.category) ?? "observed",
-      confidence,
-      fromEmail: textValue(payload.fromEmail),
-      lastReplySubject: null,
-      lastRepliedAt: null,
-      processedAt: textValue(event.processed_at),
-      provider: textValue(payload.provider),
-      reason: textValue(classification.reason),
-      receivedAt: textValue(payload.receivedAt),
-      replyCount: 0,
-      source: String(event.source),
-      subject: textValue(payload.subject) ?? "Skipped email",
-      summary:
-        textValue(payload.summary) ??
-        textValue(classification.summary) ??
-        textValue(classification.actionHint),
-    };
-  });
-
-  const itemIds = new Set(items.map((item) => item.id));
-
-  if (itemIds.size > 0) {
-    const { data: replyEvents, error: replyEventsError } = await supabase
+  if ((data ?? []).length > 0) {
+    const { data: replyEventRows, error: replyEventsError } = await supabase
       .from("events")
       .select("id,payload,processed_at,created_at")
       .eq("workspace_id", workspaceId)
@@ -1085,56 +1153,14 @@ export async function getSkippedEmailSummaries(
       );
     }
 
-    const replyStateByEventId = new Map<
-      string,
-      {
-        count: number;
-        lastReplySubject: string | null;
-        lastRepliedAt: string | null;
-      }
-    >();
-
-    for (const replyEvent of replyEvents ?? []) {
-      const payload = objectRecord(replyEvent.payload);
-      const originalEventId = textValue(payload.originalEventId);
-
-      if (!originalEventId || !itemIds.has(originalEventId)) {
-        continue;
-      }
-
-      const current = replyStateByEventId.get(originalEventId) ?? {
-        count: 0,
-        lastReplySubject: null,
-        lastRepliedAt: null,
-      };
-      const sentAt =
-        textValue(payload.sentAt) ??
-        textValue(replyEvent.processed_at) ??
-        textValue(replyEvent.created_at);
-
-      replyStateByEventId.set(originalEventId, {
-        count: current.count + 1,
-        lastReplySubject:
-          current.lastReplySubject ?? textValue(payload.subject),
-        lastRepliedAt: current.lastRepliedAt ?? sentAt,
-      });
-    }
-
-    for (const item of items) {
-      const replyState = replyStateByEventId.get(item.id);
-
-      if (!replyState) {
-        continue;
-      }
-
-      item.replyCount = replyState.count;
-      item.lastReplySubject = replyState.lastReplySubject;
-      item.lastRepliedAt = replyState.lastRepliedAt;
-    }
+    replyEvents = replyEventRows ?? [];
   }
 
   return {
-    items,
+    items: buildSkippedEmailSummaryItems(
+      (data ?? []) as SkippedEmailEventRow[],
+      replyEvents,
+    ),
     last24HoursCount: countResult.count ?? 0,
   };
 }

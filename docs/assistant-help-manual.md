@@ -1,58 +1,334 @@
-# Kyro Assistant Help Manual
+# Kyro User Manual
 
-This manual is the user-facing help source for Kyro. The assistant can use it to answer questions about what the app does, how settings work, and which actions it can safely perform.
+This manual is Kyro's user-facing help source. Kyro can use it to answer questions from the text Assistant and the live Voice assistant. It explains what exists now, what each screen is for, which settings matter, and what Kyro can safely do on the user's behalf.
 
-## What Kyro Is
+## Quick Summary
 
-Kyro is a trades-focused CRM and operations assistant. It helps a business capture inbound enquiries, keep track of customers and leads, draft replies, prepare quote drafts, manage documents, and understand what needs attention.
+Kyro is a CRM and operations assistant for trade and service businesses. It is designed to help a small business keep on top of enquiries, customers, replies, quote drafts, connected email, documents, and day-to-day follow-up work.
 
-The web app is the current build surface. The product direction is iOS-first, so web screens should be treated as the place where behaviour is proven before it becomes native mobile functionality.
+The current app is a web app. The long-term product direction is iOS-first, so the web app is being used to prove the workflow, data model, assistant behaviour, and integrations before the mobile app becomes the main customer experience.
 
-## Assistant Basics
+Kyro currently has these main areas:
 
-The assistant can:
+- Assistant: chat with Kyro about work queue, customers, quotes, settings, help, and general questions.
+- Voice: speak with the same Kyro assistant through OpenAI realtime voice.
+- Inbox: review business conversations and action customer enquiries.
+- CRM: manage contacts, leads, customers, suppliers, builders, contractors, and property managers.
+- Documents: create and edit quote drafts.
+- Log: inspect recent workspace activity.
+- Settings: configure communication rules, voice, integrations, usage visibility, and general workspace defaults.
+- Developer: internal testing tools, not an end-user screen.
 
-- answer questions about the workspace,
-- summarise customers, contacts, quote drafts, and active conversations,
-- check connected Gmail or Outlook inboxes on request,
-- use web search for public/current information when enabled,
-- remember explicit user instructions when the user says to remember or note something,
-- answer help questions using this manual and the architecture notes,
-- edit a limited set of low-risk workspace settings when the user asks clearly.
+## What Kyro Can Do
 
-The assistant should not invent CRM records, prices, customer facts, messages, or completed business actions. When it changes a setting, it should say exactly what changed.
+Kyro can currently help with:
 
-## Help And Documentation
+- answering questions about the workspace and current CRM records,
+- summarising contacts, leads, conversations, and quote drafts,
+- finding work that needs attention,
+- creating internal quote drafts from templates,
+- drafting and sending user-approved manual replies through connected email,
+- checking connected Gmail or Outlook inboxes on request,
+- classifying inbound email and promoting business-actionable messages into the CRM,
+- showing filtered-out emails separately so personal/newsletter/noise stays out of the work queue,
+- generating a draft reply from a short user instruction,
+- remembering explicit instructions when the user says to remember or note something,
+- updating pronunciation vocabulary when the user asks,
+- updating a small allowlist of safe workspace settings,
+- using web search for public/current internet information when enabled,
+- answering help questions from this manual and architecture notes.
 
-When users ask how Kyro works, what a screen means, or why a setting exists, answer from the manual first. The architecture document can support deeper product/technical answers, but the assistant should translate internal details into plain user-facing language.
+Kyro should not claim to have done work it has not done. It should not invent customers, prices, dates, provider responses, CRM records, messages, or completed business actions.
 
-If the user asks a build/product question, it is okay to explain the current architecture. If the user asks as an ordinary end user, avoid unnecessary implementation detail.
+## What Kyro Cannot Do Yet
 
-## Settings The Assistant Can Edit
+Some product areas are intentionally not complete yet:
 
-The assistant can directly edit safe operational settings:
+- Kyro does not place real outbound phone calls yet.
+- SMS and phone channels are internal/manual records until providers are connected.
+- Quote drafts are internal documents; full PDF rendering, final design templates, Drive file storage, and accounting/bookkeeping exports are future work.
+- Payments, invoicing, reconciliation, taxes, and billing collection are not implemented.
+- Provider push/webhook inbox sync is not implemented; current inbound email uses scheduled/manual polling.
+- Kyro does not automatically send approval-gated AI replies without a user action.
+- OAuth connection setup remains a Settings flow, not a chat-only flow.
+- The current web UI is not the final iOS app, but it is being shaped around iOS-first behaviour.
 
-- workspace timezone,
-- inbound email sync mode,
-- inbound email daytime poll frequency,
-- quiet-hours enabled/disabled state,
-- quiet-hours start and end times,
-- quiet-hours behaviour,
-- missed-mail lookback,
-- fetch cap per sync,
-- skipped-mail summaries.
+## Asking Kyro For Help
 
-The assistant should not directly edit high-risk settings such as outbound sending approvals, email signatures, OAuth connections, billing/metering, provider secrets, or destructive data changes. For those, guide the user to Settings.
+Users can ask Kyro things like:
+
+- "How does Kyro decide what goes into Inbox?"
+- "What does lookback mean?"
+- "How do quiet hours work?"
+- "How do I change the voice?"
+- "What can you do?"
+- "Can you explain the pronunciation list?"
+- "Where do I reconnect Gmail?"
+- "Why was an email filtered out?"
+- "What settings can you change for me?"
+
+When a user asks how Kyro works, what a setting means, or how to use a screen, Kyro should answer from this manual first. If the user asks a technical or product-build question, Kyro can also use architecture notes, but it should translate them into plain language.
+
+## Assistant Screen
+
+The Assistant screen is the main text chat with Kyro.
+
+Use it to:
+
+- ask what needs attention,
+- ask about a customer or inquiry,
+- look up quote drafts,
+- create a quote draft from a template,
+- ask Kyro to check email,
+- ask how Kyro or a setting works,
+- ask Kyro to remember explicit instructions,
+- ask Kyro to update pronunciation vocabulary,
+- ask Kyro to update safe basic settings,
+- ask general questions.
+
+Assistant results can include cards. Cards are deterministic UI links generated by the app, not links invented by the model. For example, if Kyro finds a conversation or quote draft, the UI renders a card to open it.
+
+The Assistant persists conversation history in the workspace thread. Voice mode uses the same thread so the user can move between typing and talking without losing context.
+
+## Voice Screen
+
+The Voice screen is Kyro's live voice mode. It uses OpenAI Realtime over WebRTC so the user can talk naturally and hear Kyro respond in the selected assistant voice.
+
+Voice mode is intended to be the same assistant as the text Assistant:
+
+- same workspace,
+- same Assistant thread,
+- same memory context,
+- same CRM command router,
+- same help/manual access,
+- same safe settings permissions,
+- same connected email sync tool,
+- same public web search tool when enabled.
+
+Use Voice when the user wants a more natural back-and-forth conversation. Use text Assistant when the user wants to review cards, links, details, or typed instructions.
+
+Voice can call Kyro tools while speaking. For example, if the user asks "check my email" or "what does lookback mean", voice should call the context tool rather than guessing.
+
+## Inbox Screen
+
+Inbox is the main operational work queue. It shows business conversations that need review, replies, quote work, missing information, approval, or follow-up.
+
+Inbox is for work that has become CRM work. Emails or messages that Kyro decides are not business-actionable are kept separate in the filtered-out email popup.
+
+Inbox buckets can include:
+
+- Needs reply: conversations where the customer likely needs a response.
+- Missing info: Kyro needs details before a quote or next step is practical.
+- Ready to quote: Kyro has enough information to prepare or send a quote.
+- Site visit needed: the job likely needs an appointment or inspection.
+- Awaiting customer: Kyro is waiting for the customer to reply.
+- Resolved: conversation appears handled.
+- Needs review: Kyro needs the user to check information or classification.
+- Needs approval: an action is waiting for user approval.
+
+Opening a conversation shows the customer profile, lead status, inquiry facts, thread messages, draft replies, proposed actions, quote draft links, AI triage details, usage events, audit history, and status controls.
+
+## Replying From Inbox
+
+Users can reply to a conversation from the inquiry review page, Inbox preview, or Assistant preview.
+
+Email replies send through the connected Gmail or Outlook account when:
+
+- an email provider is connected,
+- the contact has an email address,
+- the user writes or approves the reply,
+- the channel is email.
+
+Manual user-written replies are treated as approved because the user wrote the body and pressed send. AI-generated/action-queue replies still go through the relevant approval/execution flow.
+
+The reply composer can also generate a draft from a short instruction. The user should review the generated draft before sending.
+
+## Filtered-Out Emails
+
+Filtered-out emails are messages Kyro noticed but did not turn into CRM work. This keeps personal mail, newsletters, automated messages, spam, receipts, and low-value noise out of the main Inbox while still allowing the user to quickly review what was skipped.
+
+The filtered-out email popup:
+
+- opens from a compact button near the Inbox count,
+- shows a last-24-hours count on the normal Inbox load,
+- loads the heavier recent skipped-email list only when opened,
+- keeps skipped mail visually separate from the real work queue,
+- shows sender, date, confidence, classification pill, subject, and preview,
+- collapses already-replied skipped emails into a short two-line row,
+- can expand a replied row with the small expand control,
+- can send a user-approved reply through connected email,
+- shows a Kyro `Replied` pill when Kyro has replied through this popup.
+
+The `Replied` indicator is Kyro's internal log only. It does not try to detect replies sent directly in Gmail or Outlook.
+
+## CRM Screen
+
+The CRM screen combines contacts and leads in one place.
+
+Use it to:
+
+- browse all contacts,
+- filter to leads, clients, suppliers, contractors, builders, property managers, or other contacts,
+- search by name, company, job, email, phone, or address,
+- sort by last interacted, alphabetical order, most messages, or most leads,
+- edit contact details,
+- inspect linked conversations, leads, messages, AI runs, actions, audit history, and quote drafts.
+
+The old `/leads` route redirects to CRM because leads are now a CRM filter rather than a separate primary screen.
+
+## Documents Screen
+
+Documents currently focuses on quote drafts.
+
+Use it to:
+
+- list saved quote drafts,
+- filter drafts by all, draft, ready, sent, archived, linked, or unlinked,
+- create standalone quote drafts from templates,
+- open and edit a quote draft,
+- save customer and job details,
+- edit line items,
+- apply predefined templates,
+- send a linked quote draft back to an inquiry composer as an attachment snapshot.
+
+Quote drafts are not full final customer PDFs yet. If a quote draft is attached to an outbound email, Kyro currently sends a generated text snapshot and can mark the quote draft as sent after the message is recorded.
+
+## Log Screen
+
+The Log screen is the workspace activity timeline. It is useful for debugging and visibility.
+
+It can show recent:
+
+- inbound and outbound messages,
+- actions,
+- events,
+- audit logs,
+- AI runs,
+- model route decisions,
+- usage events.
+
+The Log supports filtering and searching so a user or builder can understand what Kyro did and why.
+
+## Settings Overview
+
+Settings is split into these sections:
+
+- General: workspace-wide defaults such as timezone.
+- Communication: outbound reply/channel rules and signatures.
+- Voice: assistant voice, outbound pronunciation policy, and pronunciation vocabulary.
+- Integrations: Google Workspace, Microsoft Outlook, inbound email sync, quiet hours, and sync limits.
+- Usage: provider/API cost visibility and metered usage ledger.
+
+Settings sections are URL-addressable so a link or assistant card can open the correct section directly.
 
 ## General Settings
 
-General settings hold workspace-wide defaults. Timezone currently lives here because it affects more than one feature.
+General settings currently hold workspace-wide defaults.
 
-Timezone is used wherever Kyro needs local time, including quiet-hours email polling. Users should enter an IANA timezone such as `Australia/Brisbane`, `America/Denver`, or `UTC`.
+Timezone lives in General because it affects multiple features. Kyro uses timezone for local-time behaviour such as quiet-hours email polling.
+
+Users should enter an IANA timezone such as:
+
+- `Australia/Brisbane`
+- `America/Denver`
+- `UTC`
+
+Kyro can change the timezone when the user asks clearly, for example: "Set the timezone to Australia/Brisbane."
+
+## Communication Settings
+
+Communication settings define outbound communication behaviour.
+
+Current communication settings include:
+
+- default reply tone,
+- whether approval is required before outbound actions,
+- allowed channels such as email, SMS, phone, and manual notes,
+- user email signature,
+- optional separate assistant-generated signature.
+
+High-risk communication choices remain user-controlled in Settings. Kyro can explain them, but it should not silently change outbound approval policy, signatures, or provider secrets through chat.
+
+## Voice Settings
+
+Voice settings control Kyro's spoken assistant experience.
+
+Current voice settings include:
+
+- OpenAI assistant voice,
+- outbound voice pronunciation policy,
+- pronunciation vocabulary list,
+- pronunciation preview controls.
+
+OpenAI is the product-owned speech provider in the current app. Users choose the OpenAI assistant voice, not the underlying provider.
+
+The saved voice is used for realtime voice and generated voice playback so Kyro sounds consistent across the app.
+
+## Pronunciation Vocabulary
+
+Pronunciation vocabulary lets Kyro learn words that should be spoken carefully. This is useful for:
+
+- suburbs and place names,
+- customer names,
+- staff names,
+- business names,
+- supplier names,
+- product names,
+- acronyms,
+- internal nicknames.
+
+Each entry can include:
+
+- phrase: the word or phrase Kyro may see,
+- say it like: a pronunciation hint,
+- category: person, place, business, product, acronym, or other,
+- aliases: related spellings, nicknames, abbreviations, or speech-to-text mishearings,
+- usage count and last-seen information,
+- source/status metadata.
+
+Aliases help Kyro recognise related terms and track usage. They do not automatically replace what Kyro says aloud. For example, if `Woolloongabba` has an alias `the Gabba`, Kyro can understand they may be related, but it should still say the words in the user's message unless the context calls for the full place name.
+
+Kyro can auto-add likely difficult terms with a best-effort default pronunciation. Users do not need to approve every entry. The list is meant to maintain itself in the background, while still allowing the user to correct it.
+
+Users can also ask Kyro directly, for example:
+
+- "Pronounce Woolloongabba as wuh-lun-gabba."
+- "Say Coorparoo like Coo-pa-roo."
+- "Change the pronunciation of our supplier name to ..."
+
+Pronunciation previews use Kyro's saved OpenAI voice where possible. The phonetic hint is sent as private guidance, not as text to read aloud.
+
+## Outbound Voice Pronunciation Policy
+
+The outbound voice pronunciation policy prepares Kyro for future customer-facing voice actions.
+
+Current options are:
+
+- Strict: ask before customer-facing voice if there are risky unconfirmed terms.
+- Balanced: use high-confidence inferred pronunciations, but ask before risky customer-facing voice.
+- Flexible: proceed more freely with best-effort pronunciations.
+- Off: do not apply pronunciation preflight restrictions.
+
+The current app does not yet place real outbound customer calls. The setting is stored now so future customer-facing voice can respect it.
+
+## Integrations Settings
+
+Integrations manages Google Workspace and Microsoft Outlook connections.
+
+Google and Outlook can be used for:
+
+- outbound email sending,
+- inbound email reading,
+- provider account labelling,
+- future document/calendar extensions.
+
+Users can disconnect a connected account. Disconnecting clears Kyro's stored usable token, marks the connection disconnected, and stops Kyro using that mailbox. To reconnect or switch accounts, use the normal Connect flow again.
+
+Existing accounts may need reconnecting if they were connected before inbound read scopes were added.
 
 ## Inbound Email Sync
 
-Inbound email sync lets Kyro read connected Gmail or Outlook mailboxes, classify new inbox messages, and promote business-actionable emails into CRM conversations.
+Inbound email sync lets Kyro read connected Gmail or Outlook inboxes, classify new messages, and promote business-actionable mail into CRM conversations.
 
 Sync modes:
 
@@ -60,52 +336,238 @@ Sync modes:
 - Manual only: scheduled checks stop, but the user or assistant can still manually check inboxes.
 - Paused: inbound email sync is off.
 
-Daytime poll frequency controls how often scheduled polling can run during active hours. Five minutes feels near-live without the extra complexity of provider push/webhook infrastructure.
+The default product direction is automatic polling because an AI agent is most useful when it can notice relevant messages without the user doing manual admin. Manual-only exists as a conservative option.
 
-Manual checks and assistant-triggered checks bypass the schedule gate. That means if the assistant needs fresh email context during a conversation, it can trigger a check even outside the ordinary polling schedule.
+Kyro can also trigger a manual email check during a conversation. This is useful if the user says something like "check whether the customer emailed back" or a phone conversation suggests there may be a new email update.
+
+## Poll Frequency
+
+Poll frequency controls how often scheduled inbound email sync can run during active hours.
+
+The current default is five minutes. This is close enough to live for most businesses without adding the complexity of Gmail/Outlook push notification infrastructure.
+
+Longer intervals reduce background provider/API/model work. Emergency businesses may prefer shorter or more continuous coverage.
+
+## Email Sync Status
+
+The Integrations settings page shows a sync health panel for inbound email.
+
+It can show:
+
+- whether automatic polling is ready,
+- whether sync is paused or manual-only,
+- whether an account needs reconnecting,
+- whether a required inbox-read scope is missing,
+- whether the last sync failed,
+- the last successful sync time,
+- the last check attempt time,
+- when the next scheduled sync is expected,
+- whether a manual check is currently running.
+
+`Last successful sync` means the last time Kyro completed a provider sync without a connection-level failure. `Last check attempt` means the last time Kyro tried to check that inbox, even if the attempt found a missing scope or failed.
+
+`Reconnect needed` usually means the account was connected before Kyro requested inbox-read permission, the provider token now needs a fresh OAuth grant, or Kyro cannot decrypt the old stored token with the current integration encryption key. Disconnecting and reconnecting the provider grants the current scopes and stores a fresh encrypted token.
 
 ## Quiet Hours
 
-Quiet hours reduce provider/API/classifier cost and background activity during times when the business is usually asleep.
+Quiet hours reduce background activity and cost when the business is usually closed.
 
-The default behaviour is to pause scheduled polling during quiet hours, then resume on the first scheduled poll after quiet hours end. Manual checks and assistant-triggered checks still work.
+The default quiet-hours behaviour is:
 
-Emergency or after-hours businesses can keep the same polling interval overnight by changing quiet-hours behaviour to same as daytime.
+- pause scheduled polling between the quiet-hours start and end times,
+- resume on the first scheduled poll after quiet hours end,
+- still allow manual checks,
+- still allow assistant-triggered checks.
 
-## Filtering And Sync Limits
+Quiet hours do not need a special "once during quiet hours" run. The intended behaviour is simply to stop scheduled polling during the quiet period and resume afterwards.
 
-Action rules for CRM promotion tell Kyro which emails should become CRM work. Business-actionable messages are promoted into contacts, leads, conversations, messages, and AI triage. Personal messages, newsletters, spam, low-value FYI messages, and automated noise should stay out unless they clearly affect the business.
+Emergency or after-hours businesses can change quiet-hours behaviour so polling stays the same overnight.
 
-Missed-mail lookback is how many days back Kyro asks Gmail or Outlook to search each time it syncs. It helps catch messages after downtime or reconnecting an account. Duplicate provider messages are skipped.
+## Lookback And Fetch Cap
 
-Fetch cap per sync is the maximum number of inbox messages Kyro asks each connected provider for in one sync run. It limits provider/API work and AI classifier cost.
+Missed-mail lookback is how many days back Kyro asks Gmail or Outlook to search each time it syncs. It helps Kyro catch messages after downtime, reconnecting, or a missed scheduled run. Duplicate provider messages are skipped by idempotency keys.
 
-Skipped-mail summaries are optional human-readable summaries for emails Kyro decides not to action. Kyro always records a minimal provider event so it will not reprocess duplicates; the summary just helps the assistant understand that something arrived without creating a CRM conversation.
+Fetch cap per sync is the maximum number of messages Kyro asks a connected provider for in one sync run. It limits provider/API work and AI classification cost.
 
-Inbox has a separate filtered-out email pop-up for skipped mail. It is not one of the normal work-queue filters because skipped mail has not become CRM work. The trigger shows how many filtered-out emails were observed in the last 24 hours, and the heavier recent-email list only loads when the pop-up opens. Users can skim recent emails Kyro noticed but did not promote. Each skipped email can be replied to manually, or the user can open Reply, use Generate with AI, add a quick instruction, and review the generated draft before sending. Replies sent from this panel show a Kyro `Replied` indicator later, based only on Kyro's internal reply log.
+Lookback controls how far back Kyro searches. Fetch cap controls how many messages Kyro will fetch/process in that run.
 
-## Voice And Pronunciation
+## Skipped-Mail Summaries
 
-Voice mode is intended to feel like the same assistant as the chat window. The assistant should preserve context across text and voice as much as possible.
+Skipped-mail summaries are optional lightweight summaries for emails Kyro decided not to promote into CRM work.
 
-OpenAI powers Kyro voice. Users can choose the assistant's OpenAI voice in Voice settings, but they do not choose the underlying speech provider.
+Kyro always records enough provider event information to avoid reprocessing duplicates. The summary setting controls whether Kyro also records a human-readable summary/reason that can appear in the filtered-out email popup and help the assistant understand what was skipped.
 
-Pronunciation vocabulary lets users teach Kyro names, suburbs, business terms, acronyms, and other words that should be spoken carefully. Kyro can also auto-add likely difficult terms in the background with a best-effort "say it like" hint. New auto-added entries can run a quick LLM pass to suggest aliases such as related spellings, nicknames, abbreviations, or speech-to-text mishearings. Aliases help Kyro match and understand related terms; they do not replace the words Kyro says aloud. These entries do not need user approval before Kyro can use them; users can edit, remove, or correct the hint/aliases if Kyro gets something wrong. Users can also ask the assistant in chat or voice, for example: "pronounce Woolloongabba as wuh-lun-gabba."
+Turning summaries off can reduce AI/classifier work, but makes filtered-out email review less useful.
 
-Background pronunciation learning uses a lightweight heuristic to decide which new terms deserve entries, then an optional bounded LLM step to enrich aliases. It is intentionally conservative: ordinary capitalized words from normal sentences should not become entries just because they were capitalized in a transcript.
+## Usage Settings
 
-Pronunciation previews use Kyro's saved live OpenAI voice where possible. The preview speaks only the target word or phrase. The phonetic "say it like" hint is sent as private guidance; separators such as hyphens are treated as syllable cues, not text to read aloud.
+Usage settings show provider/API cost and metering information.
 
-## Connected Accounts
+Usage can show:
 
-Google Workspace and Microsoft Outlook can be connected for email sending and inbound email reading. Accounts may need to reconnect if they were connected before read scopes were added.
+- provider cost,
+- customer charge snapshot,
+- gross margin snapshot,
+- ledger event count,
+- metered units,
+- provider/model/service breakdown,
+- recent usage events.
 
-Users can disconnect an account in Settings. Disconnecting removes Kyro's stored usable token, marks the connection disconnected, and stops Kyro using that mailbox. To switch accounts or refresh permissions, disconnect if needed and then use the Connect button again.
+Usage is read-only. It does not collect payment, create invoices, or connect to Stripe or Apple billing yet.
 
-The assistant can check recent email after accounts are connected, but OAuth connection setup remains a Settings flow.
+## Web Search
 
-## Usage And Cost
+Kyro can use public web search when enabled. Web search is for public/current internet information such as:
 
-Usage settings show provider/API cost and metering. Quiet hours, fetch caps, and skipped-mail summary settings help control unnecessary background work.
+- sports results,
+- news,
+- supplier details,
+- product information,
+- public regulations,
+- current facts.
 
-The assistant can explain usage concepts, but billing/payment settings should remain user-controlled in the Settings UI.
+Web search should not be used for private workspace data. CRM records, customer details, connected email, quotes, and messages must come from Kyro's own workspace tools.
+
+## Email And Google/Outlook Reconnection
+
+If Settings says an account needs reconnecting, it usually means Kyro does not have the required read scope for inbound sync.
+
+Gmail inbound sync needs read access such as `gmail.readonly`. Outlook inbound sync needs `Mail.Read`.
+
+Reconnect by disconnecting the account if needed, then using the relevant Connect flow in Settings. The new OAuth flow should request the current scopes.
+
+## Safe Settings Kyro Can Change
+
+Kyro can directly change a constrained set of low-risk settings when the user asks clearly:
+
+- workspace timezone,
+- inbound email sync mode,
+- daytime email poll frequency,
+- quiet-hours enabled/disabled state,
+- quiet-hours start and end times,
+- quiet-hours behaviour,
+- missed-mail lookback,
+- fetch cap per sync,
+- skipped-mail summaries,
+- inbound email action rules,
+- assistant voice,
+- outbound pronunciation policy,
+- pronunciation vocabulary entries.
+
+Kyro should say exactly what changed after making a setting update.
+
+## Settings Kyro Should Not Change Directly
+
+Kyro should not directly change high-risk or sensitive settings through chat/voice, including:
+
+- OAuth provider connections,
+- account disconnect/reconnect actions,
+- provider secrets or API keys,
+- email signatures,
+- outbound approval policy,
+- billing/payment details,
+- destructive data deletion,
+- broad permission changes.
+
+For these settings, Kyro should guide the user to the correct Settings section instead.
+
+## Memories
+
+Kyro can save explicit long-term memories when the user asks clearly, for example:
+
+- "Remember that we prefer short replies."
+- "For future reference, our service area is Brisbane inner east."
+- "Note that John is our main supplier contact."
+
+Kyro should not treat every casual statement as a permanent memory. Memories are for deliberate user instructions or durable context.
+
+## Data And Audit Trail
+
+Kyro records meaningful actions so users and builders can understand what happened. Assistant turns, AI runs, model route decisions, usage events, settings changes, email sync events, and important mutations are recorded in the database and/or audit log.
+
+This audit-first posture is important because Kyro is meant to become an agentic operations system without becoming a black box.
+
+## Performance And Loading
+
+The web app avoids loading everything at once:
+
+- main navigation routes are warmed in the background after idle,
+- repeated list rows avoid prefetching every detail page,
+- Settings loads only the selected section's data,
+- the usage ledger loads only when Usage is selected,
+- filtered-out email details load only when the popup opens,
+- reply composers inside filtered-out email cards mount only when opened,
+- list/review queries are bounded to avoid slow UI as mock data grows.
+
+This should keep the web UI feeling responsive while preserving a clean future path to native iOS screens.
+
+## iOS Direction
+
+Kyro's current web UI is a proving ground. Product decisions should keep the future iOS app in mind:
+
+- keep screens focused,
+- avoid giant all-in-one pages where possible,
+- prefer clear task panels and dedicated flows,
+- treat Assistant, Voice, Inbox, and Settings as the most important mobile tab surfaces,
+- make Inbox threads and Settings sections feel like focused drill-in screens on small viewports,
+- keep data fetching behind clean server/API boundaries,
+- make Assistant and Voice share the same context and permissions,
+- make settings concepts understandable enough for a phone UI.
+
+## Troubleshooting
+
+If Kyro cannot answer a workspace question:
+
+- check that the user is signed in,
+- check that workspace bootstrap completed,
+- check whether the relevant records exist,
+- ask Kyro to search by customer name, email, phone, job type, or quote title,
+- use Inbox, CRM, Documents, or Log to inspect source records.
+
+If inbound email does not work:
+
+- check that Google or Outlook is connected,
+- check whether the account needs reconnecting for read scopes,
+- check inbound email sync mode,
+- check quiet-hours settings,
+- use the manual Check inbox button,
+- ask Kyro to check recent email,
+- check sync errors in Settings when surfaced.
+
+If voice does not work:
+
+- check browser microphone permission,
+- check `OPENAI_API_KEY`,
+- check realtime model configuration,
+- try the text Assistant to confirm the Assistant thread works,
+- check Voice settings for the selected OpenAI voice,
+- review pronunciation entries if speech sounds wrong.
+
+If generated replies feel off:
+
+- add a clearer instruction to the Generate with AI box,
+- review and edit before sending,
+- update communication tone/signature settings,
+- add durable instructions as explicit memories if the preference should stick.
+
+## Builder And Deployment Questions
+
+This manual is primarily for end-user help. If the user asks as a builder about architecture, tests, environment setup, deployment, or why a system behaves a certain way internally, Kyro can also use the architecture summary and deployment checklist.
+
+Relevant builder references include:
+
+- `docs/current-architecture.md` for app structure, data flow, integration behaviour, known gaps, and verification commands.
+- `docs/deployment-checklist.md` for production environment variables, OAuth setup, Supabase checks, cron sync, OpenAI/realtime voice, and deployment smoke tests.
+- `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build`, and `npm run env:check` for local verification.
+
+## How Kyro Should Answer Help Questions
+
+When answering help questions, Kyro should:
+
+- answer from this manual first,
+- keep the answer concise unless the user asks for detail,
+- explain settings in plain language,
+- say what the current app can and cannot do,
+- point to the relevant screen or Settings section when useful,
+- avoid exposing implementation details unless the user is asking as a builder,
+- never pretend a future feature is already complete.

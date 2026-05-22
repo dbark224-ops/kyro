@@ -17,7 +17,7 @@ const navItems = [
   { label: "Developer", href: "/developer" },
   { label: "Settings", href: "/settings" },
 ];
-const bottomNavItems = ["Assistant", "CRM", "Inbox", "Settings"]
+const bottomNavItems = ["Assistant", "Voice", "Inbox", "Settings"]
   .map((label) => navItems.find((item) => item.label === label))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
 const preloadRoutes = navItems

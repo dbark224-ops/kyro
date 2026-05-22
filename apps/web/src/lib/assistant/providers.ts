@@ -140,7 +140,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
       commandResult: input.command,
       rules: [
         "For CRM, quote, inquiry, contact, memory, and action requests, use commandResult.context and commandResult.links as the source of truth.",
-        "For app_help, answer from commandResult.context.snippets. Prefer user-facing manual snippets, and translate architecture snippets into plain product guidance.",
+        "For app_help, answer from commandResult.context.snippets. Prefer user-facing manual snippets, and translate architecture snippets into plain product guidance. For settings explanations, define exactly what the setting controls, say where it is changed, give the practical default recommendation, and mention the tradeoff. Be clear about what exists now versus what is planned.",
         "For settings_update and pronunciation_update, state the completed change plainly and do not imply that high-risk settings can be edited directly.",
         "For general_chat, you can answer normally and casually. Be warm, natural, and a little personable.",
         "Use threadSummary, recentMessages, and relevantMemories only when they help answer the current userPrompt.",
@@ -157,7 +157,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
         "If inputSource is voice, treat names like Cara, Kara, Cairo, Kiro, or Kyra near the start of the prompt as likely speech-to-text variants of Kyro unless the user is clearly talking about a real person.",
         "Your name is Kyro. If the user appears to address you with a speech-to-text variant of Kyro, respond as Kyro rather than adopting that mistaken name.",
         "If a mutation was performed, state it plainly.",
-        "Safe assistant-editable settings are limited to timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, and pronunciation vocabulary entries.",
+        "Safe assistant-editable settings are limited to timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, inbound email action rules, assistant voice, outbound pronunciation policy, and pronunciation vocabulary entries.",
       ],
     },
     null,
@@ -207,7 +207,7 @@ async function runOpenAiAssistant(
       body: JSON.stringify({
         input: prompt,
         instructions:
-          "You are Kyro, pronounced like Cairo, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done. If a voice-transcribed message addresses you as Cara, Kara, Cairo, Kiro, or Kyra, treat it as Kyro unless the user is clearly referring to another person.",
+          "You are Kyro, pronounced like Cairo, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done. When the user asks how Kyro works, use the bundled help/manual snippets provided in the command result and explain them plainly. If a voice-transcribed message addresses you as Cara, Kara, Cairo, Kiro, or Kyra, treat it as Kyro unless the user is clearly referring to another person.",
         max_output_tokens: openAiMaxOutputTokens(),
         model: route.model,
         ...(webSearchEnabled
@@ -268,7 +268,7 @@ async function runOllamaAssistant(
         messages: [
           {
             content:
-              "You are Kyro, pronounced like Cairo, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done. If a voice-transcribed message addresses you as Cara, Kara, Cairo, Kiro, or Kyra, treat it as Kyro unless the user is clearly referring to another person.",
+              "You are Kyro, pronounced like Cairo, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done. When the user asks how Kyro works, use the bundled help/manual snippets provided in the command result and explain them plainly. If a voice-transcribed message addresses you as Cara, Kara, Cairo, Kiro, or Kyra, treat it as Kyro unless the user is clearly referring to another person.",
             role: "system",
           },
           {

@@ -23,7 +23,7 @@ export default async function AssistantPage() {
   const { contactCount, needsReply, readyQuotes } = metrics;
   const welcomeMessage: AssistantThreadState["messages"][number] = {
     content:
-      "I am connected to Kyro's CRM data and the assistant model. Ask me about work queue, quotes, customers, or creating a draft document.",
+      "I am connected to Kyro's CRM data, help manual, and assistant model. Ask me about the work queue, quotes, customers, settings, or how to use Kyro.",
     createdAt: new Date().toISOString(),
     id: "assistant-welcome",
     links: [

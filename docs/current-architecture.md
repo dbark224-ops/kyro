@@ -18,6 +18,7 @@ Kyro is a TypeScript monorepo.
 - `supabase/migrations`: generated SQL migrations applied to Supabase.
 - `docs`: product, architecture, database, and backlog notes.
 - `docs/assistant-help-manual.md`: user-facing help source the Assistant can answer from.
+- `docs/deployment-checklist.md`: production/env verification checklist for the current stack.
 
 ## Runtime Stack
 
@@ -126,15 +127,16 @@ warmer without preloading every row/detail page. The nav links leave automatic N
 prefetching off so this controlled preloader is the single warmup mechanism.
 
 On narrow mobile viewports, the shell hides the desktop sidebar, exposes the full
-navigation through a drawer menu, and pins a bottom quick-nav for Assistant, CRM,
-Inbox, and Settings. Topbar metrics collapse into compact right-aligned chips so
-the emergency web UI remains usable on a phone.
+navigation through a drawer menu, and pins a bottom quick-nav for Assistant, Voice,
+Inbox, and Settings. Inbox and Voice metrics become horizontal, touch-friendly
+summary strips instead of squeezed desktop cards, so the emergency web UI maps
+more naturally to future iOS tabs.
 
 Mobile detail surfaces intentionally do not use the desktop split-view pattern.
-Assistant previews, Inbox message previews, and selected CRM profiles become
-fixed full-screen task panels with their own scroll area and a close/back action,
-similar to opening an email thread in a mobile mail app. Desktop keeps the
-side-by-side split views.
+Assistant previews, Inbox message previews, selected CRM profiles, and Settings
+detail screens become fixed full-screen task panels with their own scroll area
+and a close/back action, similar to opening an email thread or Settings detail in
+a mobile app. Desktop keeps the side-by-side split views.
 
 The app shell currently exposes:
 
@@ -575,9 +577,12 @@ Purpose:
 - choose the outbound voice pronunciation policy and manage pronunciation vocabulary,
 - manage general workspace defaults such as timezone in a dedicated General settings section,
 - configure inbound email sync cadence, quiet-hours polling, and action-filtering rules,
+- show inbound email sync health in Settings, including reconnect-needed state,
+  missing inbox-read scopes, last successful sync, last check attempt, next
+  scheduled sync, sync failures, and pending manual checks,
 - keep dense settings controls scannable with reusable hover/click info bubbles for helper copy,
 - give the Assistant a user-facing help/manual source plus architecture snippets for product-aware support answers,
-- allow the Assistant to edit a constrained allowlist of low-risk settings: timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, and skipped-mail summaries,
+- allow the Assistant to edit a constrained allowlist of low-risk settings: timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, and pronunciation vocabulary,
 - show Google Workspace and Microsoft Outlook readiness in one Integrations area,
 - launch Google or Microsoft OAuth connect flows from that combined area,
 - disconnect a Google or Microsoft account from Settings by marking the provider
@@ -599,22 +604,29 @@ future payment system can consume the same ledger totals. It does not invoice, c
 payment, alter pricing rules, or push data to Stripe/Apple. It is a visibility layer
 over the metering data that triage, Assistant, and future API integrations record.
 
-Settings sections are URL-addressable (`?section=communication`, `?section=voice`,
-`?section=integrations`, `?section=usage`) and fetch data on demand for the selected
+Settings sections are URL-addressable (`?section=general`, `?section=communication`,
+`?section=voice`, `?section=integrations`, `?section=usage`) and fetch data on demand for the selected
 section. This keeps the default Settings route light and makes each section a cleaner
 future API/native-screen boundary.
 
 Assistant-facing help uses `docs/assistant-help-manual.md` as the user-facing
-source, with a bundled assistant corpus in `apps/web/src/lib/assistant/knowledge-corpus.ts`
-so runtime assistant routes do not need filesystem reads. Architecture support
-snippets are mirrored there as internal context. The assistant command router
-selects relevant snippets for app-help questions instead of stuffing every
-document into every prompt.
+source. The manual now covers the current product surfaces end-to-end: Assistant,
+Voice, Inbox, filtered-out email review, CRM, Documents, Log, Settings, safe
+assistant-editable settings, limitations, troubleshooting, performance/loading
+behaviour, and the iOS direction. A bundled assistant corpus in
+`apps/web/src/lib/assistant/knowledge-corpus.ts` mirrors the manual so runtime
+assistant routes do not need filesystem reads. Architecture support snippets are
+mirrored there as internal context. The assistant command router selects relevant
+snippets for app-help questions instead of stuffing every document into every
+prompt, and both text Assistant and realtime Voice can reach the same help/manual
+path through the shared command/tool boundary.
 
 Assistant settings edits go through `apps/web/src/lib/assistant/settings-tools.ts`.
-The allowlist intentionally starts with low-risk operational settings only. Outbound
-approval policy, signatures, OAuth connections, billing/metering, provider secrets,
-and destructive data changes remain Settings UI flows.
+The allowlist is limited to low-risk operational settings: workspace timezone,
+inbound email sync behavior, inbound email action rules, assistant voice, outbound
+pronunciation policy, and pronunciation vocabulary. Outbound approval policy,
+signatures, OAuth connections, billing/metering, provider secrets, and destructive
+data changes remain Settings UI flows.
 
 Settings expose outbound policy and a combined Integrations area for Google Workspace
 and Microsoft Outlook. Gmail and Outlook are the first real external send providers
@@ -709,6 +721,15 @@ Important behavior:
 
 - Gmail now requests `gmail.readonly`; Outlook now requests `Mail.Read`.
 - Existing connected accounts that only granted send scopes need to reconnect before inbound sync can read mail.
+- If a stored OAuth token cannot be decrypted with the current
+  `INTEGRATION_TOKEN_ENCRYPTION_KEY`, the sync worker reports the account as
+  reconnect-needed instead of a generic provider failure. Reconnecting stores a
+  fresh token encrypted with the active key.
+- Settings derives email sync UX state from existing connection fields:
+  `scopes`, `last_sync_at`, `last_error`, and `metadata.inboundEmail.lastCheckedAt`.
+  This avoids a new table while still showing missing scopes, reconnect-needed
+  warnings, last successful sync, last check attempt, sync failures, and next
+  scheduled sync.
 - Scheduled polling is exposed through `/api/integrations/email/sync`, protected by `INBOUND_EMAIL_SYNC_SECRET` or Vercel's `CRON_SECRET`, and backed by a server-only Supabase service role client. Vercel Cron calls it with `GET`; manual scheduler/testing calls can still use `POST`.
 - `vercel.json` registers this route to run every five minutes in production. The sync worker still respects each workspace's policy, including quiet-hours rules.
 - The default quiet-hours behavior pauses scheduled polling between 10pm and 4am to reduce provider/API/classifier cost, then resumes on the first scheduled poll after quiet hours end. Emergency businesses can keep the same interval overnight.
@@ -970,6 +991,7 @@ Use this map before editing:
 - New inbound email sync behavior: `apps/web/src/lib/integrations/inbound-email-settings.ts`,
   `apps/web/src/lib/integrations/inbound-email-sync.ts`, and
   `apps/web/src/app/api/integrations/email/sync/route.ts`
+- New deployment/env readiness check: `scripts/check-env.mjs` and `docs/deployment-checklist.md`
 - New service-role Supabase server helper: `apps/web/src/lib/supabase/service.ts`
 - New provider token encryption behavior: `apps/web/src/lib/integrations/token-vault.ts`
 - New usage/billing read behavior: `apps/web/src/lib/usage/queries.ts`, surfaced from Settings
@@ -1002,11 +1024,23 @@ These are not bugs:
 Run these after meaningful changes:
 
 ```bash
+npm run env:check
+npm run test
 npm run typecheck
 npm run lint
 npm run db:check
 npm run build
 ```
+
+The current web test harness uses Node's built-in test runner with `tsx`:
+
+- root `npm run test` fans out to workspace test scripts,
+- `apps/web` runs `node --import tsx --test "src/**/*.test.ts" "app/**/*.test.ts"`,
+- tests should prefer pure helpers over live Supabase, Gmail, Outlook, OpenAI, or browser calls.
+
+Current high-value unit coverage includes inbound email quiet-hours scheduling, reconnect-needed
+token-decrypt classification, skipped-email summary/reply-state mapping, reply draft prompt
+context, pronunciation candidate filtering, and Assistant-editable settings parsing.
 
 When schema changes are made:
 
@@ -1015,6 +1049,10 @@ npm run db:generate -- --name descriptive_name
 npm run db:migrate
 npm run db:check
 ```
+
+Production deployment and environment hardening steps live in
+`docs/deployment-checklist.md`. Use `npm run env:check:production` against the
+production environment before deploying.
 
 ## Security Notes
 

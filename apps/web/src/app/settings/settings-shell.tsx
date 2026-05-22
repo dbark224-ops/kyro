@@ -58,13 +58,14 @@ export function SettingsShell({
               href={item.href}
               key={item.section}
               prefetch={false}
-            >
-              <div className="settings-menu-main">
-                <p className="eyebrow">{item.eyebrow}</p>
-                <strong>{item.title}</strong>
-                <span>{item.detail}</span>
-              </div>
-            </Link>
+              >
+                <div className="settings-menu-main">
+                  <p className="eyebrow">{item.eyebrow}</p>
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <span className="settings-menu-status">{item.status}</span>
+              </Link>
           ))}
         </div>
       </section>

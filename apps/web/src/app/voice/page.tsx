@@ -23,7 +23,7 @@ export default async function VoicePage() {
   const { contactCount, needsReply, readyQuotes } = metrics;
   const welcomeMessage: AssistantThreadState["messages"][number] = {
     content:
-      "Realtime voice mode is ready. Tap the mic, speak naturally, and Kyro will answer using the same CRM context as the Assistant.",
+      "Realtime voice mode is ready. Tap the mic, speak naturally, and Kyro will answer using the same CRM context, help manual, and settings permissions as the Assistant.",
     createdAt: new Date().toISOString(),
     id: "voice-welcome",
     role: "assistant",
@@ -36,7 +36,7 @@ export default async function VoicePage() {
   return (
     <AppFrame active="Voice">
       <div className="voice-page-shell">
-        <header className="topbar">
+        <header className="topbar voice-topbar">
           <div>
             <p className="eyebrow">{workspace.name}</p>
             <h1>Voice</h1>

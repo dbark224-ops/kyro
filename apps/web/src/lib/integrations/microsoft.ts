@@ -25,6 +25,8 @@ export type MicrosoftIntegrationConnection = {
   scopes: string[];
   lastConnectedAt: string | null;
   lastError: string | null;
+  lastCheckedAt: string | null;
+  lastSyncAt: string | null;
 };
 
 export type MicrosoftIntegrationOverview = {
@@ -79,6 +81,20 @@ function normalizeScopes(value: unknown): string[] {
   );
 }
 
+function objectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function inboundEmailMetadata(value: unknown) {
+  return objectRecord(objectRecord(value).inboundEmail);
+}
+
 export async function getMicrosoftIntegrationOverview(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -86,7 +102,7 @@ export async function getMicrosoftIntegrationOverview(
   const config = getMicrosoftOAuthConfig();
   const { data, error } = await supabase
     .from("integration_connections")
-    .select("id,account_email,account_name,status,scopes,last_connected_at,last_error")
+    .select("id,account_email,account_name,status,scopes,last_connected_at,last_error,last_sync_at,metadata")
     .eq("workspace_id", workspaceId)
     .eq("provider", MICROSOFT_PROVIDER)
     .order("last_connected_at", { ascending: false });
@@ -123,6 +139,9 @@ export async function getMicrosoftIntegrationOverview(
           : null,
       lastError:
         typeof connection.last_error === "string" ? connection.last_error : null,
+      lastCheckedAt: textValue(inboundEmailMetadata(connection.metadata).lastCheckedAt),
+      lastSyncAt:
+        typeof connection.last_sync_at === "string" ? connection.last_sync_at : null,
     })),
     error: null,
   };

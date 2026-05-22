@@ -35,6 +35,7 @@ import {
 } from "../../lib/usage/queries";
 import {
   GOOGLE_PROVIDER,
+  GOOGLE_GMAIL_READ_SCOPE,
   getGoogleIntegrationOverview,
 } from "../../lib/integrations/google";
 import {
@@ -44,6 +45,7 @@ import {
   getInboundEmailSettings,
 } from "../../lib/integrations/inbound-email-settings";
 import {
+  MICROSOFT_MAIL_READ_SCOPE,
   MICROSOFT_PROVIDER,
   getMicrosoftIntegrationOverview,
 } from "../../lib/integrations/microsoft";
@@ -55,6 +57,7 @@ import {
   type SettingsSection,
 } from "./settings-shell";
 import { InfoBubble } from "./info-bubble";
+import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
 import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
 
 export const dynamic = "force-dynamic";
@@ -812,8 +815,18 @@ function MicrosoftIntegrationSettings({
 type ProviderConnection = {
   accountEmail: string | null;
   accountName: string | null;
+  lastCheckedAt: string | null;
   lastConnectedAt: string | null;
+  lastError: string | null;
+  lastSyncAt: string | null;
+  scopes: string[];
   status: string;
+};
+
+type EmailProviderConnection = ProviderConnection & {
+  provider: "google" | "microsoft";
+  providerLabel: string;
+  requiredReadScope: string;
 };
 
 function latestConnectedConnection(connections: ProviderConnection[]) {
@@ -835,15 +848,230 @@ function connectionTime(connection: ProviderConnection | null) {
     : 0;
 }
 
+function latestTimestamp(
+  connections: ProviderConnection[],
+  key: "lastCheckedAt" | "lastSyncAt",
+) {
+  return connections
+    .map((connection) => connection[key])
+    .filter((value): value is string => Boolean(value))
+    .sort(
+      (left, right) => new Date(right).getTime() - new Date(left).getTime(),
+    )[0] ?? null;
+}
+
+function hasRequiredReadScope(connection: EmailProviderConnection) {
+  if (connection.provider === "google") {
+    return connection.scopes.includes(connection.requiredReadScope);
+  }
+
+  const requested = connection.requiredReadScope.toLowerCase();
+
+  return connection.scopes.some((scope) => {
+    const normalized = scope.toLowerCase();
+
+    return normalized === requested || normalized.endsWith(`/${requested}`);
+  });
+}
+
+function missingReadScope(connection: EmailProviderConnection) {
+  return hasRequiredReadScope(connection) ? null : connection.requiredReadScope;
+}
+
+function isReconnectError(value: string | null) {
+  return Boolean(value?.toLowerCase().includes("reconnect"));
+}
+
+function connectionNeedsReconnect(connection: EmailProviderConnection) {
+  return Boolean(
+    missingReadScope(connection) || isReconnectError(connection.lastError),
+  );
+}
+
+function minutesUntilNextSync(
+  lastSyncAt: string | null,
+  intervalMinutes: number,
+) {
+  if (!lastSyncAt) {
+    return 0;
+  }
+
+  const lastSyncTime = new Date(lastSyncAt).getTime();
+
+  if (!Number.isFinite(lastSyncTime)) {
+    return 0;
+  }
+
+  return Math.ceil(
+    (lastSyncTime + intervalMinutes * 60_000 - Date.now()) / 60_000,
+  );
+}
+
+function timePartsForZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    timeZone,
+  }).formatToParts(date);
+
+  return {
+    hour: Number(parts.find((part) => part.type === "hour")?.value ?? 0),
+    minute: Number(parts.find((part) => part.type === "minute")?.value ?? 0),
+  };
+}
+
+function minuteOfDay(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+
+  return hour * 60 + minute;
+}
+
+function quietHoursActiveNow(settings: InboundEmailSettings) {
+  if (!settings.quietHoursEnabled || settings.quietHoursMode !== "paused") {
+    return false;
+  }
+
+  const now = timePartsForZone(new Date(), settings.timeZone);
+  const nowMinute = now.hour * 60 + now.minute;
+  const start = minuteOfDay(settings.quietHoursStart);
+  const end = minuteOfDay(settings.quietHoursEnd);
+
+  if (start === end) {
+    return false;
+  }
+
+  if (start < end) {
+    return nowMinute >= start && nowMinute < end;
+  }
+
+  return nowMinute >= start || nowMinute < end;
+}
+
+function nextSyncLabel({
+  connections,
+  settings,
+}: {
+  connections: EmailProviderConnection[];
+  settings: InboundEmailSettings;
+}) {
+  const connected = connections.filter(
+    (connection) => connection.status === "connected",
+  );
+  const readReady = connected.filter((connection) =>
+    hasRequiredReadScope(connection),
+  );
+
+  if (connected.length === 0) {
+    return "Connect Gmail or Outlook first";
+  }
+
+  if (readReady.length === 0) {
+    return "After reconnect grants inbox read access";
+  }
+
+  if (settings.syncMode === "paused") {
+    return "Paused";
+  }
+
+  if (settings.syncMode === "manual_only") {
+    return "Manual checks only";
+  }
+
+  if (quietHoursActiveNow(settings)) {
+    return `After quiet hours end (${formatTimeOfDay(settings.quietHoursEnd)})`;
+  }
+
+  const lastSyncAt = latestTimestamp(readReady, "lastSyncAt");
+  const minutes = minutesUntilNextSync(
+    lastSyncAt,
+    settings.pollIntervalMinutes,
+  );
+
+  if (minutes <= 0) {
+    return "Due on the next scheduled run";
+  }
+
+  return `In about ${minutes} min`;
+}
+
+function syncHealthStatus({
+  connections,
+  settings,
+}: {
+  connections: EmailProviderConnection[];
+  settings: InboundEmailSettings;
+}) {
+  const connected = connections.filter(
+    (connection) => connection.status === "connected",
+  );
+  const reconnectNeeded = connected.filter(connectionNeedsReconnect);
+  const failures = connected.filter(
+    (connection) => connection.lastError && !connectionNeedsReconnect(connection),
+  );
+
+  if (connected.length === 0) {
+    return {
+      detail: "Connect Gmail or Outlook before Kyro can read inbound mail.",
+      tone: "warning" as const,
+      title: "No inbox connected",
+    };
+  }
+
+  if (reconnectNeeded.length > 0) {
+    return {
+      detail: `${reconnectNeeded.length} account${reconnectNeeded.length === 1 ? "" : "s"} need fresh OAuth permission for inbox read access.`,
+      tone: "warning" as const,
+      title: "Reconnect needed",
+    };
+  }
+
+  if (failures.length > 0) {
+    return {
+      detail: failures[0].lastError ?? "The last sync attempt failed.",
+      tone: "error" as const,
+      title: "Sync failed",
+    };
+  }
+
+  if (settings.syncMode === "paused") {
+    return {
+      detail: "Automatic and manual email sync are paused by policy.",
+      tone: "warning" as const,
+      title: "Sync paused",
+    };
+  }
+
+  if (settings.syncMode === "manual_only") {
+    return {
+      detail: "Scheduled polling is off. Manual and assistant-triggered checks still work.",
+      tone: "neutral" as const,
+      title: "Manual only",
+    };
+  }
+
+  return {
+    detail: `Scheduled polling can run every ${settings.pollIntervalMinutes} minutes during active hours.`,
+    tone: "success" as const,
+    title: "Automatic polling ready",
+  };
+}
+
 function providerChoiceStatus({
   anyConnected,
   connected,
+  needsReconnect = false,
   status,
 }: {
   anyConnected: boolean;
   connected: boolean;
+  needsReconnect?: boolean;
   status: string;
 }) {
+  if (needsReconnect) {
+    return "Reconnect needed";
+  }
+
   if (connected) {
     return "Connected";
   }
@@ -867,6 +1095,109 @@ function inboundQuietHoursModeLabel(value: string) {
   return value === "same_interval"
     ? "Same as daytime"
     : "Pause until quiet hours end";
+}
+
+function scopeLabel(value: string) {
+  return value
+    .replace("https://www.googleapis.com/auth/", "")
+    .replace("https://graph.microsoft.com/", "");
+}
+
+function EmailSyncHealthPanel({
+  connections,
+  settings,
+}: Readonly<{
+  connections: EmailProviderConnection[];
+  settings: InboundEmailSettings;
+}>) {
+  const connected = connections.filter(
+    (connection) => connection.status === "connected",
+  );
+  const health = syncHealthStatus({ connections, settings });
+  const lastSyncAt = latestTimestamp(connected, "lastSyncAt");
+  const lastCheckedAt = latestTimestamp(connected, "lastCheckedAt");
+
+  return (
+    <section className={`email-sync-health ${health.tone}`}>
+      <div className="email-sync-health-header">
+        <div>
+          <p className="eyebrow">Sync health</p>
+          <h3>{health.title}</h3>
+          <p>{health.detail}</p>
+        </div>
+        <span
+          className={`pill ${
+            health.tone === "success"
+              ? "success"
+              : health.tone === "warning"
+                ? "warning"
+                : ""
+          }`}
+        >
+          {inboundSyncModeLabel(settings.syncMode)}
+        </span>
+      </div>
+
+      <div className="email-sync-status-grid">
+        <article>
+          <span>Last successful sync</span>
+          <strong>{lastSyncAt ? formatDate(lastSyncAt) : "Never"}</strong>
+        </article>
+        <article>
+          <span>Last check attempt</span>
+          <strong>{lastCheckedAt ? formatDate(lastCheckedAt) : "Not yet"}</strong>
+        </article>
+        <article>
+          <span>Next scheduled sync</span>
+          <strong>{nextSyncLabel({ connections, settings })}</strong>
+        </article>
+      </div>
+
+      {connected.length > 0 ? (
+        <div className="email-sync-account-list">
+          {connected.map((connection) => {
+            const missingScope = missingReadScope(connection);
+            const needsReconnect = connectionNeedsReconnect(connection);
+            const hasFailure =
+              connection.lastError && !needsReconnect;
+
+            return (
+              <article
+                className="email-sync-account-row"
+                key={`${connection.provider}-${connection.accountEmail ?? connection.accountName ?? connection.requiredReadScope}`}
+              >
+                <div>
+                  <strong>
+                    {connectionName(connection, connection.providerLabel)}
+                  </strong>
+                  <span>
+                    {connection.providerLabel} -{" "}
+                    {missingScope
+                      ? `Missing ${scopeLabel(missingScope)}`
+                      : needsReconnect
+                        ? "Reconnect account"
+                      : hasFailure
+                        ? "Last sync failed"
+                        : "Inbox read access ready"}
+                  </span>
+                  {hasFailure ? <p>{connection.lastError}</p> : null}
+                </div>
+                <span
+                  className={
+                    needsReconnect || hasFailure
+                      ? "pill warning"
+                      : "pill success"
+                  }
+                >
+                  {needsReconnect ? "Reconnect" : hasFailure ? "Failed" : "Ready"}
+                </span>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function GeneralSettingsDetail({
@@ -924,8 +1255,10 @@ function GeneralSettingsDetail({
 }
 
 function InboundEmailSyncSettings({
+  connections,
   settings,
 }: Readonly<{
+  connections: EmailProviderConnection[];
   settings: InboundEmailSettings;
 }>) {
   const syncStatus =
@@ -947,6 +1280,8 @@ function InboundEmailSyncSettings({
         </div>
         <span className="pill">{syncStatus}</span>
       </section>
+
+      <EmailSyncHealthPanel connections={connections} settings={settings} />
 
       <form action={updateInboundEmailSettingsAction} className="settings-form">
         <div className="settings-grid">
@@ -1152,9 +1487,7 @@ function InboundEmailSyncSettings({
           Manual check uses the same sync path the assistant can call during a
           conversation.
         </span>
-        <button className="secondary-button compact" type="submit">
-          Check inbox now
-        </button>
+        <ManualSyncSubmitButton />
       </form>
     </section>
   );
@@ -1235,10 +1568,39 @@ function WorkspaceIntegrationsSettings({
       : currentProvider === "google"
         ? connectionName(googleConnection, "Google Workspace")
         : null;
+  const emailConnections: EmailProviderConnection[] = [
+    ...googleOverview.connections.map((connection) => ({
+      ...connection,
+      provider: "google" as const,
+      providerLabel: "Google",
+      requiredReadScope: GOOGLE_GMAIL_READ_SCOPE,
+    })),
+    ...microsoftOverview.connections.map((connection) => ({
+      ...connection,
+      provider: "microsoft" as const,
+      providerLabel: "Microsoft",
+      requiredReadScope: MICROSOFT_MAIL_READ_SCOPE,
+    })),
+  ];
+  const googleNeedsReconnect = emailConnections.some(
+    (connection) =>
+      connection.provider === "google" &&
+      connection.status === "connected" &&
+      connectionNeedsReconnect(connection),
+  );
+  const microsoftNeedsReconnect = emailConnections.some(
+    (connection) =>
+      connection.provider === "microsoft" &&
+      connection.status === "connected" &&
+      connectionNeedsReconnect(connection),
+  );
 
   return (
     <div className="integration-provider-stack">
-      <InboundEmailSyncSettings settings={inboundEmailSettings} />
+      <InboundEmailSyncSettings
+        connections={emailConnections}
+        settings={inboundEmailSettings}
+      />
 
       <section className="integration-choice-panel">
         <div>
@@ -1271,6 +1633,7 @@ function WorkspaceIntegrationsSettings({
         status={providerChoiceStatus({
           anyConnected,
           connected: googleConnected,
+          needsReconnect: googleNeedsReconnect,
           status: googleStatus,
         })}
       >
@@ -1291,6 +1654,7 @@ function WorkspaceIntegrationsSettings({
         status={providerChoiceStatus({
           anyConnected,
           connected: microsoftConnected,
+          needsReconnect: microsoftNeedsReconnect,
           status: microsoftStatus,
         })}
       >
@@ -1969,7 +2333,7 @@ export default async function SettingsPage({
 
   return (
     <AppFrame active="Settings">
-      <header className="topbar">
+      <header className="topbar settings-topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>
           <h1>Settings</h1>

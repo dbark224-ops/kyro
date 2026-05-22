@@ -15,7 +15,10 @@
     "db:check": "drizzle-kit check --config drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "env:check": "node scripts/check-env.mjs",
+    "env:check:production": "node scripts/check-env.mjs --production",
     "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --check ."
   },
