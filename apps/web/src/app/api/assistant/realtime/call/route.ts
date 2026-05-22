@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 import { getAssistantThreadState } from "../../../../../lib/assistant/persistence";
+import {
+  getActivePronunciationEntries,
+  pronunciationGuideText,
+  type AssistantPronunciationEntry,
+} from "../../../../../lib/assistant/pronunciation";
+import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
 import { assistantWebSearchEnabled } from "../../../../../lib/assistant/web-search";
 import { requireWorkspaceContext } from "../../../../../lib/workspace/context";
 
@@ -11,10 +17,6 @@ function envValue(key: string) {
 
 function realtimeModel() {
   return envValue("OPENAI_REALTIME_MODEL") || "gpt-realtime-2";
-}
-
-function realtimeVoice() {
-  return envValue("OPENAI_REALTIME_VOICE") || "marin";
 }
 
 function realtimeStyleInstructions() {
@@ -56,14 +58,18 @@ function safetyIdentifier(userId: string) {
   return createHash("sha256").update(userId).digest("hex");
 }
 
-function recentThreadContext(state: Awaited<ReturnType<typeof getAssistantThreadState>>) {
+function recentThreadContext(
+  state: Awaited<ReturnType<typeof getAssistantThreadState>>,
+) {
   return state.messages
     .slice(-12)
     .map((message) => `${message.role}: ${message.content}`)
     .join("\n");
 }
 
-function memoryContext(state: Awaited<ReturnType<typeof getAssistantThreadState>>) {
+function memoryContext(
+  state: Awaited<ReturnType<typeof getAssistantThreadState>>,
+) {
   return (state.memories ?? [])
     .slice(0, 8)
     .map((memory) => `- ${memory.content}`)
@@ -71,44 +77,68 @@ function memoryContext(state: Awaited<ReturnType<typeof getAssistantThreadState>
 }
 
 function buildInstructions({
+  pronunciationEntries,
   state,
+  voicePolicy,
   workspaceName,
 }: {
+  pronunciationEntries: AssistantPronunciationEntry[];
   state: Awaited<ReturnType<typeof getAssistantThreadState>>;
+  voicePolicy: string;
   workspaceName: string;
 }) {
+  const pronunciationGuide = pronunciationGuideText(pronunciationEntries);
+
   return [
     "You are Kyro, pronounced like Cairo, a live voice assistant inside a trades CRM.",
     "You are the same assistant as the text Assistant page. Keep continuity with the active assistant thread.",
     "Speak naturally and briefly. Prefer one or two spoken paragraphs unless the user asks for detail.",
     "When the user asks about CRM data, quotes, contacts, inquiries, work queue, documents, or saved business state, call kyro_context_lookup before answering.",
+    "When the user asks how Kyro works, what a setting means, or how to use a feature, call kyro_context_lookup and answer from Kyro's help/manual knowledge.",
+    "When the user clearly asks to change a safe basic setting or pronunciation vocabulary entry, call kyro_context_lookup. Safe settings include timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, and pronunciation vocabulary entries.",
     "Use kyro_context_lookup results as the source of truth for CRM/business records. Do not invent customers, prices, dates, links, or business actions.",
     "When the user asks for current public information, news, product details, supplier details, regulations, or anything that needs the internet, call kyro_web_search if it is available.",
+    "When the user asks whether any new email has arrived, or when checking email would help answer a customer/job/update question, call kyro_check_recent_email before answering.",
     "Never use web search as a substitute for Kyro workspace data. Use CRM tools for private business state and web search for public internet facts.",
     "Do not autonomously send email/SMS or perform external side effects. If an action requires approval, say what can be reviewed in the app.",
-    "If the user says remember, note, or for future reference, call kyro_context_lookup so Kyro's normal memory path can handle it.",
+    "If the user asks how to pronounce a word or says a word/name/place should be pronounced a certain way, call kyro_context_lookup so the pronunciation vocabulary can be updated. For other remember, note, or future-reference requests, call kyro_context_lookup so Kyro's normal memory path can handle it.",
     "If speech recognition hears Cara, Kara, Cairo, Kiro, or Kyra near the start of the request, treat it as Kyro unless clearly referring to a real person.",
+    "For user-facing voice, use best-effort pronunciation when a term is not confirmed. For future customer-facing voice, follow the workspace outbound pronunciation policy and ask before risky unconfirmed names if the policy requires it.",
     realtimeStyleInstructions(),
     `Workspace: ${workspaceName}`,
+    `Outbound pronunciation policy: ${voicePolicy}`,
+    pronunciationGuide
+      ? `Workspace pronunciation vocabulary:\n${pronunciationGuide}`
+      : null,
     state.summary ? `Thread summary: ${state.summary}` : null,
-    state.memories?.length ? `Explicit memories:\n${memoryContext(state)}` : null,
-    state.messages.length ? `Recent assistant thread:\n${recentThreadContext(state)}` : null,
+    state.memories?.length
+      ? `Explicit memories:\n${memoryContext(state)}`
+      : null,
+    state.messages.length
+      ? `Recent assistant thread:\n${recentThreadContext(state)}`
+      : null,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
 function sessionConfig({
+  openAiVoice,
+  pronunciationEntries,
   state,
+  voicePolicy,
   workspaceName,
 }: {
+  openAiVoice: string;
+  pronunciationEntries: AssistantPronunciationEntry[];
   state: Awaited<ReturnType<typeof getAssistantThreadState>>;
+  voicePolicy: string;
   workspaceName: string;
 }) {
   const tools: Array<Record<string, unknown>> = [
     {
       description:
-        "Resolve a user request against Kyro's workspace CRM, contacts, inquiries, quote drafts, work queue, memories, and safe backend command router. Call this before answering CRM or business-state questions.",
+        "Resolve a user request against Kyro's workspace CRM, contacts, inquiries, quote drafts, work queue, memories, help/manual knowledge, and safe backend command router. Call this before answering CRM, business-state, app-help, or safe settings-change questions.",
       name: "kyro_context_lookup",
       parameters: {
         additionalProperties: false,
@@ -124,6 +154,26 @@ function sessionConfig({
       type: "function",
     },
   ];
+
+  tools.push({
+    description:
+      "Check connected Gmail/Outlook inboxes now, classify new mail, promote actionable business emails into Kyro conversations, and return a concise sync summary. Use this when the user asks to check email or when fresh email context is needed.",
+    name: "kyro_check_recent_email",
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        provider: {
+          description:
+            "Optional provider filter. Omit to check all connected email providers.",
+          enum: ["google", "microsoft"],
+          type: "string",
+        },
+      },
+      required: [],
+      type: "object",
+    },
+    type: "function",
+  });
 
   if (assistantWebSearchEnabled()) {
     tools.push({
@@ -159,10 +209,15 @@ function sessionConfig({
         },
       },
       output: {
-        voice: realtimeVoice(),
+        voice: openAiVoice,
       },
     },
-    instructions: buildInstructions({ state, workspaceName }),
+    instructions: buildInstructions({
+      pronunciationEntries,
+      state,
+      voicePolicy,
+      workspaceName,
+    }),
     model: realtimeModel(),
     output_modalities: ["audio"],
     tool_choice: "auto",
@@ -191,30 +246,48 @@ export async function POST(request: Request) {
   const apiKey = envValue("OPENAI_API_KEY");
 
   if (!apiKey) {
-    return Response.json({ error: "OPENAI_API_KEY is not configured." }, { status: 500 });
+    return Response.json(
+      { error: "OPENAI_API_KEY is not configured." },
+      { status: 500 },
+    );
   }
 
   const offerSdp = await request.text();
 
   if (!offerSdp.trim()) {
-    return Response.json({ error: "Missing WebRTC SDP offer." }, { status: 400 });
+    return Response.json(
+      { error: "Missing WebRTC SDP offer." },
+      { status: 400 },
+    );
   }
 
   const { searchParams } = new URL(request.url);
   const threadId = searchParams.get("threadId");
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const state = await getAssistantThreadState({
-    supabase,
-    threadId,
-    user,
-    workspace,
-  });
+  const [state, pronunciationEntries, voiceSettings] = await Promise.all([
+    getAssistantThreadState({
+      supabase,
+      threadId,
+      user,
+      workspace,
+    }),
+    getActivePronunciationEntries(supabase, workspace.id),
+    getVoiceSettings(supabase, workspace.id),
+  ]);
   const formData = new FormData();
 
   formData.set("sdp", offerSdp);
   formData.set(
     "session",
-    JSON.stringify(sessionConfig({ state, workspaceName: workspace.name })),
+    JSON.stringify(
+      sessionConfig({
+        openAiVoice: voiceSettings.openAiVoice,
+        pronunciationEntries,
+        state,
+        voicePolicy: voiceSettings.outboundVoicePronunciationPolicy,
+        workspaceName: workspace.name,
+      }),
+    ),
   );
 
   const response = await fetch("https://api.openai.com/v1/realtime/calls", {

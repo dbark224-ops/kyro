@@ -7,6 +7,7 @@ import {
   updateConversationStatusAction,
   updateDraftReplyAction,
 } from "../actions";
+import { ReplyGenerator } from "../reply-generator";
 import {
   approveAndExecuteDashboardAction,
   approveDashboardAction,
@@ -140,7 +141,7 @@ function titleCaseLabel(value: unknown) {
       .map((part) =>
         part === "/" || part === "-"
           ? part
-          : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`
+          : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`,
       )
       .join("");
   });
@@ -188,10 +189,16 @@ function quoteLineItemLabel(item: unknown) {
   const description = textValue(row.description)
     ? titleCaseLabel(row.description)
     : "Draft Line Item";
-  const quantity = row.quantity === null || row.quantity === undefined ? null : String(row.quantity);
+  const quantity =
+    row.quantity === null || row.quantity === undefined
+      ? null
+      : String(row.quantity);
   const unit = textValue(row.unit);
 
-  return [description, quantity && unit ? `${quantity} ${unit}` : quantity ?? unit]
+  return [
+    description,
+    quantity && unit ? `${quantity} ${unit}` : (quantity ?? unit),
+  ]
     .filter(Boolean)
     .join(" - ");
 }
@@ -268,14 +275,14 @@ function ProposedActionCard({
     action.type === "draft_reply"
       ? "Send generated reply"
       : action.type === "create_quote_draft"
-      ? "Create draft"
-      : action.type === "book_site_visit"
-        ? "Record booking plan"
-        : action.type === "mark_not_fit"
-          ? "Mark not fit"
-          : action.type === "send_outbound_message"
-            ? "Send reply"
-          : "Execute";
+        ? "Create draft"
+        : action.type === "book_site_visit"
+          ? "Record booking plan"
+          : action.type === "mark_not_fit"
+            ? "Mark not fit"
+            : action.type === "send_outbound_message"
+              ? "Send reply"
+              : "Execute";
 
   return (
     <article className="action-card">
@@ -292,7 +299,10 @@ function ProposedActionCard({
       <div className="action-card-body">
         {action.type === "ask_missing_info" ? (
           <>
-            <p>{textValue(action.input.prompt) ?? "Ask the customer for missing details."}</p>
+            <p>
+              {textValue(action.input.prompt) ??
+                "Ask the customer for missing details."}
+            </p>
             <div className="missing-info-list">
               {stringValues(action.input.missingInfo).map((item) => (
                 <span className="pill" key={item}>
@@ -322,7 +332,9 @@ function ProposedActionCard({
             <div className="quote-line-list">
               {lineItems.length > 0 ? (
                 lineItems.map((item, index) => (
-                  <span key={`${action.id}-${index}`}>{quoteLineItemLabel(item)}</span>
+                  <span key={`${action.id}-${index}`}>
+                    {quoteLineItemLabel(item)}
+                  </span>
                 ))
               ) : (
                 <span>No line items proposed yet.</span>
@@ -342,7 +354,9 @@ function ProposedActionCard({
         ) : null}
 
         {action.type === "mark_not_fit" ? (
-          <p>{textValue(action.input.reason) ?? "Close this lead as not a fit."}</p>
+          <p>
+            {textValue(action.input.reason) ?? "Close this lead as not a fit."}
+          </p>
         ) : null}
 
         {action.type === "schedule_follow_up" ? (
@@ -377,12 +391,16 @@ function ProposedActionCard({
                 <strong>Subject:</strong> {textValue(action.input.subject)}
               </p>
             ) : null}
-            <p>{textValue(action.input.body) ?? "No outbound body recorded."}</p>
-            <span className="pill warning">Email sends through Gmail after approval</span>
+            <p>
+              {textValue(action.input.body) ?? "No outbound body recorded."}
+            </p>
+            <span className="pill warning">
+              Email sends through Gmail after approval
+            </span>
           </>
         ) : null}
 
-        {![ 
+        {![
           "ask_missing_info",
           "book_site_visit",
           "create_quote_draft",
@@ -399,7 +417,11 @@ function ProposedActionCard({
         ) : null}
       </div>
 
-      <ActionControls action={action} executeLabel={executeLabel} redirectTo={redirectTo} />
+      <ActionControls
+        action={action}
+        executeLabel={executeLabel}
+        redirectTo={redirectTo}
+      />
     </article>
   );
 }
@@ -514,7 +536,9 @@ export default async function ConversationReviewPage({
         urgency: review.inquiryFacts.urgency,
       }
     : aiInquiryFacts;
-  const missingInfo = review.inquiryFacts?.missingInfo ?? stringValues(currentInquiryFacts.missingInfo);
+  const missingInfo =
+    review.inquiryFacts?.missingInfo ??
+    stringValues(currentInquiryFacts.missingInfo);
   const route = latestAiRun
     ? (review.routeDecisions.find(
         (decision) => decision.aiRunId === latestAiRun.id,
@@ -523,7 +547,9 @@ export default async function ConversationReviewPage({
   const fallbackReason =
     textValue(latestAiRun?.output.fallbackReason) ??
     textValue(route?.budgetSnapshot.fallbackReason);
-  const proposedActionTypes = stringValues(latestAiRun?.output.proposedActionTypes);
+  const proposedActionTypes = stringValues(
+    latestAiRun?.output.proposedActionTypes,
+  );
   const debugPayload = latestAiRun
     ? {
         aiRun: {
@@ -561,7 +587,8 @@ export default async function ConversationReviewPage({
       action.type !== "schedule_follow_up",
   );
   const latestDraftReply = draftReplyActions[0] ?? null;
-  const composerSubject = textValue(latestDraftReply?.input.subject) ?? "Thanks for reaching out";
+  const composerSubject =
+    textValue(latestDraftReply?.input.subject) ?? "Thanks for reaching out";
   const composerBody = textValue(latestDraftReply?.input.body) ?? "";
   const followUpSubmissionKey = crypto.randomUUID();
   const attachedQuoteDraftId = review.quoteDrafts.some(
@@ -720,7 +747,9 @@ export default async function ConversationReviewPage({
             <label className="fact-item fact-input">
               <strong>Preferred time</strong>
               <input
-                defaultValue={textValue(currentInquiryFacts.preferredTime) ?? ""}
+                defaultValue={
+                  textValue(currentInquiryFacts.preferredTime) ?? ""
+                }
                 name="preferredTime"
                 placeholder="e.g. tomorrow morning"
                 type="text"
@@ -729,7 +758,9 @@ export default async function ConversationReviewPage({
             <label className="fact-item fact-input">
               <strong>Urgency</strong>
               <select
-                defaultValue={textValue(currentInquiryFacts.urgency) ?? "normal"}
+                defaultValue={
+                  textValue(currentInquiryFacts.urgency) ?? "normal"
+                }
                 name="urgency"
               >
                 <option value="low">Low</option>
@@ -749,7 +780,9 @@ export default async function ConversationReviewPage({
             <label className="fact-item fact-input">
               <strong>Lead suitability</strong>
               <select
-                defaultValue={textValue(currentInquiryFacts.fit) ?? "needs_review"}
+                defaultValue={
+                  textValue(currentInquiryFacts.fit) ?? "needs_review"
+                }
                 name="fit"
               >
                 <option value="likely_fit">Likely fit</option>
@@ -787,7 +820,8 @@ export default async function ConversationReviewPage({
             Regenerate AI plan
           </button>
           <span>
-            Cancels stale pending proposals and creates a fresh reply/actions from the saved facts.
+            Cancels stale pending proposals and creates a fresh reply/actions
+            from the saved facts.
           </span>
         </form>
       </section>
@@ -799,7 +833,11 @@ export default async function ConversationReviewPage({
             <h2>Debug trace</h2>
           </div>
           <span className={route?.fallbackUsed ? "pill warning" : "pill"}>
-            {route?.fallbackUsed ? "Fallback used" : latestAiRun ? "Trace ready" : "No trace"}
+            {route?.fallbackUsed
+              ? "Fallback used"
+              : latestAiRun
+                ? "Trace ready"
+                : "No trace"}
           </span>
         </summary>
         <div className="disclosure-content debug-content">
@@ -809,12 +847,17 @@ export default async function ConversationReviewPage({
                 <div>
                   <strong>Provider/model</strong>
                   <span>
-                    {latestAiRun.provider}/{route?.selectedModel ?? latestAiRun.model}
+                    {latestAiRun.provider}/
+                    {route?.selectedModel ?? latestAiRun.model}
                   </span>
                 </div>
                 <div>
                   <strong>Fallback</strong>
-                  <span>{route?.fallbackUsed ? fallbackReason ?? "Used fallback" : "No"}</span>
+                  <span>
+                    {route?.fallbackUsed
+                      ? (fallbackReason ?? "Used fallback")
+                      : "No"}
+                  </span>
                 </div>
                 <div>
                   <strong>Tokens</strong>
@@ -845,7 +888,9 @@ export default async function ConversationReviewPage({
               </pre>
             </>
           ) : (
-            <p className="empty-copy">No AI trace has been recorded for this inquiry.</p>
+            <p className="empty-copy">
+              No AI trace has been recorded for this inquiry.
+            </p>
           )}
         </div>
       </details>
@@ -946,19 +991,32 @@ export default async function ConversationReviewPage({
               className="outbound-composer-form"
               encType="multipart/form-data"
             >
-              <input name="conversationId" type="hidden" value={conversationId} />
+              <input
+                name="conversationId"
+                type="hidden"
+                value={conversationId}
+              />
               <div className="mini-facts-grid">
                 <label>
                   <strong>Channel</strong>
-                  <select name="channelType" defaultValue={communicationSettings.allowedChannels[0]}>
+                  <select
+                    name="channelType"
+                    defaultValue={communicationSettings.allowedChannels[0]}
+                  >
                     {OUTBOUND_CHANNELS.map((channel) => (
                       <option
-                        disabled={!communicationSettings.allowedChannels.includes(channel)}
+                        disabled={
+                          !communicationSettings.allowedChannels.includes(
+                            channel,
+                          )
+                        }
                         key={channel}
                         value={channel}
                       >
                         {formatLabel(channel)}
-                        {communicationSettings.allowedChannels.includes(channel) ? "" : " disabled"}
+                        {communicationSettings.allowedChannels.includes(channel)
+                          ? ""
+                          : " disabled"}
                       </option>
                     ))}
                   </select>
@@ -1009,7 +1067,11 @@ export default async function ConversationReviewPage({
               </div>
               <label>
                 Subject
-                <input defaultValue={composerSubject} name="subject" type="text" />
+                <input
+                  defaultValue={composerSubject}
+                  name="subject"
+                  type="text"
+                />
               </label>
               <label>
                 Message
@@ -1020,6 +1082,7 @@ export default async function ConversationReviewPage({
                   required
                 />
               </label>
+              <ReplyGenerator conversationId={conversationId} />
               <div className="outbound-policy-strip">
                 <div className="email-signature-control">
                   <label className="signature-include-control">
@@ -1071,7 +1134,9 @@ export default async function ConversationReviewPage({
                       </div>
                       <form
                         action={
-                          canEdit ? sendDraftReplyAction : executeDashboardAction
+                          canEdit
+                            ? sendDraftReplyAction
+                            : executeDashboardAction
                         }
                         className="draft-reply-form"
                       >

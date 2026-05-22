@@ -1,6 +1,11 @@
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  getActivePronunciationEntries,
+  pronunciationGuideText,
+  type AssistantPronunciationEntry,
+} from "./pronunciation";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_MARKUP_RATE = 0.25;
@@ -50,8 +55,17 @@ function sttMarkupRate() {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
 }
 
-function sttPrompt() {
-  return envValue("OPENAI_STT_PROMPT") || DEFAULT_STT_PROMPT;
+function sttPrompt(entries: AssistantPronunciationEntry[]) {
+  const basePrompt = envValue("OPENAI_STT_PROMPT") || DEFAULT_STT_PROMPT;
+  const guide = pronunciationGuideText(entries);
+
+  return guide
+    ? [
+        basePrompt,
+        "Workspace pronunciation vocabulary. Prefer these spellings and terms when the audio is ambiguous:",
+        guide,
+      ].join("\n\n")
+    : basePrompt;
 }
 
 function sttUnitCostPerMinute(model: string) {
@@ -73,7 +87,10 @@ function normalizeKyroAssistantName(transcript: string) {
 
   return transcript
     .replace(
-      new RegExp(`\\b(hey|hi|hello|yo|okay|ok|thanks|thank you|dear)\\s+${variant}\\b`, "gi"),
+      new RegExp(
+        `\\b(hey|hi|hello|yo|okay|ok|thanks|thank you|dear)\\s+${variant}\\b`,
+        "gi",
+      ),
       (_match, prefix: string) => `${prefix} Kyro`,
     )
     .replace(new RegExp(`^\\s*${variant}\\b`, "i"), "Kyro")
@@ -170,6 +187,10 @@ export async function transcribeAssistantAudio({
   }
 
   const model = sttModel();
+  const pronunciationEntries = await getActivePronunciationEntries(
+    supabase,
+    workspace.id,
+  );
   const body = new FormData();
 
   body.set("file", audioFile, audioFile.name || "kyro-voice.webm");
@@ -177,16 +198,19 @@ export async function transcribeAssistantAudio({
   body.set("response_format", "json");
 
   if (!model.includes("diarize")) {
-    body.set("prompt", sttPrompt());
+    body.set("prompt", sttPrompt(pronunciationEntries));
   }
 
-  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    body,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
+  const response = await fetch(
+    "https://api.openai.com/v1/audio/transcriptions",
+    {
+      body,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   const payload = (await response.json().catch(() => null)) as unknown;
 
@@ -228,7 +252,9 @@ export async function transcribeAssistantAudio({
   );
 
   if (usageError) {
-    throw new Error(`Unable to record speech-to-text usage: ${usageError.message}`);
+    throw new Error(
+      `Unable to record speech-to-text usage: ${usageError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -242,6 +268,7 @@ export async function transcribeAssistantAudio({
       model,
       normalizedAssistantName: text !== rawText,
       promptProfile: "kyro_assistant_voice",
+      pronunciationEntryCount: pronunciationEntries.length,
       provider: "openai",
       transcriptCharacters: text.length,
     },

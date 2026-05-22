@@ -1,10 +1,15 @@
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  getActivePronunciationEntries,
+  pronunciationGuideText,
+  type AssistantPronunciationEntry,
+} from "./pronunciation";
 import { getVoiceSettings, type VoiceSettings } from "./voice-settings";
 
-const DEFAULT_TTS_MODEL = "tts-1";
-const DEFAULT_TTS_VOICE = "alloy";
+const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
+const DEFAULT_TTS_VOICE = "ballad";
 const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 1;
 const MIN_USABLE_TTS_SPEED = 1;
@@ -35,6 +40,7 @@ type WorkspaceInput = {
 };
 
 type SynthesizeAssistantSpeechInput = {
+  pronunciationEntries?: AssistantPronunciationEntry[];
   sourceMessageId: string | null;
   supabase: SupabaseClient;
   text: string;
@@ -64,16 +70,28 @@ function openAiTtsModel() {
   return envValue("OPENAI_TTS_MODEL") || DEFAULT_TTS_MODEL;
 }
 
-function openAiTtsVoice() {
-  return envValue("OPENAI_TTS_VOICE") || DEFAULT_TTS_VOICE;
+function openAiTtsVoice(voiceSettings: VoiceSettings) {
+  return (
+    voiceSettings.openAiVoice || envValue("OPENAI_TTS_VOICE") || DEFAULT_TTS_VOICE
+  );
 }
 
 function openAiTtsFormat() {
   return envValue("OPENAI_TTS_FORMAT") || DEFAULT_TTS_FORMAT;
 }
 
-function openAiTtsInstructions() {
-  return envValue("OPENAI_TTS_INSTRUCTIONS") || DEFAULT_TTS_INSTRUCTIONS;
+function openAiTtsInstructions(entries: AssistantPronunciationEntry[]) {
+  const baseInstructions =
+    envValue("OPENAI_TTS_INSTRUCTIONS") || DEFAULT_TTS_INSTRUCTIONS;
+  const guide = pronunciationGuideText(entries);
+
+  return guide
+    ? [
+        baseInstructions,
+        "Use this workspace pronunciation vocabulary when speaking names, places, acronyms, and business terms:",
+        guide,
+      ].join("\n\n")
+    : baseInstructions;
 }
 
 function openAiTtsMarkupRate() {
@@ -262,7 +280,11 @@ function normalizeWavHeader(audio: ArrayBuffer, format: string) {
     const rawChunkSize = view.getUint32(offset + 4, true);
 
     if (chunkId === "data") {
-      view.setUint32(offset + 4, Math.max(0, output.byteLength - offset - 8), true);
+      view.setUint32(
+        offset + 4,
+        Math.max(0, output.byteLength - offset - 8),
+        true,
+      );
       break;
     }
 
@@ -349,6 +371,8 @@ async function parseProviderErrorPayload(response: Response) {
 
 async function synthesizeOpenAiSpeech(
   input: string,
+  pronunciationEntries: AssistantPronunciationEntry[],
+  voiceSettings: VoiceSettings,
 ): Promise<ProviderSpeechResult> {
   const apiKey = openAiApiKey();
 
@@ -357,7 +381,7 @@ async function synthesizeOpenAiSpeech(
   }
 
   const model = openAiTtsModel();
-  const voice = openAiTtsVoice();
+  const voice = openAiTtsVoice(voiceSettings);
   const responseFormat = openAiTtsFormat();
   const speed = openAiTtsSpeed();
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
@@ -368,7 +392,7 @@ async function synthesizeOpenAiSpeech(
       speed,
       voice,
       ...(!["tts-1", "tts-1-hd"].includes(model)
-        ? { instructions: openAiTtsInstructions() }
+        ? { instructions: openAiTtsInstructions(pronunciationEntries) }
         : {}),
     }),
     headers: {
@@ -387,7 +411,10 @@ async function synthesizeOpenAiSpeech(
     );
   }
 
-  const audio = normalizeWavHeader(await response.arrayBuffer(), responseFormat);
+  const audio = normalizeWavHeader(
+    await response.arrayBuffer(),
+    responseFormat,
+  );
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
   const unitCost = openAiTtsUnitCostPerSecond(model);
   const markup = openAiTtsMarkupRate();
@@ -492,6 +519,7 @@ async function synthesizeElevenLabsSpeech(
 }
 
 export async function synthesizeAssistantSpeech({
+  pronunciationEntries: pronunciationEntriesOverride,
   sourceMessageId,
   supabase,
   text,
@@ -505,10 +533,13 @@ export async function synthesizeAssistantSpeech({
   }
 
   const voiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const pronunciationEntries =
+    pronunciationEntriesOverride ??
+    (await getActivePronunciationEntries(supabase, workspace.id));
   const speech =
     voiceSettings.provider === "elevenlabs"
       ? await synthesizeElevenLabsSpeech(input, voiceSettings)
-      : await synthesizeOpenAiSpeech(input);
+      : await synthesizeOpenAiSpeech(input, pronunciationEntries, voiceSettings);
 
   const { error: usageError } = await supabase.from("usage_events").insert(
     toUsageEventRow({
@@ -528,7 +559,9 @@ export async function synthesizeAssistantSpeech({
   );
 
   if (usageError) {
-    throw new Error(`Unable to record text-to-speech usage: ${usageError.message}`);
+    throw new Error(
+      `Unable to record text-to-speech usage: ${usageError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -541,6 +574,7 @@ export async function synthesizeAssistantSpeech({
       estimatedSeconds: speech.estimatedSeconds,
       model: speech.model,
       provider: speech.provider,
+      pronunciationEntryCount: pronunciationEntries.length,
       sourceMessageId,
       speed: speech.speed,
       textCharacters: input.length,

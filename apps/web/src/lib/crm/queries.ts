@@ -80,6 +80,28 @@ export type ConversationListItem = {
   workflowBucket: string;
 };
 
+export type SkippedEmailSummaryItem = {
+  id: string;
+  category: string;
+  confidence: number | null;
+  fromEmail: string | null;
+  lastReplySubject: string | null;
+  lastRepliedAt: string | null;
+  processedAt: string | null;
+  provider: string | null;
+  reason: string | null;
+  receivedAt: string | null;
+  replyCount: number;
+  source: string;
+  subject: string;
+  summary: string | null;
+};
+
+export type SkippedEmailSummaries = {
+  items: SkippedEmailSummaryItem[];
+  last24HoursCount: number;
+};
+
 type ConversationListOptions = {
   ids?: string[];
   limit?: number;
@@ -112,6 +134,10 @@ type ActionSummary = {
   latestActionType: string | null;
   pendingApprovalCount: number;
 };
+
+function skippedEmailLast24HoursStart() {
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+}
 
 type ConversationFactsSummary = {
   fit: string | null;
@@ -974,6 +1000,167 @@ export async function getConversationList(
   }) satisfies ConversationListItem[];
 }
 
+export async function getSkippedEmailSummaries(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  limit = 30,
+): Promise<SkippedEmailSummaries> {
+  const last24HoursStart = skippedEmailLast24HoursStart();
+  const [itemsResult, countResult] = await Promise.all([
+    supabase
+      .from("events")
+      .select("id,source,payload,processed_at,created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("type", "inbound.email.received")
+      .eq("status", "processed")
+      .contains("payload", { stage: "observed" })
+      .order("processed_at", { ascending: false, nullsFirst: false })
+      .limit(limit),
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("type", "inbound.email.received")
+      .eq("status", "processed")
+      .contains("payload", { stage: "observed" })
+      .gte("processed_at", last24HoursStart),
+  ]);
+
+  const { data, error } = itemsResult;
+
+  if (error) {
+    throw new Error(`Unable to load skipped email summaries: ${error.message}`);
+  }
+
+  if (countResult.error) {
+    throw new Error(
+      `Unable to count recent skipped email summaries: ${countResult.error.message}`,
+    );
+  }
+
+  const items: SkippedEmailSummaryItem[] = (data ?? []).map((event) => {
+    const payload = objectRecord(event.payload);
+    const classification = objectRecord(payload.classification);
+    const confidence =
+      typeof classification.confidence === "number"
+        ? classification.confidence
+        : null;
+
+    return {
+      id: String(event.id),
+      category: textValue(classification.category) ?? "observed",
+      confidence,
+      fromEmail: textValue(payload.fromEmail),
+      lastReplySubject: null,
+      lastRepliedAt: null,
+      processedAt: textValue(event.processed_at),
+      provider: textValue(payload.provider),
+      reason: textValue(classification.reason),
+      receivedAt: textValue(payload.receivedAt),
+      replyCount: 0,
+      source: String(event.source),
+      subject: textValue(payload.subject) ?? "Skipped email",
+      summary:
+        textValue(payload.summary) ??
+        textValue(classification.summary) ??
+        textValue(classification.actionHint),
+    };
+  });
+
+  const itemIds = new Set(items.map((item) => item.id));
+
+  if (itemIds.size > 0) {
+    const { data: replyEvents, error: replyEventsError } = await supabase
+      .from("events")
+      .select("id,payload,processed_at,created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("type", "outbound.filtered_email.reply_sent")
+      .eq("status", "processed")
+      .order("processed_at", { ascending: false, nullsFirst: false })
+      .limit(500);
+
+    if (replyEventsError) {
+      throw new Error(
+        `Unable to load skipped email reply logs: ${replyEventsError.message}`,
+      );
+    }
+
+    const replyStateByEventId = new Map<
+      string,
+      {
+        count: number;
+        lastReplySubject: string | null;
+        lastRepliedAt: string | null;
+      }
+    >();
+
+    for (const replyEvent of replyEvents ?? []) {
+      const payload = objectRecord(replyEvent.payload);
+      const originalEventId = textValue(payload.originalEventId);
+
+      if (!originalEventId || !itemIds.has(originalEventId)) {
+        continue;
+      }
+
+      const current = replyStateByEventId.get(originalEventId) ?? {
+        count: 0,
+        lastReplySubject: null,
+        lastRepliedAt: null,
+      };
+      const sentAt =
+        textValue(payload.sentAt) ??
+        textValue(replyEvent.processed_at) ??
+        textValue(replyEvent.created_at);
+
+      replyStateByEventId.set(originalEventId, {
+        count: current.count + 1,
+        lastReplySubject:
+          current.lastReplySubject ?? textValue(payload.subject),
+        lastRepliedAt: current.lastRepliedAt ?? sentAt,
+      });
+    }
+
+    for (const item of items) {
+      const replyState = replyStateByEventId.get(item.id);
+
+      if (!replyState) {
+        continue;
+      }
+
+      item.replyCount = replyState.count;
+      item.lastReplySubject = replyState.lastReplySubject;
+      item.lastRepliedAt = replyState.lastRepliedAt;
+    }
+  }
+
+  return {
+    items,
+    last24HoursCount: countResult.count ?? 0,
+  };
+}
+
+export async function getSkippedEmailLast24HoursCount(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
+  const { count, error } = await supabase
+    .from("events")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .eq("type", "inbound.email.received")
+    .eq("status", "processed")
+    .contains("payload", { stage: "observed" })
+    .gte("processed_at", skippedEmailLast24HoursStart());
+
+  if (error) {
+    throw new Error(
+      `Unable to count recent skipped email summaries: ${error.message}`,
+    );
+  }
+
+  return count ?? 0;
+}
+
 export async function getConversationWorkflowCounts(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -997,50 +1184,55 @@ export async function getConversationWorkflowCounts(
     ),
   );
 
-  const [messagesResult, leadsResult, actionsResult, factsResult, quoteDraftsResult] =
-    await Promise.all([
-      conversationIds.length > 0
-        ? supabase
-            .from("messages")
-            .select("conversation_id,direction,created_at")
-            .eq("workspace_id", workspaceId)
-            .in("conversation_id", conversationIds)
-            .order("created_at", { ascending: false })
-            .limit(LIST_MESSAGE_LIMIT)
-        : Promise.resolve({ data: [], error: null }),
-      leadIds.length > 0
-        ? supabase
-            .from("leads")
-            .select("id,priority")
-            .eq("workspace_id", workspaceId)
-            .in("id", leadIds)
-        : Promise.resolve({ data: [], error: null }),
-      conversationIds.length > 0
-        ? supabase
-            .from("actions")
-            .select("target_id,type,status,created_at")
-            .eq("workspace_id", workspaceId)
-            .eq("target_type", "conversation")
-            .in("target_id", conversationIds)
-            .order("created_at", { ascending: false })
-            .limit(LIST_ACTION_LIMIT)
-        : Promise.resolve({ data: [], error: null }),
-      conversationIds.length > 0
-        ? supabase
-            .from("inquiry_facts")
-            .select("conversation_id,fit,missing_info")
-            .eq("workspace_id", workspaceId)
-            .in("conversation_id", conversationIds)
-        : Promise.resolve({ data: [], error: null }),
-      conversationIds.length > 0
-        ? supabase
-            .from("quote_drafts")
-            .select("conversation_id,status")
-            .eq("workspace_id", workspaceId)
-            .in("conversation_id", conversationIds)
-            .limit(LIST_QUOTE_DRAFT_LIMIT)
-        : Promise.resolve({ data: [], error: null }),
-    ]);
+  const [
+    messagesResult,
+    leadsResult,
+    actionsResult,
+    factsResult,
+    quoteDraftsResult,
+  ] = await Promise.all([
+    conversationIds.length > 0
+      ? supabase
+          .from("messages")
+          .select("conversation_id,direction,created_at")
+          .eq("workspace_id", workspaceId)
+          .in("conversation_id", conversationIds)
+          .order("created_at", { ascending: false })
+          .limit(LIST_MESSAGE_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
+    leadIds.length > 0
+      ? supabase
+          .from("leads")
+          .select("id,priority")
+          .eq("workspace_id", workspaceId)
+          .in("id", leadIds)
+      : Promise.resolve({ data: [], error: null }),
+    conversationIds.length > 0
+      ? supabase
+          .from("actions")
+          .select("target_id,type,status,created_at")
+          .eq("workspace_id", workspaceId)
+          .eq("target_type", "conversation")
+          .in("target_id", conversationIds)
+          .order("created_at", { ascending: false })
+          .limit(LIST_ACTION_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
+    conversationIds.length > 0
+      ? supabase
+          .from("inquiry_facts")
+          .select("conversation_id,fit,missing_info")
+          .eq("workspace_id", workspaceId)
+          .in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [], error: null }),
+    conversationIds.length > 0
+      ? supabase
+          .from("quote_drafts")
+          .select("conversation_id,status")
+          .eq("workspace_id", workspaceId)
+          .in("conversation_id", conversationIds)
+          .limit(LIST_QUOTE_DRAFT_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
   if (messagesResult.error) {
     throw new Error(
@@ -1078,7 +1270,10 @@ export async function getConversationWorkflowCounts(
     const conversationId = String(message.conversation_id);
 
     if (!latestDirectionByConversation.has(conversationId)) {
-      latestDirectionByConversation.set(conversationId, String(message.direction));
+      latestDirectionByConversation.set(
+        conversationId,
+        String(message.direction),
+      );
     }
   }
 
@@ -1216,7 +1411,8 @@ export async function getConversationWorkflowCounts(
       approvedActionCount: actionSummary.approvedActionCount,
       completedActionTypes: [...new Set(actionSummary.completedActionTypes)],
       facts: factsByConversation.get(conversationId) ?? null,
-      latestDirection: latestDirectionByConversation.get(conversationId) ?? null,
+      latestDirection:
+        latestDirectionByConversation.get(conversationId) ?? null,
       leadPriority: conversation.lead_id
         ? (leadPriorityById.get(String(conversation.lead_id)) ?? null)
         : null,

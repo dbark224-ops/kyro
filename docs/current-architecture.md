@@ -17,6 +17,7 @@ Kyro is a TypeScript monorepo.
 - `packages/jobs`: workflow placeholder package.
 - `supabase/migrations`: generated SQL migrations applied to Supabase.
 - `docs`: product, architecture, database, and backlog notes.
+- `docs/assistant-help-manual.md`: user-facing help source the Assistant can answer from.
 
 ## Runtime Stack
 
@@ -233,6 +234,7 @@ The inquiry review page shows:
 - message thread,
 - text channel labels on message rows,
 - outbound composer for email, SMS, phone, or manual notes,
+- reusable AI reply prompt for manual outbound composers,
 - outbound metadata including channel type, dry-run/external-send state, provider message id, local attachment summaries, and quote draft attachment references,
 - mock follow-up inbound message form,
 - draft reply work surface,
@@ -413,6 +415,7 @@ Purpose:
 - let the realtime session call the same Kyro tool boundary used by Assistant where possible,
 - persist user/assistant transcripts back into the same Assistant thread,
 - support web-search source cards when assistant web search is enabled,
+- let realtime voice call `kyro_check_recent_email` to run the same inbound email sync worker as Settings/manual checks,
 - meter speech-to-text minutes and text-to-speech usage in `usage_events`.
 
 Voice mode now uses OpenAI Realtime as the primary local development path. The server creates an ephemeral realtime
@@ -421,10 +424,13 @@ transcript back into the Assistant thread so a user can move between chat and vo
 turn-based `voice-console.tsx`, transcription route, and speech route remain useful as fallback/test surfaces for
 non-realtime experiments.
 
-The active realtime voice, voice style instructions, VAD threshold, silence duration, and prefix padding are backend
-environment settings. The current local setup uses the `ballad` OpenAI voice with assistant-suitable tone guidance.
-Future iOS work should treat this realtime flow as the contract to preserve: native UI and audio handling can change,
-but the session should still share Assistant memory, tools, permissions, and persisted transcript state.
+OpenAI is the product-owned speech provider for Kyro. Users do not choose between OpenAI and third-party TTS providers
+in Settings; they choose the OpenAI assistant voice and pronunciation behavior. The saved `assistant_voice` policy's
+`openAiVoice` value is used for both realtime sessions and fallback text-to-speech playback so the voice does not drift
+between live voice and replayed/generated speech. The current local setup defaults to the `ballad` OpenAI voice with
+assistant-suitable tone guidance. Future iOS work should treat this realtime flow as the contract to preserve: native UI
+and audio handling can change, but the session should still share Assistant memory, tools, permissions, and persisted
+transcript state.
 
 Provider configuration:
 
@@ -437,6 +443,10 @@ OPENAI_LOW_COST_MODEL=gpt-4.1-mini
 OPENAI_BALANCED_MODEL=gpt-4.1-mini
 OPENAI_STRONG_MODEL=gpt-4.1
 OPENAI_TRIAGE_MODEL=gpt-4.1-mini
+OPENAI_REPLY_DRAFT_MODEL=gpt-4.1-mini
+OPENAI_REPLY_DRAFT_MAX_OUTPUT_TOKENS=520
+OPENAI_PRONUNCIATION_ALIAS_MODEL=gpt-4.1-mini
+OPENAI_PRONUNCIATION_ALIAS_TIMEOUT_MS=4000
 OPENAI_ASSISTANT_MAX_OUTPUT_TOKENS=360
 OPENAI_TRIAGE_MAX_OUTPUT_TOKENS=700
 OPENAI_REALTIME_MODEL=gpt-realtime-2
@@ -445,6 +455,7 @@ OPENAI_REALTIME_STYLE_INSTRUCTIONS=
 OPENAI_REALTIME_VAD_THRESHOLD=0.74
 OPENAI_REALTIME_VAD_SILENCE_DURATION_MS=1200
 OPENAI_REALTIME_VAD_PREFIX_PADDING_MS=300
+OUTBOUND_VOICE_PRONUNCIATION_POLICY=balanced
 ASSISTANT_OLLAMA_TIMEOUT_MS=60000
 ASSISTANT_OLLAMA_NUM_PREDICT=180
 ASSISTANT_OLLAMA_THINK=false
@@ -458,46 +469,99 @@ OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 OPENAI_STT_PROMPT=
 OPENAI_STT_UNIT_COST_PER_MINUTE_USD=0.003
 OPENAI_STT_MARKUP_RATE=0.25
-VOICE_TTS_PROVIDER=openai
-OPENAI_TTS_MODEL=tts-1
-OPENAI_TTS_VOICE=alloy
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_TTS_FORMAT=wav
 OPENAI_TTS_SPEED=1
 OPENAI_TTS_INSTRUCTIONS=
 OPENAI_TTS_UNIT_COST_PER_SECOND_USD=0
 OPENAI_TTS_MARKUP_RATE=0.25
-ELEVENLABS_API_KEY=
-ELEVENLABS_TTS_MODEL=eleven_v3
-ELEVENLABS_TTS_VOICE_PRESET_ID=british_male_manchester
-ELEVENLABS_TTS_VOICE_ID=c8MZcZcr0JnMAwkwnTIu
-ELEVENLABS_TTS_OUTPUT_FORMAT=mp3_44100_128
-ELEVENLABS_TTS_STABILITY=0.45
-ELEVENLABS_TTS_SIMILARITY_BOOST=0.85
-ELEVENLABS_TTS_STYLE=0
-ELEVENLABS_TTS_USE_SPEAKER_BOOST=true
-ELEVENLABS_TTS_UNIT_COST_PER_CHARACTER_USD=0
-ELEVENLABS_TTS_MARKUP_RATE=0.25
 ```
 
-ElevenLabs is selected with `VOICE_TTS_PROVIDER=elevenlabs` or the saved Voice Assistant settings. The named presets
-currently exposed in Settings are Australian Male, Australian Female, Australian Male 2, British Male Manchester
-(default), British Male 1, British Female 1, British Female 2, and American Male 2. Duplicate pasted voice IDs are
-intentionally not listed twice. The voice page sends the server-held `voice_id`, model, output format, and voice
-settings to ElevenLabs. The API key never reaches the browser. ElevenLabs usage is metered as
-`text_to_speech_characters` because its commercial model maps more naturally to text length/credits than seconds.
-The model is not stored from user input; `ELEVENLABS_TTS_MODEL` remains the dev-team override.
+OpenAI voice settings expose only voices supported by the realtime voice path, currently `alloy`, `ash`, `ballad`,
+`coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, and `cedar`. The fallback `/audio/speech` path uses
+`gpt-4o-mini-tts` by default because it supports the shared voice list and promptable speech instructions. The legacy
+ElevenLabs helper code is retained for possible future experimentation, but it is not exposed in Settings and
+`normalizeVoiceSettings()` forces the saved provider to OpenAI.
 
 The provider abstraction lives in `apps/web/src/lib/assistant/providers.ts`. Future cloud providers should plug into
 `runAssistantModel()` without changing the Assistant UI or deterministic command router.
+
+### Voice Vocabulary And Pronunciation
+
+Files:
+
+- `apps/web/src/lib/assistant/pronunciation.ts`
+- `apps/web/src/app/api/assistant/pronunciation/preview/route.ts`
+- `apps/web/src/app/api/assistant/pronunciation/preview/realtime/route.ts`
+- `apps/web/src/app/settings/pronunciation-preview-player.tsx`
+- `apps/web/src/app/settings/page.tsx`
+- `apps/web/src/app/settings/actions.ts`
+- `supabase/migrations/20260518175710_pronunciation_vocabulary.sql`
+- `packages/db/src/schema.ts`
+
+Purpose:
+
+- store workspace-specific words, names, places, business names, products, and acronyms that Kyro should recognize or pronounce carefully,
+- treat user entries, assistant edits, and background-learned terms as one visible editable pronunciation list,
+- let Kyro use best-effort pronunciation internally while applying a stricter policy to future customer-facing voice,
+- allow users to add, edit, remove, and preview pronunciation entries from Voice settings,
+- allow the assistant command router to update pronunciation entries directly from text or voice requests such as "pronounce Woolloongabba as wuh-lun-gabba",
+- give auto-learned entries a best-effort default pronunciation hint so the list does not depend on user maintenance before it becomes useful,
+- run a quick optional OpenAI alias/category enrichment pass for new auto-learned entries, using the surrounding message context plus general model knowledge,
+- present saved entries as compact one-line rows with phrase, hint, category, aliases, usage, preview, save, and remove controls,
+- show the add-pronunciation control as a compact accented row so it is clearly the interactive new-entry surface,
+- make pronunciation previews use a mini OpenAI Realtime/WebRTC session with the saved Kyro voice, speaking only the target phrase,
+- tell the preview model that phonetic hints are private pronunciation guidance and separators such as hyphens are syllable cues, not text to read aloud,
+- keep a fallback speech-endpoint preview for browsers that cannot start a realtime preview,
+- feed all non-ignored entries into realtime voice instructions, OpenAI speech-to-text prompts, and OpenAI text-to-speech instructions where supported,
+- track lightweight usage counts in entry metadata so Settings can surface the most-used terms first without a heavier per-word analytics table.
+
+Pronunciation entries live in `assistant_pronunciations`. Core fields are `phrase`, `normalized_phrase`,
+`pronunciation_hint`, `category`, `status`, `confidence`, `last_seen_at`, `source`, `aliases`, `metadata`, and review metadata.
+The UI no longer presents a user approval workflow. Status remains an internal lifecycle field:
+
+- `suggested`: reserved for future raw vocabulary candidates without a generated hint,
+- `inferred`: Kyro auto-added the term with a best-effort generated hint,
+- `approved`: a user or assistant save confirmed the entry or added a custom hint,
+- `ignored`: the user removed the entry from the active list.
+
+All non-ignored entries are active. Auto-learned entries get a cheap best-effort `pronunciation_hint` by default. The
+default hint spells acronyms letter-by-letter and otherwise normalizes the phrase without trying to invent a complex
+phonetic spelling. Users or the assistant can replace that hint when Kyro gets a term wrong. `aliases` are related
+spellings, nicknames, abbreviations, or speech-to-text mishearings used for recognition/context and usage tracking; they
+do not substitute the text Kyro speaks aloud.
+
+The outbound customer-voice strictness setting lives inside the `assistant_voice` workspace policy as
+`outboundVoicePronunciationPolicy`. Supported values are `strict`, `balanced`, `flexible`, and `off`; `balanced` is the
+default. The current app does not yet place outbound customer phone calls, so this policy is stored and injected into
+voice context now, then becomes an action preflight gate when customer-facing voice actions exist.
+
+Kyro also performs a lightweight background pronunciation pass when user assistant messages are saved. It first scans
+the message against existing pronunciation phrases and aliases, incrementing only matched entries and updating
+`last_seen_at`. It then looks for acronyms and unusual proper nouns. New candidates get a best-effort pronunciation hint
+from deterministic code, then, when `OPENAI_API_KEY` is available, one bounded OpenAI call can suggest aliases and a
+category from the surrounding text. The alias enrichment is intentionally conservative, times out quickly, and falls back
+to empty aliases if OpenAI is unavailable. Inserted rows use status `inferred` with `metadata.usageCount = 1` and optional
+`metadata.aliasEnrichment` details. The app does not log every transcript word or maintain a per-word analytics table;
+this is intentionally conservative until there is a broader background agent loop for richer vocabulary discovery.
+Current automatic candidate discovery is heuristic; alias maintenance has a lightweight LLM assist for new entries.
+The suggestion heuristic is deliberately conservative: ordinary title-cased words from a sentence, such as sports
+terms or common nouns, should not become pronunciation suggestions merely because the transcription capitalized them.
+Possessive suffixes are stripped before scoring, so ordinary known words like `Arsenal's` do not become suggestions
+just because they contain an apostrophe; apostrophes inside names like `O'Connor` can still count as unusual.
 
 ### Settings And Usage
 
 Files:
 
+- `docs/assistant-help-manual.md`
 - `apps/web/src/app/usage/page.tsx`
 - `apps/web/src/app/settings/page.tsx`
 - `apps/web/src/app/settings/actions.ts`
 - `apps/web/src/app/api/billing/usage/route.ts`
+- `apps/web/src/lib/assistant/knowledge-corpus.ts`
+- `apps/web/src/lib/assistant/knowledge.ts`
+- `apps/web/src/lib/assistant/settings-tools.ts`
 - `apps/web/src/lib/billing/usage-summary.ts`
 - `apps/web/src/lib/communication/settings.ts`
 - `apps/web/src/lib/usage/queries.ts`
@@ -507,9 +571,18 @@ Purpose:
 - configure outbound approval mode,
 - choose allowed channels for email, SMS, phone, or manual notes,
 - save a default email signature and optional assistant signature,
-- choose the Voice Assistant text-to-speech provider and ElevenLabs voice preset,
+- choose the Voice Assistant OpenAI voice,
+- choose the outbound voice pronunciation policy and manage pronunciation vocabulary,
+- manage general workspace defaults such as timezone in a dedicated General settings section,
+- configure inbound email sync cadence, quiet-hours polling, and action-filtering rules,
+- keep dense settings controls scannable with reusable hover/click info bubbles for helper copy,
+- give the Assistant a user-facing help/manual source plus architecture snippets for product-aware support answers,
+- allow the Assistant to edit a constrained allowlist of low-risk settings: timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, and skipped-mail summaries,
 - show Google Workspace and Microsoft Outlook readiness in one Integrations area,
 - launch Google or Microsoft OAuth connect flows from that combined area,
+- disconnect a Google or Microsoft account from Settings by marking the provider
+  connection disconnected, clearing its stored token payload, and deactivating its
+  email channel; reconnecting uses the normal OAuth connect flow again,
 - audit communication-setting changes,
 - show provider/API cost and customer charge from the `usage_events` ledger,
 - filter usage by today, 7 days, 30 days, or all time,
@@ -531,9 +604,27 @@ Settings sections are URL-addressable (`?section=communication`, `?section=voice
 section. This keeps the default Settings route light and makes each section a cleaner
 future API/native-screen boundary.
 
+Assistant-facing help uses `docs/assistant-help-manual.md` as the user-facing
+source, with a bundled assistant corpus in `apps/web/src/lib/assistant/knowledge-corpus.ts`
+so runtime assistant routes do not need filesystem reads. Architecture support
+snippets are mirrored there as internal context. The assistant command router
+selects relevant snippets for app-help questions instead of stuffing every
+document into every prompt.
+
+Assistant settings edits go through `apps/web/src/lib/assistant/settings-tools.ts`.
+The allowlist intentionally starts with low-risk operational settings only. Outbound
+approval policy, signatures, OAuth connections, billing/metering, provider secrets,
+and destructive data changes remain Settings UI flows.
+
 Settings expose outbound policy and a combined Integrations area for Google Workspace
-and Microsoft Outlook. Gmail and Outlook are the first real external send providers.
-SMS, phone, and calendar remain future integrations.
+and Microsoft Outlook. Gmail and Outlook are the first real external send providers
+and the first inbound email readers. SMS, phone, and calendar remain future integrations.
+
+Inbound email settings live in `workspace_policies` with policy type `inbound_email`.
+The default posture is automatic five-minute polling during active hours, paused
+scheduled polling during the 10pm-4am quiet window, minimal idempotency events
+for skipped mail with optional human-readable summaries, and automatic promotion
+only for emails classified as business-actionable.
 
 ## Manual Inquiry Ingestion
 
@@ -577,6 +668,59 @@ Important behavior:
 - Missing contact details can be filled on an existing matched profile.
 - AI triage currently extracts simple inquiry facts, normalizes generic model labels like "new inquiry from John" back to trade-specific job types where possible, saves the current fact row, proposes one or more actions, and marks the conversation as `reply_drafted` once proposals exist.
 - If the user edits the saved inquiry facts and regenerates the plan, Kyro cancels stale pending/approved proposal actions for that conversation plus any stale lead-level `mark_not_fit` proposal, audits the cancellation, and reruns triage with the corrected facts locked as authoritative input.
+
+## Inbound Email Sync
+
+Files:
+
+- `apps/web/src/lib/integrations/inbound-email-settings.ts`
+- `apps/web/src/lib/integrations/inbound-email-sync.ts`
+- `apps/web/src/app/api/integrations/email/sync/route.ts`
+- `apps/web/src/app/settings/actions.ts`
+- `apps/web/src/app/settings/page.tsx`
+- `apps/web/src/app/api/assistant/realtime/tool/route.ts`
+- `apps/web/src/lib/assistant/commands.ts`
+
+Flow:
+
+```mermaid
+flowchart TD
+    Trigger["Protected scheduled route or manual/assistant trigger"]
+    Settings["workspace_policies inbound_email"]
+    Provider["Gmail or Outlook inbox"]
+    Event["events row with provider message idempotency key"]
+    Classifier["Heuristic + optional OpenAI classifier"]
+    Awareness["processed awareness event only"]
+    CRM["contact/lead/conversation/message"]
+    Triage["run AI triage"]
+    Actions["draft reply / quote / site visit proposals"]
+
+    Trigger --> Settings
+    Settings --> Provider
+    Provider --> Event
+    Event --> Classifier
+    Classifier -->|not actionable| Awareness
+    Classifier -->|business actionable| CRM
+    CRM --> Triage
+    Triage --> Actions
+```
+
+Important behavior:
+
+- Gmail now requests `gmail.readonly`; Outlook now requests `Mail.Read`.
+- Existing connected accounts that only granted send scopes need to reconnect before inbound sync can read mail.
+- Scheduled polling is exposed through `/api/integrations/email/sync`, protected by `INBOUND_EMAIL_SYNC_SECRET` or Vercel's `CRON_SECRET`, and backed by a server-only Supabase service role client. Vercel Cron calls it with `GET`; manual scheduler/testing calls can still use `POST`.
+- `vercel.json` registers this route to run every five minutes in production. The sync worker still respects each workspace's policy, including quiet-hours rules.
+- The default quiet-hours behavior pauses scheduled polling between 10pm and 4am to reduce provider/API/classifier cost, then resumes on the first scheduled poll after quiet hours end. Emergency businesses can keep the same interval overnight.
+- Manual Settings checks and assistant-triggered checks bypass the schedule gate so the user or agent can fetch fresh email when context demands it.
+- Every provider message gets an idempotent `events` row before processing; duplicate provider messages are skipped.
+- Non-actionable mail is not promoted into the CRM. It is recorded as a lightweight awareness event with classification/summary metadata, not as a full conversation.
+- Inbox exposes a separate filtered-out email pop-up for those observed/skipped events. Its header button shows only the count from the last 24 hours on the normal Inbox load; the full bounded recent list and reply-log state are fetched only when the pop-up opens. It is intentionally not a normal work-queue filter so personal/newsletter/noise stays outside the actionable CRM queue while still being quick to review.
+- The filtered-out email pop-up scrolls inside the modal and can send a user-approved direct reply through the connected email provider using the stored subject, sender, summary, and classification metadata. Hidden reply composers are mounted only after a user opens `Reply`, so the modal can render many skipped emails without shipping every AI reply form up front. Those direct replies create internal `outbound.filtered_email.reply_sent` events, and the pop-up displays Kyro's own replied indicator from that log; it does not try to infer replies sent directly in Gmail or Outlook.
+- Actionable business mail creates or reuses a contact, lead, conversation, and inbound message, then runs the same AI triage/action-proposal path as manual inbound.
+- Follow-up emails on an existing provider thread reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
+- The classifier uses heuristics first and, when `OPENAI_API_KEY` is available, a low-cost OpenAI structured-output classifier for non-automated mail. Classification usage is recorded in `usage_events`.
+- No new tables were added for the first version; `workspace_policies`, `integration_connections`, `channels`, `events`, `messages`, and existing CRM tables are enough.
 
 ## Mock Follow-Up Ingestion
 
@@ -658,6 +802,7 @@ Current action behavior:
 - pressing `Send generated reply` is the approval for generated replies; it saves any visible draft edits and then executes the send/record action,
 - Assistant inquiry previews include a manual reply composer so the user can respond even when no AI draft action exists,
 - user-written manual reply composers send or record immediately because the button press is the explicit approval,
+- manual reply composers can open a compact `Generate with AI` prompt that calls `/api/inbox/reply-draft`, uses the conversation or skipped-email context plus the user's quick direction, and inserts a draft into the subject/body fields for review,
 - pending draft replies can be edited from the inquiry review page before approval,
 - executing a `draft_reply` sends through Gmail when the channel is email and the contact has an email address,
 - executing non-email channels records an internal outbound `messages` row until SMS/phone providers exist,
@@ -806,6 +951,9 @@ Use this map before editing:
   and `apps/web/src/lib/assistant/speech.ts`
 - New assistant voice settings behavior: `apps/web/src/lib/assistant/voice-settings.ts`
   and `apps/web/src/app/settings/page.tsx`
+- New assistant pronunciation behavior: `apps/web/src/lib/assistant/pronunciation.ts`,
+  `apps/web/src/app/api/assistant/pronunciation/preview/route.ts`, and
+  `supabase/migrations/20260518175710_pronunciation_vocabulary.sql`
 - New realtime voice UI behavior: `apps/web/src/app/voice/page.tsx`
   and `apps/web/src/app/voice/realtime-voice-console.tsx`
 - New realtime voice session/tool/persistence behavior:
@@ -819,6 +967,10 @@ Use this map before editing:
 - New Gmail/Outlook send behavior: `apps/web/src/lib/integrations/gmail.ts`,
   `apps/web/src/lib/integrations/outlook.ts`, `apps/web/src/lib/integrations/mail.ts`,
   `apps/web/src/lib/communication/outbound.ts`, and `apps/web/src/lib/communication/signatures.ts`
+- New inbound email sync behavior: `apps/web/src/lib/integrations/inbound-email-settings.ts`,
+  `apps/web/src/lib/integrations/inbound-email-sync.ts`, and
+  `apps/web/src/app/api/integrations/email/sync/route.ts`
+- New service-role Supabase server helper: `apps/web/src/lib/supabase/service.ts`
 - New provider token encryption behavior: `apps/web/src/lib/integrations/token-vault.ts`
 - New usage/billing read behavior: `apps/web/src/lib/usage/queries.ts`, surfaced from Settings
 - New schema field/table: `packages/db/src/schema.ts`, then generate a migration.
@@ -832,11 +984,11 @@ Use this map before editing:
 These are not bugs:
 
 - Gmail and Outlook OAuth plus real outbound email are connected for approved/user-triggered sends.
-- Gmail inbound sync is not connected yet.
-- Outlook inbound sync is not connected yet.
+- Gmail and Outlook inbound sync have a first poll-based implementation. Push/webhook mailbox watches are intentionally deferred.
 - SMS is not connected yet.
 - AI triage and Assistant narration can use OpenAI in this local setup; local Ollama remains a development option on machines that support it.
 - Voice mode has a WebRTC/OpenAI Realtime path, but the native mobile shell, deeper barge-in tuning, and user-facing realtime voice controls are still future work.
+- Pronunciation vocabulary supports Settings management, previews, prompt injection, lightweight usage counts, and background suggestions; customer-facing outbound phone calls and pronunciation preflight gates are still future work.
 - Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
 - Gmail/Outlook can send uploaded local file attachments and generated text snapshots of selected quote drafts.
 - Full PDF/invoice rendering from user-uploaded templates is not implemented yet. Current quote drafts are saved editable internal documents only.

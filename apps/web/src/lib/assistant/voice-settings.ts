@@ -5,6 +5,29 @@ export const VOICE_SETTINGS_POLICY_TYPE = "assistant_voice";
 export const VOICE_TTS_PROVIDERS = ["openai", "elevenlabs"] as const;
 export type VoiceTtsProvider = (typeof VOICE_TTS_PROVIDERS)[number];
 
+export const OPENAI_VOICE_OPTIONS = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "sage",
+  "shimmer",
+  "verse",
+  "marin",
+  "cedar",
+] as const;
+export type OpenAiVoice = (typeof OPENAI_VOICE_OPTIONS)[number];
+
+export const OUTBOUND_VOICE_PRONUNCIATION_POLICIES = [
+  "strict",
+  "balanced",
+  "flexible",
+  "off",
+] as const;
+export type OutboundVoicePronunciationPolicy =
+  (typeof OUTBOUND_VOICE_PRONUNCIATION_POLICIES)[number];
+
 export type ElevenLabsVoicePreset = {
   accent: string;
   id: string;
@@ -64,6 +87,7 @@ export const ELEVENLABS_VOICE_PRESETS = [
 ] as const satisfies ElevenLabsVoicePreset[];
 
 export const DEFAULT_VOICE_TTS_PROVIDER: VoiceTtsProvider = "openai";
+export const DEFAULT_OPENAI_VOICE: OpenAiVoice = "ballad";
 export const DEFAULT_ELEVENLABS_MODEL = "eleven_v3";
 export const DEFAULT_ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128";
 export const DEFAULT_ELEVENLABS_VOICE_PRESET_ID = "british_male_manchester";
@@ -71,6 +95,8 @@ export const DEFAULT_ELEVENLABS_STABILITY = 0.45;
 export const DEFAULT_ELEVENLABS_SIMILARITY_BOOST = 0.85;
 export const DEFAULT_ELEVENLABS_STYLE = 0;
 export const DEFAULT_ELEVENLABS_USE_SPEAKER_BOOST = true;
+export const DEFAULT_OUTBOUND_VOICE_PRONUNCIATION_POLICY: OutboundVoicePronunciationPolicy =
+  "balanced";
 
 export type VoiceSettings = {
   elevenLabsModel: string;
@@ -81,6 +107,8 @@ export type VoiceSettings = {
   elevenLabsUseSpeakerBoost: boolean;
   elevenLabsVoiceId: string;
   elevenLabsVoicePresetId: string;
+  openAiVoice: OpenAiVoice;
+  outboundVoicePronunciationPolicy: OutboundVoicePronunciationPolicy;
   provider: VoiceTtsProvider;
 };
 
@@ -142,8 +170,21 @@ function clampUnit(value: unknown, fallback: number) {
   return Math.min(1, Math.max(0, parsed));
 }
 
-function providerValue(value: unknown, fallback: VoiceTtsProvider) {
-  return value === "openai" || value === "elevenlabs" ? value : fallback;
+function openAiVoiceValue(value: unknown, fallback: OpenAiVoice) {
+  return OPENAI_VOICE_OPTIONS.includes(value as OpenAiVoice)
+    ? (value as OpenAiVoice)
+    : fallback;
+}
+
+function outboundVoicePronunciationPolicyValue(
+  value: unknown,
+  fallback: OutboundVoicePronunciationPolicy,
+) {
+  return OUTBOUND_VOICE_PRONUNCIATION_POLICIES.includes(
+    value as OutboundVoicePronunciationPolicy,
+  )
+    ? (value as OutboundVoicePronunciationPolicy)
+    : fallback;
 }
 
 function findElevenLabsVoicePresetById(value: string | null | undefined) {
@@ -163,9 +204,13 @@ function elevenLabsVoicePresetByVoiceId(value: string | null | undefined) {
 }
 
 function defaultProvider() {
-  return providerValue(
-    envValue("VOICE_TTS_PROVIDER") || envValue("TTS_PROVIDER"),
-    DEFAULT_VOICE_TTS_PROVIDER,
+  return DEFAULT_VOICE_TTS_PROVIDER;
+}
+
+function defaultOpenAiVoice() {
+  return openAiVoiceValue(
+    envValue("OPENAI_REALTIME_VOICE") || envValue("OPENAI_TTS_VOICE"),
+    DEFAULT_OPENAI_VOICE,
   );
 }
 
@@ -184,20 +229,22 @@ export function normalizeVoiceSettings(value: unknown): VoiceSettings {
   const settings = objectRecord(value);
   const defaultPreset = defaultElevenLabsVoicePreset();
   const selectedPreset =
-    findElevenLabsVoicePresetById(textValue(settings.elevenLabsVoicePresetId)) ??
+    findElevenLabsVoicePresetById(
+      textValue(settings.elevenLabsVoicePresetId),
+    ) ??
     elevenLabsVoicePresetByVoiceId(textValue(settings.elevenLabsVoiceId)) ??
     defaultPreset;
 
   return {
     elevenLabsModel:
-      textValue(envValue("ELEVENLABS_TTS_MODEL")) ??
-      DEFAULT_ELEVENLABS_MODEL,
+      textValue(envValue("ELEVENLABS_TTS_MODEL")) ?? DEFAULT_ELEVENLABS_MODEL,
     elevenLabsOutputFormat:
       textValue(settings.elevenLabsOutputFormat) ??
       textValue(envValue("ELEVENLABS_TTS_OUTPUT_FORMAT")) ??
       DEFAULT_ELEVENLABS_OUTPUT_FORMAT,
     elevenLabsSimilarityBoost: clampUnit(
-      settings.elevenLabsSimilarityBoost ?? envValue("ELEVENLABS_TTS_SIMILARITY_BOOST"),
+      settings.elevenLabsSimilarityBoost ??
+        envValue("ELEVENLABS_TTS_SIMILARITY_BOOST"),
       DEFAULT_ELEVENLABS_SIMILARITY_BOOST,
     ),
     elevenLabsStability: clampUnit(
@@ -209,12 +256,19 @@ export function normalizeVoiceSettings(value: unknown): VoiceSettings {
       DEFAULT_ELEVENLABS_STYLE,
     ),
     elevenLabsUseSpeakerBoost: booleanValue(
-      settings.elevenLabsUseSpeakerBoost ?? envValue("ELEVENLABS_TTS_USE_SPEAKER_BOOST"),
+      settings.elevenLabsUseSpeakerBoost ??
+        envValue("ELEVENLABS_TTS_USE_SPEAKER_BOOST"),
       DEFAULT_ELEVENLABS_USE_SPEAKER_BOOST,
     ),
     elevenLabsVoiceId: selectedPreset.voiceId,
     elevenLabsVoicePresetId: selectedPreset.id,
-    provider: providerValue(settings.provider, defaultProvider()),
+    openAiVoice: openAiVoiceValue(settings.openAiVoice, defaultOpenAiVoice()),
+    outboundVoicePronunciationPolicy: outboundVoicePronunciationPolicyValue(
+      settings.outboundVoicePronunciationPolicy ??
+        envValue("OUTBOUND_VOICE_PRONUNCIATION_POLICY"),
+      DEFAULT_OUTBOUND_VOICE_PRONUNCIATION_POLICY,
+    ),
+    provider: defaultProvider(),
   };
 }
 

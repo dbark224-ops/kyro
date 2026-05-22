@@ -1,0 +1,2 @@
+CREATE INDEX "events_inbound_observed_processed_idx" ON "events" USING btree ("workspace_id","processed_at") WHERE "events"."type" = 'inbound.email.received' and "events"."status" = 'processed' and "events"."payload" @> '{"stage":"observed"}'::jsonb;--> statement-breakpoint
+CREATE INDEX "events_filtered_email_reply_processed_idx" ON "events" USING btree ("workspace_id","processed_at") WHERE "events"."type" = 'outbound.filtered_email.reply_sent' and "events"."status" = 'processed';

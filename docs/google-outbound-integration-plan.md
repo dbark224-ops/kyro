@@ -20,6 +20,10 @@ and workspace communication policy before anything leaves the system.
   - `/integrations/google/callback`
 - Combined Settings Integrations area for Google Workspace and Microsoft Outlook
   connection status.
+- Settings can disconnect a Google or Outlook account by clearing Kyro's stored
+  token payload, marking the connection disconnected, and deactivating the tied
+  email channel. Reconnection uses the same OAuth connect flow, which is how old
+  accounts pick up newly requested read scopes.
 - Gmail channel creation after Google connection, marked as `externalSendEnabled: true`.
 - Gmail access-token refresh helper:
   - decrypts the stored refresh token,
@@ -51,6 +55,24 @@ and workspace communication policy before anything leaves the system.
   - `apps/web/src/lib/integrations/gmail.ts`
 - The Outlook provider helper is:
   - `apps/web/src/lib/integrations/outlook.ts`
+- Gmail and Outlook inbound email sync:
+  - requests read scopes (`gmail.readonly` / `Mail.Read`),
+  - fetches recent inbox messages through provider APIs,
+  - writes idempotent `events` rows before processing,
+  - classifies new messages with lightweight heuristics and optional OpenAI structured-output classification,
+  - promotes business-actionable messages into contacts, leads, conversations, messages, and AI triage,
+  - keeps skipped/non-actionable mail as minimal processed events, with optional lightweight summaries, rather than full CRM threads.
+- Inbound email settings:
+  - stored in `workspace_policies` as `inbound_email`,
+  - default to five-minute active-hours polling,
+  - pause scheduled polling during the 10pm-4am quiet window to reduce provider/API/classifier cost,
+  - allow manual-only, paused, same-interval overnight, and custom interpretation rules.
+- Protected scheduled sync endpoint:
+  - `/api/integrations/email/sync`
+  - accepts Vercel Cron `GET` calls and manual/testing `POST` calls
+  - requires `INBOUND_EMAIL_SYNC_SECRET` or Vercel's `CRON_SECRET`
+  - registered in `vercel.json` to run every five minutes in production
+  - uses the server-only Supabase service-role client.
 
 ## Microsoft Outlook Setup Needed
 
@@ -67,6 +89,7 @@ In Microsoft Entra / Azure Portal:
 5. Add delegated Microsoft Graph permissions:
    - `User.Read`
    - `Mail.Send`
+   - `Mail.Read`
    - `openid`
    - `email`
    - `profile`
@@ -116,11 +139,13 @@ Kyro currently requests these Google scopes:
 - `email`
 - `profile`
 - `https://www.googleapis.com/auth/gmail.send`
+- `https://www.googleapis.com/auth/gmail.readonly`
 - `https://www.googleapis.com/auth/drive.file`
 
 Reasoning:
 
-- `gmail.send` is enough for approved outbound email without broad inbox access.
+- `gmail.send` is enough for approved outbound email.
+- `gmail.readonly` is used for poll-based inbound sync without permission to mutate the inbox.
 - `drive.file` is intentionally narrow: Kyro can create files and work with files
   opened/shared with the app, without asking for full Drive access.
 - `openid email profile` lets Kyro label the connected account in Settings.
@@ -133,10 +158,12 @@ Kyro currently requests these Microsoft scopes:
 - `offline_access`
 - `https://graph.microsoft.com/User.Read`
 - `https://graph.microsoft.com/Mail.Send`
+- `https://graph.microsoft.com/Mail.Read`
 
 Reasoning:
 
-- `Mail.Send` is enough for approved outbound Outlook email without broad mailbox read access.
+- `Mail.Send` is enough for approved outbound Outlook email.
+- `Mail.Read` is used for poll-based inbound sync without permission to mutate the mailbox.
 - `User.Read` lets Kyro label the connected account using Microsoft Graph `/me`.
 - `offline_access` lets Kyro refresh access tokens without asking the user to reconnect every hour.
 
@@ -163,9 +190,11 @@ Reasoning:
    - request the required Gmail settings scope only if we decide the UX needs it,
    - read `users.settings.sendAs` to show whether the connected account has a Gmail web UI signature,
    - avoid relying on Gmail's native signature for Kyro sends because Kyro needs per-email signature selection.
-6. Add Gmail inbound later:
-   - start with manual import or Gmail watch/history sync,
-   - do not request broad Gmail read scopes until the product genuinely needs it.
+6. Harden inbound email sync:
+   - add a production scheduler that calls `/api/integrations/email/sync` every five minutes,
+   - monitor provider quotas and tune `maxMessagesPerSync`,
+   - consider Gmail watch/history or Microsoft Graph subscriptions only after the poll-based model proves worthwhile,
+   - add per-provider default sender/inbox selection when multiple accounts are connected.
 
 ## Other Providers After Email
 

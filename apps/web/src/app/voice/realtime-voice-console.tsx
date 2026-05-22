@@ -10,6 +10,9 @@ import type {
 type ConnectionState = "connected" | "connecting" | "idle" | "speaking";
 
 type RealtimeEvent = {
+  item?: {
+    id?: string;
+  };
   response?: {
     id?: string;
     output?: Array<Record<string, unknown>>;
@@ -20,6 +23,10 @@ type RealtimeEvent = {
 };
 
 const REALTIME_MODEL = "gpt-realtime-2";
+
+function normalizedTranscript(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
 
 export function RealtimeVoiceConsole({
   initialState,
@@ -39,6 +46,7 @@ export function RealtimeVoiceConsole({
   const currentUserTranscriptRef = useRef("");
   const currentAssistantTranscriptRef = useRef("");
   const currentAssistantMessageIdRef = useRef<string | null>(null);
+  const currentResponseIdRef = useRef<string | null>(null);
   const pendingAssistantLinksRef = useRef<AssistantLink[]>([]);
   const persistedResponseIdsRef = useRef<Set<string>>(new Set());
   const threadId = initialState.threadId;
@@ -80,6 +88,7 @@ export function RealtimeVoiceConsole({
     currentUserTranscriptRef.current = "";
     currentAssistantTranscriptRef.current = "";
     currentAssistantMessageIdRef.current = null;
+    currentResponseIdRef.current = null;
     pendingAssistantLinksRef.current = [];
     setLiveTranscript("");
     setConnectionState("idle");
@@ -105,6 +114,7 @@ export function RealtimeVoiceConsole({
       currentUserTranscriptRef.current = "";
       currentAssistantTranscriptRef.current = "";
       currentAssistantMessageIdRef.current = null;
+      currentResponseIdRef.current = null;
       pendingAssistantLinksRef.current = [];
 
       await fetch("/api/assistant/realtime/persist", {
@@ -127,8 +137,9 @@ export function RealtimeVoiceConsole({
 
   const updateAssistantTranscript = useCallback((text: string, replace = false) => {
     const nextTranscript = replace
-      ? text
+      ? text.trim()
       : `${currentAssistantTranscriptRef.current}${text}`;
+    const normalizedNextTranscript = normalizedTranscript(nextTranscript);
     const assistantLinks = pendingAssistantLinksRef.current;
 
     currentAssistantTranscriptRef.current = nextTranscript;
@@ -138,7 +149,24 @@ export function RealtimeVoiceConsole({
         currentAssistantMessageIdRef.current ??
         `realtime-assistant-${Date.now()}`;
       currentAssistantMessageIdRef.current = messageId;
-      const existing = currentMessages.find((message) => message.id === messageId);
+      const duplicateMessage = normalizedNextTranscript
+        ? currentMessages.find(
+            (message) =>
+              message.id !== messageId &&
+              message.role === "assistant" &&
+              normalizedTranscript(message.content) === normalizedNextTranscript,
+          )
+        : null;
+
+      if (duplicateMessage) {
+        currentAssistantMessageIdRef.current = duplicateMessage.id;
+
+        return currentMessages.filter((message) => message.id !== messageId);
+      }
+
+      const existing = currentMessages.find(
+        (message) => message.id === messageId,
+      );
 
       if (existing) {
         return currentMessages.map((message) =>
@@ -176,15 +204,30 @@ export function RealtimeVoiceConsole({
 
     currentUserTranscriptRef.current = cleanedTranscript;
     setLiveTranscript(cleanedTranscript);
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      {
+    setMessages((currentMessages) => {
+      const nextUserMessage: AssistantThreadMessage = {
         content: cleanedTranscript,
         createdAt: new Date().toISOString(),
         id: `realtime-user-${Date.now()}`,
         role: "user",
-      },
-    ]);
+      };
+      const activeAssistantMessageId = currentAssistantMessageIdRef.current;
+      const activeAssistantIndex = activeAssistantMessageId
+        ? currentMessages.findIndex(
+            (message) => message.id === activeAssistantMessageId,
+          )
+        : -1;
+
+      if (activeAssistantIndex === -1) {
+        return [...currentMessages, nextUserMessage];
+      }
+
+      return [
+        ...currentMessages.slice(0, activeAssistantIndex),
+        nextUserMessage,
+        ...currentMessages.slice(activeAssistantIndex),
+      ];
+    });
   }, []);
 
   const callRealtimeTool = useCallback(
@@ -259,6 +302,11 @@ export function RealtimeVoiceConsole({
           setStatus("Live session ready. Start talking naturally.");
           break;
         case "input_audio_buffer.speech_started":
+          currentUserTranscriptRef.current = "";
+          currentAssistantTranscriptRef.current = "";
+          currentAssistantMessageIdRef.current = null;
+          currentResponseIdRef.current = null;
+          pendingAssistantLinksRef.current = [];
           setConnectionState("connected");
           setStatus("Listening...");
           setLiveTranscript("");
@@ -271,14 +319,24 @@ export function RealtimeVoiceConsole({
           break;
         case "response.output_audio_transcript.delta":
         case "response.output_text.delta":
+          currentResponseIdRef.current =
+            textValue(event.response?.id) ??
+            textValue(event.item?.id) ??
+            currentResponseIdRef.current;
           setConnectionState("speaking");
           updateAssistantTranscript(textValue(event.delta) ?? "");
           break;
         case "response.output_audio_transcript.done":
         case "response.output_text.done":
+          currentResponseIdRef.current =
+            textValue(event.response?.id) ??
+            textValue(event.item?.id) ??
+            currentResponseIdRef.current;
           updateAssistantTranscript(event.transcript ?? textValue(event.text) ?? "", true);
           break;
         case "response.done": {
+          currentResponseIdRef.current =
+            textValue(event.response?.id) ?? currentResponseIdRef.current;
           const output = event.response?.output ?? [];
           const functionCalls = output.filter((item) => item.type === "function_call");
 
@@ -301,7 +359,7 @@ export function RealtimeVoiceConsole({
             updateAssistantTranscript(transcript, true);
           }
 
-          await persistRealtimeTurn(event.response?.id ?? null, transcript);
+          await persistRealtimeTurn(currentResponseIdRef.current, transcript);
           setConnectionState("connected");
           setStatus("Live. Keep talking, or stop when you are done.");
           break;

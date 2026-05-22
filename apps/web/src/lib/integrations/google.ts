@@ -4,12 +4,16 @@ import { hasIntegrationTokenEncryptionKey } from "./token-vault";
 
 export const GOOGLE_PROVIDER = "google";
 export const GOOGLE_SERVICE = "google_workspace";
+export const GOOGLE_GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+export const GOOGLE_GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+export const GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 export const GOOGLE_WORKSPACE_SCOPES = [
   "openid",
   "email",
   "profile",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/drive.file"
+  GOOGLE_GMAIL_SEND_SCOPE,
+  GOOGLE_GMAIL_READ_SCOPE,
+  GOOGLE_DRIVE_FILE_SCOPE
 ] as const;
 
 export type GoogleIntegrationConnection = {

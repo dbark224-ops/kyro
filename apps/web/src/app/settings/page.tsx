@@ -1,13 +1,27 @@
 import { AppFrame } from "../components/app-frame";
 import {
+  disconnectIntegrationAction,
+  createPronunciationEntryAction,
+  ignorePronunciationEntryAction,
+  syncInboundEmailNowAction,
   updateCommunicationSettingsAction,
+  updateGeneralSettingsAction,
+  updateInboundEmailSettingsAction,
+  updatePronunciationEntryAction,
   updateVoiceSettingsAction,
 } from "./actions";
 import {
-  ELEVENLABS_VOICE_PRESETS,
+  OPENAI_VOICE_OPTIONS,
+  OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
   getVoiceSettings,
-  elevenLabsVoicePresetById,
 } from "../../lib/assistant/voice-settings";
+import {
+  PRONUNCIATION_CATEGORIES,
+  defaultPronunciationHint,
+  formatPronunciationAliases,
+  getPronunciationEntries,
+  type AssistantPronunciationEntry,
+} from "../../lib/assistant/pronunciation";
 import {
   OUTBOUND_CHANNELS,
   getCommunicationSettings,
@@ -19,8 +33,20 @@ import {
   usageWindows,
   type UsageLedgerRow,
 } from "../../lib/usage/queries";
-import { getGoogleIntegrationOverview } from "../../lib/integrations/google";
-import { getMicrosoftIntegrationOverview } from "../../lib/integrations/microsoft";
+import {
+  GOOGLE_PROVIDER,
+  getGoogleIntegrationOverview,
+} from "../../lib/integrations/google";
+import {
+  INBOUND_EMAIL_POLL_INTERVALS,
+  INBOUND_EMAIL_QUIET_HOURS_MODES,
+  INBOUND_EMAIL_SYNC_MODES,
+  getInboundEmailSettings,
+} from "../../lib/integrations/inbound-email-settings";
+import {
+  MICROSOFT_PROVIDER,
+  getMicrosoftIntegrationOverview,
+} from "../../lib/integrations/microsoft";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import Link from "next/link";
 import {
@@ -28,6 +54,8 @@ import {
   type SettingsMenuItem,
   type SettingsSection,
 } from "./settings-shell";
+import { InfoBubble } from "./info-bubble";
+import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +73,12 @@ function normalizeSettingsSection(value: string | undefined) {
     return "integrations" satisfies SettingsSection;
   }
 
-  if (value === "communication" || value === "usage" || value === "voice") {
+  if (
+    value === "communication" ||
+    value === "general" ||
+    value === "usage" ||
+    value === "voice"
+  ) {
     return value satisfies SettingsSection;
   }
 
@@ -106,6 +139,80 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function formatTimeOfDay(value: string) {
+  const [hourText, minuteText] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(2020, 0, 1, hour, minute));
+}
+
+function policyLabel(value: string) {
+  return value === "strict"
+    ? "Strict"
+    : value === "balanced"
+      ? "Balanced"
+      : value === "flexible"
+        ? "Flexible"
+        : "Off";
+}
+
+function pronunciationUsageLabel(entry: AssistantPronunciationEntry) {
+  const usage =
+    entry.usageCount === 1 ? "Used once" : `Used ${entry.usageCount} times`;
+
+  return entry.lastSeenAt
+    ? `${usage} - last ${formatDate(entry.lastSeenAt)}`
+    : usage;
+}
+
+function pronunciationEntrySourceLabel(entry: AssistantPronunciationEntry) {
+  return entry.source === "manual"
+    ? "Manual entry"
+    : entry.source === "assistant"
+      ? "Assistant updated"
+      : "Auto-added";
+}
+
+function pronunciationEntryPill(entry: AssistantPronunciationEntry) {
+  return entry.source === "manual" || entry.source === "assistant"
+    ? "Custom pronunciation"
+    : "Auto pronunciation";
+}
+
+function pronunciationHintValue(entry: AssistantPronunciationEntry) {
+  return entry.pronunciationHint ?? defaultPronunciationHint(entry.phrase);
+}
+
+function SettingCardHeading({
+  children,
+  info,
+}: Readonly<{
+  children: React.ReactNode;
+  info: React.ReactNode;
+}>) {
+  return (
+    <div className="setting-card-heading">
+      <strong>{children}</strong>
+      <InfoBubble>{info}</InfoBubble>
+    </div>
+  );
+}
+
 function EmailSignatureEditor({
   description,
   namePrefix,
@@ -159,27 +266,35 @@ function EmailSignatureEditor({
 
       <div className="settings-grid">
         <label className="setting-card">
-          <strong>Logo file</strong>
+          <SettingCardHeading
+            info={
+              <>
+                Upload a small logo, up to 512 KB. This is sent inline with
+                email signatures.
+              </>
+            }
+          >
+            Logo file
+          </SettingCardHeading>
           <input accept="image/*" name={`${namePrefix}LogoFile`} type="file" />
-          <span>
-            Upload a small logo, up to 512 KB. This is sent inline with email
-            signatures.
-          </span>
         </label>
 
         <label className="setting-card">
-          <strong>Logo URL fallback</strong>
+          <SettingCardHeading info="Optional fallback if no logo file is uploaded.">
+            Logo URL fallback
+          </SettingCardHeading>
           <input
             defaultValue={signature.logoUrl}
             name={`${namePrefix}LogoUrl`}
             placeholder="https://example.com/logo.png"
             type="url"
           />
-          <span>Optional fallback if no logo file is uploaded.</span>
         </label>
 
         <label className="setting-card">
-          <strong>Logo size</strong>
+          <SettingCardHeading info="Width in pixels. Kyro keeps it between 32 and 240.">
+            Logo size
+          </SettingCardHeading>
           <input
             defaultValue={signature.logoWidthPx}
             max={240}
@@ -188,7 +303,6 @@ function EmailSignatureEditor({
             step={4}
             type="number"
           />
-          <span>Width in pixels. Kyro keeps it between 32 and 240.</span>
         </label>
       </div>
 
@@ -267,6 +381,7 @@ type GoogleIntegrationOverview = Awaited<
 type MicrosoftIntegrationOverview = Awaited<
   ReturnType<typeof getMicrosoftIntegrationOverview>
 >;
+type InboundEmailSettings = Awaited<ReturnType<typeof getInboundEmailSettings>>;
 type IntegrationOverview = {
   configured: boolean;
   connections: Array<{ lastError: string | null; status: string }>;
@@ -399,28 +514,68 @@ function combinedIntegrationStatusLabel(
   return "Keys needed";
 }
 
+function DisconnectIntegrationButton({
+  connectionId,
+  disabled,
+  provider,
+}: Readonly<{
+  connectionId: string;
+  disabled: boolean;
+  provider: string;
+}>) {
+  if (disabled) {
+    return null;
+  }
+
+  return (
+    <form
+      action={disconnectIntegrationAction}
+      className="integration-disconnect-form"
+    >
+      <input name="connectionId" type="hidden" value={connectionId} />
+      <input name="provider" type="hidden" value={provider} />
+      <button className="text-button danger" type="submit">
+        Disconnect
+      </button>
+    </form>
+  );
+}
+
 function GoogleIntegrationSettings({
   overview,
 }: Readonly<{ overview: GoogleIntegrationOverview }>) {
   const canConnect =
     overview.configured && overview.encryptionReady && overview.migrationReady;
+  const hasConnectedAccount = overview.connections.some(
+    (connection) => connection.status === "connected",
+  );
 
   return (
     <>
       <div className="integration-summary-grid">
         <article className="setting-card">
-          <strong>Gmail outbound</strong>
-          <span>
-            Approved and user-triggered email replies can send through the
-            connected Gmail account.
-          </span>
+          <SettingCardHeading
+            info={
+              <>
+                Approved and user-triggered email replies can send through the
+                connected Gmail account.
+              </>
+            }
+          >
+            Gmail outbound
+          </SettingCardHeading>
         </article>
         <article className="setting-card">
-          <strong>Google Drive documents</strong>
-          <span>
-            Drive access for quote and invoice documents Kyro creates or the
-            user explicitly opens with Kyro.
-          </span>
+          <SettingCardHeading
+            info={
+              <>
+                Drive access for quote and invoice documents Kyro creates or the
+                user explicitly opens with Kyro.
+              </>
+            }
+          >
+            Google Drive documents
+          </SettingCardHeading>
         </article>
       </div>
 
@@ -484,6 +639,11 @@ function GoogleIntegrationSettings({
                     ? formatDate(connection.lastConnectedAt)
                     : "Not connected"}
                 </time>
+                <DisconnectIntegrationButton
+                  connectionId={connection.id}
+                  disabled={connection.status !== "connected"}
+                  provider={GOOGLE_PROVIDER}
+                />
               </div>
             </div>
           ))}
@@ -496,7 +656,7 @@ function GoogleIntegrationSettings({
         <span>
           Connect once, then Kyro can use Gmail and Drive through policies.
         </span>
-        {canConnect ? (
+        {canConnect && !hasConnectedAccount ? (
           <Link
             className="primary-button compact link-button"
             href="/integrations/google/start"
@@ -504,7 +664,9 @@ function GoogleIntegrationSettings({
             Connect Google
           </Link>
         ) : (
-          <span className="pill warning">Setup required</span>
+          !hasConnectedAccount && (
+            <span className="pill warning">Setup required</span>
+          )
         )}
       </div>
     </>
@@ -516,23 +678,36 @@ function MicrosoftIntegrationSettings({
 }: Readonly<{ overview: MicrosoftIntegrationOverview }>) {
   const canConnect =
     overview.configured && overview.encryptionReady && overview.migrationReady;
+  const hasConnectedAccount = overview.connections.some(
+    (connection) => connection.status === "connected",
+  );
 
   return (
     <>
       <div className="integration-summary-grid">
         <article className="setting-card">
-          <strong>Outlook outbound</strong>
-          <span>
-            Approved and user-triggered email replies can send through the
-            connected Outlook or Microsoft 365 mailbox.
-          </span>
+          <SettingCardHeading
+            info={
+              <>
+                Approved and user-triggered email replies can send through the
+                connected Outlook or Microsoft 365 mailbox.
+              </>
+            }
+          >
+            Outlook outbound
+          </SettingCardHeading>
         </article>
         <article className="setting-card">
-          <strong>Microsoft Graph</strong>
-          <span>
-            Uses Microsoft OAuth and Graph Mail.Send, matching the same audit
-            and permission model as Gmail.
-          </span>
+          <SettingCardHeading
+            info={
+              <>
+                Uses Microsoft OAuth and Graph Mail.Send, matching the same
+                audit and permission model as Gmail.
+              </>
+            }
+          >
+            Microsoft Graph
+          </SettingCardHeading>
         </article>
       </div>
 
@@ -599,6 +774,11 @@ function MicrosoftIntegrationSettings({
                     ? formatDate(connection.lastConnectedAt)
                     : "Not connected"}
                 </time>
+                <DisconnectIntegrationButton
+                  connectionId={connection.id}
+                  disabled={connection.status !== "connected"}
+                  provider={MICROSOFT_PROVIDER}
+                />
               </div>
             </div>
           ))}
@@ -612,7 +792,7 @@ function MicrosoftIntegrationSettings({
           Connect once, then Kyro can send Outlook email through the same
           policies.
         </span>
-        {canConnect ? (
+        {canConnect && !hasConnectedAccount ? (
           <Link
             className="primary-button compact link-button"
             href="/integrations/microsoft/start"
@@ -620,7 +800,9 @@ function MicrosoftIntegrationSettings({
             Connect Outlook
           </Link>
         ) : (
-          <span className="pill warning">Setup required</span>
+          !hasConnectedAccount && (
+            <span className="pill warning">Setup required</span>
+          )
         )}
       </div>
     </>
@@ -673,6 +855,311 @@ function providerChoiceStatus({
   return status;
 }
 
+function inboundSyncModeLabel(value: string) {
+  return value === "automatic"
+    ? "Automatic polling"
+    : value === "manual_only"
+      ? "Manual only"
+      : "Paused";
+}
+
+function inboundQuietHoursModeLabel(value: string) {
+  return value === "same_interval"
+    ? "Same as daytime"
+    : "Pause until quiet hours end";
+}
+
+function GeneralSettingsDetail({
+  inboundEmailSettings,
+}: Readonly<{
+  inboundEmailSettings: InboundEmailSettings;
+}>) {
+  return (
+    <form action={updateGeneralSettingsAction} className="settings-form">
+      <section className="integration-choice-panel">
+        <div>
+          <p className="eyebrow">Workspace defaults</p>
+          <h3>System-wide settings</h3>
+          <p>
+            Shared defaults live here instead of being buried inside individual
+            features. We can add business hours, locale, and regional defaults
+            here as Kyro grows.
+          </p>
+        </div>
+        <span className="pill">General</span>
+      </section>
+
+      <div className="settings-grid single">
+        <label className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Used wherever Kyro needs local time, including quiet-hours email
+                polling. Use an IANA timezone such as Australia/Brisbane,
+                America/Denver, or UTC.
+              </>
+            }
+          >
+            Workspace timezone
+          </SettingCardHeading>
+          <input
+            defaultValue={inboundEmailSettings.timeZone}
+            name="workspaceTimeZone"
+            placeholder="Australia/Brisbane"
+          />
+        </label>
+      </div>
+
+      <div className="settings-footer">
+        <span>
+          Timezone currently powers quiet hours and will also back future
+          scheduling defaults.
+        </span>
+        <button className="primary-button compact" type="submit">
+          Save workspace defaults
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function InboundEmailSyncSettings({
+  settings,
+}: Readonly<{
+  settings: InboundEmailSettings;
+}>) {
+  const syncStatus =
+    settings.syncMode === "automatic"
+      ? `Every ${settings.pollIntervalMinutes} min`
+      : inboundSyncModeLabel(settings.syncMode);
+
+  return (
+    <section className="integration-provider-stack">
+      <section className="integration-choice-panel">
+        <div>
+          <p className="eyebrow">Inbound email</p>
+          <h3>Email awareness and action filtering</h3>
+          <p>
+            Kyro can read connected Gmail or Outlook inboxes, keep lightweight
+            awareness of skipped mail, and only promote business-actionable
+            emails into CRM conversations.
+          </p>
+        </div>
+        <span className="pill">{syncStatus}</span>
+      </section>
+
+      <form action={updateInboundEmailSettingsAction} className="settings-form">
+        <div className="settings-grid">
+          <label className="setting-card">
+            <SettingCardHeading
+              info={
+                <>
+                  Automatic is the default. Manual only keeps the button and
+                  assistant-triggered checks available without scheduled
+                  polling.
+                </>
+              }
+            >
+              Sync mode
+            </SettingCardHeading>
+            <select defaultValue={settings.syncMode} name="inboundSyncMode">
+              {INBOUND_EMAIL_SYNC_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {inboundSyncModeLabel(mode)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="Five minutes is near-live without adding webhook infrastructure.">
+              Daytime poll frequency
+            </SettingCardHeading>
+            <select
+              defaultValue={settings.pollIntervalMinutes}
+              name="inboundPollIntervalMinutes"
+            >
+              {INBOUND_EMAIL_POLL_INTERVALS.map((interval) => (
+                <option key={interval} value={interval}>
+                  Every {interval} minutes
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <fieldset className="settings-fieldset quiet-hours-panel">
+          <legend>Quiet hours</legend>
+          <div className="quiet-hours-summary">
+            <label className="quiet-hours-toggle">
+              <input
+                defaultChecked={settings.quietHoursEnabled}
+                name="inboundQuietHoursEnabled"
+                type="checkbox"
+              />
+              <span>
+                <strong>Reduce overnight polling cost</strong>
+                <small>
+                  Pause scheduled inbox checks while the business is asleep.
+                  Manual checks and assistant-triggered checks still work.
+                </small>
+              </span>
+            </label>
+            <span className="pill">
+              {formatTimeOfDay(settings.quietHoursStart)} -{" "}
+              {formatTimeOfDay(settings.quietHoursEnd)}
+            </span>
+          </div>
+          <div className="quiet-hours-controls">
+            <label className="setting-card">
+              <SettingCardHeading info="Local quiet-hours start.">
+                Start
+              </SettingCardHeading>
+              <input
+                defaultValue={settings.quietHoursStart}
+                name="inboundQuietHoursStart"
+                type="time"
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Local quiet-hours end.">
+                End
+              </SettingCardHeading>
+              <input
+                defaultValue={settings.quietHoursEnd}
+                name="inboundQuietHoursEnd"
+                type="time"
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading
+                info={
+                  <>
+                    Default: pause scheduled checks during quiet hours, then
+                    resume on the first scheduled poll after quiet hours end.
+                    Emergency businesses can keep normal polling overnight.
+                  </>
+                }
+              >
+                Quiet-hours behavior
+              </SettingCardHeading>
+              <select
+                defaultValue={settings.quietHoursMode}
+                name="inboundQuietHoursMode"
+              >
+                {INBOUND_EMAIL_QUIET_HOURS_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {inboundQuietHoursModeLabel(mode)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </fieldset>
+
+        <details className="settings-accordion">
+          <summary>
+            <div className="settings-accordion-title">
+              <strong>Filtering and sync limits</strong>
+              <InfoBubble>
+                Keep this simple for users, but editable for edge cases.
+              </InfoBubble>
+            </div>
+            <span className="pill">Advanced</span>
+          </summary>
+
+          <div className="settings-accordion-body">
+            <div className="settings-grid">
+              <label className="setting-card">
+                <SettingCardHeading
+                  info={
+                    <>
+                      How many days back Kyro can ask Gmail or Outlook to search
+                      on each sync. It catches missed mail after downtime or
+                      reconnects; duplicates are skipped.
+                    </>
+                  }
+                >
+                  Missed-mail lookback
+                </SettingCardHeading>
+                <input
+                  defaultValue={settings.lookbackDays}
+                  max={30}
+                  min={1}
+                  name="inboundLookbackDays"
+                  type="number"
+                />
+              </label>
+              <label className="setting-card">
+                <SettingCardHeading
+                  info={
+                    <>
+                      The maximum inbox messages Kyro asks each connected email
+                      provider for in one sync run. This keeps provider/API and
+                      classifier work bounded.
+                    </>
+                  }
+                >
+                  Fetch cap per sync
+                </SettingCardHeading>
+                <input
+                  defaultValue={settings.maxMessagesPerSync}
+                  max={50}
+                  min={5}
+                  name="inboundMaxMessagesPerSync"
+                  type="number"
+                />
+              </label>
+              <label className="compact-checkbox-row setting-card">
+                <input
+                  defaultChecked={settings.includeAwarenessEvents}
+                  name="inboundIncludeAwarenessEvents"
+                  type="checkbox"
+                />
+                <span>Store skipped-mail summaries</span>
+                <InfoBubble>
+                  Kyro always records a minimal provider event so it will not
+                  reprocess the same email. This adds a small human-readable
+                  summary for skipped emails without creating CRM conversations.
+                </InfoBubble>
+              </label>
+            </div>
+
+            <label className="settings-textarea">
+              Action rules for CRM promotion
+              <textarea
+                defaultValue={settings.actionInstructions}
+                name="inboundActionInstructions"
+                rows={5}
+              />
+            </label>
+          </div>
+        </details>
+
+        <div className="settings-footer">
+          <span>
+            Action rules decide what becomes CRM. Personal or noisy mail stays
+            out unless it clearly affects the business.
+          </span>
+          <button className="primary-button compact" type="submit">
+            Save inbound rules
+          </button>
+        </div>
+      </form>
+
+      <form action={syncInboundEmailNowAction} className="settings-footer">
+        <span>
+          Manual check uses the same sync path the assistant can call during a
+          conversation.
+        </span>
+        <button className="secondary-button compact" type="submit">
+          Check inbox now
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function ProviderDetails({
   children,
   description,
@@ -715,11 +1202,13 @@ function ProviderDetails({
 function WorkspaceIntegrationsSettings({
   googleOverview,
   googleStatus,
+  inboundEmailSettings,
   microsoftOverview,
   microsoftStatus,
 }: Readonly<{
   googleOverview: GoogleIntegrationOverview;
   googleStatus: string;
+  inboundEmailSettings: InboundEmailSettings;
   microsoftOverview: MicrosoftIntegrationOverview;
   microsoftStatus: string;
 }>) {
@@ -749,6 +1238,8 @@ function WorkspaceIntegrationsSettings({
 
   return (
     <div className="integration-provider-stack">
+      <InboundEmailSyncSettings settings={inboundEmailSettings} />
+
       <section className="integration-choice-panel">
         <div>
           <p className="eyebrow">Email provider</p>
@@ -828,7 +1319,17 @@ function CommunicationSettingsDetail({
 
       <div className="settings-grid single">
         <label className="setting-card">
-          <strong>Outbound permission</strong>
+          <SettingCardHeading
+            info={
+              <>
+                Email sends through the connected Gmail or Outlook account.
+                Other channels stay internal until their providers are
+                connected.
+              </>
+            }
+          >
+            Outbound permission
+          </SettingCardHeading>
           <select
             defaultValue={
               communicationSettings.approvalRequired
@@ -844,10 +1345,6 @@ function CommunicationSettingsDetail({
               Allow outbound without extra approval
             </option>
           </select>
-          <span>
-            Email sends through the connected Gmail or Outlook account. Other
-            channels stay internal until their providers are connected.
-          </span>
         </label>
       </div>
 
@@ -872,9 +1369,11 @@ function CommunicationSettingsDetail({
 
       <details className="settings-accordion">
         <summary>
-          <div>
+          <div className="settings-accordion-title">
             <strong>Email signatures</strong>
-            <span>Default signature plus optional assistant signature.</span>
+            <InfoBubble>
+              Default signature plus optional assistant signature.
+            </InfoBubble>
           </div>
           <span className="pill">Advanced</span>
         </summary>
@@ -941,138 +1440,228 @@ function CommunicationSettingsDetail({
 }
 
 function VoiceSettingsDetail({
+  pronunciationEntries,
   voiceSettings,
 }: Readonly<{
+  pronunciationEntries: AssistantPronunciationEntry[];
   voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
 }>) {
-  const selectedPreset = elevenLabsVoicePresetById(
-    voiceSettings.elevenLabsVoicePresetId,
+  return (
+    <>
+      <form action={updateVoiceSettingsAction} className="settings-form">
+        <div className="settings-grid">
+          <label className="setting-card">
+            <SettingCardHeading
+              info={
+                <>
+                  This OpenAI voice is used for realtime voice and generated
+                  voice playback so Kyro sounds consistent across the app.
+                </>
+              }
+            >
+              Assistant voice
+            </SettingCardHeading>
+            <select defaultValue={voiceSettings.openAiVoice} name="openAiVoice">
+              {OPENAI_VOICE_OPTIONS.map((voice) => (
+                <option key={voice} value={voice}>
+                  {formatLabel(voice)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading
+              info={
+                <>
+                  Balanced lets Kyro proceed with high-confidence inferred
+                  pronunciations, but asks before risky customer-facing voice.
+                </>
+              }
+            >
+              Outbound voice pronunciation
+            </SettingCardHeading>
+            <select
+              defaultValue={voiceSettings.outboundVoicePronunciationPolicy}
+              name="outboundVoicePronunciationPolicy"
+            >
+              {OUTBOUND_VOICE_PRONUNCIATION_POLICIES.map((policy) => (
+                <option key={policy} value={policy}>
+                  {policyLabel(policy)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="settings-footer align-end">
+          <button className="primary-button compact" type="submit">
+            Save voice settings
+          </button>
+        </div>
+      </form>
+
+      <PronunciationVocabularySettings entries={pronunciationEntries} />
+    </>
   );
+}
+
+function PronunciationVocabularySettings({
+  entries,
+}: Readonly<{
+  entries: AssistantPronunciationEntry[];
+}>) {
+  const visibleEntries = entries.filter((entry) => entry.status !== "ignored");
 
   return (
-    <form action={updateVoiceSettingsAction} className="settings-form">
-      <div className="settings-grid">
-        <label className="setting-card">
-          <strong>Speech provider</strong>
-          <select defaultValue={voiceSettings.provider} name="voiceProvider">
-            <option value="elevenlabs">ElevenLabs</option>
-            <option value="openai">OpenAI</option>
-          </select>
-          <span>
-            Voice replies use this provider after Kyro has generated the text
-            response.
-          </span>
-        </label>
+    <section className="pronunciation-settings-stack">
+      <div className="panel-heading compact-panel-heading">
+        <div>
+          <p className="eyebrow">Vocabulary</p>
+          <div className="setting-card-heading">
+            <h3>Pronunciation list</h3>
+            <InfoBubble>
+              <strong>Phrase</strong> is the word Kyro should handle carefully.{" "}
+              <strong>Say it like</strong> is the phonetic guidance used for
+              speech. <strong>Aliases</strong> are related spellings, nicknames,
+              or speech-to-text mishearings used for matching and context; they
+              do not replace what Kyro says aloud. Kyro can auto-add entries
+              with a best-effort pronunciation and run a quick LLM pass to
+              suggest aliases.
+            </InfoBubble>
+          </div>
+        </div>
+        <span className="pill">
+          {visibleEntries.length}{" "}
+          {visibleEntries.length === 1 ? "entry" : "entries"}
+        </span>
+      </div>
 
-        <label className="setting-card">
-          <strong>ElevenLabs voice</strong>
-          <select
-            defaultValue={selectedPreset.id}
-            name="elevenLabsVoicePresetId"
-          >
-            {ELEVENLABS_VOICE_PRESETS.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.label}
+      <form
+        action={createPronunciationEntryAction}
+        className="pronunciation-entry-inline-form pronunciation-entry-form-new"
+      >
+        <input name="status" type="hidden" value="approved" />
+        <label className="pronunciation-row-field">
+          <span>Phrase</span>
+          <input name="phrase" placeholder="Woolloongabba" required />
+        </label>
+        <label className="pronunciation-row-field pronunciation-hint-field">
+          <span>Say it like</span>
+          <input name="pronunciationHint" placeholder="wuh-lun-gabba" />
+        </label>
+        <label className="pronunciation-row-field">
+          <span>Category</span>
+          <select defaultValue="other" name="category">
+            {PRONUNCIATION_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {formatLabel(category)}
               </option>
             ))}
           </select>
-          <span>
-            {selectedPreset.accent} voice preset for live voice replies.
-          </span>
         </label>
-      </div>
-
-      <div className="settings-grid single">
-        <label className="setting-card">
-          <strong>Audio format</strong>
-          <select
-            defaultValue={voiceSettings.elevenLabsOutputFormat}
-            name="elevenLabsOutputFormat"
-          >
-            <option value="mp3_44100_128">MP3 44.1 kHz</option>
-            <option value="mp3_44100_192">MP3 44.1 kHz high</option>
-            <option value="mp3_22050_32">MP3 22.05 kHz small</option>
-          </select>
-          <span>
-            The ElevenLabs model is controlled by backend config; users only
-            choose the voice.
-          </span>
+        <label className="pronunciation-row-field pronunciation-aliases-field">
+          <span>Aliases</span>
+          <input name="aliases" placeholder="comma-separated, optional" />
         </label>
-      </div>
-
-      <details className="settings-accordion">
-        <summary>
-          <div>
-            <strong>Voice tuning</strong>
-            <span>Stability, similarity, style, and speaker boost.</span>
-          </div>
-          <span className="pill">Advanced</span>
-        </summary>
-
-        <div className="settings-accordion-body">
-          <div className="settings-grid">
-            <label className="setting-card">
-              <strong>Stability</strong>
-              <input
-                defaultValue={voiceSettings.elevenLabsStability}
-                max={1}
-                min={0}
-                name="elevenLabsStability"
-                step={0.05}
-                type="number"
-              />
-              <span>Lower can sound more expressive; higher is steadier.</span>
-            </label>
-            <label className="setting-card">
-              <strong>Similarity boost</strong>
-              <input
-                defaultValue={voiceSettings.elevenLabsSimilarityBoost}
-                max={1}
-                min={0}
-                name="elevenLabsSimilarityBoost"
-                step={0.05}
-                type="number"
-              />
-              <span>
-                How closely ElevenLabs should preserve the selected voice.
-              </span>
-            </label>
-            <label className="setting-card">
-              <strong>Style</strong>
-              <input
-                defaultValue={voiceSettings.elevenLabsStyle}
-                max={1}
-                min={0}
-                name="elevenLabsStyle"
-                step={0.05}
-                type="number"
-              />
-              <span>
-                Extra expressiveness. Keep low for a practical assistant.
-              </span>
-            </label>
-            <label className="compact-checkbox-row setting-card">
-              <input
-                defaultChecked={voiceSettings.elevenLabsUseSpeakerBoost}
-                name="elevenLabsUseSpeakerBoost"
-                type="checkbox"
-              />
-              <span>Use speaker boost</span>
-            </label>
-          </div>
-        </div>
-      </details>
-
-      <div className="settings-footer">
-        <span>
-          Current ElevenLabs voice: {selectedPreset.label}. The active model is
-          managed by the dev team.
-        </span>
         <button className="primary-button compact" type="submit">
-          Save voice settings
+          Add pronunciation
         </button>
+      </form>
+
+      <div className="pronunciation-entry-list">
+        {visibleEntries.length > 0 ? (
+          visibleEntries.map((entry) => (
+            <article className="pronunciation-entry-card" key={entry.id}>
+              <div className="pronunciation-entry-row">
+                <form
+                  action={updatePronunciationEntryAction}
+                  className="pronunciation-entry-inline-form"
+                >
+                  <input name="entryId" type="hidden" value={entry.id} />
+                  <label className="pronunciation-row-field">
+                    <span>Phrase</span>
+                    <input defaultValue={entry.phrase} name="phrase" required />
+                  </label>
+                  <label className="pronunciation-row-field pronunciation-hint-field">
+                    <span>Say it like</span>
+                    <input
+                      defaultValue={pronunciationHintValue(entry)}
+                      name="pronunciationHint"
+                    />
+                  </label>
+                  <label className="pronunciation-row-field pronunciation-category-field">
+                    <span>Category</span>
+                    <select defaultValue={entry.category} name="category">
+                      {PRONUNCIATION_CATEGORIES.map((category) => (
+                        <option key={category} value={category}>
+                          {formatLabel(category)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="pronunciation-row-field pronunciation-aliases-field">
+                    <span>Aliases</span>
+                    <input
+                      defaultValue={formatPronunciationAliases(entry.aliases)}
+                      name="aliases"
+                    />
+                  </label>
+                  <div className="pronunciation-row-meta">
+                    <small>
+                      {pronunciationEntrySourceLabel(entry)} -{" "}
+                      {pronunciationUsageLabel(entry)}
+                    </small>
+                  </div>
+                  <span className="pill subtle">
+                    {pronunciationEntryPill(entry)}
+                  </span>
+                  <PronunciationPreviewPlayer
+                    entryId={entry.id}
+                    fallbackSrc={`/api/assistant/pronunciation/preview?entryId=${entry.id}`}
+                  />
+                  <button className="secondary-button compact" type="submit">
+                    Save
+                  </button>
+                </form>
+
+                <form
+                  action={ignorePronunciationEntryAction}
+                  className="pronunciation-entry-remove-form"
+                >
+                  <input name="entryId" type="hidden" value={entry.id} />
+                  <input name="phrase" type="hidden" value={entry.phrase} />
+                  <input
+                    name="pronunciationHint"
+                    type="hidden"
+                    value={pronunciationHintValue(entry)}
+                  />
+                  <input name="category" type="hidden" value={entry.category} />
+                  <input
+                    name="aliases"
+                    type="hidden"
+                    value={formatPronunciationAliases(entry.aliases)}
+                  />
+                  <button
+                    aria-label={`Remove ${entry.phrase}`}
+                    className="pronunciation-icon-button danger"
+                    title="Remove pronunciation"
+                    type="submit"
+                  >
+                    <span aria-hidden="true">X</span>
+                  </button>
+                </form>
+              </div>
+            </article>
+          ))
+        ) : (
+          <p className="empty-copy">
+            No pronunciation entries yet. Add common names, suburbs, acronyms,
+            or business terms Kyro should say carefully.
+          </p>
+        )}
       </div>
-    </form>
+    </section>
   );
 }
 
@@ -1202,19 +1791,28 @@ export default async function SettingsPage({
   const selectedSection = normalizeSettingsSection(query?.section);
   const [
     communicationSettings,
+    generalSettings,
     integrationOverviews,
+    pronunciationEntries,
     usageReport,
     voiceSettings,
   ] = await Promise.all([
     selectedSection === "communication"
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
+    selectedSection === "general"
+      ? getInboundEmailSettings(supabase, workspace.id)
+      : Promise.resolve(null),
     selectedSection === "integrations"
       ? Promise.all([
           getGoogleIntegrationOverview(supabase, workspace.id),
           getMicrosoftIntegrationOverview(supabase, workspace.id),
+          getInboundEmailSettings(supabase, workspace.id),
         ])
       : Promise.resolve(null),
+    selectedSection === "voice"
+      ? getPronunciationEntries(supabase, workspace.id)
+      : Promise.resolve([]),
     selectedSection === "usage"
       ? getUsageReport(supabase, workspace.id, activeWindow)
       : Promise.resolve(null),
@@ -1224,6 +1822,7 @@ export default async function SettingsPage({
   ]);
   const googleOverview = integrationOverviews?.[0] ?? null;
   const microsoftOverview = integrationOverviews?.[1] ?? null;
+  const inboundEmailSettings = integrationOverviews?.[2] ?? null;
   const googleStatus = googleOverview
     ? integrationStatusLabel(googleOverview)
     : "Open";
@@ -1255,10 +1854,17 @@ export default async function SettingsPage({
       ? "Approval required"
       : "Direct send"
     : "Open";
-  const voicePreset = voiceSettings
-    ? elevenLabsVoicePresetById(voiceSettings.elevenLabsVoicePresetId)
-    : null;
   const settingsItems: SettingsMenuItem[] = [
+    {
+      detail: generalSettings
+        ? generalSettings.timeZone
+        : "Timezone and workspace defaults",
+      eyebrow: "General",
+      href: settingsSectionHref("general", activeWindow),
+      section: "general",
+      status: generalSettings ? generalSettings.timeZone : "Open",
+      title: "System defaults",
+    },
     {
       detail: communicationSettings
         ? `${communicationSettings.allowedChannels.length} channels`
@@ -1271,14 +1877,12 @@ export default async function SettingsPage({
     },
     {
       detail: voiceSettings
-        ? voiceSettings.provider === "elevenlabs"
-          ? (voicePreset?.label ?? "ElevenLabs voice")
-          : "OpenAI text-to-speech"
+        ? `${formatLabel(voiceSettings.openAiVoice)} voice`
         : "Realtime and playback voice controls",
       eyebrow: "Voice",
       href: settingsSectionHref("voice", activeWindow),
       section: "voice",
-      status: voiceSettings ? formatLabel(voiceSettings.provider) : "Open",
+      status: voiceSettings ? "OpenAI" : "Open",
       title: "Voice assistant",
     },
     {
@@ -1304,7 +1908,15 @@ export default async function SettingsPage({
     },
   ];
   const selectedDetail =
-    selectedSection === "communication" && communicationSettings ? (
+    selectedSection === "general" && generalSettings ? (
+      <SettingsDetailShell
+        eyebrow="General"
+        status={generalSettings.timeZone}
+        title="System defaults"
+      >
+        <GeneralSettingsDetail inboundEmailSettings={generalSettings} />
+      </SettingsDetailShell>
+    ) : selectedSection === "communication" && communicationSettings ? (
       <SettingsDetailShell
         eyebrow="Outbound"
         status={outboundStatus}
@@ -1316,7 +1928,8 @@ export default async function SettingsPage({
       </SettingsDetailShell>
     ) : selectedSection === "integrations" &&
       googleOverview &&
-      microsoftOverview ? (
+      microsoftOverview &&
+      inboundEmailSettings ? (
       <SettingsDetailShell
         eyebrow="Integrations"
         status={integrationsStatus}
@@ -1325,6 +1938,7 @@ export default async function SettingsPage({
         <WorkspaceIntegrationsSettings
           googleOverview={googleOverview}
           googleStatus={googleStatus}
+          inboundEmailSettings={inboundEmailSettings}
           microsoftOverview={microsoftOverview}
           microsoftStatus={microsoftStatus}
         />
@@ -1343,12 +1957,13 @@ export default async function SettingsPage({
     ) : selectedSection === "voice" && voiceSettings ? (
       <SettingsDetailShell
         eyebrow="Voice"
-        status={
-          voiceSettings.provider === "elevenlabs" ? "ElevenLabs" : "OpenAI"
-        }
+        status={`OpenAI - ${formatLabel(voiceSettings.openAiVoice)}`}
         title="Voice assistant"
       >
-        <VoiceSettingsDetail voiceSettings={voiceSettings} />
+        <VoiceSettingsDetail
+          pronunciationEntries={pronunciationEntries}
+          voiceSettings={voiceSettings}
+        />
       </SettingsDetailShell>
     ) : null;
 

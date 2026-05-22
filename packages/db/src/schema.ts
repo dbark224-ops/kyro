@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -9,11 +10,21 @@ import {
   text,
   timestamp,
   uniqueIndex,
-  uuid
+  uuid,
 } from "drizzle-orm/pg-core";
 
-export const workspaceRole = pgEnum("workspace_role", ["owner", "admin", "operator", "viewer"]);
-export const eventStatus = pgEnum("event_status", ["pending", "processing", "processed", "failed"]);
+export const workspaceRole = pgEnum("workspace_role", [
+  "owner",
+  "admin",
+  "operator",
+  "viewer",
+]);
+export const eventStatus = pgEnum("event_status", [
+  "pending",
+  "processing",
+  "processed",
+  "failed",
+]);
 export const actionStatus = pgEnum("action_status", [
   "requested",
   "pending_approval",
@@ -21,20 +32,31 @@ export const actionStatus = pgEnum("action_status", [
   "executing",
   "completed",
   "failed",
-  "cancelled"
+  "cancelled",
 ]);
-export const aiRunStatus = pgEnum("ai_run_status", ["queued", "running", "completed", "failed"]);
+export const aiRunStatus = pgEnum("ai_run_status", [
+  "queued",
+  "running",
+  "completed",
+  "failed",
+]);
 
 const timestamps = {
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 };
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const workspaces = pgTable("workspaces", {
@@ -44,7 +66,7 @@ export const workspaces = pgTable("workspaces", {
   ownerUserId: uuid("owner_user_id")
     .notNull()
     .references(() => users.id),
-  ...timestamps
+  ...timestamps,
 });
 
 export const workspaceMembers = pgTable(
@@ -58,14 +80,16 @@ export const workspaceMembers = pgTable(
       .notNull()
       .references(() => users.id),
     role: workspaceRole("role").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
   },
   (table) => ({
     workspaceUserIdx: uniqueIndex("workspace_members_workspace_user_idx").on(
       table.workspaceId,
-      table.userId
-    )
-  })
+      table.userId,
+    ),
+  }),
 );
 
 export const businessProfiles = pgTable("business_profiles", {
@@ -79,7 +103,7 @@ export const businessProfiles = pgTable("business_profiles", {
   serviceArea: text("service_area"),
   toneOfVoice: text("tone_of_voice"),
   defaultReplyInstructions: text("default_reply_instructions"),
-  ...timestamps
+  ...timestamps,
 });
 
 export const workspacePolicies = pgTable(
@@ -91,14 +115,13 @@ export const workspacePolicies = pgTable(
       .references(() => workspaces.id),
     policyType: text("policy_type").notNull(),
     settings: jsonb("settings").notNull().default({}),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
-    workspacePolicyIdx: uniqueIndex("workspace_policies_workspace_policy_idx").on(
-      table.workspaceId,
-      table.policyType
-    )
-  })
+    workspacePolicyIdx: uniqueIndex(
+      "workspace_policies_workspace_policy_idx",
+    ).on(table.workspaceId, table.policyType),
+  }),
 );
 
 export const workspaceEntitlements = pgTable(
@@ -113,14 +136,13 @@ export const workspaceEntitlements = pgTable(
     source: text("source").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }),
     endsAt: timestamp("ends_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
-    workspaceEntitlementIdx: uniqueIndex("workspace_entitlements_workspace_key_idx").on(
-      table.workspaceId,
-      table.entitlementKey
-    )
-  })
+    workspaceEntitlementIdx: uniqueIndex(
+      "workspace_entitlements_workspace_key_idx",
+    ).on(table.workspaceId, table.entitlementKey),
+  }),
 );
 
 export const contacts = pgTable(
@@ -139,15 +161,15 @@ export const contacts = pgTable(
     source: text("source"),
     notes: text("notes"),
     tags: jsonb("tags").notNull().default([]),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
     contactWorkspaceIdx: index("contacts_workspace_idx").on(table.workspaceId),
     contactWorkspaceTypeIdx: index("contacts_workspace_type_idx").on(
       table.workspaceId,
-      table.contactType
-    )
-  })
+      table.contactType,
+    ),
+  }),
 );
 
 export const leads = pgTable("leads", {
@@ -164,7 +186,7 @@ export const leads = pgTable("leads", {
   estimatedValue: numeric("estimated_value"),
   serviceType: text("service_type"),
   nextStep: text("next_step"),
-  ...timestamps
+  ...timestamps,
 });
 
 export const integrationConnections = pgTable(
@@ -184,24 +206,26 @@ export const integrationConnections = pgTable(
     status: text("status").notNull().default("not_connected"),
     scopes: jsonb("scopes").notNull().default([]),
     tokenSet: jsonb("token_set").notNull().default({}),
-    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", {
+      withTimezone: true,
+    }),
     lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     lastError: text("last_error"),
     metadata: jsonb("metadata").notNull().default({}),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
-    integrationConnectionsWorkspaceIdx: index("integration_connections_workspace_idx").on(
-      table.workspaceId
-    ),
+    integrationConnectionsWorkspaceIdx: index(
+      "integration_connections_workspace_idx",
+    ).on(table.workspaceId),
     integrationConnectionsWorkspaceProviderIdx: index(
-      "integration_connections_workspace_provider_idx"
+      "integration_connections_workspace_provider_idx",
     ).on(table.workspaceId, table.provider, table.status),
     integrationConnectionsWorkspaceKeyIdx: uniqueIndex(
-      "integration_connections_workspace_key_idx"
-    ).on(table.workspaceId, table.provider, table.connectionKey)
-  })
+      "integration_connections_workspace_key_idx",
+    ).on(table.workspaceId, table.provider, table.connectionKey),
+  }),
 );
 
 export const integrationOauthStates = pgTable(
@@ -222,18 +246,18 @@ export const integrationOauthStates = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     metadata: jsonb("metadata").notNull().default({}),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
   },
   (table) => ({
-    integrationOauthStatesStateIdx: uniqueIndex("integration_oauth_states_state_idx").on(
-      table.stateHash
-    ),
-    integrationOauthStatesWorkspaceIdx: index("integration_oauth_states_workspace_idx").on(
-      table.workspaceId,
-      table.provider,
-      table.expiresAt
-    )
-  })
+    integrationOauthStatesStateIdx: uniqueIndex(
+      "integration_oauth_states_state_idx",
+    ).on(table.stateHash),
+    integrationOauthStatesWorkspaceIdx: index(
+      "integration_oauth_states_workspace_idx",
+    ).on(table.workspaceId, table.provider, table.expiresAt),
+  }),
 );
 
 export const channels = pgTable("channels", {
@@ -241,13 +265,15 @@ export const channels = pgTable("channels", {
   workspaceId: uuid("workspace_id")
     .notNull()
     .references(() => workspaces.id),
-  integrationId: uuid("integration_id").references(() => integrationConnections.id),
+  integrationId: uuid("integration_id").references(
+    () => integrationConnections.id,
+  ),
   type: text("type").notNull(),
   displayName: text("display_name").notNull(),
   externalId: text("external_id"),
   status: text("status").notNull().default("active"),
   settings: jsonb("settings").notNull().default({}),
-  ...timestamps
+  ...timestamps,
 });
 
 export const conversations = pgTable("conversations", {
@@ -261,7 +287,7 @@ export const conversations = pgTable("conversations", {
   externalThreadId: text("external_thread_id"),
   status: text("status").notNull().default("open"),
   lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
-  ...timestamps
+  ...timestamps,
 });
 
 export const messages = pgTable("messages", {
@@ -280,7 +306,9 @@ export const messages = pgTable("messages", {
   sentAt: timestamp("sent_at", { withTimezone: true }),
   receivedAt: timestamp("received_at", { withTimezone: true }),
   metadata: jsonb("metadata").notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const files = pgTable("files", {
@@ -294,7 +322,9 @@ export const files = pgTable("files", {
   contentType: text("content_type"),
   sizeBytes: integer("size_bytes"),
   source: text("source").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const events = pgTable(
@@ -310,14 +340,30 @@ export const events = pgTable(
     payload: jsonb("payload").notNull().default({}),
     status: eventStatus("status").notNull().default("pending"),
     processedAt: timestamp("processed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
   },
   (table) => ({
     eventIdempotencyIdx: uniqueIndex("events_workspace_idempotency_idx").on(
       table.workspaceId,
-      table.idempotencyKey
+      table.idempotencyKey,
+    ),
+    eventsInboundObservedProcessedIdx: index(
+      "events_inbound_observed_processed_idx",
     )
-  })
+      .on(table.workspaceId, table.processedAt)
+      .where(
+        sql`${table.type} = 'inbound.email.received' and ${table.status} = 'processed' and ${table.payload} @> '{"stage":"observed"}'::jsonb`,
+      ),
+    eventsFilteredEmailReplyProcessedIdx: index(
+      "events_filtered_email_reply_processed_idx",
+    )
+      .on(table.workspaceId, table.processedAt)
+      .where(
+        sql`${table.type} = 'outbound.filtered_email.reply_sent' and ${table.status} = 'processed'`,
+      ),
+  }),
 );
 
 export const workflowRuns = pgTable("workflow_runs", {
@@ -331,7 +377,7 @@ export const workflowRuns = pgTable("workflow_runs", {
   attemptCount: integer("attempt_count").notNull().default(0),
   startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
-  error: text("error")
+  error: text("error"),
 });
 
 export const aiRuns = pgTable("ai_runs", {
@@ -355,8 +401,10 @@ export const aiRuns = pgTable("ai_runs", {
   actualCost: numeric("actual_cost"),
   latencyMs: integer("latency_ms"),
   error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  completedAt: timestamp("completed_at", { withTimezone: true })
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
 export const modelRoutes = pgTable("model_routes", {
@@ -371,7 +419,7 @@ export const modelRoutes = pgTable("model_routes", {
   fallbackModel: text("fallback_model"),
   settings: jsonb("settings").notNull().default({}),
   isActive: boolean("is_active").notNull().default(true),
-  ...timestamps
+  ...timestamps,
 });
 
 export const modelRouteDecisions = pgTable("model_route_decisions", {
@@ -388,7 +436,9 @@ export const modelRouteDecisions = pgTable("model_route_decisions", {
   fallbackUsed: boolean("fallback_used").notNull().default(false),
   decisionReason: text("decision_reason").notNull(),
   budgetSnapshot: jsonb("budget_snapshot").notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const actions = pgTable("actions", {
@@ -399,7 +449,9 @@ export const actions = pgTable("actions", {
   type: text("type").notNull(),
   status: actionStatus("status").notNull().default("requested"),
   requestedBy: text("requested_by").notNull(),
-  requestedByAiRunId: uuid("requested_by_ai_run_id").references(() => aiRuns.id),
+  requestedByAiRunId: uuid("requested_by_ai_run_id").references(
+    () => aiRuns.id,
+  ),
   approvalRequired: boolean("approval_required").notNull().default(true),
   approvedByUserId: uuid("approved_by_user_id").references(() => users.id),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -410,7 +462,7 @@ export const actions = pgTable("actions", {
   result: jsonb("result").notNull().default({}),
   policySnapshot: jsonb("policy_snapshot").notNull().default({}),
   error: text("error"),
-  ...timestamps
+  ...timestamps,
 });
 
 export const quoteDrafts = pgTable(
@@ -429,16 +481,21 @@ export const quoteDrafts = pgTable(
     lineItems: jsonb("line_items").notNull().default([]),
     notes: text("notes"),
     metadata: jsonb("metadata").notNull().default({}),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
-    quoteDraftWorkspaceIdx: index("quote_drafts_workspace_idx").on(table.workspaceId),
+    quoteDraftWorkspaceIdx: index("quote_drafts_workspace_idx").on(
+      table.workspaceId,
+    ),
     quoteDraftConversationIdx: index("quote_drafts_conversation_idx").on(
       table.workspaceId,
-      table.conversationId
+      table.conversationId,
     ),
-    quoteDraftLeadIdx: index("quote_drafts_lead_idx").on(table.workspaceId, table.leadId)
-  })
+    quoteDraftLeadIdx: index("quote_drafts_lead_idx").on(
+      table.workspaceId,
+      table.leadId,
+    ),
+  }),
 );
 
 export const inquiryFacts = pgTable(
@@ -464,17 +521,17 @@ export const inquiryFacts = pgTable(
     source: text("source").notNull().default("ai"),
     editedByUserId: uuid("edited_by_user_id").references(() => users.id),
     metadata: jsonb("metadata").notNull().default({}),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
     inquiryFactsWorkspaceConversationIdx: uniqueIndex(
-      "inquiry_facts_workspace_conversation_idx"
+      "inquiry_facts_workspace_conversation_idx",
     ).on(table.workspaceId, table.conversationId),
     inquiryFactsLeadIdx: index("inquiry_facts_workspace_lead_idx").on(
       table.workspaceId,
-      table.leadId
-    )
-  })
+      table.leadId,
+    ),
+  }),
 );
 
 export const assistantThreads = pgTable(
@@ -490,19 +547,16 @@ export const assistantThreads = pgTable(
     summary: text("summary"),
     summaryUpdatedAt: timestamp("summary_updated_at", { withTimezone: true }),
     metadata: jsonb("metadata").notNull().default({}),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
-    assistantThreadsWorkspaceUserIdx: index("assistant_threads_workspace_user_idx").on(
-      table.workspaceId,
-      table.userId,
-      table.updatedAt
-    ),
-    assistantThreadsWorkspaceStatusIdx: index("assistant_threads_workspace_status_idx").on(
-      table.workspaceId,
-      table.status
-    )
-  })
+    assistantThreadsWorkspaceUserIdx: index(
+      "assistant_threads_workspace_user_idx",
+    ).on(table.workspaceId, table.userId, table.updatedAt),
+    assistantThreadsWorkspaceStatusIdx: index(
+      "assistant_threads_workspace_status_idx",
+    ).on(table.workspaceId, table.status),
+  }),
 );
 
 export const assistantMessages = pgTable(
@@ -525,19 +579,19 @@ export const assistantMessages = pgTable(
     toolCalls: jsonb("tool_calls").notNull().default([]),
     uiBlocks: jsonb("ui_blocks").notNull().default([]),
     metadata: jsonb("metadata").notNull().default({}),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
   },
   (table) => ({
-    assistantMessagesThreadCreatedIdx: index("assistant_messages_thread_created_idx").on(
-      table.workspaceId,
-      table.threadId,
-      table.createdAt
-    ),
+    assistantMessagesThreadCreatedIdx: index(
+      "assistant_messages_thread_created_idx",
+    ).on(table.workspaceId, table.threadId, table.createdAt),
     assistantMessagesAiRunIdx: index("assistant_messages_ai_run_idx").on(
       table.workspaceId,
-      table.aiRunId
-    )
-  })
+      table.aiRunId,
+    ),
+  }),
 );
 
 export const assistantMemories = pgTable(
@@ -548,8 +602,12 @@ export const assistantMemories = pgTable(
       .notNull()
       .references(() => workspaces.id),
     userId: uuid("user_id").references(() => users.id),
-    sourceThreadId: uuid("source_thread_id").references(() => assistantThreads.id),
-    sourceMessageId: uuid("source_message_id").references(() => assistantMessages.id),
+    sourceThreadId: uuid("source_thread_id").references(
+      () => assistantThreads.id,
+    ),
+    sourceMessageId: uuid("source_message_id").references(
+      () => assistantMessages.id,
+    ),
     memoryType: text("memory_type").notNull().default("preference"),
     content: text("content").notNull(),
     status: text("status").notNull().default("active"),
@@ -557,19 +615,51 @@ export const assistantMemories = pgTable(
     tags: jsonb("tags").notNull().default([]),
     metadata: jsonb("metadata").notNull().default({}),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
-    assistantMemoriesWorkspaceStatusIdx: index("assistant_memories_workspace_status_idx").on(
-      table.workspaceId,
-      table.status,
-      table.updatedAt
-    ),
-    assistantMemoriesSourceThreadIdx: index("assistant_memories_source_thread_idx").on(
-      table.workspaceId,
-      table.sourceThreadId
-    )
-  })
+    assistantMemoriesWorkspaceStatusIdx: index(
+      "assistant_memories_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.updatedAt),
+    assistantMemoriesSourceThreadIdx: index(
+      "assistant_memories_source_thread_idx",
+    ).on(table.workspaceId, table.sourceThreadId),
+  }),
+);
+
+export const assistantPronunciations = pgTable(
+  "assistant_pronunciations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    phrase: text("phrase").notNull(),
+    normalizedPhrase: text("normalized_phrase").notNull(),
+    pronunciationHint: text("pronunciation_hint"),
+    category: text("category").notNull().default("other"),
+    status: text("status").notNull().default("suggested"),
+    source: text("source").notNull().default("manual"),
+    aliases: jsonb("aliases").notNull().default([]),
+    confidence: numeric("confidence").notNull().default("0"),
+    importance: text("importance").notNull().default("medium"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    reviewedByUserId: uuid("reviewed_by_user_id").references(() => users.id),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    assistantPronunciationsWorkspacePhraseIdx: uniqueIndex(
+      "assistant_pronunciations_workspace_phrase_idx",
+    ).on(table.workspaceId, table.normalizedPhrase),
+    assistantPronunciationsWorkspaceStatusIdx: index(
+      "assistant_pronunciations_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.updatedAt),
+    assistantPronunciationsWorkspaceCategoryIdx: index(
+      "assistant_pronunciations_workspace_category_idx",
+    ).on(table.workspaceId, table.category, table.status),
+  }),
 );
 
 export const usageEvents = pgTable("usage_events", {
@@ -597,7 +687,9 @@ export const usageEvents = pgTable("usage_events", {
   customerChargeSnapshot: numeric("customer_charge_snapshot").notNull(),
   providerUsageId: text("provider_usage_id"),
   metadata: jsonb("metadata").notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const usageRollups = pgTable(
@@ -618,15 +710,15 @@ export const usageRollups = pgTable(
     cost: numeric("cost").notNull(),
     customerCharge: numeric("customer_charge").notNull(),
     currency: text("currency").notNull(),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
     usageRollupPeriodIdx: index("usage_rollups_workspace_period_idx").on(
       table.workspaceId,
       table.periodStart,
-      table.periodEnd
-    )
-  })
+      table.periodEnd,
+    ),
+  }),
 );
 
 export const pricingRules = pgTable("pricing_rules", {
@@ -644,7 +736,7 @@ export const pricingRules = pgTable("pricing_rules", {
   customerUnitPrice: numeric("customer_unit_price"),
   currency: text("currency").notNull().default("USD"),
   isActive: boolean("is_active").notNull().default(true),
-  ...timestamps
+  ...timestamps,
 });
 
 export const workspaceBudgets = pgTable(
@@ -659,14 +751,13 @@ export const workspaceBudgets = pgTable(
     hardLimit: numeric("hard_limit"),
     currency: text("currency").notNull().default("USD"),
     settings: jsonb("settings").notNull().default({}),
-    ...timestamps
+    ...timestamps,
   },
   (table) => ({
-    workspaceBudgetPeriodIdx: uniqueIndex("workspace_budgets_workspace_period_idx").on(
-      table.workspaceId,
-      table.period
-    )
-  })
+    workspaceBudgetPeriodIdx: uniqueIndex(
+      "workspace_budgets_workspace_period_idx",
+    ).on(table.workspaceId, table.period),
+  }),
 );
 
 export const auditLogs = pgTable("audit_logs", {
@@ -682,5 +773,7 @@ export const auditLogs = pgTable("audit_logs", {
   before: jsonb("before"),
   after: jsonb("after"),
   metadata: jsonb("metadata").notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });

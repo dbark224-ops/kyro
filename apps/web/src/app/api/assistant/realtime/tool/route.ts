@@ -3,6 +3,10 @@ import {
   assistantWebSearchEnabled,
   runAssistantWebSearch,
 } from "../../../../../lib/assistant/web-search";
+import {
+  syncInboundEmail,
+  type InboundEmailProvider,
+} from "../../../../../lib/integrations/inbound-email-sync";
 import { requireWorkspaceContext } from "../../../../../lib/workspace/context";
 
 export const dynamic = "force-dynamic";
@@ -23,22 +27,52 @@ export async function POST(request: Request) {
   const rawArguments = objectRecord(body.arguments);
   const prompt = textValue(rawArguments.prompt) ?? textValue(rawArguments.query);
 
-  if (name !== "kyro_context_lookup" && name !== "kyro_web_search") {
+  if (
+    name !== "kyro_context_lookup" &&
+    name !== "kyro_web_search" &&
+    name !== "kyro_check_recent_email"
+  ) {
     return Response.json({ error: "Unsupported realtime tool." }, { status: 400 });
   }
 
-  if (!prompt) {
+  if (name !== "kyro_check_recent_email" && !prompt) {
     return Response.json({ error: "Tool prompt is required." }, { status: 400 });
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+
+  if (name === "kyro_check_recent_email") {
+    const providerArg = textValue(rawArguments.provider);
+    const provider: InboundEmailProvider | undefined =
+      providerArg === "google" || providerArg === "microsoft" ? providerArg : undefined;
+    const result = await syncInboundEmail({
+      provider,
+      supabase,
+      trigger: "assistant",
+      user,
+      workspaceId: workspace.id,
+    });
+    const answer =
+      result.needsReconnect.length > 0
+        ? `I checked email, but ${result.needsReconnect.length} connected account needs to be reconnected with inbox-read permission. I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages}, and observed ${result.observedMessages}.`
+        : result.errors.length > 0
+          ? `I checked email with ${result.errors.length} issue(s). I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages}, and observed ${result.observedMessages}.`
+          : `I checked email. I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages} into Kyro, observed ${result.observedMessages}, and skipped ${result.duplicates} duplicate(s).`;
+
+    return Response.json({
+      data: {
+        answer,
+        result,
+      },
+    });
+  }
 
   if (name === "kyro_web_search") {
     if (!assistantWebSearchEnabled()) {
       return Response.json({ error: "Web search is disabled." }, { status: 403 });
     }
 
-    const result = await runAssistantWebSearch({ prompt });
+    const result = await runAssistantWebSearch({ prompt: prompt ?? "" });
 
     return Response.json({
       data: {
@@ -52,7 +86,7 @@ export async function POST(request: Request) {
   }
 
   const result = await resolveAssistantCommand({
-    prompt,
+    prompt: prompt ?? "",
     supabase,
     user,
     workspace,

@@ -14,6 +14,7 @@ import {
   recordOutboundMessage,
   type OutboundAttachment,
 } from "../../lib/communication/outbound";
+import { sendConnectedEmailMessage } from "../../lib/integrations/mail";
 import { runStubAiTriage, type InquiryFacts } from "../../lib/ai/triage";
 import {
   approveAction,
@@ -394,6 +395,17 @@ function redirectWithConversationMessage(
     redirectTo ?? "",
     conversationPath(conversationId),
   );
+  const separator = target.includes("?") ? "&" : "?";
+
+  redirect(`${target}${separator}${key}=${encodeURIComponent(message)}`);
+}
+
+function redirectWithInboxMessage(
+  key: "engine_error" | "engine_message",
+  message: string,
+  redirectTo = "/inbox",
+): never {
+  const target = safeRedirectPath(redirectTo, "/inbox");
   const separator = target.includes("?") ? "&" : "?";
 
   redirect(`${target}${separator}${key}=${encodeURIComponent(message)}`);
@@ -1073,7 +1085,9 @@ export async function sendDraftReplyAction(formData: FormData) {
     redirectWithConversationMessage(
       conversationId,
       "engine_error",
-      error instanceof Error ? error.message : "Unable to send generated reply.",
+      error instanceof Error
+        ? error.message
+        : "Unable to send generated reply.",
       redirectTo,
     );
   }
@@ -1322,6 +1336,190 @@ export async function createMockOutboundMessageAction(formData: FormData) {
     outboundResult.externalSend
       ? "Reply sent and recorded in the thread."
       : "Outbound message recorded in the thread.",
+    redirectTo,
+  );
+}
+
+function defaultSkippedReplySubject(subject: string | null) {
+  const value = subject?.trim() || "Follow-up";
+
+  return value.toLowerCase().startsWith("re:") ? value : `Re: ${value}`;
+}
+
+export async function sendSkippedEmailReplyAction(formData: FormData) {
+  const eventId = formString(formData, "eventId");
+  const subject = nullableText(formString(formData, "subject"));
+  const body = formString(formData, "body");
+  const includeSignature = formBoolean(formData, "includeSignature");
+  const signatureVariant = formSignatureVariant(formData);
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    "/inbox?skipped=1",
+  );
+
+  if (!eventId) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Skipped email id is required.",
+      redirectTo,
+    );
+  }
+
+  if (!body) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Reply body is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: event, error: eventError } = await supabase
+    .from("events")
+    .select("id,payload")
+    .eq("workspace_id", workspace.id)
+    .eq("id", eventId)
+    .eq("type", "inbound.email.received")
+    .eq("status", "processed")
+    .maybeSingle();
+
+  if (eventError) {
+    redirectWithInboxMessage("engine_error", eventError.message, redirectTo);
+  }
+
+  if (!event) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Skipped email was not found.",
+      redirectTo,
+    );
+  }
+
+  const payload = objectRecord(event.payload);
+
+  if (textValue(payload.stage) !== "observed") {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Only filtered-out emails can be replied to from this panel.",
+      redirectTo,
+    );
+  }
+
+  const to = textValue(payload.fromEmail);
+
+  if (!to) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "This skipped email does not have a sender address.",
+      redirectTo,
+    );
+  }
+
+  const settings = await getCommunicationSettings(supabase, workspace.id);
+  const shouldApplySignature = includeSignature;
+  const signedBody = shouldApplySignature
+    ? buildSignedEmailBody({
+        body,
+        signature: selectEmailSignature(settings, signatureVariant),
+      })
+    : {
+        bodyText: body.trim(),
+        htmlBody: null,
+        inlineAttachments: [],
+        signatureApplied: false,
+      };
+  const resolvedSubject =
+    subject ?? defaultSkippedReplySubject(textValue(payload.subject));
+  const emailResult = await sendConnectedEmailMessage(supabase, {
+    attachments: signedBody.inlineAttachments,
+    body: signedBody.bodyText,
+    htmlBody: signedBody.htmlBody,
+    subject: resolvedSubject,
+    to,
+    workspaceId: workspace.id,
+  });
+  const now = new Date().toISOString();
+  const { data: replyEvent, error: replyEventError } = await supabase
+    .from("events")
+    .insert({
+      idempotency_key: `email.filtered_reply.${eventId}.${crypto.randomUUID()}`,
+      payload: {
+        accountEmail: emailResult.accountEmail,
+        externalMessageId: emailResult.messageId,
+        externalThreadId: emailResult.threadId,
+        originalEventId: eventId,
+        provider: emailResult.provider,
+        sentAt: now,
+        sentTo: to,
+        service: emailResult.service,
+        signatureApplied: signedBody.signatureApplied,
+        subject: resolvedSubject,
+      },
+      processed_at: now,
+      source: "inbox.filtered_email_reply",
+      status: "processed",
+      type: "outbound.filtered_email.reply_sent",
+      workspace_id: workspace.id,
+    })
+    .select("id")
+    .single();
+
+  if (replyEventError) {
+    redirectWithInboxMessage(
+      "engine_error",
+      replyEventError.message,
+      redirectTo,
+    );
+  }
+
+  await supabase.from("usage_events").insert({
+    currency: "USD",
+    cost_snapshot: "0",
+    customer_charge_snapshot: "0",
+    metadata: {
+      originalEventId: eventId,
+      provider: emailResult.provider,
+      service: emailResult.service,
+      source: "filtered_email_reply",
+      sentTo: to,
+    },
+    model: null,
+    provider: emailResult.provider,
+    provider_usage_id: emailResult.messageId,
+    quantity: "1",
+    service: emailResult.service,
+    source_id: replyEvent?.id ?? eventId,
+    source_type: "event",
+    unit: "message",
+    unit_cost_snapshot: "0",
+    markup_snapshot: "0",
+    usage_type: "outbound_email",
+    user_id: user.id,
+    workspace_id: workspace.id,
+  });
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "filtered_email.reply_sent",
+    entityType: "event",
+    entityId: eventId,
+    after: {
+      externalMessageId: emailResult.messageId,
+      sentTo: to,
+      subject: resolvedSubject,
+    },
+    metadata: {
+      replyEventId: replyEvent?.id ?? null,
+      source: "skipped_email_dialog",
+    },
+  });
+
+  revalidatePath("/inbox");
+  redirectWithInboxMessage(
+    "engine_message",
+    "Reply sent from filtered-out email.",
     redirectTo,
   );
 }

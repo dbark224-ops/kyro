@@ -2,7 +2,10 @@ import { AppFrame } from "../components/app-frame";
 import {
   getConversationList,
   getConversationReview,
+  getSkippedEmailLast24HoursCount,
+  getSkippedEmailSummaries,
   type ConversationReview,
+  type SkippedEmailSummaryItem,
 } from "../../lib/crm/queries";
 import {
   OUTBOUND_CHANNELS,
@@ -14,6 +17,8 @@ import {
   sendDraftReplyAction,
   updateDraftReplyAction,
 } from "./actions";
+import { ReplyGenerator } from "./reply-generator";
+import { SkippedEmailReplyDetails } from "./skipped-email-reply-details";
 import {
   approveAndExecuteDashboardAction,
   approveDashboardAction,
@@ -34,6 +39,9 @@ type InboxPageProps = {
     conversationId?: string;
     q?: string;
     sort?: string;
+    skipped?: string;
+    engine_error?: string;
+    engine_message?: string;
   }>;
 };
 
@@ -107,11 +115,13 @@ function inboxHref({
   conversationId,
   filter,
   query,
+  showSkippedEmail = false,
   sort,
 }: {
   conversationId?: string | null;
   filter: string;
   query: string;
+  showSkippedEmail?: boolean;
   sort: string;
 }) {
   const params = new URLSearchParams();
@@ -132,6 +142,10 @@ function inboxHref({
     params.set("sort", sort);
   }
 
+  if (showSkippedEmail) {
+    params.set("skipped", "1");
+  }
+
   const nextQuery = params.toString();
 
   return nextQuery ? `/inbox?${nextQuery}` : "/inbox";
@@ -141,9 +155,16 @@ function filterHref(
   filter: string,
   query: string,
   sort: string,
+  showSkippedEmail: boolean,
   conversationId?: string | null,
 ) {
-  return inboxHref({ conversationId, filter, query, sort });
+  return inboxHref({
+    conversationId,
+    filter,
+    query,
+    showSkippedEmail,
+    sort,
+  });
 }
 
 function dateValue(value: string | null) {
@@ -215,6 +236,131 @@ function channelLabel(
   }
 
   return channelDisplayName ?? formatLabel(channelType);
+}
+
+function confidenceLabel(value: number | null) {
+  return typeof value === "number" ? `${Math.round(value * 100)}%` : null;
+}
+
+function defaultSkippedReplySubject(subject: string) {
+  return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
+}
+
+function SkippedEmailDialog({
+  closeHref,
+  emails,
+  last24HoursCount,
+  replyRedirectHref,
+}: Readonly<{
+  closeHref: string;
+  emails: SkippedEmailSummaryItem[];
+  last24HoursCount: number;
+  replyRedirectHref: string;
+}>) {
+  return (
+    <div className="skipped-email-backdrop" role="presentation">
+      <section
+        aria-labelledby="skipped-email-dialog-title"
+        aria-modal="true"
+        className="skipped-email-dialog"
+        role="dialog"
+      >
+        <div className="skipped-email-panel-heading">
+          <div>
+            <p className="eyebrow">Filtered-out emails</p>
+            <h3 id="skipped-email-dialog-title">Emails Kyro skipped</h3>
+            <p>
+              Emails Kyro noticed but did not turn into CRM work. This stays
+              separate from the main Inbox queue so personal/newsletter noise
+              stays out of the work list.
+            </p>
+          </div>
+          <div className="skipped-email-dialog-actions">
+            <span className="pill">{last24HoursCount} last 24h</span>
+            <Link className="text-button" href={closeHref} prefetch={false}>
+              Close
+            </Link>
+          </div>
+        </div>
+
+        <div className="skipped-email-list">
+          {emails.length > 0 ? (
+            emails.map((email) => {
+              const confidence = confidenceLabel(email.confidence);
+              const hasReply = email.replyCount > 0;
+              const rowClassName = [
+                "skipped-email-row",
+                email.fromEmail ? "has-reply" : null,
+                hasReply ? "is-replied has-expand" : null,
+              ]
+                .filter(Boolean)
+                .join(" ");
+
+              return (
+                <article className={rowClassName} key={email.id}>
+                  <div className="skipped-email-main">
+                    <div className="skipped-email-card-meta">
+                      {email.fromEmail ? (
+                        <span>{email.fromEmail}</span>
+                      ) : (
+                        <span className="pill subtle">No reply address</span>
+                      )}
+                      <time
+                        dateTime={email.receivedAt ?? email.processedAt ?? ""}
+                      >
+                        {formatDate(email.receivedAt ?? email.processedAt)}
+                      </time>
+                      {confidence ? <span>{confidence} confidence</span> : null}
+                      <span className="skipped-email-meta-pill">
+                        {formatLabel(email.category)}
+                      </span>
+                      {hasReply ? (
+                        <span className="skipped-email-meta-pill replied">
+                          Replied
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="skipped-email-title">
+                      <strong>{email.subject}</strong>
+                    </div>
+                    {hasReply ? null : (
+                      <p>
+                        {email.summary ??
+                          "No skipped-mail summary was stored for this email."}
+                      </p>
+                    )}
+                  </div>
+                  {hasReply ? (
+                    <details className="skipped-email-expand">
+                      <summary aria-label="Show skipped email preview">
+                        <span aria-hidden="true">⌄</span>
+                      </summary>
+                      <p>
+                        {email.summary ??
+                          "No skipped-mail summary was stored for this email."}
+                      </p>
+                    </details>
+                  ) : null}
+                  {email.fromEmail ? (
+                    <SkippedEmailReplyDetails
+                      defaultSubject={defaultSkippedReplySubject(email.subject)}
+                      emailId={email.id}
+                      replyRedirectHref={replyRedirectHref}
+                    />
+                  ) : null}
+                </article>
+              );
+            })
+          ) : (
+            <p className="empty-copy">
+              No filtered-out emails yet. Once inbound sync observes skipped
+              emails, they will appear here.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function previewActionTitle(action: ConversationReview["actions"][number]) {
@@ -292,7 +438,9 @@ function previewActionExecuteLabel(
 }
 
 function isReplySendAction(action: ConversationReview["actions"][number]) {
-  return action.type === "draft_reply" || action.type === "send_outbound_message";
+  return (
+    action.type === "draft_reply" || action.type === "send_outbound_message"
+  );
 }
 
 function shouldShowPreviewAction(
@@ -372,7 +520,8 @@ function InboxDraftReplyAction({
   redirectTo: string;
 }) {
   const canEdit = action.status === "pending_approval";
-  const draftSubject = textValue(action.input.subject) ?? "Thanks for reaching out";
+  const draftSubject =
+    textValue(action.input.subject) ?? "Thanks for reaching out";
   const draftBody = textValue(action.input.body) ?? "";
 
   return (
@@ -417,7 +566,9 @@ function InboxDraftReplyAction({
             </button>
           ) : null}
           <button className="primary-button compact" type="submit">
-            {action.status === "completed" ? "Completed" : "Send generated reply"}
+            {action.status === "completed"
+              ? "Completed"
+              : "Send generated reply"}
           </button>
         </div>
       </form>
@@ -581,14 +732,11 @@ function InboxManualReplyComposer({
             required
           />
         </label>
+        <ReplyGenerator conversationId={profile.conversation.id} />
         <div className="outbound-policy-strip">
           <div className="email-signature-control">
             <label className="signature-include-control">
-              <input
-                defaultChecked
-                name="includeSignature"
-                type="checkbox"
-              />
+              <input defaultChecked name="includeSignature" type="checkbox" />
               <span>Signature</span>
             </label>
             <select
@@ -740,7 +888,7 @@ function InboxSplitPreview({
         {visibleActions.length > 0 ? (
           <InboxPreviewPanel title="Action queue">
             <div className="assistant-preview-list compact">
-              {visibleActions.map((action) => (
+              {visibleActions.map((action) =>
                 action.type === "draft_reply" ? (
                   <InboxDraftReplyAction
                     action={action}
@@ -763,8 +911,8 @@ function InboxSplitPreview({
                       redirectTo={redirectTo}
                     />
                   </article>
-                )
-              ))}
+                ),
+              )}
             </div>
           </InboxPreviewPanel>
         ) : null}
@@ -780,19 +928,35 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const activeSort = isSort(query?.sort) ? query.sort : "recent";
   const searchQuery = query?.q?.trim() ?? "";
   const selectedConversationId = query?.conversationId?.trim() ?? "";
-  const [conversations, selectedConversationReview, communicationSettings] =
-    await Promise.all([
-      getConversationList(supabase, workspace.id),
-      selectedConversationId
-        ? getConversationReview(supabase, workspace.id, selectedConversationId)
-        : Promise.resolve(null),
-      selectedConversationId
-        ? getCommunicationSettings(supabase, workspace.id)
-        : Promise.resolve(null),
-    ]);
+  const showSkippedEmail = query?.skipped === "1";
+  const [
+    conversations,
+    selectedConversationReview,
+    communicationSettings,
+    skippedEmailSummaries,
+  ] = await Promise.all([
+    getConversationList(supabase, workspace.id),
+    selectedConversationId
+      ? getConversationReview(supabase, workspace.id, selectedConversationId)
+      : Promise.resolve(null),
+    selectedConversationId
+      ? getCommunicationSettings(supabase, workspace.id)
+      : Promise.resolve(null),
+    showSkippedEmail
+      ? getSkippedEmailSummaries(supabase, workspace.id)
+      : getSkippedEmailLast24HoursCount(supabase, workspace.id).then(
+          (last24HoursCount) => ({
+            items: [],
+            last24HoursCount,
+          }),
+        ),
+  ]);
+  const skippedEmailSummaryItems = skippedEmailSummaries.items;
+  const skippedEmailLast24HoursCount = skippedEmailSummaries.last24HoursCount;
   const closePreviewHref = inboxHref({
     filter: activeFilter,
     query: searchQuery,
+    showSkippedEmail,
     sort: activeSort,
   });
   const selectedRedirectHref = selectedConversationReview
@@ -800,9 +964,23 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
         conversationId: selectedConversationReview.conversation.id,
         filter: activeFilter,
         query: searchQuery,
+        showSkippedEmail,
         sort: activeSort,
       })
     : closePreviewHref;
+  const skippedEmailOpenHref = inboxHref({
+    conversationId: selectedConversationReview?.conversation.id,
+    filter: activeFilter,
+    query: searchQuery,
+    showSkippedEmail: true,
+    sort: activeSort,
+  });
+  const skippedEmailCloseHref = inboxHref({
+    conversationId: selectedConversationReview?.conversation.id,
+    filter: activeFilter,
+    query: searchQuery,
+    sort: activeSort,
+  });
   const searchedConversations = searchQuery
     ? conversations.filter((conversation) =>
         conversationSearchText(conversation).includes(
@@ -923,6 +1101,13 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
         </div>
       </header>
 
+      {query?.engine_error ? (
+        <p className="form-alert error">{query.engine_error}</p>
+      ) : null}
+      {query?.engine_message ? (
+        <p className="form-alert">{query.engine_message}</p>
+      ) : null}
+
       <section
         className={
           selectedConversationReview
@@ -936,7 +1121,26 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
               <p className="eyebrow">Messages</p>
               <h2>Work queue</h2>
             </div>
-            <span className="pill">{sortedConversations.length} shown</span>
+            <div className="inbox-work-queue-actions">
+              <span className="pill">{sortedConversations.length} shown</span>
+              <Link
+                aria-label={`Filtered-out emails, ${skippedEmailLast24HoursCount} from the last 24 hours`}
+                className={
+                  showSkippedEmail
+                    ? "secondary-button compact link-button active"
+                    : "secondary-button compact link-button"
+                }
+                href={
+                  showSkippedEmail
+                    ? skippedEmailCloseHref
+                    : skippedEmailOpenHref
+                }
+                prefetch={false}
+              >
+                Filtered-out emails{" "}
+                <span>{skippedEmailLast24HoursCount} last 24h</span>
+              </Link>
+            </div>
           </div>
 
           <nav className="filter-bar" aria-label="Inbox filters">
@@ -951,6 +1155,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                   filter.value,
                   searchQuery,
                   activeSort,
+                  showSkippedEmail,
                   selectedConversationReview?.conversation.id,
                 )}
                 key={filter.value}
@@ -965,6 +1170,9 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
           <form action="/inbox" className="inbox-toolbar" method="get">
             {activeFilter !== "all" ? (
               <input name="filter" type="hidden" value={activeFilter} />
+            ) : null}
+            {showSkippedEmail ? (
+              <input name="skipped" type="hidden" value="1" />
             ) : null}
             {selectedConversationReview ? (
               <input
@@ -1035,6 +1243,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       conversationId: conversation.id,
                       filter: activeFilter,
                       query: searchQuery,
+                      showSkippedEmail,
                       sort: activeSort,
                     })}
                     key={conversation.id}
@@ -1078,6 +1287,14 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             )}
           </div>
         </section>
+        {showSkippedEmail ? (
+          <SkippedEmailDialog
+            closeHref={skippedEmailCloseHref}
+            emails={skippedEmailSummaryItems}
+            last24HoursCount={skippedEmailLast24HoursCount}
+            replyRedirectHref={skippedEmailOpenHref}
+          />
+        ) : null}
         {selectedConversationReview ? (
           <InboxSplitPreview
             closeHref={closePreviewHref}

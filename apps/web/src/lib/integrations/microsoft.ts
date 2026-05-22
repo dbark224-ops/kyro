@@ -4,13 +4,17 @@ import { hasIntegrationTokenEncryptionKey } from "./token-vault";
 
 export const MICROSOFT_PROVIDER = "microsoft";
 export const MICROSOFT_SERVICE = "outlook_mail";
+export const MICROSOFT_USER_READ_SCOPE = "https://graph.microsoft.com/User.Read";
+export const MICROSOFT_MAIL_SEND_SCOPE = "https://graph.microsoft.com/Mail.Send";
+export const MICROSOFT_MAIL_READ_SCOPE = "https://graph.microsoft.com/Mail.Read";
 export const MICROSOFT_GRAPH_SCOPES = [
   "openid",
   "email",
   "profile",
   "offline_access",
-  "https://graph.microsoft.com/User.Read",
-  "https://graph.microsoft.com/Mail.Send",
+  MICROSOFT_USER_READ_SCOPE,
+  MICROSOFT_MAIL_SEND_SCOPE,
+  MICROSOFT_MAIL_READ_SCOPE,
 ] as const;
 
 export type MicrosoftIntegrationConnection = {

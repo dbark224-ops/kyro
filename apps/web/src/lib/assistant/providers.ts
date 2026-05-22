@@ -22,19 +22,25 @@ function ollamaBaseUrl() {
 }
 
 function ollamaTimeoutMs() {
-  const parsed = Number(envValue("ASSISTANT_OLLAMA_TIMEOUT_MS") || envValue("OLLAMA_TIMEOUT_MS"));
+  const parsed = Number(
+    envValue("ASSISTANT_OLLAMA_TIMEOUT_MS") || envValue("OLLAMA_TIMEOUT_MS"),
+  );
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 60_000;
 }
 
 function ollamaNumPredict() {
-  const parsed = Number(envValue("ASSISTANT_OLLAMA_NUM_PREDICT") || envValue("OLLAMA_NUM_PREDICT"));
+  const parsed = Number(
+    envValue("ASSISTANT_OLLAMA_NUM_PREDICT") || envValue("OLLAMA_NUM_PREDICT"),
+  );
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 180;
 }
 
 function ollamaThinkEnabled() {
-  const value = (envValue("ASSISTANT_OLLAMA_THINK") || envValue("OLLAMA_THINK")).toLowerCase();
+  const value = (
+    envValue("ASSISTANT_OLLAMA_THINK") || envValue("OLLAMA_THINK")
+  ).toLowerCase();
 
   return ["1", "true", "yes", "on"].includes(value);
 }
@@ -54,7 +60,9 @@ function describeOllamaError(error: unknown, timeoutMs: number) {
     return `Local Ollama assistant timed out after ${timeoutMs}ms.`;
   }
 
-  return error instanceof Error ? error.message : "Local assistant model failed.";
+  return error instanceof Error
+    ? error.message
+    : "Local assistant model failed.";
 }
 
 function providerErrorMessage(payload: unknown) {
@@ -132,6 +140,8 @@ function buildAssistantPrompt(input: AssistantModelInput) {
       commandResult: input.command,
       rules: [
         "For CRM, quote, inquiry, contact, memory, and action requests, use commandResult.context and commandResult.links as the source of truth.",
+        "For app_help, answer from commandResult.context.snippets. Prefer user-facing manual snippets, and translate architecture snippets into plain product guidance.",
+        "For settings_update and pronunciation_update, state the completed change plainly and do not imply that high-risk settings can be edited directly.",
         "For general_chat, you can answer normally and casually. Be warm, natural, and a little personable.",
         "Use threadSummary, recentMessages, and relevantMemories only when they help answer the current userPrompt.",
         "Do not invent CRM records, dates, prices, or real-world business actions.",
@@ -147,6 +157,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
         "If inputSource is voice, treat names like Cara, Kara, Cairo, Kiro, or Kyra near the start of the prompt as likely speech-to-text variants of Kyro unless the user is clearly talking about a real person.",
         "Your name is Kyro. If the user appears to address you with a speech-to-text variant of Kyro, respond as Kyro rather than adopting that mistaken name.",
         "If a mutation was performed, state it plainly.",
+        "Safe assistant-editable settings are limited to timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, and pronunciation vocabulary entries.",
       ],
     },
     null,
@@ -232,7 +243,9 @@ async function runOpenAiAssistant(
   } catch (error) {
     return {
       fallbackReason:
-        error instanceof Error ? error.message : "OpenAI assistant request failed.",
+        error instanceof Error
+          ? error.message
+          : "OpenAI assistant request failed.",
       inputTokens: estimateTokens(prompt),
       outputTokens: estimateTokens(input.command.fallbackAnswer),
       text: input.command.fallbackAnswer,

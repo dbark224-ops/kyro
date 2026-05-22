@@ -186,5 +186,11 @@ Default implementation posture:
   contracts later.
 - Keep realtime voice sharing the Assistant thread, memory, tools, permissions, and transcript
   persistence; native iOS should replace browser audio plumbing, not fork the assistant brain.
+- Keep pronunciation vocabulary and outbound voice strictness as backend/workspace policy so iOS
+  can use the same approved/suggested terms, lightweight usage ranking, and customer-facing
+  safety gates.
+- Keep inbound email sync, action filtering, quiet-hours polling, and manual/assistant-triggered
+  inbox checks in backend modules/routes so iOS can call the same contracts rather than owning
+  mailbox provider logic.
 - Avoid browser-only assumptions in shared libraries. Browser APIs belong in web components or
   web-specific route handlers.

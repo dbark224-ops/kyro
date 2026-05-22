@@ -8,7 +8,23 @@ import {
 } from "../crm/queries";
 import { getQuoteTemplate } from "../documents/templates";
 import { insertAuditLog } from "../engine/event-action-audit";
-import { conversationToAssistantLink, isConversationInLiveWorkQueue } from "./conversation-links";
+import { syncInboundEmail } from "../integrations/inbound-email-sync";
+import {
+  conversationToAssistantLink,
+  isConversationInLiveWorkQueue,
+} from "./conversation-links";
+import { getAssistantKnowledge } from "./knowledge";
+import {
+  getPronunciationEntries,
+  normalizePronunciationPhrase,
+  upsertPronunciationEntry,
+  type AssistantPronunciationEntry,
+  type PronunciationCategory,
+} from "./pronunciation";
+import {
+  looksLikeSettingsUpdatePrompt,
+  updateAssistantEditableSettings,
+} from "./settings-tools";
 import type { AssistantCommandResult, AssistantLink } from "./types";
 
 type WorkspaceInput = {
@@ -24,7 +40,11 @@ type CommandInput = {
 };
 
 function normalized(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function titleCase(value: string) {
@@ -36,14 +56,20 @@ function titleCase(value: string) {
 
 function quoteSearchTerm(prompt: string) {
   return normalized(prompt)
-    .replace(/\b(find|show|open|me|the|a|an|quote|draft|document|for|from|customer|client)\b/g, " ")
+    .replace(
+      /\b(find|show|open|me|the|a|an|quote|draft|document|for|from|customer|client)\b/g,
+      " ",
+    )
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function contactSearchTerm(prompt: string) {
   return normalized(prompt)
-    .replace(/\b(summarise|summarize|summary|show|open|customer|client|contact|profile|for|me)\b/g, " ")
+    .replace(
+      /\b(summarise|summarize|summary|show|open|customer|client|contact|profile|for|me)\b/g,
+      " ",
+    )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -84,6 +110,76 @@ function isExplicitMemoryInstruction(prompt: string) {
     /\bfor future(?: reference)?[:,]?\s+.+/i,
     /\bnote(?: that)?\s+.+/i,
   ].some((pattern) => pattern.test(prompt));
+}
+
+function cleanPronunciationText(value: string) {
+  return value
+    .trim()
+    .replace(/^["'“”]+|["'“”.,!?]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function parsePronunciationUpdate(prompt: string) {
+  const patterns = [
+    /\b(?:teach\s+(?:kyro|the assistant)\s+to\s+)?(?:pronounce|say)\s+(?:the\s+(?:word|phrase|name|place|business)\s+)?["“]?(.+?)["”]?\s+(?:as|like)\s+["“]?(.+?)["”]?[.!?]*$/i,
+    /\b(?:pronunciation|pronounciation|pronunciation hint)\s+(?:of|for)\s+["“]?(.+?)["”]?\s+(?:to|as|like|is)\s+["“]?(.+?)["”]?[.!?]*$/i,
+    /\b(?:change|set|update)\s+(?:the\s+)?(?:pronunciation|pronounciation)\s+(?:of|for)\s+["“]?(.+?)["”]?\s+(?:to|as|like)\s+["“]?(.+?)["”]?[.!?]*$/i,
+    /\b(?:change|set|update)\s+["“]?(.+?)["”]?\s+(?:pronunciation|pronounciation)\s+(?:to|as|like)\s+["“]?(.+?)["”]?[.!?]*$/i,
+    /\b(?:remember\s+that\s+)?["“]?(.+?)["”]?\s+(?:is|should be)\s+pronounced\s+["“]?(.+?)["”]?[.!?]*$/i,
+    /\b["“](.+?)["”]\s+(?:should be pronounced|is pronounced|sounds like|should sound like)\s+["“](.+?)["”]/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = prompt.match(pattern);
+    const phrase = match ? cleanPronunciationText(match[1] ?? "") : "";
+    const pronunciationHint = match
+      ? cleanPronunciationText(match[2] ?? "")
+      : "";
+
+    if (phrase && pronunciationHint) {
+      return { phrase, pronunciationHint };
+    }
+  }
+
+  return null;
+}
+
+function looksLikePronunciationUpdatePrompt(prompt: string) {
+  return Boolean(parsePronunciationUpdate(prompt));
+}
+
+function inferPronunciationCategory(
+  prompt: string,
+  phrase: string,
+  existing?: AssistantPronunciationEntry,
+): PronunciationCategory {
+  const text = normalized(prompt);
+
+  if (existing) {
+    return existing.category;
+  }
+
+  if (/^[A-Z0-9&]{2,10}$/.test(phrase)) {
+    return "acronym";
+  }
+
+  if (/\b(suburb|place|city|street|road|location)\b/.test(text)) {
+    return "place";
+  }
+
+  if (/\b(person|name|staff|employee|customer|client)\b/.test(text)) {
+    return "person";
+  }
+
+  if (/\b(business|company|supplier|brand)\b/.test(text)) {
+    return "business";
+  }
+
+  if (/\b(product|model|part)\b/.test(text)) {
+    return "product";
+  }
+
+  return "other";
 }
 
 function rowLink(label: string, href: string, meta?: string): AssistantLink {
@@ -140,6 +236,49 @@ function looksLikeOverviewRequest(prompt: string) {
   );
 }
 
+function looksLikeEmailSyncRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    (text.includes("check") ||
+      text.includes("sync") ||
+      text.includes("poll")) &&
+    (text.includes("email") ||
+      text.includes("inbox") ||
+      text.includes("gmail") ||
+      text.includes("outlook"))
+  );
+}
+
+function looksLikeHelpRequest(prompt: string) {
+  const text = normalized(prompt);
+  const helpIntent =
+    text.includes("help") ||
+    text.includes("manual") ||
+    text.includes("guide") ||
+    text.includes("how do i") ||
+    text.includes("how does") ||
+    text.includes("what does") ||
+    text.includes("explain");
+  const kyroTopic =
+    text.includes("kyro") ||
+    text.includes("setting") ||
+    text.includes("quiet hours") ||
+    text.includes("lookback") ||
+    text.includes("fetch cap") ||
+    text.includes("inbound email") ||
+    text.includes("gmail") ||
+    text.includes("outlook") ||
+    text.includes("voice") ||
+    text.includes("pronunciation") ||
+    text.includes("usage") ||
+    text.includes("billing") ||
+    text.includes("timezone") ||
+    text.includes("time zone");
+
+  return helpIntent && kyroTopic;
+}
+
 export async function resolveAssistantCommand({
   prompt,
   supabase,
@@ -148,8 +287,29 @@ export async function resolveAssistantCommand({
 }: CommandInput): Promise<AssistantCommandResult> {
   const text = normalized(prompt);
 
+  if (looksLikePronunciationUpdatePrompt(prompt)) {
+    return pronunciationUpdateCommand({ prompt, supabase, user, workspace });
+  }
+
   if (isExplicitMemoryInstruction(prompt)) {
     return memoryCommand({ prompt });
+  }
+
+  if (looksLikeSettingsUpdatePrompt(prompt)) {
+    return updateAssistantEditableSettings({
+      prompt,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
+  if (looksLikeEmailSyncRequest(prompt)) {
+    return emailSyncCommand({ supabase, user, workspace });
+  }
+
+  if (looksLikeHelpRequest(prompt)) {
+    return helpCommand({ prompt });
   }
 
   if (/\b(create|make|start|generate)\b/.test(text) && text.includes("quote")) {
@@ -191,13 +351,162 @@ export async function resolveAssistantCommand({
   return generalChatCommand({ prompt });
 }
 
+async function helpCommand({
+  prompt,
+}: Pick<CommandInput, "prompt">): Promise<AssistantCommandResult> {
+  const knowledge = await getAssistantKnowledge(prompt);
+
+  return {
+    context: {
+      guidance:
+        "Answer from these Kyro help/manual snippets. Use user-facing manual snippets first; use internal architecture snippets only to clarify product state or implementation when useful.",
+      snippets: knowledge.snippets,
+    },
+    fallbackAnswer:
+      knowledge.snippets.length > 0
+        ? `I found Kyro help notes about ${knowledge.snippets[0].heading}.`
+        : "I can help explain Kyro settings, connected accounts, voice, pronunciation, usage, and workflow behaviour.",
+    intent: "app_help",
+    links: knowledge.links,
+    title: "Kyro help",
+  };
+}
+
+async function pronunciationUpdateCommand({
+  prompt,
+  supabase,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult> {
+  const parsed = parsePronunciationUpdate(prompt);
+
+  if (!parsed) {
+    return {
+      context: {
+        expectedFormat:
+          'Try "pronounce Woolloongabba as wuh-lun-gabba" or "set Woolloongabba pronunciation to wuh-lun-gabba".',
+      },
+      fallbackAnswer:
+        "I can update pronunciation entries, but I could not confidently read the word and pronunciation hint from that request.",
+      intent: "pronunciation_update",
+      links: [
+        {
+          href: "/settings?section=voice",
+          label: "Voice settings",
+          meta: "Pronunciation list",
+        },
+      ],
+      title: "Pronunciation update",
+    };
+  }
+
+  const existingEntries = await getPronunciationEntries(supabase, workspace.id);
+  const existingEntry = existingEntries.find(
+    (entry) =>
+      normalizePronunciationPhrase(entry.phrase) ===
+      normalizePronunciationPhrase(parsed.phrase),
+  );
+  const entry = await upsertPronunciationEntry({
+    aliases: existingEntry?.aliases ?? [],
+    category: inferPronunciationCategory(prompt, parsed.phrase, existingEntry),
+    phrase: existingEntry?.phrase ?? parsed.phrase,
+    pronunciationHint: parsed.pronunciationHint,
+    source: "assistant",
+    status: "approved",
+    supabase,
+    user,
+    workspaceId: workspace.id,
+  });
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "assistant_pronunciation.updated",
+    actorId: user.id,
+    actorType: "ai",
+    after: { entry },
+    before: existingEntry ? { entry: existingEntry } : null,
+    entityId: entry.id,
+    entityType: "assistant_pronunciation",
+    metadata: {
+      assistantPrompt: prompt,
+      requestedByUserId: user.id,
+    },
+  });
+
+  return {
+    context: {
+      phrase: entry.phrase,
+      pronunciationHint: entry.pronunciationHint,
+      source: entry.source,
+    },
+    fallbackAnswer: `I updated ${entry.phrase} so Kyro says it like ${entry.pronunciationHint}.`,
+    intent: "pronunciation_update",
+    links: [
+      {
+        href: "/settings?section=voice",
+        label: "Voice settings",
+        meta: "Pronunciation list",
+      },
+    ],
+    mutation: {
+      entityId: entry.id,
+      entityType: "assistant_pronunciation",
+      label: "Pronunciation updated",
+    },
+    title: "Pronunciation update",
+  };
+}
+
+async function emailSyncCommand({
+  supabase,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  "supabase" | "user" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const result = await syncInboundEmail({
+    supabase,
+    trigger: "assistant",
+    user,
+    workspaceId: workspace.id,
+  });
+  const answer =
+    result.needsReconnect.length > 0
+      ? `I checked email, but ${result.needsReconnect.length} account needs to be reconnected with inbox-read permission. I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages}, and observed ${result.observedMessages}.`
+      : result.errors.length > 0
+        ? `I checked email with ${result.errors.length} issue(s). I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages}, and observed ${result.observedMessages}.`
+        : `I checked email. I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages}, observed ${result.observedMessages}, and skipped ${result.duplicates} duplicate(s).`;
+
+  return {
+    context: {
+      result,
+      scope:
+        "Manual assistant-triggered inbound email sync. New actionable mail is promoted to CRM conversations.",
+    },
+    fallbackAnswer: answer,
+    intent: "email_sync",
+    links: result.promotedConversations
+      .slice(0, 5)
+      .map((conversation) =>
+        rowLink(
+          conversation.subject,
+          `/inbox/${conversation.conversationId}`,
+          titleCase(conversation.provider),
+        ),
+      ),
+    title: "Email sync",
+  };
+}
+
 async function memoryCommand({
   prompt,
 }: Pick<CommandInput, "prompt">): Promise<AssistantCommandResult> {
   return {
     context: {
       instruction: prompt,
-      persistence: "Saved when the request contains an explicit memory instruction.",
+      persistence:
+        "Saved when the request contains an explicit memory instruction.",
     },
     fallbackAnswer: "I have noted that for future assistant context.",
     intent: "memory_save",
@@ -215,8 +524,7 @@ async function generalChatCommand({
       scope:
         "General conversational assistant turn. No CRM records were requested, so no UI cards should be shown.",
     },
-    fallbackAnswer:
-      generalChatFallback(prompt),
+    fallbackAnswer: generalChatFallback(prompt),
     intent: "general_chat",
     links: [],
     title: "Chat",
@@ -240,7 +548,10 @@ function generalChatFallback(prompt: string) {
 async function workQueueCommand({
   supabase,
   workspace,
-}: Pick<CommandInput, "supabase" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
   const conversations = await getConversationList(supabase, workspace.id);
   const actionable = conversations.filter(isConversationInLiveWorkQueue);
   const top = actionable.slice(0, 5);
@@ -251,7 +562,10 @@ async function workQueueCommand({
       records: recordsContext(
         top.map((conversation) => ({
           customer: conversation.contactName,
-          job: conversation.inquiryFacts?.jobType ?? conversation.leadServiceType ?? conversation.leadTitle,
+          job:
+            conversation.inquiryFacts?.jobType ??
+            conversation.leadServiceType ??
+            conversation.leadTitle,
           nextAction: conversation.nextActionLabel,
           status: conversation.status,
           workflowBucket: conversation.workflowBucket,
@@ -272,11 +586,16 @@ async function inquiryLookupCommand({
   prompt,
   supabase,
   workspace,
-}: Pick<CommandInput, "prompt" | "supabase" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "prompt" | "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
   const conversations = await getConversationList(supabase, workspace.id);
   const searchTerm = inquirySearchTerm(prompt);
   const matches = rankInquiryMatches(conversations, searchTerm);
-  const exactMatches = matches.filter((match) => match.matchQuality === "exact");
+  const exactMatches = matches.filter(
+    (match) => match.matchQuality === "exact",
+  );
   const selected = exactMatches.length > 0 ? exactMatches : matches;
   const top = selected.slice(0, 5).map((match) => match.conversation);
 
@@ -309,7 +628,10 @@ async function inquiryLookupCommand({
           : `I found ${top.length} possible inquiry matches for "${searchTerm}". Which one do you mean?`,
       intent: "inquiry_lookup",
       links: top.map(conversationToInquiryLink),
-      title: top.length === 1 ? "Possible inquiry match" : "Possible inquiry matches",
+      title:
+        top.length === 1
+          ? "Possible inquiry match"
+          : "Possible inquiry matches",
     };
   }
 
@@ -330,7 +652,10 @@ async function quoteCommand({
   prompt,
   supabase,
   workspace,
-}: Pick<CommandInput, "prompt" | "supabase" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "prompt" | "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
   const quotes = await getQuoteDraftList(supabase, workspace.id);
   const searchTerm = quoteSearchTerm(prompt);
   const text = normalized(prompt);
@@ -354,7 +679,10 @@ async function quoteCommand({
         .join(" "),
     );
 
-    return (!statusFilter || quote.status === statusFilter) && (!searchTerm || haystack.includes(searchTerm));
+    return (
+      (!statusFilter || quote.status === statusFilter) &&
+      (!searchTerm || haystack.includes(searchTerm))
+    );
   });
   const results = searchTerm || statusFilter ? matched : quotes;
   const top = results.slice(0, 5);
@@ -365,8 +693,14 @@ async function quoteCommand({
       filter: statusFilter ?? null,
       records: recordsContext(
         top.map((quote) => ({
-          customer: quote.contact?.name ?? quote.contact?.company ?? quote.metadata.customerName,
-          job: quote.inquiryFacts?.jobType ?? quote.lead?.serviceType ?? quote.metadata.jobType,
+          customer:
+            quote.contact?.name ??
+            quote.contact?.company ??
+            quote.metadata.customerName,
+          job:
+            quote.inquiryFacts?.jobType ??
+            quote.lead?.serviceType ??
+            quote.metadata.jobType,
           lineItems: quote.lineItemCount,
           status: quote.status,
           title: quote.title,
@@ -380,7 +714,11 @@ async function quoteCommand({
         : `I could not find a quote draft matching "${searchTerm || statusFilter || "that request"}".`,
     intent: "quote_lookup",
     links: top.map((quote) =>
-      rowLink(quote.title, `/documents/${quote.id}`, `${titleCase(quote.status)} - ${quote.lineItemCount} line items`),
+      rowLink(
+        quote.title,
+        `/documents/${quote.id}`,
+        `${titleCase(quote.status)} - ${quote.lineItemCount} line items`,
+      ),
     ),
     title: "Quote drafts",
   };
@@ -390,12 +728,22 @@ async function contactCommand({
   prompt,
   supabase,
   workspace,
-}: Pick<CommandInput, "prompt" | "supabase" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "prompt" | "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
   const contacts = await getContactList(supabase, workspace.id);
   const searchTerm = contactSearchTerm(prompt);
   const matched = contacts.filter((contact) => {
     const haystack = normalized(
-      [contact.name, contact.company, contact.email, contact.phone, contact.address, contact.contactType]
+      [
+        contact.name,
+        contact.company,
+        contact.email,
+        contact.phone,
+        contact.address,
+        contact.contactType,
+      ]
         .filter(Boolean)
         .join(" "),
     );
@@ -448,7 +796,13 @@ async function contactCommand({
     },
     fallbackAnswer: `${contact.name ?? contact.company ?? "This contact"} has ${profile?.counts.messages ?? contact.messageCount} linked messages, ${profile?.counts.leads ?? 0} leads, and ${profile?.counts.quoteDrafts ?? 0} quote drafts.`,
     intent: "contact_summary",
-    links: [rowLink(contact.name ?? contact.company ?? "Open contact", `/contacts/${contact.id}`, contact.email ?? contact.phone ?? undefined)],
+    links: [
+      rowLink(
+        contact.name ?? contact.company ?? "Open contact",
+        `/contacts/${contact.id}`,
+        contact.email ?? contact.phone ?? undefined,
+      ),
+    ],
     title: "Contact summary",
   };
 }
@@ -471,7 +825,9 @@ function rankInquiryMatches(
   }
 
   return conversations
-    .map((conversation) => scoreInquiryMatch(conversation, searchTerm, requestedTokens))
+    .map((conversation) =>
+      scoreInquiryMatch(conversation, searchTerm, requestedTokens),
+    )
     .filter((match): match is InquiryMatch => Boolean(match))
     .sort((left, right) => right.score - left.score);
 }
@@ -484,15 +840,21 @@ function scoreInquiryMatch(
   const normalizedSearchTerm = normalized(searchTerm);
   const haystack = normalized(inquiryHaystack(conversation));
   const contactName = normalized(conversation.contactName ?? "");
-  const matchedTokens = requestedTokens.filter((token) => haystack.includes(token));
+  const matchedTokens = requestedTokens.filter((token) =>
+    haystack.includes(token),
+  );
 
   if (matchedTokens.length === 0) {
     return null;
   }
 
   const allTokensMatched = matchedTokens.length === requestedTokens.length;
-  const phraseMatched = Boolean(normalizedSearchTerm && haystack.includes(normalizedSearchTerm));
-  const contactPhraseMatched = Boolean(normalizedSearchTerm && contactName.includes(normalizedSearchTerm));
+  const phraseMatched = Boolean(
+    normalizedSearchTerm && haystack.includes(normalizedSearchTerm),
+  );
+  const contactPhraseMatched = Boolean(
+    normalizedSearchTerm && contactName.includes(normalizedSearchTerm),
+  );
   const matchQuality = allTokensMatched || phraseMatched ? "exact" : "partial";
   const score =
     matchedTokens.length * 12 +
@@ -536,7 +898,11 @@ function conversationJobLabel(conversation: ConversationListItem) {
     conversation.leadTitle,
   ];
 
-  return candidates.find((candidate) => candidate && !isGenericInquiryLabel(candidate)) ?? "General inquiry";
+  return (
+    candidates.find(
+      (candidate) => candidate && !isGenericInquiryLabel(candidate),
+    ) ?? "General inquiry"
+  );
 }
 
 function isGenericInquiryLabel(value: string) {
@@ -561,7 +927,10 @@ function replyStatusForConversation(conversation: ConversationListItem) {
     return "replied";
   }
 
-  if (conversation.pendingApprovalCount > 0 || conversation.status === "reply_drafted") {
+  if (
+    conversation.pendingApprovalCount > 0 ||
+    conversation.status === "reply_drafted"
+  ) {
     return "draft_waiting_approval";
   }
 
@@ -584,16 +953,19 @@ function inquiryRecord(conversation: ConversationListItem) {
   };
 }
 
-function conversationToInquiryLink(conversation: ConversationListItem): AssistantLink {
+function conversationToInquiryLink(
+  conversation: ConversationListItem,
+): AssistantLink {
   const baseLink = conversationToAssistantLink(conversation);
   const jobLabel = conversationJobLabel(conversation);
 
   return {
     ...baseLink,
     label: `${conversationDisplayName(conversation)} inquiry`,
-    meta: jobLabel === "General inquiry"
-      ? conversation.nextActionLabel
-      : `${conversation.nextActionLabel} - ${jobLabel}`,
+    meta:
+      jobLabel === "General inquiry"
+        ? conversation.nextActionLabel
+        : `${conversation.nextActionLabel} - ${jobLabel}`,
   };
 }
 
@@ -609,7 +981,10 @@ function inquiryStatusSummary(conversation: ConversationListItem) {
     return `The ${customer} inquiry is marked resolved. The recorded job is ${job}.`;
   }
 
-  if (conversation.pendingApprovalCount > 0 || conversation.status === "reply_drafted") {
+  if (
+    conversation.pendingApprovalCount > 0 ||
+    conversation.status === "reply_drafted"
+  ) {
     return `The ${customer} inquiry is waiting on you. A draft reply is ready, but it has not been approved or sent yet.`;
   }
 
@@ -672,7 +1047,9 @@ async function createQuoteDraftCommand({
     .single();
 
   if (error || !quoteDraft) {
-    throw new Error(`Unable to create quote draft: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create quote draft: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -703,7 +1080,9 @@ async function createQuoteDraftCommand({
     },
     fallbackAnswer: `${quoteDraft.title} has been created as a draft.`,
     intent: "quote_create",
-    links: [rowLink(String(quoteDraft.title), `/documents/${quoteDraft.id}`, "Draft")],
+    links: [
+      rowLink(String(quoteDraft.title), `/documents/${quoteDraft.id}`, "Draft"),
+    ],
     mutation: {
       entityId: String(quoteDraft.id),
       entityType: "quote_draft",
@@ -716,7 +1095,10 @@ async function createQuoteDraftCommand({
 async function overviewCommand({
   supabase,
   workspace,
-}: Pick<CommandInput, "supabase" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
   const [conversations, quotes, contacts] = await Promise.all([
     getConversationList(supabase, workspace.id),
     getQuoteDraftList(supabase, workspace.id),

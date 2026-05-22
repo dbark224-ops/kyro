@@ -1,7 +1,12 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { getConversationList } from "../crm/queries";
 import { conversationToAssistantLink } from "./conversation-links";
-import { linkCardsBlock, linksFromBlocks, memoryNoticeBlock } from "./ui-blocks";
+import { capturePronunciationSignalsFromText } from "./pronunciation";
+import {
+  linkCardsBlock,
+  linksFromBlocks,
+  memoryNoticeBlock,
+} from "./ui-blocks";
 import type {
   AssistantLink,
   AssistantMemoryItem,
@@ -60,7 +65,9 @@ export async function getOrCreateAssistantThread(
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to load assistant thread: ${existingError.message}`);
+    throw new Error(
+      `Unable to load assistant thread: ${existingError.message}`,
+    );
   }
 
   if (existing) {
@@ -145,7 +152,12 @@ export async function getAssistantTurnContext({
 }) {
   const [thread, recentMessages, memories] = await Promise.all([
     getAssistantThread(supabase, workspaceId, threadId),
-    getAssistantMessages(supabase, workspaceId, threadId, MODEL_RECENT_MESSAGE_LIMIT),
+    getAssistantMessages(
+      supabase,
+      workspaceId,
+      threadId,
+      MODEL_RECENT_MESSAGE_LIMIT,
+    ),
     getRelevantMemories(supabase, workspaceId, user.id, prompt),
   ]);
 
@@ -182,9 +194,7 @@ export async function appendUserAssistantMessage({
       metadata: {
         inputSource,
         source:
-          inputSource === "voice"
-            ? "assistant.voice_input"
-            : "assistant.page",
+          inputSource === "voice" ? "assistant.voice_input" : "assistant.page",
       },
       role: "user",
       thread_id: threadId,
@@ -195,10 +205,28 @@ export async function appendUserAssistantMessage({
     .single();
 
   if (error || !data) {
-    throw new Error(`Unable to save assistant message: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to save assistant message: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   await touchThread(supabase, workspaceId, threadId);
+
+  try {
+    await capturePronunciationSignalsFromText({
+      source:
+        inputSource === "realtime_voice"
+          ? "assistant.realtime_voice"
+          : "assistant.message",
+      sourceId: String(data.id),
+      supabase,
+      text: content,
+      user,
+      workspaceId,
+    });
+  } catch {
+    // Pronunciation suggestions should never interrupt the assistant turn.
+  }
 
   return String(data.id);
 }
@@ -284,7 +312,9 @@ export async function appendRealtimeAssistantMessage({
   });
 
   if (error) {
-    throw new Error(`Unable to save realtime assistant response: ${error.message}`);
+    throw new Error(
+      `Unable to save realtime assistant response: ${error.message}`,
+    );
   }
 
   await touchThread(supabase, workspaceId, threadId);
@@ -404,7 +434,9 @@ async function getAssistantMessages(
 ) {
   const { data, error } = await supabase
     .from("assistant_messages")
-    .select("id,role,content,intent,provider,model,ui_blocks,metadata,created_at")
+    .select(
+      "id,role,content,intent,provider,model,ui_blocks,metadata,created_at",
+    )
     .eq("workspace_id", workspaceId)
     .eq("thread_id", threadId)
     .order("created_at", { ascending: false })
@@ -451,7 +483,9 @@ async function getRelevantMemories(
   const ranked = memories
     .map((memory) => ({
       memory,
-      score: tokenSet(memory.content).filter((token) => promptTokens.includes(token)).length,
+      score: tokenSet(memory.content).filter((token) =>
+        promptTokens.includes(token),
+      ).length,
     }))
     .filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score)
@@ -460,7 +494,11 @@ async function getRelevantMemories(
   return ranked.length > 0 ? ranked : memories.slice(0, 3);
 }
 
-async function touchThread(supabase: SupabaseClient, workspaceId: string, threadId: string) {
+async function touchThread(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  threadId: string,
+) {
   const { error } = await supabase
     .from("assistant_threads")
     .update({
@@ -502,7 +540,8 @@ async function refreshAssistantConversationLinks(
   const conversationHrefs = new Set<string>();
 
   for (const message of messages) {
-    for (const link of message.links ?? linksFromBlocks(message.uiBlocks ?? [])) {
+    for (const link of message.links ??
+      linksFromBlocks(message.uiBlocks ?? [])) {
       const conversationHref = conversationHrefFromHref(link.href);
 
       if (conversationHref) {
@@ -581,9 +620,7 @@ function refreshAssistantMessageContent(
       : null;
 
     return Boolean(
-      link.meta &&
-        refreshedLink?.meta &&
-        refreshedLink.meta !== link.meta,
+      link.meta && refreshedLink?.meta && refreshedLink.meta !== link.meta,
     );
   });
 
@@ -669,9 +706,13 @@ function extractExplicitMemory(prompt: string) {
 function inferMemoryTags(content: string) {
   const text = content.toLowerCase();
   const tags = [
-    text.includes("reply") || text.includes("tone") ? "communication_style" : null,
+    text.includes("reply") || text.includes("tone")
+      ? "communication_style"
+      : null,
     text.includes("quote") || text.includes("invoice") ? "documents" : null,
-    text.includes("site visit") || text.includes("schedule") ? "scheduling" : null,
+    text.includes("site visit") || text.includes("schedule")
+      ? "scheduling"
+      : null,
     text.includes("customer") || text.includes("client") ? "crm" : null,
   ].filter((tag): tag is string => Boolean(tag));
 
@@ -691,5 +732,7 @@ function tokenSet(value: string) {
 }
 
 function truncate(value: string, maxLength: number) {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength - 1)}...`
+    : value;
 }
