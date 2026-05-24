@@ -22,6 +22,8 @@ const DOCUMENT_FILTERS = [
   { value: "all", label: "All" },
   { value: "draft", label: "Draft" },
   { value: "ready", label: "Ready" },
+  { value: "approved", label: "Approved" },
+  { value: "changes_requested", label: "Changes requested" },
   { value: "sent", label: "Sent" },
   { value: "archived", label: "Archived" },
   { value: "linked", label: "Linked" },
@@ -105,9 +107,7 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
   );
   const draftCount = quoteDrafts.filter((quote) => quote.status === "draft").length;
   const readyCount = quoteDrafts.filter((quote) => quote.status === "ready").length;
-  const linkedCount = quoteDrafts.filter(
-    (quote) => quote.conversation || quote.lead || quote.contact,
-  ).length;
+  const approvedCount = quoteDrafts.filter((quote) => quote.status === "approved").length;
   const templates = quoteTemplateOptions(
     quoteTemplateCatalog(documentTemplateSettings.customTemplates),
   );
@@ -134,7 +134,7 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
             <article className="metric-card pink">
               <p>Ready</p>
               <strong>{readyCount}</strong>
-              <span>{linkedCount} linked to CRM</span>
+              <span>{approvedCount} customer-approved</span>
             </article>
           </section>
         </div>

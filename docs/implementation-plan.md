@@ -123,6 +123,9 @@ Goal: generate and save user-instructed documents from templates.
 - Save generated file.
 - Attach generated file to outbound communication through action system.
 - Let Assistant/Voice prepare reviewable quote-send emails with generated PDFs attached, while keeping final sending approval-gated.
+- Issue secure customer approval links for quote drafts.
+- Let customers approve or request changes from a no-login tokenized page.
+- Record customer view/approval/change-request events in quote history and reopen the linked inquiry when changes are requested.
 
 V1 document generation is not accounting. No payments, ledgers, reconciliation, or tax engine.
 

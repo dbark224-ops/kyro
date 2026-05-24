@@ -37,6 +37,8 @@ Kyro can currently help with:
 - updating a small allowlist of safe workspace settings,
 - updating basic quote document template settings when the user asks,
 - creating and revising reusable document templates when the user asks,
+- preparing quote-send emails that include a generated PDF and customer approval link,
+- answering whether a customer has viewed, approved, or requested changes to a quote,
 - using web search for public/current internet information when enabled,
 - answering help questions from this manual and architecture notes.
 
@@ -48,7 +50,7 @@ Some product areas are intentionally not complete yet:
 
 - Kyro does not place real outbound phone calls yet.
 - SMS and phone channels are internal/manual records until providers are connected.
-- Quote drafts can now render as print-ready customer quote documents. Server-side PDF generation, Drive file storage, invoice/accounting exports, and payment collection are future work.
+- Quote drafts can now render as print-ready customer quote documents, generate server-side PDFs, and collect customer approval or change requests through secure quote links. Drive file storage, invoice/accounting exports, and payment collection are future work.
 - Payments, invoicing, reconciliation, taxes, and billing collection are not implemented.
 - Provider push/webhook inbox sync is not implemented; current inbound email uses scheduled/manual polling.
 - Kyro does not automatically send approval-gated AI replies without a user action.
@@ -204,6 +206,7 @@ Use it to:
 - open a customer-facing quote document and use the browser print flow,
 - download a server-generated customer PDF from a quote draft,
 - prepare a customer email with the generated quote PDF attached for user review and approval,
+- create a secure customer approval link so the customer can approve a quote or request changes,
 - send a linked quote draft back to an inquiry composer with that draft preselected as the PDF attachment.
 
 Kyro uses a structured-document approach for quotes. The editable quote data stays in \`quote_drafts\`, while the customer-facing output is rendered from an HTML template at view time. This is deliberate: quotes, invoices, and other transactional documents need predictable totals, customer details, terms, and auditability.
@@ -228,11 +231,15 @@ Users can also ask Kyro in Assistant or Voice to update basic document template 
 
 Users can ask Kyro in Assistant or Voice to create a quote draft from an existing reusable template, for example "create an invoice document for Mikel Bright" or "start a bathroom renovation quote". Kyro matches the request against saved template names, descriptions, and keys. If there is only one template, Kyro can use it for a generic create request; if several templates exist and the request is vague, Kyro asks which template to use. When the prompt clearly names an existing contact by name, company, email, or phone, Kyro links the new draft to that contact and pre-fills the customer fields. The draft is still an internal saved draft; sending it to a customer remains approval-gated.
 
-Users can also ask Kyro in Assistant or Voice what quotes are ready to send, or ask it to prepare a quote email, for example "what quotes are ready to send?", "send the bathroom quote to Mikel", or "draft an email for this quote". Kyro does not directly send the customer email from that instruction. Instead, it finds the matching open quote, checks that the quote is linked to an inquiry and has a customer email, generates the current PDF, creates a reviewable email draft action with the PDF attached, and links the user to the inquiry so they can approve or edit before sending. If the request is vague or several quote drafts could match, Kyro asks the user to choose.
+Users can also ask Kyro in Assistant or Voice what quotes are ready to send, or ask it to prepare a quote email, for example "what quotes are ready to send?", "send the bathroom quote to Mikel", or "draft an email for this quote". Kyro does not directly send the customer email from that instruction. Instead, it finds the matching open quote, checks that the quote is linked to an inquiry and has a customer email, creates a secure customer approval link, generates the current PDF, creates a reviewable email draft action with the PDF attached, and links the user to the inquiry so they can approve or edit before sending. If the request is vague or several quote drafts could match, Kyro asks the user to choose.
 
-Quote drafts now have two customer-output paths. The Print / PDF button opens deterministic customer-facing HTML for browser print/preview. The Download PDF button creates a server-generated PDF from the same structured quote data. The Send to customer button generates the PDF, records the generated-document metadata on the quote draft, creates a reviewable email draft action with the PDF attached, and redirects to the linked inquiry so the user can check the message before sending. When the user sends that generated reply, Kyro regenerates the PDF attachment, sends through the connected Gmail or Outlook account, records the outbound message, and marks the quote draft sent.
+Quote drafts now have three customer-output paths. The Print / PDF button opens deterministic customer-facing HTML for browser print/preview. The Download PDF button creates a server-generated PDF from the same structured quote data. The Send to customer button creates a secure approval link, generates the PDF, records the generated-document metadata on the quote draft, creates a reviewable email draft action with the PDF attached and approval URL in the email body, and redirects to the linked inquiry so the user can check the message before sending. The quote page also has a Customer approval card where the user can create a fresh approval link manually. Fresh links revoke older active links for the same quote draft.
 
-Quote drafts also show a lightweight document version history. Kyro records document events in quote metadata when a PDF is downloaded, when an email is prepared with the PDF attached, and when the PDF is actually sent. Each generated document metadata record includes a content hash of the quote data and template settings used to render it. The quote page compares that hash with the current quote content and can show whether the quote has changed since the last generated/prepared/sent document. Users can ask Kyro in Assistant or Voice questions such as "has this quote been sent?", "when did we send Sarah the bathroom quote?", or "has this quote changed since it was sent?"
+The customer approval page lives at \`/quote/approve/[token]\` and does not require the customer to sign in. The token is a bearer secret in the URL; Kyro stores a hash of it in \`quote_approval_links\` rather than storing the raw token. Customers can approve the quote or request changes. Approval marks the quote draft \`approved\` and records a \`customer_approved\` history event. Change requests mark the quote draft \`changes_requested\`, record the note, reopen the linked conversation when there is one, and add a portal-origin inbound message so the user sees the requested change in the work queue.
+
+When the user sends a generated quote email, Kyro regenerates the PDF attachment, sends through the connected Gmail or Outlook account, records the outbound message, and marks the quote draft sent.
+
+Quote drafts also show a lightweight document and customer approval history. Kyro records document events in quote metadata when a PDF is downloaded, when an email is prepared with the PDF attached, when the PDF is actually sent, when a customer views the approval page, when they approve, and when they request changes. Each generated document metadata record includes a content hash of the quote data and template settings used to render it. The quote page compares that hash with the current quote content and can show whether the quote has changed since the last generated/prepared/sent document. Users can ask Kyro in Assistant or Voice questions such as "has this quote been sent?", "when did we send Sarah the bathroom quote?", "has Sarah approved the quote?", or "has this quote changed since it was sent?"
 
 The current generated-document storage is metadata-first. Kyro records filename, content type, size, renderer, generation time, content hash, version-history events, and send/audit details on the quote draft and message metadata. The PDF bytes are generated on demand for download and send rather than stored in Supabase Storage yet. Drive storage, accounting exports, invoice issuing, payment collection, and durable generated-document file records are still future work.
 
@@ -951,7 +958,7 @@ Files:
 Purpose:
 
 - list saved quote drafts,
-- filter quote drafts by all, draft, ready, sent, archived, linked, or unlinked,
+- filter quote drafts by all, draft, ready, approved, changes requested, sent, archived, linked, or unlinked,
 - open an unsaved quote-draft editor from saved reusable templates,
 - create custom reusable quote templates in the template builder,
 - review and edit saved templates from the Templates pane,
@@ -967,6 +974,8 @@ Purpose:
 - let users open the print view and save through the browser's Print / PDF flow,
 - let users download a server-generated PDF from the quote draft,
 - prepare a customer email with the generated quote PDF attached and route that email through the normal approval/send action flow,
+- create secure customer approval links for quote drafts,
+- let customers approve a quote or request changes from a public no-login review page,
 - hand a linked quote draft back to the inquiry outbound composer with that draft preselected,
 - show linked CRM context, recent thread messages, and audit history when the draft came from an inquiry.
 
@@ -979,10 +988,12 @@ is deterministic HTML for browser preview/printing plus deterministic server-sid
 \`apps/web/src/lib/documents/pdf.ts\`, not a GPT-generated image. Downloaded PDFs and outbound attachments are generated
 on demand from the saved quote draft. The current storage model records generated-document metadata such as filename,
 content type, size, renderer, content hash, generation time, and version-history events in \`quote_drafts.metadata\` and
-message metadata; it does not yet store binary PDFs in Supabase Storage or Drive. The content hash is calculated from
-the quote draft, customer/job details, line items, and document design settings with volatile send/history metadata
-excluded, so the app can flag when a quote has changed since the latest generated/prepared/sent PDF. Accounting/invoice
-export, payment collection, and durable generated-document file storage are still future document steps.
+message metadata; it does not yet store binary PDFs in Supabase Storage or Drive. Customer approval links live in
+\`quote_approval_links\`, which stores a hashed bearer token, lifecycle status, customer email, expiry, view/approval
+timestamps, and the latest change-request note. The content hash is calculated from the quote draft, customer/job
+details, line items, and document design settings with volatile send/history/approval metadata excluded, so the app can
+flag when a quote has changed since the latest generated/prepared/sent PDF. Accounting/invoice export, payment
+collection, and durable generated-document file storage are still future document steps.
 
 The Documents template card opens \`/documents/new?templateKey=...\`, which pre-fills an unsaved editor from the selected
 template. No \`quote_drafts\` row, audit log, or document-list entry is created until the user presses \`Save quote draft\`.
@@ -995,13 +1006,18 @@ metadata were removed so the editable customer fields and structured line items 
 review remains in the reusable template builder, while customer-facing document review remains in the print/PDF route.
 
 The \`Send to customer\` action on a linked quote draft creates a pending \`draft_reply\` action on the linked conversation.
-It validates the linked customer email, generates the current PDF once to prove the artifact can be built, stores
-\`lastGeneratedDocument\` metadata and an \`email_prepared\` history event on the quote draft, moves a draft quote to
-\`ready\`, and redirects to the inquiry review screen. Downloading a PDF records a \`pdf_generated\` history event. The user
-can edit the email body before sending. When the generated reply is sent, the action executor regenerates the quote PDF,
-attaches it to the Gmail/Outlook send, records the outbound \`messages\` row, appends an \`email_sent\` history event, marks
-the quote draft \`sent\`, and writes quote/message audit logs. This keeps the customer-facing side effect behind the
-existing approval/execution machinery.
+It validates the linked customer email, creates a fresh quote approval link, generates the current PDF once to prove the
+artifact can be built, stores \`lastGeneratedDocument\` metadata and an \`email_prepared\` history event on the quote draft,
+moves a draft quote to \`ready\`, and redirects to the inquiry review screen. The email body includes the customer
+approval URL so the customer can open \`/quote/approve/[token]\`, review the rendered quote, approve it, or request
+changes. Downloading a PDF records a \`pdf_generated\` history event. The user can edit the email body before sending.
+When the generated reply is sent, the action executor regenerates the quote PDF, attaches it to the Gmail/Outlook send,
+records the outbound \`messages\` row, appends an \`email_sent\` history event, marks the quote draft \`sent\`, and writes
+quote/message audit logs. Customer approval appends \`customer_viewed\`, \`customer_approved\`, or
+\`customer_changes_requested\` events. Approval changes the quote status to \`approved\`; change requests change it to
+\`changes_requested\`, reopen the linked conversation, and insert a portal-origin inbound message so the request appears
+in the work queue. This keeps the customer-facing side effect behind secure token lookup and the existing
+approval/execution machinery.
 
 The \`document_templates\` policy stores product-safe presentation preferences plus custom reusable templates. Custom
 templates include a stable key, label, description, line item structure, notes, reference-file metadata,
@@ -1064,7 +1080,7 @@ Current safe command families:
 - work queue and leads needing reply,
 - inquiry lookup by customer/job text, including exact and partial name matches,
 - quote/document lookup and ready quote drafts,
-- quote-send preparation that creates a reviewable email with the generated quote PDF attached,
+- quote-send preparation that creates a reviewable email with the generated quote PDF and customer approval link attached,
 - contact/customer summaries,
 - standalone quote draft creation from saved reusable templates,
 - reusable document template creation and revision,
@@ -1081,8 +1097,10 @@ template control can also create a new reusable template or revise an existing o
 contract as the template builder; if multiple templates could match, it asks the user to choose rather than mutating an
 arbitrary template. Assistant quote-send preparation can list ready-to-send quote drafts, match a send request to a
 single open quote by customer/title/email, validate that the quote is linked to an inquiry and customer email, generate
-the current PDF, and create a pending \`draft_reply\` action with that quote attached. This is deliberately preparation
-only: the user still reviews or edits the message in the inquiry before sending. From an Assistant inquiry preview, the
+the current PDF, create a fresh customer approval link, and create a pending \`draft_reply\` action with that quote
+attached. This is deliberately preparation only: the user still reviews or edits the message in the inquiry before
+sending. Customers approve or request changes from the public tokenized approval page, and Assistant can answer quote
+history questions using the resulting customer view/approval/change-request events. From an Assistant inquiry preview, the
 user can also write a manual reply; email replies send through connected Gmail and non-email channels are recorded
 internally. The LLM does not autonomously send email/SMS, execute approval-gated actions, alter payments, or perform
 bookkeeping.

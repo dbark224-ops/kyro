@@ -21,6 +21,7 @@ import {
   buildQuotePdfArtifactForDraft,
   quotePdfMetadata,
 } from "../documents/pdf";
+import { createQuoteApprovalLinkForDraft } from "../documents/approval";
 import {
   appendQuoteDocumentHistory,
   quoteDocumentChangedSinceLastEvent,
@@ -123,7 +124,7 @@ function quoteSearchTerm(prompt: string) {
 function quoteSendSearchTerm(prompt: string) {
   return normalized(prompt)
     .replace(
-      /\b(send|sent|sending|email|e mail|mail|message|reply|draft|prepare|prepared|ready|review|attach|attached|attachment|pdf|quote|quotes|document|documents|invoice|invoices|this|that|the|a|an|to|for|from|customer|client|please|can|you|we|did|has|have|had|when|what|was|were|is|are|changed|since|history|version|kyro|cairo|kara|cara)\b/g,
+      /\b(approval|approve|approved|send|sent|sending|email|e mail|mail|message|reply|draft|prepare|prepared|ready|review|attach|attached|attachment|pdf|quote|quotes|document|documents|invoice|invoices|this|that|the|a|an|to|for|from|customer|client|please|can|you|we|did|has|have|had|when|what|was|were|is|are|changed|since|history|version|kyro|cairo|kara|cara)\b/g,
       " ",
     )
     .replace(/\s+/g, " ")
@@ -381,7 +382,7 @@ function quoteJobLabel(quote: QuoteDraftListItem) {
 }
 
 function quoteIsSendableStatus(quote: QuoteDraftListItem) {
-  return !["sent", "archived"].includes(normalized(quote.status));
+  return !["approved", "sent", "archived"].includes(normalized(quote.status));
 }
 
 function quoteSendReadiness(quote: QuoteDraftListItem) {
@@ -853,10 +854,10 @@ export function looksLikeQuoteHistoryRequest(prompt: string) {
   }
 
   return (
-    /\b(has|have|had|did|when|what|was|were|is|are)\b.*\b(sent|prepared|generated|changed|version|history)\b/.test(
+    /\b(has|have|had|did|when|what|was|were|is|are)\b.*\b(sent|prepared|generated|changed|approved|approval|viewed|version|history)\b/.test(
       text,
     ) ||
-    /\b(changed since|version history|document trail|pdf history|send history)\b/.test(
+    /\b(changed since|version history|document trail|pdf history|send history|customer approval|quote approval)\b/.test(
       text,
     )
   );
@@ -1360,9 +1361,14 @@ async function quoteCommand({
   const quotes = await getQuoteDraftList(supabase, workspace.id);
   const searchTerm = quoteSearchTerm(prompt);
   const text = normalized(prompt);
-  const statusFilter = ["draft", "ready", "sent", "archived"].find((status) =>
-    text.includes(status),
-  );
+  const statusFilter = [
+    "approved",
+    "archived",
+    "changes_requested",
+    "draft",
+    "ready",
+    "sent",
+  ].find((status) => text.includes(status));
   const matched = quotes.filter((quote) => {
     const haystack = normalized(
       [
@@ -1430,9 +1436,11 @@ function quoteSendSubject(title: string) {
 }
 
 function quoteSendBody({
+  approvalUrl,
   customerName,
   jobLabel,
 }: {
+  approvalUrl?: string | null;
   customerName: string | null;
   jobLabel: string | null;
 }) {
@@ -1444,7 +1452,11 @@ function quoteSendBody({
     "",
     `Thanks for the opportunity. I have attached the quote${scope} for you to review.`,
     "",
-    "Please let me know if you would like anything changed, or if you are happy for us to proceed.",
+    approvalUrl
+      ? `You can approve the quote or request changes here: ${approvalUrl}`
+      : "Please let me know if you would like anything changed, or if you are happy for us to proceed.",
+    "",
+    "If the link gives you any trouble, just reply to this email and I will help.",
   ].join("\n");
 }
 
@@ -1578,13 +1590,24 @@ async function quoteHistoryCommand({
   const sentEvent = history.find((event) => event.kind === "email_sent");
   const preparedEvent = history.find((event) => event.kind === "email_prepared");
   const generatedEvent = history.find((event) => event.kind === "pdf_generated");
-  const statusLine = sentEvent
-    ? `It was sent${sentEvent.sentTo ? ` to ${sentEvent.sentTo}` : ""} on ${assistantDate(sentEvent.occurredAt)}.`
-    : preparedEvent
-      ? `It has a prepared email from ${assistantDate(preparedEvent.occurredAt)}, but I cannot see a sent event yet.`
-      : generatedEvent
-        ? `A PDF was generated on ${assistantDate(generatedEvent.occurredAt)}, but I cannot see a prepared or sent email yet.`
-        : "I cannot see any generated PDF, prepared email, or sent email history for this quote yet.";
+  const approvedEvent = history.find((event) => event.kind === "customer_approved");
+  const changesRequestedEvent = history.find(
+    (event) => event.kind === "customer_changes_requested",
+  );
+  const viewedEvent = history.find((event) => event.kind === "customer_viewed");
+  const statusLine = approvedEvent
+    ? `The customer approved it on ${assistantDate(approvedEvent.occurredAt)}.`
+    : changesRequestedEvent
+      ? `The customer requested changes on ${assistantDate(changesRequestedEvent.occurredAt)}.`
+      : viewedEvent
+        ? `The customer viewed it on ${assistantDate(viewedEvent.occurredAt)}, but I cannot see an approval or change request yet.`
+        : sentEvent
+          ? `It was sent${sentEvent.sentTo ? ` to ${sentEvent.sentTo}` : ""} on ${assistantDate(sentEvent.occurredAt)}.`
+          : preparedEvent
+            ? `It has a prepared email from ${assistantDate(preparedEvent.occurredAt)}, but I cannot see a sent event yet.`
+            : generatedEvent
+              ? `A PDF was generated on ${assistantDate(generatedEvent.occurredAt)}, but I cannot see a prepared or sent email yet.`
+              : "I cannot see any generated PDF, prepared email, sent email, customer view, or customer approval history for this quote yet.";
   const changedLine = freshness.latest
     ? freshness.changed
       ? "The quote has changed since the latest document event, so generate or prepare a fresh PDF before relying on it."
@@ -1598,9 +1621,12 @@ async function quoteHistoryCommand({
       generatedEvent,
       history: history.slice(0, 8),
       latestDocumentEvent: freshness.latest,
+      approvedEvent,
+      changesRequestedEvent,
       preparedEvent,
       quote: quoteReadyRecord(profile.quoteDraft),
       sentEvent,
+      viewedEvent,
     },
     fallbackAnswer: `${profile.quoteDraft.title}: ${statusLine} ${changedLine}`,
     intent: "quote_history",
@@ -1767,6 +1793,14 @@ async function prepareQuoteDraftSendFromAssistant({
     };
   }
 
+  const approvalLink = await createQuoteApprovalLinkForDraft(supabase, {
+    actorId: user.id,
+    actorType: "ai",
+    customerEmail,
+    quoteDraftId,
+    source: "assistant.quote_send",
+    workspaceId: workspace.id,
+  });
   const artifact = await buildQuotePdfArtifactForDraft(supabase, {
     quoteDraftId,
     workspace,
@@ -1782,7 +1816,11 @@ async function prepareQuoteDraftSendFromAssistant({
     textValue(lead.title) ??
     quoteTitle;
   const subject = quoteSendSubject(quoteTitle);
-  const body = quoteSendBody({ customerName, jobLabel });
+  const body = quoteSendBody({
+    approvalUrl: approvalLink.url,
+    customerName,
+    jobLabel,
+  });
 
   const { data: action, error: actionError } = await supabase
     .from("actions")
@@ -1796,6 +1834,8 @@ async function prepareQuoteDraftSendFromAssistant({
       target_id: conversationId,
       input: {
         attachmentQuoteDraftId: quoteDraftId,
+        approvalLinkId: approvalLink.approvalLink.id,
+        approvalUrl: approvalLink.url,
         body,
         channelType: "email",
         generatedDocument: documentMetadata,
@@ -1803,6 +1843,7 @@ async function prepareQuoteDraftSendFromAssistant({
         settingsSnapshot: {
           approvalRequired: true,
           generatedDocument: documentMetadata,
+          quoteApprovalLinkId: approvalLink.approvalLink.id,
           source: "assistant.quote_send",
         },
         signatureVariant: "ai_generated",
@@ -1830,6 +1871,7 @@ async function prepareQuoteDraftSendFromAssistant({
       lastGeneratedDocument: documentMetadata,
       preparedSendActionId: String(action.id),
       preparedSendAt: documentMetadata.generatedAt,
+      quoteApprovalLinkId: approvalLink.approvalLink.id,
     },
     {
       actionId: String(action.id),
@@ -1876,6 +1918,7 @@ async function prepareQuoteDraftSendFromAssistant({
       assistantPrompt: prompt,
       conversationId,
       customerEmail,
+      quoteApprovalLinkId: approvalLink.approvalLink.id,
       requestedByUserId: user.id,
       source: "assistant.quote_send",
     },

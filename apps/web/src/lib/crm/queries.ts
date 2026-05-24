@@ -1031,7 +1031,7 @@ export async function getConversationList(
       summary.ready += 1;
     } else if (status === "sent") {
       summary.sent += 1;
-    } else if (status !== "archived") {
+    } else if (status !== "archived" && status !== "approved") {
       summary.draft += 1;
     }
 
@@ -1430,7 +1430,7 @@ export async function getConversationWorkflowCounts(
       summary.ready += 1;
     } else if (status === "sent") {
       summary.sent += 1;
-    } else if (status !== "archived") {
+    } else if (status !== "archived" && status !== "approved") {
       summary.draft += 1;
     }
 

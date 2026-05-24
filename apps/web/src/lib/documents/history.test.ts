@@ -106,5 +106,20 @@ describe("quote document history", () => {
       true,
     );
   });
-});
 
+  it("keeps customer approval events in the document history trail", () => {
+    const metadata = appendQuoteDocumentHistory(
+      {},
+      {
+        contentHash: "current",
+        kind: "customer_approved",
+        occurredAt: "2026-05-24T02:00:00.000Z",
+        source: "quote.approval_portal",
+      },
+    );
+    const history = quoteDocumentHistory(metadata);
+
+    assert.equal(history.length, 1);
+    assert.equal(history[0].kind, "customer_approved");
+  });
+});

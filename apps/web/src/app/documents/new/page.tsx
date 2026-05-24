@@ -22,6 +22,8 @@ type NewQuoteDraftPageProps = {
 };
 
 const QUOTE_STATUS_OPTIONS = [
+  { value: "approved", label: "Approved" },
+  { value: "changes_requested", label: "Changes requested" },
   { value: "draft", label: "Draft" },
   { value: "ready", label: "Ready" },
   { value: "sent", label: "Sent" },

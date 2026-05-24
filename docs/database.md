@@ -56,6 +56,11 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260510061122_quote_drafts.sql`: adds internal saved quote drafts linked to contacts, leads, conversations, and source actions.
 - `20260510073116_inquiry_facts.sql`: adds editable extracted inquiry facts with one current row per workspace/conversation.
 - `20260512191555_assistant_memory.sql`: adds Assistant threads, messages, explicit memories, RLS policies, and updated-at triggers.
+- `20260513200620_google_integrations.sql`: adds Google/Microsoft OAuth connection storage and token-state metadata.
+- `20260517163000_security_perf_hardening.sql`: adds performance and security indexes/policies for the current Supabase schema.
+- `20260518175710_pronunciation_vocabulary.sql`: adds assistant pronunciation vocabulary records.
+- `20260522001249_event_skipped_email_indexes.sql`: adds skipped-email event indexes for filtered-out email review.
+- `20260524194856_quote_approval_links.sql`: adds tokenized customer quote approval links with workspace RLS policies.
 
 Document template preferences do not currently need a new migration. The web app stores
 the first quote-output settings in `workspace_policies` with policy type
@@ -63,5 +68,7 @@ the first quote-output settings in `workspace_policies` with policy type
 print-ready HTML or an on-demand server-generated PDF. Generated PDF metadata is
 stored in existing `quote_drafts.metadata` and outbound `messages.metadata`.
 `quote_drafts.metadata.documentHistory` is the current lightweight version trail
-for generated/prepared/sent PDFs. Durable binary file storage will need a future
-migration/storage policy.
+for generated/prepared/sent PDFs and customer approval events. Customer approval
+links use `quote_approval_links`: raw tokens stay in customer URLs, while the
+database stores only `token_hash`, status, expiry, view/approval timestamps, and
+change-request text. Durable binary file storage will need a future migration/storage policy.

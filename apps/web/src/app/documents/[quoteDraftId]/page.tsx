@@ -12,12 +12,20 @@ import {
   type QuoteDocumentHistoryEvent,
 } from "../../../lib/documents/history";
 import {
+  getLatestQuoteApprovalLinkForDraft,
+  isQuoteApprovalLinkExpired,
+  quoteApprovalPublicUrl,
+} from "../../../lib/documents/approval";
+import {
   documentTemplateDesignSettingsForQuote,
   getDocumentTemplateSettings,
 } from "../../../lib/documents/settings";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import { QuoteDraftEditorForm } from "./quote-draft-editor-form";
-import { prepareQuoteDraftSendAction } from "../actions";
+import {
+  createQuoteApprovalLinkAction,
+  prepareQuoteDraftSendAction,
+} from "../actions";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -28,12 +36,15 @@ type QuoteDraftPageProps = {
     quoteDraftId: string;
   }>;
   searchParams?: Promise<{
+    approval_token?: string;
     engine_error?: string;
     engine_message?: string;
   }>;
 };
 
 const QUOTE_STATUS_OPTIONS = [
+  { value: "approved", label: "Approved" },
+  { value: "changes_requested", label: "Changes requested" },
   { value: "draft", label: "Draft" },
   { value: "ready", label: "Ready" },
   { value: "sent", label: "Sent" },
@@ -75,6 +86,18 @@ function safeQuoteStatus(status: string) {
 }
 
 function documentEventLabel(event: QuoteDocumentHistoryEvent) {
+  if (event.kind === "customer_approved") {
+    return "Customer approved";
+  }
+
+  if (event.kind === "customer_changes_requested") {
+    return "Customer requested changes";
+  }
+
+  if (event.kind === "customer_viewed") {
+    return "Customer viewed";
+  }
+
   if (event.kind === "email_sent") {
     return "Sent to customer";
   }
@@ -159,6 +182,16 @@ export default async function QuoteDraftPage({
     history,
   });
   const latestDocumentEvent = documentFreshness.latest;
+  const approvalLink = await getLatestQuoteApprovalLinkForDraft(supabase, {
+    quoteDraftId: quoteDraft.id,
+    workspaceId: workspace.id,
+  });
+  const approvalUrl = query?.approval_token
+    ? quoteApprovalPublicUrl(query.approval_token)
+    : null;
+  const approvalExpired = approvalLink
+    ? isQuoteApprovalLinkExpired(approvalLink)
+    : false;
 
   return (
     <AppFrame active="Documents">
@@ -314,6 +347,75 @@ export default async function QuoteDraftPage({
               ))}
             </div>
           ) : null}
+        </article>
+
+        <article className="panel inquiry-summary-card">
+          <div className="summary-title">
+            <div>
+              <p className="eyebrow">Customer approval</p>
+              <h2>
+                {approvalLink
+                  ? formatLabel(approvalExpired ? "expired" : approvalLink.status)
+                  : "No approval link"}
+              </h2>
+            </div>
+            {approvalLink ? (
+              <span
+                className={
+                  approvalLink.status === "approved"
+                    ? "pill success"
+                    : approvalLink.status === "changes_requested" || approvalExpired
+                      ? "pill warning"
+                      : "pill"
+                }
+              >
+                {approvalExpired ? "Expired" : formatLabel(approvalLink.status)}
+              </span>
+            ) : (
+              <span className="pill warning">Not shared</span>
+            )}
+          </div>
+          {approvalUrl ? (
+            <div className="approval-copy-box">
+              <label>
+                New approval link
+                <input readOnly value={approvalUrl} />
+              </label>
+              <p>
+                This is the customer-facing link for this quote. It will only be
+                shown here immediately after creation; generate a new link if you
+                need to copy it again later.
+              </p>
+            </div>
+          ) : (
+            <div className="summary-fields">
+              {approvalLink?.customerEmail ? (
+                <span>{approvalLink.customerEmail}</span>
+              ) : null}
+              {approvalLink?.viewedAt ? (
+                <span>Viewed {formatDate(approvalLink.viewedAt)}</span>
+              ) : (
+                <span>Not viewed yet</span>
+              )}
+              {approvalLink?.approvedAt ? (
+                <span>Approved {formatDate(approvalLink.approvedAt)}</span>
+              ) : null}
+              {approvalLink?.changesRequestedAt ? (
+                <span>
+                  Changes requested {formatDate(approvalLink.changesRequestedAt)}
+                </span>
+              ) : null}
+              {approvalLink?.lastChangeRequest ? (
+                <span>{approvalLink.lastChangeRequest}</span>
+              ) : null}
+            </div>
+          )}
+          <form action={createQuoteApprovalLinkAction}>
+            <input name="quoteDraftId" type="hidden" value={quoteDraft.id} />
+            <button className="secondary-button compact" type="submit">
+              {approvalLink ? "Generate fresh link" : "Create approval link"}
+            </button>
+          </form>
         </article>
       </section>
 

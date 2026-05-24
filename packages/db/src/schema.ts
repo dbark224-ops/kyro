@@ -498,6 +498,46 @@ export const quoteDrafts = pgTable(
   }),
 );
 
+export const quoteApprovalLinks = pgTable(
+  "quote_approval_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    quoteDraftId: uuid("quote_draft_id")
+      .notNull()
+      .references(() => quoteDrafts.id),
+    tokenHash: text("token_hash").notNull(),
+    status: text("status").notNull().default("active"),
+    customerEmail: text("customer_email"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    changesRequestedAt: timestamp("changes_requested_at", {
+      withTimezone: true,
+    }),
+    lastChangeRequest: text("last_change_request"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    quoteApprovalLinkTokenHashIdx: uniqueIndex(
+      "quote_approval_links_token_hash_idx",
+    ).on(table.tokenHash),
+    quoteApprovalLinkWorkspaceIdx: index(
+      "quote_approval_links_workspace_idx",
+    ).on(table.workspaceId),
+    quoteApprovalLinkQuoteIdx: index("quote_approval_links_quote_idx").on(
+      table.workspaceId,
+      table.quoteDraftId,
+    ),
+    quoteApprovalLinkStatusIdx: index(
+      "quote_approval_links_status_idx",
+    ).on(table.workspaceId, table.status),
+  }),
+);
+
 export const inquiryFacts = pgTable(
   "inquiry_facts",
   {

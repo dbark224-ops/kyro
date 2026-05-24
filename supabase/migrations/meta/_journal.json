@@ -57,6 +57,13 @@
       "when": 1779408769978,
       "tag": "20260522001249_event_skipped_email_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779652136805,
+      "tag": "20260524194856_quote_approval_links",
+      "breakpoints": true
     }
   ]
 }

@@ -411,6 +411,8 @@ Current long-term memory capture is explicit only. A memory is saved when the us
 
 Current quote draft statuses used by the app:
 
+- `approved`
+- `changes_requested`
 - `draft`
 - `ready`
 - `sent`
@@ -426,7 +428,8 @@ Generated-document state is metadata-first for now. When the user prepares a
 quote send, Kyro stores `metadata.lastGeneratedDocument` with the PDF filename,
 content type, byte size, renderer, generation timestamp, and content hash.
 `metadata.documentHistory` records lightweight `pdf_generated`, `email_prepared`,
-and `email_sent` events so the quote page and Assistant can explain what happened.
+`email_sent`, `customer_viewed`, `customer_approved`, and
+`customer_changes_requested` events so the quote page and Assistant can explain what happened.
 When the email is sent, outbound message metadata records the PDF attachment
 summary and the quote draft metadata records sent timestamps, provider/message ids,
 the outbound message id, and an `email_sent` history event. The binary PDF is
@@ -434,6 +437,43 @@ generated on demand for download and send rather than being stored in Supabase
 Storage or Drive yet. Durable generated file rows, Drive storage, invoice exports,
 and accounting/payment records remain planned
 later work.
+
+### `quote_approval_links`
+
+- `id`
+- `workspace_id`
+- `quote_draft_id`
+- `token_hash`
+- `status`
+- `customer_email`
+- `expires_at`
+- `viewed_at`
+- `approved_at`
+- `changes_requested_at`
+- `last_change_request`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+Quote approval links are tokenized customer-review links for quote drafts.
+The raw token is only used in the customer URL; the database stores a SHA-256
+hash so a copied database row is not itself a usable approval link. The web app
+uses the service-role server client to load a link by token hash on
+`/quote/approve/[token]`; the table is not granted to `anon`. Authenticated
+workspace members can create/update links through the normal RLS policies.
+
+Current quote approval link statuses:
+
+- `active`
+- `approved`
+- `changes_requested`
+- `revoked`
+
+Creating a fresh approval link revokes older active links for the same quote
+draft. Customer approval marks the linked quote draft `approved`. Customer
+change requests mark the quote draft `changes_requested`, store the latest
+request text on the link, and create a portal-origin inbound message on the
+linked conversation when one exists.
 
 Opening a draft from a reusable document template does not immediately create a
 `quote_drafts` row. The `/documents/new?templateKey=...` editor is temporary;

@@ -19,13 +19,23 @@ import {
   buildQuotePdfArtifactForDraft,
   quotePdfMetadata,
 } from "../../lib/documents/pdf";
+import {
+  createQuoteApprovalLinkForDraft,
+} from "../../lib/documents/approval";
 import { appendQuoteDocumentHistory } from "../../lib/documents/history";
 import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-const QUOTE_DRAFT_STATUSES = new Set(["draft", "ready", "sent", "archived"]);
+const QUOTE_DRAFT_STATUSES = new Set([
+  "approved",
+  "archived",
+  "changes_requested",
+  "draft",
+  "ready",
+  "sent",
+]);
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -133,9 +143,11 @@ function quoteSendSubject(title: string) {
 }
 
 function quoteSendBody({
+  approvalUrl,
   customerName,
   jobLabel,
 }: {
+  approvalUrl?: string | null;
   customerName: string | null;
   jobLabel: string | null;
 }) {
@@ -149,7 +161,11 @@ function quoteSendBody({
     "",
     `Thanks for the opportunity. I have attached the quote${scope} for you to review.`,
     "",
-    "Please let me know if you would like anything changed, or if you are happy for us to proceed.",
+    approvalUrl
+      ? `You can approve the quote or request changes here: ${approvalUrl}`
+      : "Please let me know if you would like anything changed, or if you are happy for us to proceed.",
+    "",
+    "If the link gives you any trouble, just reply to this email and I will help.",
   ].join("\n");
 }
 
@@ -892,6 +908,14 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     );
   }
 
+  const approvalLink = await createQuoteApprovalLinkForDraft(supabase, {
+    actorId: user.id,
+    actorType: "user",
+    customerEmail,
+    quoteDraftId,
+    source: "documents.prepare_quote_send",
+    workspaceId: workspace.id,
+  });
   const artifact = await buildQuotePdfArtifactForDraft(supabase, {
     quoteDraftId,
     workspace,
@@ -908,6 +932,7 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     String(quoteDraft.title);
   const subject = quoteSendSubject(String(quoteDraft.title));
   const body = quoteSendBody({
+    approvalUrl: approvalLink.url,
     customerName,
     jobLabel,
   });
@@ -924,6 +949,8 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
       target_id: conversationId,
       input: {
         attachmentQuoteDraftId: quoteDraftId,
+        approvalLinkId: approvalLink.approvalLink.id,
+        approvalUrl: approvalLink.url,
         body,
         channelType: "email",
         generatedDocument: documentMetadata,
@@ -931,6 +958,7 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
         settingsSnapshot: {
           approvalRequired: true,
           generatedDocument: documentMetadata,
+          quoteApprovalLinkId: approvalLink.approvalLink.id,
           source: "documents.prepare_quote_send",
         },
         signatureVariant: "ai_generated",
@@ -960,6 +988,7 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
       lastGeneratedDocument: documentMetadata,
       preparedSendActionId: String(action.id),
       preparedSendAt: documentMetadata.generatedAt,
+      quoteApprovalLinkId: approvalLink.approvalLink.id,
     },
     {
       actionId: String(action.id),
@@ -1004,6 +1033,7 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     metadata: {
       conversationId,
       customerEmail,
+      quoteApprovalLinkId: approvalLink.approvalLink.id,
       source: "documents.prepare_quote_send",
     },
   });
@@ -1015,6 +1045,82 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     `/inbox/${encodeURIComponent(conversationId)}?engine_message=${encodeURIComponent(
       "Quote email prepared. Review the message and send it when ready.",
     )}`,
+  );
+}
+
+export async function createQuoteApprovalLinkAction(formData: FormData) {
+  const quoteDraftId = formString(formData, "quoteDraftId");
+
+  if (!quoteDraftId) {
+    redirect("/documents?engine_error=Quote draft id is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: quoteDraft, error } = await supabase
+    .from("quote_drafts")
+    .select("id,title,metadata,contact_id")
+    .eq("workspace_id", workspace.id)
+    .eq("id", quoteDraftId)
+    .maybeSingle();
+
+  if (error) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", error.message);
+  }
+
+  if (!quoteDraft) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", "Quote draft was not found.");
+  }
+
+  const metadata = objectRecord(quoteDraft.metadata);
+  const contactResult = quoteDraft.contact_id
+    ? await supabase
+        .from("contacts")
+        .select("email")
+        .eq("workspace_id", workspace.id)
+        .eq("id", quoteDraft.contact_id)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (contactResult.error) {
+    redirectWithDocumentMessage(
+      quoteDraftId,
+      "engine_error",
+      contactResult.error.message,
+    );
+  }
+
+  const customerEmail =
+    textValue(contactResult.data?.email) ?? textValue(metadata.customerEmail);
+
+  const approvalLink = await createQuoteApprovalLinkForDraft(supabase, {
+    actorId: user.id,
+    actorType: "user",
+    customerEmail,
+    quoteDraftId,
+    source: "documents.manual_approval_link",
+    workspaceId: workspace.id,
+  });
+
+  const nextMetadata = {
+    ...metadata,
+    quoteApprovalLinkId: approvalLink.approvalLink.id,
+  };
+
+  const { error: updateError } = await supabase
+    .from("quote_drafts")
+    .update({ metadata: nextMetadata })
+    .eq("workspace_id", workspace.id)
+    .eq("id", quoteDraftId);
+
+  if (updateError) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", updateError.message);
+  }
+
+  revalidatePath(documentPath(quoteDraftId));
+  redirect(
+    `${documentPath(quoteDraftId)}?engine_message=${encodeURIComponent(
+      "Customer approval link created.",
+    )}&approval_token=${encodeURIComponent(approvalLink.token)}`,
   );
 }
 

@@ -4,6 +4,9 @@ import type { DocumentTemplateDesignSettings } from "./settings";
 import { normalizeQuoteLineItems } from "./templates";
 
 export type QuoteDocumentEventKind =
+  | "customer_approved"
+  | "customer_changes_requested"
+  | "customer_viewed"
   | "email_prepared"
   | "email_sent"
   | "pdf_generated";
@@ -25,6 +28,7 @@ export type QuoteDocumentHistoryEvent = {
 const HISTORY_LIMIT = 40;
 
 const VOLATILE_METADATA_KEYS = new Set([
+  "customerApproval",
   "documentHistory",
   "lastGeneratedDocument",
   "preparedSendActionId",
@@ -123,6 +127,9 @@ export function quoteDocumentHistory(metadata: Record<string, unknown>) {
       !id ||
       !occurredAt ||
       (kind !== "pdf_generated" &&
+        kind !== "customer_approved" &&
+        kind !== "customer_changes_requested" &&
+        kind !== "customer_viewed" &&
         kind !== "email_prepared" &&
         kind !== "email_sent")
     ) {

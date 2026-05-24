@@ -328,7 +328,7 @@ Files:
 Purpose:
 
 - list saved quote drafts,
-- filter quote drafts by all, draft, ready, sent, archived, linked, or unlinked,
+- filter quote drafts by all, draft, ready, approved, changes requested, sent, archived, linked, or unlinked,
 - open an unsaved quote-draft editor from saved reusable templates,
 - create custom reusable quote templates in the template builder,
 - review and edit saved templates from the Templates pane,
@@ -344,6 +344,8 @@ Purpose:
 - let users open the print view and save through the browser's Print / PDF flow,
 - let users download a server-generated PDF from the quote draft,
 - prepare a customer email with the generated quote PDF attached and route that email through the normal approval/send action flow,
+- create secure customer approval links for quote drafts,
+- let customers approve a quote or request changes from a public no-login review page,
 - hand a linked quote draft back to the inquiry outbound composer with that draft preselected,
 - show linked CRM context, recent thread messages, and audit history when the draft came from an inquiry.
 
@@ -356,10 +358,12 @@ is deterministic HTML for browser preview/printing plus deterministic server-sid
 `apps/web/src/lib/documents/pdf.ts`, not a GPT-generated image. Downloaded PDFs and outbound attachments are generated
 on demand from the saved quote draft. The current storage model records generated-document metadata such as filename,
 content type, size, renderer, content hash, generation time, and version-history events in `quote_drafts.metadata` and
-message metadata; it does not yet store binary PDFs in Supabase Storage or Drive. The content hash is calculated from
-the quote draft, customer/job details, line items, and document design settings with volatile send/history metadata
-excluded, so the app can flag when a quote has changed since the latest generated/prepared/sent PDF. Accounting/invoice
-export, payment collection, and durable generated-document file storage are still future document steps.
+message metadata; it does not yet store binary PDFs in Supabase Storage or Drive. Customer approval links live in
+`quote_approval_links`, which stores a hashed bearer token, lifecycle status, customer email, expiry, view/approval
+timestamps, and the latest change-request note. The content hash is calculated from the quote draft, customer/job
+details, line items, and document design settings with volatile send/history/approval metadata excluded, so the app can
+flag when a quote has changed since the latest generated/prepared/sent PDF. Accounting/invoice export, payment
+collection, and durable generated-document file storage are still future document steps.
 
 The Documents template card opens `/documents/new?templateKey=...`, which pre-fills an unsaved editor from the selected
 template. No `quote_drafts` row, audit log, or document-list entry is created until the user presses `Save quote draft`.
@@ -372,13 +376,18 @@ metadata were removed so the editable customer fields and structured line items 
 review remains in the reusable template builder, while customer-facing document review remains in the print/PDF route.
 
 The `Send to customer` action on a linked quote draft creates a pending `draft_reply` action on the linked conversation.
-It validates the linked customer email, generates the current PDF once to prove the artifact can be built, stores
-`lastGeneratedDocument` metadata and an `email_prepared` history event on the quote draft, moves a draft quote to
-`ready`, and redirects to the inquiry review screen. Downloading a PDF records a `pdf_generated` history event. The user
-can edit the email body before sending. When the generated reply is sent, the action executor regenerates the quote PDF,
-attaches it to the Gmail/Outlook send, records the outbound `messages` row, appends an `email_sent` history event, marks
-the quote draft `sent`, and writes quote/message audit logs. This keeps the customer-facing side effect behind the
-existing approval/execution machinery.
+It validates the linked customer email, creates a fresh quote approval link, generates the current PDF once to prove the
+artifact can be built, stores `lastGeneratedDocument` metadata and an `email_prepared` history event on the quote draft,
+moves a draft quote to `ready`, and redirects to the inquiry review screen. The email body includes the customer
+approval URL so the customer can open `/quote/approve/[token]`, review the rendered quote, approve it, or request
+changes. Downloading a PDF records a `pdf_generated` history event. The user can edit the email body before sending.
+When the generated reply is sent, the action executor regenerates the quote PDF, attaches it to the Gmail/Outlook send,
+records the outbound `messages` row, appends an `email_sent` history event, marks the quote draft `sent`, and writes
+quote/message audit logs. Customer approval appends `customer_viewed`, `customer_approved`, or
+`customer_changes_requested` events. Approval changes the quote status to `approved`; change requests change it to
+`changes_requested`, reopen the linked conversation, and insert a portal-origin inbound message so the request appears
+in the work queue. This keeps the customer-facing side effect behind secure token lookup and the existing
+approval/execution machinery.
 
 The `document_templates` policy stores product-safe presentation preferences plus custom reusable templates. Custom
 templates include a stable key, label, description, line item structure, notes, reference-file metadata,
@@ -441,7 +450,7 @@ Current safe command families:
 - work queue and leads needing reply,
 - inquiry lookup by customer/job text, including exact and partial name matches,
 - quote/document lookup and ready quote drafts,
-- quote-send preparation that creates a reviewable email with the generated quote PDF attached,
+- quote-send preparation that creates a reviewable email with the generated quote PDF and customer approval link attached,
 - contact/customer summaries,
 - standalone quote draft creation from saved reusable templates,
 - reusable document template creation and revision,
@@ -458,8 +467,10 @@ template control can also create a new reusable template or revise an existing o
 contract as the template builder; if multiple templates could match, it asks the user to choose rather than mutating an
 arbitrary template. Assistant quote-send preparation can list ready-to-send quote drafts, match a send request to a
 single open quote by customer/title/email, validate that the quote is linked to an inquiry and customer email, generate
-the current PDF, and create a pending `draft_reply` action with that quote attached. This is deliberately preparation
-only: the user still reviews or edits the message in the inquiry before sending. From an Assistant inquiry preview, the
+the current PDF, create a fresh customer approval link, and create a pending `draft_reply` action with that quote
+attached. This is deliberately preparation only: the user still reviews or edits the message in the inquiry before
+sending. Customers approve or request changes from the public tokenized approval page, and Assistant can answer quote
+history questions using the resulting customer view/approval/change-request events. From an Assistant inquiry preview, the
 user can also write a manual reply; email replies send through connected Gmail and non-email channels are recorded
 internally. The LLM does not autonomously send email/SMS, execute approval-gated actions, alter payments, or perform
 bookkeeping.

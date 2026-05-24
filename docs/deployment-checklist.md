@@ -66,6 +66,7 @@ Verify:
 - Data API exposure settings are intentional for public schema tables,
 - service-role access is only used from server routes/actions/helpers,
 - the production database is not using a local or throwaway connection string.
+- `quote_approval_links` is not granted to `anon`; public customer approval pages load by token hash through server-only service-role code.
 
 ## 4. Google OAuth
 
@@ -102,6 +103,7 @@ Run a smoke test for:
 - realtime voice session creation,
 - pronunciation preview,
 - reply draft generation,
+- quote approval link creation and the no-login `/quote/approve/[token]` customer page,
 - inbound email classifier path.
 
 ## 7. Scheduled Email Sync
