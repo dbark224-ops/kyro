@@ -1,8 +1,18 @@
 import { selectModelRoute } from "@kyro/ai";
-import { getInitialActionStatus, createUsageEvent } from "@kyro/api";
-import type { ModelRouteRequest, UsageEventCreate } from "@kyro/contracts";
+import { getInitialActionStatus } from "@kyro/api";
+import type { ModelRouteRequest } from "@kyro/contracts";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  buildLlmUsageEvents,
+  estimateTokens,
+  openAiProviderUsageId,
+  openAiUsageFromResponse,
+  openAiUsageFromTokenCounts,
+  toUsageEventRows,
+  usageEventTotals,
+  type OpenAiTokenUsage,
+} from "../usage/openai";
 
 export type AiRunItem = {
   id: string;
@@ -79,50 +89,9 @@ type TriageDecision = {
   fallbackReason?: string;
   inputTokens?: number;
   outputTokens?: number;
+  providerUsageId?: string;
+  tokenUsage?: OpenAiTokenUsage;
 };
-
-const INPUT_TOKEN_UNIT_COST = 0.00000015;
-const OUTPUT_TOKEN_UNIT_COST = 0.0000006;
-const MARKUP_RATE = 0.25;
-
-function priceUsage(quantity: number, unitCost: number) {
-  const cost = quantity * unitCost;
-  const customerCharge = cost * (1 + MARKUP_RATE);
-
-  return {
-    unitCostSnapshot: unitCost,
-    markupSnapshot: MARKUP_RATE,
-    costSnapshot: Number(cost.toFixed(8)),
-    customerChargeSnapshot: Number(customerCharge.toFixed(8))
-  };
-}
-
-function toUsageEvent(input: UsageEventCreate) {
-  const event = createUsageEvent(input);
-
-  return {
-    workspace_id: event.workspaceId,
-    user_id: event.userId ?? null,
-    source_type: event.sourceType ?? null,
-    source_id: event.sourceId ?? null,
-    ai_run_id: event.aiRunId ?? null,
-    workflow_run_id: event.workflowRunId ?? null,
-    action_id: event.actionId ?? null,
-    provider: event.provider,
-    service: event.service,
-    model: event.model ?? null,
-    usage_type: event.usageType,
-    quantity: String(event.quantity),
-    unit: event.unit,
-    unit_price_snapshot: event.unitPriceSnapshot ? String(event.unitPriceSnapshot) : null,
-    unit_cost_snapshot: String(event.unitCostSnapshot),
-    markup_snapshot: String(event.markupSnapshot),
-    currency: event.currency,
-    cost_snapshot: String(event.costSnapshot),
-    customer_charge_snapshot: String(event.customerChargeSnapshot),
-    metadata: {}
-  };
-}
 
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -503,14 +472,6 @@ function providerErrorMessage(payload: unknown) {
   return textValue(error.message) ?? "OpenAI triage request failed.";
 }
 
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function numberValue(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 function extractJsonObject(text: string) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1] ?? text;
@@ -554,11 +515,13 @@ function responseOutputText(payload: unknown) {
 }
 
 function responseUsage(payload: unknown, prompt: string, text: string) {
-  const usage = objectRecord(objectRecord(payload).usage);
+  const usage = openAiUsageFromResponse(payload, { prompt, text });
 
   return {
-    inputTokens: numberValue(usage.input_tokens) ?? estimateTokens(prompt),
-    outputTokens: numberValue(usage.output_tokens) ?? estimateTokens(text)
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    providerUsageId: openAiProviderUsageId(payload) ?? undefined,
+    tokenUsage: usage,
   };
 }
 
@@ -1096,7 +1059,6 @@ export async function runStubAiTriage(
     budget_snapshot: {
       fallbackReason: triageDecision.fallbackReason ?? null,
       estimatedInputTokens: routeRequest.estimatedInputTokens,
-      markupRate: MARKUP_RATE,
       providerUsed: triageDecision.providerUsed
     }
   });
@@ -1107,55 +1069,36 @@ export async function runStubAiTriage(
 
   const inputTokens = triageDecision.inputTokens ?? 900;
   const outputTokens = triageDecision.outputTokens ?? 180;
-  const inputUnitCost = route.provider === "ollama" ? 0 : INPUT_TOKEN_UNIT_COST;
-  const outputUnitCost = route.provider === "ollama" ? 0 : OUTPUT_TOKEN_UNIT_COST;
-  const inputPrice = priceUsage(inputTokens, inputUnitCost);
-  const outputPrice = priceUsage(outputTokens, outputUnitCost);
-  const actualCost = Number((inputPrice.costSnapshot + outputPrice.costSnapshot).toFixed(8));
-  const customerCharge = Number(
-    (inputPrice.customerChargeSnapshot + outputPrice.customerChargeSnapshot).toFixed(8)
-  );
-
-  const usageEvents = [
-    toUsageEvent({
-      workspaceId,
-      userId: user.id,
-      sourceType: "ai_run",
-      sourceId: aiRunId,
+  const tokenUsage =
+    triageDecision.tokenUsage ??
+    openAiUsageFromTokenCounts({
+      estimated: Boolean(triageDecision.fallbackReason),
+      inputTokens,
+      outputTokens,
+    });
+  const usageEvents = buildLlmUsageEvents({
+    context: {
       aiRunId,
-      provider: route.provider,
-      service: "llm",
-      model: route.model,
-      usageType: "llm_input_tokens",
-      quantity: inputTokens,
-      unit: "token",
-      unitCostSnapshot: inputPrice.unitCostSnapshot,
-      markupSnapshot: inputPrice.markupSnapshot,
-      costSnapshot: inputPrice.costSnapshot,
-      customerChargeSnapshot: inputPrice.customerChargeSnapshot,
-      currency: "USD"
-    }),
-    toUsageEvent({
-      workspaceId,
-      userId: user.id,
-      sourceType: "ai_run",
+      metadata: {
+        providerUsed: triageDecision.providerUsed,
+        source: "inbound_triage",
+      },
+      providerUsageId: triageDecision.providerUsageId,
       sourceId: aiRunId,
-      aiRunId,
-      provider: route.provider,
-      service: "llm",
-      model: route.model,
-      usageType: "llm_output_tokens",
-      quantity: outputTokens,
-      unit: "token",
-      unitCostSnapshot: outputPrice.unitCostSnapshot,
-      markupSnapshot: outputPrice.markupSnapshot,
-      costSnapshot: outputPrice.costSnapshot,
-      customerChargeSnapshot: outputPrice.customerChargeSnapshot,
-      currency: "USD"
-    })
-  ];
+      sourceType: "ai_run",
+      userId: user.id,
+      workspaceId,
+    },
+    model: route.model,
+    provider: triageDecision.providerUsed === "openai" ? "openai" : triageDecision.providerUsed,
+    service: "llm",
+    usage: tokenUsage,
+  });
+  const usageTotals = usageEventTotals(usageEvents);
 
-  const { error: usageError } = await supabase.from("usage_events").insert(usageEvents);
+  const { error: usageError } = await supabase
+    .from("usage_events")
+    .insert(toUsageEventRows(usageEvents));
 
   if (usageError) {
     throw new Error(`Unable to record usage events: ${usageError.message}`);
@@ -1187,11 +1130,14 @@ export async function runStubAiTriage(
       status: "completed",
       output,
       usage: {
+        cachedInputTokens: tokenUsage.cachedInputTokens,
+        customerCharge: usageTotals.customerChargeSnapshot,
         inputTokens,
         outputTokens,
-        customerCharge
+        reasoningTokens: tokenUsage.reasoningTokens,
+        totalTokens: tokenUsage.totalTokens,
       },
-      actual_cost: String(actualCost),
+      actual_cost: String(usageTotals.costSnapshot),
       latency_ms: 320,
       completed_at: new Date().toISOString()
     })
@@ -1211,8 +1157,8 @@ export async function runStubAiTriage(
     after: {
       status: "completed",
       output,
-      actualCost,
-      customerCharge
+      actualCost: usageTotals.costSnapshot,
+      customerCharge: usageTotals.customerChargeSnapshot
     }
   });
 
@@ -1358,8 +1304,8 @@ export async function runStubAiTriage(
     aiRunId,
     actionId: String(primaryAction.id),
     actionIds: actions.map((action) => String(action.id)),
-    actualCost,
-    customerCharge
+    actualCost: usageTotals.costSnapshot,
+    customerCharge: usageTotals.customerChargeSnapshot
   };
 }
 

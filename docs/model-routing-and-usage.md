@@ -29,18 +29,23 @@ The router returns a provider/model/config choice and records why it was chosen.
 
 ## Current Implementation
 
-Current development routing is intentionally simple:
+Current routing is intentionally simple but production-shaped:
 
-- inquiry triage supports `AI_PROVIDER=stub` and `AI_PROVIDER=ollama`,
-- Assistant supports local Ollama through `ASSISTANT_PROVIDER=ollama`,
+- inquiry triage supports `AI_PROVIDER=stub`, `AI_PROVIDER=ollama`, and OpenAI,
+- Assistant supports OpenAI by default and local Ollama through `ASSISTANT_PROVIDER=ollama` for development,
 - both paths record `ai_runs`, `model_route_decisions`, `usage_events`, and `audit_logs`,
 - Assistant turns also persist `assistant_threads`, `assistant_messages`, tool-call records, known UI blocks, rolling summaries, and explicit memories,
-- the `/usage` page reads the metered ledger for cost and customer-charge visibility,
-- cloud model providers are not wired yet.
+- the Usage settings section reads the metered ledger for cost and customer-charge visibility,
+- OpenAI Responses usage is normalized through `apps/web/src/lib/usage/openai.ts` so uncached input tokens,
+  cached input tokens, visible output tokens, reasoning tokens, and web-search tool calls are tracked separately.
+- OpenAI Realtime voice usage is also normalized through the same helper so text, audio,
+  cached, and reasoning token rows are priced with the realtime rate card instead of
+  the general text-model estimate.
 
-Provider-specific logic is kept behind `apps/web/src/lib/ai/triage.ts` for inquiry triage
-and `apps/web/src/lib/assistant/providers.ts` for Assistant narration so cloud providers
-can be added without rewriting the UI.
+Provider-specific logic is kept behind `apps/web/src/lib/ai/triage.ts` for inquiry triage,
+`apps/web/src/lib/assistant/providers.ts` for Assistant narration, and shared usage helpers
+under `apps/web/src/lib/usage/openai.ts` so provider pricing/accounting can evolve without
+rewriting the UI.
 
 Local Ollama calls default to `think: false`, bounded `num_predict` values, and a long development timeout. This is
 especially important for qwen-style reasoning models, because hidden thinking can be slower than the actual CRM answer

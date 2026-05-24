@@ -656,9 +656,17 @@ Recommended `usage_type` values:
 - `llm_output_tokens`
 - `llm_cached_input_tokens`
 - `llm_reasoning_tokens`
+- `realtime_text_input_tokens`
+- `realtime_audio_input_tokens`
+- `realtime_cached_input_tokens`
+- `realtime_text_output_tokens`
+- `realtime_audio_output_tokens`
+- `realtime_reasoning_tokens`
 - `embedding_tokens`
+- `web_search_calls`
 - `image_generation`
 - `speech_to_text_minutes`
+- `text_to_speech_characters`
 - `text_to_speech_seconds`
 - `sms_segments`
 - `voice_minutes`

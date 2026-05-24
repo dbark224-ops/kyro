@@ -16,6 +16,7 @@ type RealtimeEvent = {
   response?: {
     id?: string;
     output?: Array<Record<string, unknown>>;
+    usage?: unknown;
   };
   transcript?: string;
   type?: string;
@@ -96,7 +97,11 @@ export function RealtimeVoiceConsole({
   }, []);
 
   const persistRealtimeTurn = useCallback(
-    async (responseId: string | null, assistantTranscript: string) => {
+    async (
+      responseId: string | null,
+      assistantTranscript: string,
+      usage?: unknown,
+    ) => {
       const cleanedAssistantTranscript = assistantTranscript.trim();
       const cleanedUserTranscript = currentUserTranscriptRef.current.trim();
       const stableResponseId = responseId ?? `response-${Date.now()}`;
@@ -123,7 +128,9 @@ export function RealtimeVoiceConsole({
           links: assistantLinks,
           model: REALTIME_MODEL,
           provider: "openai",
+          responseId: stableResponseId,
           threadId,
+          usage,
           userTranscript: cleanedUserTranscript,
         }),
         headers: {
@@ -359,7 +366,11 @@ export function RealtimeVoiceConsole({
             updateAssistantTranscript(transcript, true);
           }
 
-          await persistRealtimeTurn(currentResponseIdRef.current, transcript);
+          await persistRealtimeTurn(
+            currentResponseIdRef.current,
+            transcript,
+            event.response?.usage,
+          );
           setConnectionState("connected");
           setStatus("Live. Keep talking, or stop when you are done.");
           break;

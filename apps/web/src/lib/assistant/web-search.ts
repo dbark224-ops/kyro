@@ -1,4 +1,10 @@
 import type { AssistantLink } from "./types";
+import {
+  estimateTokens,
+  openAiProviderUsageId,
+  openAiUsageFromResponse,
+  type OpenAiTokenUsage,
+} from "../usage/openai";
 
 type WebSearchInput = {
   apiKey?: string;
@@ -11,8 +17,10 @@ type WebSearchResult = {
   fallbackReason?: string;
   inputTokens: number;
   outputTokens: number;
+  providerUsageId?: string;
   sources: AssistantLink[];
   text: string;
+  tokenUsage?: OpenAiTokenUsage;
   webSearchUsed: boolean;
 };
 
@@ -20,16 +28,8 @@ function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
 }
 
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function numberValue(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function objectRecord(value: unknown) {
@@ -87,11 +87,13 @@ function responseOutputText(payload: unknown) {
 }
 
 function responseUsage(payload: unknown, prompt: string, text: string) {
-  const usage = objectRecord(objectRecord(payload).usage);
+  const usage = openAiUsageFromResponse(payload, { prompt, text });
 
   return {
-    inputTokens: numberValue(usage.input_tokens) ?? estimateTokens(prompt),
-    outputTokens: numberValue(usage.output_tokens) ?? estimateTokens(text),
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    providerUsageId: openAiProviderUsageId(payload) ?? undefined,
+    tokenUsage: usage,
   };
 }
 

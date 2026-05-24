@@ -3,6 +3,14 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { runStubAiTriage } from "../ai/triage";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
+  buildLlmUsageEvents,
+  openAiProviderUsageId,
+  openAiUsageFromResponse,
+  toUsageEventRows,
+  usageEventTotals,
+  type OpenAiTokenUsage,
+} from "../usage/openai";
+import {
   GOOGLE_GMAIL_READ_SCOPE,
   GOOGLE_PROVIDER,
   GOOGLE_SERVICE,
@@ -113,9 +121,6 @@ export type InboundEmailSyncResult = {
 };
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
-const INPUT_TOKEN_UNIT_COST = 0.00000015;
-const OUTPUT_TOKEN_UNIT_COST = 0.0000006;
-const MARKUP_RATE = 0.25;
 const MAX_CLASSIFIER_BODY_CHARS = 4000;
 const TOKEN_DECRYPT_RECONNECT_MESSAGE =
   "Reconnect this account because Kyro cannot decrypt the stored OAuth token with the current integration encryption key.";
@@ -147,22 +152,6 @@ function normalizeScopes(value: unknown) {
   return Array.isArray(value)
     ? value.filter((scope): scope is string => typeof scope === "string" && scope.length > 0)
     : [];
-}
-
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function priceUsage(quantity: number, unitCost: number) {
-  const cost = quantity * unitCost;
-  const customerCharge = cost * (1 + MARKUP_RATE);
-
-  return {
-    costSnapshot: Number(cost.toFixed(8)),
-    customerChargeSnapshot: Number(customerCharge.toFixed(8)),
-    markupSnapshot: MARKUP_RATE,
-    unitCostSnapshot: unitCost,
-  };
 }
 
 function tokenExpiresAt(tokenSet: OAuthTokenSet) {
@@ -498,74 +487,45 @@ function buildClassifierInput(message: InboundEmailMessage, settings: InboundEma
 
 async function recordClassifierUsage({
   aiRunId,
-  inputTokens,
   model,
-  outputTokens,
+  providerUsageId,
   supabase,
+  tokenUsage,
   user,
   workspaceId,
 }: {
   aiRunId: string;
-  inputTokens: number;
   model: string;
-  outputTokens: number;
+  providerUsageId: string | null;
   supabase: SupabaseClient;
+  tokenUsage: OpenAiTokenUsage;
   user: User;
   workspaceId: string;
 }) {
-  const inputPrice = priceUsage(inputTokens, INPUT_TOKEN_UNIT_COST);
-  const outputPrice = priceUsage(outputTokens, OUTPUT_TOKEN_UNIT_COST);
-  const usageEvents = [
-    {
-      workspace_id: workspaceId,
-      user_id: user.id,
-      source_type: "ai_run",
-      source_id: aiRunId,
-      ai_run_id: aiRunId,
-      provider: "openai",
-      service: "llm",
-      model,
-      usage_type: "llm_input_tokens",
-      quantity: String(inputTokens),
-      unit: "token",
-      unit_price_snapshot: null,
-      unit_cost_snapshot: String(inputPrice.unitCostSnapshot),
-      markup_snapshot: String(inputPrice.markupSnapshot),
-      currency: "USD",
-      cost_snapshot: String(inputPrice.costSnapshot),
-      customer_charge_snapshot: String(inputPrice.customerChargeSnapshot),
-      metadata: {
-        source: "inbound_email_classifier",
-      },
+  const usageEvents = buildLlmUsageEvents({
+    context: {
+      aiRunId,
+      metadata: { source: "inbound_email_classifier" },
+      providerUsageId,
+      sourceId: aiRunId,
+      sourceType: "ai_run",
+      userId: user.id,
+      workspaceId,
     },
-    {
-      workspace_id: workspaceId,
-      user_id: user.id,
-      source_type: "ai_run",
-      source_id: aiRunId,
-      ai_run_id: aiRunId,
-      provider: "openai",
-      service: "llm",
-      model,
-      usage_type: "llm_output_tokens",
-      quantity: String(outputTokens),
-      unit: "token",
-      unit_price_snapshot: null,
-      unit_cost_snapshot: String(outputPrice.unitCostSnapshot),
-      markup_snapshot: String(outputPrice.markupSnapshot),
-      currency: "USD",
-      cost_snapshot: String(outputPrice.costSnapshot),
-      customer_charge_snapshot: String(outputPrice.customerChargeSnapshot),
-      metadata: {
-        source: "inbound_email_classifier",
-      },
-    },
-  ];
-  const { error } = await supabase.from("usage_events").insert(usageEvents);
+    model,
+    provider: "openai",
+    service: "llm",
+    usage: tokenUsage,
+  });
+  const { error } = await supabase
+    .from("usage_events")
+    .insert(toUsageEventRows(usageEvents));
 
   if (error) {
     throw new Error(`Unable to record classifier usage: ${error.message}`);
   }
+
+  return usageEventTotals(usageEvents);
 }
 
 async function classifyWithOpenAi({
@@ -724,17 +684,15 @@ async function classifyWithOpenAi({
     }
 
     const parsed = extractJsonObject(content);
-    const usage = objectRecord(objectRecord(payload).usage);
-    const inputTokens = numberValue(usage.input_tokens) ?? estimateTokens(prompt);
-    const outputTokens = numberValue(usage.output_tokens) ?? estimateTokens(content);
+    const tokenUsage = openAiUsageFromResponse(payload, { prompt, text: content });
     const classification = normalizeClassification(parsed, fallback, "openai");
 
-    await recordClassifierUsage({
+    const usageTotals = await recordClassifierUsage({
       aiRunId,
-      inputTokens,
       model,
-      outputTokens,
+      providerUsageId: openAiProviderUsageId(payload),
       supabase,
+      tokenUsage,
       user,
       workspaceId,
     });
@@ -742,16 +700,17 @@ async function classifyWithOpenAi({
     await supabase
       .from("ai_runs")
       .update({
-        actual_cost: String(
-          priceUsage(inputTokens, INPUT_TOKEN_UNIT_COST).costSnapshot +
-            priceUsage(outputTokens, OUTPUT_TOKEN_UNIT_COST).costSnapshot,
-        ),
+        actual_cost: String(usageTotals.costSnapshot),
         completed_at: new Date().toISOString(),
         output: classification,
         status: "completed",
         usage: {
-          inputTokens,
-          outputTokens,
+          cachedInputTokens: tokenUsage.cachedInputTokens,
+          customerCharge: usageTotals.customerChargeSnapshot,
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          reasoningTokens: tokenUsage.reasoningTokens,
+          totalTokens: tokenUsage.totalTokens,
         },
       })
       .eq("workspace_id", workspaceId)

@@ -63,7 +63,14 @@ export const usageTypeSchema = z.enum([
   "llm_output_tokens",
   "llm_cached_input_tokens",
   "llm_reasoning_tokens",
+  "realtime_text_input_tokens",
+  "realtime_audio_input_tokens",
+  "realtime_cached_input_tokens",
+  "realtime_text_output_tokens",
+  "realtime_audio_output_tokens",
+  "realtime_reasoning_tokens",
   "embedding_tokens",
+  "web_search_calls",
   "image_generation",
   "speech_to_text_minutes",
   "text_to_speech_characters",
@@ -113,6 +120,7 @@ export const usageEventCreateSchema = z.object({
   provider: z.string().min(1),
   service: z.string().min(1),
   model: z.string().optional(),
+  providerUsageId: z.string().optional(),
   usageType: usageTypeSchema,
   quantity: z.number().nonnegative(),
   unit: z.string().min(1),
@@ -121,6 +129,7 @@ export const usageEventCreateSchema = z.object({
   markupSnapshot: z.number().nonnegative(),
   costSnapshot: z.number().nonnegative(),
   customerChargeSnapshot: z.number().nonnegative(),
-  currency: z.string().length(3)
+  currency: z.string().length(3),
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 export type UsageEventCreate = z.infer<typeof usageEventCreateSchema>;

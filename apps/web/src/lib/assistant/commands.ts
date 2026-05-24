@@ -48,6 +48,11 @@ import {
 import { insertAuditLog } from "../engine/event-action-audit";
 import { syncInboundEmail } from "../integrations/inbound-email-sync";
 import {
+  buildLlmUsageEvents,
+  toUsageEventRows,
+  usageEventTotals,
+} from "../usage/openai";
+import {
   conversationToAssistantLink,
   isConversationInLiveWorkQueue,
 } from "./conversation-links";
@@ -2524,6 +2529,73 @@ async function documentTemplateControlCommand({
   if (saveError || !savedPolicy) {
     throw new Error(
       `Unable to save document template: ${saveError?.message ?? "unknown error"}`,
+    );
+  }
+
+  const usageEvents = buildLlmUsageEvents({
+    context: {
+      metadata: {
+        source: "assistant_document_template_control",
+        templateKey: template.key,
+      },
+      providerUsageId: revision.usage.providerUsageId,
+      userId: user.id,
+      workspaceId: workspace.id,
+    },
+    model: revision.model,
+    provider: "openai",
+    service: "llm",
+    usage: revision.usage,
+  });
+  const usageTotals = usageEventTotals(usageEvents);
+  const { data: templateAiRun } = await supabase
+    .from("ai_runs")
+    .insert({
+      actual_cost: String(usageTotals.costSnapshot),
+      completed_at: new Date().toISOString(),
+      estimated_cost: String(usageTotals.costSnapshot),
+      input_refs: {
+        intent,
+        source: "assistant_document_template_control",
+        templateKey: template.key,
+      },
+      mode: "assistant_tool",
+      model: revision.model,
+      output: {
+        templateKey: template.key,
+        templateLabel: template.label,
+      },
+      provider: "openai",
+      risk_level: "low",
+      status: "completed",
+      task_type: "document_template_revision",
+      tool_calls: [],
+      usage: {
+        cachedInputTokens: revision.usage.cachedInputTokens,
+        customerCharge: usageTotals.customerChargeSnapshot,
+        inputTokens: revision.usage.inputTokens,
+        outputTokens: revision.usage.outputTokens,
+        reasoningTokens: revision.usage.reasoningTokens,
+        totalTokens: revision.usage.totalTokens,
+      },
+      user_id: user.id,
+      workspace_id: workspace.id,
+    })
+    .select("id")
+    .single();
+
+  if (templateAiRun?.id) {
+    const aiRunId = String(templateAiRun.id);
+
+    await supabase.from("usage_events").insert(
+      toUsageEventRows(
+        usageEvents.map((event) => ({
+          ...event,
+          aiRunId,
+          sourceId: aiRunId,
+          sourceType: "ai_run",
+        })),
+      ),
     );
   }
 

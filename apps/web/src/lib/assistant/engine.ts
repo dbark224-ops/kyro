@@ -1,8 +1,14 @@
-import { createUsageEvent } from "@kyro/api";
-import type { UsageEventCreate } from "@kyro/contracts";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { selectModelRoute } from "@kyro/ai";
 import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  buildLlmUsageEvents,
+  buildOpenAiWebSearchCallUsageEvent,
+  estimateTokens,
+  openAiUsageFromTokenCounts,
+  toUsageEventRows,
+  usageEventTotals,
+} from "../usage/openai";
 import { resolveAssistantCommand } from "./commands";
 import { runAssistantModel } from "./providers";
 import { linkCardsBlock } from "./ui-blocks";
@@ -35,8 +41,6 @@ type RunAssistantTurnInput = {
   workspace: WorkspaceInput;
 };
 
-const MARKUP_RATE = 0.25;
-
 function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
 }
@@ -51,10 +55,6 @@ function assistantProviderMode() {
 
 function assistantModel() {
   return envValue("ASSISTANT_MODEL") || envValue("OLLAMA_MODEL") || "qwen3:8b";
-}
-
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
 }
 
 function routeAssistantModel(workspace: WorkspaceInput, user: User): AssistantModelRoute {
@@ -79,48 +79,6 @@ function routeAssistantModel(workspace: WorkspaceInput, user: User): AssistantMo
   });
 
   return route;
-}
-
-function priceUsage(quantity: number, provider: string) {
-  const unitCost = provider === "ollama" ? 0 : 0;
-  const cost = quantity * unitCost;
-  const customerCharge = cost * (1 + MARKUP_RATE);
-
-  return {
-    costSnapshot: Number(cost.toFixed(8)),
-    customerChargeSnapshot: Number(customerCharge.toFixed(8)),
-    markupSnapshot: MARKUP_RATE,
-    unitCostSnapshot: unitCost,
-  };
-}
-
-function toUsageEvent(input: UsageEventCreate) {
-  const event = createUsageEvent(input);
-
-  return {
-    action_id: event.actionId ?? null,
-    ai_run_id: event.aiRunId ?? null,
-    cost_snapshot: String(event.costSnapshot),
-    currency: event.currency,
-    customer_charge_snapshot: String(event.customerChargeSnapshot),
-    markup_snapshot: String(event.markupSnapshot),
-    metadata: {},
-    model: event.model ?? null,
-    provider: event.provider,
-    quantity: String(event.quantity),
-    service: event.service,
-    source_id: event.sourceId ?? null,
-    source_type: event.sourceType ?? null,
-    unit: event.unit,
-    unit_cost_snapshot: String(event.unitCostSnapshot),
-    unit_price_snapshot: event.unitPriceSnapshot
-      ? String(event.unitPriceSnapshot)
-      : null,
-    usage_type: event.usageType,
-    user_id: event.userId ?? null,
-    workflow_run_id: event.workflowRunId ?? null,
-    workspace_id: event.workspaceId,
-  };
 }
 
 export async function runAssistantTurn({
@@ -200,17 +158,13 @@ export async function runAssistantTurn({
   const inputTokens = modelOutput.inputTokens || inputTokensEstimate;
   const outputTokens =
     modelOutput.outputTokens || estimateTokens(modelOutput.text);
-  const inputPrice = priceUsage(inputTokens, route.provider);
-  const outputPrice = priceUsage(outputTokens, route.provider);
-  const actualCost = Number(
-    (inputPrice.costSnapshot + outputPrice.costSnapshot).toFixed(8),
-  );
-  const customerCharge = Number(
-    (
-      inputPrice.customerChargeSnapshot +
-      outputPrice.customerChargeSnapshot
-    ).toFixed(8),
-  );
+  const tokenUsage =
+    modelOutput.tokenUsage ??
+    openAiUsageFromTokenCounts({
+      estimated: Boolean(modelOutput.fallbackReason),
+      inputTokens,
+      outputTokens,
+    });
 
   const { error: routeError } = await supabase
     .from("model_route_decisions")
@@ -241,45 +195,46 @@ export async function runAssistantTurn({
     throw new Error(`Unable to record assistant model route: ${routeError.message}`);
   }
 
-  const usageRows = [
-    toUsageEvent({
+  const usageEvents = buildLlmUsageEvents({
+    context: {
       aiRunId,
-      costSnapshot: inputPrice.costSnapshot,
-      currency: "USD",
-      customerChargeSnapshot: inputPrice.customerChargeSnapshot,
-      markupSnapshot: inputPrice.markupSnapshot,
-      model: route.model,
-      provider: route.provider,
-      quantity: inputTokens,
-      service: "llm",
+      metadata: {
+        source: "assistant.turn",
+        webSearchUsed: Boolean(modelOutput.webSearchUsed),
+      },
+      providerUsageId: modelOutput.providerUsageId,
       sourceId: aiRunId,
       sourceType: "ai_run",
-      unit: "token",
-      unitCostSnapshot: inputPrice.unitCostSnapshot,
-      usageType: "llm_input_tokens",
       userId: user.id,
       workspaceId: workspace.id,
-    }),
-    toUsageEvent({
-      aiRunId,
-      costSnapshot: outputPrice.costSnapshot,
-      currency: "USD",
-      customerChargeSnapshot: outputPrice.customerChargeSnapshot,
-      markupSnapshot: outputPrice.markupSnapshot,
-      model: route.model,
-      provider: route.provider,
-      quantity: outputTokens,
-      service: "llm",
-      sourceId: aiRunId,
-      sourceType: "ai_run",
-      unit: "token",
-      unitCostSnapshot: outputPrice.unitCostSnapshot,
-      usageType: "llm_output_tokens",
-      userId: user.id,
-      workspaceId: workspace.id,
-    }),
-  ];
-  const { error: usageError } = await supabase.from("usage_events").insert(usageRows);
+    },
+    model: route.model,
+    provider: route.provider,
+    service: "llm",
+    usage: tokenUsage,
+  });
+
+  if (modelOutput.webSearchUsed && route.provider === "openai") {
+    usageEvents.push(
+      buildOpenAiWebSearchCallUsageEvent({
+        context: {
+          aiRunId,
+          metadata: { source: "assistant.turn" },
+          providerUsageId: modelOutput.providerUsageId,
+          sourceId: aiRunId,
+          sourceType: "ai_run",
+          userId: user.id,
+          workspaceId: workspace.id,
+        },
+        model: route.model,
+      }),
+    );
+  }
+
+  const usageTotals = usageEventTotals(usageEvents);
+  const { error: usageError } = await supabase
+    .from("usage_events")
+    .insert(toUsageEventRows(usageEvents));
 
   if (usageError) {
     throw new Error(`Unable to record assistant usage: ${usageError.message}`);
@@ -300,16 +255,19 @@ export async function runAssistantTurn({
   const { error: completeError } = await supabase
     .from("ai_runs")
     .update({
-      actual_cost: String(actualCost),
+      actual_cost: String(usageTotals.costSnapshot),
       completed_at: new Date().toISOString(),
       latency_ms: 0,
       output,
       status: "completed",
       tool_calls: toolCalls,
       usage: {
-        customerCharge,
+        cachedInputTokens: tokenUsage.cachedInputTokens,
+        customerCharge: usageTotals.customerChargeSnapshot,
         inputTokens,
         outputTokens,
+        reasoningTokens: tokenUsage.reasoningTokens,
+        totalTokens: tokenUsage.totalTokens,
       },
     })
     .eq("id", aiRunId);

@@ -23,7 +23,10 @@ priced, limited, and explained.
 
 ## Current Implementation
 
-Kyro currently records append-only `usage_events` for AI triage and Assistant work.
+Kyro currently records append-only `usage_events` for AI triage, Assistant work,
+inbound-email classification, reply drafting, document-template edits, pronunciation
+alias enrichment, realtime web-search tool calls, speech-to-text, text-to-speech,
+and real outbound email sends.
 The Settings billing view is read-only and shows:
 
 - provider cost,
@@ -105,17 +108,37 @@ Kyro should support:
 Do not calculate customer charges from live provider pricing at invoice time. Store the
 pricing snapshot when the usage event is created.
 
-Current development values:
+Current OpenAI metering behaviour:
 
-- AI triage cloud-model placeholders use `$0.00000015` per input token.
-- AI triage cloud-model placeholders use `$0.0000006` per output token.
-- Kyro markup is currently `25%`.
-- Local Ollama usage is metered with estimated tokens but provider cost and customer
-  charge are `0` while testing.
+- `apps/web/src/lib/usage/openai.ts` normalizes OpenAI Responses usage and legacy
+  Chat Completions usage into separate rows for uncached input tokens, cached input
+  tokens, visible output tokens, and reasoning tokens.
+- Cached input tokens use the cached-input rate where the configured model exposes one.
+- Reasoning tokens are stored separately but priced as output tokens so output cost is
+  not double-counted.
+- OpenAI web-search tool calls are recorded as `web_search_calls` in addition to the
+  tokens reported by the model response.
+- OpenAI Realtime voice turns read token usage from the `response.done` event and
+  split it into text input, audio input, cached input, text output, audio output,
+  and reasoning rows. This keeps live voice costing aligned with the actual
+  `gpt-realtime-2` usage rather than a local estimate.
+- Known OpenAI model prices are snapshotted from the in-app catalog, with environment
+  overrides available for production updates:
+  `OPENAI_<MODEL>_INPUT_COST_PER_1M`, `OPENAI_<MODEL>_CACHED_INPUT_COST_PER_1M`,
+  `OPENAI_<MODEL>_OUTPUT_COST_PER_1M`, or the generic `OPENAI_LLM_*_COST_PER_1M`
+  fallbacks.
+- Realtime voice prices can be overridden independently with
+  `OPENAI_<MODEL>_TEXT_INPUT_COST_PER_1M`, `OPENAI_<MODEL>_AUDIO_INPUT_COST_PER_1M`,
+  `OPENAI_<MODEL>_TEXT_OUTPUT_COST_PER_1M`, `OPENAI_<MODEL>_AUDIO_OUTPUT_COST_PER_1M`,
+  `OPENAI_<MODEL>_CACHED_INPUT_COST_PER_1M`, or the generic
+  `OPENAI_REALTIME_*_COST_PER_1M` fallbacks.
+- Kyro markup defaults to `25%` and can be overridden with `OPENAI_LLM_MARKUP_RATE`
+  or `USAGE_MARKUP_RATE`.
+- Local Ollama/stub usage is still metered with token counts where available, but
+  provider cost and customer charge are `0` because there is no provider invoice.
 
-Those values are intentionally simple placeholders. Before public launch, pricing should
-move behind configurable pricing rules per provider/model/service, and billing periods
-should be finalized into immutable invoice/charge records.
+Before public launch, billing periods should be finalized into immutable invoice/charge
+records and the pricing catalog should be reviewed against the live provider pricing page.
 
 ## Budget Controls
 

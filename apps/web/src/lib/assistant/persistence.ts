@@ -294,30 +294,36 @@ export async function appendRealtimeAssistantMessage({
   user: User;
   workspaceId: string;
 }) {
-  const { error } = await supabase.from("assistant_messages").insert({
-    content,
-    intent: "realtime_voice",
-    metadata: {
-      linkCount: links.length,
-      source: "assistant.realtime_voice",
-    },
-    model,
-    provider,
-    role: "assistant",
-    thread_id: threadId,
-    tool_calls: [],
-    ui_blocks: linkCardsBlock("Web sources", links),
-    user_id: user.id,
-    workspace_id: workspaceId,
-  });
+  const { data, error } = await supabase
+    .from("assistant_messages")
+    .insert({
+      content,
+      intent: "realtime_voice",
+      metadata: {
+        linkCount: links.length,
+        source: "assistant.realtime_voice",
+      },
+      model,
+      provider,
+      role: "assistant",
+      thread_id: threadId,
+      tool_calls: [],
+      ui_blocks: linkCardsBlock("Web sources", links),
+      user_id: user.id,
+      workspace_id: workspaceId,
+    })
+    .select("id")
+    .single();
 
-  if (error) {
+  if (error || !data) {
     throw new Error(
-      `Unable to save realtime assistant response: ${error.message}`,
+      `Unable to save realtime assistant response: ${error?.message ?? "unknown error"}`,
     );
   }
 
   await touchThread(supabase, workspaceId, threadId);
+
+  return String(data.id);
 }
 
 export async function maybeSaveAssistantMemory({

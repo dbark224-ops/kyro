@@ -1,4 +1,11 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import {
+  buildLlmUsageEvents,
+  openAiProviderUsageId,
+  openAiUsageFromResponse,
+  toUsageEventRows,
+  usageEventTotals,
+} from "../usage/openai";
 
 export const PRONUNCIATION_CATEGORIES = [
   "person",
@@ -681,10 +688,20 @@ function normalizeAliasEnrichment(
 
 async function enrichPronunciationCandidatesWithAliases({
   candidates,
+  source,
+  sourceId,
   sourceText,
+  supabase,
+  user,
+  workspaceId,
 }: {
   candidates: string[];
+  source: string;
+  sourceId: string | null;
   sourceText: string;
+  supabase: SupabaseClient;
+  user: User;
+  workspaceId: string;
 }) {
   const apiKey = openAiApiKey();
 
@@ -776,6 +793,75 @@ async function enrichPronunciationCandidatesWithAliases({
 
     if (!content) {
       return new Map<string, AliasEnrichment>();
+    }
+
+    const tokenUsage = openAiUsageFromResponse(payload, {
+      prompt,
+      text: content,
+    });
+    const usageEvents = buildLlmUsageEvents({
+      context: {
+        metadata: {
+          candidateCount: candidates.length,
+          source,
+          sourceId,
+        },
+        providerUsageId: openAiProviderUsageId(payload),
+        userId: user.id,
+        workspaceId,
+      },
+      model,
+      provider: "openai",
+      service: "llm",
+      usage: tokenUsage,
+    });
+    const usageTotals = usageEventTotals(usageEvents);
+    const { data: aiRun } = await supabase
+      .from("ai_runs")
+      .insert({
+        actual_cost: String(usageTotals.costSnapshot),
+        completed_at: new Date().toISOString(),
+        estimated_cost: String(usageTotals.costSnapshot),
+        input_refs: {
+          candidateCount: candidates.length,
+          source,
+          sourceId,
+        },
+        mode: "assistant_background",
+        model,
+        output: {},
+        provider: "openai",
+        risk_level: "low",
+        status: "completed",
+        task_type: "pronunciation_alias_enrichment",
+        tool_calls: [],
+        usage: {
+          cachedInputTokens: tokenUsage.cachedInputTokens,
+          customerCharge: usageTotals.customerChargeSnapshot,
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          reasoningTokens: tokenUsage.reasoningTokens,
+          totalTokens: tokenUsage.totalTokens,
+        },
+        user_id: user.id,
+        workspace_id: workspaceId,
+      })
+      .select("id")
+      .single();
+
+    if (aiRun?.id) {
+      const aiRunId = String(aiRun.id);
+
+      await supabase.from("usage_events").insert(
+        toUsageEventRows(
+          usageEvents.map((event) => ({
+            ...event,
+            aiRunId,
+            sourceId: aiRunId,
+            sourceType: "ai_run",
+          })),
+        ),
+      );
     }
 
     const parsed = extractJsonObject(content);
@@ -902,7 +988,12 @@ export async function suggestPronunciationCandidatesFromText({
 
   const aliasEnrichments = await enrichPronunciationCandidatesWithAliases({
     candidates: newCandidates,
+    source,
+    sourceId,
     sourceText: text,
+    supabase,
+    user,
+    workspaceId,
   });
   const now = new Date().toISOString();
   const rows = newCandidates.map((phrase) => {

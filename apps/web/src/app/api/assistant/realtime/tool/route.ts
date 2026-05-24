@@ -4,6 +4,13 @@ import {
   runAssistantWebSearch,
 } from "../../../../../lib/assistant/web-search";
 import {
+  buildLlmUsageEvents,
+  buildOpenAiWebSearchCallUsageEvent,
+  openAiUsageFromTokenCounts,
+  toUsageEventRows,
+  usageEventTotals,
+} from "../../../../../lib/usage/openai";
+import {
   syncInboundEmail,
   type InboundEmailProvider,
 } from "../../../../../lib/integrations/inbound-email-sync";
@@ -73,6 +80,102 @@ export async function POST(request: Request) {
     }
 
     const result = await runAssistantWebSearch({ prompt: prompt ?? "" });
+
+    if (!result.fallbackReason) {
+      const tokenUsage =
+        result.tokenUsage ??
+        openAiUsageFromTokenCounts({
+          estimated: true,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+        });
+      const usageEvents = buildLlmUsageEvents({
+        context: {
+          metadata: { source: "realtime_web_search_tool" },
+          providerUsageId: result.providerUsageId,
+          userId: user.id,
+          workspaceId: workspace.id,
+        },
+        model:
+          process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
+          process.env.OPENAI_BALANCED_MODEL?.trim() ||
+          process.env.ASSISTANT_MODEL?.trim() ||
+          "gpt-4.1-mini",
+        provider: "openai",
+        service: "llm",
+        usage: tokenUsage,
+      });
+
+      if (result.webSearchUsed) {
+        usageEvents.push(
+          buildOpenAiWebSearchCallUsageEvent({
+            context: {
+              metadata: { source: "realtime_web_search_tool" },
+              providerUsageId: result.providerUsageId,
+              userId: user.id,
+              workspaceId: workspace.id,
+            },
+            model:
+              process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
+              process.env.OPENAI_BALANCED_MODEL?.trim() ||
+              process.env.ASSISTANT_MODEL?.trim() ||
+              "gpt-4.1-mini",
+          }),
+        );
+      }
+
+      const totals = usageEventTotals(usageEvents);
+      const { data: aiRun } = await supabase
+        .from("ai_runs")
+        .insert({
+          actual_cost: String(totals.costSnapshot),
+          completed_at: new Date().toISOString(),
+          estimated_cost: String(totals.costSnapshot),
+          input_refs: { prompt, source: "realtime_tool" },
+          mode: "tool",
+          model:
+            process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
+            process.env.OPENAI_BALANCED_MODEL?.trim() ||
+            process.env.ASSISTANT_MODEL?.trim() ||
+            "gpt-4.1-mini",
+          output: {
+            sourceCount: result.sources.length,
+            webSearchUsed: result.webSearchUsed,
+          },
+          provider: "openai",
+          risk_level: "low",
+          status: "completed",
+          task_type: "web_search",
+          tool_calls: [],
+          usage: {
+            cachedInputTokens: tokenUsage.cachedInputTokens,
+            customerCharge: totals.customerChargeSnapshot,
+            inputTokens: tokenUsage.inputTokens,
+            outputTokens: tokenUsage.outputTokens,
+            reasoningTokens: tokenUsage.reasoningTokens,
+            totalTokens: tokenUsage.totalTokens,
+          },
+          user_id: user.id,
+          workspace_id: workspace.id,
+        })
+        .select("id")
+        .single();
+
+      if (aiRun?.id) {
+        const aiRunId = String(aiRun.id);
+
+        await supabase.from("usage_events").insert(
+          toUsageEventRows(
+            usageEvents.map((event) => ({
+              ...event,
+              aiRunId,
+              sourceId: aiRunId,
+              sourceType: "ai_run",
+            })),
+          ),
+        );
+      }
+    }
 
     return Response.json({
       data: {

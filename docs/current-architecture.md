@@ -534,7 +534,7 @@ Purpose:
 - persist user/assistant transcripts back into the same Assistant thread,
 - support web-search source cards when assistant web search is enabled,
 - let realtime voice call `kyro_check_recent_email` to run the same inbound email sync worker as Settings/manual checks,
-- meter speech-to-text minutes and text-to-speech usage in `usage_events`.
+- meter OpenAI Realtime text/audio/cached token usage from `response.done` in `usage_events`.
 
 Voice mode now uses OpenAI Realtime as the primary local development path. The server creates an ephemeral realtime
 session with the same workspace/user context, the browser connects over WebRTC, and the voice client persists the final
@@ -682,6 +682,7 @@ Files:
 - `apps/web/src/lib/assistant/settings-tools.ts`
 - `apps/web/src/lib/billing/usage-summary.ts`
 - `apps/web/src/lib/communication/settings.ts`
+- `apps/web/src/lib/usage/openai.ts`
 - `apps/web/src/lib/usage/queries.ts`
 
 Purpose:
@@ -706,6 +707,12 @@ Purpose:
   email channel; reconnecting uses the normal OAuth connect flow again,
 - audit communication-setting changes,
 - show provider/API cost and customer charge from the `usage_events` ledger,
+- normalize OpenAI token usage from provider responses into production ledger rows for
+  uncached input, cached input, visible output, and reasoning tokens,
+- normalize OpenAI Realtime voice usage from `response.done` into production ledger rows for
+  text input, audio input, cached input, text output, audio output, and reasoning tokens,
+- record OpenAI web-search tool calls separately from token usage so tool fees do not
+  disappear inside the token meter,
 - filter usage by today, 7 days, 30 days, or all time,
 - break usage down by provider/model/service,
 - break usage down by user,
@@ -718,7 +725,13 @@ Usage visibility is now incorporated into Settings. `/usage` redirects to
 it sums stored `usage_events.customer_charge_snapshot` values by period and user so a
 future payment system can consume the same ledger totals. It does not invoice, collect
 payment, alter pricing rules, or push data to Stripe/Apple. It is a visibility layer
-over the metering data that triage, Assistant, and future API integrations record.
+over the metering data that triage, Assistant, inbound email sync, reply drafting,
+document-template editing, pronunciation alias enrichment, realtime web-search tools,
+realtime voice turns, speech-to-text, text-to-speech, and future API integrations record. OpenAI LLM usage is
+priced from a model catalog with environment overrides for production pricing updates;
+OpenAI Realtime voice usage is priced separately so audio tokens do not get blended into
+text token costs. Unknown text models fall back to the configured/default low-cost model
+price and mark the row as price-estimated in metadata.
 
 Settings sections are URL-addressable (`?section=general`, `?section=communication`,
 `?section=voice`, `?section=integrations`, `?section=usage`) and fetch data on demand for the selected

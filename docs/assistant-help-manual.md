@@ -469,6 +469,14 @@ Usage can show:
 - provider/model/service breakdown,
 - recent usage events.
 
+For OpenAI model calls, Kyro uses the token usage returned by OpenAI where available.
+It tracks uncached input tokens, cached input tokens, visible output tokens, and reasoning
+tokens separately. Web-search tool calls are also counted separately from the normal token
+rows, because they can have their own provider charge.
+For live voice, Kyro also reads OpenAI Realtime usage from completed voice responses and
+tracks text input, audio input, cached input, text output, audio output, and reasoning
+tokens separately.
+
 Usage is read-only. It does not collect payment, create invoices, or connect to Stripe or Apple billing yet.
 
 ## Web Search

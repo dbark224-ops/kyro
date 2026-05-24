@@ -9,6 +9,11 @@ import {
   hasWebSearchCall,
   openAiWebSearchTool,
 } from "./web-search";
+import {
+  estimateTokens,
+  openAiProviderUsageId,
+  openAiUsageFromResponse,
+} from "../usage/openai";
 
 function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
@@ -72,14 +77,6 @@ function providerErrorMessage(payload: unknown) {
   return message ?? "OpenAI assistant request failed.";
 }
 
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function numberValue(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -121,11 +118,13 @@ function responseOutputText(payload: unknown) {
 }
 
 function responseUsage(payload: unknown, prompt: string, text: string) {
-  const usage = objectRecord(objectRecord(payload).usage);
+  const usage = openAiUsageFromResponse(payload, { prompt, text });
 
   return {
-    inputTokens: numberValue(usage.input_tokens) ?? estimateTokens(prompt),
-    outputTokens: numberValue(usage.output_tokens) ?? estimateTokens(text),
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    providerUsageId: openAiProviderUsageId(payload) ?? undefined,
+    tokenUsage: usage,
   };
 }
 

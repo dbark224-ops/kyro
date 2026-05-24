@@ -3,6 +3,7 @@ import type {
   ConversationReview,
   QuoteDraftProfile,
 } from "../crm/queries";
+import type { OpenAiTokenUsage } from "../usage/openai";
 
 export type AssistantLink = {
   label: string;
@@ -65,6 +66,8 @@ export type AssistantModelOutput = {
   inputTokens: number;
   outputTokens: number;
   fallbackReason?: string;
+  providerUsageId?: string;
+  tokenUsage?: OpenAiTokenUsage;
   webSearchUsed?: boolean;
   webSources?: AssistantLink[];
 };

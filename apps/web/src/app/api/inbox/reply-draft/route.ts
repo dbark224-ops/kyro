@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getConversationReview } from "../../../../lib/crm/queries";
+import {
+  buildLlmUsageEvents,
+  openAiProviderUsageId,
+  openAiUsageFromResponse,
+  toUsageEventRows,
+  usageEventTotals,
+} from "../../../../lib/usage/openai";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
-
-const INPUT_TOKEN_UNIT_COST = 0.00000015;
-const OUTPUT_TOKEN_UNIT_COST = 0.0000006;
-const MARKUP_RATE = 0.25;
 
 type ReplyDraftRequest = {
   conversationId?: unknown;
@@ -77,26 +80,6 @@ function objectRecord(value: unknown) {
     : {};
 }
 
-function numberValue(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function priceUsage(quantity: number, unitCost: number) {
-  const cost = quantity * unitCost;
-  const customerCharge = cost * (1 + MARKUP_RATE);
-
-  return {
-    costSnapshot: Number(cost.toFixed(8)),
-    customerChargeSnapshot: Number(customerCharge.toFixed(8)),
-    markupSnapshot: MARKUP_RATE,
-    unitCostSnapshot: unitCost,
-  };
-}
-
 function providerErrorMessage(payload: unknown) {
   const error = objectRecord(objectRecord(payload).error);
   const message = textValue(error.message);
@@ -134,11 +117,11 @@ function responseOutputText(payload: unknown) {
 }
 
 function responseUsage(payload: unknown, prompt: string, text: string) {
-  const usage = objectRecord(objectRecord(payload).usage);
+  const usage = openAiUsageFromResponse(payload, { prompt, text });
 
   return {
-    inputTokens: numberValue(usage.input_tokens) ?? estimateTokens(prompt),
-    outputTokens: numberValue(usage.output_tokens) ?? estimateTokens(text),
+    ...usage,
+    providerUsageId: openAiProviderUsageId(payload) ?? null,
   };
 }
 
@@ -414,28 +397,25 @@ export async function POST(request: Request) {
 
     const startedAt = Date.now();
     const draft = await runOpenAiReplyDraft(context);
-    const inputPrice = priceUsage(
-      draft.usage.inputTokens,
-      INPUT_TOKEN_UNIT_COST,
-    );
-    const outputPrice = priceUsage(
-      draft.usage.outputTokens,
-      OUTPUT_TOKEN_UNIT_COST,
-    );
-    const actualCost = Number(
-      (inputPrice.costSnapshot + outputPrice.costSnapshot).toFixed(8),
-    );
-    const customerCharge = Number(
-      (
-        inputPrice.customerChargeSnapshot + outputPrice.customerChargeSnapshot
-      ).toFixed(8),
-    );
+    const usageEvents = buildLlmUsageEvents({
+      context: {
+        metadata: { source: context.source },
+        providerUsageId: draft.usage.providerUsageId,
+        userId: user.id,
+        workspaceId: workspace.id,
+      },
+      model: draft.model,
+      provider: "openai",
+      service: "llm",
+      usage: draft.usage,
+    });
+    const usageTotals = usageEventTotals(usageEvents);
     const { data: aiRun } = await supabase
       .from("ai_runs")
       .insert({
-        actual_cost: String(actualCost),
+        actual_cost: String(usageTotals.costSnapshot),
         completed_at: new Date().toISOString(),
-        estimated_cost: String(actualCost),
+        estimated_cost: String(usageTotals.costSnapshot),
         input_refs: {
           conversationId: context.conversationId ?? null,
           eventId: context.eventId ?? null,
@@ -455,9 +435,12 @@ export async function POST(request: Request) {
         task_type: "reply_draft_generation",
         tool_calls: [],
         usage: {
-          customerCharge,
+          cachedInputTokens: draft.usage.cachedInputTokens,
+          customerCharge: usageTotals.customerChargeSnapshot,
           inputTokens: draft.usage.inputTokens,
           outputTokens: draft.usage.outputTokens,
+          reasoningTokens: draft.usage.reasoningTokens,
+          totalTokens: draft.usage.totalTokens,
         },
         user_id: user.id,
         workspace_id: workspace.id,
@@ -467,47 +450,14 @@ export async function POST(request: Request) {
 
     if (aiRun?.id) {
       const aiRunId = String(aiRun.id);
+      const rows = usageEvents.map((event) => ({
+        ...event,
+        aiRunId,
+        sourceId: aiRunId,
+        sourceType: "ai_run",
+      }));
 
-      await supabase.from("usage_events").insert([
-        {
-          ai_run_id: aiRunId,
-          cost_snapshot: String(inputPrice.costSnapshot),
-          currency: "USD",
-          customer_charge_snapshot: String(inputPrice.customerChargeSnapshot),
-          markup_snapshot: String(inputPrice.markupSnapshot),
-          metadata: { source: context.source },
-          model: draft.model,
-          provider: "openai",
-          quantity: String(draft.usage.inputTokens),
-          service: "llm",
-          source_id: aiRunId,
-          source_type: "ai_run",
-          unit: "token",
-          unit_cost_snapshot: String(inputPrice.unitCostSnapshot),
-          usage_type: "llm_input_tokens",
-          user_id: user.id,
-          workspace_id: workspace.id,
-        },
-        {
-          ai_run_id: aiRunId,
-          cost_snapshot: String(outputPrice.costSnapshot),
-          currency: "USD",
-          customer_charge_snapshot: String(outputPrice.customerChargeSnapshot),
-          markup_snapshot: String(outputPrice.markupSnapshot),
-          metadata: { source: context.source },
-          model: draft.model,
-          provider: "openai",
-          quantity: String(draft.usage.outputTokens),
-          service: "llm",
-          source_id: aiRunId,
-          source_type: "ai_run",
-          unit: "token",
-          unit_cost_snapshot: String(outputPrice.unitCostSnapshot),
-          usage_type: "llm_output_tokens",
-          user_id: user.id,
-          workspace_id: workspace.id,
-        },
-      ]);
+      await supabase.from("usage_events").insert(toUsageEventRows(rows));
     }
 
     return NextResponse.json({

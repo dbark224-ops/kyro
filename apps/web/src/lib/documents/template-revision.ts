@@ -3,10 +3,10 @@ import {
   normalizeDocumentTemplateDesignSettings,
 } from "./settings";
 import { normalizeQuoteLineItems } from "./templates";
-
-const INPUT_TOKEN_UNIT_COST = 0.00000015;
-const OUTPUT_TOKEN_UNIT_COST = 0.0000006;
-const MARKUP_RATE = 0.25;
+import {
+  openAiProviderUsageId,
+  openAiUsageFromResponse,
+} from "../usage/openai";
 
 export type DocumentTemplateRevisionPayload = {
   description: string;
@@ -57,16 +57,6 @@ function objectRecord(value: unknown) {
     : {};
 }
 
-function numberValue(value: unknown) {
-  const parsed = typeof value === "number" ? value : Number(value);
-
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
 function providerErrorMessage(payload: unknown) {
   const error = objectRecord(objectRecord(payload).error);
   const message = textValue(error.message);
@@ -104,17 +94,9 @@ function responseOutputText(payload: unknown) {
 }
 
 function responseUsage(payload: unknown, prompt: string, text: string) {
-  const usage = objectRecord(objectRecord(payload).usage);
-  const inputTokens = numberValue(usage.input_tokens) ?? estimateTokens(prompt);
-  const outputTokens = numberValue(usage.output_tokens) ?? estimateTokens(text);
-  const cost = inputTokens * INPUT_TOKEN_UNIT_COST + outputTokens * OUTPUT_TOKEN_UNIT_COST;
-
   return {
-    costSnapshot: Number(cost.toFixed(8)),
-    customerChargeSnapshot: Number((cost * (1 + MARKUP_RATE)).toFixed(8)),
-    inputTokens,
-    markupSnapshot: MARKUP_RATE,
-    outputTokens,
+    ...openAiUsageFromResponse(payload, { prompt, text }),
+    providerUsageId: openAiProviderUsageId(payload) ?? null,
   };
 }
 
