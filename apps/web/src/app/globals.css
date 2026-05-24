@@ -5180,6 +5180,7 @@ button:disabled {
 }
 
 .usage-ledger-open-button,
+.usage-ledger-export-button,
 .settings-close-button {
   display: inline-flex;
   align-items: center;
@@ -5215,6 +5216,22 @@ button:disabled {
 }
 
 .usage-ledger-open-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.usage-ledger-export-button {
+  min-height: 40px;
+  border-color: color-mix(in srgb, var(--cyan) 62%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 13%, var(--surface));
+  padding: 9px 16px;
+}
+
+.usage-ledger-export-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cyan) 20%, var(--surface));
+}
+
+.usage-ledger-export-button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
 }
@@ -5392,6 +5409,13 @@ button:disabled {
 .usage-ledger-modal-header p:not(.eyebrow) {
   color: var(--muted);
   line-height: 1.45;
+}
+
+.usage-ledger-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .usage-ledger-modal-list {

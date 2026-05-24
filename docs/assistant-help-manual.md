@@ -465,7 +465,7 @@ Usage can show:
 - ledger event count,
 - usage by task, such as live voice, inbound email processing, document generation, web search, reply drafting, or pronunciation vocabulary,
 - provider/model/service breakdown with small info bubbles explaining what each model/service is used for,
-- detailed usage ledger events in a modal opened from the Usage screen.
+- detailed usage ledger events in a modal opened from the Usage screen, with CSV export for the selected range.
 
 Provider/API cost and gross-margin snapshots are still recorded in `usage_events` and available for internal/dev visibility, but they are not the main customer-facing billing numbers. The main user-facing figure is `Usage charge`.
 

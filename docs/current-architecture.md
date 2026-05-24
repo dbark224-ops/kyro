@@ -718,7 +718,7 @@ Purpose:
 - break usage down first by business task and then by provider/model/service,
 - explain provider/model rows with info bubbles so users understand why a model appears in their usage,
 - break usage down by user,
-- open the detailed usage ledger in a modal instead of leaving it expanded on the main Usage screen,
+- open the detailed usage ledger in a modal instead of leaving it expanded on the main Usage screen, with a customer-safe CSV export of the visible ledger rows,
 - link ledger rows back to the most useful source where possible, such as an AI run's conversation, an action target, a contact, or a quote draft,
 - expose read-only billable usage totals by monthly, weekly, or custom period through `/api/billing/usage`,
 - show the current pricing posture without connecting payment collection.

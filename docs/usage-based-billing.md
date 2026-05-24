@@ -33,7 +33,7 @@ The Settings usage/billing view is read-only and customer-facing. It shows:
 - ledger event count,
 - usage by task as the first breakdown,
 - provider/model/service breakdowns with info bubbles that explain what each model/service is used for,
-- a detailed ledger modal for billing checks and export/debug review.
+- a detailed ledger modal for billing checks and export/debug review, including a CSV export of the selected ledger range.
 
 Provider cost and gross margin are still stored in the append-only ledger and can be surfaced for
 internal/dev visibility, but they are not the primary customer-facing numbers.

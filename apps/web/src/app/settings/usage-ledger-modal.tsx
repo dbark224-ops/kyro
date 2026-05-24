@@ -36,6 +36,61 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function csvCell(value: string | number | null | undefined) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function csvDate(value: string) {
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
+}
+
+function usageLedgerCsv(rows: UsageLedgerRow[]) {
+  const headers = [
+    "Created at",
+    "User",
+    "Task",
+    "Usage type",
+    "Provider",
+    "Model",
+    "Quantity",
+    "Unit",
+    "Usage charge",
+    "Currency",
+    "Source",
+    "Source detail",
+    "Source path",
+  ];
+  const body = rows.map((row) =>
+    [
+      csvDate(row.createdAt),
+      row.userName,
+      row.taskLabel,
+      formatLabel(row.usageType),
+      row.provider,
+      row.model,
+      row.quantity,
+      row.unit,
+      row.customerCharge.toFixed(8),
+      row.currency,
+      row.sourceLabel,
+      row.sourceMeta ?? "",
+      row.sourceHref ?? "",
+    ]
+      .map(csvCell)
+      .join(","),
+  );
+
+  return [headers.map(csvCell).join(","), ...body].join("\n");
+}
+
+function usageLedgerFilename() {
+  const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
+
+  return `kyro-usage-ledger-${stamp}.csv`;
+}
+
 export function UsageLedgerModal({
   rows,
 }: Readonly<{
@@ -58,6 +113,21 @@ export function UsageLedgerModal({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open]);
+
+  const handleExportCsv = () => {
+    const blob = new Blob(["\ufeff", usageLedgerCsv(rows)], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = usageLedgerFilename();
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <>
@@ -92,13 +162,23 @@ export function UsageLedgerModal({
                   A detailed event log for billing exports and invoice checks.
                 </p>
               </div>
-              <button
-                className="settings-close-button"
-                onClick={() => setOpen(false)}
-                type="button"
-              >
-                Close
-              </button>
+              <div className="usage-ledger-modal-actions">
+                <button
+                  className="usage-ledger-export-button"
+                  disabled={rows.length === 0}
+                  onClick={handleExportCsv}
+                  type="button"
+                >
+                  Export CSV
+                </button>
+                <button
+                  className="settings-close-button"
+                  onClick={() => setOpen(false)}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             {rows.length > 0 ? (
