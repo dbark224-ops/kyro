@@ -1,6 +1,35 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildSkippedEmailSummaryItems } from "./queries";
+import { buildSkippedEmailSummaryItems, contactSearchFilter } from "./queries";
+
+describe("contactSearchFilter", () => {
+  it("builds a bounded multi-field contact typeahead filter", () => {
+    assert.equal(
+      contactSearchFilter("  Daniel Barker  "),
+      [
+        "name.ilike.%Daniel Barker%",
+        "company.ilike.%Daniel Barker%",
+        "email.ilike.%Daniel Barker%",
+        "phone.ilike.%Daniel Barker%",
+        "address.ilike.%Daniel Barker%",
+      ].join(","),
+    );
+  });
+
+  it("requires enough text and strips filter delimiters", () => {
+    assert.equal(contactSearchFilter("d"), null);
+    assert.equal(
+      contactSearchFilter("daniel,barker%_"),
+      [
+        "name.ilike.%daniel barker%",
+        "company.ilike.%daniel barker%",
+        "email.ilike.%daniel barker%",
+        "phone.ilike.%daniel barker%",
+        "address.ilike.%daniel barker%",
+      ].join(","),
+    );
+  });
+});
 
 describe("buildSkippedEmailSummaryItems", () => {
   it("maps skipped email classification into reviewable summary rows", () => {
@@ -12,9 +41,12 @@ describe("buildSkippedEmailSummaryItems", () => {
           classification: {
             category: "newsletter_or_automated",
             confidence: 0.82,
+            providerUsed: "heuristic",
             reason: "Automated billing email.",
             summary: "Canva payment failed.",
           },
+          accountEmail: "owner@example.com",
+          externalMessageId: "gmail_msg_1",
           fromEmail: "billing@example.com",
           provider: "google",
           receivedAt: "2026-05-21T01:00:00.000Z",
@@ -25,8 +57,11 @@ describe("buildSkippedEmailSummaryItems", () => {
       },
     ]);
 
+    assert.equal(item.accountEmail, "owner@example.com");
     assert.equal(item.category, "newsletter_or_automated");
+    assert.equal(item.classificationProvider, "heuristic");
     assert.equal(item.confidence, 0.82);
+    assert.equal(item.externalMessageId, "gmail_msg_1");
     assert.equal(item.fromEmail, "billing@example.com");
     assert.equal(item.provider, "google");
     assert.equal(item.reason, "Automated billing email.");

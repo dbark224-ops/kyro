@@ -285,6 +285,7 @@ async function recordDraftReplyOutbound(
     subject,
     body: signedBody.bodyText,
     htmlBody: signedBody.htmlBody,
+    attachmentQuoteDraftId: textValue(action.input.attachmentQuoteDraftId),
     attachments: signedBody.inlineAttachments,
     source: "action.draft_reply",
     actionId: action.id,

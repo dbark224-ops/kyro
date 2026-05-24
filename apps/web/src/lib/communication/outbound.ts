@@ -4,9 +4,15 @@ import {
   type EmailAttachment,
   type EmailSendResult,
 } from "../integrations/mail";
+import { buildQuotePdfArtifactForDraft } from "../documents/pdf";
+import {
+  appendQuoteDocumentHistory,
+} from "../documents/history";
 import { isOutboundChannel, type OutboundChannel } from "./settings";
 
 export type OutboundAttachment = EmailAttachment & {
+  contentHash?: string | null;
+  generatedAt?: string | null;
   quoteDraftId?: string | null;
   source: "local_upload" | "quote_draft" | "signature_logo";
 };
@@ -61,10 +67,6 @@ function objectRecord(value: unknown) {
     : {};
 }
 
-function arrayValue(value: unknown) {
-  return Array.isArray(value) ? value : [];
-}
-
 function displayChannelName(channelType: OutboundChannel) {
   if (channelType === "sms") {
     return "Mock SMS";
@@ -87,88 +89,46 @@ function realChannelDisplayName(result: EmailSendResult) {
   return result.accountEmail ? `${label} - ${result.accountEmail}` : label;
 }
 
-function safeAttachmentBaseName(value: string) {
-  const clean = value
-    .replace(/[^\x20-\x7E]/g, "_")
-    .replace(/[\\/:*?"<>|\r\n]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return clean || "quote-draft";
-}
-
-function quoteLineSummary(item: unknown, index: number) {
-  const row = objectRecord(item);
-  const description = textValue(row.description) ?? `Line item ${index + 1}`;
-  const quantity = row.quantity === null || row.quantity === undefined
-    ? null
-    : String(row.quantity);
-  const unit = textValue(row.unit);
-  const unitPrice = row.unitPrice === null || row.unitPrice === undefined
-    ? null
-    : String(row.unitPrice);
-  const total = row.total === null || row.total === undefined
-    ? null
-    : String(row.total);
-
-  return [
-    `- ${description}`,
-    quantity || unit ? `qty: ${[quantity, unit].filter(Boolean).join(" ")}` : null,
-    unitPrice ? `unit: ${unitPrice}` : null,
-    total ? `total: ${total}` : null,
-    textValue(row.notes) ? `notes: ${textValue(row.notes)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" | ");
-}
-
-function buildQuoteDraftAttachment(quoteDraft: {
-  id: string;
-  line_items: unknown;
-  metadata: unknown;
-  notes: string | null;
-  status: string;
-  title: string;
-}): OutboundAttachment {
-  const lineItems = arrayValue(quoteDraft.line_items);
-  const metadata = objectRecord(quoteDraft.metadata);
-  const rendered = [
-    quoteDraft.title,
-    "",
-    `Status: ${quoteDraft.status}`,
-    textValue(metadata.customerName) ? `Customer: ${textValue(metadata.customerName)}` : null,
-    textValue(metadata.jobAddress) ? `Job address: ${textValue(metadata.jobAddress)}` : null,
-    textValue(metadata.jobType) ? `Job type: ${textValue(metadata.jobType)}` : null,
-    "",
-    "Line items:",
-    ...(lineItems.length > 0
-      ? lineItems.map((item, index) => quoteLineSummary(item, index))
-      : ["- No line items recorded yet."]),
-    quoteDraft.notes ? "" : null,
-    quoteDraft.notes ? "Notes:" : null,
-    quoteDraft.notes,
-  ]
-    .filter((line): line is string => line !== null && line !== undefined)
-    .join("\n");
-  const content = Buffer.from(rendered, "utf8");
-
-  return {
-    contentBase64: content.toString("base64"),
-    contentType: "text/plain",
-    filename: `${safeAttachmentBaseName(quoteDraft.title)}.txt`,
-    quoteDraftId: quoteDraft.id,
-    sizeBytes: content.byteLength,
-    source: "quote_draft",
-  };
-}
-
 function attachmentSummary(attachments: OutboundAttachment[]) {
   return attachments.map((attachment) => ({
+    contentHash: attachment.contentHash ?? null,
+    contentType: attachment.contentType,
     filename: attachment.filename,
+    generatedAt: attachment.generatedAt ?? null,
     quoteDraftId: attachment.quoteDraftId ?? null,
     sizeBytes: attachment.sizeBytes,
     source: attachment.source,
   }));
+}
+
+async function buildQuoteDraftAttachment(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  quoteDraftId: string,
+): Promise<OutboundAttachment> {
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("name")
+    .eq("id", workspaceId)
+    .maybeSingle();
+  const artifact = await buildQuotePdfArtifactForDraft(supabase, {
+    quoteDraftId,
+    workspace: {
+      id: workspaceId,
+      name: textValue(workspace?.name) ?? "Kyro workspace",
+    },
+  });
+
+  return {
+    contentBase64: artifact.contentBase64,
+    contentHash: artifact.contentHash,
+    contentType: artifact.contentType,
+    filename: artifact.filename,
+    generatedAt: artifact.generatedAt,
+    quoteDraftId,
+    sizeBytes: artifact.sizeBytes,
+    source: "quote_draft",
+  };
 }
 
 export async function findOrCreateMockOutboundChannel(
@@ -329,6 +289,7 @@ export async function recordOutboundMessage(
   let quoteDraftStatusBefore: string | null = null;
   let quoteDraftStatusAfter: string | null = null;
   const attachments = [...(input.attachments ?? [])];
+  let quoteDraftAttachment: OutboundAttachment | null = null;
   let channelId: string;
   let dryRun = true;
   let executor = "mock_outbound_channel";
@@ -364,7 +325,12 @@ export async function recordOutboundMessage(
       title: String(data.title),
     };
     quoteDraftStatusBefore = quoteDraft.status;
-    attachments.unshift(buildQuoteDraftAttachment(quoteDraft));
+    quoteDraftAttachment = await buildQuoteDraftAttachment(
+      supabase,
+      input.workspaceId,
+      quoteDraft.id,
+    );
+    attachments.unshift(quoteDraftAttachment);
   }
 
   const attachmentMetadata = attachmentSummary(attachments);
@@ -471,22 +437,48 @@ export async function recordOutboundMessage(
 
   if (input.attachmentQuoteDraftId && quoteDraft) {
     quoteDraftStatusAfter = "sent";
+    const sentDocumentMetadata = quoteDraftAttachment
+      ? {
+          contentHash: quoteDraftAttachment.contentHash,
+          contentType: quoteDraftAttachment.contentType,
+          filename: quoteDraftAttachment.filename,
+          generatedAt: quoteDraftAttachment.generatedAt ?? now,
+          renderer: "pdf-lib",
+          sizeBytes: quoteDraftAttachment.sizeBytes,
+        }
+      : null;
+    const quoteMetadata = objectRecord(quoteDraft.metadata);
+    const nextMetadata = appendQuoteDocumentHistory(
+      {
+        ...quoteMetadata,
+        lastGeneratedDocument: sentDocumentMetadata,
+        sentAt: now,
+        sentChannelType: input.channelType,
+        sentDryRunAt: dryRun ? now : null,
+        sentDryRunChannelType: dryRun ? input.channelType : null,
+        sentDryRunMessageId: dryRun ? message.id : null,
+        sentExternalAt: dryRun ? null : now,
+        sentExternalMessageId: externalMessageId,
+        sentExternalProvider: provider,
+        sentMessageId: message.id,
+      },
+      {
+        actorType: "system",
+        channelType: input.channelType,
+        contentHash: quoteDraftAttachment?.contentHash ?? null,
+        document: sentDocumentMetadata,
+        kind: "email_sent",
+        messageId: String(message.id),
+        occurredAt: now,
+        sentTo,
+        source: input.source,
+      },
+    );
 
     const { error: quoteDraftUpdateError } = await supabase
       .from("quote_drafts")
       .update({
-        metadata: {
-          ...objectRecord(quoteDraft.metadata),
-          sentAt: now,
-          sentChannelType: input.channelType,
-          sentDryRunAt: dryRun ? now : null,
-          sentDryRunChannelType: dryRun ? input.channelType : null,
-          sentDryRunMessageId: dryRun ? message.id : null,
-          sentExternalAt: dryRun ? null : now,
-          sentExternalMessageId: externalMessageId,
-          sentExternalProvider: provider,
-          sentMessageId: message.id
-        },
+        metadata: nextMetadata,
         status: quoteDraftStatusAfter
       })
       .eq("workspace_id", input.workspaceId)

@@ -164,7 +164,7 @@ const SECTION_BOOSTS: Array<{
   },
   {
     heading: "Filtered-Out Emails",
-    keywords: ["filtered out", "skipped email", "skipped mail", "newsletter"],
+    keywords: ["filtered out", "skipped email", "skipped mail", "newsletter", "sender", "promote"],
     weight: 10,
   },
   {

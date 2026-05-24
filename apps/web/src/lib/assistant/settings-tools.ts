@@ -4,8 +4,20 @@ import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
   INBOUND_EMAIL_POLICY_TYPE,
   normalizeInboundEmailSettings,
+  removeInboundEmailSenderRule,
+  senderRuleTargetFromEmail,
+  senderRuleTargetFromInput,
+  upsertInboundEmailSenderRule,
   type InboundEmailSettings,
+  type InboundEmailSenderRule,
 } from "../integrations/inbound-email-settings";
+import {
+  DOCUMENT_ACCENT_THEMES,
+  DOCUMENT_CURRENCIES,
+  DOCUMENT_TEMPLATE_POLICY_TYPE,
+  normalizeDocumentTemplateSettings,
+  type DocumentTemplateSettings,
+} from "../documents/settings";
 import {
   OPENAI_VOICE_OPTIONS,
   OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
@@ -29,10 +41,13 @@ type SettingsUpdateInput = {
   workspace: WorkspaceInput;
 };
 
-type SettingsSection = "general" | "integrations" | "voice";
+type SettingsSection = "documents" | "general" | "integrations" | "voice";
 
 export type ParsedSettingChange = {
+  documentSettings: Partial<DocumentTemplateSettings>;
   labels: string[];
+  senderRule: InboundEmailSenderRule | null;
+  senderRuleRemoval: Pick<InboundEmailSenderRule, "match" | "value"> | null;
   settings: Partial<InboundEmailSettings>;
   targetSections: SettingsSection[];
   voiceSettings: Partial<VoiceSettings>;
@@ -41,7 +56,11 @@ export type ParsedSettingChange = {
 const POLL_INTERVALS = [5, 15, 30, 60];
 
 function normalized(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9/:_\s-]/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9/:_\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function numberNear(text: string, pattern: RegExp) {
@@ -180,11 +199,177 @@ function extractInboundActionInstructions(prompt: string) {
   return value && value.length >= 12 ? value : null;
 }
 
+function cleanInstruction(value: string | undefined) {
+  const cleaned = value
+    ?.trim()
+    .replace(/\s+/g, " ")
+    .split(
+      /\.\s+(?=(?:set|change|update|turn|make|use|enable|disable|switch)\b)/i,
+    )[0]
+    ?.replace(/[.\s]+$/, "");
+
+  return cleaned && cleaned.length >= 3 ? cleaned : null;
+}
+
+function extractDocumentTemplateDirection(prompt: string) {
+  const match = prompt.match(
+    /\b(?:set|change|update|use|make)\b\s+(?:the\s+)?(?:(?:quote|document)\s+)?template\s+(?:direction|style|design|look|feel)\s+(?:to|as)\s+([\s\S]+)$/i,
+  );
+
+  return cleanInstruction(match?.[1]);
+}
+
+function extractDocumentPaymentTerms(prompt: string) {
+  const match = prompt.match(
+    /\b(?:set|change|update|use|make)\b\s+(?:the\s+)?(?:quote|document)?\s*payment\s+terms?\s+(?:to|as)\s+([\s\S]+)$/i,
+  );
+
+  return cleanInstruction(match?.[1]);
+}
+
+function extractDocumentFooterText(prompt: string) {
+  const match = prompt.match(
+    /\b(?:set|change|update|use|make)\b\s+(?:the\s+)?(?:quote|document)?\s*footer(?:\s+text)?\s+(?:to|as)\s+([\s\S]+)$/i,
+  );
+
+  return cleanInstruction(match?.[1]);
+}
+
+function extractDocumentCurrency(text: string) {
+  if (!/\b(quote|document|invoice|template)\b/.test(text)) {
+    return null;
+  }
+
+  return (
+    DOCUMENT_CURRENCIES.find((currency) =>
+      new RegExp(`\\b${currency.toLowerCase()}\\b`).test(text),
+    ) ?? null
+  );
+}
+
+function extractDocumentAccentTheme(text: string) {
+  if (!/\b(quote|document|template|accent|colour|color|theme)\b/.test(text)) {
+    return null;
+  }
+
+  return (
+    DOCUMENT_ACCENT_THEMES.find((theme) =>
+      new RegExp(`\\b${theme}\\b`).test(text),
+    ) ?? null
+  );
+}
+
+function extractDocumentValidityDays(text: string) {
+  if (!/\b(quote|document|template|valid|validity)\b/.test(text)) {
+    return null;
+  }
+
+  const days = numberNear(
+    text,
+    /\b(?:valid|validity|valid for|valid days?)\b.{0,24}\b(\d{1,2})\s*(?:day|days)\b/,
+  );
+
+  return days && days >= 1 && days <= 90 ? days : null;
+}
+
+function extractSenderRule(
+  prompt: string,
+  text: string,
+): InboundEmailSenderRule | null {
+  if (!/\b(sender|email|emails|inbox|mail|domain)\b/.test(text)) {
+    return null;
+  }
+
+  if (
+    /\b(remove|delete|clear|unset)\b/.test(text) ||
+    /\bstop\s+(?:treating|ignoring)\b/.test(text)
+  ) {
+    return null;
+  }
+
+  const email =
+    prompt.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)?.[0] ??
+    null;
+  const emailValue = senderRuleTargetFromEmail(email, "email");
+  const domain =
+    prompt.match(/\b(?:domain|from|sender)\s+([A-Z0-9.-]+\.[A-Z]{2,})\b/i)?.[1] ??
+    null;
+  const domainValue = senderRuleTargetFromInput(domain, "domain");
+  const ruleTarget = emailValue
+    ? { match: "email" as const, value: emailValue }
+    : domainValue
+      ? { match: "domain" as const, value: domainValue }
+      : null;
+
+  if (!ruleTarget) {
+    return null;
+  }
+
+  if (/\b(ignore|skip|noise|not relevant|not work|not business)\b/.test(text)) {
+    return {
+      action: "always_ignore",
+      ...ruleTarget,
+    };
+  }
+
+  if (/\b(relevant|business|work|promote|important)\b/.test(text)) {
+    return {
+      action: "always_promote",
+      ...ruleTarget,
+    };
+  }
+
+  return null;
+}
+
+function extractSenderRuleRemoval(
+  prompt: string,
+  text: string,
+): Pick<InboundEmailSenderRule, "match" | "value"> | null {
+  if (!/\b(sender|email|emails|inbox|mail|domain)\b/.test(text)) {
+    return null;
+  }
+
+  if (
+    !(
+      /\b(remove|delete|clear|unset)\b/.test(text) ||
+      /\bstop\s+(?:treating|ignoring)\b/.test(text)
+    )
+  ) {
+    return null;
+  }
+
+  const email =
+    prompt.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)?.[0] ??
+    null;
+  const emailValue = senderRuleTargetFromInput(email, "email");
+
+  if (emailValue) {
+    return {
+      match: "email",
+      value: emailValue,
+    };
+  }
+
+  const domain =
+    prompt.match(/\b(?:domain|from|sender)\s+([A-Z0-9.-]+\.[A-Z]{2,})\b/i)?.[1] ??
+    null;
+  const domainValue = senderRuleTargetFromInput(domain, "domain");
+
+  return domainValue
+    ? {
+        match: "domain",
+        value: domainValue,
+      }
+    : null;
+}
+
 export function parseAssistantEditableSettingChanges(
   prompt: string,
 ): ParsedSettingChange {
   const text = normalized(prompt);
   const labels: string[] = [];
+  const documentSettings: Partial<DocumentTemplateSettings> = {};
   const settings: Partial<InboundEmailSettings> = {};
   const voiceSettings: Partial<VoiceSettings> = {};
   const targetSections: SettingsSection[] = [];
@@ -194,6 +379,14 @@ export function parseAssistantEditableSettingChanges(
   const openAiVoice = extractOpenAiVoice(text);
   const pronunciationPolicy = extractPronunciationPolicy(text);
   const actionInstructions = extractInboundActionInstructions(prompt);
+  const documentTemplateDirection = extractDocumentTemplateDirection(prompt);
+  const documentPaymentTerms = extractDocumentPaymentTerms(prompt);
+  const documentFooterText = extractDocumentFooterText(prompt);
+  const documentCurrency = extractDocumentCurrency(text);
+  const documentAccentTheme = extractDocumentAccentTheme(text);
+  const documentValidityDays = extractDocumentValidityDays(text);
+  const senderRuleRemoval = extractSenderRuleRemoval(prompt, text);
+  const senderRule = senderRuleRemoval ? null : extractSenderRule(prompt, text);
 
   if (timeZone) {
     settings.timeZone = timeZone;
@@ -294,6 +487,20 @@ export function parseAssistantEditableSettingChanges(
     targetSections.push("integrations");
   }
 
+  if (senderRule) {
+    labels.push(
+      senderRule.action === "always_promote"
+        ? `future emails from ${senderRule.value} as relevant`
+        : `future emails from ${senderRule.value} as ignored`,
+    );
+    targetSections.push("integrations");
+  }
+
+  if (senderRuleRemoval) {
+    labels.push(`removed sender rule for ${senderRuleRemoval.value}`);
+    targetSections.push("integrations");
+  }
+
   if (openAiVoice) {
     voiceSettings.openAiVoice = openAiVoice;
     labels.push(`assistant voice to ${openAiVoice}`);
@@ -306,8 +513,57 @@ export function parseAssistantEditableSettingChanges(
     targetSections.push("voice");
   }
 
+  if (documentTemplateDirection) {
+    documentSettings.quoteStyleDirection = documentTemplateDirection;
+    labels.push("quote template direction");
+    targetSections.push("documents");
+  }
+
+  if (documentPaymentTerms) {
+    documentSettings.paymentTerms = documentPaymentTerms;
+    labels.push("quote payment terms");
+    targetSections.push("documents");
+  }
+
+  if (documentFooterText) {
+    documentSettings.footerText = documentFooterText;
+    labels.push("quote footer text");
+    targetSections.push("documents");
+  }
+
+  if (documentCurrency) {
+    documentSettings.currency = documentCurrency;
+    labels.push(`quote currency to ${documentCurrency}`);
+    targetSections.push("documents");
+  }
+
+  if (documentAccentTheme) {
+    documentSettings.accentTheme = documentAccentTheme;
+    labels.push(`quote accent to ${documentAccentTheme}`);
+    targetSections.push("documents");
+  }
+
+  if (documentValidityDays) {
+    documentSettings.validityDays = documentValidityDays;
+    labels.push(`quote validity to ${documentValidityDays} days`);
+    targetSections.push("documents");
+  }
+
+  if (text.includes("prepared by") && text.includes("footer")) {
+    const enabled = onOff(text);
+
+    if (enabled !== null) {
+      documentSettings.showPreparedBy = enabled;
+      labels.push(`${enabled ? "show" : "hide"} prepared-by footer`);
+      targetSections.push("documents");
+    }
+  }
+
   return {
+    documentSettings,
     labels,
+    senderRule,
+    senderRuleRemoval,
     settings,
     targetSections: uniqueSections(targetSections),
     voiceSettings,
@@ -316,15 +572,23 @@ export function parseAssistantEditableSettingChanges(
 
 export function looksLikeSettingsUpdatePrompt(prompt: string) {
   const text = normalized(prompt);
-  const hasMutationVerb = /\b(change|set|switch|turn|update|enable|disable|make|use)\b/.test(text);
+  const hasMutationVerb =
+    /\b(change|set|switch|turn|update|enable|disable|make|use|remove|delete|clear|unset|stop)\b/.test(
+      text,
+    );
   const hasSettingTarget =
-    /\b(timezone|time zone|quiet|poll|polling|sync mode|manual only|lookback|fetch cap|max messages|skipped|awareness|summaries|voice|pronunciation|pronounce|email rules|inbox rules|action rules|crm promotion rules)\b/.test(text);
+    /\b(timezone|time zone|quiet|poll|polling|sync mode|manual only|lookback|fetch cap|max messages|skipped|awareness|summaries|voice|pronunciation|pronounce|email rules|inbox rules|action rules|crm promotion rules|sender|emails from|quote template|document template|quote payment|document payment|quote footer|document footer|quote currency|document currency|quote accent|document accent|quote validity|document validity|prepared by footer)\b/.test(text);
 
   return hasMutationVerb && hasSettingTarget;
 }
 
 function settingsLinks(sections: SettingsSection[]) {
   const links = {
+    documents: {
+      href: "/documents",
+      label: "Documents",
+      meta: "Quote template direction",
+    },
     general: {
       href: "/settings?section=general",
       label: "General settings",
@@ -365,24 +629,34 @@ export async function updateAssistantEditableSettings({
           "fetch cap per sync",
           "skipped-mail summaries",
           "inbound email action rules",
+          "sender relevance rules when an explicit email address or domain is provided",
           "assistant voice",
           "outbound pronunciation policy",
+          "quote document template direction",
+          "quote currency",
+          "quote payment terms",
+          "quote footer text",
         ],
         reason: "The prompt looked like a settings update, but no supported value could be parsed.",
       },
       fallbackAnswer:
-        "I can edit safe settings like timezone, email polling, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, inbound email action rules, assistant voice, and outbound pronunciation policy. I could not confidently read the new value from that request.",
+        "I can edit safe settings like timezone, email polling, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, inbound email action rules, explicit sender relevance rules, assistant voice, outbound pronunciation policy, and quote document template settings. I could not confidently read the new value from that request.",
       intent: "settings_update",
-      links: settingsLinks(["general", "integrations", "voice"]),
+      links: settingsLinks(["general", "integrations", "voice", "documents"]),
       title: "Settings update",
     };
   }
 
   const changedPolicyIds: string[] = [];
+  let documentSnapshot: DocumentTemplateSettings | null = null;
   let inboundSnapshot: InboundEmailSettings | null = null;
   let voiceSnapshot: VoiceSettings | null = null;
 
-  if (Object.keys(parsed.settings).length > 0) {
+  if (
+    Object.keys(parsed.settings).length > 0 ||
+    parsed.senderRule ||
+    parsed.senderRuleRemoval
+  ) {
     const { data: beforePolicy, error: beforeError } = await supabase
       .from("workspace_policies")
       .select("id,settings")
@@ -395,11 +669,20 @@ export async function updateAssistantEditableSettings({
     }
 
     const beforeSettings = normalizeInboundEmailSettings(beforePolicy?.settings);
-    const settings = normalizeInboundEmailSettings({
+    const mergedSettings = normalizeInboundEmailSettings({
       ...beforeSettings,
       ...parsed.settings,
       autoPromoteActionable: true,
     });
+    const settingsBeforeSenderUpsert = parsed.senderRuleRemoval
+      ? removeInboundEmailSenderRule(mergedSettings, parsed.senderRuleRemoval)
+      : mergedSettings;
+    const settings = parsed.senderRule
+      ? upsertInboundEmailSenderRule(settingsBeforeSenderUpsert, {
+          ...parsed.senderRule,
+          createdAt: new Date().toISOString(),
+        })
+      : settingsBeforeSenderUpsert;
     const { data: savedPolicy, error: saveError } = await supabase
       .from("workspace_policies")
       .upsert(
@@ -502,10 +785,83 @@ export async function updateAssistantEditableSettings({
     voiceSnapshot = settings;
   }
 
+  if (Object.keys(parsed.documentSettings).length > 0) {
+    const { data: beforePolicy, error: beforeError } = await supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", DOCUMENT_TEMPLATE_POLICY_TYPE)
+      .maybeSingle();
+
+    if (beforeError) {
+      throw new Error(
+        `Unable to load document template settings: ${beforeError.message}`,
+      );
+    }
+
+    const beforeSettings = normalizeDocumentTemplateSettings(
+      beforePolicy?.settings,
+    );
+    const settings = normalizeDocumentTemplateSettings({
+      ...beforeSettings,
+      ...parsed.documentSettings,
+    });
+    const { data: savedPolicy, error: saveError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          policy_type: DOCUMENT_TEMPLATE_POLICY_TYPE,
+          settings,
+          workspace_id: workspace.id,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+    if (saveError || !savedPolicy) {
+      throw new Error(
+        `Unable to update document template settings: ${saveError?.message ?? "unknown error"}`,
+      );
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: "assistant_document_template_settings.updated",
+      actorId: user.id,
+      actorType: "ai",
+      after: { settings },
+      before: beforePolicy ? { settings: beforePolicy.settings } : null,
+      entityId: String(savedPolicy.id),
+      entityType: "workspace_policy",
+      metadata: {
+        assistantPrompt: prompt,
+        changed: parsed.labels,
+        policyType: DOCUMENT_TEMPLATE_POLICY_TYPE,
+        requestedByUserId: user.id,
+      },
+    });
+
+    changedPolicyIds.push(String(savedPolicy.id));
+    documentSnapshot = settings;
+  }
+
   return {
     context: {
       changed: parsed.labels,
       settingsSnapshot: {
+        documents: documentSnapshot
+          ? {
+              accentTheme: documentSnapshot.accentTheme,
+              currency: documentSnapshot.currency,
+              paymentTerms: documentSnapshot.paymentTerms,
+              quoteStyleDirection: documentSnapshot.quoteStyleDirection,
+              showPreparedBy: documentSnapshot.showPreparedBy,
+              validityDays: documentSnapshot.validityDays,
+            }
+          : null,
         inboundEmail: inboundSnapshot
           ? {
               actionInstructions: inboundSnapshot.actionInstructions,

@@ -95,7 +95,7 @@ function buildInstructions({
     "Speak naturally and briefly. Prefer one or two spoken paragraphs unless the user asks for detail.",
     "When the user asks about CRM data, quotes, contacts, inquiries, work queue, documents, or saved business state, call kyro_context_lookup before answering.",
     "When the user asks how Kyro works, what a setting means, or how to use a feature, call kyro_context_lookup and answer from Kyro's help/manual knowledge.",
-    "When the user clearly asks to change a safe basic setting or pronunciation vocabulary entry, call kyro_context_lookup. Safe settings include timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, and pronunciation vocabulary entries.",
+    "When the user clearly asks to change a safe basic setting, pronunciation vocabulary entry, or reusable document template, call kyro_context_lookup. Safe settings include timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, pronunciation vocabulary entries, and document template creation/revision.",
     "Use kyro_context_lookup results as the source of truth for CRM/business records. Do not invent customers, prices, dates, links, or business actions.",
     "When the user asks for current public information, news, product details, supplier details, regulations, or anything that needs the internet, call kyro_web_search if it is available.",
     "When the user asks whether any new email has arrived, or when checking email would help answer a customer/job/update question, call kyro_check_recent_email before answering.",
@@ -138,7 +138,7 @@ function sessionConfig({
   const tools: Array<Record<string, unknown>> = [
     {
       description:
-        "Resolve a user request against Kyro's workspace CRM, contacts, inquiries, quote drafts, work queue, memories, help/manual knowledge, and safe backend command router. Call this before answering CRM, business-state, app-help, or safe settings-change questions.",
+        "Resolve a user request against Kyro's workspace CRM, contacts, inquiries, quote drafts, document templates, work queue, memories, help/manual knowledge, and safe backend command router. Call this before answering CRM, business-state, app-help, document-template, or safe settings-change questions.",
       name: "kyro_context_lookup",
       parameters: {
         additionalProperties: false,

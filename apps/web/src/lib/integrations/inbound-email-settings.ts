@@ -5,9 +5,18 @@ export const INBOUND_EMAIL_POLICY_TYPE = "inbound_email";
 export const INBOUND_EMAIL_SYNC_MODES = ["automatic", "manual_only", "paused"] as const;
 export const INBOUND_EMAIL_QUIET_HOURS_MODES = ["paused", "same_interval"] as const;
 export const INBOUND_EMAIL_POLL_INTERVALS = [5, 15, 30, 60] as const;
+export const INBOUND_EMAIL_SENDER_RULE_ACTIONS = ["always_promote", "always_ignore"] as const;
 
 export type InboundEmailSyncMode = (typeof INBOUND_EMAIL_SYNC_MODES)[number];
 export type InboundEmailQuietHoursMode = (typeof INBOUND_EMAIL_QUIET_HOURS_MODES)[number];
+export type InboundEmailSenderRuleAction = (typeof INBOUND_EMAIL_SENDER_RULE_ACTIONS)[number];
+export type InboundEmailSenderRule = {
+  action: InboundEmailSenderRuleAction;
+  createdAt?: string | null;
+  createdFromEventId?: string | null;
+  match: "email" | "domain";
+  value: string;
+};
 
 export type InboundEmailSettings = {
   actionInstructions: string;
@@ -20,6 +29,7 @@ export type InboundEmailSettings = {
   quietHoursEnd: string;
   quietHoursMode: InboundEmailQuietHoursMode;
   quietHoursStart: string;
+  senderRules: InboundEmailSenderRule[];
   syncMode: InboundEmailSyncMode;
   timeZone: string;
 };
@@ -41,6 +51,7 @@ export const DEFAULT_INBOUND_EMAIL_SETTINGS: InboundEmailSettings = {
   quietHoursEnd: "04:00",
   quietHoursMode: "paused",
   quietHoursStart: "22:00",
+  senderRules: [],
   syncMode: "automatic",
   timeZone: defaultTimeZone(),
 };
@@ -157,6 +168,153 @@ function normalizePollInterval(value: unknown) {
   return INBOUND_EMAIL_POLL_INTERVALS.find((interval) => interval === parsed) ?? parsed;
 }
 
+function emailDomain(value: string | null) {
+  const [, domain] = (value ?? "").toLowerCase().split("@");
+
+  return domain?.trim() || null;
+}
+
+function normalizeRuleValue(value: unknown, match: InboundEmailSenderRule["match"]) {
+  const text = textValue(value)?.toLowerCase();
+
+  if (!text) {
+    return null;
+  }
+
+  if (match === "email") {
+    return text.includes("@") ? text : null;
+  }
+
+  return text.replace(/^@/, "").trim() || null;
+}
+
+function normalizeSenderRules(value: unknown): InboundEmailSenderRule[] {
+  const rules = Array.isArray(value) ? value : [];
+  const normalizedRules: InboundEmailSenderRule[] = [];
+  const seen = new Set<string>();
+
+  for (const rawRule of rules) {
+    const rule = objectRecord(rawRule);
+    const action = INBOUND_EMAIL_SENDER_RULE_ACTIONS.includes(
+      rule.action as InboundEmailSenderRuleAction,
+    )
+      ? (rule.action as InboundEmailSenderRuleAction)
+      : null;
+    const match = rule.match === "domain" ? "domain" : rule.match === "email" ? "email" : null;
+    const value = match ? normalizeRuleValue(rule.value, match) : null;
+
+    if (!action || !match || !value) {
+      continue;
+    }
+
+    const key = `${match}:${value}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalizedRules.push({
+      action,
+      createdAt: textValue(rule.createdAt),
+      createdFromEventId: textValue(rule.createdFromEventId),
+      match,
+      value,
+    });
+  }
+
+  return normalizedRules.slice(0, 200);
+}
+
+export function senderRuleTargetFromEmail(
+  email: string | null,
+  match: InboundEmailSenderRule["match"] = "email",
+) {
+  const normalizedEmail = textValue(email)?.toLowerCase() ?? null;
+
+  return match === "domain"
+    ? emailDomain(normalizedEmail)
+    : normalizedEmail && normalizedEmail.includes("@")
+      ? normalizedEmail
+      : null;
+}
+
+export function senderRuleTargetFromInput(
+  value: string | null,
+  match: InboundEmailSenderRule["match"] = "email",
+) {
+  const text = textValue(value)?.toLowerCase() ?? null;
+
+  if (!text) {
+    return null;
+  }
+
+  if (match === "email") {
+    return text.includes("@") ? text : null;
+  }
+
+  const domain = text.includes("@")
+    ? emailDomain(text)
+    : text
+        .replace(/^https?:\/\//, "")
+        .replace(/^www\./, "")
+        .replace(/^@/, "")
+        .split(/[/?#]/)[0]
+        .trim();
+
+  return domain && domain.includes(".") && !domain.includes("@") && !/\s/.test(domain)
+    ? domain
+    : null;
+}
+
+export function upsertInboundEmailSenderRule(
+  settings: InboundEmailSettings,
+  rule: InboundEmailSenderRule,
+): InboundEmailSettings {
+  const nextRules = settings.senderRules.filter(
+    (existingRule) =>
+      existingRule.match !== rule.match || existingRule.value !== rule.value,
+  );
+
+  return {
+    ...settings,
+    senderRules: [rule, ...nextRules].slice(0, 200),
+  };
+}
+
+export function removeInboundEmailSenderRule(
+  settings: InboundEmailSettings,
+  rule: Pick<InboundEmailSenderRule, "match" | "value">,
+): InboundEmailSettings {
+  return {
+    ...settings,
+    senderRules: settings.senderRules.filter(
+      (existingRule) =>
+        existingRule.match !== rule.match || existingRule.value !== rule.value,
+    ),
+  };
+}
+
+export function findInboundEmailSenderRule(
+  rules: InboundEmailSenderRule[],
+  email: string | null,
+) {
+  const normalizedEmail = senderRuleTargetFromEmail(email, "email");
+  const domain = senderRuleTargetFromEmail(email, "domain");
+
+  if (!normalizedEmail && !domain) {
+    return null;
+  }
+
+  return (
+    rules.find(
+      (rule) =>
+        (rule.match === "email" && rule.value === normalizedEmail) ||
+        (rule.match === "domain" && rule.value === domain),
+    ) ?? null
+  );
+}
+
 function localDateParts(date: Date, timeZone: string): LocalDateParts {
   const parts = new Intl.DateTimeFormat("en-CA", {
     day: "2-digit",
@@ -266,6 +424,7 @@ export function normalizeInboundEmailSettings(value: unknown): InboundEmailSetti
       settings.quietHoursStart,
       DEFAULT_INBOUND_EMAIL_SETTINGS.quietHoursStart,
     ),
+    senderRules: normalizeSenderRules(settings.senderRules),
     syncMode: normalizeSyncMode(settings.syncMode),
     timeZone,
   };

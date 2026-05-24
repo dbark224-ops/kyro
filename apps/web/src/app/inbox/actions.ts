@@ -15,6 +15,14 @@ import {
   type OutboundAttachment,
 } from "../../lib/communication/outbound";
 import { sendConnectedEmailMessage } from "../../lib/integrations/mail";
+import {
+  INBOUND_EMAIL_POLICY_TYPE,
+  normalizeInboundEmailSettings,
+  senderRuleTargetFromEmail,
+  upsertInboundEmailSenderRule,
+  type InboundEmailSenderRuleAction,
+} from "../../lib/integrations/inbound-email-settings";
+import { promoteSkippedEmailEvent } from "../../lib/integrations/inbound-email-sync";
 import { runStubAiTriage, type InquiryFacts } from "../../lib/ai/triage";
 import {
   approveAction,
@@ -1344,6 +1352,247 @@ function defaultSkippedReplySubject(subject: string | null) {
   const value = subject?.trim() || "Follow-up";
 
   return value.toLowerCase().startsWith("re:") ? value : `Re: ${value}`;
+}
+
+export async function promoteSkippedEmailToWorkItemAction(formData: FormData) {
+  const eventId = formString(formData, "eventId");
+
+  if (!eventId) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Skipped email id is required.",
+      "/inbox?skipped=1",
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+
+  try {
+    const result = await promoteSkippedEmailEvent({
+      eventId,
+      supabase,
+      user,
+      workspaceId: workspace.id,
+    });
+
+    revalidatePath("/inbox");
+    revalidatePath(conversationPath(result.conversationId));
+    redirectWithConversationMessage(
+      result.conversationId,
+      "engine_message",
+      result.duplicate
+        ? "That email was already in the work queue."
+        : "Promoted filtered-out email into a work item.",
+    );
+  } catch (error) {
+    redirectWithInboxMessage(
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to promote filtered-out email.",
+      "/inbox?skipped=1",
+    );
+  }
+}
+
+function formSenderRuleAction(value: string): InboundEmailSenderRuleAction | null {
+  if (value === "always_promote" || value === "always_ignore") {
+    return value;
+  }
+
+  return null;
+}
+
+async function applySkippedEmailSenderRule({
+  eventId,
+  ruleAction,
+}: {
+  eventId: string;
+  ruleAction: InboundEmailSenderRuleAction;
+}) {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: event, error: eventError } = await supabase
+    .from("events")
+    .select("id,payload")
+    .eq("workspace_id", workspace.id)
+    .eq("id", eventId)
+    .eq("type", "inbound.email.received")
+    .maybeSingle();
+
+  if (eventError) {
+    throw new Error(eventError.message);
+  }
+
+  if (!event) {
+    throw new Error("Filtered-out email was not found.");
+  }
+
+  const payload = objectRecord(event.payload);
+  const fromEmail = textValue(payload.fromEmail);
+  const ruleValue = senderRuleTargetFromEmail(fromEmail, "email");
+
+  if (!ruleValue) {
+    throw new Error("This email does not have a sender address to learn from.");
+  }
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    throw new Error(beforeError.message);
+  }
+
+  const beforeSettings = normalizeInboundEmailSettings(beforePolicy?.settings);
+  const settings = upsertInboundEmailSenderRule(beforeSettings, {
+    action: ruleAction,
+    createdAt: new Date().toISOString(),
+    createdFromEventId: eventId,
+    match: "email",
+    value: ruleValue,
+  });
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: INBOUND_EMAIL_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    throw new Error(saveError?.message ?? "Unable to save sender rule.");
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "inbound_email.sender_rule_updated",
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: {
+      senderRules: beforeSettings.senderRules,
+    },
+    after: {
+      senderRules: settings.senderRules,
+    },
+    metadata: {
+      eventId,
+      fromEmail,
+      ruleAction,
+    },
+  });
+
+  return {
+    ruleAction,
+    ruleValue,
+  };
+}
+
+export type SkippedEmailSenderRuleState = {
+  error: string | null;
+  message: string | null;
+  ruleAction: InboundEmailSenderRuleAction | null;
+  ruleValue: string | null;
+};
+
+function senderRuleMessage(
+  ruleAction: InboundEmailSenderRuleAction,
+  ruleValue: string,
+) {
+  return ruleAction === "always_promote"
+    ? `Future emails from ${ruleValue} will be treated as relevant.`
+    : `Future emails from ${ruleValue} will be ignored.`;
+}
+
+export async function updateSkippedEmailSenderRuleStateAction(
+  previousState: SkippedEmailSenderRuleState,
+  formData: FormData,
+): Promise<SkippedEmailSenderRuleState> {
+  const eventId = formString(formData, "eventId");
+  const ruleAction = formSenderRuleAction(formString(formData, "ruleAction"));
+
+  if (!eventId || !ruleAction) {
+    return {
+      ...previousState,
+      error: "Sender rule request is invalid.",
+      message: null,
+    };
+  }
+
+  try {
+    const result = await applySkippedEmailSenderRule({
+      eventId,
+      ruleAction,
+    });
+
+    revalidatePath("/inbox");
+    revalidatePath("/settings");
+
+    return {
+      error: null,
+      message: senderRuleMessage(result.ruleAction, result.ruleValue),
+      ruleAction: result.ruleAction,
+      ruleValue: result.ruleValue,
+    };
+  } catch (error) {
+    return {
+      ...previousState,
+      error:
+        error instanceof Error ? error.message : "Unable to save sender rule.",
+      message: null,
+    };
+  }
+}
+
+export async function updateSkippedEmailSenderRuleAction(formData: FormData) {
+  const eventId = formString(formData, "eventId");
+  const ruleAction = formSenderRuleAction(formString(formData, "ruleAction"));
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    "/inbox?skipped=1",
+  );
+
+  if (!eventId || !ruleAction) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Sender rule request is invalid.",
+      redirectTo,
+    );
+  }
+
+  let result: Awaited<ReturnType<typeof applySkippedEmailSenderRule>>;
+
+  try {
+    result = await applySkippedEmailSenderRule({
+      eventId,
+      ruleAction,
+    });
+  } catch (error) {
+    redirectWithInboxMessage(
+      "engine_error",
+      error instanceof Error ? error.message : "Unable to save sender rule.",
+      redirectTo,
+    );
+  }
+
+  revalidatePath("/inbox");
+  revalidatePath("/settings");
+  redirectWithInboxMessage(
+    "engine_message",
+    senderRuleMessage(result.ruleAction, result.ruleValue),
+    redirectTo,
+  );
 }
 
 export async function sendSkippedEmailReplyAction(formData: FormData) {

@@ -143,4 +143,4 @@ Recommended deploy sequence:
 - SMS/phone providers are not connected yet.
 - Native iOS shell is future work; current UI is web/iOS-shaped.
 - Billing UI is usage visibility only, not payment collection.
-- Quote/PDF generation is still internal draft-oriented.
+- Quote PDF generation can download/send server-generated PDFs, but durable PDF storage, Drive sync, accounting exports, and payment collection are still future work.

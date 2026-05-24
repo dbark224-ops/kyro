@@ -122,6 +122,7 @@ Goal: generate and save user-instructed documents from templates.
 - Render to PDF.
 - Save generated file.
 - Attach generated file to outbound communication through action system.
+- Let Assistant/Voice prepare reviewable quote-send emails with generated PDFs attached, while keeping final sending approval-gated.
 
 V1 document generation is not accounting. No payments, ledgers, reconciliation, or tax engine.
 
@@ -195,7 +196,8 @@ The app has moved beyond the first mock-inquiry loop. Current implemented workfl
 - Edit draft replies before approval.
 - Approve/execute dry-run outbound messages.
 - Record mock follow-up inbound messages.
-- Create and edit internal quote drafts from predefined templates.
+- Create and edit internal quote drafts from user-created reusable templates.
+- Prepare reviewable quote emails with server-generated PDF attachments from Documents, Assistant, or Voice.
 - Review and edit contact profiles from `/contacts/[contactId]`.
 - Use the Assistant page as a safe command layer over CRM data.
 - Persist Assistant threads, messages, known UI blocks, deterministic tool-call records, rolling summaries, and explicit long-term memories.

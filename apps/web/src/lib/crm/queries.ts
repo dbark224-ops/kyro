@@ -81,9 +81,13 @@ export type ConversationListItem = {
 };
 
 export type SkippedEmailSummaryItem = {
+  accountEmail: string | null;
   id: string;
   category: string;
+  classificationProvider: string | null;
   confidence: number | null;
+  externalMessageId: string | null;
+  externalThreadId: string | null;
   fromEmail: string | null;
   lastReplySubject: string | null;
   lastRepliedAt: string | null;
@@ -167,9 +171,13 @@ export function buildSkippedEmailSummaryItems(
         : null;
 
     return {
+      accountEmail: textValue(payload.accountEmail),
       id: String(event.id),
       category: textValue(classification.category) ?? "observed",
+      classificationProvider: textValue(classification.providerUsed),
       confidence,
+      externalMessageId: textValue(payload.externalMessageId),
+      externalThreadId: textValue(payload.externalThreadId),
       fromEmail: textValue(payload.fromEmail),
       lastReplySubject: null,
       lastRepliedAt: null,
@@ -457,6 +465,7 @@ export type QuoteDraftListItem = {
     email: string | null;
     phone: string | null;
     company: string | null;
+    address: string | null;
   } | null;
   lead: {
     id: string;
@@ -476,6 +485,16 @@ export type QuoteDraftListItem = {
     preferredTime: string | null;
     budget: string | null;
   } | null;
+};
+
+export type ContactSearchResult = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  address: string | null;
+  updatedAt: string;
 };
 
 export type QuoteDraftProfile = {
@@ -678,6 +697,70 @@ export async function getContactList(
     updatedAt: String(contact.updated_at),
     messageCount: messageCounts.get(String(contact.id)) ?? 0,
   })) satisfies ContactListItem[];
+}
+
+function contactSearchNeedle(value: string) {
+  return value
+    .trim()
+    .replace(/[,()%_*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
+export function contactSearchFilter(value: string) {
+  const needle = contactSearchNeedle(value);
+
+  if (needle.length < 2) {
+    return null;
+  }
+
+  const pattern = `%${needle}%`;
+
+  return [
+    "name",
+    "company",
+    "email",
+    "phone",
+    "address",
+  ]
+    .map((column) => `${column}.ilike.${pattern}`)
+    .join(",");
+}
+
+export async function searchContacts(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  value: string,
+  limit = 8,
+): Promise<ContactSearchResult[]> {
+  const filter = contactSearchFilter(value);
+
+  if (!filter) {
+    return [];
+  }
+
+  const { data: contacts, error } = await supabase
+    .from("contacts")
+    .select("id,name,email,phone,company,address,updated_at")
+    .eq("workspace_id", workspaceId)
+    .or(filter)
+    .order("updated_at", { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 20));
+
+  if (error) {
+    throw new Error(`Unable to search contacts: ${error.message}`);
+  }
+
+  return (contacts ?? []).map((contact) => ({
+    address: textValue(contact.address),
+    company: textValue(contact.company),
+    email: textValue(contact.email),
+    id: String(contact.id),
+    name: textValue(contact.name),
+    phone: textValue(contact.phone),
+    updatedAt: String(contact.updated_at),
+  })) satisfies ContactSearchResult[];
 }
 
 export async function getConversationList(
@@ -1862,7 +1945,7 @@ export async function getQuoteDraftList(
     contactIds.length > 0
       ? supabase
           .from("contacts")
-          .select("id,name,email,phone,company")
+          .select("id,name,email,phone,company,address")
           .eq("workspace_id", workspaceId)
           .in("id", contactIds)
       : Promise.resolve({ data: [], error: null }),
@@ -1918,6 +2001,7 @@ export async function getQuoteDraftList(
         id: String(contact.id),
         name: textValue(contact.name),
         phone: textValue(contact.phone),
+        address: textValue(contact.address),
       },
     ]),
   );
@@ -2024,7 +2108,7 @@ export async function getQuoteDraftProfile(
       contactId
         ? supabase
             .from("contacts")
-            .select("id,name,email,phone,company")
+            .select("id,name,email,phone,company,address")
             .eq("workspace_id", workspaceId)
             .eq("id", contactId)
             .maybeSingle()
@@ -2133,6 +2217,7 @@ export async function getQuoteDraftProfile(
           id: String(contact.data.id),
           name: textValue(contact.data.name),
           phone: textValue(contact.data.phone),
+          address: textValue(contact.data.address),
         }
       : null,
     lead: lead.data

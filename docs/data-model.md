@@ -416,6 +416,54 @@ Current quote draft statuses used by the app:
 - `sent`
 - `archived`
 
+Quote drafts are the structured source of truth for quote-style documents. The
+current customer output can be rendered from `quote_drafts` as print-ready HTML
+or as a server-generated PDF at request/send time. Browser save-to-PDF remains
+available from the print view, and `/documents/[quoteDraftId]/pdf` streams a PDF
+generated from the same structured quote data.
+
+Generated-document state is metadata-first for now. When the user prepares a
+quote send, Kyro stores `metadata.lastGeneratedDocument` with the PDF filename,
+content type, byte size, renderer, generation timestamp, and content hash.
+`metadata.documentHistory` records lightweight `pdf_generated`, `email_prepared`,
+and `email_sent` events so the quote page and Assistant can explain what happened.
+When the email is sent, outbound message metadata records the PDF attachment
+summary and the quote draft metadata records sent timestamps, provider/message ids,
+the outbound message id, and an `email_sent` history event. The binary PDF is
+generated on demand for download and send rather than being stored in Supabase
+Storage or Drive yet. Durable generated file rows, Drive storage, invoice exports,
+and accounting/payment records remain planned
+later work.
+
+Opening a draft from a reusable document template does not immediately create a
+`quote_drafts` row. The `/documents/new?templateKey=...` editor is temporary;
+the row is only inserted when the user presses Save quote draft. This prevents
+empty or accidentally opened drafts from polluting the Documents list.
+
+Assistant-created document drafts do insert a `quote_drafts` row immediately,
+because the user has explicitly asked Kyro to create the draft. Those rows use
+the same saved reusable template data as the Documents screen and store the
+template key, design settings snapshot, reference-file metadata, optional linked
+contact id, and editable customer/job fields in `metadata`.
+
+Current document presentation settings are stored in `workspace_policies` with
+`policy_type = document_templates`. That policy stores the workspace's quote
+style direction, accent theme, currency, validity period, payment terms, footer
+text, prepared-by footer preference, and current custom reusable quote templates.
+Those custom templates currently include a stable key, label, description, line
+item structure, notes, reference-file metadata, latest revision request, and a
+design settings snapshot. The template review/edit UI updates that policy array
+directly for now and renders previews through the same HTML renderer used by the
+quote print route. The separate `document_templates`, `document_template_versions`,
+and `generated_documents` tables below remain planned for richer template
+versioning, file storage, and generated-document workflows.
+
+Assistant-created or assistant-revised reusable templates update this same
+`document_templates` workspace policy. Creation adds a new `customTemplates[]`
+entry with a stable key, line items, notes, settings snapshot, and revision
+request. Revisions preserve the existing key and reference-file metadata so
+draft links and template identity remain stable.
+
 ### `document_templates` planned
 
 - `id`
@@ -512,6 +560,9 @@ Recommended `policy_type` values:
 - `outbound_sms`
 - `ai_actions`
 - `model_routing`
+- `document_templates`
+- `inbound_email`
+- `assistant_voice`
 - `usage_budget`
 - `quiet_hours`
 - `blocked_recipients`

@@ -53,6 +53,62 @@ describe("assistant editable settings parsing", () => {
     assert.ok(parsed.targetSections.includes("integrations"));
   });
 
+  it("parses explicit sender relevance rules", () => {
+    const parsed = parseAssistantEditableSettingChanges(
+      "Treat emails from client@example.com as relevant from now on.",
+    );
+
+    assert.deepEqual(parsed.senderRule, {
+      action: "always_promote",
+      match: "email",
+      value: "client@example.com",
+    });
+    assert.ok(parsed.targetSections.includes("integrations"));
+  });
+
+  it("parses explicit sender domain relevance rules", () => {
+    const parsed = parseAssistantEditableSettingChanges(
+      "Always ignore emails from example.com.",
+    );
+
+    assert.deepEqual(parsed.senderRule, {
+      action: "always_ignore",
+      match: "domain",
+      value: "example.com",
+    });
+    assert.ok(parsed.targetSections.includes("integrations"));
+  });
+
+  it("parses sender rule removal requests", () => {
+    const parsed = parseAssistantEditableSettingChanges(
+      "Remove the sender rule for client@example.com.",
+    );
+
+    assert.equal(parsed.senderRule, null);
+    assert.deepEqual(parsed.senderRuleRemoval, {
+      match: "email",
+      value: "client@example.com",
+    });
+    assert.ok(parsed.targetSections.includes("integrations"));
+    assert.equal(
+      looksLikeSettingsUpdatePrompt("Remove the sender rule for client@example.com"),
+      true,
+    );
+  });
+
+  it("parses sender domain rule removal requests", () => {
+    const parsed = parseAssistantEditableSettingChanges(
+      "Stop ignoring sender domain example.com.",
+    );
+
+    assert.equal(parsed.senderRule, null);
+    assert.deepEqual(parsed.senderRuleRemoval, {
+      match: "domain",
+      value: "example.com",
+    });
+    assert.ok(parsed.targetSections.includes("integrations"));
+  });
+
   it("parses safe voice settings", () => {
     const parsed = parseAssistantEditableSettingChanges(
       "Switch the assistant voice to coral and set outbound pronunciation policy to strict.",
@@ -64,6 +120,34 @@ describe("assistant editable settings parsing", () => {
     assert.ok(parsed.targetSections.includes("voice"));
   });
 
+  it("parses safe document template settings", () => {
+    const parsed = parseAssistantEditableSettingChanges(
+      "Set quote template direction to premium, minimal, and easy to scan. Set quote currency to AUD and quote validity to 21 days.",
+    );
+
+    assert.equal(
+      parsed.documentSettings.quoteStyleDirection,
+      "premium, minimal, and easy to scan",
+    );
+    assert.equal(parsed.documentSettings.currency, "AUD");
+    assert.equal(parsed.documentSettings.validityDays, 21);
+    assert.ok(parsed.labels.includes("quote template direction"));
+    assert.ok(parsed.targetSections.includes("documents"));
+  });
+
+  it("parses document payment terms and footer settings", () => {
+    const parsed = parseAssistantEditableSettingChanges(
+      "Update quote payment terms to 50% deposit before booking. Turn prepared by footer off.",
+    );
+
+    assert.equal(
+      parsed.documentSettings.paymentTerms,
+      "50% deposit before booking",
+    );
+    assert.equal(parsed.documentSettings.showPreparedBy, false);
+    assert.ok(parsed.labels.includes("quote payment terms"));
+  });
+
   it("recognises safe settings requests but ignores unrelated provider-control prompts", () => {
     assert.equal(
       looksLikeSettingsUpdatePrompt("Set email polling every 30 minutes"),
@@ -71,6 +155,10 @@ describe("assistant editable settings parsing", () => {
     );
     assert.equal(
       looksLikeSettingsUpdatePrompt("Switch the assistant voice to ballad"),
+      true,
+    );
+    assert.equal(
+      looksLikeSettingsUpdatePrompt("Set quote template direction to bold and concise"),
       true,
     );
     assert.equal(looksLikeSettingsUpdatePrompt("Disconnect Gmail now"), false);

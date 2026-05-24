@@ -11,14 +11,22 @@ import {
   OUTBOUND_CHANNELS,
   getCommunicationSettings,
 } from "../../lib/communication/settings";
+import {
+  findInboundEmailSenderRule,
+  getInboundEmailSettings,
+  type InboundEmailSenderRule,
+} from "../../lib/integrations/inbound-email-settings";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
   createMockOutboundMessageAction,
+  promoteSkippedEmailToWorkItemAction,
   sendDraftReplyAction,
   updateDraftReplyAction,
 } from "./actions";
 import { ReplyGenerator } from "./reply-generator";
+import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
 import { SkippedEmailReplyDetails } from "./skipped-email-reply-details";
+import { SkippedEmailSenderRuleControls } from "./skipped-email-sender-rule-controls";
 import {
   approveAndExecuteDashboardAction,
   approveDashboardAction,
@@ -251,11 +259,13 @@ function SkippedEmailDialog({
   emails,
   last24HoursCount,
   replyRedirectHref,
+  senderRules,
 }: Readonly<{
   closeHref: string;
   emails: SkippedEmailSummaryItem[];
   last24HoursCount: number;
   replyRedirectHref: string;
+  senderRules: InboundEmailSenderRule[];
 }>) {
   return (
     <div className="skipped-email-backdrop" role="presentation">
@@ -288,8 +298,13 @@ function SkippedEmailDialog({
             emails.map((email) => {
               const confidence = confidenceLabel(email.confidence);
               const hasReply = email.replyCount > 0;
+              const senderRule = findInboundEmailSenderRule(
+                senderRules,
+                email.fromEmail,
+              );
               const rowClassName = [
                 "skipped-email-row",
+                "has-actions",
                 email.fromEmail ? "has-reply" : null,
                 hasReply ? "is-replied has-expand" : null,
               ]
@@ -310,7 +325,6 @@ function SkippedEmailDialog({
                       >
                         {formatDate(email.receivedAt ?? email.processedAt)}
                       </time>
-                      {confidence ? <span>{confidence} confidence</span> : null}
                       <span className="skipped-email-meta-pill">
                         {formatLabel(email.category)}
                       </span>
@@ -341,6 +355,15 @@ function SkippedEmailDialog({
                       </p>
                     </details>
                   ) : null}
+                  <form
+                    action={promoteSkippedEmailToWorkItemAction}
+                    className="skipped-email-promote-form"
+                  >
+                    <input name="eventId" type="hidden" value={email.id} />
+                    <button className="primary-button compact" type="submit">
+                      Promote
+                    </button>
+                  </form>
                   {email.fromEmail ? (
                     <SkippedEmailReplyDetails
                       defaultSubject={defaultSkippedReplySubject(email.subject)}
@@ -348,6 +371,43 @@ function SkippedEmailDialog({
                       replyRedirectHref={replyRedirectHref}
                     />
                   ) : null}
+                  <SkippedEmailMoreMenu>
+                    <div className="skipped-email-more-panel">
+                      {email.fromEmail ? (
+                        <SkippedEmailSenderRuleControls
+                          emailId={email.id}
+                          initialRuleAction={senderRule?.action ?? null}
+                          key={`${email.id}:${senderRule?.action ?? "unset"}`}
+                          redirectTo={replyRedirectHref}
+                        />
+                      ) : null}
+                      <div className="skipped-email-decision-card">
+                        <strong>Kyro decision details</strong>
+                        <dl>
+                          <div>
+                            <dt>Category</dt>
+                            <dd>{formatLabel(email.category)}</dd>
+                          </div>
+                          <div>
+                            <dt>Confidence</dt>
+                            <dd>{confidence ?? "Not recorded"}</dd>
+                          </div>
+                          <div>
+                            <dt>Classifier</dt>
+                            <dd>
+                              {email.classificationProvider
+                                ? formatLabel(email.classificationProvider)
+                                : "Not recorded"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Reason</dt>
+                            <dd>{email.reason ?? "No reason was stored."}</dd>
+                          </div>
+                        </dl>
+                      </div>
+                    </div>
+                  </SkippedEmailMoreMenu>
                 </article>
               );
             })
@@ -540,7 +600,11 @@ function InboxDraftReplyAction({
               {formatLabel(action.status)} - {formatDate(action.createdAt)}
             </span>
           </div>
-          <span className="pill">AI draft</span>
+          <span className="pill">
+            {textValue(action.input.attachmentQuoteDraftId)
+              ? "PDF attached"
+              : "AI draft"}
+          </span>
         </div>
         <label>
           Subject
@@ -933,6 +997,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     conversations,
     selectedConversationReview,
     communicationSettings,
+    inboundEmailSettings,
     skippedEmailSummaries,
   ] = await Promise.all([
     getConversationList(supabase, workspace.id),
@@ -941,6 +1006,9 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       : Promise.resolve(null),
     selectedConversationId
       ? getCommunicationSettings(supabase, workspace.id)
+      : Promise.resolve(null),
+    showSkippedEmail
+      ? getInboundEmailSettings(supabase, workspace.id)
       : Promise.resolve(null),
     showSkippedEmail
       ? getSkippedEmailSummaries(supabase, workspace.id)
@@ -1293,6 +1361,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             emails={skippedEmailSummaryItems}
             last24HoursCount={skippedEmailLast24HoursCount}
             replyRedirectHref={skippedEmailOpenHref}
+            senderRules={inboundEmailSettings?.senderRules ?? []}
           />
         ) : null}
         {selectedConversationReview ? (

@@ -11,54 +11,20 @@ export type QuoteTemplate = {
   key: string;
   label: string;
   description: string;
-  defaultTitle: string;
+  defaultTitle?: string;
   notes: string;
   lineItems: QuoteLineItem[];
 };
 
-export const QUOTE_TEMPLATES = [
-  {
-    key: "general_service_quote",
-    label: "General Service Quote",
-    description: "A clean starter quote for a trade job that still needs pricing.",
-    defaultTitle: "General Service Quote Draft",
-    notes:
-      "Draft only. Confirm scope, pricing, materials, exclusions, and timing before sending.",
-    lineItems: [
-      quoteLineItem("Site assessment and scope confirmation", 1, "job"),
-      quoteLineItem("Labour allowance", 1, "job"),
-      quoteLineItem("Materials allowance", 1, "job"),
-    ],
-  },
-  {
-    key: "plumbing_repair",
-    label: "Plumbing Repair",
-    description: "Callout, diagnosis, labour, and parts placeholder lines.",
-    defaultTitle: "Plumbing Repair Quote Draft",
-    notes:
-      "Draft only. Confirm the repair scope, access, parts, and any after-hours charge before sending.",
-    lineItems: [
-      quoteLineItem("Callout and diagnosis", 1, "visit"),
-      quoteLineItem("Plumbing labour", 1, "job"),
-      quoteLineItem("Parts and consumables", 1, "allowance"),
-    ],
-  },
-  {
-    key: "bathroom_renovation",
-    label: "Bathroom Renovation",
-    description: "Early-stage bathroom renovation quote structure.",
-    defaultTitle: "Bathroom Renovation Quote Draft",
-    notes:
-      "Draft only. Confirm inclusions, fixtures, waterproofing, tiling, demolition, and exclusions before sending.",
-    lineItems: [
-      quoteLineItem("Bathroom renovation planning and site check", 1, "job"),
-      quoteLineItem("Demolition and preparation allowance", 1, "job"),
-      quoteLineItem("Plumbing rough-in and fit-off allowance", 1, "job"),
-      quoteLineItem("Waterproofing and tiling allowance", 1, "job"),
-      quoteLineItem("Fixtures and materials allowance", 1, "allowance"),
-    ],
-  },
-] as const satisfies QuoteTemplate[];
+export type QuoteLineItemRowInput = {
+  description: unknown;
+  notes?: unknown;
+  quantity?: unknown;
+  unit?: unknown;
+  unitPrice?: unknown;
+};
+
+export const QUOTE_TEMPLATES = [] as const satisfies QuoteTemplate[];
 
 export function quoteLineItem(
   description: string,
@@ -80,19 +46,50 @@ export function quoteLineItem(
   };
 }
 
-export function getQuoteTemplate(key: string | null | undefined) {
+export function quoteTemplateCatalog(
+  customTemplates: readonly QuoteTemplate[] = [],
+): QuoteTemplate[] {
+  return [...QUOTE_TEMPLATES, ...customTemplates];
+}
+
+export function getQuoteTemplate(
+  key: string | null | undefined,
+  customTemplates: readonly QuoteTemplate[] = [],
+) {
+  const catalog = quoteTemplateCatalog(customTemplates);
+
   return (
-    QUOTE_TEMPLATES.find((template) => template.key === key) ??
-    QUOTE_TEMPLATES[0]
+    catalog.find((template) => template.key === key) ??
+    catalog[0] ??
+    null
   );
 }
 
-export function quoteTemplateOptions() {
-  return QUOTE_TEMPLATES.map((template) => ({
+export function quoteTemplateOptions(
+  templates: readonly QuoteTemplate[] = QUOTE_TEMPLATES,
+) {
+  return templates.map((template) => ({
     description: template.description,
     key: template.key,
     label: template.label,
   }));
+}
+
+export function draftTitleFromTemplate(
+  template: Pick<QuoteTemplate, "label">,
+  date = new Date(),
+) {
+  const timestamp = new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    month: "short",
+  })
+    .format(date)
+    .replace(",", "");
+
+  return `${template.label} - ${timestamp}`;
 }
 
 export function parseQuoteLineItems(value: string) {
@@ -115,6 +112,36 @@ export function parseQuoteLineItems(value: string) {
       );
     });
 }
+
+export function parseQuoteLineItemRows(rows: QuoteLineItemRowInput[]) {
+  return rows
+    .map((row) =>
+      quoteLineItem(
+        textValue(row.description) ?? "",
+        parseNullableNumber(row.quantity),
+        textValue(row.unit),
+        parseNullableNumber(row.unitPrice),
+        textValue(row.notes),
+      ),
+    )
+    .filter(
+      (item) =>
+        item.description ||
+        item.quantity !== null ||
+        item.unit ||
+        item.unitPrice !== null ||
+        item.notes,
+    )
+    .map((item) =>
+      item.description
+        ? item
+        : {
+            ...item,
+            description: "Quote line item",
+          },
+    );
+}
+
 
 export function lineItemsToEditorText(items: unknown[]) {
   return normalizeQuoteLineItems(items)

@@ -1,9 +1,25 @@
 "use server";
 
 import {
+  draftTitleFromTemplate,
   getQuoteTemplate,
-  parseQuoteLineItems,
+  parseQuoteLineItemRows,
 } from "../../lib/documents/templates";
+import {
+  DOCUMENT_ACCENT_THEMES,
+  DOCUMENT_CURRENCIES,
+  DOCUMENT_TEMPLATE_POLICY_TYPE,
+  getDocumentTemplateSettings,
+  normalizeDocumentTemplateDesignSettings,
+  normalizeDocumentTemplateSettings,
+  type CustomDocumentTemplate,
+  type DocumentTemplateReferenceFile,
+} from "../../lib/documents/settings";
+import {
+  buildQuotePdfArtifactForDraft,
+  quotePdfMetadata,
+} from "../../lib/documents/pdf";
+import { appendQuoteDocumentHistory } from "../../lib/documents/history";
 import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
@@ -16,8 +32,18 @@ function formString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function formStringValues(formData: FormData, key: string) {
+  return formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""));
+}
+
 function nullableText(value: string) {
   return value.trim() ? value.trim() : null;
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function objectRecord(value: unknown) {
@@ -30,6 +56,60 @@ function documentPath(quoteDraftId: string) {
   return `/documents/${encodeURIComponent(quoteDraftId)}`;
 }
 
+function newDocumentPath(templateKey: string | null = null) {
+  const params = new URLSearchParams();
+
+  if (templateKey) {
+    params.set("templateKey", templateKey);
+  }
+
+  const query = params.toString();
+
+  return query ? `/documents/new?${query}` : "/documents/new";
+}
+
+function redirectWithDocumentsMessage(
+  key: "engine_error" | "engine_message",
+  message: string,
+): never {
+  redirect(`/documents?${key}=${encodeURIComponent(message)}`);
+}
+
+function redirectWithNewDocumentMessage(
+  templateKey: string | null,
+  key: "engine_error" | "engine_message",
+  message: string,
+): never {
+  const params = new URLSearchParams();
+
+  if (templateKey) {
+    params.set("templateKey", templateKey);
+  }
+
+  params.set(key, message);
+
+  redirect(`/documents/new?${params.toString()}`);
+}
+
+function redirectWithTemplateBuilderMessage(
+  key: "engine_error" | "engine_message",
+  message: string,
+): never {
+  redirect(`/documents/templates/new?${key}=${encodeURIComponent(message)}`);
+}
+
+function templatePath(templateKey: string) {
+  return `/documents/templates/${encodeURIComponent(templateKey)}`;
+}
+
+function redirectWithTemplateMessage(
+  templateKey: string,
+  key: "engine_error" | "engine_message",
+  message: string,
+): never {
+  redirect(`${templatePath(templateKey)}?${key}=${encodeURIComponent(message)}`);
+}
+
 function redirectWithDocumentMessage(
   quoteDraftId: string,
   key: "engine_error" | "engine_message",
@@ -38,39 +118,263 @@ function redirectWithDocumentMessage(
   redirect(`${documentPath(quoteDraftId)}?${key}=${encodeURIComponent(message)}`);
 }
 
+function slugValue(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "template"
+  );
+}
+
+function quoteSendSubject(title: string) {
+  return `Your quote: ${title}`;
+}
+
+function quoteSendBody({
+  customerName,
+  jobLabel,
+}: {
+  customerName: string | null;
+  jobLabel: string | null;
+}) {
+  const greeting = customerName ? `Hi ${customerName},` : "Hi,";
+  const scope = jobLabel
+    ? ` for ${jobLabel}`
+    : "";
+
+  return [
+    greeting,
+    "",
+    `Thanks for the opportunity. I have attached the quote${scope} for you to review.`,
+    "",
+    "Please let me know if you would like anything changed, or if you are happy for us to proceed.",
+  ].join("\n");
+}
+
+function quoteLineItemsFromForm(formData: FormData) {
+  const descriptions = formStringValues(formData, "lineItemDescription");
+  const quantities = formStringValues(formData, "lineItemQuantity");
+  const units = formStringValues(formData, "lineItemUnit");
+  const unitPrices = formStringValues(formData, "lineItemUnitPrice");
+  const lineNotes = formStringValues(formData, "lineItemNotes");
+
+  return parseQuoteLineItemRows(
+    descriptions.map((description, index) => ({
+      description,
+      notes: lineNotes[index] ?? "",
+      quantity: quantities[index] ?? "",
+      unit: units[index] ?? "",
+      unitPrice: unitPrices[index] ?? "",
+    })),
+  );
+}
+
+function quoteDraftEditorMetadataFromForm(
+  formData: FormData,
+  base: Record<string, unknown>,
+) {
+  return {
+    ...base,
+    customerCompany: nullableText(formString(formData, "customerCompany")),
+    customerEmail: nullableText(formString(formData, "customerEmail")),
+    customerName: nullableText(formString(formData, "customerName")),
+    customerPhone: nullableText(formString(formData, "customerPhone")),
+    jobAddress: nullableText(formString(formData, "jobAddress")),
+    jobType: nullableText(formString(formData, "jobType")),
+    preferredTime: nullableText(formString(formData, "preferredTime")),
+    updatedFrom: "documents.editor",
+  };
+}
+
+function referenceFilesFromForm(formData: FormData) {
+  return formData
+    .getAll("referenceFiles")
+    .filter((value): value is File => value instanceof File && value.size > 0)
+    .slice(0, 8)
+    .map((file) => ({
+      name: file.name.slice(0, 180),
+      size: file.size,
+      type: (file.type || "application/octet-stream").slice(0, 120),
+    }));
+}
+
+function referenceFilesFromJson(formData: FormData) {
+  const raw = formString(formData, "existingReferenceFiles");
+
+  if (!raw) {
+    return [] as DocumentTemplateReferenceFile[];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => {
+        const file = objectRecord(item);
+        const size = Number(file.size);
+        const name = nullableText(String(file.name ?? ""));
+
+        if (!name) {
+          return null;
+        }
+
+        return {
+          name: name.slice(0, 180),
+          size: Number.isFinite(size) ? Math.max(0, Math.round(size)) : 0,
+          type: (nullableText(String(file.type ?? "")) ?? "application/octet-stream").slice(0, 120),
+        };
+      })
+      .filter((file): file is DocumentTemplateReferenceFile => Boolean(file))
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function documentTemplateDesignSettingsFromForm(formData: FormData) {
+  return normalizeDocumentTemplateDesignSettings({
+    accentTheme: formString(formData, "accentTheme"),
+    currency: formString(formData, "currency"),
+    footerText: formString(formData, "footerText"),
+    paymentTerms: formString(formData, "paymentTerms"),
+    quoteStyleDirection: formString(formData, "quoteStyleDirection"),
+    showPreparedBy: formData.get("showPreparedBy") === "on",
+    validityDays: formString(formData, "validityDays"),
+  });
+}
+
+function documentTemplateFromForm(
+  formData: FormData,
+  options: {
+    createdAt: string;
+    existingReferenceFiles?: DocumentTemplateReferenceFile[];
+    key: string;
+    now: string;
+  },
+): CustomDocumentTemplate {
+  const lineItems = quoteLineItemsFromForm(formData);
+  const existingReferenceFiles =
+    options.existingReferenceFiles ??
+    (formData.has("existingReferenceFiles") ? referenceFilesFromJson(formData) : []);
+
+  return {
+    createdAt: options.createdAt,
+    description:
+      nullableText(formString(formData, "description")) ??
+      "Custom quote template.",
+    key: options.key,
+    label: formString(formData, "label"),
+    lineItems,
+    notes: formString(formData, "notes"),
+    referenceFiles: [...existingReferenceFiles, ...referenceFilesFromForm(formData)].slice(0, 8),
+    revisionRequest: nullableText(formString(formData, "revisionRequest")),
+    settings: documentTemplateDesignSettingsFromForm(formData),
+    updatedAt: options.now,
+  };
+}
+
 export async function createQuoteDraftFromTemplateAction(formData: FormData) {
-  const template = getQuoteTemplate(formString(formData, "templateKey"));
+  const templateKey = nullableText(formString(formData, "templateKey"));
+
+  if (!templateKey) {
+    redirectWithDocumentsMessage(
+      "engine_error",
+      "Create a document template before starting a quote draft.",
+    );
+  }
+
+  redirect(newDocumentPath(templateKey));
+}
+
+export async function createQuoteDraftAction(formData: FormData) {
+  const templateKey = nullableText(formString(formData, "templateKey"));
+  const title = formString(formData, "title");
+  const status = formString(formData, "status") || "draft";
+  const selectedContactId = nullableText(formString(formData, "contactId"));
+
+  if (!title) {
+    redirectWithNewDocumentMessage(templateKey, "engine_error", "Title is required.");
+  }
+
+  if (!QUOTE_DRAFT_STATUSES.has(status)) {
+    redirectWithNewDocumentMessage(templateKey, "engine_error", "Quote status is invalid.");
+  }
+
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  const documentTemplateSettings = await getDocumentTemplateSettings(
+    supabase,
+    workspace.id,
+  );
+  const template = templateKey
+    ? getQuoteTemplate(templateKey, documentTemplateSettings.customTemplates)
+    : null;
+
+  if (templateKey && (!template || template.key !== templateKey)) {
+    redirectWithDocumentsMessage("engine_error", "Document template was not found.");
+  }
+
+  if (selectedContactId) {
+    const { data: contact, error: contactError } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("id", selectedContactId)
+      .maybeSingle();
+
+    if (contactError) {
+      redirectWithNewDocumentMessage(templateKey, "engine_error", contactError.message);
+    }
+
+    if (!contact) {
+      redirectWithNewDocumentMessage(
+        templateKey,
+        "engine_error",
+        "Selected customer was not found.",
+      );
+    }
+  }
+
+  const templateSettings = normalizeDocumentTemplateDesignSettings(
+    objectRecord(template).settings ?? documentTemplateSettings,
+  );
+  const nextLineItems = quoteLineItemsFromForm(formData);
+  const nextNotes = nullableText(formString(formData, "notes"));
+  const nextMetadata = quoteDraftEditorMetadataFromForm(formData, {
+    documentTemplateReferenceFiles:
+      template && "referenceFiles" in template
+        ? objectRecord(template).referenceFiles
+        : [],
+    documentTemplateSettings: templateSettings,
+    dryRun: true,
+    source: template ? "document.template" : "documents.editor",
+    templateKey: template?.key ?? null,
+  });
 
   const { data: quoteDraft, error } = await supabase
     .from("quote_drafts")
     .insert({
+      contact_id: selectedContactId,
+      line_items: nextLineItems,
+      metadata: nextMetadata,
+      notes: nextNotes,
+      status,
+      title,
       workspace_id: workspace.id,
-      title: template.defaultTitle,
-      status: "draft",
-      line_items: template.lineItems,
-      notes: template.notes,
-      metadata: {
-        customerCompany: null,
-        customerEmail: null,
-        customerName: null,
-        customerPhone: null,
-        dryRun: true,
-        jobAddress: null,
-        jobType: template.label,
-        preferredTime: null,
-        source: "document.template",
-        templateKey: template.key,
-      },
     })
     .select("id,title,status")
     .single();
 
   if (error || !quoteDraft) {
-    redirect(
-      `/documents?engine_error=${encodeURIComponent(
-        error?.message ?? "Unable to create quote draft.",
-      )}`,
+    redirectWithNewDocumentMessage(
+      templateKey,
+      "engine_error",
+      error?.message ?? "Unable to save quote draft.",
     );
   }
 
@@ -78,12 +382,15 @@ export async function createQuoteDraftFromTemplateAction(formData: FormData) {
     workspaceId: workspace.id,
     actorType: "user",
     actorId: user.id,
-    action: "quote_draft.created_from_template",
+    action: template ? "quote_draft.created_from_template" : "quote_draft.created",
     entityType: "quote_draft",
     entityId: String(quoteDraft.id),
     after: {
+      lineItems: nextLineItems,
+      metadata: nextMetadata,
+      notes: nextNotes,
       status: quoteDraft.status,
-      templateKey: template.key,
+      templateKey: template?.key ?? null,
       title: quoteDraft.title,
     },
   });
@@ -92,19 +399,38 @@ export async function createQuoteDraftFromTemplateAction(formData: FormData) {
   redirectWithDocumentMessage(
     String(quoteDraft.id),
     "engine_message",
-    "Quote draft created.",
+    "Quote draft saved.",
   );
 }
 
 export async function applyQuoteTemplateAction(formData: FormData) {
   const quoteDraftId = formString(formData, "quoteDraftId");
-  const template = getQuoteTemplate(formString(formData, "templateKey"));
 
   if (!quoteDraftId) {
     redirect("/documents?engine_error=Quote draft id is required.");
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  const documentTemplateSettings = await getDocumentTemplateSettings(
+    supabase,
+    workspace.id,
+  );
+  const template = getQuoteTemplate(
+    formString(formData, "templateKey"),
+    documentTemplateSettings.customTemplates,
+  );
+
+  if (!template) {
+    redirectWithDocumentMessage(
+      quoteDraftId,
+      "engine_error",
+      "Create a document template before applying a structure.",
+    );
+  }
+
+  const templateSettings = normalizeDocumentTemplateDesignSettings(
+    objectRecord(template).settings ?? documentTemplateSettings,
+  );
   const { data: before, error: beforeError } = await supabase
     .from("quote_drafts")
     .select("id,title,status,line_items,notes,metadata")
@@ -120,8 +446,14 @@ export async function applyQuoteTemplateAction(formData: FormData) {
     redirectWithDocumentMessage(quoteDraftId, "engine_error", "Quote draft was not found.");
   }
 
+  const title = draftTitleFromTemplate(template);
   const nextMetadata = {
     ...objectRecord(before.metadata),
+    documentTemplateReferenceFiles:
+      "referenceFiles" in template
+        ? objectRecord(template).referenceFiles
+        : [],
+    documentTemplateSettings: templateSettings,
     jobType: template.label,
     templateAppliedAt: new Date().toISOString(),
     templateKey: template.key,
@@ -133,7 +465,7 @@ export async function applyQuoteTemplateAction(formData: FormData) {
       line_items: template.lineItems,
       metadata: nextMetadata,
       notes: template.notes,
-      title: template.defaultTitle,
+      title,
     })
     .eq("workspace_id", workspace.id)
     .eq("id", quoteDraftId);
@@ -159,7 +491,7 @@ export async function applyQuoteTemplateAction(formData: FormData) {
       lineItems: template.lineItems,
       metadata: nextMetadata,
       notes: template.notes,
-      title: template.defaultTitle,
+      title,
     },
   });
 
@@ -168,10 +500,180 @@ export async function applyQuoteTemplateAction(formData: FormData) {
   redirectWithDocumentMessage(quoteDraftId, "engine_message", "Template applied.");
 }
 
+export async function createDocumentTemplateAction(formData: FormData) {
+  const label = formString(formData, "label");
+
+  if (!label) {
+    redirectWithTemplateBuilderMessage("engine_error", "Template name is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", DOCUMENT_TEMPLATE_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithTemplateBuilderMessage("engine_error", beforeError.message);
+  }
+
+  const beforeSettings = normalizeDocumentTemplateSettings(beforePolicy?.settings);
+  const now = new Date().toISOString();
+  const key = `custom_${slugValue(label)}_${Date.now().toString(36)}`;
+  const template = documentTemplateFromForm(formData, {
+    createdAt: now,
+    key,
+    now,
+  });
+  const settings = normalizeDocumentTemplateSettings({
+    ...beforeSettings,
+    customTemplates: [...beforeSettings.customTemplates, template],
+  });
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: DOCUMENT_TEMPLATE_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithTemplateBuilderMessage(
+      "engine_error",
+      saveError?.message ?? "Unable to save document template.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "document_template.created",
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    after: { templateKey: template.key, templateLabel: template.label },
+    metadata: {
+      policyType: DOCUMENT_TEMPLATE_POLICY_TYPE,
+      referenceFileCount: template.referenceFiles.length,
+    },
+  });
+
+  revalidatePath("/documents");
+  revalidatePath("/documents/templates/new");
+  revalidatePath(templatePath(template.key));
+  redirectWithTemplateMessage(template.key, "engine_message", "Document template created.");
+}
+
+export async function updateDocumentTemplateAction(formData: FormData) {
+  const templateKey = formString(formData, "templateKey");
+  const label = formString(formData, "label");
+
+  if (!templateKey) {
+    redirectWithDocumentsMessage("engine_error", "Template id is required.");
+  }
+
+  if (!label) {
+    redirectWithTemplateMessage(templateKey, "engine_error", "Template name is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", DOCUMENT_TEMPLATE_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithTemplateMessage(templateKey, "engine_error", beforeError.message);
+  }
+
+  const beforeSettings = normalizeDocumentTemplateSettings(beforePolicy?.settings);
+  const existingTemplate = beforeSettings.customTemplates.find(
+    (template) => template.key === templateKey,
+  );
+
+  if (!existingTemplate) {
+    redirectWithDocumentsMessage("engine_error", "Document template was not found.");
+  }
+
+  const now = new Date().toISOString();
+  const existingReferenceFiles = formData.has("existingReferenceFiles")
+    ? referenceFilesFromJson(formData)
+    : existingTemplate.referenceFiles;
+  const template = documentTemplateFromForm(formData, {
+    createdAt: existingTemplate.createdAt,
+    existingReferenceFiles,
+    key: existingTemplate.key,
+    now,
+  });
+  const settings = normalizeDocumentTemplateSettings({
+    ...beforeSettings,
+    customTemplates: beforeSettings.customTemplates.map((item) =>
+      item.key === templateKey ? template : item,
+    ),
+  });
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: DOCUMENT_TEMPLATE_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithTemplateMessage(
+      templateKey,
+      "engine_error",
+      saveError?.message ?? "Unable to save document template.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "document_template.updated",
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: { template: existingTemplate },
+    after: { template },
+    metadata: {
+      policyType: DOCUMENT_TEMPLATE_POLICY_TYPE,
+      referenceFileCount: template.referenceFiles.length,
+      templateKey: template.key,
+    },
+  });
+
+  revalidatePath("/documents");
+  revalidatePath(templatePath(template.key));
+  redirectWithTemplateMessage(template.key, "engine_message", "Document template saved.");
+}
+
 export async function updateQuoteDraftAction(formData: FormData) {
   const quoteDraftId = formString(formData, "quoteDraftId");
   const title = formString(formData, "title");
   const status = formString(formData, "status") || "draft";
+  const selectedContactId = nullableText(formString(formData, "contactId"));
 
   if (!quoteDraftId) {
     redirect("/documents?engine_error=Quote draft id is required.");
@@ -188,7 +690,9 @@ export async function updateQuoteDraftAction(formData: FormData) {
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const { data: before, error: beforeError } = await supabase
     .from("quote_drafts")
-    .select("id,title,status,line_items,notes,metadata,conversation_id,lead_id")
+    .select(
+      "id,title,status,line_items,notes,metadata,contact_id,conversation_id,lead_id",
+    )
     .eq("workspace_id", workspace.id)
     .eq("id", quoteDraftId)
     .maybeSingle();
@@ -201,23 +705,38 @@ export async function updateQuoteDraftAction(formData: FormData) {
     redirectWithDocumentMessage(quoteDraftId, "engine_error", "Quote draft was not found.");
   }
 
-  const nextMetadata = {
-    ...objectRecord(before.metadata),
-    customerCompany: nullableText(formString(formData, "customerCompany")),
-    customerEmail: nullableText(formString(formData, "customerEmail")),
-    customerName: nullableText(formString(formData, "customerName")),
-    customerPhone: nullableText(formString(formData, "customerPhone")),
-    jobAddress: nullableText(formString(formData, "jobAddress")),
-    jobType: nullableText(formString(formData, "jobType")),
-    preferredTime: nullableText(formString(formData, "preferredTime")),
-    updatedFrom: "documents.editor",
-  };
-  const nextLineItems = parseQuoteLineItems(formString(formData, "lineItemsText"));
+  if (selectedContactId) {
+    const { data: contact, error: contactError } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("id", selectedContactId)
+      .maybeSingle();
+
+    if (contactError) {
+      redirectWithDocumentMessage(quoteDraftId, "engine_error", contactError.message);
+    }
+
+    if (!contact) {
+      redirectWithDocumentMessage(
+        quoteDraftId,
+        "engine_error",
+        "Selected customer was not found.",
+      );
+    }
+  }
+
+  const nextMetadata = quoteDraftEditorMetadataFromForm(
+    formData,
+    objectRecord(before.metadata),
+  );
+  const nextLineItems = quoteLineItemsFromForm(formData);
   const nextNotes = nullableText(formString(formData, "notes"));
 
   const { error: updateError } = await supabase
     .from("quote_drafts")
     .update({
+      contact_id: selectedContactId ?? before.contact_id ?? null,
       line_items: nextLineItems,
       metadata: nextMetadata,
       notes: nextNotes,
@@ -253,6 +772,7 @@ export async function updateQuoteDraftAction(formData: FormData) {
       title,
     },
     metadata: {
+      contactId: selectedContactId ?? before.contact_id ?? null,
       conversationId: before.conversation_id ? String(before.conversation_id) : null,
       leadId: before.lead_id ? String(before.lead_id) : null,
     },
@@ -266,4 +786,319 @@ export async function updateQuoteDraftAction(formData: FormData) {
   }
 
   redirectWithDocumentMessage(quoteDraftId, "engine_message", "Quote draft saved.");
+}
+
+export async function prepareQuoteDraftSendAction(formData: FormData) {
+  const quoteDraftId = formString(formData, "quoteDraftId");
+
+  if (!quoteDraftId) {
+    redirect("/documents?engine_error=Quote draft id is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: quoteDraft, error: quoteDraftError } = await supabase
+    .from("quote_drafts")
+    .select(
+      "id,title,status,metadata,contact_id,conversation_id,lead_id",
+    )
+    .eq("workspace_id", workspace.id)
+    .eq("id", quoteDraftId)
+    .maybeSingle();
+
+  if (quoteDraftError) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", quoteDraftError.message);
+  }
+
+  if (!quoteDraft) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", "Quote draft was not found.");
+  }
+
+  const conversationId = textValue(quoteDraft.conversation_id);
+
+  if (!conversationId) {
+    redirectWithDocumentMessage(
+      quoteDraftId,
+      "engine_error",
+      "Link this quote draft to an inquiry before sending it to a customer.",
+    );
+  }
+
+  const [contactResult, leadResult] = await Promise.all([
+    quoteDraft.contact_id
+      ? supabase
+          .from("contacts")
+          .select("name,email,company")
+          .eq("workspace_id", workspace.id)
+          .eq("id", quoteDraft.contact_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    quoteDraft.lead_id
+      ? supabase
+          .from("leads")
+          .select("title,service_type")
+          .eq("workspace_id", workspace.id)
+          .eq("id", quoteDraft.lead_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  if (contactResult.error) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", contactResult.error.message);
+  }
+
+  if (leadResult.error) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", leadResult.error.message);
+  }
+
+  const contact = objectRecord(contactResult.data);
+  const lead = objectRecord(leadResult.data);
+  const metadata = objectRecord(quoteDraft.metadata);
+  const customerEmail =
+    textValue(contact.email) ?? textValue(metadata.customerEmail);
+
+  if (!customerEmail) {
+    redirectWithDocumentMessage(
+      quoteDraftId,
+      "engine_error",
+      "The linked customer needs an email address before Kyro can prepare this send.",
+    );
+  }
+
+  const pending = await supabase
+    .from("actions")
+    .select("id,input")
+    .eq("workspace_id", workspace.id)
+    .eq("type", "draft_reply")
+    .eq("target_type", "conversation")
+    .eq("target_id", conversationId)
+    .in("status", ["pending_approval", "approved"])
+    .limit(25);
+
+  if (pending.error) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", pending.error.message);
+  }
+
+  const duplicateAction = (pending.data ?? []).find((action) => {
+    const input = objectRecord(action.input);
+
+    return textValue(input.attachmentQuoteDraftId) === quoteDraftId;
+  });
+
+  if (duplicateAction) {
+    redirect(
+      `/inbox/${encodeURIComponent(conversationId)}?engine_message=${encodeURIComponent(
+        "A quote email is already prepared for this draft. Review it before creating another one.",
+      )}`,
+    );
+  }
+
+  const artifact = await buildQuotePdfArtifactForDraft(supabase, {
+    quoteDraftId,
+    workspace,
+  });
+  const documentMetadata = quotePdfMetadata(artifact);
+  const customerName =
+    textValue(metadata.customerName) ??
+    textValue(contact.name) ??
+    textValue(contact.company);
+  const jobLabel =
+    textValue(metadata.jobType) ??
+    textValue(lead.service_type) ??
+    textValue(lead.title) ??
+    String(quoteDraft.title);
+  const subject = quoteSendSubject(String(quoteDraft.title));
+  const body = quoteSendBody({
+    customerName,
+    jobLabel,
+  });
+
+  const { data: action, error: actionError } = await supabase
+    .from("actions")
+    .insert({
+      workspace_id: workspace.id,
+      type: "draft_reply",
+      status: "pending_approval",
+      requested_by: "user",
+      approval_required: true,
+      target_type: "conversation",
+      target_id: conversationId,
+      input: {
+        attachmentQuoteDraftId: quoteDraftId,
+        body,
+        channelType: "email",
+        generatedDocument: documentMetadata,
+        quoteDraftId,
+        settingsSnapshot: {
+          approvalRequired: true,
+          generatedDocument: documentMetadata,
+          source: "documents.prepare_quote_send",
+        },
+        signatureVariant: "ai_generated",
+        source: "documents.prepare_quote_send",
+        subject,
+      },
+      policy_snapshot: {
+        mode: "require_approval",
+        reason: "Customer-facing document sends require user review.",
+        source: "documents.prepare_quote_send",
+      },
+    })
+    .select("id")
+    .single();
+
+  if (actionError || !action) {
+    redirectWithDocumentMessage(
+      quoteDraftId,
+      "engine_error",
+      actionError?.message ?? "Unable to prepare quote email.",
+    );
+  }
+
+  const nextMetadata = appendQuoteDocumentHistory(
+    {
+      ...metadata,
+      lastGeneratedDocument: documentMetadata,
+      preparedSendActionId: String(action.id),
+      preparedSendAt: documentMetadata.generatedAt,
+    },
+    {
+      actionId: String(action.id),
+      actorType: "user",
+      contentHash: documentMetadata.contentHash,
+      document: documentMetadata,
+      kind: "email_prepared",
+      occurredAt: documentMetadata.generatedAt,
+      source: "documents.prepare_quote_send",
+    },
+  );
+  const { error: updateError } = await supabase
+    .from("quote_drafts")
+    .update({
+      metadata: nextMetadata,
+      status: String(quoteDraft.status) === "draft" ? "ready" : quoteDraft.status,
+    })
+    .eq("workspace_id", workspace.id)
+    .eq("id", quoteDraftId);
+
+  if (updateError) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", updateError.message);
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "quote_draft.send_prepared",
+    entityType: "quote_draft",
+    entityId: quoteDraftId,
+    before: {
+      metadata,
+      status: quoteDraft.status,
+    },
+    after: {
+      actionId: String(action.id),
+      document: documentMetadata,
+      metadata: nextMetadata,
+      status: String(quoteDraft.status) === "draft" ? "ready" : quoteDraft.status,
+    },
+    metadata: {
+      conversationId,
+      customerEmail,
+      source: "documents.prepare_quote_send",
+    },
+  });
+
+  revalidatePath("/documents");
+  revalidatePath(documentPath(quoteDraftId));
+  revalidatePath(`/inbox/${conversationId}`);
+  redirect(
+    `/inbox/${encodeURIComponent(conversationId)}?engine_message=${encodeURIComponent(
+      "Quote email prepared. Review the message and send it when ready.",
+    )}`,
+  );
+}
+
+export async function updateDocumentTemplateSettingsAction(formData: FormData) {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const accentTheme = formString(formData, "accentTheme");
+  const currency = formString(formData, "currency");
+
+  if (!DOCUMENT_ACCENT_THEMES.some((theme) => theme === accentTheme)) {
+    redirectWithDocumentsMessage(
+      "engine_error",
+      "Choose a valid document accent.",
+    );
+  }
+
+  if (!DOCUMENT_CURRENCIES.some((option) => option === currency)) {
+    redirectWithDocumentsMessage(
+      "engine_error",
+      "Choose a valid document currency.",
+    );
+  }
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", DOCUMENT_TEMPLATE_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithDocumentsMessage("engine_error", beforeError.message);
+  }
+
+  const beforeSettings = normalizeDocumentTemplateSettings(beforePolicy?.settings);
+  const settings = normalizeDocumentTemplateSettings({
+    ...beforeSettings,
+    accentTheme,
+    currency,
+    footerText: formString(formData, "footerText"),
+    paymentTerms: formString(formData, "paymentTerms"),
+    quoteStyleDirection: formString(formData, "quoteStyleDirection"),
+    showPreparedBy: formData.get("showPreparedBy") === "on",
+    validityDays: formString(formData, "validityDays"),
+  });
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: DOCUMENT_TEMPLATE_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithDocumentsMessage(
+      "engine_error",
+      saveError?.message ?? "Unable to save document template settings.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "document_template_settings.updated",
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    after: { settings },
+    metadata: {
+      policyType: DOCUMENT_TEMPLATE_POLICY_TYPE,
+    },
+  });
+
+  revalidatePath("/documents");
+  redirectWithDocumentsMessage(
+    "engine_message",
+    "Document template direction saved.",
+  );
 }

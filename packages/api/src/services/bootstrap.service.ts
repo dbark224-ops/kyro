@@ -56,6 +56,21 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
         }
       },
       {
+        policyType: "document_templates",
+        settings: {
+          accentTheme: "graphite",
+          currency: "AUD",
+          footerText:
+            "Thank you for the opportunity. Please review the scope, inclusions, exclusions, and pricing before approving any work.",
+          paymentTerms:
+            "Payment terms, deposit requirements, and final pricing must be confirmed before this quote is sent to a customer.",
+          quoteStyleDirection:
+            "Clean, professional, service-business quote. Keep it practical, trustworthy, and easy for a customer to scan on mobile or PDF.",
+          showPreparedBy: true,
+          validityDays: 14
+        }
+      },
+      {
         policyType: "usage_budget",
         settings: {
           alertThresholdPercent: 80,
@@ -119,4 +134,3 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
     ]
   };
 }
-

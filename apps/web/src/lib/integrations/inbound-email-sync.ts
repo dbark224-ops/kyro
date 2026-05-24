@@ -15,9 +15,11 @@ import {
   getMicrosoftOAuthConfig,
 } from "./microsoft";
 import {
+  findInboundEmailSenderRule,
   getInboundEmailSettings,
   shouldRunInboundEmailSync,
   type InboundEmailSettings,
+  type InboundEmailSenderRule,
 } from "./inbound-email-settings";
 import {
   decryptIntegrationTokenSet,
@@ -78,7 +80,7 @@ type EmailClassification = {
   actionHint: string | null;
   category: EmailClassificationCategory;
   confidence: number;
-  providerUsed: "heuristic" | "openai";
+  providerUsed: "heuristic" | "manual" | "openai" | "sender_rule";
   promote: boolean;
   reason: string;
   suggestedServiceType: string | null;
@@ -421,6 +423,38 @@ function heuristicClassify(message: InboundEmailMessage): EmailClassification {
     reason: "No strong action signal found; keeping it as reference awareness only.",
     suggestedServiceType: null,
     summary: truncate(message.bodyText || message.subject, 180),
+  };
+}
+
+export function classificationForSenderRule(
+  rule: InboundEmailSenderRule,
+  message: Pick<InboundEmailMessage, "bodyText" | "fromEmail" | "snippet" | "subject">,
+): EmailClassification {
+  const target =
+    rule.match === "domain" ? `domain ${rule.value}` : rule.value;
+
+  if (rule.action === "always_promote") {
+    return {
+      actionHint: "Create or update CRM work from this email because the sender has been marked relevant.",
+      category: "business_actionable",
+      confidence: 1,
+      providerUsed: "sender_rule",
+      promote: true,
+      reason: `Sender rule matched ${target}; user marked this sender as relevant.`,
+      suggestedServiceType: null,
+      summary: truncate(message.bodyText || message.snippet || message.subject, 180),
+    };
+  }
+
+  return {
+    actionHint: null,
+    category: "personal_ignore",
+    confidence: 1,
+    providerUsed: "sender_rule",
+    promote: false,
+    reason: `Sender rule matched ${target}; user chose to ignore this sender.`,
+    suggestedServiceType: null,
+    summary: truncate(message.bodyText || message.snippet || message.subject, 180),
   };
 }
 
@@ -1065,6 +1099,80 @@ function automatedFromHeaders(headers: Record<string, string>, fromEmail: string
   );
 }
 
+function gmailDetailToInboundMessage({
+  connection,
+  detail,
+  itemId,
+  itemThreadId,
+}: {
+  connection: ProviderConnectionRow;
+  detail: GmailMessageResponse;
+  itemId: string;
+  itemThreadId?: string | null;
+}) {
+  const headers = gmailHeaderMap(detail.payload);
+  const from = parseEmailAddress(headers.from ?? null);
+  const subject = textValue(headers.subject) ?? "Inbound email";
+  const bodies = collectGmailBodies(detail.payload);
+  const bodyHtml = bodies.html.join("\n\n") || null;
+  const bodyText = bodies.text.join("\n\n") || (bodyHtml ? stripHtml(bodyHtml) : detail.snippet ?? "");
+  const receivedAt = detail.internalDate && Number.isFinite(Number(detail.internalDate))
+    ? new Date(Number(detail.internalDate)).toISOString()
+    : safeIsoDate(textValue(headers.date));
+
+  return {
+    accountEmail: connection.account_email,
+    automated: automatedFromHeaders(headers, from.email, subject),
+    bodyHtml,
+    bodyText,
+    connectionId: connection.id,
+    externalMessageId: detail.id ?? itemId,
+    externalThreadId: detail.threadId ?? itemThreadId ?? null,
+    fromEmail: from.email,
+    fromName: from.name,
+    headers,
+    provider: "google" as const,
+    receivedAt,
+    snippet: textValue(detail.snippet),
+    subject,
+    toEmails: (headers.to ?? "")
+      .split(",")
+      .map((value) => parseEmailAddress(value).email)
+      .filter((value): value is string => Boolean(value)),
+  } satisfies InboundEmailMessage;
+}
+
+async function fetchGmailMessageById({
+  accessToken,
+  connection,
+  messageId,
+}: {
+  accessToken: string;
+  connection: ProviderConnectionRow;
+  messageId: string;
+}) {
+  const detailResponse = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!detailResponse.ok) {
+    return null;
+  }
+
+  const detail = (await detailResponse.json()) as GmailMessageResponse;
+
+  return gmailDetailToInboundMessage({
+    connection,
+    detail,
+    itemId: messageId,
+  });
+}
+
 async function fetchGmailMessages({
   accessToken,
   connection,
@@ -1113,36 +1221,14 @@ async function fetchGmailMessages({
     }
 
     const detail = (await detailResponse.json()) as GmailMessageResponse;
-    const headers = gmailHeaderMap(detail.payload);
-    const from = parseEmailAddress(headers.from ?? null);
-    const subject = textValue(headers.subject) ?? "Inbound email";
-    const bodies = collectGmailBodies(detail.payload);
-    const bodyHtml = bodies.html.join("\n\n") || null;
-    const bodyText = bodies.text.join("\n\n") || (bodyHtml ? stripHtml(bodyHtml) : detail.snippet ?? "");
-    const receivedAt = detail.internalDate && Number.isFinite(Number(detail.internalDate))
-      ? new Date(Number(detail.internalDate)).toISOString()
-      : safeIsoDate(textValue(headers.date));
-
-    messages.push({
-      accountEmail: connection.account_email,
-      automated: automatedFromHeaders(headers, from.email, subject),
-      bodyHtml,
-      bodyText,
-      connectionId: connection.id,
-      externalMessageId: detail.id ?? item.id,
-      externalThreadId: detail.threadId ?? item.threadId ?? null,
-      fromEmail: from.email,
-      fromName: from.name,
-      headers,
-      provider: "google",
-      receivedAt,
-      snippet: textValue(detail.snippet),
-      subject,
-      toEmails: (headers.to ?? "")
-        .split(",")
-        .map((value) => parseEmailAddress(value).email)
-        .filter((value): value is string => Boolean(value)),
-    });
+    messages.push(
+      gmailDetailToInboundMessage({
+        connection,
+        detail,
+        itemId: item.id,
+        itemThreadId: item.threadId,
+      }),
+    );
   }
 
   return messages;
@@ -1172,6 +1258,79 @@ type OutlookMessage = {
     };
   }>;
 };
+
+function outlookMessageToInboundMessage(
+  message: OutlookMessage,
+  connection: ProviderConnectionRow,
+) {
+  const headers = Object.fromEntries(
+    (message.internetMessageHeaders ?? [])
+      .filter((header) => header.name && header.value)
+      .map((header) => [String(header.name).toLowerCase(), String(header.value)]),
+  );
+  const fromEmail = textValue(message.from?.emailAddress?.address)?.toLowerCase() ?? null;
+  const fromName = textValue(message.from?.emailAddress?.name);
+  const subject = textValue(message.subject) ?? "Inbound email";
+  const htmlBody = textValue(message.body?.content);
+  const bodyText = htmlBody
+    ? stripHtml(htmlBody)
+    : textValue(message.bodyPreview) ?? "";
+  const receivedAt = textValue(message.receivedDateTime) ?? new Date().toISOString();
+
+  return {
+    accountEmail: connection.account_email,
+    automated: automatedFromHeaders(headers, fromEmail, subject),
+    bodyHtml: htmlBody,
+    bodyText,
+    connectionId: connection.id,
+    externalMessageId: textValue(message.internetMessageId) ?? textValue(message.id) ?? crypto.randomUUID(),
+    externalThreadId: textValue(message.conversationId),
+    fromEmail,
+    fromName,
+    headers,
+    provider: "microsoft" as const,
+    receivedAt,
+    snippet: textValue(message.bodyPreview),
+    subject,
+    toEmails: (message.toRecipients ?? [])
+      .map((recipient) => textValue(recipient.emailAddress?.address)?.toLowerCase() ?? null)
+      .filter((value): value is string => Boolean(value)),
+  } satisfies InboundEmailMessage;
+}
+
+async function fetchOutlookMessageById({
+  accessToken,
+  connection,
+  messageId,
+}: {
+  accessToken: string;
+  connection: ProviderConnectionRow;
+  messageId: string;
+}) {
+  if (messageId.startsWith("<")) {
+    return null;
+  }
+
+  const url = new URL(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+  );
+  url.searchParams.set(
+    "$select",
+    "id,conversationId,internetMessageId,subject,bodyPreview,body,from,toRecipients,receivedDateTime,internetMessageHeaders",
+  );
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Prefer: 'outlook.body-content-type="html"',
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return outlookMessageToInboundMessage((await response.json()) as OutlookMessage, connection);
+}
 
 async function fetchOutlookMessages({
   accessToken,
@@ -1210,41 +1369,7 @@ async function fetchOutlookMessages({
 
       return !received || new Date(received).getTime() >= since;
     })
-    .map((message) => {
-      const headers = Object.fromEntries(
-        (message.internetMessageHeaders ?? [])
-          .filter((header) => header.name && header.value)
-          .map((header) => [String(header.name).toLowerCase(), String(header.value)]),
-      );
-      const fromEmail = textValue(message.from?.emailAddress?.address)?.toLowerCase() ?? null;
-      const fromName = textValue(message.from?.emailAddress?.name);
-      const subject = textValue(message.subject) ?? "Inbound email";
-      const htmlBody = textValue(message.body?.content);
-      const bodyText = htmlBody
-        ? stripHtml(htmlBody)
-        : textValue(message.bodyPreview) ?? "";
-      const receivedAt = textValue(message.receivedDateTime) ?? new Date().toISOString();
-
-      return {
-        accountEmail: connection.account_email,
-        automated: automatedFromHeaders(headers, fromEmail, subject),
-        bodyHtml: htmlBody,
-        bodyText,
-        connectionId: connection.id,
-        externalMessageId: textValue(message.internetMessageId) ?? textValue(message.id) ?? crypto.randomUUID(),
-        externalThreadId: textValue(message.conversationId),
-        fromEmail,
-        fromName,
-        headers,
-        provider: "microsoft" as const,
-        receivedAt,
-        snippet: textValue(message.bodyPreview),
-        subject,
-        toEmails: (message.toRecipients ?? [])
-          .map((recipient) => textValue(recipient.emailAddress?.address)?.toLowerCase() ?? null)
-          .filter((value): value is string => Boolean(value)),
-      } satisfies InboundEmailMessage;
-    });
+    .map((message) => outlookMessageToInboundMessage(message, connection));
 }
 
 async function findOrCreateEmailChannel({
@@ -1745,6 +1870,219 @@ async function promoteEmailMessage({
   };
 }
 
+function skippedEventClassification(payload: Record<string, unknown>): EmailClassification {
+  const classification = objectRecord(payload.classification);
+  const summary =
+    textValue(payload.summary) ??
+    textValue(classification.summary) ??
+    textValue(payload.subject) ??
+    "Filtered-out email promoted by the user.";
+
+  return {
+    actionHint: "Review as manually promoted inbound email and prepare any useful next step.",
+    category: "business_actionable",
+    confidence: 1,
+    providerUsed: "manual",
+    promote: true,
+    reason: "User manually promoted this filtered-out email into CRM work.",
+    suggestedServiceType: textValue(classification.suggestedServiceType),
+    summary,
+  };
+}
+
+function fallbackMessageFromSkippedEvent({
+  connection,
+  eventId,
+  payload,
+  provider,
+}: {
+  connection: ProviderConnectionRow;
+  eventId: string;
+  payload: Record<string, unknown>;
+  provider: InboundEmailProvider;
+}): InboundEmailMessage {
+  const classification = objectRecord(payload.classification);
+  const subject = textValue(payload.subject) ?? "Promoted filtered-out email";
+  const summary =
+    textValue(payload.summary) ??
+    textValue(classification.summary) ??
+    textValue(classification.reason) ??
+    subject;
+
+  return {
+    accountEmail: textValue(payload.accountEmail) ?? connection.account_email,
+    automated: false,
+    bodyHtml: null,
+    bodyText: summary,
+    connectionId: connection.id,
+    externalMessageId: textValue(payload.externalMessageId) ?? `skipped-event-${eventId}`,
+    externalThreadId: textValue(payload.externalThreadId),
+    fromEmail: textValue(payload.fromEmail),
+    fromName: null,
+    headers: {},
+    provider,
+    receivedAt: textValue(payload.receivedAt) ?? new Date().toISOString(),
+    snippet: summary,
+    subject,
+    toEmails: [],
+  };
+}
+
+async function refetchSkippedEmailMessage({
+  connection,
+  payload,
+  provider,
+  supabase,
+  workspaceId,
+}: {
+  connection: ProviderConnectionRow;
+  payload: Record<string, unknown>;
+  provider: InboundEmailProvider;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const externalMessageId = textValue(payload.externalMessageId);
+
+  if (!externalMessageId) {
+    return null;
+  }
+
+  try {
+    const accessToken = await accessTokenForConnection({ connection, supabase, workspaceId });
+
+    return provider === "google"
+      ? await fetchGmailMessageById({
+          accessToken,
+          connection,
+          messageId: externalMessageId,
+        })
+      : await fetchOutlookMessageById({
+          accessToken,
+          connection,
+          messageId: externalMessageId,
+        });
+  } catch {
+    return null;
+  }
+}
+
+export async function promoteSkippedEmailEvent({
+  eventId,
+  supabase,
+  user,
+  workspaceId,
+}: {
+  eventId: string;
+  supabase: SupabaseClient;
+  user: User;
+  workspaceId: string;
+}) {
+  const { data: event, error: eventError } = await supabase
+    .from("events")
+    .select("id,payload")
+    .eq("workspace_id", workspaceId)
+    .eq("id", eventId)
+    .eq("type", "inbound.email.received")
+    .eq("status", "processed")
+    .maybeSingle();
+
+  if (eventError) {
+    throw new Error(`Unable to load filtered-out email: ${eventError.message}`);
+  }
+
+  if (!event) {
+    throw new Error("Filtered-out email was not found.");
+  }
+
+  const payload = objectRecord(event.payload);
+
+  if (textValue(payload.stage) !== "observed") {
+    throw new Error("Only filtered-out emails can be promoted into work items.");
+  }
+
+  const provider = textValue(payload.provider) === "microsoft" ? "microsoft" : "google";
+  const connections = await loadEmailConnections({ provider, supabase, workspaceId });
+  const accountEmail = textValue(payload.accountEmail);
+  const connection =
+    connections.find(
+      (candidate) =>
+        !accountEmail ||
+        candidate.account_email?.toLowerCase() === accountEmail.toLowerCase(),
+    ) ?? connections[0];
+
+  if (!connection) {
+    throw new Error(`Reconnect ${providerLabel(provider)} before promoting this email.`);
+  }
+
+  const classification = skippedEventClassification(payload);
+  const refetchedMessage = await refetchSkippedEmailMessage({
+    connection,
+    payload,
+    provider,
+    supabase,
+    workspaceId,
+  });
+  const message =
+    refetchedMessage ??
+    fallbackMessageFromSkippedEvent({
+      connection,
+      eventId,
+      payload,
+      provider,
+    });
+  const promoted = await promoteEmailMessage({
+    classification,
+    connection,
+    eventId,
+    message,
+    supabase,
+    user,
+    workspaceId,
+  });
+
+  const { error: updateEventError } = await supabase
+    .from("events")
+    .update({
+      payload: {
+        ...payload,
+        classification,
+        contactEmail: message.fromEmail,
+        conversationId: promoted.conversationId,
+        leadId: promoted.leadId ?? null,
+        messageId: promoted.messageId,
+        promotedFromSkippedEmail: true,
+        refetchedOriginalMessage: Boolean(refetchedMessage),
+        stage: "promoted",
+        triageActionId: promoted.actionId ?? null,
+        triageAiRunId: promoted.aiRunId ?? null,
+      },
+      processed_at: new Date().toISOString(),
+      status: "processed",
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("id", eventId);
+
+  if (updateEventError) {
+    throw new Error(`Unable to update promoted email event: ${updateEventError.message}`);
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId,
+    actorType: "user",
+    actorId: user.id,
+    action: "filtered_email.promoted_to_work_item",
+    entityType: "event",
+    entityId: eventId,
+    after: {
+      conversationId: promoted.conversationId,
+      duplicate: promoted.duplicate,
+      refetchedOriginalMessage: Boolean(refetchedMessage),
+    },
+  });
+
+  return promoted;
+}
+
 async function processMessage({
   connection,
   message,
@@ -1795,14 +2133,17 @@ async function processMessage({
   }
 
   try {
-    const classification = await classifyEmail({
-      eventId: String(event.id),
-      message,
-      settings,
-      supabase,
-      user,
-      workspaceId,
-    });
+    const senderRule = findInboundEmailSenderRule(settings.senderRules, message.fromEmail);
+    const classification = senderRule
+      ? classificationForSenderRule(senderRule, message)
+      : await classifyEmail({
+          eventId: String(event.id),
+          message,
+          settings,
+          supabase,
+          user,
+          workspaceId,
+        });
     const shouldPromote = settings.autoPromoteActionable && classification.promote;
 
     if (!shouldPromote) {

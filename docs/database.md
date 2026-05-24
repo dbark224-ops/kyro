@@ -56,3 +56,12 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260510061122_quote_drafts.sql`: adds internal saved quote drafts linked to contacts, leads, conversations, and source actions.
 - `20260510073116_inquiry_facts.sql`: adds editable extracted inquiry facts with one current row per workspace/conversation.
 - `20260512191555_assistant_memory.sql`: adds Assistant threads, messages, explicit memories, RLS policies, and updated-at triggers.
+
+Document template preferences do not currently need a new migration. The web app stores
+the first quote-output settings in `workspace_policies` with policy type
+`document_templates`; quote output is rendered from existing `quote_drafts` data as
+print-ready HTML or an on-demand server-generated PDF. Generated PDF metadata is
+stored in existing `quote_drafts.metadata` and outbound `messages.metadata`.
+`quote_drafts.metadata.documentHistory` is the current lightweight version trail
+for generated/prepared/sent PDFs. Durable binary file storage will need a future
+migration/storage policy.

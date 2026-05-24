@@ -1,7 +1,10 @@
-import { createQuoteDraftFromTemplateAction } from "./actions";
 import { AppFrame } from "../components/app-frame";
 import { getQuoteDraftList } from "../../lib/crm/queries";
-import { quoteTemplateOptions } from "../../lib/documents/templates";
+import { getDocumentTemplateSettings } from "../../lib/documents/settings";
+import {
+  quoteTemplateCatalog,
+  quoteTemplateOptions,
+} from "../../lib/documents/templates";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import Link from "next/link";
 
@@ -68,7 +71,10 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
     searchParams,
     requireWorkspaceContext(),
   ]);
-  const quoteDrafts = await getQuoteDraftList(supabase, workspace.id);
+  const [quoteDrafts, documentTemplateSettings] = await Promise.all([
+    getQuoteDraftList(supabase, workspace.id),
+    getDocumentTemplateSettings(supabase, workspace.id),
+  ]);
   const activeFilter = isDocumentFilter(query?.filter) ? query.filter : "all";
   const filteredQuoteDrafts = quoteDrafts.filter((quoteDraft) => {
     if (activeFilter === "all") {
@@ -102,6 +108,9 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
   const linkedCount = quoteDrafts.filter(
     (quote) => quote.conversation || quote.lead || quote.contact,
   ).length;
+  const templates = quoteTemplateOptions(
+    quoteTemplateCatalog(documentTemplateSettings.customTemplates),
+  );
 
   return (
     <AppFrame active="Documents">
@@ -217,48 +226,49 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
                 <p className="eyebrow">Templates</p>
                 <h2>Start a quote</h2>
               </div>
+              <Link
+                className="secondary-button compact link-button"
+                href="/documents/templates/new"
+                prefetch={false}
+              >
+                Create template
+              </Link>
             </div>
 
             <div className="template-grid">
-              {quoteTemplateOptions().map((template) => (
-                <form
-                  action={createQuoteDraftFromTemplateAction}
-                  className="template-card"
-                  key={template.key}
-                >
-                  <input name="templateKey" type="hidden" value={template.key} />
-                  <div>
-                    <strong>{template.label}</strong>
-                    <span>{template.description}</span>
+              {templates.length > 0 ? (
+                templates.map((template) => (
+                  <div className="template-card template-card-compact" key={template.key}>
+                    <div>
+                      <strong>{template.label}</strong>
+                      <span>{template.description}</span>
+                    </div>
+                    <div className="template-card-actions">
+                      <Link
+                        className="secondary-button compact link-button"
+                        href={`/documents/new?templateKey=${encodeURIComponent(template.key)}`}
+                        prefetch={false}
+                      >
+                        Create draft
+                      </Link>
+                      <Link
+                        className="secondary-button compact link-button"
+                        href={`/documents/templates/${encodeURIComponent(template.key)}`}
+                        prefetch={false}
+                      >
+                        View/edit
+                      </Link>
+                    </div>
                   </div>
-                  <button className="secondary-button compact" type="submit">
-                    Create draft
-                  </button>
-                </form>
-              ))}
-            </div>
-          </article>
-
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Scope</p>
-                <h2>Document rules</h2>
-              </div>
-            </div>
-            <div className="detail-list">
-              <div>
-                <span>Current capability</span>
-                <strong>Create and save quote drafts</strong>
-              </div>
-              <div>
-                <span>Outbound</span>
-                <strong>Attachments queued; real Gmail attachment send pending</strong>
-              </div>
-              <div>
-                <span>Payments</span>
-                <strong>Not connected</strong>
-              </div>
+                ))
+              ) : (
+                <div className="template-card empty-template-card">
+                  <div>
+                    <strong>No templates yet</strong>
+                    <span>Create your first reusable quote template before starting drafts from templates.</span>
+                  </div>
+                </div>
+              )}
             </div>
           </article>
         </aside>

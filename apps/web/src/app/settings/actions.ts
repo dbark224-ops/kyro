@@ -34,9 +34,15 @@ import {
   INBOUND_EMAIL_POLICY_TYPE,
   INBOUND_EMAIL_POLL_INTERVALS,
   INBOUND_EMAIL_QUIET_HOURS_MODES,
+  INBOUND_EMAIL_SENDER_RULE_ACTIONS,
   INBOUND_EMAIL_SYNC_MODES,
   normalizeInboundEmailSettings,
+  removeInboundEmailSenderRule,
+  senderRuleTargetFromInput,
+  upsertInboundEmailSenderRule,
   type InboundEmailSettings,
+  type InboundEmailSenderRule,
+  type InboundEmailSenderRuleAction,
 } from "../../lib/integrations/inbound-email-settings";
 import { syncInboundEmail } from "../../lib/integrations/inbound-email-sync";
 import { GOOGLE_PROVIDER, GOOGLE_SERVICE } from "../../lib/integrations/google";
@@ -163,6 +169,83 @@ function integrationLabel(provider: string) {
   return provider === MICROSOFT_PROVIDER
     ? "Microsoft Outlook"
     : "Google Workspace";
+}
+
+function formSenderRuleMatch(
+  value: string,
+): InboundEmailSenderRule["match"] | null {
+  return value === "email" || value === "domain" ? value : null;
+}
+
+function formSenderRuleActionValue(
+  value: string,
+): InboundEmailSenderRuleAction | null {
+  return INBOUND_EMAIL_SENDER_RULE_ACTIONS.includes(
+    value as InboundEmailSenderRuleAction,
+  )
+    ? (value as InboundEmailSenderRuleAction)
+    : null;
+}
+
+function senderRuleActionLabel(action: InboundEmailSenderRuleAction) {
+  return action === "always_promote" ? "relevant" : "ignored";
+}
+
+async function saveInboundEmailPolicyUpdate({
+  action,
+  afterSettings,
+  beforePolicy,
+  beforeSettings,
+  metadata,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  action: string;
+  afterSettings: InboundEmailSettings;
+  beforePolicy: { id?: string; settings?: unknown } | null;
+  beforeSettings: InboundEmailSettings;
+  metadata?: Record<string, unknown>;
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"];
+  userId: string;
+  workspaceId: string;
+}) {
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        policy_type: INBOUND_EMAIL_POLICY_TYPE,
+        settings: afterSettings,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      saveError?.message ?? "Unable to save inbound email settings.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId,
+    actorType: "user",
+    actorId: userId,
+    action,
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: beforePolicy ? { settings: beforeSettings } : null,
+    after: { settings: afterSettings },
+    metadata,
+  });
+
+  return savedPolicy;
 }
 
 export async function updateCommunicationSettingsAction(formData: FormData) {
@@ -591,6 +674,152 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
     "integrations",
     "engine_message",
     "Inbound email settings saved.",
+  );
+}
+
+async function loadInboundEmailPolicyForSenderRule() {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      beforeError.message,
+    );
+  }
+
+  return {
+    beforePolicy,
+    beforeSettings: normalizeInboundEmailSettings(beforePolicy?.settings),
+    supabase,
+    user,
+    workspace,
+  };
+}
+
+export async function upsertInboundEmailSenderRuleSettingsAction(
+  formData: FormData,
+) {
+  const match = formSenderRuleMatch(formString(formData, "senderRuleMatch"));
+  const action = formSenderRuleActionValue(
+    formString(formData, "senderRuleAction"),
+  );
+  const value = match
+    ? senderRuleTargetFromInput(formString(formData, "senderRuleValue"), match)
+    : null;
+
+  if (!match || !action || !value) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "Add a valid sender email or domain and choose what Kyro should do.",
+    );
+  }
+
+  const { beforePolicy, beforeSettings, supabase, user, workspace } =
+    await loadInboundEmailPolicyForSenderRule();
+  const existingRule = beforeSettings.senderRules.find(
+    (rule) => rule.match === match && rule.value === value,
+  );
+  const rule: InboundEmailSenderRule = {
+    action,
+    createdAt: existingRule?.createdAt ?? new Date().toISOString(),
+    createdFromEventId: existingRule?.createdFromEventId ?? null,
+    match,
+    value,
+  };
+  const settings = upsertInboundEmailSenderRule(beforeSettings, rule);
+
+  await saveInboundEmailPolicyUpdate({
+    action: existingRule
+      ? "inbound_email.sender_rule_updated"
+      : "inbound_email.sender_rule_created",
+    afterSettings: settings,
+    beforePolicy,
+    beforeSettings,
+    metadata: {
+      match,
+      ruleAction: action,
+      source: "settings",
+      value,
+    },
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    `${value} will be treated as ${senderRuleActionLabel(action)}.`,
+  );
+}
+
+export async function removeInboundEmailSenderRuleSettingsAction(
+  formData: FormData,
+) {
+  const match = formSenderRuleMatch(formString(formData, "senderRuleMatch"));
+  const value = match
+    ? senderRuleTargetFromInput(formString(formData, "senderRuleValue"), match)
+    : null;
+
+  if (!match || !value) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "Choose a valid sender rule to remove.",
+    );
+  }
+
+  const { beforePolicy, beforeSettings, supabase, user, workspace } =
+    await loadInboundEmailPolicyForSenderRule();
+  const existingRule = beforeSettings.senderRules.find(
+    (rule) => rule.match === match && rule.value === value,
+  );
+
+  if (!existingRule) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "That sender rule is no longer saved.",
+    );
+  }
+
+  const settings = removeInboundEmailSenderRule(beforeSettings, {
+    match,
+    value,
+  });
+
+  await saveInboundEmailPolicyUpdate({
+    action: "inbound_email.sender_rule_removed",
+    afterSettings: settings,
+    beforePolicy,
+    beforeSettings,
+    metadata: {
+      match,
+      removedAction: existingRule.action,
+      source: "settings",
+      value,
+    },
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    `Removed the sender rule for ${value}.`,
   );
 }
 

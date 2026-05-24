@@ -259,8 +259,10 @@ email provider when a
 contact email exists. AI-generated/action-queue replies still go through the action
 engine and approval/execution controls. SMS, phone, and manual channels are still
 internal records until their providers are connected. Email sends can include local
-file uploads from the composer and a generated text snapshot of a selected quote
-draft; full Drive/PDF template attachments are still a later document-rendering step.
+file uploads from the composer and a server-generated PDF attachment for a selected
+quote draft. Generated quote PDFs are created on demand from structured quote data
+and recorded as message/quote metadata; durable Drive/Supabase Storage files are
+still a later storage step.
 Email signatures are Kyro-managed per workspace: one default signature for manual or
 user-edited sends, plus an optional assistant signature for untouched AI-generated
 replies. Signature settings live inside the `communication_outbound` policy, support
@@ -308,26 +310,104 @@ Shared helper: `apps/web/src/lib/crm/contact-types.ts`.
 Files:
 
 - `apps/web/src/app/documents/page.tsx`
+- `apps/web/src/app/documents/new/page.tsx`
 - `apps/web/src/app/documents/[quoteDraftId]/page.tsx`
+- `apps/web/src/app/documents/[quoteDraftId]/pdf/route.ts`
+- `apps/web/src/app/documents/[quoteDraftId]/print/route.ts`
+- `apps/web/src/app/documents/templates/new/page.tsx`
+- `apps/web/src/app/documents/templates/new/template-builder-form.tsx`
+- `apps/web/src/app/documents/templates/[templateKey]/page.tsx`
+- `apps/web/src/app/api/documents/templates/revise/route.ts`
 - `apps/web/src/app/documents/actions.ts`
+- `apps/web/src/lib/documents/pdf.ts`
+- `apps/web/src/lib/documents/render.ts`
+- `apps/web/src/lib/documents/settings.ts`
+- `apps/web/src/lib/documents/template-revision.ts`
 - `apps/web/src/lib/documents/templates.ts`
 
 Purpose:
 
 - list saved quote drafts,
 - filter quote drafts by all, draft, ready, sent, archived, linked, or unlinked,
-- create standalone quote drafts from predefined templates,
+- open an unsaved quote-draft editor from saved reusable templates,
+- create custom reusable quote templates in the template builder,
+- review and edit saved templates from the Templates pane,
+- create and revise saved reusable templates through Assistant or Voice,
 - open and edit a quote draft,
+- search existing CRM contacts through `/api/contacts/search` and select one to populate editable quote customer fields
+  and link the saved draft to that contact,
 - save customer/job details into `quote_drafts.metadata`,
 - save editable line items into `quote_drafts.line_items`,
-- apply predefined templates to an existing draft,
+- edit line items through repeatable row fields rather than pipe-delimited text,
+- save workspace-level document template settings and custom templates in `workspace_policies` under policy type `document_templates`,
+- render customer-facing quote output as print-ready HTML from structured quote data,
+- let users open the print view and save through the browser's Print / PDF flow,
+- let users download a server-generated PDF from the quote draft,
+- prepare a customer email with the generated quote PDF attached and route that email through the normal approval/send action flow,
 - hand a linked quote draft back to the inquiry outbound composer with that draft preselected,
 - show linked CRM context, recent thread messages, and audit history when the draft came from an inquiry.
 
-Quote drafts are internal saved documents only. They do not collect payment, create bookkeeping records,
-or reconcile accounts. If a quote draft is linked to an inquiry, the outbound composer can attach a generated
-text snapshot to a manual Gmail reply and mark the quote draft `sent` after the outbound message is recorded.
-Full PDF rendering, Drive storage, and user template output are still future document steps.
+Quote drafts remain the structured source of truth. The customer document is generated from that saved data at view
+time rather than stored as the canonical record. Customer fields can be populated from an existing CRM contact via an
+async typeahead search, but the quote still stores editable metadata for the sent document state. Line item rows save
+structured descriptions, quantities, units, unit prices, calculated totals, and optional per-line notes. This keeps totals, customer details,
+line items, terms, and audit history predictable while still allowing the visual template to evolve. The current output
+is deterministic HTML for browser preview/printing plus deterministic server-side PDF generation through
+`apps/web/src/lib/documents/pdf.ts`, not a GPT-generated image. Downloaded PDFs and outbound attachments are generated
+on demand from the saved quote draft. The current storage model records generated-document metadata such as filename,
+content type, size, renderer, content hash, generation time, and version-history events in `quote_drafts.metadata` and
+message metadata; it does not yet store binary PDFs in Supabase Storage or Drive. The content hash is calculated from
+the quote draft, customer/job details, line items, and document design settings with volatile send/history metadata
+excluded, so the app can flag when a quote has changed since the latest generated/prepared/sent PDF. Accounting/invoice
+export, payment collection, and durable generated-document file storage are still future document steps.
+
+The Documents template card opens `/documents/new?templateKey=...`, which pre-fills an unsaved editor from the selected
+template. No `quote_drafts` row, audit log, or document-list entry is created until the user presses `Save quote draft`.
+The save action then inserts the row, stores the selected template key and design snapshot in metadata, writes the audit
+log, and redirects to the saved quote-draft profile.
+
+The quote-draft editor is intentionally a single-column form on both the unsaved `/documents/new` route and saved
+`/documents/[quoteDraftId]` route. Earlier right-side context cards for template summaries, preview totals, and output
+metadata were removed so the editable customer fields and structured line items have enough horizontal space. Template
+review remains in the reusable template builder, while customer-facing document review remains in the print/PDF route.
+
+The `Send to customer` action on a linked quote draft creates a pending `draft_reply` action on the linked conversation.
+It validates the linked customer email, generates the current PDF once to prove the artifact can be built, stores
+`lastGeneratedDocument` metadata and an `email_prepared` history event on the quote draft, moves a draft quote to
+`ready`, and redirects to the inquiry review screen. Downloading a PDF records a `pdf_generated` history event. The user
+can edit the email body before sending. When the generated reply is sent, the action executor regenerates the quote PDF,
+attaches it to the Gmail/Outlook send, records the outbound `messages` row, appends an `email_sent` history event, marks
+the quote draft `sent`, and writes quote/message audit logs. This keeps the customer-facing side effect behind the
+existing approval/execution machinery.
+
+The `document_templates` policy stores product-safe presentation preferences plus custom reusable templates. Custom
+templates include a stable key, label, description, line item structure, notes, reference-file metadata,
+revision request, and a design settings snapshot: natural-language template direction, accent theme, currency,
+validity days, payment terms, footer text, and whether to show the prepared-by footer. The natural-language direction
+is an internal style instruction and must not be rendered as customer-facing copy. Saved templates can be opened at
+`/documents/templates/[templateKey]` to review a live customer-quote preview, manually edit structured fields, or send a
+bounded template-revision request through `/api/documents/templates/revise`. The revision API returns a proposed
+structured template update only; it does not persist changes until the user saves the template form. The template
+review preview is a scaled iframe of the same `buildQuoteDocumentHtml` renderer used by the print route, with print
+chrome hidden, rather than a separate React mock of the document. The same iframe source can be opened in a larger
+modal preview for closer inspection without changing template state. When a quote draft is created from a template, the
+relevant design settings are copied into `quote_drafts.metadata.documentTemplateSettings`
+so print output can remain consistent for that draft even if workspace defaults or future templates change. Quote draft
+titles are generated from the selected template name plus a minute-level timestamp when a draft is created or a template
+structure is applied. The template builder starts with blank line items and blank overall notes; users define the reusable
+structure themselves rather than starting from product-supplied trade defaults. Inline information bubbles explain the
+template builder sections without adding permanent helper copy to the screen.
+
+The shared `apps/web/src/lib/documents/template-revision.ts` service owns the structured OpenAI template-revision
+contract. The template builder API route uses it to propose unsaved preview changes, while the Assistant command router
+uses it to create or revise saved reusable templates when the user explicitly asks through text or voice. Assistant
+template updates preserve template keys on edit, write audit logs, and return cards to review the template or create a
+draft from it.
+
+Marketing and creative assets should use a separate generation path later. OpenAI image generation is a good fit for
+marketing images, flyers, social graphics, or campaign visuals where creative variation is useful. Quotes, invoices,
+and transactional documents should stay structured-first; AI can help fill content or propose template edits, but it
+should not invent prices, totals, payment terms, or compliance-critical document facts.
 
 ### Assistant
 
@@ -361,13 +441,25 @@ Current safe command families:
 - work queue and leads needing reply,
 - inquiry lookup by customer/job text, including exact and partial name matches,
 - quote/document lookup and ready quote drafts,
+- quote-send preparation that creates a reviewable email with the generated quote PDF attached,
 - contact/customer summaries,
-- standalone quote draft creation from predefined templates.
-- explicit memory capture when the user says things like "remember..." or "for future...".
+- standalone quote draft creation from saved reusable templates,
+- reusable document template creation and revision,
+- explicit memory capture when the user says things like "remember..." or "for future...",
 - general conversational turns that do not render CRM cards unless the user asks for CRM data.
 
 Assistant writes are intentionally narrow. It can create internal quote drafts from templates, because that is a
-document-only action and the user has explicitly instructed it in the prompt. From an Assistant inquiry preview, the
+document-only action and the user has explicitly instructed it in the prompt. Assistant document creation uses the same
+saved reusable templates as the Documents screen, matches the prompt against template labels, descriptions, and keys,
+asks the user to choose when multiple templates match a vague request, and links a contact when the prompt clearly names
+an existing contact by name, company, email, or phone. The created row stores the template key, the template design
+settings snapshot, reference-file metadata, and editable customer/job metadata in `quote_drafts.metadata`. Assistant
+template control can also create a new reusable template or revise an existing one using the same structured revision
+contract as the template builder; if multiple templates could match, it asks the user to choose rather than mutating an
+arbitrary template. Assistant quote-send preparation can list ready-to-send quote drafts, match a send request to a
+single open quote by customer/title/email, validate that the quote is linked to an inquiry and customer email, generate
+the current PDF, and create a pending `draft_reply` action with that quote attached. This is deliberately preparation
+only: the user still reviews or edits the message in the inquiry before sending. From an Assistant inquiry preview, the
 user can also write a manual reply; email replies send through connected Gmail and non-email channels are recorded
 internally. The LLM does not autonomously send email/SMS, execute approval-gated actions, alter payments, or perform
 bookkeeping.
@@ -582,7 +674,7 @@ Purpose:
   scheduled sync, sync failures, and pending manual checks,
 - keep dense settings controls scannable with reusable hover/click info bubbles for helper copy,
 - give the Assistant a user-facing help/manual source plus architecture snippets for product-aware support answers,
-- allow the Assistant to edit a constrained allowlist of low-risk settings: timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, and pronunciation vocabulary,
+- allow the Assistant to edit a constrained allowlist of low-risk settings: timezone, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, inbound action rules, explicit sender relevance rules, and pronunciation vocabulary,
 - show Google Workspace and Microsoft Outlook readiness in one Integrations area,
 - launch Google or Microsoft OAuth connect flows from that combined area,
 - disconnect a Google or Microsoft account from Settings by marking the provider
@@ -623,10 +715,14 @@ path through the shared command/tool boundary.
 
 Assistant settings edits go through `apps/web/src/lib/assistant/settings-tools.ts`.
 The allowlist is limited to low-risk operational settings: workspace timezone,
-inbound email sync behavior, inbound email action rules, assistant voice, outbound
-pronunciation policy, and pronunciation vocabulary. Outbound approval policy,
-signatures, OAuth connections, billing/metering, provider secrets, and destructive
-data changes remain Settings UI flows.
+inbound email sync behavior, inbound email action rules, explicit sender relevance
+rules when the user gives an email address or domain, assistant voice, outbound pronunciation
+policy, pronunciation vocabulary, and basic quote document template settings such
+as template direction, accent, currency, validity, payment terms, footer text,
+and prepared-by footer visibility. Outbound approval policy, signatures, OAuth
+connections, billing/metering, provider secrets, destructive data changes, final
+pricing, tax/accounting treatment, and payment collection remain explicit UI or
+future workflow flows.
 
 Settings expose outbound policy and a combined Integrations area for Google Workspace
 and Microsoft Outlook. Gmail and Outlook are the first real external send providers
@@ -738,6 +834,8 @@ Important behavior:
 - Non-actionable mail is not promoted into the CRM. It is recorded as a lightweight awareness event with classification/summary metadata, not as a full conversation.
 - Inbox exposes a separate filtered-out email pop-up for those observed/skipped events. Its header button shows only the count from the last 24 hours on the normal Inbox load; the full bounded recent list and reply-log state are fetched only when the pop-up opens. It is intentionally not a normal work-queue filter so personal/newsletter/noise stays outside the actionable CRM queue while still being quick to review.
 - The filtered-out email pop-up scrolls inside the modal and can send a user-approved direct reply through the connected email provider using the stored subject, sender, summary, and classification metadata. Hidden reply composers are mounted only after a user opens `Reply`, so the modal can render many skipped emails without shipping every AI reply form up front. Those direct replies create internal `outbound.filtered_email.reply_sent` events, and the pop-up displays Kyro's own replied indicator from that log; it does not try to infer replies sent directly in Gmail or Outlook.
+- Filtered-out email now has a primary Promote action that calls `promoteSkippedEmailEvent`. That helper tries to refetch the original provider message by provider message id, falls back to stored event metadata when needed, then creates or reuses the same contact, lead, conversation, inbound message, and triage path as normal promoted inbound mail.
+- Sender-specific learning rules live inside the existing `inbound_email` workspace policy JSON as `senderRules`, so no schema migration is needed for v1. The filtered-out email three-dot menu can add `always_promote` or `always_ignore` rules for a sender email address and displays the current set/not-set state for each option. Settings -> Integrations includes a Sender rules manager that can add email/domain rules, switch rules between relevant/ignored, or remove rules. Sync checks those structured rules before classifier work; matched promote rules produce `sender_rule` classifications and matched ignore rules skip promotion.
 - Actionable business mail creates or reuses a contact, lead, conversation, and inbound message, then runs the same AI triage/action-proposal path as manual inbound.
 - Follow-up emails on an existing provider thread reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
 - The classifier uses heuristics first and, when `OPENAI_API_KEY` is available, a low-cost OpenAI structured-output classifier for non-automated mail. Classification usage is recorded in `usage_events`.
@@ -1012,8 +1110,8 @@ These are not bugs:
 - Voice mode has a WebRTC/OpenAI Realtime path, but the native mobile shell, deeper barge-in tuning, and user-facing realtime voice controls are still future work.
 - Pronunciation vocabulary supports Settings management, previews, prompt injection, lightweight usage counts, and background suggestions; customer-facing outbound phone calls and pronunciation preflight gates are still future work.
 - Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
-- Gmail/Outlook can send uploaded local file attachments and generated text snapshots of selected quote drafts.
-- Full PDF/invoice rendering from user-uploaded templates is not implemented yet. Current quote drafts are saved editable internal documents only.
+- Gmail/Outlook can send uploaded local file attachments and server-generated PDF attachments for selected quote drafts.
+- Browser print/save-to-PDF quote output and server-generated quote PDFs exist. Invoice/accounting exports, durable PDF storage in Drive/Supabase Storage, and fully parsed user-uploaded template assets are not implemented yet.
 - Assistant chat is implemented as a persisted safe command/tool layer, not a free-roaming autonomous agent.
 - Assistant long-term memory only saves explicit user memory instructions for now; automatic inferred memory is intentionally not active yet.
 - Usage visibility exists in Settings, but payments, payment-provider billing, bookkeeping, reconciliation, and tax are intentionally out of scope.
@@ -1038,9 +1136,10 @@ The current web test harness uses Node's built-in test runner with `tsx`:
 - `apps/web` runs `node --import tsx --test "src/**/*.test.ts" "app/**/*.test.ts"`,
 - tests should prefer pure helpers over live Supabase, Gmail, Outlook, OpenAI, or browser calls.
 
-Current high-value unit coverage includes inbound email quiet-hours scheduling, reconnect-needed
-token-decrypt classification, skipped-email summary/reply-state mapping, reply draft prompt
-context, pronunciation candidate filtering, and Assistant-editable settings parsing.
+Current high-value unit coverage includes inbound email quiet-hours scheduling, sender learning rules,
+reconnect-needed token-decrypt classification, skipped-email summary/reply-state mapping, reply draft
+prompt context, pronunciation candidate filtering, Assistant-editable settings parsing, document template
+setting normalisation, and printable quote HTML escaping/rendering.
 
 When schema changes are made:
 

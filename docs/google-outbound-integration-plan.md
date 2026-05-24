@@ -43,8 +43,9 @@ and workspace communication policy before anything leaves the system.
   click are the approval. AI-generated/action-queue sends still use action approval.
 - Gmail can attach local files uploaded in the composer, with a current limit of 5
   files and 10 MB total per send.
-- Gmail can attach a generated text snapshot of a selected quote draft. This is the
-  temporary generated-document attachment until PDF/template rendering is built.
+- Gmail and Outlook can attach a server-generated PDF for a selected quote draft.
+  The PDF is generated on demand from the structured quote draft/template settings
+  and recorded in message/quote metadata.
 - Zero-cost Gmail usage ledger rows are recorded for each real outbound email so
   billing summaries can count volume now and add pricing later.
 - The shared outbound helper is:
@@ -169,10 +170,10 @@ Reasoning:
 
 ## Remaining Build Steps
 
-1. Upgrade generated-document attachments:
-   - render quote/invoice PDFs from saved templates,
-   - upload generated documents to Drive,
-   - attach generated Drive/PDF files to Gmail sends,
+1. Upgrade generated-document storage:
+   - upload generated quote/invoice PDFs to Drive or Supabase Storage,
+   - save a durable file id/link in `files` or document metadata,
+   - keep on-demand PDF generation available for previews and re-renders,
    - keep local file uploads available from the manual composer.
 2. Add Drive document creator:
    - render quote/invoice PDF from saved template,
@@ -216,8 +217,8 @@ Reasoning:
 - Keep all external sends behind the action engine.
 - Gmail attachments are limited in the app before send. Local uploads are not stored
   permanently yet; they are read for the outbound send and recorded as message
-  metadata. Generated quote draft attachments are text snapshots until Drive/PDF
-  handling is implemented.
+  metadata. Generated quote draft PDF attachments are generated on demand and
+  recorded as metadata until durable Drive/Supabase Storage handling is implemented.
 - Signature logos are stored directly in communication settings only as a short-term
   MVP path. Move them into Supabase Storage or Drive-backed workspace assets before
   large/public usage.

@@ -1,15 +1,23 @@
-import {
-  applyQuoteTemplateAction,
-  updateQuoteDraftAction,
-} from "../actions";
 import { AppFrame } from "../../components/app-frame";
-import { getQuoteDraftProfile } from "../../../lib/crm/queries";
 import {
-  lineItemsToEditorText,
+  getQuoteDraftProfile,
+} from "../../../lib/crm/queries";
+import {
   normalizeQuoteLineItems,
-  quoteTemplateOptions,
 } from "../../../lib/documents/templates";
+import {
+  quoteDocumentChangedSinceLastEvent,
+  quoteDocumentContentHash,
+  quoteDocumentHistory,
+  type QuoteDocumentHistoryEvent,
+} from "../../../lib/documents/history";
+import {
+  documentTemplateDesignSettingsForQuote,
+  getDocumentTemplateSettings,
+} from "../../../lib/documents/settings";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
+import { QuoteDraftEditorForm } from "./quote-draft-editor-form";
+import { prepareQuoteDraftSendAction } from "../actions";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -56,18 +64,6 @@ function formatLabel(value: string | null) {
     .join(" ");
 }
 
-function formatMoney(value: number | null) {
-  if (value === null || !Number.isFinite(value)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("en", {
-    currency: "USD",
-    maximumFractionDigits: 2,
-    style: "currency",
-  }).format(value);
-}
-
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -78,17 +74,37 @@ function safeQuoteStatus(status: string) {
     : "draft";
 }
 
+function documentEventLabel(event: QuoteDocumentHistoryEvent) {
+  if (event.kind === "email_sent") {
+    return "Sent to customer";
+  }
+
+  if (event.kind === "email_prepared") {
+    return "Email prepared";
+  }
+
+  return "PDF generated";
+}
+
+function documentEventMeta(event: QuoteDocumentHistoryEvent) {
+  const details = [
+    event.sentTo ? `to ${event.sentTo}` : null,
+    event.channelType ? formatLabel(event.channelType) : null,
+  ].filter(Boolean);
+
+  return details.join(" - ") || textValue(event.source) || "Kyro document";
+}
+
 export default async function QuoteDraftPage({
   params,
   searchParams,
 }: QuoteDraftPageProps) {
   const [{ quoteDraftId }, query] = await Promise.all([params, searchParams]);
   const { supabase, workspace } = await requireWorkspaceContext();
-  const profile = await getQuoteDraftProfile(
-    supabase,
-    workspace.id,
-    quoteDraftId,
-  );
+  const [profile, documentTemplateSettings] = await Promise.all([
+    getQuoteDraftProfile(supabase, workspace.id, quoteDraftId),
+    getDocumentTemplateSettings(supabase, workspace.id),
+  ]);
 
   if (!profile) {
     notFound();
@@ -121,13 +137,28 @@ export default async function QuoteDraftPage({
     textValue(metadata.preferredTime) ??
     profile.inquiryFacts?.preferredTime ??
     "";
-  const subtotal = lineItems.reduce(
-    (sum, item) => sum + (item.total ?? 0),
-    0,
-  );
   const attachToReplyHref = quoteDraft.conversation
     ? `/inbox/${quoteDraft.conversation.id}?attachQuoteDraftId=${quoteDraft.id}`
     : null;
+  const lastGeneratedDocument = metadata.lastGeneratedDocument &&
+    typeof metadata.lastGeneratedDocument === "object" &&
+    !Array.isArray(metadata.lastGeneratedDocument)
+    ? (metadata.lastGeneratedDocument as Record<string, unknown>)
+    : null;
+  const history = quoteDocumentHistory(metadata);
+  const documentSettings = documentTemplateDesignSettingsForQuote(
+    metadata,
+    documentTemplateSettings,
+  );
+  const currentContentHash = quoteDocumentContentHash({
+    profile,
+    settings: documentSettings,
+  });
+  const documentFreshness = quoteDocumentChangedSinceLastEvent({
+    currentContentHash,
+    history,
+  });
+  const latestDocumentEvent = documentFreshness.latest;
 
   return (
     <AppFrame active="Documents">
@@ -137,15 +168,39 @@ export default async function QuoteDraftPage({
           <h1>{quoteDraft.title}</h1>
         </div>
         <div className="topbar-actions">
+          {quoteDraft.conversation ? (
+            <form action={prepareQuoteDraftSendAction}>
+              <input name="quoteDraftId" type="hidden" value={quoteDraft.id} />
+              <button className="primary-button link-button" type="submit">
+                Send to customer
+              </button>
+            </form>
+          ) : null}
           {attachToReplyHref ? (
             <Link
-              className="primary-button link-button"
+              className="secondary-button link-button"
               href={attachToReplyHref}
               prefetch={false}
             >
               Attach to reply
             </Link>
           ) : null}
+          <Link
+            className="primary-button link-button"
+            href={`/documents/${quoteDraft.id}/pdf`}
+            prefetch={false}
+          >
+            Download PDF
+          </Link>
+          <Link
+            className="secondary-button link-button"
+            href={`/documents/${quoteDraft.id}/print`}
+            prefetch={false}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Print / PDF
+          </Link>
           {quoteDraft.conversation ? (
             <Link
               className="secondary-button link-button"
@@ -202,11 +257,67 @@ export default async function QuoteDraftPage({
             <span>{jobAddress || "No address"}</span>
             <span>{preferredTime || "No preferred time"}</span>
             <span>Updated {formatDate(quoteDraft.updatedAt)}</span>
+            {lastGeneratedDocument ? (
+              <span>
+                PDF generated {formatDate(textValue(lastGeneratedDocument.generatedAt))}
+              </span>
+            ) : null}
           </div>
+        </article>
+
+        <article className="panel inquiry-summary-card">
+          <div className="summary-title">
+            <div>
+              <p className="eyebrow">Documents</p>
+              <h2>Version history</h2>
+            </div>
+            {latestDocumentEvent ? (
+              <span
+                className={
+                  documentFreshness.changed ? "pill warning" : "pill success"
+                }
+              >
+                {documentFreshness.changed ? "Changed since PDF" : "Up to date"}
+              </span>
+            ) : (
+              <span className="pill warning">No PDF yet</span>
+            )}
+          </div>
+          {latestDocumentEvent ? (
+            <div className="summary-fields">
+              <span>
+                Latest: {documentEventLabel(latestDocumentEvent)}{" "}
+                {formatDate(latestDocumentEvent.occurredAt)}
+              </span>
+              <span>
+                {documentFreshness.changed
+                  ? "Regenerate or prepare a fresh email before sending."
+                  : "Latest generated document matches the current quote."}
+              </span>
+            </div>
+          ) : (
+            <p className="empty-copy">
+              Download or prepare a quote email to create the first document
+              history entry.
+            </p>
+          )}
+          {history.length > 0 ? (
+            <div className="engine-list compact-history-list">
+              {history.slice(0, 4).map((event) => (
+                <div className="engine-row compact-history-row" key={event.id}>
+                  <div>
+                    <strong>{documentEventLabel(event)}</strong>
+                    <span>{documentEventMeta(event)}</span>
+                  </div>
+                  <span>{formatDate(event.occurredAt)}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </article>
       </section>
 
-      <section className="review-grid large-left">
+      <section className="review-grid document-editor-only">
         <article className="panel">
           <div className="panel-heading">
             <div>
@@ -216,136 +327,25 @@ export default async function QuoteDraftPage({
             <span className="pill">{lineItems.length} line items</span>
           </div>
 
-          <form action={updateQuoteDraftAction} className="document-editor-form">
-            <input name="quoteDraftId" type="hidden" value={quoteDraft.id} />
-            <div className="document-form-grid">
-              <label>
-                Title
-                <input name="title" required type="text" defaultValue={quoteDraft.title} />
-              </label>
-              <label>
-                Status
-                <select name="status" defaultValue={safeQuoteStatus(quoteDraft.status)}>
-                  {QUOTE_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Customer name
-                <input name="customerName" type="text" defaultValue={customerName} />
-              </label>
-              <label>
-                Company
-                <input name="customerCompany" type="text" defaultValue={customerCompany} />
-              </label>
-              <label>
-                Email
-                <input name="customerEmail" type="email" defaultValue={customerEmail} />
-              </label>
-              <label>
-                Phone
-                <input name="customerPhone" type="tel" defaultValue={customerPhone} />
-              </label>
-              <label>
-                Job type
-                <input name="jobType" type="text" defaultValue={jobType} />
-              </label>
-              <label>
-                Preferred time
-                <input name="preferredTime" type="text" defaultValue={preferredTime} />
-              </label>
-              <label className="full-row">
-                Job address
-                <input name="jobAddress" type="text" defaultValue={jobAddress} />
-              </label>
-              <label className="full-row">
-                Line items
-                <textarea
-                  className="line-items-editor"
-                  defaultValue={lineItemsToEditorText(quoteDraft.lineItems)}
-                  name="lineItemsText"
-                  placeholder="Description | Qty | Unit | Unit price | Notes"
-                  rows={9}
-                />
-              </label>
-              <label className="full-row">
-                Notes
-                <textarea name="notes" defaultValue={quoteDraft.notes ?? ""} rows={5} />
-              </label>
-            </div>
-            <button className="primary-button profile-submit" type="submit">
-              Save quote draft
-            </button>
-          </form>
+          <QuoteDraftEditorForm
+            customer={{
+              company: customerCompany,
+              email: customerEmail,
+              jobAddress,
+              name: customerName,
+              phone: customerPhone,
+            }}
+            initialContact={quoteDraft.contact}
+            jobType={jobType}
+            lineItems={lineItems}
+            notes={quoteDraft.notes ?? ""}
+            preferredTime={preferredTime}
+            quoteDraftId={quoteDraft.id}
+            status={safeQuoteStatus(quoteDraft.status)}
+            statusOptions={QUOTE_STATUS_OPTIONS}
+            title={quoteDraft.title}
+          />
         </article>
-
-        <aside className="side-stack">
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Templates</p>
-                <h2>Apply structure</h2>
-              </div>
-            </div>
-            <div className="template-grid compact-template-grid">
-              {quoteTemplateOptions().map((template) => (
-                <form
-                  action={applyQuoteTemplateAction}
-                  className="template-card"
-                  key={template.key}
-                >
-                  <input name="quoteDraftId" type="hidden" value={quoteDraft.id} />
-                  <input name="templateKey" type="hidden" value={template.key} />
-                  <div>
-                    <strong>{template.label}</strong>
-                    <span>{template.description}</span>
-                  </div>
-                  <button className="secondary-button compact" type="submit">
-                    Apply
-                  </button>
-                </form>
-              ))}
-            </div>
-          </article>
-
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Preview</p>
-                <h2>Saved draft</h2>
-              </div>
-            </div>
-            <div className="document-preview">
-              <div>
-                <strong>{quoteDraft.title}</strong>
-                <span>{customerName || customerCompany || "Customer not set"}</span>
-              </div>
-              <div className="quote-preview-table">
-                {lineItems.length > 0 ? (
-                  lineItems.map((item, index) => (
-                    <div className="quote-preview-row" key={`${item.description}-${index}`}>
-                      <span>{item.description}</span>
-                      <span>
-                        {[item.quantity, item.unit].filter(Boolean).join(" ") || "-"}
-                      </span>
-                      <strong>{formatMoney(item.total)}</strong>
-                    </div>
-                  ))
-                ) : (
-                  <p className="empty-copy">No line items saved.</p>
-                )}
-              </div>
-              <div className="quote-preview-total">
-                <span>Subtotal</span>
-                <strong>{subtotal > 0 ? formatMoney(subtotal) : "-"}</strong>
-              </div>
-              {quoteDraft.notes ? <p>{quoteDraft.notes}</p> : null}
-            </div>
-          </article>
-        </aside>
       </section>
 
       <section className="review-grid operations-grid">

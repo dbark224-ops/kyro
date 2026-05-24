@@ -3,12 +3,14 @@ import {
   disconnectIntegrationAction,
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
+  removeInboundEmailSenderRuleSettingsAction,
   syncInboundEmailNowAction,
   updateCommunicationSettingsAction,
   updateGeneralSettingsAction,
   updateInboundEmailSettingsAction,
   updatePronunciationEntryAction,
   updateVoiceSettingsAction,
+  upsertInboundEmailSenderRuleSettingsAction,
 } from "./actions";
 import {
   OPENAI_VOICE_OPTIONS,
@@ -43,6 +45,7 @@ import {
   INBOUND_EMAIL_QUIET_HOURS_MODES,
   INBOUND_EMAIL_SYNC_MODES,
   getInboundEmailSettings,
+  type InboundEmailSenderRule,
 } from "../../lib/integrations/inbound-email-settings";
 import {
   MICROSOFT_MAIL_READ_SCOPE,
@@ -1097,6 +1100,22 @@ function inboundQuietHoursModeLabel(value: string) {
     : "Pause until quiet hours end";
 }
 
+function senderRuleActionLabel(value: InboundEmailSenderRule["action"]) {
+  return value === "always_promote" ? "Always relevant" : "Always ignore";
+}
+
+function senderRuleMatchLabel(value: InboundEmailSenderRule["match"]) {
+  return value === "domain" ? "Domain" : "Email address";
+}
+
+function senderRuleSourceLabel(rule: InboundEmailSenderRule) {
+  return rule.createdFromEventId ? "Learned from Inbox" : "Manual rule";
+}
+
+function senderRuleCreatedLabel(rule: InboundEmailSenderRule) {
+  return rule.createdAt ? `Added ${formatDate(rule.createdAt)}` : "Added before tracking";
+}
+
 function scopeLabel(value: string) {
   return value
     .replace("https://www.googleapis.com/auth/", "")
@@ -1196,6 +1215,124 @@ function EmailSyncHealthPanel({
           })}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function SenderRulesSettings({
+  rules,
+}: Readonly<{
+  rules: InboundEmailSenderRule[];
+}>) {
+  const sortedRules = [...rules].sort((left, right) => {
+    const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+    const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+
+    return rightTime - leftTime;
+  });
+
+  return (
+    <section className="sender-rules-panel">
+      <div className="panel-heading compact-panel-heading">
+        <div>
+          <p className="eyebrow">Sender learning</p>
+          <div className="setting-card-heading">
+            <h3>Sender rules</h3>
+            <InfoBubble>
+              Sender rules override normal email classification. Use them for
+              senders Kyro should always treat as business-relevant or always
+              keep out of the work queue.
+            </InfoBubble>
+          </div>
+        </div>
+        <span className="pill">
+          {sortedRules.length} {sortedRules.length === 1 ? "rule" : "rules"}
+        </span>
+      </div>
+
+      <form
+        action={upsertInboundEmailSenderRuleSettingsAction}
+        className="sender-rule-add-form"
+      >
+        <label>
+          <span>Sender</span>
+          <input
+            name="senderRuleValue"
+            placeholder="client@example.com or example.com"
+            required
+          />
+        </label>
+        <label>
+          <span>Match</span>
+          <select defaultValue="email" name="senderRuleMatch">
+            <option value="email">Email address</option>
+            <option value="domain">Domain</option>
+          </select>
+        </label>
+        <label>
+          <span>Action</span>
+          <select defaultValue="always_promote" name="senderRuleAction">
+            <option value="always_promote">Always relevant</option>
+            <option value="always_ignore">Always ignore</option>
+          </select>
+        </label>
+        <button className="primary-button compact" type="submit">
+          Add rule
+        </button>
+      </form>
+
+      {sortedRules.length > 0 ? (
+        <div className="sender-rule-list">
+          {sortedRules.map((rule) => (
+            <article
+              className={`sender-rule-row ${
+                rule.action === "always_promote" ? "promote" : "ignore"
+              }`}
+              key={`${rule.match}:${rule.value}`}
+            >
+              <div className="sender-rule-main">
+                <strong>{rule.value}</strong>
+                <span>
+                  {senderRuleMatchLabel(rule.match)} -{" "}
+                  {senderRuleSourceLabel(rule)} - {senderRuleCreatedLabel(rule)}
+                </span>
+              </div>
+              <form
+                action={upsertInboundEmailSenderRuleSettingsAction}
+                className="sender-rule-edit-form"
+              >
+                <input name="senderRuleMatch" type="hidden" value={rule.match} />
+                <input name="senderRuleValue" type="hidden" value={rule.value} />
+                <select defaultValue={rule.action} name="senderRuleAction">
+                  <option value="always_promote">Always relevant</option>
+                  <option value="always_ignore">Always ignore</option>
+                </select>
+                <button className="secondary-button compact" type="submit">
+                  Save
+                </button>
+              </form>
+              <form
+                action={removeInboundEmailSenderRuleSettingsAction}
+                className="sender-rule-remove-form"
+              >
+                <input name="senderRuleMatch" type="hidden" value={rule.match} />
+                <input name="senderRuleValue" type="hidden" value={rule.value} />
+                <button className="text-button danger" type="submit">
+                  Remove
+                </button>
+              </form>
+              <span className="sender-rule-action-pill">
+                {senderRuleActionLabel(rule.action)}
+              </span>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-copy">
+          No sender rules yet. Use the filtered-out email menu or add one here
+          when Kyro should always trust or ignore a sender.
+        </p>
+      )}
     </section>
   );
 }
@@ -1481,6 +1618,8 @@ function InboundEmailSyncSettings({
           </button>
         </div>
       </form>
+
+      <SenderRulesSettings rules={settings.senderRules} />
 
       <form action={syncInboundEmailNowAction} className="settings-footer">
         <span>

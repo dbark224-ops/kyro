@@ -1130,6 +1130,9 @@ export default async function ConversationReviewPage({
                         <span className="pill">
                           {formatLabel(action.status)}
                         </span>
+                        {textValue(action.input.attachmentQuoteDraftId) ? (
+                          <span className="pill">PDF attached</span>
+                        ) : null}
                         <span>Created {formatDate(action.createdAt)}</span>
                       </div>
                       <form
