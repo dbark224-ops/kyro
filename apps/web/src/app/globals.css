@@ -5144,16 +5144,39 @@ button:disabled {
 }
 
 .usage-summary-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: stretch;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
   margin-bottom: 14px;
 }
 
-.settings-usage-metrics.usage-charge-only {
-  grid-template-columns: minmax(0, 1fr);
-  margin-bottom: 0;
+.usage-charge-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--purple);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 14px 42px rgb(0 0 0 / 0.08);
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+
+.usage-charge-summary span {
+  color: color-mix(in srgb, var(--text) 78%, var(--muted));
+  font-size: 0.75rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.usage-charge-summary strong {
+  color: var(--text);
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .usage-ledger-open-button,
@@ -5172,17 +5195,17 @@ button:disabled {
 }
 
 .usage-ledger-open-button {
-  flex-direction: column;
-  gap: 2px;
-  min-width: 178px;
-  padding: 14px 18px;
+  gap: 6px;
+  min-height: 40px;
+  padding: 10px 16px;
   text-align: center;
+  white-space: nowrap;
 }
 
 .usage-ledger-open-button span {
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 800;
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  font-size: 0.8125rem;
+  font-weight: 850;
 }
 
 .usage-ledger-open-button:hover:not(:disabled),
@@ -5226,6 +5249,16 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) 88px 140px;
 }
 
+.usage-total-row {
+  border-color: color-mix(in srgb, var(--cyan) 46%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
+  font-weight: 850;
+}
+
+.usage-total-row > span {
+  color: var(--text);
+}
+
 .usage-row.heading {
   min-height: auto;
   border-style: dashed;
@@ -5235,6 +5268,11 @@ button:disabled {
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.usage-row.heading > span:first-child {
+  justify-self: start;
+  text-align: left;
 }
 
 .usage-row div,
@@ -6753,6 +6791,15 @@ button:disabled {
   .crm-row {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .usage-summary-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .usage-charge-summary {
+    justify-content: space-between;
   }
 
   .usage-ledger-open-button {

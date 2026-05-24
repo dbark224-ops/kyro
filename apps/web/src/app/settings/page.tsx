@@ -2198,17 +2198,14 @@ function UsageSettingsDetail({
   return (
     <>
       <section className="usage-summary-strip" aria-label="Usage metrics">
-        <div className="metric-grid settings-usage-metrics usage-charge-only">
-          <article className="metric-card purple">
-            <p>Usage charge</p>
-            <strong>
-              {formatMoney(
-                usageReport.totals.customerCharge,
-                usageReport.totals.currency,
-              )}
-            </strong>
-            <span>{usageReport.totals.events} ledger events in this range</span>
-          </article>
+        <div className="usage-charge-summary">
+          <span>Usage charge</span>
+          <strong>
+            {formatMoney(
+              usageReport.totals.customerCharge,
+              usageReport.totals.currency,
+            )}
+          </strong>
         </div>
         <UsageLedgerModal rows={usageReport.ledger} />
       </section>
@@ -2255,6 +2252,19 @@ function UsageSettingsDetail({
                   <span>{formatMoney(row.customerCharge, row.currency)}</span>
                 </div>
               ))}
+              <div className="usage-row usage-row-three usage-total-row">
+                <div className="usage-breakdown-copy">
+                  <strong>Total</strong>
+                  <span>All metered task usage in this range.</span>
+                </div>
+                <span>{usageReport.totals.events}</span>
+                <span>
+                  {formatMoney(
+                    usageReport.totals.customerCharge,
+                    usageReport.totals.currency,
+                  )}
+                </span>
+              </div>
             </div>
           ) : (
             <p className="empty-copy">
@@ -2298,6 +2308,19 @@ function UsageSettingsDetail({
                   <span>{formatMoney(row.customerCharge, row.currency)}</span>
                 </div>
               ))}
+              <div className="usage-row usage-row-three usage-total-row">
+                <div className="usage-breakdown-copy">
+                  <strong>Total</strong>
+                  <span>All provider and model usage in this range.</span>
+                </div>
+                <span>{usageReport.totals.events}</span>
+                <span>
+                  {formatMoney(
+                    usageReport.totals.customerCharge,
+                    usageReport.totals.currency,
+                  )}
+                </span>
+              </div>
             </div>
           ) : (
             <p className="empty-copy">

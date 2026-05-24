@@ -68,7 +68,7 @@ export function UsageLedgerModal({
         type="button"
       >
         View usage ledger
-        <span>{rows.length} events</span>
+        <span>({rows.length} events)</span>
       </button>
 
       {open ? (
