@@ -38,7 +38,7 @@ Kyro can currently help with:
 - updating basic quote document template settings when the user asks,
 - creating and revising reusable document templates when the user asks,
 - preparing quote-send emails that include a generated PDF and customer approval link,
-- answering whether a customer has viewed, approved, or requested changes to a quote,
+- answering whether a customer has viewed, approved, requested changes to, or received a revised version of a quote,
 - using web search for public/current internet information when enabled,
 - answering help questions from this manual and architecture notes.
 
@@ -231,15 +231,17 @@ Users can also ask Kyro in Assistant or Voice to update basic document template 
 
 Users can ask Kyro in Assistant or Voice to create a quote draft from an existing reusable template, for example "create an invoice document for Mikel Bright" or "start a bathroom renovation quote". Kyro matches the request against saved template names, descriptions, and keys. If there is only one template, Kyro can use it for a generic create request; if several templates exist and the request is vague, Kyro asks which template to use. When the prompt clearly names an existing contact by name, company, email, or phone, Kyro links the new draft to that contact and pre-fills the customer fields. The draft is still an internal saved draft; sending it to a customer remains approval-gated.
 
-Users can also ask Kyro in Assistant or Voice what quotes are ready to send, or ask it to prepare a quote email, for example "what quotes are ready to send?", "send the bathroom quote to Mikel", or "draft an email for this quote". Kyro does not directly send the customer email from that instruction. Instead, it finds the matching open quote, checks that the quote is linked to an inquiry and has a customer email, creates a secure customer approval link, generates the current PDF, creates a reviewable email draft action with the PDF attached, and links the user to the inquiry so they can approve or edit before sending. If the request is vague or several quote drafts could match, Kyro asks the user to choose.
+Users can also ask Kyro in Assistant or Voice what quotes are ready to send, or ask it to prepare a quote email, for example "what quotes are ready to send?", "send the bathroom quote to Mikel", or "draft an email for this quote". Kyro does not directly send the customer email from that instruction. Instead, it finds the matching open quote, checks that the quote is linked to an inquiry and has a customer email, creates a secure customer approval link, generates the current PDF, creates a reviewable email draft action with the PDF attached, and links the user to the inquiry so they can approve or edit before sending. If the quote is a revision, Kyro keeps the active quote version and uses a revised-quote subject. If the request is vague or several quote drafts could match, Kyro asks the user to choose.
 
 Quote drafts now have three customer-output paths. The Print / PDF button opens deterministic customer-facing HTML for browser print/preview. The Download PDF button creates a server-generated PDF from the same structured quote data. The Send to customer button creates a secure approval link, generates the PDF, records the generated-document metadata on the quote draft, creates a reviewable email draft action with the PDF attached and approval URL in the email body, and redirects to the linked inquiry so the user can check the message before sending. The quote page also has a Customer approval card where the user can create a fresh approval link manually. Fresh links revoke older active links for the same quote draft.
 
 The customer approval page lives at `/quote/approve/[token]` and does not require the customer to sign in. The token is a bearer secret in the URL; Kyro stores a hash of it in `quote_approval_links` rather than storing the raw token. Customers can approve the quote or request changes. Approval marks the quote draft `approved` and records a `customer_approved` history event. Change requests mark the quote draft `changes_requested`, record the note, reopen the linked conversation when there is one, and add a portal-origin inbound message so the user sees the requested change in the work queue.
 
+Quote revisions are tracked automatically. A new quote starts as `v1`. If a customer requests changes, the quote remains tied to the same draft but is flagged as needing revision in Inbox and Documents. The user edits the quote normally; once the content changes after the request, Kyro increments the version, for example from `v1` to `v2`, and treats the customer request as resolved for that revision. Sending the revised quote creates a fresh approval link and a new reviewable email draft. Older active approval links for the same quote are revoked when a fresh link is created.
+
 When the user sends a generated quote email, Kyro regenerates the PDF attachment, sends through the connected Gmail or Outlook account, records the outbound message, and marks the quote draft sent.
 
-Quote drafts also show a lightweight document and customer approval history. Kyro records document events in quote metadata when a PDF is downloaded, when an email is prepared with the PDF attached, when the PDF is actually sent, when a customer views the approval page, when they approve, and when they request changes. Each generated document metadata record includes a content hash of the quote data and template settings used to render it. The quote page compares that hash with the current quote content and can show whether the quote has changed since the last generated/prepared/sent document. Users can ask Kyro in Assistant or Voice questions such as "has this quote been sent?", "when did we send Sarah the bathroom quote?", "has Sarah approved the quote?", or "has this quote changed since it was sent?"
+Quote drafts also show a lightweight document and customer approval history. Kyro records document events in quote metadata when a PDF is downloaded, when an email is prepared with the PDF attached, when the PDF is actually sent, when a customer views the approval page, when they approve, and when they request changes. Each generated document metadata record includes a content hash of the quote data and template settings used to render it, plus the active quote version. The quote page compares that hash with the current quote content and can show whether the quote has changed since the last generated/prepared/sent document. Users can ask Kyro in Assistant or Voice questions such as "has this quote been sent?", "when did we send Sarah the bathroom quote?", "has Sarah approved the quote?", "did Sarah request changes?", "what version is the quote on?", or "has this quote changed since it was sent?"
 
 The current generated-document storage is metadata-first. Kyro records filename, content type, size, renderer, generation time, content hash, version-history events, and send/audit details on the quote draft and message metadata. The PDF bytes are generated on demand for download and send rather than stored in Supabase Storage yet. Drive storage, accounting exports, invoice issuing, payment collection, and durable generated-document file records are still future work.
 
@@ -604,6 +606,14 @@ If generated replies feel off:
 - review and edit before sending,
 - update communication tone/signature settings,
 - add durable instructions as explicit memories if the preference should stick.
+
+If a revised quote does not look right:
+
+- open the linked quote from Inbox or Documents,
+- check the current version pill and customer-request note,
+- edit at least one quote field, line item, or note so Kyro can create the next version,
+- use Send revised quote or ask Kyro to prepare the revised quote email,
+- review the email draft before sending.
 
 ## Builder And Deployment Questions
 

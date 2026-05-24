@@ -122,4 +122,20 @@ describe("quote document history", () => {
     assert.equal(history.length, 1);
     assert.equal(history[0].kind, "customer_approved");
   });
+
+  it("normalizes quote version from document history events", () => {
+    const metadata = appendQuoteDocumentHistory(
+      {},
+      {
+        contentHash: "current",
+        document: { quoteVersion: 3 },
+        kind: "email_sent",
+        occurredAt: "2026-05-24T03:00:00.000Z",
+        source: "test",
+      },
+    );
+    const history = quoteDocumentHistory(metadata);
+
+    assert.equal(history[0].quoteVersion, 3);
+  });
 });

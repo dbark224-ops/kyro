@@ -68,7 +68,10 @@ the first quote-output settings in `workspace_policies` with policy type
 print-ready HTML or an on-demand server-generated PDF. Generated PDF metadata is
 stored in existing `quote_drafts.metadata` and outbound `messages.metadata`.
 `quote_drafts.metadata.documentHistory` is the current lightweight version trail
-for generated/prepared/sent PDFs and customer approval events. Customer approval
-links use `quote_approval_links`: raw tokens stay in customer URLs, while the
-database stores only `token_hash`, status, expiry, view/approval timestamps, and
+for generated/prepared/sent PDFs and customer approval events. Quote revision
+state is also metadata-backed in `quote_drafts.metadata.quoteRevision`: the app
+tracks the active quote version, pending/resolved customer change requests, and
+prepared/sent/approved versions without a new migration. Customer approval links
+use `quote_approval_links`: raw tokens stay in customer URLs, while the database
+stores only `token_hash`, status, expiry, view/approval timestamps, and
 change-request text. Durable binary file storage will need a future migration/storage policy.

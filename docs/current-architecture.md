@@ -321,6 +321,7 @@ Files:
 - `apps/web/src/app/documents/actions.ts`
 - `apps/web/src/lib/documents/pdf.ts`
 - `apps/web/src/lib/documents/render.ts`
+- `apps/web/src/lib/documents/revisions.ts`
 - `apps/web/src/lib/documents/settings.ts`
 - `apps/web/src/lib/documents/template-revision.ts`
 - `apps/web/src/lib/documents/templates.ts`
@@ -346,6 +347,8 @@ Purpose:
 - prepare a customer email with the generated quote PDF attached and route that email through the normal approval/send action flow,
 - create secure customer approval links for quote drafts,
 - let customers approve a quote or request changes from a public no-login review page,
+- surface quote change requests in the linked inbox conversation and document editor,
+- track quote revision metadata so revised quotes can be resent as `v2`, `v3`, and so on,
 - hand a linked quote draft back to the inquiry outbound composer with that draft preselected,
 - show linked CRM context, recent thread messages, and audit history when the draft came from an inquiry.
 
@@ -365,6 +368,16 @@ details, line items, and document design settings with volatile send/history/app
 flag when a quote has changed since the latest generated/prepared/sent PDF. Accounting/invoice export, payment
 collection, and durable generated-document file storage are still future document steps.
 
+Quote revisions are metadata-backed for now rather than a separate migration. `quote_drafts.metadata.quoteRevision`
+stores the active version, pending or resolved customer change request, latest prepared/sent version, approval version,
+and timestamps. `apps/web/src/lib/documents/revisions.ts` owns that state. A new draft starts at `v1`. When a customer
+requests changes, Kyro marks the draft `changes_requested`, records the request against the current version, reopens the
+linked inquiry, and shows a revision banner in both Inbox and Documents. When the user edits the quote after that
+request, Kyro increments the version, resolves the pending request, and returns the draft to the normal send path. The
+next customer email is labelled as a revised quote, gets a fresh approval link, and records the new `quoteVersion` on
+generated, prepared, sent, viewed, approved, and change-request history events. This gives the product a usable revision
+loop now without committing to the later `generated_documents`/template-version tables.
+
 The Documents template card opens `/documents/new?templateKey=...`, which pre-fills an unsaved editor from the selected
 template. No `quote_drafts` row, audit log, or document-list entry is created until the user presses `Save quote draft`.
 The save action then inserts the row, stores the selected template key and design snapshot in metadata, writes the audit
@@ -382,12 +395,12 @@ moves a draft quote to `ready`, and redirects to the inquiry review screen. The 
 approval URL so the customer can open `/quote/approve/[token]`, review the rendered quote, approve it, or request
 changes. Downloading a PDF records a `pdf_generated` history event. The user can edit the email body before sending.
 When the generated reply is sent, the action executor regenerates the quote PDF, attaches it to the Gmail/Outlook send,
-records the outbound `messages` row, appends an `email_sent` history event, marks the quote draft `sent`, and writes
-quote/message audit logs. Customer approval appends `customer_viewed`, `customer_approved`, or
-`customer_changes_requested` events. Approval changes the quote status to `approved`; change requests change it to
-`changes_requested`, reopen the linked conversation, and insert a portal-origin inbound message so the request appears
-in the work queue. This keeps the customer-facing side effect behind secure token lookup and the existing
-approval/execution machinery.
+records the outbound `messages` row, appends an `email_sent` history event with the active quote version, marks the
+quote draft `sent`, and writes quote/message audit logs. Customer approval appends `customer_viewed`,
+`customer_approved`, or `customer_changes_requested` events. Approval changes the quote status to `approved`; change
+requests change it to `changes_requested`, reopen the linked conversation, insert a portal-origin inbound message so the
+request appears in the work queue, and keep the requested version visible until the user edits/sends a revision. This
+keeps the customer-facing side effect behind secure token lookup and the existing approval/execution machinery.
 
 The `document_templates` policy stores product-safe presentation preferences plus custom reusable templates. Custom
 templates include a stable key, label, description, line item structure, notes, reference-file metadata,
@@ -468,12 +481,12 @@ contract as the template builder; if multiple templates could match, it asks the
 arbitrary template. Assistant quote-send preparation can list ready-to-send quote drafts, match a send request to a
 single open quote by customer/title/email, validate that the quote is linked to an inquiry and customer email, generate
 the current PDF, create a fresh customer approval link, and create a pending `draft_reply` action with that quote
-attached. This is deliberately preparation only: the user still reviews or edits the message in the inquiry before
-sending. Customers approve or request changes from the public tokenized approval page, and Assistant can answer quote
-history questions using the resulting customer view/approval/change-request events. From an Assistant inquiry preview, the
-user can also write a manual reply; email replies send through connected Gmail and non-email channels are recorded
-internally. The LLM does not autonomously send email/SMS, execute approval-gated actions, alter payments, or perform
-bookkeeping.
+attached. For revised quotes it uses the active `quoteRevision` version and revised subject line. This is deliberately
+preparation only: the user still reviews or edits the message in the inquiry before sending. Customers approve or request
+changes from the public tokenized approval page, and Assistant can answer quote history/version questions using the
+resulting customer view/approval/change-request events. From an Assistant inquiry preview, the user can also write a
+manual reply; email replies send through connected Gmail and non-email channels are recorded internally. The LLM does not
+autonomously send email/SMS, execute approval-gated actions, alter payments, or perform bookkeeping.
 
 Assistant memory layers currently implemented:
 

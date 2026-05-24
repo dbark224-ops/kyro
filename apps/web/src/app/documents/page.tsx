@@ -5,6 +5,10 @@ import {
   quoteTemplateCatalog,
   quoteTemplateOptions,
 } from "../../lib/documents/templates";
+import {
+  quoteRevisionLabel,
+  quoteRevisionState,
+} from "../../lib/documents/revisions";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import Link from "next/link";
 
@@ -183,6 +187,8 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
                   quoteDraft.lead?.serviceType ??
                   textValue(quoteDraft.metadata.jobType) ??
                   "Quote draft";
+                const revisionState = quoteRevisionState(quoteDraft.metadata);
+                const revisionLabel = quoteRevisionLabel(quoteDraft.metadata);
 
                 return (
                   <Link
@@ -201,7 +207,11 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
                       ) : null}
                     </div>
                     <div className="data-meta">
+                      <span className="pill">{revisionLabel}</span>
                       <span className="pill">{formatLabel(quoteDraft.status)}</span>
+                      {revisionState.pendingChangeRequest ? (
+                        <span className="pill warning">Changes requested</span>
+                      ) : null}
                       <span>{quoteDraft.lineItemCount} line items</span>
                       {quoteDraft.conversation ? (
                         <span>{formatLabel(quoteDraft.conversation.status)}</span>

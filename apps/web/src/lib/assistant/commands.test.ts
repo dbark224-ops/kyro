@@ -172,6 +172,10 @@ describe("assistant document command helpers", () => {
       true,
     );
     assert.equal(
+      looksLikeQuoteHistoryRequest("Did Sarah request changes to the bathroom quote?"),
+      true,
+    );
+    assert.equal(
       looksLikeQuoteSendReadyListRequest("What quotes are ready to send?"),
       true,
     );

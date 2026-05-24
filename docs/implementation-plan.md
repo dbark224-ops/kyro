@@ -126,6 +126,7 @@ Goal: generate and save user-instructed documents from templates.
 - Issue secure customer approval links for quote drafts.
 - Let customers approve or request changes from a no-login tokenized page.
 - Record customer view/approval/change-request events in quote history and reopen the linked inquiry when changes are requested.
+- Track active quote versions in metadata and prepare revised quote sends with a fresh approval link when a customer requests changes.
 
 V1 document generation is not accounting. No payments, ledgers, reconciliation, or tax engine.
 
@@ -201,6 +202,7 @@ The app has moved beyond the first mock-inquiry loop. Current implemented workfl
 - Record mock follow-up inbound messages.
 - Create and edit internal quote drafts from user-created reusable templates.
 - Prepare reviewable quote emails with server-generated PDF attachments from Documents, Assistant, or Voice.
+- Review customer quote change requests, edit the quote, and send the revised version from Documents or the linked Inbox conversation.
 - Review and edit contact profiles from `/contacts/[contactId]`.
 - Use the Assistant page as a safe command layer over CRM data.
 - Persist Assistant threads, messages, known UI blocks, deterministic tool-call records, rolling summaries, and explicit long-term memories.

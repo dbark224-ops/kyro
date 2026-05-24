@@ -12,6 +12,10 @@ import {
   type QuoteDocumentHistoryEvent,
 } from "../../../lib/documents/history";
 import {
+  quoteRevisionLabel,
+  quoteRevisionState,
+} from "../../../lib/documents/revisions";
+import {
   getLatestQuoteApprovalLinkForDraft,
   isQuoteApprovalLinkExpired,
   quoteApprovalPublicUrl,
@@ -111,6 +115,7 @@ function documentEventLabel(event: QuoteDocumentHistoryEvent) {
 
 function documentEventMeta(event: QuoteDocumentHistoryEvent) {
   const details = [
+    event.quoteVersion ? `v${event.quoteVersion}` : null,
     event.sentTo ? `to ${event.sentTo}` : null,
     event.channelType ? formatLabel(event.channelType) : null,
   ].filter(Boolean);
@@ -181,6 +186,11 @@ export default async function QuoteDraftPage({
     currentContentHash,
     history,
   });
+  const revisionState = quoteRevisionState(metadata);
+  const revisionLabel = quoteRevisionLabel(metadata);
+  const revisionNeedsEdit =
+    quoteDraft.status === "changes_requested" ||
+    Boolean(revisionState.pendingChangeRequest);
   const latestDocumentEvent = documentFreshness.latest;
   const approvalLink = await getLatestQuoteApprovalLinkForDraft(supabase, {
     quoteDraftId: quoteDraft.id,
@@ -201,11 +211,13 @@ export default async function QuoteDraftPage({
           <h1>{quoteDraft.title}</h1>
         </div>
         <div className="topbar-actions">
-          {quoteDraft.conversation ? (
+          {quoteDraft.conversation && !revisionNeedsEdit ? (
             <form action={prepareQuoteDraftSendAction}>
               <input name="quoteDraftId" type="hidden" value={quoteDraft.id} />
               <button className="primary-button link-button" type="submit">
-                Send to customer
+                {revisionState.currentVersion > 1
+                  ? "Send revised quote"
+                  : "Send to customer"}
               </button>
             </form>
           ) : null}
@@ -251,6 +263,12 @@ export default async function QuoteDraftPage({
 
       {query?.engine_error ? <p className="form-alert error">{query.engine_error}</p> : null}
       {query?.engine_message ? <p className="form-alert">{query.engine_message}</p> : null}
+      {revisionNeedsEdit ? (
+        <section className="form-alert error">
+          Customer requested changes to {revisionLabel}. Review the note, edit
+          the quote, then send a revised quote with a fresh approval link.
+        </section>
+      ) : null}
 
       <section className="document-summary-grid">
         <article className="panel inquiry-summary-card">
@@ -319,6 +337,12 @@ export default async function QuoteDraftPage({
           {latestDocumentEvent ? (
             <div className="summary-fields">
               <span>
+                Current {revisionLabel}
+                {revisionState.pendingChangeRequest
+                  ? ` - changes requested from v${revisionState.pendingChangeRequest.requestedFromVersion}`
+                  : ""}
+              </span>
+              <span>
                 Latest: {documentEventLabel(latestDocumentEvent)}{" "}
                 {formatDate(latestDocumentEvent.occurredAt)}
               </span>
@@ -330,10 +354,15 @@ export default async function QuoteDraftPage({
             </div>
           ) : (
             <p className="empty-copy">
-              Download or prepare a quote email to create the first document
-              history entry.
+              Current {revisionLabel}. Download or prepare a quote email to
+              create the first document history entry.
             </p>
           )}
+          {revisionState.pendingChangeRequest?.message ? (
+            <p className="empty-copy">
+              Requested change: {revisionState.pendingChangeRequest.message}
+            </p>
+          ) : null}
           {history.length > 0 ? (
             <div className="engine-list compact-history-list">
               {history.slice(0, 4).map((event) => (

@@ -23,6 +23,13 @@ import {
   createQuoteApprovalLinkForDraft,
 } from "../../lib/documents/approval";
 import { appendQuoteDocumentHistory } from "../../lib/documents/history";
+import {
+  markQuotePreparedForCustomer,
+  quoteEditableContentChanged,
+  quoteRevisionMetadataAfterEditorSave,
+  quoteRevisionState,
+  quoteVersionedDocumentMetadata,
+} from "../../lib/documents/revisions";
 import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
@@ -368,6 +375,10 @@ export async function createQuoteDraftAction(formData: FormData) {
         : [],
     documentTemplateSettings: templateSettings,
     dryRun: true,
+    quoteRevision: {
+      currentVersion: 1,
+      status: "draft",
+    },
     source: template ? "document.template" : "documents.editor",
     templateKey: template?.key ?? null,
   });
@@ -742,12 +753,39 @@ export async function updateQuoteDraftAction(formData: FormData) {
     }
   }
 
-  const nextMetadata = quoteDraftEditorMetadataFromForm(
+  const editorMetadata = quoteDraftEditorMetadataFromForm(
     formData,
     objectRecord(before.metadata),
   );
   const nextLineItems = quoteLineItemsFromForm(formData);
   const nextNotes = nullableText(formString(formData, "notes"));
+  const contentChanged = quoteEditableContentChanged(
+    {
+      contactId: before.contact_id ? String(before.contact_id) : null,
+      lineItems: before.line_items,
+      metadata: objectRecord(before.metadata),
+      notes: textValue(before.notes),
+      title: String(before.title),
+    },
+    {
+      contactId: selectedContactId ?? (before.contact_id ? String(before.contact_id) : null),
+      lineItems: nextLineItems,
+      metadata: editorMetadata,
+      notes: nextNotes,
+      title,
+    },
+  );
+  const nextMetadata = quoteRevisionMetadataAfterEditorSave({
+    at: new Date().toISOString(),
+    beforeMetadata: objectRecord(before.metadata),
+    contentChanged,
+    nextMetadata: editorMetadata,
+    previousStatus: String(before.status),
+  });
+  const nextStatus =
+    String(before.status) === "changes_requested" && contentChanged && status === "changes_requested"
+      ? "draft"
+      : status;
 
   const { error: updateError } = await supabase
     .from("quote_drafts")
@@ -756,7 +794,7 @@ export async function updateQuoteDraftAction(formData: FormData) {
       line_items: nextLineItems,
       metadata: nextMetadata,
       notes: nextNotes,
-      status,
+      status: nextStatus,
       title,
     })
     .eq("workspace_id", workspace.id)
@@ -784,13 +822,15 @@ export async function updateQuoteDraftAction(formData: FormData) {
       lineItems: nextLineItems,
       metadata: nextMetadata,
       notes: nextNotes,
-      status,
+      status: nextStatus,
       title,
     },
     metadata: {
       contactId: selectedContactId ?? before.contact_id ?? null,
       conversationId: before.conversation_id ? String(before.conversation_id) : null,
+      contentChanged,
       leadId: before.lead_id ? String(before.lead_id) : null,
+      quoteVersion: quoteRevisionState(nextMetadata).currentVersion,
     },
   });
 
@@ -869,8 +909,17 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
   const contact = objectRecord(contactResult.data);
   const lead = objectRecord(leadResult.data);
   const metadata = objectRecord(quoteDraft.metadata);
+  const revisionState = quoteRevisionState(metadata);
   const customerEmail =
     textValue(contact.email) ?? textValue(metadata.customerEmail);
+
+  if (String(quoteDraft.status) === "changes_requested" || revisionState.pendingChangeRequest) {
+    redirectWithDocumentMessage(
+      quoteDraftId,
+      "engine_error",
+      "Review the requested changes, edit and save the quote, then send the revised version.",
+    );
+  }
 
   if (!customerEmail) {
     redirectWithDocumentMessage(
@@ -920,7 +969,10 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     quoteDraftId,
     workspace,
   });
-  const documentMetadata = quotePdfMetadata(artifact);
+  const documentMetadata = quoteVersionedDocumentMetadata(
+    quotePdfMetadata(artifact),
+    metadata,
+  );
   const customerName =
     textValue(metadata.customerName) ??
     textValue(contact.name) ??
@@ -930,7 +982,10 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     textValue(lead.service_type) ??
     textValue(lead.title) ??
     String(quoteDraft.title);
-  const subject = quoteSendSubject(String(quoteDraft.title));
+  const subject =
+    revisionState.currentVersion > 1
+      ? `Your revised quote: ${String(quoteDraft.title)}`
+      : quoteSendSubject(String(quoteDraft.title));
   const body = quoteSendBody({
     approvalUrl: approvalLink.url,
     customerName,
@@ -982,21 +1037,28 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     );
   }
 
-  const nextMetadata = appendQuoteDocumentHistory(
-    {
+  const preparedMetadata = markQuotePreparedForCustomer({
+    approvalLinkId: approvalLink.approvalLink.id,
+    at: String(documentMetadata.generatedAt),
+    contentHash: textValue(documentMetadata.contentHash),
+    metadata: {
       ...metadata,
       lastGeneratedDocument: documentMetadata,
       preparedSendActionId: String(action.id),
       preparedSendAt: documentMetadata.generatedAt,
-      quoteApprovalLinkId: approvalLink.approvalLink.id,
     },
+    source: "documents.prepare_quote_send",
+  });
+  const nextMetadata = appendQuoteDocumentHistory(
+    preparedMetadata,
     {
       actionId: String(action.id),
       actorType: "user",
-      contentHash: documentMetadata.contentHash,
+      contentHash: textValue(documentMetadata.contentHash),
       document: documentMetadata,
       kind: "email_prepared",
       occurredAt: documentMetadata.generatedAt,
+      quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
       source: "documents.prepare_quote_send",
     },
   );
@@ -1004,7 +1066,11 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     .from("quote_drafts")
     .update({
       metadata: nextMetadata,
-      status: String(quoteDraft.status) === "draft" ? "ready" : quoteDraft.status,
+      status:
+        String(quoteDraft.status) === "draft" ||
+        String(quoteDraft.status) === "changes_requested"
+          ? "ready"
+          : quoteDraft.status,
     })
     .eq("workspace_id", workspace.id)
     .eq("id", quoteDraftId);
@@ -1028,12 +1094,17 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
       actionId: String(action.id),
       document: documentMetadata,
       metadata: nextMetadata,
-      status: String(quoteDraft.status) === "draft" ? "ready" : quoteDraft.status,
+      status:
+        String(quoteDraft.status) === "draft" ||
+        String(quoteDraft.status) === "changes_requested"
+          ? "ready"
+          : quoteDraft.status,
     },
     metadata: {
       conversationId,
       customerEmail,
       quoteApprovalLinkId: approvalLink.approvalLink.id,
+      quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
       source: "documents.prepare_quote_send",
     },
   });

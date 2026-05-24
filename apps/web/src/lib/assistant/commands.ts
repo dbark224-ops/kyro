@@ -29,6 +29,11 @@ import {
   quoteDocumentHistory,
 } from "../documents/history";
 import {
+  markQuotePreparedForCustomer,
+  quoteRevisionState,
+  quoteVersionedDocumentMetadata,
+} from "../documents/revisions";
+import {
   blankDocumentTemplateRevisionPayload,
   documentTemplateRevisionPayload,
   runDocumentTemplateRevision,
@@ -387,6 +392,7 @@ function quoteIsSendableStatus(quote: QuoteDraftListItem) {
 
 function quoteSendReadiness(quote: QuoteDraftListItem) {
   const blockers: string[] = [];
+  const revisionState = quoteRevisionState(quote.metadata);
 
   if (!quote.conversation?.id) {
     blockers.push("not linked to an inquiry");
@@ -398,6 +404,10 @@ function quoteSendReadiness(quote: QuoteDraftListItem) {
 
   if (!quoteIsSendableStatus(quote)) {
     blockers.push(`status is ${titleCase(quote.status)}`);
+  }
+
+  if (quote.status === "changes_requested" || revisionState.pendingChangeRequest) {
+    blockers.push("customer changes need to be edited and saved first");
   }
 
   return {
@@ -857,7 +867,7 @@ export function looksLikeQuoteHistoryRequest(prompt: string) {
     /\b(has|have|had|did|when|what|was|were|is|are)\b.*\b(sent|prepared|generated|changed|approved|approval|viewed|version|history)\b/.test(
       text,
     ) ||
-    /\b(changed since|version history|document trail|pdf history|send history|customer approval|quote approval)\b/.test(
+    /\b(changed since|version history|document trail|pdf history|send history|customer approval|quote approval|request(?:ed)? changes|change request)\b/.test(
       text,
     )
   );
@@ -1462,6 +1472,7 @@ function quoteSendBody({
 
 function quoteReadyRecord(quote: QuoteDraftListItem) {
   const readiness = quoteSendReadiness(quote);
+  const revisionState = quoteRevisionState(quote.metadata);
 
   return {
     blockers: readiness.blockers,
@@ -1470,6 +1481,8 @@ function quoteReadyRecord(quote: QuoteDraftListItem) {
     job: quoteJobLabel(quote),
     lineItems: quote.lineItemCount,
     linkedConversationId: quote.conversation?.id ?? null,
+    quoteVersion: revisionState.currentVersion,
+    revisionNeeded: revisionState.needsRevision,
     status: quote.status,
     title: quote.title,
   };
@@ -1576,6 +1589,7 @@ async function quoteHistoryCommand({
 
   const metadata = profile.quoteDraft.metadata;
   const history = quoteDocumentHistory(metadata);
+  const revisionState = quoteRevisionState(metadata);
   const currentContentHash = quoteDocumentContentHash({
     profile,
     settings: documentTemplateDesignSettingsForQuote(
@@ -1595,6 +1609,7 @@ async function quoteHistoryCommand({
     (event) => event.kind === "customer_changes_requested",
   );
   const viewedEvent = history.find((event) => event.kind === "customer_viewed");
+  const versionLine = `Current quote version is v${revisionState.currentVersion}.`;
   const statusLine = approvedEvent
     ? `The customer approved it on ${assistantDate(approvedEvent.occurredAt)}.`
     : changesRequestedEvent
@@ -1608,7 +1623,9 @@ async function quoteHistoryCommand({
             : generatedEvent
               ? `A PDF was generated on ${assistantDate(generatedEvent.occurredAt)}, but I cannot see a prepared or sent email yet.`
               : "I cannot see any generated PDF, prepared email, sent email, customer view, or customer approval history for this quote yet.";
-  const changedLine = freshness.latest
+  const changedLine = revisionState.pendingChangeRequest
+    ? `The customer requested changes to v${revisionState.pendingChangeRequest.requestedFromVersion}: ${revisionState.pendingChangeRequest.message ?? "no note was provided"}.`
+    : freshness.latest
     ? freshness.changed
       ? "The quote has changed since the latest document event, so generate or prepare a fresh PDF before relying on it."
       : "The latest document event matches the current quote content."
@@ -1621,6 +1638,7 @@ async function quoteHistoryCommand({
       generatedEvent,
       history: history.slice(0, 8),
       latestDocumentEvent: freshness.latest,
+      quoteVersion: revisionState.currentVersion,
       approvedEvent,
       changesRequestedEvent,
       preparedEvent,
@@ -1628,7 +1646,7 @@ async function quoteHistoryCommand({
       sentEvent,
       viewedEvent,
     },
-    fallbackAnswer: `${profile.quoteDraft.title}: ${statusLine} ${changedLine}`,
+    fallbackAnswer: `${profile.quoteDraft.title}: ${versionLine} ${statusLine} ${changedLine}`,
     intent: "quote_history",
     links: [
       rowLink(
@@ -1749,8 +1767,20 @@ async function prepareQuoteDraftSendFromAssistant({
   const contact = objectRecord(contactResult.data);
   const lead = objectRecord(leadResult.data);
   const metadata = objectRecord(quoteDraft.metadata);
+  const revisionState = quoteRevisionState(metadata);
   const customerEmail =
     textValue(contact.email) ?? textValue(metadata.customerEmail);
+
+  if (String(quoteDraft.status) === "changes_requested" || revisionState.pendingChangeRequest) {
+    return {
+      message:
+        "That quote has customer-requested changes waiting. Open it, edit and save the revision, then I can prepare the revised quote email.",
+      quoteDraftId,
+      quoteTitle,
+      reason: "revision_needs_edit",
+      status: "blocked",
+    };
+  }
 
   if (!customerEmail) {
     return {
@@ -1805,7 +1835,10 @@ async function prepareQuoteDraftSendFromAssistant({
     quoteDraftId,
     workspace,
   });
-  const documentMetadata = quotePdfMetadata(artifact);
+  const documentMetadata = quoteVersionedDocumentMetadata(
+    quotePdfMetadata(artifact),
+    metadata,
+  );
   const customerName =
     textValue(metadata.customerName) ??
     textValue(contact.name) ??
@@ -1815,7 +1848,10 @@ async function prepareQuoteDraftSendFromAssistant({
     textValue(lead.service_type) ??
     textValue(lead.title) ??
     quoteTitle;
-  const subject = quoteSendSubject(quoteTitle);
+  const subject =
+    revisionState.currentVersion > 1
+      ? `Your revised quote: ${quoteTitle}`
+      : quoteSendSubject(quoteTitle);
   const body = quoteSendBody({
     approvalUrl: approvalLink.url,
     customerName,
@@ -1865,14 +1901,20 @@ async function prepareQuoteDraftSendFromAssistant({
     );
   }
 
-  const nextMetadata = appendQuoteDocumentHistory(
-    {
+  const preparedMetadata = markQuotePreparedForCustomer({
+    approvalLinkId: approvalLink.approvalLink.id,
+    at: documentMetadata.generatedAt,
+    contentHash: documentMetadata.contentHash,
+    metadata: {
       ...metadata,
       lastGeneratedDocument: documentMetadata,
       preparedSendActionId: String(action.id),
       preparedSendAt: documentMetadata.generatedAt,
-      quoteApprovalLinkId: approvalLink.approvalLink.id,
     },
+    source: "assistant.quote_send",
+  });
+  const nextMetadata = appendQuoteDocumentHistory(
+    preparedMetadata,
     {
       actionId: String(action.id),
       actorType: "ai",
@@ -1880,6 +1922,7 @@ async function prepareQuoteDraftSendFromAssistant({
       document: documentMetadata,
       kind: "email_prepared",
       occurredAt: documentMetadata.generatedAt,
+      quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
       source: "assistant.quote_send",
     },
   );
@@ -1888,7 +1931,10 @@ async function prepareQuoteDraftSendFromAssistant({
     .update({
       metadata: nextMetadata,
       status:
-        String(quoteDraft.status) === "draft" ? "ready" : quoteDraft.status,
+        String(quoteDraft.status) === "draft" ||
+        String(quoteDraft.status) === "changes_requested"
+          ? "ready"
+          : quoteDraft.status,
     })
     .eq("workspace_id", workspace.id)
     .eq("id", quoteDraftId);
@@ -1912,13 +1958,18 @@ async function prepareQuoteDraftSendFromAssistant({
       actionId: String(action.id),
       document: documentMetadata,
       metadata: nextMetadata,
-      status: String(quoteDraft.status) === "draft" ? "ready" : quoteDraft.status,
+      status:
+        String(quoteDraft.status) === "draft" ||
+        String(quoteDraft.status) === "changes_requested"
+          ? "ready"
+          : quoteDraft.status,
     },
     metadata: {
       assistantPrompt: prompt,
       conversationId,
       customerEmail,
       quoteApprovalLinkId: approvalLink.approvalLink.id,
+      quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
       requestedByUserId: user.id,
       source: "assistant.quote_send",
     },
@@ -2627,6 +2678,10 @@ async function createQuoteDraftCommand({
         jobAddress: contact?.address ?? null,
         jobType: template.label,
         preferredTime: null,
+        quoteRevision: {
+          currentVersion: 1,
+          status: "draft",
+        },
         requestedByUserId: user.id,
         source: "assistant.command",
         templateKey: template.key,

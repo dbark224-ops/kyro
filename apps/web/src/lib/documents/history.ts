@@ -21,6 +21,7 @@ export type QuoteDocumentHistoryEvent = {
   kind: QuoteDocumentEventKind;
   messageId?: string | null;
   occurredAt: string;
+  quoteVersion?: number;
   sentTo?: string | null;
   source?: string | null;
 };
@@ -33,6 +34,8 @@ const VOLATILE_METADATA_KEYS = new Set([
   "lastGeneratedDocument",
   "preparedSendActionId",
   "preparedSendAt",
+  "quoteApprovalLinkId",
+  "quoteRevision",
   "sentAt",
   "sentChannelType",
   "sentDryRunAt",
@@ -145,6 +148,8 @@ export function quoteDocumentHistory(metadata: Record<string, unknown>) {
     const channelType = textValue(event.channelType);
     const contentHash = textValue(event.contentHash);
     const messageId = textValue(event.messageId);
+    const document = objectRecord(event.document);
+    const quoteVersion = Number(event.quoteVersion ?? document.quoteVersion);
     const sentTo = textValue(event.sentTo);
     const source = textValue(event.source);
 
@@ -169,11 +174,15 @@ export function quoteDocumentHistory(metadata: Record<string, unknown>) {
     }
 
     if (event.document) {
-      normalized.document = objectRecord(event.document);
+      normalized.document = document;
     }
 
     if (messageId) {
       normalized.messageId = messageId;
+    }
+
+    if (Number.isFinite(quoteVersion) && quoteVersion > 0) {
+      normalized.quoteVersion = Math.floor(quoteVersion);
     }
 
     if (sentTo) {

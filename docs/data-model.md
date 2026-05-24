@@ -430,6 +430,8 @@ content type, byte size, renderer, generation timestamp, and content hash.
 `metadata.documentHistory` records lightweight `pdf_generated`, `email_prepared`,
 `email_sent`, `customer_viewed`, `customer_approved`, and
 `customer_changes_requested` events so the quote page and Assistant can explain what happened.
+Each event can carry `quoteVersion`, and generated document metadata also includes
+the active version used to render or send that artifact.
 When the email is sent, outbound message metadata records the PDF attachment
 summary and the quote draft metadata records sent timestamps, provider/message ids,
 the outbound message id, and an `email_sent` history event. The binary PDF is
@@ -437,6 +439,15 @@ generated on demand for download and send rather than being stored in Supabase
 Storage or Drive yet. Durable generated file rows, Drive storage, invoice exports,
 and accounting/payment records remain planned
 later work.
+
+Current revision state is stored inside `quote_drafts.metadata.quoteRevision`
+rather than in a separate table. The object tracks `currentVersion`, the latest
+pending or resolved customer change request, prepared/sent/approved versions, and
+timestamps. New quote drafts start at version 1. Customer change requests mark the
+quote `changes_requested` and record the request against the active version. The
+next material edit after that request increments the draft to the next version and
+resolves the request. Preparing or sending the revised quote records the active
+version on document history and uses a fresh approval link.
 
 ### `quote_approval_links`
 
@@ -473,7 +484,9 @@ Creating a fresh approval link revokes older active links for the same quote
 draft. Customer approval marks the linked quote draft `approved`. Customer
 change requests mark the quote draft `changes_requested`, store the latest
 request text on the link, and create a portal-origin inbound message on the
-linked conversation when one exists.
+linked conversation when one exists. Those events also update
+`quote_drafts.metadata.quoteRevision`, so the inbox and Assistant can show that a
+revision is required before the next customer send.
 
 Opening a draft from a reusable document template does not immediately create a
 `quote_drafts` row. The `/documents/new?templateKey=...` editor is temporary;

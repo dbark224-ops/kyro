@@ -3,6 +3,10 @@ import {
   buildQuotePdfArtifactForDraft,
   quotePdfMetadata,
 } from "../../../../lib/documents/pdf";
+import {
+  quoteRevisionState,
+  quoteVersionedDocumentMetadata,
+} from "../../../../lib/documents/revisions";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
 import { notFound } from "next/navigation";
@@ -26,7 +30,7 @@ export async function GET(_request: Request, { params }: QuotePdfRouteProps) {
       quoteDraftId,
       workspace,
     });
-    const documentMetadata = quotePdfMetadata(artifact);
+    const baseDocumentMetadata = quotePdfMetadata(artifact);
     const { data: quoteDraft, error: quoteDraftError } = await supabase
       .from("quote_drafts")
       .select("metadata")
@@ -45,6 +49,10 @@ export async function GET(_request: Request, { params }: QuotePdfRouteProps) {
         !Array.isArray(quoteDraft.metadata)
           ? (quoteDraft.metadata as Record<string, unknown>)
           : {};
+      const documentMetadata = quoteVersionedDocumentMetadata(
+        baseDocumentMetadata,
+        metadata,
+      );
       const nextMetadata = appendQuoteDocumentHistory(
         {
           ...metadata,
@@ -56,6 +64,7 @@ export async function GET(_request: Request, { params }: QuotePdfRouteProps) {
           document: documentMetadata,
           kind: "pdf_generated",
           occurredAt: documentMetadata.generatedAt,
+          quoteVersion: quoteRevisionState(metadata).currentVersion,
           source: "documents.download_pdf",
         },
       );
@@ -76,7 +85,10 @@ export async function GET(_request: Request, { params }: QuotePdfRouteProps) {
         action: "quote_draft.pdf_generated",
         entityType: "quote_draft",
         entityId: quoteDraftId,
-        after: { document: documentMetadata },
+        after: {
+          document: documentMetadata,
+          quoteVersion: quoteRevisionState(metadata).currentVersion,
+        },
         metadata: {
           source: "documents.download_pdf",
         },

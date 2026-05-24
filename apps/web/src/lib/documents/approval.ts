@@ -7,6 +7,11 @@ import {
   appendQuoteDocumentHistory,
   quoteDocumentContentHash,
 } from "./history";
+import {
+  markQuoteChangeRequestReceived,
+  markQuoteCustomerApproved,
+  quoteRevisionState,
+} from "./revisions";
 
 export const QUOTE_APPROVAL_TOKEN_BYTES = 32;
 export const QUOTE_APPROVAL_LINK_DAYS = 30;
@@ -408,21 +413,39 @@ export async function submitQuoteApprovalDecision(
   });
   const historyKind =
     decision === "approve" ? "customer_approved" : "customer_changes_requested";
+  const baseMetadata =
+    decision === "approve"
+      ? markQuoteCustomerApproved({
+          at: now,
+          metadata: portal.profile.quoteDraft.metadata,
+        })
+      : markQuoteChangeRequestReceived({
+          at: now,
+          message: customerMessage,
+          metadata: portal.profile.quoteDraft.metadata,
+        });
+  const revisionState = quoteRevisionState(baseMetadata);
   const nextMetadata = appendQuoteDocumentHistory(
     {
-      ...portal.profile.quoteDraft.metadata,
+      ...baseMetadata,
       customerApproval: {
         approvalLinkId: portal.approvalLink.id,
         decidedAt: now,
         lastChangeRequest: customerMessage,
         status: nextStatus,
+        version: revisionState.currentVersion,
       },
     },
     {
       actorType: "system",
       contentHash,
+      document: {
+        message: customerMessage,
+        quoteVersion: revisionState.currentVersion,
+      },
       kind: historyKind,
       occurredAt: now,
+      quoteVersion: revisionState.currentVersion,
       source: "quote.approval_portal",
     },
   );

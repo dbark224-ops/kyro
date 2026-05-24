@@ -8,12 +8,17 @@ import { buildQuotePdfArtifactForDraft } from "../documents/pdf";
 import {
   appendQuoteDocumentHistory,
 } from "../documents/history";
+import {
+  markQuoteSentToCustomer,
+  quoteRevisionState,
+} from "../documents/revisions";
 import { isOutboundChannel, type OutboundChannel } from "./settings";
 
 export type OutboundAttachment = EmailAttachment & {
   contentHash?: string | null;
   generatedAt?: string | null;
   quoteDraftId?: string | null;
+  quoteVersion?: number | null;
   source: "local_upload" | "quote_draft" | "signature_logo";
 };
 
@@ -96,6 +101,7 @@ function attachmentSummary(attachments: OutboundAttachment[]) {
     filename: attachment.filename,
     generatedAt: attachment.generatedAt ?? null,
     quoteDraftId: attachment.quoteDraftId ?? null,
+    quoteVersion: attachment.quoteVersion ?? null,
     sizeBytes: attachment.sizeBytes,
     source: attachment.source,
   }));
@@ -330,6 +336,9 @@ export async function recordOutboundMessage(
       input.workspaceId,
       quoteDraft.id,
     );
+    quoteDraftAttachment.quoteVersion = quoteRevisionState(
+      objectRecord(quoteDraft.metadata),
+    ).currentVersion;
     attachments.unshift(quoteDraftAttachment);
   }
 
@@ -443,13 +452,16 @@ export async function recordOutboundMessage(
           contentType: quoteDraftAttachment.contentType,
           filename: quoteDraftAttachment.filename,
           generatedAt: quoteDraftAttachment.generatedAt ?? now,
+          quoteVersion: quoteDraftAttachment.quoteVersion ?? null,
           renderer: "pdf-lib",
           sizeBytes: quoteDraftAttachment.sizeBytes,
         }
       : null;
     const quoteMetadata = objectRecord(quoteDraft.metadata);
-    const nextMetadata = appendQuoteDocumentHistory(
-      {
+    const sentMetadata = markQuoteSentToCustomer({
+      at: now,
+      contentHash: quoteDraftAttachment?.contentHash ?? null,
+      metadata: {
         ...quoteMetadata,
         lastGeneratedDocument: sentDocumentMetadata,
         sentAt: now,
@@ -462,6 +474,11 @@ export async function recordOutboundMessage(
         sentExternalProvider: provider,
         sentMessageId: message.id,
       },
+      source: input.source,
+    });
+    const quoteVersion = quoteRevisionState(sentMetadata).currentVersion;
+    const nextMetadata = appendQuoteDocumentHistory(
+      sentMetadata,
       {
         actorType: "system",
         channelType: input.channelType,
@@ -470,6 +487,7 @@ export async function recordOutboundMessage(
         kind: "email_sent",
         messageId: String(message.id),
         occurredAt: now,
+        quoteVersion,
         sentTo,
         source: input.source,
       },

@@ -5073,9 +5073,20 @@ button:disabled {
   padding: 12px;
 }
 
+.quote-draft-card-action {
+  border-color: color-mix(in srgb, var(--pink) 62%, var(--line));
+  background: color-mix(in srgb, var(--pink) 8%, var(--surface));
+}
+
 .quote-draft-card p {
   margin: 0;
   white-space: pre-line;
+}
+
+.quote-revision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .document-grid {

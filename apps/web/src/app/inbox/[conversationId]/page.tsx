@@ -22,7 +22,13 @@ import {
   OUTBOUND_CHANNELS,
   getCommunicationSettings,
 } from "../../../lib/communication/settings";
+import { quoteDocumentHistory } from "../../../lib/documents/history";
+import {
+  quoteRevisionLabel,
+  quoteRevisionState,
+} from "../../../lib/documents/revisions";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
+import { prepareQuoteDraftSendAction } from "../../documents/actions";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -501,6 +507,39 @@ function buildTimeline(review: ConversationReview) {
     }
   }
 
+  for (const quoteDraft of review.quoteDrafts) {
+    for (const event of quoteDocumentHistory(quoteDraft.metadata).slice(0, 6)) {
+      if (
+        event.kind !== "customer_approved" &&
+        event.kind !== "customer_changes_requested" &&
+        event.kind !== "customer_viewed" &&
+        event.kind !== "email_sent"
+      ) {
+        continue;
+      }
+
+      items.push({
+        id: `quote-${quoteDraft.id}-${event.id}`,
+        at: event.occurredAt,
+        title:
+          event.kind === "customer_approved"
+            ? "Quote approved"
+            : event.kind === "customer_changes_requested"
+              ? "Quote changes requested"
+              : event.kind === "customer_viewed"
+                ? "Quote viewed"
+                : "Quote email sent",
+        detail: `${quoteDraft.title}${event.quoteVersion ? ` v${event.quoteVersion}` : ""}`,
+        tone:
+          event.kind === "customer_changes_requested"
+            ? "inbound"
+            : event.kind === "email_sent"
+              ? "outbound"
+              : "system",
+      });
+    }
+  }
+
   return items.sort(
     (first, second) =>
       new Date(first.at).getTime() - new Date(second.at).getTime(),
@@ -599,6 +638,11 @@ export default async function ConversationReviewPage({
   const attachedQuoteDraft = review.quoteDrafts.find(
     (quoteDraft) => quoteDraft.id === attachedQuoteDraftId,
   );
+  const changeRequestedQuoteDrafts = review.quoteDrafts.filter(
+    (quoteDraft) =>
+      quoteDraft.status === "changes_requested" ||
+      Boolean(quoteRevisionState(quoteDraft.metadata).pendingChangeRequest),
+  );
 
   return (
     <AppFrame active="Inbox">
@@ -646,6 +690,14 @@ export default async function ConversationReviewPage({
         <p className="form-alert">
           {attachedQuoteDraft.title} selected for the outbound composer.
         </p>
+      ) : null}
+      {changeRequestedQuoteDrafts.length > 0 ? (
+        <section className="form-alert error">
+          {changeRequestedQuoteDrafts.length} quote{" "}
+          {changeRequestedQuoteDrafts.length === 1 ? "needs" : "need"} revision.
+          Review the requested changes, edit the quote, then send the revised
+          version back to the customer.
+        </section>
       ) : null}
 
       {profileNeedsReview ? (
@@ -1230,34 +1282,86 @@ export default async function ConversationReviewPage({
                 <span className="pill">{review.quoteDrafts.length}</span>
               </div>
               <div className="quote-draft-list">
-                {review.quoteDrafts.map((quoteDraft) => (
-                  <Link
-                    className="quote-draft-card plain-link"
-                    href={`/documents/${quoteDraft.id}`}
-                    key={quoteDraft.id}
-                    prefetch={false}
-                  >
-                    <div>
-                      <strong>{quoteDraft.title}</strong>
-                      <span>
-                        {formatLabel(quoteDraft.status)} -{" "}
-                        {formatDate(quoteDraft.createdAt)}
-                      </span>
-                    </div>
-                    <div className="quote-line-list">
-                      {quoteDraft.lineItems.length > 0 ? (
-                        quoteDraft.lineItems.map((item, index) => (
-                          <span key={`${quoteDraft.id}-${index}`}>
-                            {quoteLineItemLabel(item)}
+                {review.quoteDrafts.map((quoteDraft) => {
+                  const revisionState = quoteRevisionState(quoteDraft.metadata);
+                  const needsRevision =
+                    quoteDraft.status === "changes_requested" ||
+                    Boolean(revisionState.pendingChangeRequest);
+                  const canSendRevision =
+                    revisionState.currentVersion > 1 &&
+                    ["draft", "ready"].includes(quoteDraft.status);
+                  const showRevisionActions = needsRevision || canSendRevision;
+
+                  return (
+                    <div
+                      className={
+                        showRevisionActions
+                          ? "quote-draft-card quote-draft-card-action"
+                          : "quote-draft-card"
+                      }
+                      key={quoteDraft.id}
+                    >
+                      <Link
+                        className="plain-link"
+                        href={`/documents/${quoteDraft.id}`}
+                        prefetch={false}
+                      >
+                        <div>
+                          <strong>{quoteDraft.title}</strong>
+                          <span>
+                            {quoteRevisionLabel(quoteDraft.metadata)} -{" "}
+                            {formatLabel(quoteDraft.status)} -{" "}
+                            {formatDate(quoteDraft.createdAt)}
                           </span>
-                        ))
-                      ) : (
-                        <span>No line items yet.</span>
-                      )}
+                        </div>
+                        <div className="quote-line-list">
+                          {quoteDraft.lineItems.length > 0 ? (
+                            quoteDraft.lineItems.map((item, index) => (
+                              <span key={`${quoteDraft.id}-${index}`}>
+                                {quoteLineItemLabel(item)}
+                              </span>
+                            ))
+                          ) : (
+                            <span>No line items yet.</span>
+                          )}
+                        </div>
+                        {revisionState.pendingChangeRequest?.message ? (
+                          <p>
+                            Requested change:{" "}
+                            {revisionState.pendingChangeRequest.message}
+                          </p>
+                        ) : quoteDraft.notes ? (
+                          <p>{quoteDraft.notes}</p>
+                        ) : null}
+                      </Link>
+                      {showRevisionActions ? (
+                        <div className="quote-revision-actions">
+                          {needsRevision ? (
+                            <Link
+                              className="secondary-button compact link-button"
+                              href={`/documents/${quoteDraft.id}`}
+                              prefetch={false}
+                            >
+                              Edit quote
+                            </Link>
+                          ) : null}
+                          {canSendRevision ? (
+                            <form action={prepareQuoteDraftSendAction}>
+                              <input
+                                name="quoteDraftId"
+                                type="hidden"
+                                value={quoteDraft.id}
+                              />
+                              <button className="primary-button compact" type="submit">
+                                Send revised quote
+                              </button>
+                            </form>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
-                    {quoteDraft.notes ? <p>{quoteDraft.notes}</p> : null}
-                  </Link>
-                ))}
+                  );
+                })}
               </div>
             </article>
           ) : null}

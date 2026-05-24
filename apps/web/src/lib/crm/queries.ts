@@ -139,6 +139,7 @@ type ConversationWorkflowCounts = {
 };
 
 type QuoteDraftSummary = {
+  changesRequested: number;
   draft: number;
   ready: number;
   sent: number;
@@ -1018,6 +1019,7 @@ export async function getConversationList(
     }
 
     const summary = quoteDraftsByConversation.get(conversationId) ?? {
+      changesRequested: 0,
       draft: 0,
       ready: 0,
       sent: 0,
@@ -1027,7 +1029,9 @@ export async function getConversationList(
 
     summary.total += 1;
 
-    if (status === "ready") {
+    if (status === "changes_requested") {
+      summary.changesRequested += 1;
+    } else if (status === "ready") {
       summary.ready += 1;
     } else if (status === "sent") {
       summary.sent += 1;
@@ -1114,6 +1118,7 @@ export async function getConversationList(
     const quoteDraftSummary = quoteDraftsByConversation.get(
       String(conversation.id),
     ) ?? {
+      changesRequested: 0,
       draft: 0,
       ready: 0,
       sent: 0,
@@ -1417,6 +1422,7 @@ export async function getConversationWorkflowCounts(
     }
 
     const summary = quoteDraftsByConversation.get(conversationId) ?? {
+      changesRequested: 0,
       draft: 0,
       ready: 0,
       sent: 0,
@@ -1426,7 +1432,9 @@ export async function getConversationWorkflowCounts(
 
     summary.total += 1;
 
-    if (status === "ready") {
+    if (status === "changes_requested") {
+      summary.changesRequested += 1;
+    } else if (status === "ready") {
       summary.ready += 1;
     } else if (status === "sent") {
       summary.sent += 1;
@@ -1510,6 +1518,7 @@ export async function getConversationWorkflowCounts(
       pendingApprovalCount: 0,
     };
     const quoteDraftSummary = quoteDraftsByConversation.get(conversationId) ?? {
+      changesRequested: 0,
       draft: 0,
       ready: 0,
       sent: 0,
@@ -1576,6 +1585,7 @@ function deriveConversationWorkflow({
   const hasMissingInfo = Boolean(facts?.missingInfo.length);
   const hasActiveQuoteDraft =
     quoteDraftSummary.draft > 0 || quoteDraftSummary.ready > 0;
+  const hasQuoteChangeRequest = quoteDraftSummary.changesRequested > 0;
   const hasSentQuoteDraft = quoteDraftSummary.sent > 0;
   const hasCompletedReply =
     status === "replied" ||
@@ -1599,6 +1609,8 @@ function deriveConversationWorkflow({
       ? "resolved"
       : leadPriority === "high"
         ? "needs_review"
+        : hasQuoteChangeRequest
+          ? "ready_to_quote"
         : isAwaitingCustomer || hasSentQuoteDraft
           ? "awaiting_customer"
           : hasMissingInfo
@@ -1617,6 +1629,8 @@ function deriveConversationWorkflow({
   const nextActionLabel =
     leadPriority === "high"
       ? "Profile check"
+      : hasQuoteChangeRequest
+        ? "Review quote changes"
       : isAwaitingCustomer
         ? "Awaiting customer"
         : pendingApprovalCount > 0
