@@ -271,7 +271,7 @@ Settings is split into these sections:
 - Communication: outbound reply/channel rules and signatures.
 - Voice: assistant voice, outbound pronunciation policy, and pronunciation vocabulary.
 - Integrations: Google Workspace, Microsoft Outlook, inbound email sync, quiet hours, and sync limits.
-- Usage: provider/API cost visibility and metered usage ledger.
+- Usage: customer-facing usage charge visibility, task/model breakdowns, and metered usage ledger.
 
 Settings sections are URL-addressable so a link or assistant card can open the correct section directly.
 
@@ -457,17 +457,17 @@ Sender learning rules can be created from the filtered-out email three-dot menu 
 
 ## Usage Settings
 
-Usage settings show provider/API cost and metering information.
+Usage settings show customer-facing usage charge and metering information.
 
 Usage can show:
 
-- provider cost,
-- customer charge snapshot,
-- gross margin snapshot,
+- total usage charge for the selected period,
 - ledger event count,
-- metered units,
-- provider/model/service breakdown,
-- recent usage events.
+- usage by task, such as live voice, inbound email processing, document generation, web search, reply drafting, or pronunciation vocabulary,
+- provider/model/service breakdown with small info bubbles explaining what each model/service is used for,
+- detailed usage ledger events in a modal opened from the Usage screen.
+
+Provider/API cost and gross-margin snapshots are still recorded in `usage_events` and available for internal/dev visibility, but they are not the main customer-facing billing numbers. The main user-facing figure is `Usage charge`.
 
 For OpenAI model calls, Kyro uses the token usage returned by OpenAI where available.
 It tracks uncached input tokens, cached input tokens, visible output tokens, and reasoning
@@ -476,6 +476,12 @@ rows, because they can have their own provider charge.
 For live voice, Kyro also reads OpenAI Realtime usage from completed voice responses and
 tracks text input, audio input, cached input, text output, audio output, and reasoning
 tokens separately.
+OpenAI text-to-speech rows use a pricing-derived estimate when the provider does not return
+audio-token usage directly; the row metadata marks those estimates and records the pricing source.
+
+The read-only billing export endpoint is `/api/billing/usage`. It returns stored
+customer-charge snapshots for a monthly, weekly, or custom range so a future Stripe,
+bookkeeping, or invoice workflow can consume the same append-only ledger.
 
 Usage is read-only. It does not collect payment, create invoices, or connect to Stripe or Apple billing yet.
 
@@ -559,7 +565,7 @@ The web app avoids loading everything at once:
 - main navigation routes are warmed in the background after idle,
 - repeated list rows avoid prefetching every detail page,
 - Settings loads only the selected section's data,
-- the usage ledger loads only when Usage is selected,
+- Usage/task/ledger data loads only when Usage is selected,
 - filtered-out email details load only when the popup opens,
 - reply composers inside filtered-out email cards mount only when opened,
 - list/review queries are bounded to avoid slow UI as mock data grows.

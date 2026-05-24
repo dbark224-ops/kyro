@@ -139,7 +139,7 @@ describe("OpenAI usage metering", () => {
 
       assert.equal(event.usageType, "web_search_calls");
       assert.equal(event.quantity, 1);
-      assert.equal(event.costSnapshot, 0.01);
+      assert.equal(event.costSnapshot, 0.025);
     }));
 
   it("normalizes realtime usage into text, audio, cached, and reasoning rows", () =>

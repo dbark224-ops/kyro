@@ -591,7 +591,7 @@ OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_TTS_FORMAT=wav
 OPENAI_TTS_SPEED=1
 OPENAI_TTS_INSTRUCTIONS=
-OPENAI_TTS_UNIT_COST_PER_SECOND_USD=0
+OPENAI_TTS_UNIT_COST_PER_SECOND_USD=
 OPENAI_TTS_MARKUP_RATE=0.25
 ```
 
@@ -706,31 +706,38 @@ Purpose:
   connection disconnected, clearing its stored token payload, and deactivating its
   email channel; reconnecting uses the normal OAuth connect flow again,
 - audit communication-setting changes,
-- show provider/API cost and customer charge from the `usage_events` ledger,
+- show customer-facing usage charge from the `usage_events` ledger while keeping provider/API cost and gross margin available as internal snapshots,
 - normalize OpenAI token usage from provider responses into production ledger rows for
   uncached input, cached input, visible output, and reasoning tokens,
 - normalize OpenAI Realtime voice usage from `response.done` into production ledger rows for
   text input, audio input, cached input, text output, audio output, and reasoning tokens,
 - record OpenAI web-search tool calls separately from token usage so tool fees do not
   disappear inside the token meter,
+- estimate OpenAI text-to-speech cost from the current text-input/audio-output rate card when direct usage is not returned,
 - filter usage by today, 7 days, 30 days, or all time,
-- break usage down by provider/model/service,
+- break usage down first by business task and then by provider/model/service,
+- explain provider/model rows with info bubbles so users understand why a model appears in their usage,
 - break usage down by user,
+- open the detailed usage ledger in a modal instead of leaving it expanded on the main Usage screen,
 - link ledger rows back to the most useful source where possible, such as an AI run's conversation, an action target, a contact, or a quote draft,
 - expose read-only billable usage totals by monthly, weekly, or custom period through `/api/billing/usage`,
 - show the current pricing posture without connecting payment collection.
 
 Usage visibility is now incorporated into Settings. `/usage` redirects to
-`/settings?section=usage`. The usage area is read-only. The billing endpoint is also read-only:
-it sums stored `usage_events.customer_charge_snapshot` values by period and user so a
-future payment system can consume the same ledger totals. It does not invoice, collect
-payment, alter pricing rules, or push data to Stripe/Apple. It is a visibility layer
-over the metering data that triage, Assistant, inbound email sync, reply drafting,
-document-template editing, pronunciation alias enrichment, realtime web-search tools,
-realtime voice turns, speech-to-text, text-to-speech, and future API integrations record. OpenAI LLM usage is
-priced from a model catalog with environment overrides for production pricing updates;
-OpenAI Realtime voice usage is priced separately so audio tokens do not get blended into
-text token costs. Unknown text models fall back to the configured/default low-cost model
+`/settings?section=usage`. The usage area is read-only and customer-facing: the main
+summary shows `Usage charge`, task-level usage appears first, provider/model detail
+appears second with explanatory info bubbles, and the full ledger opens in a modal.
+The billing endpoint is also read-only: it sums stored `usage_events.customer_charge_snapshot`
+values by period and user so a future payment system can consume the same ledger totals.
+It does not invoice, collect payment, alter pricing rules, or push data to Stripe/Apple.
+It is a visibility layer over the metering data that triage, Assistant, inbound email sync,
+reply drafting, document-template editing, pronunciation alias enrichment, realtime web-search tools,
+realtime voice turns, speech-to-text, text-to-speech, and future API integrations record.
+OpenAI LLM usage is priced from a model catalog with environment overrides for production pricing updates;
+OpenAI web-search calls use separate reasoning and non-reasoning tool-call rates; OpenAI
+Realtime voice usage is priced separately so audio tokens do not get blended into text token
+costs; OpenAI text-to-speech uses a pricing-derived estimate when direct audio token usage
+is unavailable. Unknown text models fall back to the configured/default low-cost model
 price and mark the row as price-estimated in metadata.
 
 Settings sections are URL-addressable (`?section=general`, `?section=communication`,
@@ -1047,7 +1054,7 @@ Current performance approach:
 - list/detail pages have skeleton loading states,
 - CRM filter/search/sort state is URL-backed and rendered server-side so the split profile panel can preserve context across clicks and saves,
 - inbox split-view fetches the list, selected preview, and communication settings in parallel after workspace resolution,
-- Settings fetches only the selected section's data so the heavy usage ledger is not loaded for communication, voice, or integrations changes,
+- Settings fetches only the selected section's data so Usage/task/ledger data is not loaded for communication, voice, or integrations changes,
 - log data, engine queues, and AI ledger data are fetched in parallel after workspace resolution,
 - log counts are workspace-scoped,
 - the Assistant landing page uses count queries where possible and reuses the bounded

@@ -27,14 +27,16 @@ Kyro currently records append-only `usage_events` for AI triage, Assistant work,
 inbound-email classification, reply drafting, document-template edits, pronunciation
 alias enrichment, realtime web-search tool calls, speech-to-text, text-to-speech,
 and real outbound email sends.
-The Settings billing view is read-only and shows:
+The Settings usage/billing view is read-only and customer-facing. It shows:
 
-- provider cost,
-- customer charge,
-- gross margin,
-- provider/model/service breakdowns,
-- per-user usage,
-- source links back into the CRM where possible.
+- total usage charge for the selected period,
+- ledger event count,
+- usage by task as the first breakdown,
+- provider/model/service breakdowns with info bubbles that explain what each model/service is used for,
+- a detailed ledger modal for billing checks and export/debug review.
+
+Provider cost and gross margin are still stored in the append-only ledger and can be surfaced for
+internal/dev visibility, but they are not the primary customer-facing numbers.
 
 No payment provider, invoice collection, tax handling, bookkeeping, or reconciliation is wired yet.
 
@@ -85,7 +87,7 @@ Examples:
 Users should eventually see:
 
 - Current billing-period usage.
-- Usage by feature.
+- Usage by task/feature.
 - Usage by user.
 - AI/model usage.
 - SMS/voice usage.
@@ -117,11 +119,17 @@ Current OpenAI metering behaviour:
 - Reasoning tokens are stored separately but priced as output tokens so output cost is
   not double-counted.
 - OpenAI web-search tool calls are recorded as `web_search_calls` in addition to the
-  tokens reported by the model response.
+  tokens reported by the model response. Current defaults distinguish non-reasoning
+  search calls from reasoning search calls, with an environment override available through
+  `OPENAI_WEB_SEARCH_COST_PER_1K_CALLS`.
 - OpenAI Realtime voice turns read token usage from the `response.done` event and
   split it into text input, audio input, cached input, text output, audio output,
   and reasoning rows. This keeps live voice costing aligned with the actual
   `gpt-realtime-2` usage rather than a local estimate.
+- OpenAI text-to-speech uses direct environment pricing when
+  `OPENAI_TTS_UNIT_COST_PER_SECOND_USD` is configured. Otherwise the default
+  `gpt-4o-mini-tts` path estimates text-input and audio-output cost from the current
+  OpenAI rate card and marks the row metadata as price-estimated.
 - Known OpenAI model prices are snapshotted from the in-app catalog, with environment
   overrides available for production updates:
   `OPENAI_<MODEL>_INPUT_COST_PER_1M`, `OPENAI_<MODEL>_CACHED_INPUT_COST_PER_1M`,

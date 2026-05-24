@@ -46,9 +46,11 @@ async function LlmDevStatusPill() {
 export function AppFrame({
   active,
   children,
+  topControls,
 }: Readonly<{
   active: string;
   children: ReactNode;
+  topControls?: ReactNode;
 }>) {
   const activeHref = navItems.find((item) => item.label === active)?.href;
 
@@ -133,6 +135,7 @@ export function AppFrame({
 
       <section className="workspace">
         <div className="dev-top-controls">
+          {topControls}
           <TextScaleControl />
           <Suspense fallback={null}>
             <LlmDevStatusPill />

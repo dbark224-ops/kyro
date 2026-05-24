@@ -35,12 +35,15 @@ Current routing is intentionally simple but production-shaped:
 - Assistant supports OpenAI by default and local Ollama through `ASSISTANT_PROVIDER=ollama` for development,
 - both paths record `ai_runs`, `model_route_decisions`, `usage_events`, and `audit_logs`,
 - Assistant turns also persist `assistant_threads`, `assistant_messages`, tool-call records, known UI blocks, rolling summaries, and explicit memories,
-- the Usage settings section reads the metered ledger for cost and customer-charge visibility,
+- the Usage settings section reads the metered ledger for customer-facing usage charge, task breakdowns, provider/model explanations, and detailed ledger review,
 - OpenAI Responses usage is normalized through `apps/web/src/lib/usage/openai.ts` so uncached input tokens,
   cached input tokens, visible output tokens, reasoning tokens, and web-search tool calls are tracked separately.
 - OpenAI Realtime voice usage is also normalized through the same helper so text, audio,
   cached, and reasoning token rows are priced with the realtime rate card instead of
   the general text-model estimate.
+- OpenAI text-to-speech usage is recorded as usage rows too. When direct audio-token
+  usage is not returned, Kyro uses a pricing-derived estimate and marks that row as
+  estimated in metadata.
 
 Provider-specific logic is kept behind `apps/web/src/lib/ai/triage.ts` for inquiry triage,
 `apps/web/src/lib/assistant/providers.ts` for Assistant narration, and shared usage helpers
@@ -170,7 +173,7 @@ Recommended first billing posture:
 - Usage is metered per workspace and user.
 - Costs are calculated using stored price snapshots.
 - Customer charges are calculated using stored markup/price snapshots.
-- Admin dashboards show usage by feature, model, user, and period.
+- Admin/customer dashboards show usage by task/feature, model, user, and period.
 - Stripe billing can be added later using the metered usage ledger.
 
 ## Budget and Safety Controls

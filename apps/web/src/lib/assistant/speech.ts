@@ -14,9 +14,16 @@ const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 1;
 const MIN_USABLE_TTS_SPEED = 1;
 const DEFAULT_MARKUP_RATE = 0.25;
+const OPENAI_PRICE_SOURCE = "openai_api_pricing_2026_05_24";
+const OPENAI_TTS_AUDIO_TOKENS_PER_SECOND = 20;
 const DEFAULT_TTS_INSTRUCTIONS =
   "Speak as Kyro, a practical AI assistant for a trades CRM. Use a normal, brisk conversational pace with short pauses. Keep the delivery warm, concise, and easy to understand for a busy tradesperson.";
-const DEFAULT_UNIT_COSTS_PER_SECOND: Record<string, number> = {};
+const DEFAULT_OPENAI_TTS_MODEL_PRICES: Record<
+  string,
+  { audioOutputPer1M: number; textInputPer1M: number }
+> = {
+  "gpt-4o-mini-tts": { audioOutputPer1M: 12, textInputPer1M: 0.6 },
+};
 const MAX_TTS_CHARACTERS = 4096;
 
 type TtsProvider = "openai" | "elevenlabs";
@@ -28,6 +35,8 @@ type ProviderSpeechResult = SynthesizeAssistantSpeechResult & {
     costSnapshot: number;
     customerChargeSnapshot: number;
     markupSnapshot: number;
+    priceEstimated: boolean;
+    priceSource: string;
     quantity: number;
     unit: string;
     unitCostSnapshot: number;
@@ -110,14 +119,55 @@ function openAiTtsSpeed() {
   return Math.min(4, parsed);
 }
 
-function openAiTtsUnitCostPerSecond(model: string) {
-  const parsed = Number(envValue("OPENAI_TTS_UNIT_COST_PER_SECOND_USD"));
+function estimateTextTokens(text: string) {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
 
-  if (Number.isFinite(parsed) && parsed >= 0) {
-    return parsed;
+export function openAiTtsCost(input: {
+  estimatedSeconds: number;
+  model: string;
+  text: string;
+}) {
+  const override = envValue("OPENAI_TTS_UNIT_COST_PER_SECOND_USD");
+  const parsed = override ? Number(override) : null;
+
+  if (parsed !== null && Number.isFinite(parsed) && parsed >= 0) {
+    return {
+      cost: Number((input.estimatedSeconds * parsed).toFixed(8)),
+      priceEstimated: false,
+      priceSource: "env:OPENAI_TTS_UNIT_COST_PER_SECOND_USD",
+      unitCost: parsed,
+    };
   }
 
-  return DEFAULT_UNIT_COSTS_PER_SECOND[model] ?? 0;
+  const pricing = DEFAULT_OPENAI_TTS_MODEL_PRICES[input.model];
+
+  if (!pricing) {
+    return {
+      cost: 0,
+      priceEstimated: true,
+      priceSource: `${OPENAI_PRICE_SOURCE}:fallback:unknown_tts_model`,
+      unitCost: 0,
+    };
+  }
+
+  const audioTokens = Math.ceil(
+    input.estimatedSeconds * OPENAI_TTS_AUDIO_TOKENS_PER_SECOND,
+  );
+  const textTokens = estimateTextTokens(input.text);
+  const audioCost = (audioTokens * pricing.audioOutputPer1M) / 1_000_000;
+  const textCost = (textTokens * pricing.textInputPer1M) / 1_000_000;
+  const cost = Number((audioCost + textCost).toFixed(8));
+
+  return {
+    cost,
+    priceEstimated: true,
+    priceSource: `${OPENAI_PRICE_SOURCE}:${input.model}:estimated_text_input_audio_output`,
+    unitCost:
+      input.estimatedSeconds > 0
+        ? Number((cost / input.estimatedSeconds).toFixed(10))
+        : cost,
+  };
 }
 
 function elevenLabsApiKey() {
@@ -303,6 +353,8 @@ function toUsageEventRow(input: {
   customerChargeSnapshot: number;
   markupSnapshot: number;
   model: string;
+  priceEstimated: boolean;
+  priceSource: string;
   provider: TtsProvider;
   quantity: number;
   sourceMessageId: string | null;
@@ -339,6 +391,8 @@ function toUsageEventRow(input: {
     customer_charge_snapshot: String(event.customerChargeSnapshot),
     markup_snapshot: String(event.markupSnapshot),
     metadata: {
+      priceEstimated: input.priceEstimated,
+      priceSource: input.priceSource,
       source: "assistant.voice_reply",
     },
     model: event.model ?? null,
@@ -416,9 +470,8 @@ async function synthesizeOpenAiSpeech(
     responseFormat,
   );
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
-  const unitCost = openAiTtsUnitCostPerSecond(model);
+  const pricing = openAiTtsCost({ estimatedSeconds, model, text: input });
   const markup = openAiTtsMarkupRate();
-  const cost = Number((estimatedSeconds * unitCost).toFixed(8));
 
   return {
     audio,
@@ -429,12 +482,14 @@ async function synthesizeOpenAiSpeech(
     responseFormat,
     speed,
     usage: {
-      costSnapshot: cost,
-      customerChargeSnapshot: Number((cost * (1 + markup)).toFixed(8)),
+      costSnapshot: pricing.cost,
+      customerChargeSnapshot: Number((pricing.cost * (1 + markup)).toFixed(8)),
       markupSnapshot: markup,
+      priceEstimated: pricing.priceEstimated,
+      priceSource: pricing.priceSource,
       quantity: estimatedSeconds,
       unit: "second",
-      unitCostSnapshot: unitCost,
+      unitCostSnapshot: pricing.unitCost,
       usageType: "text_to_speech_seconds",
     },
     voice,
@@ -509,6 +564,8 @@ async function synthesizeElevenLabsSpeech(
       costSnapshot: cost,
       customerChargeSnapshot: Number((cost * (1 + markup)).toFixed(8)),
       markupSnapshot: markup,
+      priceEstimated: false,
+      priceSource: "elevenlabs_pricing_env",
       quantity,
       unit: "character",
       unitCostSnapshot: unitCost,
@@ -547,6 +604,8 @@ export async function synthesizeAssistantSpeech({
       customerChargeSnapshot: speech.usage.customerChargeSnapshot,
       markupSnapshot: speech.usage.markupSnapshot,
       model: speech.model,
+      priceEstimated: speech.usage.priceEstimated,
+      priceSource: speech.usage.priceSource,
       provider: speech.provider,
       quantity: speech.usage.quantity,
       sourceMessageId,

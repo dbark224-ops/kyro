@@ -24,6 +24,8 @@ export type UsageTotals = {
 
 export type UsageBreakdownRow = {
   key: string;
+  label: string;
+  description: string;
   provider: string;
   service: string;
   model: string;
@@ -64,6 +66,9 @@ export type UsageLedgerRow = {
   sourceLabel: string;
   sourceMeta: string | null;
   sourceHref: string | null;
+  taskType: string;
+  taskLabel: string;
+  taskDescription: string;
 };
 
 export type UsageReport = {
@@ -72,6 +77,7 @@ export type UsageReport = {
   totals: UsageTotals;
   providerBreakdown: UsageBreakdownRow[];
   serviceBreakdown: UsageBreakdownRow[];
+  taskBreakdown: UsageBreakdownRow[];
   userBreakdown: UserUsageRow[];
   ledger: UsageLedgerRow[];
 };
@@ -318,6 +324,10 @@ export async function getUsageReport(
     serviceBreakdown: buildBreakdown(ledger, (row) =>
       [row.service, row.usageType].join("::"),
     ),
+    taskBreakdown: buildBreakdown(ledger, (row) => row.taskType, (row) => ({
+      description: row.taskDescription,
+      label: row.taskLabel,
+    })),
     userBreakdown: buildUserBreakdown(ledger),
     ledger,
   };
@@ -337,7 +347,9 @@ function toLedgerRow(
   const currency = textValue(row.currency) ?? "USD";
   const userId = valueId(row.user_id);
   const user = userId ? usersById.get(userId) : null;
+  const aiRun = aiRunForUsageRow(row, aiRunsById);
   const source = resolveSource(row, aiRunsById, actionsById, quoteDraftsById);
+  const task = usageTaskForRow(row, aiRun);
 
   return {
     id: String(row.id),
@@ -360,6 +372,135 @@ function toLedgerRow(
     sourceLabel: source.label,
     sourceMeta: source.meta,
     sourceHref: source.href,
+    taskType: task.key,
+    taskLabel: task.label,
+    taskDescription: task.description,
+  };
+}
+
+function usageTaskForRow(row: UsageEventRow, aiRun: AiRunRow | null) {
+  const service = textValue(row.service) ?? "llm";
+  const usageType = textValue(row.usage_type) ?? "usage";
+  const metadata = objectRecord(row.metadata);
+  const taskType =
+    textValue(metadata.taskType) ??
+    textValue(metadata.task_type) ??
+    textValue(metadata.billingTask) ??
+    textValue(metadata.billing_task) ??
+    textValue(aiRun?.task_type) ??
+    service;
+  const normalized = taskType.toLowerCase();
+  const sourceType = textValue(row.source_type);
+
+  if (service === "realtime") {
+    return {
+      description:
+        "Live voice conversations, including streamed speech, text, cached context, and tool-aware voice turns.",
+      key: "live_voice_assistant",
+      label: "Live voice assistant",
+    };
+  }
+
+  if (service === "speech_to_text") {
+    return {
+      description:
+        "Audio uploaded or recorded for Kyro to transcribe into text before acting on it.",
+      key: "voice_transcription",
+      label: "Voice transcription",
+    };
+  }
+
+  if (service === "text_to_speech") {
+    return {
+      description:
+        "Generated voice playback, pronunciation previews, and non-realtime spoken replies.",
+      key: "voice_playback",
+      label: "Voice playback",
+    };
+  }
+
+  if (service === "web_search" || usageType === "web_search_calls") {
+    return {
+      description:
+        "Internet search calls Kyro used to ground an answer with current information.",
+      key: "internet_search",
+      label: "Internet search",
+    };
+  }
+
+  if (service === "email") {
+    return {
+      description:
+        "Email delivery and communication activity recorded so billing can include outbound volume later.",
+      key: "email_delivery",
+      label: "Email delivery",
+    };
+  }
+
+  if (
+    normalized.includes("reply") ||
+    normalized.includes("draft_reply") ||
+    sourceType === "inbox_reply"
+  ) {
+    return {
+      description:
+        "AI-generated email reply drafts and edits before the user sends them.",
+      key: "ai_reply_drafting",
+      label: "AI reply drafting",
+    };
+  }
+
+  if (
+    normalized.includes("inbound") ||
+    normalized.includes("triage") ||
+    normalized.includes("classification") ||
+    normalized.includes("classifier") ||
+    normalized.includes("email_sync")
+  ) {
+    return {
+      description:
+        "Inbound email filtering, classification, extraction, and CRM work item promotion.",
+      key: "inbound_email_processing",
+      label: "Inbound email processing",
+    };
+  }
+
+  if (
+    normalized.includes("template_revision") ||
+    normalized.includes("template") ||
+    normalized.includes("document")
+  ) {
+    return {
+      description:
+        "Document template edits, quote/invoice structure generation, and document assistant actions.",
+      key: "document_generation",
+      label: "Document generation",
+    };
+  }
+
+  if (normalized.includes("pronunciation") || normalized.includes("vocabulary")) {
+    return {
+      description:
+        "Pronunciation vocabulary suggestions, aliases, and background cleanup.",
+      key: "pronunciation_vocabulary",
+      label: "Pronunciation vocabulary",
+    };
+  }
+
+  if (normalized.includes("settings") || normalized.includes("help")) {
+    return {
+      description:
+        "Assistant help answers and safe settings-control work inside Kyro.",
+      key: "assistant_help_settings",
+      label: "Assistant help and settings",
+    };
+  }
+
+  return {
+    description:
+      "General AI reasoning, writing, command handling, or tool orchestration that does not fit a narrower task.",
+    key: `ai_${service}`,
+    label: service === "llm" ? "AI assistant work" : formatLabel(service),
   };
 }
 
@@ -516,6 +657,10 @@ function buildTotals(rows: UsageLedgerRow[]): UsageTotals {
 function buildBreakdown(
   rows: UsageLedgerRow[],
   keyForRow: (row: UsageLedgerRow) => string,
+  descriptorForRow?: (row: UsageLedgerRow) => {
+    description: string;
+    label: string;
+  },
 ) {
   const byKey = new Map<string, UsageBreakdownRow>();
 
@@ -525,6 +670,9 @@ function buildBreakdown(
       byKey.get(key) ??
       ({
         key,
+        description:
+          descriptorForRow?.(row).description ?? formatLabel(row.service),
+        label: descriptorForRow?.(row).label ?? row.model,
         provider: row.provider,
         service: row.service,
         model: row.model,

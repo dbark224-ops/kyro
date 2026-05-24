@@ -33,7 +33,7 @@ import {
   getUsageReport,
   normalizeUsageWindow,
   usageWindows,
-  type UsageLedgerRow,
+  type UsageBreakdownRow,
 } from "../../lib/usage/queries";
 import {
   GOOGLE_PROVIDER,
@@ -62,6 +62,7 @@ import {
 import { InfoBubble } from "./info-bubble";
 import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
 import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
+import { UsageLedgerModal } from "./usage-ledger-modal";
 
 export const dynamic = "force-dynamic";
 
@@ -127,12 +128,6 @@ function formatMoney(value: number, currency: string) {
     maximumFractionDigits,
     minimumFractionDigits: 2,
     style: "currency",
-  }).format(value);
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en", {
-    maximumFractionDigits: 0,
   }).format(value);
 }
 
@@ -338,46 +333,6 @@ function EmailSignatureEditor({
         </div>
       </div>
     </section>
-  );
-}
-
-function UsageSettingsLedger({ rows }: Readonly<{ rows: UsageLedgerRow[] }>) {
-  if (rows.length === 0) {
-    return (
-      <p className="empty-copy">
-        No usage events have been recorded for this range.
-      </p>
-    );
-  }
-
-  return (
-    <div className="usage-ledger compact">
-      {rows.slice(0, 8).map((row) => (
-        <div className="usage-ledger-row" key={row.id}>
-          <div className="usage-ledger-main">
-            {row.sourceHref ? (
-              <Link href={row.sourceHref} prefetch={false}>
-                {row.sourceLabel}
-              </Link>
-            ) : (
-              <strong>{row.sourceLabel}</strong>
-            )}
-            <span>
-              {formatLabel(row.usageType)} - {row.provider} / {row.model}
-            </span>
-            {row.sourceMeta ? <p>{row.sourceMeta}</p> : null}
-          </div>
-          <div className="usage-ledger-meta">
-            <span>{row.userName}</span>
-            <span>
-              {formatNumber(row.quantity)} {row.unit}
-            </span>
-            <strong>{formatMoney(row.customerCharge, row.currency)}</strong>
-            <time>{formatDate(row.createdAt)}</time>
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -2168,49 +2123,94 @@ function PronunciationVocabularySettings({
   );
 }
 
+type UsageReportData = Awaited<ReturnType<typeof getUsageReport>>;
+
+function modelUsageDescription(row: UsageBreakdownRow) {
+  const model = row.model.toLowerCase();
+  const service = row.service.toLowerCase();
+
+  if (service === "realtime" || model.includes("realtime")) {
+    return "Used for Kyro's live voice assistant: low-latency spoken conversations, audio/text tokens, cached context, and voice tool calls.";
+  }
+
+  if (service === "speech_to_text" || model.includes("transcribe") || model.includes("whisper")) {
+    return "Used when Kyro turns recorded or uploaded audio into text before it can answer or take action.";
+  }
+
+  if (service === "text_to_speech" || model.includes("tts")) {
+    return "Used for generated voice playback and pronunciation previews when Kyro reads text aloud outside the live realtime session.";
+  }
+
+  if (service === "web_search") {
+    return "Used when Kyro searches the internet to answer with current information. Search calls can also add model-token cost when result content is used.";
+  }
+
+  if (model.includes("gpt-4.1-mini")) {
+    return "Kyro's lightweight OpenAI text model for assistant replies, settings help, email drafting, document/template edits, classification, and tool-aware work.";
+  }
+
+  if (model === "n/a") {
+    return "This is a provider or delivery event rather than a model-generated AI response.";
+  }
+
+  return "Used for AI work routed through this provider/model. The task breakdown above shows what business activity created the charge.";
+}
+
+function UsageInternalCostPills({
+  usageReport,
+}: Readonly<{
+  usageReport: UsageReportData | null;
+}>) {
+  if (!usageReport) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="Internal usage cost controls"
+      className="usage-internal-cost-pills"
+    >
+      <span title="Internal provider/API cost before Kyro markup.">
+        <b>Provider</b>
+        {formatMoney(
+          usageReport.totals.providerCost,
+          usageReport.totals.currency,
+        )}
+      </span>
+      <span title="Internal margin before payment processing, support, and infrastructure costs.">
+        <b>Margin</b>
+        {formatMoney(
+          usageReport.totals.grossMargin,
+          usageReport.totals.currency,
+        )}
+      </span>
+    </div>
+  );
+}
+
 function UsageSettingsDetail({
   activeWindow,
   usageReport,
 }: Readonly<{
   activeWindow: string;
-  usageReport: Awaited<ReturnType<typeof getUsageReport>>;
+  usageReport: UsageReportData;
 }>) {
   return (
     <>
-      <section
-        className="metric-grid settings-usage-metrics"
-        aria-label="Usage metrics"
-      >
-        <article className="metric-card cyan">
-          <p>Provider cost</p>
-          <strong>
-            {formatMoney(
-              usageReport.totals.providerCost,
-              usageReport.totals.currency,
-            )}
-          </strong>
-          <span>{usageReport.totals.events} ledger events</span>
-        </article>
-        <article className="metric-card purple">
-          <p>Customer charge</p>
-          <strong>
-            {formatMoney(
-              usageReport.totals.customerCharge,
-              usageReport.totals.currency,
-            )}
-          </strong>
-          <span>{formatNumber(usageReport.totals.quantity)} metered units</span>
-        </article>
-        <article className="metric-card pink">
-          <p>Gross margin</p>
-          <strong>
-            {formatMoney(
-              usageReport.totals.grossMargin,
-              usageReport.totals.currency,
-            )}
-          </strong>
-          <span>Before payment processing</span>
-        </article>
+      <section className="usage-summary-strip" aria-label="Usage metrics">
+        <div className="metric-grid settings-usage-metrics usage-charge-only">
+          <article className="metric-card purple">
+            <p>Usage charge</p>
+            <strong>
+              {formatMoney(
+                usageReport.totals.customerCharge,
+                usageReport.totals.currency,
+              )}
+            </strong>
+            <span>{usageReport.totals.events} ledger events in this range</span>
+          </article>
+        </div>
+        <UsageLedgerModal rows={usageReport.ledger} />
       </section>
 
       <nav className="filter-bar" aria-label="Usage date range">
@@ -2235,29 +2235,23 @@ function UsageSettingsDetail({
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Breakdown</p>
-              <h2>Provider and model</h2>
+              <h2>Usage by task</h2>
             </div>
           </div>
-          {usageReport.providerBreakdown.length > 0 ? (
+          {usageReport.taskBreakdown.length > 0 ? (
             <div className="usage-table">
-              <div className="usage-row heading" aria-hidden="true">
-                <span>Provider / model</span>
+              <div className="usage-row usage-row-three heading" aria-hidden="true">
+                <span>Task</span>
                 <span>Events</span>
-                <span>Cost</span>
-                <span>Charge</span>
+                <span>Usage charge</span>
               </div>
-              {usageReport.providerBreakdown.map((row) => (
-                <div className="usage-row" key={row.key}>
-                  <div>
-                    <strong>
-                      {row.model === "n/a"
-                        ? row.provider
-                        : `${row.provider} / ${row.model}`}
-                    </strong>
-                    <span>{formatLabel(row.service)}</span>
+              {usageReport.taskBreakdown.map((row) => (
+                <div className="usage-row usage-row-three" key={row.key}>
+                  <div className="usage-breakdown-copy">
+                    <strong>{row.label}</strong>
+                    <span>{row.description}</span>
                   </div>
                   <span>{row.events}</span>
-                  <span>{formatMoney(row.providerCost, row.currency)}</span>
                   <span>{formatMoney(row.customerCharge, row.currency)}</span>
                 </div>
               ))}
@@ -2272,12 +2266,46 @@ function UsageSettingsDetail({
         <article className="panel embedded-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Ledger</p>
-              <h2>Recent usage events</h2>
+              <p className="eyebrow">Technical breakdown</p>
+              <h2>Provider and model</h2>
             </div>
           </div>
-          <UsageSettingsLedger rows={usageReport.ledger} />
+          {usageReport.providerBreakdown.length > 0 ? (
+            <div className="usage-table">
+              <div className="usage-row usage-row-three heading" aria-hidden="true">
+                <span>Provider / model</span>
+                <span>Events</span>
+                <span>Usage charge</span>
+              </div>
+              {usageReport.providerBreakdown.map((row) => (
+                <div className="usage-row usage-row-three" key={row.key}>
+                  <div>
+                    <span className="usage-breakdown-info-title">
+                      <strong>
+                        {row.model === "n/a"
+                          ? row.provider
+                          : `${row.provider} / ${row.model}`}
+                      </strong>
+                      <InfoBubble
+                        label={`What ${row.model === "n/a" ? row.provider : row.model} is used for`}
+                      >
+                        {modelUsageDescription(row)}
+                      </InfoBubble>
+                    </span>
+                    <span>{formatLabel(row.service)}</span>
+                  </div>
+                  <span>{row.events}</span>
+                  <span>{formatMoney(row.customerCharge, row.currency)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">
+              No metered usage in this date range yet.
+            </p>
+          )}
         </article>
+
       </div>
     </>
   );
@@ -2399,15 +2427,15 @@ export default async function SettingsPage({
     {
       detail: usageReport
         ? `${usageReport.totals.events} ledger events - ${formatMoney(
-            usageReport.totals.providerCost,
+            usageReport.totals.customerCharge,
             usageReport.totals.currency,
-          )} provider cost`
-        : "Ledger, provider cost, and metering",
+          )} usage charge`
+        : "Usage charge, tasks, and ledger export",
       eyebrow: "Usage",
       href: settingsSectionHref("usage", activeWindow),
       section: "usage",
       status: usageReport ? formatDate(usageReport.generatedAt) : "Open",
-      title: "Billing and metering",
+      title: "Usage and billing",
     },
   ];
   const selectedDetail =
@@ -2450,7 +2478,7 @@ export default async function SettingsPage({
       <SettingsDetailShell
         eyebrow="Usage"
         status={`Generated ${formatDate(usageReport.generatedAt)}`}
-        title="Billing and metering"
+        title="Usage and billing"
       >
         <UsageSettingsDetail
           activeWindow={activeWindow}
@@ -2471,7 +2499,14 @@ export default async function SettingsPage({
     ) : null;
 
   return (
-    <AppFrame active="Settings">
+    <AppFrame
+      active="Settings"
+      topControls={
+        selectedSection === "usage" ? (
+          <UsageInternalCostPills usageReport={usageReport} />
+        ) : null
+      }
+    >
       <header className="topbar settings-topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>

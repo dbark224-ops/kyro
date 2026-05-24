@@ -3,7 +3,8 @@ import type { UsageEventCreate, UsageType } from "@kyro/contracts";
 
 const DEFAULT_MARKUP_RATE = 0.25;
 const PRICE_SOURCE = "openai_api_pricing_2026_05_24";
-const WEB_SEARCH_COST_PER_1K_CALLS = 10;
+const WEB_SEARCH_NON_REASONING_COST_PER_1K_CALLS = 25;
+const WEB_SEARCH_REASONING_COST_PER_1K_CALLS = 10;
 
 type JsonObject = Record<string, unknown>;
 
@@ -617,8 +618,14 @@ export function buildOpenAiWebSearchCallUsageEvent(input: {
   };
   model: string;
 }): UsageEventDraft {
+  const normalizedModel = input.model.trim().toLowerCase();
+  const isReasoningSearchModel =
+    normalizedModel.startsWith("o") || normalizedModel.startsWith("gpt-5");
+  const defaultPer1K = isReasoningSearchModel
+    ? WEB_SEARCH_REASONING_COST_PER_1K_CALLS
+    : WEB_SEARCH_NON_REASONING_COST_PER_1K_CALLS;
   const unitCost =
-    (numberEnv("OPENAI_WEB_SEARCH_COST_PER_1K_CALLS") ?? WEB_SEARCH_COST_PER_1K_CALLS) / 1000;
+    (numberEnv("OPENAI_WEB_SEARCH_COST_PER_1K_CALLS") ?? defaultPer1K) / 1000;
   const price = priceQuantity(1, unitCost);
 
   return {
@@ -629,7 +636,7 @@ export function buildOpenAiWebSearchCallUsageEvent(input: {
     markupSnapshot: price.markupSnapshot,
     metadata: {
       ...input.context.metadata,
-      priceSource: "openai_api_pricing_2026_05_24:web_search_calls",
+      priceSource: `${PRICE_SOURCE}:web_search_${isReasoningSearchModel ? "reasoning" : "non_reasoning"}_calls`,
     },
     model: input.model,
     provider: "openai",
