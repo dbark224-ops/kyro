@@ -7250,10 +7250,6 @@ button:disabled {
     flex-wrap: wrap;
   }
 
-  .usage-internal-cost-pills {
-    display: none;
-  }
-
   .dev-top-controls .llm-dev-pill {
     max-width: 100%;
   }

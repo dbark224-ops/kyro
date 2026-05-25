@@ -2141,42 +2141,6 @@ function modelUsageDescription(row: UsageBreakdownRow) {
   return "Used for AI work routed through this provider/model. The task breakdown above shows what business activity created the charge.";
 }
 
-function UsageInternalCostPills({
-  displayCurrencySettings,
-  usageReport,
-}: Readonly<{
-  displayCurrencySettings: DisplayCurrencySettings | null;
-  usageReport: UsageReportData | null;
-}>) {
-  if (!usageReport || !displayCurrencySettings) {
-    return null;
-  }
-
-  return (
-    <div
-      aria-label="Internal usage cost controls"
-      className="usage-internal-cost-pills"
-    >
-      <span title="Internal provider/API cost before Kyro markup.">
-        <b>Provider</b>
-        {formatDisplayMoney(
-          usageReport.totals.providerCost,
-          usageReport.totals.currency,
-          displayCurrencySettings,
-        )}
-      </span>
-      <span title="Internal margin before payment processing, support, and infrastructure costs.">
-        <b>Margin</b>
-        {formatDisplayMoney(
-          usageReport.totals.grossMargin,
-          usageReport.totals.currency,
-          displayCurrencySettings,
-        )}
-      </span>
-    </div>
-  );
-}
-
 function UsageSettingsDetail({
   activeWindow,
   displayCurrencySettings,
@@ -2505,17 +2469,7 @@ export default async function SettingsPage({
     ) : null;
 
   return (
-    <AppFrame
-      active="Settings"
-      topControls={
-        selectedSection === "usage" ? (
-          <UsageInternalCostPills
-            displayCurrencySettings={generalSettings}
-            usageReport={usageReport}
-          />
-        ) : null
-      }
-    >
+    <AppFrame active="Settings">
       <header className="topbar settings-topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>

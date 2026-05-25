@@ -3,6 +3,15 @@ import { RoutePreloader } from "./route-preloader";
 import { TextScaleControl } from "./text-scale-control";
 import { signOutAction } from "../auth/actions";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
+import {
+  convertDisplayMoney,
+  formatCurrencyAmount,
+} from "../../lib/billing/display-currency";
+import { hasSupabaseEnv } from "../../lib/env";
+import { createServerSupabaseClient } from "../../lib/supabase/server";
+import { usageWindowStart } from "../../lib/usage/queries";
+import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import Link from "next/link";
 import { Suspense } from "react";
 import type { ReactNode } from "react";
@@ -39,6 +48,121 @@ async function LlmDevStatusPill() {
     >
       <span aria-hidden="true" />
       {status.label}
+    </div>
+  );
+}
+
+function numberValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "USD";
+}
+
+async function loadUsageInternalCostPillData() {
+  if (process.env.NODE_ENV === "production" || !hasSupabaseEnv()) {
+    return null;
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return null;
+    }
+
+    const workspace = await getPrimaryWorkspace(supabase);
+
+    if (!workspace) {
+      return null;
+    }
+
+    const start = usageWindowStart("30d");
+    let usageQuery = supabase
+      .from("usage_events")
+      .select("cost_snapshot,customer_charge_snapshot,currency")
+      .eq("workspace_id", workspace.id)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+
+    if (start) {
+      usageQuery = usageQuery.gte("created_at", start);
+    }
+
+    const [settings, usageResult] = await Promise.all([
+      getWorkspaceGeneralSettings(supabase, workspace.id),
+      usageQuery,
+    ]);
+
+    if (usageResult.error) {
+      return null;
+    }
+
+    const totals = (usageResult.data ?? []).reduce(
+      (current, row) => {
+        const currency = textValue(row.currency);
+        const provider =
+          convertDisplayMoney(numberValue(row.cost_snapshot), currency, settings)
+            ?.amount ?? 0;
+        const customer =
+          convertDisplayMoney(
+            numberValue(row.customer_charge_snapshot),
+            currency,
+            settings,
+          )?.amount ?? 0;
+
+        return {
+          grossMargin: current.grossMargin + customer - provider,
+          providerCost: current.providerCost + provider,
+        };
+      },
+      { grossMargin: 0, providerCost: 0 },
+    );
+
+    return {
+      currency: settings.displayCurrency,
+      grossMargin: totals.grossMargin,
+      providerCost: totals.providerCost,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function UsageInternalCostPills() {
+  const totals = await loadUsageInternalCostPillData();
+
+  if (!totals) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="Internal usage cost controls"
+      className="usage-internal-cost-pills"
+    >
+      <span title="Internal provider/API cost over the last 30 days before Kyro markup.">
+        <b>Provider</b>
+        {formatCurrencyAmount(totals.providerCost, totals.currency)}
+      </span>
+      <span title="Internal margin over the last 30 days before payment processing, support, and infrastructure costs.">
+        <b>Margin</b>
+        {formatCurrencyAmount(totals.grossMargin, totals.currency)}
+      </span>
     </div>
   );
 }
@@ -136,6 +260,9 @@ export function AppFrame({
       <section className="workspace">
         <div className="dev-top-controls">
           {topControls}
+          <Suspense fallback={null}>
+            <UsageInternalCostPills />
+          </Suspense>
           <TextScaleControl />
           <Suspense fallback={null}>
             <LlmDevStatusPill />
