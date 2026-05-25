@@ -357,12 +357,10 @@ type IntegrationOverview = {
 function SettingsDetailShell({
   children,
   eyebrow,
-  status,
   title,
 }: Readonly<{
   children: React.ReactNode;
   eyebrow: string;
-  status: string;
   title: string;
 }>) {
   return (
@@ -373,7 +371,6 @@ function SettingsDetailShell({
           <h2>{title}</h2>
         </div>
         <div className="row-actions">
-          <span className="pill">{status}</span>
           <Link
             className="secondary-button compact"
             href="/settings"
@@ -436,46 +433,6 @@ function integrationStatusLabel({
   }
 
   return "Ready to connect";
-}
-
-function combinedIntegrationStatusLabel(
-  googleStatus: string,
-  microsoftStatus: string,
-  connectedCount: number,
-) {
-  if (connectedCount > 0) {
-    return connectedCount === 1 ? "1 connected" : `${connectedCount} connected`;
-  }
-
-  if (
-    googleStatus === "Needs attention" ||
-    microsoftStatus === "Needs attention"
-  ) {
-    return "Needs attention";
-  }
-
-  if (
-    googleStatus === "Ready to connect" ||
-    microsoftStatus === "Ready to connect"
-  ) {
-    return "Ready to connect";
-  }
-
-  if (
-    googleStatus === "Migration pending" ||
-    microsoftStatus === "Migration pending"
-  ) {
-    return "Migration pending";
-  }
-
-  if (
-    googleStatus === "Encryption key needed" ||
-    microsoftStatus === "Encryption key needed"
-  ) {
-    return "Encryption key needed";
-  }
-
-  return "Keys needed";
 }
 
 function DisconnectIntegrationButton({
@@ -2435,31 +2392,6 @@ export default async function SettingsPage({
   const microsoftStatus = microsoftOverview
     ? integrationStatusLabel(microsoftOverview)
     : "Open";
-  const gmailConnected = Boolean(
-    googleOverview?.connections.some(
-      (connection) => connection.status === "connected",
-    ),
-  );
-  const outlookConnected = Boolean(
-    microsoftOverview?.connections.some(
-      (connection) => connection.status === "connected",
-    ),
-  );
-  const connectedEmailProviderCount =
-    Number(gmailConnected) + Number(outlookConnected);
-  const integrationsStatus =
-    googleOverview && microsoftOverview
-      ? combinedIntegrationStatusLabel(
-          googleStatus,
-          microsoftStatus,
-          connectedEmailProviderCount,
-        )
-      : "Open";
-  const outboundStatus = communicationSettings
-    ? communicationSettings.approvalRequired
-      ? "Approval required"
-      : "Direct send"
-    : "Open";
   const settingsItems: SettingsMenuItem[] = [
     {
       detail: generalSettings
@@ -2468,7 +2400,6 @@ export default async function SettingsPage({
       eyebrow: "General",
       href: settingsSectionHref("general", activeWindow),
       section: "general",
-      status: generalSettings ? generalSettings.displayCurrency : "Open",
       title: "System defaults",
     },
     {
@@ -2478,7 +2409,6 @@ export default async function SettingsPage({
       eyebrow: "Outbound",
       href: settingsSectionHref("communication", activeWindow),
       section: "communication",
-      status: outboundStatus,
       title: "Communication settings",
     },
     {
@@ -2488,7 +2418,6 @@ export default async function SettingsPage({
       eyebrow: "Voice",
       href: settingsSectionHref("voice", activeWindow),
       section: "voice",
-      status: voiceSettings ? "OpenAI" : "Open",
       title: "Voice assistant",
     },
     {
@@ -2496,7 +2425,6 @@ export default async function SettingsPage({
       eyebrow: "Integrations",
       href: settingsSectionHref("integrations", activeWindow),
       section: "integrations",
-      status: integrationsStatus,
       title: "Connected accounts",
     },
     {
@@ -2517,7 +2445,6 @@ export default async function SettingsPage({
       eyebrow: "Usage",
       href: settingsSectionHref("usage", activeWindow),
       section: "usage",
-      status: usageReport ? formatDate(usageReport.generatedAt) : "Open",
       title: "Usage and billing",
     },
   ];
@@ -2525,7 +2452,6 @@ export default async function SettingsPage({
     selectedSection === "general" && generalSettings ? (
       <SettingsDetailShell
         eyebrow="General"
-        status={generalSettings.displayCurrency}
         title="System defaults"
       >
         <GeneralSettingsDetail settings={generalSettings} />
@@ -2533,7 +2459,6 @@ export default async function SettingsPage({
     ) : selectedSection === "communication" && communicationSettings ? (
       <SettingsDetailShell
         eyebrow="Outbound"
-        status={outboundStatus}
         title="Communication settings"
       >
         <CommunicationSettingsDetail
@@ -2546,7 +2471,6 @@ export default async function SettingsPage({
       inboundEmailSettings ? (
       <SettingsDetailShell
         eyebrow="Integrations"
-        status={integrationsStatus}
         title="Connected accounts"
       >
         <WorkspaceIntegrationsSettings
@@ -2560,7 +2484,6 @@ export default async function SettingsPage({
     ) : selectedSection === "usage" && usageReport && generalSettings ? (
       <SettingsDetailShell
         eyebrow="Usage"
-        status={`Generated ${formatDate(usageReport.generatedAt)}`}
         title="Usage and billing"
       >
         <UsageSettingsDetail
@@ -2572,7 +2495,6 @@ export default async function SettingsPage({
     ) : selectedSection === "voice" && voiceSettings ? (
       <SettingsDetailShell
         eyebrow="Voice"
-        status={`OpenAI - ${formatLabel(voiceSettings.openAiVoice)}`}
         title="Voice assistant"
       >
         <VoiceSettingsDetail

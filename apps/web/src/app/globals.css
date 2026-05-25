@@ -3918,8 +3918,6 @@ button:disabled {
   display: grid;
   min-height: 64px;
   width: 100%;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3965,23 +3963,6 @@ button:disabled {
   color: var(--muted);
   font-size: 0.8125rem;
   line-height: 1.35;
-}
-
-.settings-menu-status {
-  display: inline-flex;
-  max-width: 180px;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--cyan) 8%, transparent);
-  color: var(--muted);
-  padding: 5px 8px;
-  font-size: 0.72rem;
-  font-weight: 850;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .settings-detail-panel {
@@ -7466,18 +7447,6 @@ button:disabled {
     min-height: 72px;
     border-radius: 14px;
     padding: 12px;
-  }
-
-  .settings-menu-status {
-    max-width: 34vw;
-  }
-
-  .settings-menu-status::after {
-    margin-left: 7px;
-    color: var(--muted);
-    content: "›";
-    font-size: 1rem;
-    line-height: 0.7;
   }
 
   .settings-list-panel {

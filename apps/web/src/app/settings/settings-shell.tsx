@@ -13,7 +13,6 @@ export type SettingsMenuItem = {
   eyebrow: string;
   href: string;
   section: SettingsSection;
-  status: string;
   title: string;
 };
 
@@ -64,7 +63,6 @@ export function SettingsShell({
                   <strong>{item.title}</strong>
                   <span>{item.detail}</span>
                 </div>
-                <span className="settings-menu-status">{item.status}</span>
               </Link>
           ))}
         </div>
