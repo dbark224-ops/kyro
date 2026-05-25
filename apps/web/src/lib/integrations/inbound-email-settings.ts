@@ -34,6 +34,42 @@ export type InboundEmailSettings = {
   timeZone: string;
 };
 
+export type InboundEmailSyncHistoryItem = {
+  actorType: string;
+  checkedConnections: number;
+  createdAt: string;
+  duplicates: number;
+  errors: number;
+  fetchedMessages: number;
+  id: string;
+  needsReconnect: number;
+  observedMessages: number;
+  promotedMessages: number;
+  skippedBySchedule: number;
+  trigger: InboundEmailSyncMode | "assistant" | "manual" | "scheduled" | string;
+};
+
+export type InboundEmailDecisionItem = {
+  accountEmail: string | null;
+  category: string | null;
+  createdAt: string;
+  fromEmail: string | null;
+  id: string;
+  processedAt: string | null;
+  provider: string | null;
+  providerUsed: string | null;
+  reason: string | null;
+  receivedAt: string | null;
+  stage: string | null;
+  status: string;
+  subject: string;
+};
+
+export type InboundEmailOperationalSummary = {
+  decisions: InboundEmailDecisionItem[];
+  syncRuns: InboundEmailSyncHistoryItem[];
+};
+
 export const DEFAULT_INBOUND_EMAIL_ACTION_INSTRUCTIONS = [
   "Promote emails that look like customer enquiries, quote requests, booking changes, job updates, supplier/work logistics, urgent service issues, or other business matters Kyro can help action.",
   "Do not promote personal jokes, family messages, newsletters, receipts, marketing blasts, social notifications, automated system mail, spam, or low-value FYI messages unless they clearly affect the business.",
@@ -446,6 +482,96 @@ export async function getInboundEmailSettings(
   }
 
   return normalizeInboundEmailSettings(data?.settings);
+}
+
+export function normalizeInboundEmailSyncAuditRow(row: {
+  actor_type?: string | null;
+  after: unknown;
+  created_at?: string | null;
+  id: string;
+}): InboundEmailSyncHistoryItem {
+  const after = objectRecord(row.after);
+
+  return {
+    actorType: textValue(row.actor_type) ?? "system",
+    checkedConnections: numberValue(after.checkedConnections) ?? 0,
+    createdAt: textValue(row.created_at) ?? new Date(0).toISOString(),
+    duplicates: numberValue(after.duplicates) ?? 0,
+    errors: numberValue(after.errors) ?? 0,
+    fetchedMessages: numberValue(after.fetchedMessages) ?? 0,
+    id: row.id,
+    needsReconnect: numberValue(after.needsReconnect) ?? 0,
+    observedMessages: numberValue(after.observedMessages) ?? 0,
+    promotedMessages: numberValue(after.promotedMessages) ?? 0,
+    skippedBySchedule: numberValue(after.skippedBySchedule) ?? 0,
+    trigger: textValue(after.trigger) ?? "unknown",
+  };
+}
+
+export function normalizeInboundEmailDecisionRow(row: {
+  created_at?: string | null;
+  id: string;
+  payload: unknown;
+  processed_at?: string | null;
+  status?: string | null;
+}): InboundEmailDecisionItem {
+  const payload = objectRecord(row.payload);
+  const classification = objectRecord(payload.classification);
+
+  return {
+    accountEmail: textValue(payload.accountEmail),
+    category: textValue(classification.category),
+    createdAt: textValue(row.created_at) ?? new Date(0).toISOString(),
+    fromEmail: textValue(payload.fromEmail) ?? textValue(payload.contactEmail),
+    id: row.id,
+    processedAt: textValue(row.processed_at),
+    provider: textValue(payload.provider),
+    providerUsed: textValue(classification.providerUsed),
+    reason: textValue(classification.reason),
+    receivedAt: textValue(payload.receivedAt),
+    stage: textValue(payload.stage),
+    status: textValue(row.status) ?? "unknown",
+    subject: textValue(payload.subject) ?? "Inbound email",
+  };
+}
+
+export async function getInboundEmailOperationalSummary(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<InboundEmailOperationalSummary> {
+  const [syncRunsResult, decisionsResult] = await Promise.all([
+    supabase
+      .from("audit_logs")
+      .select("id,actor_type,after,created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("action", "inbound.email_sync.completed")
+      .order("created_at", { ascending: false })
+      .limit(8),
+    supabase
+      .from("events")
+      .select("id,payload,status,processed_at,created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("type", "inbound.email.received")
+      .order("created_at", { ascending: false })
+      .limit(8),
+  ]);
+
+  if (syncRunsResult.error) {
+    throw new Error(
+      `Unable to load inbound email sync history: ${syncRunsResult.error.message}`,
+    );
+  }
+
+  if (decisionsResult.error) {
+    throw new Error(
+      `Unable to load inbound email decisions: ${decisionsResult.error.message}`,
+    );
+  }
+
+  return {
+    decisions: (decisionsResult.data ?? []).map(normalizeInboundEmailDecisionRow),
+    syncRuns: (syncRunsResult.data ?? []).map(normalizeInboundEmailSyncAuditRow),
+  };
 }
 
 export function shouldRunInboundEmailSync({

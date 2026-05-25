@@ -879,20 +879,36 @@ Important behavior:
   This avoids a new table while still showing missing scopes, reconnect-needed
   warnings, last successful sync, last check attempt, sync failures, and next
   scheduled sync.
+- Settings also shows a compact inbound trace from existing `audit_logs` and
+  `events`: recent sync runs, fetched/promoted/observed/duplicate counts, and
+  recent provider email decisions. This is deliberately read-only operational
+  visibility, not a second queue.
 - Scheduled polling is exposed through `/api/integrations/email/sync`, protected by `INBOUND_EMAIL_SYNC_SECRET` or Vercel's `CRON_SECRET`, and backed by a server-only Supabase service role client. Vercel Cron calls it with `GET`; manual scheduler/testing calls can still use `POST`.
 - `vercel.json` registers this route to run every five minutes in production. The sync worker still respects each workspace's policy, including quiet-hours rules.
 - The default quiet-hours behavior pauses scheduled polling between 10pm and 4am to reduce provider/API/classifier cost, then resumes on the first scheduled poll after quiet hours end. Emergency businesses can keep the same interval overnight.
 - Manual Settings checks and assistant-triggered checks bypass the schedule gate so the user or agent can fetch fresh email when context demands it.
 - Every provider message gets an idempotent `events` row before processing; duplicate provider messages are skipped.
 - Non-actionable mail is not promoted into the CRM. It is recorded as a lightweight awareness event with classification/summary metadata, not as a full conversation.
-- Inbox exposes a separate filtered-out email pop-up for those observed/skipped events. Its header button shows only the count from the last 24 hours on the normal Inbox load; the full bounded recent list and reply-log state are fetched only when the pop-up opens. It is intentionally not a normal work-queue filter so personal/newsletter/noise stays outside the actionable CRM queue while still being quick to review.
+- Inbox exposes a separate filtered-out email pop-up for those observed/skipped events. Its header button shows only the count from the last 24 hours on the normal Inbox load; the full bounded recent list and reply-log state are fetched only when the pop-up opens. The pop-up has its own sender/subject/reason search so operators can inspect noise without mixing it into the main work queue. It is intentionally not a normal work-queue filter so personal/newsletter/noise stays outside the actionable CRM queue while still being quick to review.
 - The filtered-out email pop-up scrolls inside the modal and can send a user-approved direct reply through the connected email provider using the stored subject, sender, summary, and classification metadata. Hidden reply composers are mounted only after a user opens `Reply`, so the modal can render many skipped emails without shipping every AI reply form up front. Those direct replies create internal `outbound.filtered_email.reply_sent` events, and the pop-up displays Kyro's own replied indicator from that log; it does not try to infer replies sent directly in Gmail or Outlook.
 - Filtered-out email now has a primary Promote action that calls `promoteSkippedEmailEvent`. That helper tries to refetch the original provider message by provider message id, falls back to stored event metadata when needed, then creates or reuses the same contact, lead, conversation, inbound message, and triage path as normal promoted inbound mail.
 - Sender-specific learning rules live inside the existing `inbound_email` workspace policy JSON as `senderRules`, so no schema migration is needed for v1. The filtered-out email three-dot menu can add `always_promote` or `always_ignore` rules for a sender email address and displays the current set/not-set state for each option. Settings -> Integrations includes a Sender rules manager that can add email/domain rules, switch rules between relevant/ignored, or remove rules. Sync checks those structured rules before classifier work; matched promote rules produce `sender_rule` classifications and matched ignore rules skip promotion.
 - Actionable business mail creates or reuses a contact, lead, conversation, and inbound message, then runs the same AI triage/action-proposal path as manual inbound.
 - Follow-up emails on an existing provider thread reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
-- The classifier uses heuristics first and, when `OPENAI_API_KEY` is available, a low-cost OpenAI structured-output classifier for non-automated mail. Classification usage is recorded in `usage_events`.
+- The classifier uses heuristics first and, when `OPENAI_API_KEY` is available, a low-cost OpenAI structured-output classifier for non-automated mail. The heuristic layer covers common trade-language signals such as quote, job, booking, blocked/backed-up drains, sewerage, bathroom renovation, repairs, and "come out/check/quote" phrases so obvious customer work is not missed if the LLM path is unavailable. Classification usage is recorded in `usage_events`.
 - No new tables were added for the first version; `workspace_policies`, `integration_connections`, `channels`, `events`, `messages`, and existing CRM tables are enough.
+
+Known inbound gaps to tackle after the poller is stable:
+
+- Gmail/Outlook push mailbox watches and incremental history cursors are deferred;
+  production currently relies on bounded polling plus provider-message
+  idempotency.
+- Inbound provider attachments are not downloaded or stored yet. Outbound local
+  and generated PDF attachments exist, but inbound attachment storage needs a
+  Supabase Storage or Drive-backed file model.
+- Thread matching currently uses provider thread ids and known contact/email data.
+  Deeper `References`/`In-Reply-To` parsing can improve odd forwarded/replied
+  email chains later.
 
 ## Mock Follow-Up Ingestion
 

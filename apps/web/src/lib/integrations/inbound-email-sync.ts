@@ -76,7 +76,7 @@ type InboundEmailMessage = {
   toEmails: string[];
 };
 
-type EmailClassificationCategory =
+export type EmailClassificationCategory =
   | "business_actionable"
   | "business_reference"
   | "newsletter_or_automated"
@@ -84,7 +84,7 @@ type EmailClassificationCategory =
   | "personal_possible_relevance"
   | "spam_or_noise";
 
-type EmailClassification = {
+export type EmailClassification = {
   actionHint: string | null;
   category: EmailClassificationCategory;
   confidence: number;
@@ -94,6 +94,11 @@ type EmailClassification = {
   suggestedServiceType: string | null;
   summary: string;
 };
+
+export type InboundEmailClassificationInput = Pick<
+  InboundEmailMessage,
+  "automated" | "bodyText" | "fromEmail" | "snippet" | "subject"
+>;
 
 export type InboundEmailSyncResult = {
   checkedConnections: number;
@@ -205,6 +210,14 @@ function truncate(value: string, maxLength: number) {
 
 function safeSummaryText(message: InboundEmailMessage) {
   return truncate(message.bodyText || message.snippet || message.subject, 420);
+}
+
+export function inboundEmailIdempotencyKey({
+  connectionId,
+  externalMessageId,
+  provider,
+}: Pick<InboundEmailMessage, "connectionId" | "externalMessageId" | "provider">) {
+  return `email.inbound.${provider}.${connectionId}.${externalMessageId}`;
 }
 
 function stripHtml(value: string) {
@@ -359,9 +372,11 @@ function normalizeClassification(
   };
 }
 
-function heuristicClassify(message: InboundEmailMessage): EmailClassification {
+export function classifyInboundEmailHeuristically(
+  message: InboundEmailClassificationInput,
+): EmailClassification {
   const text = `${message.subject}\n${message.fromEmail ?? ""}\n${message.bodyText}`.toLowerCase();
-  const businessPattern = /\b(quote|estimate|pricing|price|book|booking|appointment|job|site visit|invoice|urgent|emergency|leak|blocked|repair|install|service|availability|reschedule|cancel|supplier|delivery|purchase order|po\b|work order)\b/i;
+  const businessPattern = /\b(quote|estimate|pricing|price|book|booking|appointment|job|site visit|invoice|urgent|emergency|leak|blocked|blockage|backup|backed up|repair|install|service|availability|reschedule|cancel|supplier|delivery|purchase order|po\b|work order|renovat(?:e|ing|ion)|bathroom|shower|toilet|tap|pipe|drain|sewer|sewerage|come out|come and (?:quote|look|inspect|check))\b/i;
   const personalPattern = /\b(lol|haha|dinner|weekend|birthday|family|wife|husband|kids|holiday|meme|joke)\b/i;
 
   if (message.automated || /\b(unsubscribe|newsletter|promotion|sale|marketing|notification|digest)\b/i.test(text)) {
@@ -755,7 +770,7 @@ async function classifyEmail({
   user: User;
   workspaceId: string;
 }) {
-  const fallback = heuristicClassify(message);
+  const fallback = classifyInboundEmailHeuristically(message);
 
   return classifyWithOpenAi({
     eventId,
@@ -2059,7 +2074,7 @@ async function processMessage({
   user: User;
   workspaceId: string;
 }) {
-  const idempotencyKey = `email.inbound.${message.provider}.${connection.id}.${message.externalMessageId}`;
+  const idempotencyKey = inboundEmailIdempotencyKey(message);
   const { data: event, error: eventError } = await supabase
     .from("events")
     .insert({

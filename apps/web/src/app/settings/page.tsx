@@ -51,8 +51,12 @@ import {
   INBOUND_EMAIL_POLL_INTERVALS,
   INBOUND_EMAIL_QUIET_HOURS_MODES,
   INBOUND_EMAIL_SYNC_MODES,
+  getInboundEmailOperationalSummary,
   getInboundEmailSettings,
+  type InboundEmailDecisionItem,
+  type InboundEmailOperationalSummary,
   type InboundEmailSenderRule,
+  type InboundEmailSyncHistoryItem,
 } from "../../lib/integrations/inbound-email-settings";
 import {
   MICROSOFT_MAIL_READ_SCOPE,
@@ -141,6 +145,10 @@ function formatDate(value: string) {
     minute: "2-digit",
     month: "short",
   }).format(new Date(value));
+}
+
+function pluralCount(value: number, singular: string, plural = `${singular}s`) {
+  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 function formatTimeOfDay(value: string) {
@@ -541,7 +549,10 @@ function GoogleIntegrationSettings({
       ) : null}
 
       {overview.connections.length > 0 ? (
-        <div className="usage-ledger compact">
+        <div
+          className="usage-ledger compact"
+          id="google-connected-email-accounts"
+        >
           {overview.connections.map((connection) => (
             <div className="usage-ledger-row" key={connection.id}>
               <div className="usage-ledger-main">
@@ -676,7 +687,10 @@ function MicrosoftIntegrationSettings({
       ) : null}
 
       {overview.connections.length > 0 ? (
-        <div className="usage-ledger compact">
+        <div
+          className="usage-ledger compact"
+          id="microsoft-connected-email-accounts"
+        >
           {overview.connections.map((connection) => (
             <div className="usage-ledger-row" key={connection.id}>
               <div className="usage-ledger-main">
@@ -758,6 +772,14 @@ function connectionName(
   fallback: string,
 ) {
   return connection?.accountEmail ?? connection?.accountName ?? fallback;
+}
+
+function providerConnectedAccountsAnchor(
+  provider: EmailProviderConnection["provider"],
+) {
+  return provider === "google"
+    ? "google-connected-email-accounts"
+    : "microsoft-connected-email-accounts";
 }
 
 function connectionTime(connection: ProviderConnection | null) {
@@ -1116,20 +1138,162 @@ function EmailSyncHealthPanel({
                   </span>
                   {hasFailure ? <p>{connection.lastError}</p> : null}
                 </div>
-                <span
-                  className={
-                    needsReconnect || hasFailure
-                      ? "pill warning"
-                      : "pill success"
-                  }
-                >
-                  {needsReconnect ? "Reconnect" : hasFailure ? "Failed" : "Ready"}
-                </span>
+                {needsReconnect ? (
+                  <Link
+                    className="pill warning link-pill"
+                    href={`#${providerConnectedAccountsAnchor(connection.provider)}`}
+                  >
+                    Reconnect
+                  </Link>
+                ) : (
+                  <span className={hasFailure ? "pill warning" : "pill success"}>
+                    {hasFailure ? "Failed" : "Ready"}
+                  </span>
+                )}
               </article>
             );
           })}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function syncRunSummary(run: InboundEmailSyncHistoryItem) {
+  const parts = [
+    `${run.fetchedMessages} fetched`,
+    `${run.promotedMessages} promoted`,
+    `${run.observedMessages} observed`,
+  ];
+
+  if (run.duplicates > 0) {
+    parts.push(pluralCount(run.duplicates, "duplicate"));
+  }
+
+  if (run.needsReconnect > 0) {
+    parts.push(`${run.needsReconnect} reconnect`);
+  }
+
+  if (run.errors > 0) {
+    parts.push(`${run.errors} error${run.errors === 1 ? "" : "s"}`);
+  }
+
+  if (run.skippedBySchedule > 0) {
+    parts.push(`${run.skippedBySchedule} schedule skip`);
+  }
+
+  return parts.join(" - ");
+}
+
+function syncRunTone(run: InboundEmailSyncHistoryItem) {
+  if (run.errors > 0 || run.needsReconnect > 0) {
+    return "warning";
+  }
+
+  if (run.promotedMessages > 0) {
+    return "promoted";
+  }
+
+  return "observed";
+}
+
+function inboundDecisionTone(decision: InboundEmailDecisionItem) {
+  if (decision.stage === "promoted") {
+    return "promoted";
+  }
+
+  if (decision.status !== "processed") {
+    return "warning";
+  }
+
+  return "observed";
+}
+
+function inboundDecisionLabel(decision: InboundEmailDecisionItem) {
+  if (decision.stage === "promoted") {
+    return "Promoted";
+  }
+
+  if (decision.category) {
+    return formatLabel(decision.category);
+  }
+
+  return formatLabel(decision.status);
+}
+
+function InboundEmailOperationsPanel({
+  summary,
+}: Readonly<{
+  summary: InboundEmailOperationalSummary;
+}>) {
+  return (
+    <section className="email-sync-ops-panel">
+      <div className="panel-heading compact-panel-heading">
+        <div>
+          <p className="eyebrow">Inbound trace</p>
+          <h3>Recent sync runs and decisions</h3>
+        </div>
+        <span className="pill">
+          {summary.syncRuns.length + summary.decisions.length} records
+        </span>
+      </div>
+
+      <div className="email-sync-ops-grid">
+        <article className="email-sync-ops-card">
+          <div className="email-sync-ops-heading">
+            <strong>Sync runs</strong>
+            <span>Last {summary.syncRuns.length}</span>
+          </div>
+          {summary.syncRuns.length > 0 ? (
+            <div className="email-sync-ops-list">
+              {summary.syncRuns.map((run) => (
+                <div className="email-sync-ops-row" key={run.id}>
+                  <span className={`email-sync-dot ${syncRunTone(run)}`} />
+                  <div>
+                    <strong>{formatLabel(run.trigger)}</strong>
+                    <span>{syncRunSummary(run)}</span>
+                  </div>
+                  <time dateTime={run.createdAt}>{formatDate(run.createdAt)}</time>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">No sync runs recorded yet.</p>
+          )}
+        </article>
+
+        <article className="email-sync-ops-card">
+          <div className="email-sync-ops-heading">
+            <strong>Email decisions</strong>
+            <span>Last {summary.decisions.length}</span>
+          </div>
+          {summary.decisions.length > 0 ? (
+            <div className="email-sync-ops-list">
+              {summary.decisions.map((decision) => (
+                <div className="email-sync-ops-row" key={decision.id}>
+                  <span
+                    className={`email-sync-dot ${inboundDecisionTone(decision)}`}
+                  />
+                  <div>
+                    <strong>{decision.subject}</strong>
+                    <span>
+                      {inboundDecisionLabel(decision)} -{" "}
+                      {decision.providerUsed
+                        ? formatLabel(decision.providerUsed)
+                        : "No classifier"}
+                    </span>
+                  </div>
+                  <time dateTime={decision.processedAt ?? decision.createdAt}>
+                    {formatDate(decision.processedAt ?? decision.createdAt)}
+                  </time>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">No inbound email decisions recorded yet.</p>
+          )}
+        </article>
+      </div>
     </section>
   );
 }
@@ -1333,9 +1497,11 @@ function GeneralSettingsDetail({
 
 function InboundEmailSyncSettings({
   connections,
+  operationalSummary,
   settings,
 }: Readonly<{
   connections: EmailProviderConnection[];
+  operationalSummary: InboundEmailOperationalSummary;
   settings: InboundEmailSettings;
 }>) {
   const syncStatus =
@@ -1359,6 +1525,8 @@ function InboundEmailSyncSettings({
       </section>
 
       <EmailSyncHealthPanel connections={connections} settings={settings} />
+
+      <InboundEmailOperationsPanel summary={operationalSummary} />
 
       <form action={updateInboundEmailSettingsAction} className="settings-form">
         <div className="settings-grid">
@@ -1575,6 +1743,7 @@ function InboundEmailSyncSettings({
 function ProviderDetails({
   children,
   description,
+  forceOpen = false,
   isCurrent,
   label,
   provider,
@@ -1582,6 +1751,7 @@ function ProviderDetails({
 }: Readonly<{
   children: React.ReactNode;
   description: string;
+  forceOpen?: boolean;
   isCurrent: boolean;
   label: string;
   provider: string;
@@ -1594,6 +1764,7 @@ function ProviderDetails({
           ? "integration-provider-section current"
           : "integration-provider-section"
       }
+      open={forceOpen ? true : undefined}
     >
       <summary className="integration-provider-summary">
         <div className="integration-provider-main">
@@ -1615,12 +1786,14 @@ function WorkspaceIntegrationsSettings({
   googleOverview,
   googleStatus,
   inboundEmailSettings,
+  inboundEmailSummary,
   microsoftOverview,
   microsoftStatus,
 }: Readonly<{
   googleOverview: GoogleIntegrationOverview;
   googleStatus: string;
   inboundEmailSettings: InboundEmailSettings;
+  inboundEmailSummary: InboundEmailOperationalSummary;
   microsoftOverview: MicrosoftIntegrationOverview;
   microsoftStatus: string;
 }>) {
@@ -1678,6 +1851,7 @@ function WorkspaceIntegrationsSettings({
     <div className="integration-provider-stack">
       <InboundEmailSyncSettings
         connections={emailConnections}
+        operationalSummary={inboundEmailSummary}
         settings={inboundEmailSettings}
       />
 
@@ -1707,6 +1881,7 @@ function WorkspaceIntegrationsSettings({
             : "Gmail outbound and Drive document access"
         }
         isCurrent={currentProvider === "google"}
+        forceOpen={googleNeedsReconnect}
         label="Google Workspace"
         provider="Google"
         status={providerChoiceStatus({
@@ -1728,6 +1903,7 @@ function WorkspaceIntegrationsSettings({
               : "Outlook and Microsoft 365 email sending"
         }
         isCurrent={currentProvider === "microsoft"}
+        forceOpen={microsoftNeedsReconnect}
         label="Microsoft Outlook"
         provider="Microsoft"
         status={providerChoiceStatus({
@@ -2335,6 +2511,7 @@ export default async function SettingsPage({
           getGoogleIntegrationOverview(supabase, workspace.id),
           getMicrosoftIntegrationOverview(supabase, workspace.id),
           getInboundEmailSettings(supabase, workspace.id),
+          getInboundEmailOperationalSummary(supabase, workspace.id),
         ])
       : Promise.resolve(null),
     selectedSection === "voice"
@@ -2350,6 +2527,7 @@ export default async function SettingsPage({
   const googleOverview = integrationOverviews?.[0] ?? null;
   const microsoftOverview = integrationOverviews?.[1] ?? null;
   const inboundEmailSettings = integrationOverviews?.[2] ?? null;
+  const inboundEmailSummary = integrationOverviews?.[3] ?? null;
   const googleStatus = googleOverview
     ? integrationStatusLabel(googleOverview)
     : "Open";
@@ -2432,7 +2610,8 @@ export default async function SettingsPage({
     ) : selectedSection === "integrations" &&
       googleOverview &&
       microsoftOverview &&
-      inboundEmailSettings ? (
+      inboundEmailSettings &&
+      inboundEmailSummary ? (
       <SettingsDetailShell
         eyebrow="Integrations"
         title="Connected accounts"
@@ -2441,6 +2620,7 @@ export default async function SettingsPage({
           googleOverview={googleOverview}
           googleStatus={googleStatus}
           inboundEmailSettings={inboundEmailSettings}
+          inboundEmailSummary={inboundEmailSummary}
           microsoftOverview={microsoftOverview}
           microsoftStatus={microsoftStatus}
         />

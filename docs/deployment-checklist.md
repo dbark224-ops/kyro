@@ -122,6 +122,7 @@ Before enabling production cron:
 - set `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`,
 - confirm `/api/integrations/email/sync` returns authorized only with the bearer secret,
 - run one manual sync from Settings,
+- check the Settings inbound trace for the latest sync run counts and recent email decisions,
 - confirm reconnect-needed states are visible for accounts with missing scopes or undecryptable tokens,
 - confirm quiet-hours settings suppress scheduled checks when expected.
 
@@ -142,6 +143,8 @@ Recommended deploy sequence:
 ## 9. Current Known Production Gaps
 
 - Gmail/Outlook push mailbox watches are deferred; production uses 5-minute polling.
+- Inbound email attachments are not persisted yet; add Storage/Drive-backed attachment intake before relying on emailed files as job evidence.
+- Deep RFC email thread matching (`References`/`In-Reply-To`) is deferred beyond provider thread id and contact/email matching.
 - SMS/phone providers are not connected yet.
 - Native iOS shell is future work; current UI is web/iOS-shaped.
 - Billing UI is usage visibility only, not payment collection.

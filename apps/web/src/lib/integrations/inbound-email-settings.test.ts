@@ -4,6 +4,8 @@ import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
   findInboundEmailSenderRule,
   normalizeInboundEmailSettings,
+  normalizeInboundEmailDecisionRow,
+  normalizeInboundEmailSyncAuditRow,
   removeInboundEmailSenderRule,
   senderRuleTargetFromEmail,
   senderRuleTargetFromInput,
@@ -99,6 +101,59 @@ describe("inbound email sender rules", () => {
 
     assert.equal(updated.senderRules.length, 1);
     assert.equal(updated.senderRules[0]?.value, "person@example.com");
+  });
+});
+
+describe("inbound email operational summaries", () => {
+  it("normalizes sync audit rows into compact run history", () => {
+    const item = normalizeInboundEmailSyncAuditRow({
+      actor_type: "user",
+      after: {
+        checkedConnections: 1,
+        duplicates: 5,
+        errors: 0,
+        fetchedMessages: 11,
+        needsReconnect: 0,
+        observedMessages: 6,
+        promotedMessages: 0,
+        skippedBySchedule: 0,
+        trigger: "manual",
+      },
+      created_at: "2026-05-25T06:10:35.000Z",
+      id: "audit-1",
+    });
+
+    assert.equal(item.trigger, "manual");
+    assert.equal(item.fetchedMessages, 11);
+    assert.equal(item.observedMessages, 6);
+    assert.equal(item.duplicates, 5);
+  });
+
+  it("normalizes inbound decision events from stored event payloads", () => {
+    const item = normalizeInboundEmailDecisionRow({
+      created_at: "2026-05-25T06:10:34.000Z",
+      id: "event-1",
+      payload: {
+        accountEmail: "inbox@example.com",
+        classification: {
+          category: "newsletter_or_automated",
+          providerUsed: "heuristic",
+          reason: "Automated mail.",
+        },
+        fromEmail: "sender@example.com",
+        provider: "google",
+        receivedAt: "2026-05-25T06:09:00.000Z",
+        stage: "observed",
+        subject: "Newsletter",
+      },
+      processed_at: "2026-05-25T06:10:35.000Z",
+      status: "processed",
+    });
+
+    assert.equal(item.subject, "Newsletter");
+    assert.equal(item.category, "newsletter_or_automated");
+    assert.equal(item.providerUsed, "heuristic");
+    assert.equal(item.stage, "observed");
   });
 });
 

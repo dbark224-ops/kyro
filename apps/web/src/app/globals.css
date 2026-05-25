@@ -2434,6 +2434,28 @@ h2 {
   align-items: center;
 }
 
+.skipped-email-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background) 34%, transparent);
+  padding: 10px;
+}
+
+.skipped-email-search-form label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .skipped-email-list {
   display: grid;
   gap: 8px;
@@ -3457,6 +3479,15 @@ h2 {
   background: color-mix(in srgb, var(--pink) 16%, transparent);
 }
 
+.pill.link-pill {
+  text-decoration: none;
+}
+
+.pill.link-pill:hover {
+  border-color: color-mix(in srgb, var(--cyan) 72%, var(--pink));
+  color: var(--cyan);
+}
+
 .pill.success {
   border-color: color-mix(in srgb, var(--cyan) 58%, var(--line));
   background: color-mix(in srgb, var(--cyan) 16%, transparent);
@@ -4194,6 +4225,106 @@ button:disabled {
   display: grid;
   min-width: 0;
   gap: 2px;
+}
+
+.email-sync-ops-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background) 24%, var(--surface));
+  padding: 12px;
+}
+
+.email-sync-ops-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.email-sync-ops-card {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background) 42%, var(--surface));
+  padding: 10px;
+}
+
+.email-sync-ops-heading,
+.email-sync-ops-row {
+  display: grid;
+  gap: 10px;
+  align-items: center;
+}
+
+.email-sync-ops-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.email-sync-ops-heading span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.email-sync-ops-list {
+  display: grid;
+  gap: 6px;
+}
+
+.email-sync-ops-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  padding-top: 7px;
+}
+
+.email-sync-ops-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.email-sync-ops-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.email-sync-ops-row strong,
+.email-sync-ops-row span:not(.email-sync-dot),
+.email-sync-ops-row time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-sync-ops-row span:not(.email-sync-dot),
+.email-sync-ops-row time {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.email-sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--cyan);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 14%, transparent);
+}
+
+.email-sync-dot.observed {
+  background: var(--cyan);
+}
+
+.email-sync-dot.promoted {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #22c55e 14%, transparent);
+}
+
+.email-sync-dot.warning {
+  background: var(--pink);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pink) 14%, transparent);
 }
 
 .compact-detail-list {
@@ -5408,6 +5539,11 @@ button:disabled {
 
 .integration-disconnect-form {
   justify-self: end;
+}
+
+#google-connected-email-accounts,
+#microsoft-connected-email-accounts {
+  scroll-margin-top: 96px;
 }
 
 .usage-user-list div {
@@ -6745,6 +6881,8 @@ button:disabled {
   .email-sync-health-header,
   .email-sync-status-grid,
   .email-sync-account-row,
+  .email-sync-ops-grid,
+  .email-sync-ops-row,
   .quiet-hours-controls,
   .sender-rule-add-form,
   .sender-rule-row,
@@ -6982,6 +7120,7 @@ button:disabled {
 
   .skipped-email-panel-heading,
   .skipped-email-dialog-actions,
+  .skipped-email-search-form,
   .inbox-work-queue-actions {
     align-items: stretch;
     flex-direction: column;
@@ -6990,6 +7129,10 @@ button:disabled {
   .inbox-work-queue-actions {
     align-items: flex-start;
     justify-content: flex-start;
+  }
+
+  .skipped-email-search-form {
+    grid-template-columns: 1fr;
   }
 
   .inbox-toolbar {

@@ -46,6 +46,7 @@ type InboxPageProps = {
     filter?: string;
     conversationId?: string;
     q?: string;
+    skippedQ?: string;
     sort?: string;
     skipped?: string;
     engine_error?: string;
@@ -205,6 +206,22 @@ function conversationSearchText(
     .toLowerCase();
 }
 
+function skippedEmailSearchText(email: SkippedEmailSummaryItem) {
+  return [
+    email.accountEmail,
+    email.category,
+    email.classificationProvider,
+    email.fromEmail,
+    email.reason,
+    email.source,
+    email.subject,
+    email.summary,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function workflowRank(value: string) {
   return WORKFLOW_RANK[value] ?? 99;
 }
@@ -257,15 +274,25 @@ function defaultSkippedReplySubject(subject: string) {
 function SkippedEmailDialog({
   closeHref,
   emails,
+  filter,
+  inboxSearchQuery,
   last24HoursCount,
   replyRedirectHref,
+  selectedConversationId,
   senderRules,
+  skippedSearchQuery,
+  sort,
 }: Readonly<{
   closeHref: string;
   emails: SkippedEmailSummaryItem[];
+  filter: string;
+  inboxSearchQuery: string;
   last24HoursCount: number;
   replyRedirectHref: string;
+  selectedConversationId?: string | null;
   senderRules: InboundEmailSenderRule[];
+  skippedSearchQuery: string;
+  sort: string;
 }>) {
   return (
     <div className="skipped-email-backdrop" role="presentation">
@@ -292,6 +319,38 @@ function SkippedEmailDialog({
             </Link>
           </div>
         </div>
+
+        <form action="/inbox" className="skipped-email-search-form">
+          <input name="skipped" type="hidden" value="1" />
+          {filter !== "all" ? (
+            <input name="filter" type="hidden" value={filter} />
+          ) : null}
+          {sort !== "recent" ? (
+            <input name="sort" type="hidden" value={sort} />
+          ) : null}
+          {inboxSearchQuery ? (
+            <input name="q" type="hidden" value={inboxSearchQuery} />
+          ) : null}
+          {selectedConversationId ? (
+            <input
+              name="conversationId"
+              type="hidden"
+              value={selectedConversationId}
+            />
+          ) : null}
+          <label>
+            Search skipped mail
+            <input
+              defaultValue={skippedSearchQuery}
+              name="skippedQ"
+              placeholder="Sender, subject, reason..."
+              type="search"
+            />
+          </label>
+          <button className="secondary-button compact" type="submit">
+            Apply
+          </button>
+        </form>
 
         <div className="skipped-email-list">
           {emails.length > 0 ? (
@@ -991,6 +1050,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const activeFilter = isFilter(query?.filter) ? query.filter : "all";
   const activeSort = isSort(query?.sort) ? query.sort : "recent";
   const searchQuery = query?.q?.trim() ?? "";
+  const skippedSearchQuery = query?.skippedQ?.trim() ?? "";
   const selectedConversationId = query?.conversationId?.trim() ?? "";
   const showSkippedEmail = query?.skipped === "1";
   const [
@@ -1019,7 +1079,13 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
           }),
         ),
   ]);
-  const skippedEmailSummaryItems = skippedEmailSummaries.items;
+  const skippedEmailSummaryItems = skippedSearchQuery
+    ? skippedEmailSummaries.items.filter((email) =>
+        skippedEmailSearchText(email).includes(
+          skippedSearchQuery.toLowerCase(),
+        ),
+      )
+    : skippedEmailSummaries.items;
   const skippedEmailLast24HoursCount = skippedEmailSummaries.last24HoursCount;
   const closePreviewHref = inboxHref({
     filter: activeFilter,
@@ -1359,9 +1425,14 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
           <SkippedEmailDialog
             closeHref={skippedEmailCloseHref}
             emails={skippedEmailSummaryItems}
+            filter={activeFilter}
+            inboxSearchQuery={searchQuery}
             last24HoursCount={skippedEmailLast24HoursCount}
             replyRedirectHref={skippedEmailOpenHref}
+            selectedConversationId={selectedConversationReview?.conversation.id}
             senderRules={inboundEmailSettings?.senderRules ?? []}
+            skippedSearchQuery={skippedSearchQuery}
+            sort={activeSort}
           />
         ) : null}
         {selectedConversationReview ? (
