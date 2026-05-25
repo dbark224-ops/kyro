@@ -1,6 +1,11 @@
 import { AppFrame } from "./components/app-frame";
 import { BrandMark } from "./components/brand-mark";
 import { getAiLedger } from "../lib/ai/triage";
+import {
+  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  formatDisplayMoney,
+  type DisplayCurrencySettings,
+} from "../lib/billing/display-currency";
 import { hasSupabaseEnv } from "../lib/env";
 import { getEngineQueues } from "../lib/engine/event-action-audit";
 import { createServerSupabaseClient } from "../lib/supabase/server";
@@ -8,6 +13,7 @@ import {
   getDashboardSnapshot,
   getPrimaryWorkspace,
 } from "../lib/workspace/bootstrap";
+import { getWorkspaceGeneralSettings } from "../lib/workspace/general-settings";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -165,22 +171,12 @@ function formatLabel(value: string) {
     .join(" ");
 }
 
-function formatMoney(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("en", {
-    currency: "USD",
-    maximumFractionDigits: Math.abs(parsed) > 0 && Math.abs(parsed) < 1 ? 6 : 2,
-    style: "currency",
-  }).format(parsed);
+function formatMoney(
+  value: string | null,
+  sourceCurrency: string,
+  displayCurrencySettings: DisplayCurrencySettings,
+) {
+  return formatDisplayMoney(value, sourceCurrency, displayCurrencySettings);
 }
 
 function textValue(value: unknown) {
@@ -258,10 +254,12 @@ async function getRecentMessageLogItems(
 function buildLogItems({
   aiLedger,
   engine,
+  displayCurrencySettings,
   messages,
 }: {
   aiLedger: Awaited<ReturnType<typeof getAiLedger>>;
   engine: Awaited<ReturnType<typeof getEngineQueues>>;
+  displayCurrencySettings: DisplayCurrencySettings;
   messages: LogItem[];
 }) {
   const items: LogItem[] = [
@@ -300,7 +298,7 @@ function buildLogItems({
       id: `ai:${run.id}`,
       at: run.createdAt,
       detail: `${formatLabel(run.status)} on ${run.provider}/${run.model}`,
-      meta: formatMoney(run.actualCost),
+      meta: formatMoney(run.actualCost, "USD", displayCurrencySettings),
       title: formatLabel(run.taskType),
       tone: "ai" as const,
     })),
@@ -320,7 +318,11 @@ function buildLogItems({
       detail: `${usage.quantity} units metered for ${formatLabel(
         usage.service,
       )}`,
-      meta: formatMoney(usage.customerChargeSnapshot),
+      meta: formatMoney(
+        usage.customerChargeSnapshot,
+        usage.currency,
+        displayCurrencySettings,
+      ),
       title: formatLabel(usage.usageType),
       tone: "usage" as const,
     })),
@@ -449,13 +451,22 @@ export default async function LogPage({ searchParams }: LogPageProps) {
     redirect("/onboarding");
   }
 
-  const [dashboard, engine, aiLedger, messages] = await Promise.all([
-    getDashboardSnapshot(supabase, workspace),
-    getEngineQueues(supabase, workspace.id),
-    getAiLedger(supabase, workspace.id),
-    getRecentMessageLogItems(supabase, workspace.id),
-  ]);
-  const logItems = buildLogItems({ aiLedger, engine, messages });
+  const [dashboard, engine, aiLedger, messages, generalSettings] =
+    await Promise.all([
+      getDashboardSnapshot(supabase, workspace),
+      getEngineQueues(supabase, workspace.id),
+      getAiLedger(supabase, workspace.id),
+      getRecentMessageLogItems(supabase, workspace.id),
+      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+        () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+      ),
+    ]);
+  const logItems = buildLogItems({
+    aiLedger,
+    displayCurrencySettings: generalSettings,
+    engine,
+    messages,
+  });
   const searchedLogItems = logItems.filter((item) =>
     itemMatchesSearch(item, searchState),
   );

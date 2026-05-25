@@ -1,6 +1,10 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
+  DISPLAY_CURRENCIES,
+  type DisplayCurrency,
+} from "../billing/display-currency";
+import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
   INBOUND_EMAIL_POLICY_TYPE,
   normalizeInboundEmailSettings,
@@ -27,6 +31,11 @@ import {
   type OutboundVoicePronunciationPolicy,
   type VoiceSettings,
 } from "./voice-settings";
+import {
+  WORKSPACE_GENERAL_POLICY_TYPE,
+  normalizeWorkspaceGeneralSettings,
+  type WorkspaceGeneralSettings,
+} from "../workspace/general-settings";
 import type { AssistantCommandResult } from "./types";
 
 type WorkspaceInput = {
@@ -45,6 +54,7 @@ type SettingsSection = "documents" | "general" | "integrations" | "voice";
 
 export type ParsedSettingChange = {
   documentSettings: Partial<DocumentTemplateSettings>;
+  generalSettings: Partial<WorkspaceGeneralSettings>;
   labels: string[];
   senderRule: InboundEmailSenderRule | null;
   senderRuleRemoval: Pick<InboundEmailSenderRule, "match" | "value"> | null;
@@ -247,6 +257,22 @@ function extractDocumentCurrency(text: string) {
   );
 }
 
+function extractWorkspaceDisplayCurrency(text: string): DisplayCurrency | null {
+  if (
+    !/\b(display currency|app currency|usage currency|billing currency|workspace currency|default currency|view(?:ing)? currency|currency view)\b/.test(
+      text,
+    )
+  ) {
+    return null;
+  }
+
+  return (
+    DISPLAY_CURRENCIES.find((currency) =>
+      new RegExp(`\\b${currency.toLowerCase()}\\b`).test(text),
+    ) ?? null
+  );
+}
+
 function extractDocumentAccentTheme(text: string) {
   if (!/\b(quote|document|template|accent|colour|color|theme)\b/.test(text)) {
     return null;
@@ -370,6 +396,7 @@ export function parseAssistantEditableSettingChanges(
   const text = normalized(prompt);
   const labels: string[] = [];
   const documentSettings: Partial<DocumentTemplateSettings> = {};
+  const generalSettings: Partial<WorkspaceGeneralSettings> = {};
   const settings: Partial<InboundEmailSettings> = {};
   const voiceSettings: Partial<VoiceSettings> = {};
   const targetSections: SettingsSection[] = [];
@@ -383,14 +410,22 @@ export function parseAssistantEditableSettingChanges(
   const documentPaymentTerms = extractDocumentPaymentTerms(prompt);
   const documentFooterText = extractDocumentFooterText(prompt);
   const documentCurrency = extractDocumentCurrency(text);
+  const displayCurrency = extractWorkspaceDisplayCurrency(text);
   const documentAccentTheme = extractDocumentAccentTheme(text);
   const documentValidityDays = extractDocumentValidityDays(text);
   const senderRuleRemoval = extractSenderRuleRemoval(prompt, text);
   const senderRule = senderRuleRemoval ? null : extractSenderRule(prompt, text);
 
   if (timeZone) {
+    generalSettings.timeZone = timeZone;
     settings.timeZone = timeZone;
     labels.push(`workspace timezone to ${timeZone}`);
+    targetSections.push("general");
+  }
+
+  if (displayCurrency) {
+    generalSettings.displayCurrency = displayCurrency;
+    labels.push(`display currency to ${displayCurrency}`);
     targetSections.push("general");
   }
 
@@ -561,6 +596,7 @@ export function parseAssistantEditableSettingChanges(
 
   return {
     documentSettings,
+    generalSettings,
     labels,
     senderRule,
     senderRuleRemoval,
@@ -577,7 +613,7 @@ export function looksLikeSettingsUpdatePrompt(prompt: string) {
       text,
     );
   const hasSettingTarget =
-    /\b(timezone|time zone|quiet|poll|polling|sync mode|manual only|lookback|fetch cap|max messages|skipped|awareness|summaries|voice|pronunciation|pronounce|email rules|inbox rules|action rules|crm promotion rules|sender|emails from|quote template|document template|quote payment|document payment|quote footer|document footer|quote currency|document currency|quote accent|document accent|quote validity|document validity|prepared by footer)\b/.test(text);
+    /\b(timezone|time zone|display currency|app currency|usage currency|billing currency|workspace currency|default currency|currency view|quiet|poll|polling|sync mode|manual only|lookback|fetch cap|max messages|skipped|awareness|summaries|voice|pronunciation|pronounce|email rules|inbox rules|action rules|crm promotion rules|sender|emails from|quote template|document template|quote payment|document payment|quote footer|document footer|quote currency|document currency|quote accent|document accent|quote validity|document validity|prepared by footer)\b/.test(text);
 
   return hasMutationVerb && hasSettingTarget;
 }
@@ -592,7 +628,7 @@ function settingsLinks(sections: SettingsSection[]) {
     general: {
       href: "/settings?section=general",
       label: "General settings",
-      meta: "Timezone",
+      meta: "Timezone and display currency",
     },
     integrations: {
       href: "/settings?section=integrations",
@@ -622,6 +658,7 @@ export async function updateAssistantEditableSettings({
       context: {
         editableSettings: [
           "workspace timezone",
+          "display currency",
           "inbound email sync mode",
           "daytime poll frequency",
           "quiet hours",
@@ -640,7 +677,7 @@ export async function updateAssistantEditableSettings({
         reason: "The prompt looked like a settings update, but no supported value could be parsed.",
       },
       fallbackAnswer:
-        "I can edit safe settings like timezone, email polling, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, inbound email action rules, explicit sender relevance rules, assistant voice, outbound pronunciation policy, and quote document template settings. I could not confidently read the new value from that request.",
+        "I can edit safe settings like timezone, display currency, email polling, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, inbound email action rules, explicit sender relevance rules, assistant voice, outbound pronunciation policy, and quote document template settings. I could not confidently read the new value from that request.",
       intent: "settings_update",
       links: settingsLinks(["general", "integrations", "voice", "documents"]),
       title: "Settings update",
@@ -649,8 +686,92 @@ export async function updateAssistantEditableSettings({
 
   const changedPolicyIds: string[] = [];
   let documentSnapshot: DocumentTemplateSettings | null = null;
+  let generalSnapshot: WorkspaceGeneralSettings | null = null;
   let inboundSnapshot: InboundEmailSettings | null = null;
   let voiceSnapshot: VoiceSettings | null = null;
+
+  if (Object.keys(parsed.generalSettings).length > 0) {
+    const [beforeGeneralResult, beforeInboundResult] = await Promise.all([
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+        .maybeSingle(),
+      supabase
+        .from("workspace_policies")
+        .select("settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+        .maybeSingle(),
+    ]);
+
+    if (beforeGeneralResult.error) {
+      throw new Error(
+        `Unable to load workspace defaults: ${beforeGeneralResult.error.message}`,
+      );
+    }
+
+    if (beforeInboundResult.error) {
+      throw new Error(
+        `Unable to load workspace timezone fallback: ${beforeInboundResult.error.message}`,
+      );
+    }
+
+    const inboundSettings = normalizeInboundEmailSettings(
+      beforeInboundResult.data?.settings,
+    );
+    const beforeSettings = normalizeWorkspaceGeneralSettings(
+      beforeGeneralResult.data?.settings,
+      { timeZone: inboundSettings.timeZone },
+    );
+    const settings = normalizeWorkspaceGeneralSettings({
+      ...beforeSettings,
+      ...parsed.generalSettings,
+    });
+    const { data: savedPolicy, error: saveError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
+          settings,
+          workspace_id: workspace.id,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+    if (saveError || !savedPolicy) {
+      throw new Error(
+        `Unable to update workspace defaults: ${saveError?.message ?? "unknown error"}`,
+      );
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: "assistant_general_settings.updated",
+      actorId: user.id,
+      actorType: "ai",
+      after: { settings },
+      before: beforeGeneralResult.data
+        ? { settings: beforeGeneralResult.data.settings }
+        : null,
+      entityId: String(savedPolicy.id),
+      entityType: "workspace_policy",
+      metadata: {
+        assistantPrompt: prompt,
+        changed: parsed.labels,
+        policyType: WORKSPACE_GENERAL_POLICY_TYPE,
+        requestedByUserId: user.id,
+      },
+    });
+
+    changedPolicyIds.push(String(savedPolicy.id));
+    generalSnapshot = settings;
+  }
 
   if (
     Object.keys(parsed.settings).length > 0 ||
@@ -860,6 +981,13 @@ export async function updateAssistantEditableSettings({
               quoteStyleDirection: documentSnapshot.quoteStyleDirection,
               showPreparedBy: documentSnapshot.showPreparedBy,
               validityDays: documentSnapshot.validityDays,
+            }
+          : null,
+        general: generalSnapshot
+          ? {
+              displayCurrency: generalSnapshot.displayCurrency,
+              exchangeRateProvider: generalSnapshot.exchangeRateProvider,
+              timeZone: generalSnapshot.timeZone,
             }
           : null,
         inboundEmail: inboundSnapshot

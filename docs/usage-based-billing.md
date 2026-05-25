@@ -38,6 +38,17 @@ The Settings usage/billing view is read-only and customer-facing. It shows:
 Provider cost and gross margin are still stored in the append-only ledger and can be surfaced for
 internal/dev visibility, but they are not the primary customer-facing numbers.
 
+Usage ledger values remain stored in their original currency for auditability, currently USD for
+OpenAI-backed usage. User-facing money in the web UI is formatted through the workspace display
+currency setting in General settings. The first conversion layer uses placeholder static USD-based
+rates and records its provider as `placeholder_static`; it is intentionally separated from stored
+billing amounts so a later live provider, such as Stripe FX Quotes, can replace the rate source
+without changing `usage_events`.
+
+The usage ledger CSV export includes display charge, display currency, stored charge, stored
+currency, exchange rate, and display-rate provider columns. This makes the export readable to users
+while retaining enough original data for invoice reconciliation.
+
 No payment provider, invoice collection, tax handling, bookkeeping, or reconciliation is wired yet.
 
 The first backend billing read endpoint is:

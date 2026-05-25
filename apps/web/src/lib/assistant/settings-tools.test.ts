@@ -15,8 +15,20 @@ describe("assistant editable settings parsing", () => {
       syncMode: "manual_only",
       timeZone: "Australia/Brisbane",
     });
+    assert.equal(parsed.generalSettings.timeZone, "Australia/Brisbane");
     assert.ok(parsed.labels.includes("workspace timezone to Australia/Brisbane"));
     assert.ok(parsed.labels.includes("inbound email sync to manual only"));
+  });
+
+  it("parses workspace display currency separately from quote currency", () => {
+    const parsed = parseAssistantEditableSettingChanges(
+      "Set the display currency to AUD.",
+    );
+
+    assert.equal(parsed.generalSettings.displayCurrency, "AUD");
+    assert.equal(parsed.documentSettings.currency, undefined);
+    assert.ok(parsed.labels.includes("display currency to AUD"));
+    assert.ok(parsed.targetSections.includes("general"));
   });
 
   it("parses quiet-hours windows and pause behaviour", () => {
@@ -130,6 +142,7 @@ describe("assistant editable settings parsing", () => {
       "premium, minimal, and easy to scan",
     );
     assert.equal(parsed.documentSettings.currency, "AUD");
+    assert.equal(parsed.generalSettings.displayCurrency, undefined);
     assert.equal(parsed.documentSettings.validityDays, 21);
     assert.ok(parsed.labels.includes("quote template direction"));
     assert.ok(parsed.targetSections.includes("documents"));
@@ -159,6 +172,10 @@ describe("assistant editable settings parsing", () => {
     );
     assert.equal(
       looksLikeSettingsUpdatePrompt("Set quote template direction to bold and concise"),
+      true,
+    );
+    assert.equal(
+      looksLikeSettingsUpdatePrompt("Set display currency to AUD"),
       true,
     );
     assert.equal(looksLikeSettingsUpdatePrompt("Disconnect Gmail now"), false);

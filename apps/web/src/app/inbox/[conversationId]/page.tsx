@@ -19,6 +19,11 @@ import {
   type ConversationReview,
 } from "../../../lib/crm/queries";
 import {
+  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  formatDisplayMoney,
+  type DisplayCurrencySettings,
+} from "../../../lib/billing/display-currency";
+import {
   OUTBOUND_CHANNELS,
   getCommunicationSettings,
 } from "../../../lib/communication/settings";
@@ -28,6 +33,7 @@ import {
   quoteRevisionState,
 } from "../../../lib/documents/revisions";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
+import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 import { prepareQuoteDraftSendAction } from "../../documents/actions";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -73,22 +79,12 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function formatMoney(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("en", {
-    currency: "USD",
-    maximumFractionDigits: 6,
-    style: "currency",
-  }).format(parsed);
+function formatMoney(
+  value: string | null,
+  sourceCurrency: string,
+  displayCurrencySettings: DisplayCurrencySettings,
+) {
+  return formatDisplayMoney(value, sourceCurrency, displayCurrencySettings);
 }
 
 function formatLabel(value: string | null) {
@@ -552,9 +548,12 @@ export default async function ConversationReviewPage({
 }: ConversationReviewPageProps) {
   const [{ conversationId }, query] = await Promise.all([params, searchParams]);
   const { supabase, workspace } = await requireWorkspaceContext();
-  const [review, communicationSettings] = await Promise.all([
+  const [review, communicationSettings, generalSettings] = await Promise.all([
     getConversationReview(supabase, workspace.id, conversationId),
     getCommunicationSettings(supabase, workspace.id),
+    getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+      () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+    ),
   ]);
 
   if (!review) {
@@ -655,7 +654,7 @@ export default async function ConversationReviewPage({
           <div className="compact-metrics" aria-label="Inquiry counters">
             <span>{review.messages.length} msg</span>
             <span>{review.aiRuns.length} AI</span>
-            <span>{formatMoney(String(usageTotal))}</span>
+            <span>{formatMoney(String(usageTotal), "USD", generalSettings)}</span>
           </div>
           <form action={updateConversationStatusAction} className="status-form">
             <input name="conversationId" type="hidden" value={conversationId} />
@@ -920,7 +919,9 @@ export default async function ConversationReviewPage({
                 </div>
                 <div>
                   <strong>Charge</strong>
-                  <span>{formatMoney(String(usageTotal))}</span>
+                  <span>
+                    {formatMoney(String(usageTotal), "USD", generalSettings)}
+                  </span>
                 </div>
                 <div>
                   <strong>Actions</strong>
@@ -1441,7 +1442,13 @@ export default async function ConversationReviewPage({
                       {usage.quantity} - {formatDate(usage.createdAt)}
                     </span>
                   </div>
-                  <strong>{formatMoney(usage.customerChargeSnapshot)}</strong>
+                  <strong>
+                    {formatMoney(
+                      usage.customerChargeSnapshot,
+                      usage.currency,
+                      generalSettings,
+                    )}
+                  </strong>
                 </div>
               ))
             ) : (

@@ -56,6 +56,15 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
         }
       },
       {
+        policyType: "workspace_general",
+        settings: {
+          displayCurrency: "USD",
+          exchangeRateProvider: "placeholder_static",
+          exchangeRateUpdatedAt: null,
+          timeZone: "UTC"
+        }
+      },
+      {
         policyType: "document_templates",
         settings: {
           accentTheme: "graphite",

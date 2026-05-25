@@ -30,6 +30,10 @@ import {
 } from "../../lib/assistant/pronunciation";
 import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import {
+  DISPLAY_CURRENCIES,
+  normalizeDisplayCurrency,
+} from "../../lib/billing/display-currency";
+import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
   INBOUND_EMAIL_POLICY_TYPE,
   INBOUND_EMAIL_POLL_INTERVALS,
@@ -50,6 +54,10 @@ import {
   MICROSOFT_PROVIDER,
   MICROSOFT_SERVICE,
 } from "../../lib/integrations/microsoft";
+import {
+  WORKSPACE_GENERAL_POLICY_TYPE,
+  normalizeWorkspaceGeneralSettings,
+} from "../../lib/workspace/general-settings";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -376,6 +384,9 @@ function assertValidTimeZone(value: string) {
 
 export async function updateGeneralSettingsAction(formData: FormData) {
   const timeZone = formString(formData, "workspaceTimeZone");
+  const displayCurrency = normalizeDisplayCurrency(
+    formString(formData, "workspaceDisplayCurrency"),
+  );
 
   if (!timeZone) {
     redirectWithSectionMessage(
@@ -387,31 +398,70 @@ export async function updateGeneralSettingsAction(formData: FormData) {
 
   assertValidTimeZone(timeZone);
 
-  const { supabase, user, workspace } = await requireWorkspaceContext();
-  const { data: beforePolicy, error: beforeError } = await supabase
-    .from("workspace_policies")
-    .select("id,settings")
-    .eq("workspace_id", workspace.id)
-    .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
-    .maybeSingle();
-
-  if (beforeError) {
-    redirectWithSectionMessage("general", "engine_error", beforeError.message);
+  if (!DISPLAY_CURRENCIES.includes(displayCurrency)) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      "Choose a supported display currency.",
+    );
   }
 
-  const beforeSettings = normalizeInboundEmailSettings(beforePolicy?.settings);
-  const settings = normalizeInboundEmailSettings({
-    ...beforeSettings,
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const [beforeGeneralResult, beforeInboundResult] = await Promise.all([
+    supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+      .maybeSingle(),
+    supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+      .maybeSingle(),
+  ]);
+
+  if (beforeGeneralResult.error) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      beforeGeneralResult.error.message,
+    );
+  }
+
+  if (beforeInboundResult.error) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      beforeInboundResult.error.message,
+    );
+  }
+
+  const beforeInboundSettings = normalizeInboundEmailSettings(
+    beforeInboundResult.data?.settings,
+  );
+  const beforeGeneralSettings = normalizeWorkspaceGeneralSettings(
+    beforeGeneralResult.data?.settings,
+    { timeZone: beforeInboundSettings.timeZone },
+  );
+  const generalSettings = normalizeWorkspaceGeneralSettings({
+    ...beforeGeneralSettings,
+    displayCurrency,
     timeZone,
   });
+  const inboundSettings = normalizeInboundEmailSettings({
+    ...beforeInboundSettings,
+    timeZone: generalSettings.timeZone,
+  });
 
-  const { data: savedPolicy, error: saveError } = await supabase
+  const { data: savedGeneralPolicy, error: saveGeneralError } = await supabase
     .from("workspace_policies")
     .upsert(
       {
         workspace_id: workspace.id,
-        policy_type: INBOUND_EMAIL_POLICY_TYPE,
-        settings,
+        policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
+        settings: generalSettings,
       },
       {
         onConflict: "workspace_id,policy_type",
@@ -420,11 +470,32 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     .select("id")
     .single();
 
-  if (saveError || !savedPolicy) {
+  if (saveGeneralError || !savedGeneralPolicy) {
     redirectWithSectionMessage(
       "general",
       "engine_error",
-      saveError?.message ?? "Unable to save workspace defaults.",
+      saveGeneralError?.message ?? "Unable to save workspace defaults.",
+    );
+  }
+
+  const { error: saveInboundError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        workspace_id: workspace.id,
+        policy_type: INBOUND_EMAIL_POLICY_TYPE,
+        settings: inboundSettings,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    );
+
+  if (saveInboundError) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      saveInboundError.message,
     );
   }
 
@@ -434,9 +505,14 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     actorId: user.id,
     action: "workspace_general_settings.updated",
     entityType: "workspace_policy",
-    entityId: String(savedPolicy.id),
-    before: beforePolicy ? { settings: beforePolicy.settings } : null,
-    after: { settings },
+    entityId: String(savedGeneralPolicy.id),
+    before: beforeGeneralResult.data
+      ? { settings: beforeGeneralResult.data.settings }
+      : null,
+    after: {
+      settings: generalSettings,
+      syncedInboundEmailTimeZone: inboundSettings.timeZone,
+    },
   });
 
   revalidatePath("/settings");

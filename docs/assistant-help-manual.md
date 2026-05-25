@@ -267,7 +267,7 @@ The Log supports filtering and searching so a user or builder can understand wha
 
 Settings is split into these sections:
 
-- General: workspace-wide defaults such as timezone.
+- General: workspace-wide defaults such as timezone and display currency.
 - Communication: outbound reply/channel rules and signatures.
 - Voice: assistant voice, outbound pronunciation policy, and pronunciation vocabulary.
 - Integrations: Google Workspace, Microsoft Outlook, inbound email sync, quiet hours, and sync limits.
@@ -288,6 +288,12 @@ Users should enter an IANA timezone such as:
 - `UTC`
 
 Kyro can change the timezone when the user asks clearly, for example: "Set the timezone to Australia/Brisbane."
+
+Display currency also lives in General. Kyro stores usage and provider ledger values in their original currency, currently USD for OpenAI-backed usage, but the app can display user-facing money values in the workspace's preferred currency. This currently applies to usage/billing summaries, usage ledger rows and CSV exports, small usage totals in Inbox/Contact/Log screens, and internal provider/margin pills. Quote and invoice documents keep their own document-template currency because those are customer-facing business documents, not Kyro usage charges.
+
+The current display conversion layer uses placeholder static rates and clearly marks the rate provider internally. It is designed to be swapped for a live billing-provider rate source later, such as Stripe FX Quotes, without rewriting the UI.
+
+Kyro can change the display currency when the user asks clearly, for example: "Set the display currency to AUD."
 
 ## Communication Settings
 
@@ -469,6 +475,8 @@ Usage can show:
 
 Provider/API cost and gross-margin snapshots are still recorded in `usage_events` and available for internal/dev visibility, but they are not the main customer-facing billing numbers. The main user-facing figure is `Usage charge`.
 
+Usage charges are stored in the ledger's original currency for billing auditability, currently USD for OpenAI usage. The Settings usage screen displays those values through the workspace display currency preference. The usage ledger CSV export includes both the display amount and the stored amount so it remains useful for customer review and later billing reconciliation.
+
 For OpenAI model calls, Kyro uses the token usage returned by OpenAI where available.
 It tracks uncached input tokens, cached input tokens, visible output tokens, and reasoning
 tokens separately. Web-search tool calls are also counted separately from the normal token
@@ -511,6 +519,7 @@ Reconnect by disconnecting the account if needed, then using the relevant Connec
 Kyro can directly change a constrained set of low-risk settings when the user asks clearly:
 
 - workspace timezone,
+- workspace display currency,
 - inbound email sync mode,
 - daytime email poll frequency,
 - quiet-hours enabled/disabled state,

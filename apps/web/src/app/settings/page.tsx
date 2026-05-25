@@ -30,6 +30,13 @@ import {
   type EmailSignatureSettings,
 } from "../../lib/communication/settings";
 import {
+  DISPLAY_CURRENCIES,
+  displayCurrencySourceLabel,
+  formatCurrencyAmount,
+  formatDisplayMoney,
+  type DisplayCurrencySettings,
+} from "../../lib/billing/display-currency";
+import {
   getUsageReport,
   normalizeUsageWindow,
   usageWindows,
@@ -53,6 +60,10 @@ import {
   getMicrosoftIntegrationOverview,
 } from "../../lib/integrations/microsoft";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import {
+  getWorkspaceGeneralSettings,
+  type WorkspaceGeneralSettings,
+} from "../../lib/workspace/general-settings";
 import Link from "next/link";
 import {
   SettingsShell,
@@ -120,15 +131,7 @@ function formatLabel(value: string) {
 }
 
 function formatMoney(value: number, currency: string) {
-  const maximumFractionDigits =
-    Math.abs(value) > 0 && Math.abs(value) < 1 ? 6 : 2;
-
-  return new Intl.NumberFormat("en", {
-    currency,
-    maximumFractionDigits,
-    minimumFractionDigits: 2,
-    style: "currency",
-  }).format(value);
+  return formatCurrencyAmount(value, currency);
 }
 
 function formatDate(value: string) {
@@ -1293,9 +1296,9 @@ function SenderRulesSettings({
 }
 
 function GeneralSettingsDetail({
-  inboundEmailSettings,
+  settings,
 }: Readonly<{
-  inboundEmailSettings: InboundEmailSettings;
+  settings: WorkspaceGeneralSettings;
 }>) {
   return (
     <form action={updateGeneralSettingsAction} className="settings-form">
@@ -1312,7 +1315,7 @@ function GeneralSettingsDetail({
         <span className="pill">General</span>
       </section>
 
-      <div className="settings-grid single">
+      <div className="settings-grid">
         <label className="setting-card">
           <SettingCardHeading
             info={
@@ -1326,17 +1329,42 @@ function GeneralSettingsDetail({
             Workspace timezone
           </SettingCardHeading>
           <input
-            defaultValue={inboundEmailSettings.timeZone}
+            defaultValue={settings.timeZone}
             name="workspaceTimeZone"
             placeholder="Australia/Brisbane"
           />
+        </label>
+        <label className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Controls how Kyro displays internal money values such as usage
+                charges and billing exports. Stored ledger values stay in USD
+                for clean accounting; this is the display currency users see in
+                the app.
+              </>
+            }
+          >
+            Display currency
+          </SettingCardHeading>
+          <select
+            defaultValue={settings.displayCurrency}
+            name="workspaceDisplayCurrency"
+          >
+            {DISPLAY_CURRENCIES.map((currency) => (
+              <option key={currency} value={currency}>
+                {currency}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
 
       <div className="settings-footer">
         <span>
-          Timezone currently powers quiet hours and will also back future
-          scheduling defaults.
+          Timezone powers quiet hours and scheduling. Display currency currently
+          uses {displayCurrencySourceLabel(settings)} until the billing provider
+          is connected.
         </span>
         <button className="primary-button compact" type="submit">
           Save workspace defaults
@@ -2157,11 +2185,13 @@ function modelUsageDescription(row: UsageBreakdownRow) {
 }
 
 function UsageInternalCostPills({
+  displayCurrencySettings,
   usageReport,
 }: Readonly<{
+  displayCurrencySettings: DisplayCurrencySettings | null;
   usageReport: UsageReportData | null;
 }>) {
-  if (!usageReport) {
+  if (!usageReport || !displayCurrencySettings) {
     return null;
   }
 
@@ -2172,16 +2202,18 @@ function UsageInternalCostPills({
     >
       <span title="Internal provider/API cost before Kyro markup.">
         <b>Provider</b>
-        {formatMoney(
+        {formatDisplayMoney(
           usageReport.totals.providerCost,
           usageReport.totals.currency,
+          displayCurrencySettings,
         )}
       </span>
       <span title="Internal margin before payment processing, support, and infrastructure costs.">
         <b>Margin</b>
-        {formatMoney(
+        {formatDisplayMoney(
           usageReport.totals.grossMargin,
           usageReport.totals.currency,
+          displayCurrencySettings,
         )}
       </span>
     </div>
@@ -2190,9 +2222,11 @@ function UsageInternalCostPills({
 
 function UsageSettingsDetail({
   activeWindow,
+  displayCurrencySettings,
   usageReport,
 }: Readonly<{
   activeWindow: string;
+  displayCurrencySettings: DisplayCurrencySettings;
   usageReport: UsageReportData;
 }>) {
   return (
@@ -2201,13 +2235,17 @@ function UsageSettingsDetail({
         <div className="usage-charge-summary">
           <span>Usage charge</span>
           <strong>
-            {formatMoney(
+            {formatDisplayMoney(
               usageReport.totals.customerCharge,
               usageReport.totals.currency,
+              displayCurrencySettings,
             )}
           </strong>
         </div>
-        <UsageLedgerModal rows={usageReport.ledger} />
+        <UsageLedgerModal
+          displayCurrencySettings={displayCurrencySettings}
+          rows={usageReport.ledger}
+        />
       </section>
 
       <nav className="filter-bar" aria-label="Usage date range">
@@ -2249,7 +2287,13 @@ function UsageSettingsDetail({
                     <span>{row.description}</span>
                   </div>
                   <span>{row.events}</span>
-                  <span>{formatMoney(row.customerCharge, row.currency)}</span>
+                  <span>
+                    {formatDisplayMoney(
+                      row.customerCharge,
+                      row.currency,
+                      displayCurrencySettings,
+                    )}
+                  </span>
                 </div>
               ))}
               <div className="usage-row usage-row-three usage-total-row">
@@ -2259,9 +2303,10 @@ function UsageSettingsDetail({
                 </div>
                 <span>{usageReport.totals.events}</span>
                 <span>
-                  {formatMoney(
+                  {formatDisplayMoney(
                     usageReport.totals.customerCharge,
                     usageReport.totals.currency,
+                    displayCurrencySettings,
                   )}
                 </span>
               </div>
@@ -2305,7 +2350,13 @@ function UsageSettingsDetail({
                     <span>{formatLabel(row.service)}</span>
                   </div>
                   <span>{row.events}</span>
-                  <span>{formatMoney(row.customerCharge, row.currency)}</span>
+                  <span>
+                    {formatDisplayMoney(
+                      row.customerCharge,
+                      row.currency,
+                      displayCurrencySettings,
+                    )}
+                  </span>
                 </div>
               ))}
               <div className="usage-row usage-row-three usage-total-row">
@@ -2315,9 +2366,10 @@ function UsageSettingsDetail({
                 </div>
                 <span>{usageReport.totals.events}</span>
                 <span>
-                  {formatMoney(
+                  {formatDisplayMoney(
                     usageReport.totals.customerCharge,
                     usageReport.totals.currency,
+                    displayCurrencySettings,
                   )}
                 </span>
               </div>
@@ -2354,8 +2406,8 @@ export default async function SettingsPage({
     selectedSection === "communication"
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
-    selectedSection === "general"
-      ? getInboundEmailSettings(supabase, workspace.id)
+    selectedSection === "general" || selectedSection === "usage"
+      ? getWorkspaceGeneralSettings(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "integrations"
       ? Promise.all([
@@ -2411,12 +2463,12 @@ export default async function SettingsPage({
   const settingsItems: SettingsMenuItem[] = [
     {
       detail: generalSettings
-        ? generalSettings.timeZone
-        : "Timezone and workspace defaults",
+        ? `${generalSettings.timeZone} - ${generalSettings.displayCurrency}`
+        : "Timezone, currency, and workspace defaults",
       eyebrow: "General",
       href: settingsSectionHref("general", activeWindow),
       section: "general",
-      status: generalSettings ? generalSettings.timeZone : "Open",
+      status: generalSettings ? generalSettings.displayCurrency : "Open",
       title: "System defaults",
     },
     {
@@ -2449,10 +2501,18 @@ export default async function SettingsPage({
     },
     {
       detail: usageReport
-        ? `${usageReport.totals.events} ledger events - ${formatMoney(
-            usageReport.totals.customerCharge,
-            usageReport.totals.currency,
-          )} usage charge`
+        ? `${usageReport.totals.events} ledger events - ${
+            generalSettings
+              ? formatDisplayMoney(
+                  usageReport.totals.customerCharge,
+                  usageReport.totals.currency,
+                  generalSettings,
+                )
+              : formatMoney(
+                  usageReport.totals.customerCharge,
+                  usageReport.totals.currency,
+                )
+          } usage charge`
         : "Usage charge, tasks, and ledger export",
       eyebrow: "Usage",
       href: settingsSectionHref("usage", activeWindow),
@@ -2465,10 +2525,10 @@ export default async function SettingsPage({
     selectedSection === "general" && generalSettings ? (
       <SettingsDetailShell
         eyebrow="General"
-        status={generalSettings.timeZone}
+        status={generalSettings.displayCurrency}
         title="System defaults"
       >
-        <GeneralSettingsDetail inboundEmailSettings={generalSettings} />
+        <GeneralSettingsDetail settings={generalSettings} />
       </SettingsDetailShell>
     ) : selectedSection === "communication" && communicationSettings ? (
       <SettingsDetailShell
@@ -2497,7 +2557,7 @@ export default async function SettingsPage({
           microsoftStatus={microsoftStatus}
         />
       </SettingsDetailShell>
-    ) : selectedSection === "usage" && usageReport ? (
+    ) : selectedSection === "usage" && usageReport && generalSettings ? (
       <SettingsDetailShell
         eyebrow="Usage"
         status={`Generated ${formatDate(usageReport.generatedAt)}`}
@@ -2505,6 +2565,7 @@ export default async function SettingsPage({
       >
         <UsageSettingsDetail
           activeWindow={activeWindow}
+          displayCurrencySettings={generalSettings}
           usageReport={usageReport}
         />
       </SettingsDetailShell>
@@ -2526,7 +2587,10 @@ export default async function SettingsPage({
       active="Settings"
       topControls={
         selectedSection === "usage" ? (
-          <UsageInternalCostPills usageReport={usageReport} />
+          <UsageInternalCostPills
+            displayCurrencySettings={generalSettings}
+            usageReport={usageReport}
+          />
         ) : null
       }
     >

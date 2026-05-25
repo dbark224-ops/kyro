@@ -1,6 +1,11 @@
 "use client";
 
 import type { UsageLedgerRow } from "../../lib/usage/queries";
+import {
+  convertDisplayMoney,
+  formatDisplayMoney,
+  type DisplayCurrencySettings,
+} from "../../lib/billing/display-currency";
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 
@@ -9,18 +14,6 @@ function formatLabel(value: string) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
-}
-
-function formatMoney(value: number, currency: string) {
-  const maximumFractionDigits =
-    Math.abs(value) > 0 && Math.abs(value) < 1 ? 6 : 2;
-
-  return new Intl.NumberFormat("en", {
-    currency,
-    maximumFractionDigits,
-    minimumFractionDigits: 2,
-    style: "currency",
-  }).format(value);
 }
 
 function formatNumber(value: number) {
@@ -46,7 +39,10 @@ function csvDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
-function usageLedgerCsv(rows: UsageLedgerRow[]) {
+function usageLedgerCsv(
+  rows: UsageLedgerRow[],
+  displayCurrencySettings: DisplayCurrencySettings,
+) {
   const headers = [
     "Created at",
     "User",
@@ -56,14 +52,24 @@ function usageLedgerCsv(rows: UsageLedgerRow[]) {
     "Model",
     "Quantity",
     "Unit",
-    "Usage charge",
-    "Currency",
+    "Display usage charge",
+    "Display currency",
+    "Stored usage charge",
+    "Stored currency",
+    "Display exchange rate",
+    "Display rate provider",
     "Source",
     "Source detail",
     "Source path",
   ];
-  const body = rows.map((row) =>
-    [
+  const body = rows.map((row) => {
+    const displayMoney = convertDisplayMoney(
+      row.customerCharge,
+      row.currency,
+      displayCurrencySettings,
+    );
+
+    return [
       csvDate(row.createdAt),
       row.userName,
       row.taskLabel,
@@ -72,15 +78,19 @@ function usageLedgerCsv(rows: UsageLedgerRow[]) {
       row.model,
       row.quantity,
       row.unit,
+      displayMoney?.amount.toFixed(8) ?? "",
+      displayMoney?.currency ?? "",
       row.customerCharge.toFixed(8),
       row.currency,
+      displayMoney?.exchangeRate.toFixed(8) ?? "",
+      displayCurrencySettings.exchangeRateProvider,
       row.sourceLabel,
       row.sourceMeta ?? "",
       row.sourceHref ?? "",
     ]
       .map(csvCell)
-      .join(","),
-  );
+      .join(",");
+  });
 
   return [headers.map(csvCell).join(","), ...body].join("\n");
 }
@@ -92,8 +102,10 @@ function usageLedgerFilename() {
 }
 
 export function UsageLedgerModal({
+  displayCurrencySettings,
   rows,
 }: Readonly<{
+  displayCurrencySettings: DisplayCurrencySettings;
   rows: UsageLedgerRow[];
 }>) {
   const [open, setOpen] = useState(false);
@@ -115,7 +127,7 @@ export function UsageLedgerModal({
   }, [open]);
 
   const handleExportCsv = () => {
-    const blob = new Blob(["\ufeff", usageLedgerCsv(rows)], {
+    const blob = new Blob(["\ufeff", usageLedgerCsv(rows, displayCurrencySettings)], {
       type: "text/csv;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -204,7 +216,11 @@ export function UsageLedgerModal({
                         {formatNumber(row.quantity)} {row.unit}
                       </span>
                       <strong>
-                        {formatMoney(row.customerCharge, row.currency)}
+                        {formatDisplayMoney(
+                          row.customerCharge,
+                          row.currency,
+                          displayCurrencySettings,
+                        )}
                       </strong>
                       <time>{formatDateTime(row.createdAt)}</time>
                     </div>

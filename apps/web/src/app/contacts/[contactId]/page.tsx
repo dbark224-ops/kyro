@@ -1,11 +1,17 @@
 import { updateContactProfileAction } from "../actions";
 import { AppFrame } from "../../components/app-frame";
 import {
+  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  formatDisplayMoney,
+  type DisplayCurrencySettings,
+} from "../../../lib/billing/display-currency";
+import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
 } from "../../../lib/crm/contact-types";
 import { getContactProfile } from "../../../lib/crm/queries";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
+import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -34,22 +40,12 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function formatMoney(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("en", {
-    currency: "USD",
-    maximumFractionDigits: 6,
-    style: "currency",
-  }).format(parsed);
+function formatMoney(
+  value: string | null,
+  sourceCurrency: string,
+  displayCurrencySettings: DisplayCurrencySettings,
+) {
+  return formatDisplayMoney(value, sourceCurrency, displayCurrencySettings);
 }
 
 function textValue(value: unknown) {
@@ -73,7 +69,12 @@ export default async function ContactProfilePage({
 }: ContactProfilePageProps) {
   const [{ contactId }, query] = await Promise.all([params, searchParams]);
   const { supabase, workspace } = await requireWorkspaceContext();
-  const profile = await getContactProfile(supabase, workspace.id, contactId);
+  const [profile, generalSettings] = await Promise.all([
+    getContactProfile(supabase, workspace.id, contactId),
+    getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+      () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+    ),
+  ]);
 
   if (!profile) {
     notFound();
@@ -264,7 +265,9 @@ export default async function ContactProfilePage({
                         </p>
                       ) : null}
                     </div>
-                    <strong>{formatMoney(run.actualCost)}</strong>
+                    <strong>
+                      {formatMoney(run.actualCost, "USD", generalSettings)}
+                    </strong>
                   </div>
                 ))
               ) : (

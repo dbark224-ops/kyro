@@ -608,6 +608,7 @@ There is one current fact row per workspace/conversation. Users can edit it, and
 
 Recommended `policy_type` values:
 
+- `workspace_general`
 - `communication_outbound`
 - `outbound_email`
 - `outbound_sms`
@@ -620,7 +621,7 @@ Recommended `policy_type` values:
 - `quiet_hours`
 - `blocked_recipients`
 
-`communication_outbound` is the current web settings policy used for dry-run outbound approval, channel, style, and email signature settings. It stores a default signature plus an optional assistant signature for untouched AI-generated sends. `outbound_email` and `outbound_sms` are still seeded by bootstrap as narrower channel policies and may be consolidated later.
+`workspace_general` stores workspace-wide defaults that are not tied to one feature, currently `timeZone`, `displayCurrency`, `exchangeRateProvider`, and `exchangeRateUpdatedAt`. Timezone is still mirrored into `inbound_email` for quiet-hours polling compatibility. `communication_outbound` is the current web settings policy used for dry-run outbound approval, channel, style, and email signature settings. It stores a default signature plus an optional assistant signature for untouched AI-generated sends. `outbound_email` and `outbound_sms` are still seeded by bootstrap as narrower channel policies and may be consolidated later.
 
 ## Usage and Billing Readiness
 
@@ -649,6 +650,11 @@ Recommended `policy_type` values:
 - `provider_usage_id`
 - `metadata`
 - `created_at`
+
+`currency`, `cost_snapshot`, and `customer_charge_snapshot` are stored in the
+original ledger currency and should not be overwritten for display conversion.
+The web UI can convert those values for presentation using the workspace display
+currency, but billing exports should retain the stored amounts for auditability.
 
 Recommended `usage_type` values:
 
