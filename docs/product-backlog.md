@@ -56,6 +56,6 @@ This is the parking lot for useful ideas that should not pull us away from the c
 ## Future Channels
 
 - Upgrade Gmail/Outlook inbound sync from bounded polling to provider push/watch delivery once the polling path is stable in production.
-- Add inbound email attachment intake backed by Supabase Storage or Drive so customer-sent photos, PDFs, and job files can be stored against the conversation.
-- Add deeper email thread matching with `References` and `In-Reply-To` headers for forwarded/replied chains that do not preserve the provider thread id cleanly.
+- Promote stored inbound email attachments into richer job-file/document records, including Drive sync and user-facing document organisation.
+- Add deeper forwarded-message parsing and provider history cursors for edge-case email chains that do not preserve provider thread ids or RFC references cleanly.
 - Add SMS, social DMs, and web chat only after email send/receive behavior and permission boundaries feel solid.

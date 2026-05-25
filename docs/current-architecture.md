@@ -69,6 +69,7 @@ All business data is workspace-scoped. The important tables are:
   provider connect flows.
 - `conversations`: message threads.
 - `messages`: inbound/outbound communication records.
+- `files`: private file metadata for uploaded/generated/stored files, including inbound email attachments stored in Supabase Storage.
 - `inquiry_facts`: current editable inquiry facts for a conversation, separate from raw AI output.
 - `events`: idempotent ingestion and workflow events.
 - `actions`: proposed or executable work, including AI-proposed replies.
@@ -461,6 +462,7 @@ Purpose:
 Current safe command families:
 
 - work queue and leads needing reply,
+- inbound email sync and awareness, including recent promoted/filtered email, skipped mail, and attachment-bearing messages,
 - inquiry lookup by customer/job text, including exact and partial name matches,
 - quote/document lookup and ready quote drafts,
 - quote-send preparation that creates a reviewable email with the generated quote PDF and customer approval link attached,
@@ -894,7 +896,8 @@ Important behavior:
 - Filtered-out email now has a primary Promote action that calls `promoteSkippedEmailEvent`. That helper tries to refetch the original provider message by provider message id, falls back to stored event metadata when needed, then creates or reuses the same contact, lead, conversation, inbound message, and triage path as normal promoted inbound mail.
 - Sender-specific learning rules live inside the existing `inbound_email` workspace policy JSON as `senderRules`, so no schema migration is needed for v1. The filtered-out email three-dot menu can add `always_promote` or `always_ignore` rules for a sender email address and displays the current set/not-set state for each option. Settings -> Integrations includes a Sender rules manager that can add email/domain rules, switch rules between relevant/ignored, or remove rules. Sync checks those structured rules before classifier work; matched promote rules produce `sender_rule` classifications and matched ignore rules skip promotion.
 - Actionable business mail creates or reuses a contact, lead, conversation, and inbound message, then runs the same AI triage/action-proposal path as manual inbound.
-- Follow-up emails on an existing provider thread reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
+- Inbound email attachment metadata is stored on the event/message. If Gmail or Outlook provides attachment bytes, Kyro stores current-size attachments in a private Supabase Storage bucket (`KYRO_FILE_STORAGE_BUCKET`, falling back to `kyro-files`), inserts a `files` row, and renders attachment chips in Inbox and Assistant previews. Oversized attachments and storage failures fall back to metadata-only/failed chips so the user still sees that an attachment existed.
+- Follow-up emails match existing conversations by provider thread id first, then RFC message references (`References` / `In-Reply-To`), then a conservative same-contact same-subject fallback. Matched follow-ups reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
 - The classifier uses heuristics first and, when `OPENAI_API_KEY` is available, a low-cost OpenAI structured-output classifier for non-automated mail. The heuristic layer covers common trade-language signals such as quote, job, booking, blocked/backed-up drains, sewerage, bathroom renovation, repairs, and "come out/check/quote" phrases so obvious customer work is not missed if the LLM path is unavailable. Classification usage is recorded in `usage_events`.
 - No new tables were added for the first version; `workspace_policies`, `integration_connections`, `channels`, `events`, `messages`, and existing CRM tables are enough.
 
@@ -903,12 +906,11 @@ Known inbound gaps to tackle after the poller is stable:
 - Gmail/Outlook push mailbox watches and incremental history cursors are deferred;
   production currently relies on bounded polling plus provider-message
   idempotency.
-- Inbound provider attachments are not downloaded or stored yet. Outbound local
-  and generated PDF attachments exist, but inbound attachment storage needs a
-  Supabase Storage or Drive-backed file model.
-- Thread matching currently uses provider thread ids and known contact/email data.
-  Deeper `References`/`In-Reply-To` parsing can improve odd forwarded/replied
-  email chains later.
+- Inbound provider attachments now have first-pass Supabase Storage persistence,
+  but they are not yet promoted into editable CRM document records or Drive.
+- Thread matching now uses provider thread ids, RFC references, and same-contact
+  same-subject fallback. Future work is provider history/watch cursors and deeper
+  forwarded-message parsing.
 
 ## Mock Follow-Up Ingestion
 
@@ -1158,6 +1160,7 @@ Use this map before editing:
 - New inbound email sync behavior: `apps/web/src/lib/integrations/inbound-email-settings.ts`,
   `apps/web/src/lib/integrations/inbound-email-sync.ts`, and
   `apps/web/src/app/api/integrations/email/sync/route.ts`
+- New file download route for stored inbound attachments: `apps/web/src/app/api/files/[fileId]/route.ts`
 - New deployment/env readiness check: `scripts/check-env.mjs` and `docs/deployment-checklist.md`
 - New service-role Supabase server helper: `apps/web/src/lib/supabase/service.ts`
 - New provider token encryption behavior: `apps/web/src/lib/integrations/token-vault.ts`
@@ -1174,6 +1177,7 @@ These are not bugs:
 
 - Gmail and Outlook OAuth plus real outbound email are connected for approved/user-triggered sends.
 - Gmail and Outlook inbound sync have a first poll-based implementation. Push/webhook mailbox watches are intentionally deferred.
+- Gmail/Outlook inbound attachments are stored when provider bytes are available and shown as message attachment chips. Turning those files into first-class job documents is future work.
 - SMS is not connected yet.
 - AI triage and Assistant narration can use OpenAI in this local setup; local Ollama remains a development option on machines that support it.
 - Voice mode has a WebRTC/OpenAI Realtime path, but the native mobile shell, deeper barge-in tuning, and user-facing realtime voice controls are still future work.

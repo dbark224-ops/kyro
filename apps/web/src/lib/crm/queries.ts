@@ -82,6 +82,8 @@ export type ConversationListItem = {
 
 export type SkippedEmailSummaryItem = {
   accountEmail: string | null;
+  attachmentCount: number;
+  attachmentNames: string[];
   id: string;
   category: string;
   classificationProvider: string | null;
@@ -166,13 +168,25 @@ export function buildSkippedEmailSummaryItems(
   const items: SkippedEmailSummaryItem[] = events.map((event) => {
     const payload = objectRecord(event.payload);
     const classification = objectRecord(payload.classification);
+    const attachments = Array.isArray(payload.attachments)
+      ? payload.attachments
+      : [];
     const confidence =
       typeof classification.confidence === "number"
         ? classification.confidence
         : null;
+    const attachmentNames = attachments
+      .map((attachment) => textValue(objectRecord(attachment).filename))
+      .filter((filename): filename is string => Boolean(filename));
+    const attachmentCount =
+      typeof payload.attachmentCount === "number"
+        ? payload.attachmentCount
+        : attachmentNames.length;
 
     return {
       accountEmail: textValue(payload.accountEmail),
+      attachmentCount,
+      attachmentNames,
       id: String(event.id),
       category: textValue(classification.category) ?? "observed",
       classificationProvider: textValue(classification.providerUsed),

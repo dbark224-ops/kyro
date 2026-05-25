@@ -4,7 +4,11 @@ import {
   classifyInboundEmailHeuristically,
   classificationForSenderRule,
   inboundEmailIdempotencyKey,
+  inboundEmailReferenceIds,
   isRecoverableTokenAccessError,
+  normalizeEmailMessageId,
+  normalizeEmailSubject,
+  summarizeInboundEmailAttachments,
 } from "./inbound-email-sync";
 
 describe("isRecoverableTokenAccessError", () => {
@@ -156,5 +160,42 @@ describe("inboundEmailIdempotencyKey", () => {
         provider: "google",
       }),
     );
+  });
+});
+
+describe("email thread metadata helpers", () => {
+  it("normalizes provider message ids and reply reference ids", () => {
+    assert.equal(normalizeEmailMessageId("<ABC@example.com>"), "abc@example.com");
+    assert.deepEqual(
+      inboundEmailReferenceIds({
+        "in-reply-to": "<reply@example.com>",
+        references: "<first@example.com> <second@example.com>",
+      }),
+      ["reply@example.com", "first@example.com", "second@example.com"],
+    );
+  });
+
+  it("normalizes reply/forward subjects for fallback matching", () => {
+    assert.equal(
+      normalizeEmailSubject("Re: Fwd: Bathroom Renovation Quote"),
+      "bathroom renovation quote",
+    );
+  });
+
+  it("summarizes attachments without exposing raw file bytes", () => {
+    const attachments = summarizeInboundEmailAttachments([
+      {
+        attachmentId: "provider-attachment",
+        contentBase64: "VGhpcyBzaG91bGQgbm90IGxlYWs=",
+        contentType: "application/pdf",
+        filename: "quote.pdf",
+        provider: "google",
+        sizeBytes: 128,
+      },
+    ]);
+
+    assert.equal(attachments[0]?.filename, "quote.pdf");
+    assert.equal(attachments[0]?.storageStatus, "metadata_only");
+    assert.equal("contentBase64" in (attachments[0] ?? {}), false);
   });
 });

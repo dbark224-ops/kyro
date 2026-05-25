@@ -22,6 +22,7 @@ import {
   MICROSOFT_SERVICE,
   getMicrosoftOAuthConfig,
 } from "./microsoft";
+import { createServiceSupabaseClient } from "../supabase/service";
 import {
   findInboundEmailSenderRule,
   getInboundEmailSettings,
@@ -60,6 +61,7 @@ type OAuthTokenSet = {
 
 type InboundEmailMessage = {
   accountEmail: string | null;
+  attachments: InboundEmailAttachment[];
   automated: boolean;
   bodyHtml: string | null;
   bodyText: string;
@@ -70,10 +72,35 @@ type InboundEmailMessage = {
   fromName: string | null;
   headers: Record<string, string>;
   provider: InboundEmailProvider;
+  providerMessageId: string | null;
   receivedAt: string;
   snippet: string | null;
   subject: string;
   toEmails: string[];
+};
+
+type InboundEmailAttachment = {
+  attachmentId: string | null;
+  contentBase64?: string | null;
+  contentType: string | null;
+  filename: string;
+  isInline?: boolean;
+  partId?: string | null;
+  provider: InboundEmailProvider;
+  sizeBytes: number | null;
+};
+
+type StoredInboundEmailAttachment = {
+  contentType: string | null;
+  fileId: string | null;
+  filename: string;
+  provider: InboundEmailProvider;
+  sizeBytes: number | null;
+  source: "inbound_email";
+  storageBucket: string | null;
+  storagePath: string | null;
+  storageStatus: "failed" | "metadata_only" | "stored";
+  error?: string;
 };
 
 export type EmailClassificationCategory =
@@ -127,6 +154,10 @@ export type InboundEmailSyncResult = {
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
 const MAX_CLASSIFIER_BODY_CHARS = 4000;
+const MAX_INBOUND_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const INBOUND_ATTACHMENT_BUCKET =
+  process.env.KYRO_FILE_STORAGE_BUCKET?.trim() || "kyro-files";
+const ensuredAttachmentBuckets = new Set<string>();
 const TOKEN_DECRYPT_RECONNECT_MESSAGE =
   "Reconnect this account because Kyro cannot decrypt the stored OAuth token with the current integration encryption key.";
 
@@ -151,6 +182,54 @@ function textValue(value: unknown) {
 
 function numberValue(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function normalizeEmailMessageId(value: unknown) {
+  const text = textValue(value);
+
+  if (!text) {
+    return null;
+  }
+
+  return text.replace(/[<>]/g, "").trim().toLowerCase() || null;
+}
+
+export function inboundEmailReferenceIds(headers: Record<string, string>) {
+  const values = [
+    headers["in-reply-to"],
+    headers.references,
+    headers["thread-index"],
+  ].filter(Boolean);
+  const ids = new Set<string>();
+
+  for (const value of values) {
+    for (const match of String(value).matchAll(/<([^>]+)>|([^\s,;]+)/g)) {
+      const normalized = normalizeEmailMessageId(match[1] ?? match[2]);
+
+      if (normalized) {
+        ids.add(normalized);
+      }
+    }
+  }
+
+  return [...ids];
+}
+
+export function normalizeEmailSubject(value: unknown) {
+  const subject = textValue(value);
+
+  if (!subject) {
+    return null;
+  }
+
+  const normalized = subject
+    .replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, "")
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  return normalized || null;
 }
 
 function normalizeScopes(value: unknown) {
@@ -218,6 +297,188 @@ export function inboundEmailIdempotencyKey({
   provider,
 }: Pick<InboundEmailMessage, "connectionId" | "externalMessageId" | "provider">) {
   return `email.inbound.${provider}.${connectionId}.${externalMessageId}`;
+}
+
+function safeStorageSegment(value: string) {
+  return value
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 96) || "attachment";
+}
+
+export function summarizeInboundEmailAttachments(
+  attachments: InboundEmailAttachment[],
+): StoredInboundEmailAttachment[] {
+  return attachments.map((attachment) => ({
+    contentType: attachment.contentType,
+    fileId: null,
+    filename: attachment.filename,
+    provider: attachment.provider,
+    sizeBytes: attachment.sizeBytes,
+    source: "inbound_email",
+    storageBucket: null,
+    storagePath: null,
+    storageStatus: "metadata_only",
+  }));
+}
+
+function inboundEmailThreadMetadata(message: InboundEmailMessage) {
+  return {
+    headerMessageId: normalizeEmailMessageId(
+      message.headers["message-id"] ?? message.externalMessageId,
+    ),
+    inReplyTo: normalizeEmailMessageId(message.headers["in-reply-to"]),
+    normalizedSubject: normalizeEmailSubject(message.subject),
+    providerMessageId: message.providerMessageId,
+    references: inboundEmailReferenceIds(message.headers),
+  };
+}
+
+function inboundEmailEventMetadata(message: InboundEmailMessage) {
+  return {
+    attachmentCount: message.attachments.length,
+    attachments: summarizeInboundEmailAttachments(message.attachments),
+    externalMessageId: message.externalMessageId,
+    externalThreadId: message.externalThreadId,
+    providerMessageId: message.providerMessageId,
+    thread: inboundEmailThreadMetadata(message),
+  };
+}
+
+async function ensureInboundAttachmentBucket(
+  serviceSupabase: ReturnType<typeof createServiceSupabaseClient>,
+  bucket: string,
+) {
+  if (ensuredAttachmentBuckets.has(bucket)) {
+    return;
+  }
+
+  const { error } = await serviceSupabase.storage.getBucket(bucket);
+
+  if (!error) {
+    ensuredAttachmentBuckets.add(bucket);
+    return;
+  }
+
+  const { error: createError } = await serviceSupabase.storage.createBucket(bucket, {
+    public: false,
+  });
+
+  if (createError && !/already exists/i.test(createError.message)) {
+    throw new Error(createError.message);
+  }
+
+  ensuredAttachmentBuckets.add(bucket);
+}
+
+async function persistInboundEmailAttachments({
+  attachments,
+  messageId,
+  workspaceId,
+}: {
+  attachments: InboundEmailAttachment[];
+  messageId: string;
+  workspaceId: string;
+}): Promise<StoredInboundEmailAttachment[]> {
+  if (attachments.length === 0) {
+    return [];
+  }
+
+  let serviceSupabase: ReturnType<typeof createServiceSupabaseClient>;
+
+  try {
+    serviceSupabase = createServiceSupabaseClient();
+    await ensureInboundAttachmentBucket(serviceSupabase, INBOUND_ATTACHMENT_BUCKET);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Storage unavailable.";
+
+    return summarizeInboundEmailAttachments(attachments).map((attachment) => ({
+      ...attachment,
+      error: message,
+      storageStatus: "failed",
+    }));
+  }
+
+  const stored: StoredInboundEmailAttachment[] = [];
+
+  for (const [index, attachment] of attachments.entries()) {
+    if (!attachment.contentBase64) {
+      stored.push({
+        ...summarizeInboundEmailAttachments([attachment])[0],
+        storageStatus: "metadata_only",
+      });
+      continue;
+    }
+
+    const filename = safeStorageSegment(attachment.filename);
+    const storagePath = `${workspaceId}/inbound-email/${messageId}/${index + 1}-${filename}`;
+
+    try {
+      const buffer = Buffer.from(attachment.contentBase64, "base64");
+
+      if (buffer.byteLength > MAX_INBOUND_ATTACHMENT_BYTES) {
+        stored.push({
+          ...summarizeInboundEmailAttachments([attachment])[0],
+          error: "Attachment exceeds current inbound storage limit.",
+          storageStatus: "metadata_only",
+        });
+        continue;
+      }
+
+      const contentType = attachment.contentType ?? "application/octet-stream";
+      const { error: uploadError } = await serviceSupabase.storage
+        .from(INBOUND_ATTACHMENT_BUCKET)
+        .upload(storagePath, buffer, {
+          contentType,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+
+      const { data: file, error: fileError } = await serviceSupabase
+        .from("files")
+        .insert({
+          workspace_id: workspaceId,
+          storage_bucket: INBOUND_ATTACHMENT_BUCKET,
+          storage_path: storagePath,
+          filename: attachment.filename,
+          content_type: attachment.contentType,
+          size_bytes: attachment.sizeBytes ?? buffer.byteLength,
+          source: "inbound_email",
+        })
+        .select("id,storage_bucket,storage_path,filename,content_type,size_bytes")
+        .single();
+
+      if (fileError || !file) {
+        throw new Error(fileError?.message ?? "File metadata insert failed.");
+      }
+
+      stored.push({
+        contentType: textValue(file.content_type),
+        fileId: String(file.id),
+        filename: String(file.filename),
+        provider: attachment.provider,
+        sizeBytes: numberValue(file.size_bytes),
+        source: "inbound_email",
+        storageBucket: String(file.storage_bucket),
+        storagePath: String(file.storage_path),
+        storageStatus: "stored",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Attachment upload failed.";
+
+      stored.push({
+        ...summarizeInboundEmailAttachments([attachment])[0],
+        error: message,
+        storageStatus: "failed",
+      });
+    }
+  }
+
+  return stored;
 }
 
 function stripHtml(value: string) {
@@ -1004,9 +1265,11 @@ async function accessTokenForConnection({
 
 type GmailHeader = { name?: string; value?: string };
 type GmailPayload = {
-  body?: { data?: string };
+  body?: { attachmentId?: string; data?: string; size?: number };
+  filename?: string;
   headers?: GmailHeader[];
   mimeType?: string;
+  partId?: string;
   parts?: GmailPayload[];
 };
 type GmailMessageResponse = {
@@ -1035,6 +1298,111 @@ function decodeGmailBody(data: string | undefined) {
   }
 
   return Buffer.from(data, "base64url").toString("utf8");
+}
+
+function collectGmailAttachments(
+  payload: GmailPayload | undefined,
+  attachments: InboundEmailAttachment[] = [],
+) {
+  if (!payload) {
+    return attachments;
+  }
+
+  const filename = textValue(payload.filename);
+  const attachmentId = textValue(payload.body?.attachmentId);
+  const inlineData = textValue(payload.body?.data);
+
+  if (filename && (attachmentId || inlineData)) {
+    attachments.push({
+      attachmentId,
+      contentBase64: inlineData
+        ? Buffer.from(inlineData, "base64url").toString("base64")
+        : null,
+      contentType: textValue(payload.mimeType),
+      filename,
+      isInline: false,
+      partId: textValue(payload.partId),
+      provider: "google",
+      sizeBytes: numberValue(payload.body?.size),
+    });
+  }
+
+  for (const part of payload.parts ?? []) {
+    collectGmailAttachments(part, attachments);
+  }
+
+  return attachments;
+}
+
+async function fetchGmailAttachmentContent({
+  accessToken,
+  attachmentId,
+  messageId,
+}: {
+  accessToken: string;
+  attachmentId: string;
+  messageId: string;
+}) {
+  const response = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(
+      messageId,
+    )}/attachments/${encodeURIComponent(attachmentId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = (await response.json()) as { data?: string; size?: number };
+  const data = textValue(payload.data);
+
+  return data ? Buffer.from(data, "base64url").toString("base64") : null;
+}
+
+async function hydrateGmailAttachments({
+  accessToken,
+  message,
+}: {
+  accessToken: string;
+  message: InboundEmailMessage;
+}) {
+  if (!message.providerMessageId || message.attachments.length === 0) {
+    return message;
+  }
+
+  const attachments = await Promise.all(
+    message.attachments.map(async (attachment) => {
+      if (attachment.contentBase64 || !attachment.attachmentId) {
+        return attachment;
+      }
+
+      if (
+        typeof attachment.sizeBytes === "number" &&
+        attachment.sizeBytes > MAX_INBOUND_ATTACHMENT_BYTES
+      ) {
+        return attachment;
+      }
+
+      return {
+        ...attachment,
+        contentBase64: await fetchGmailAttachmentContent({
+          accessToken,
+          attachmentId: attachment.attachmentId,
+          messageId: message.providerMessageId ?? message.externalMessageId,
+        }),
+      };
+    }),
+  );
+
+  return {
+    ...message,
+    attachments,
+  };
 }
 
 function collectGmailBodies(payload: GmailPayload | undefined, bodies = { html: [] as string[], text: [] as string[] }) {
@@ -1096,6 +1464,7 @@ function gmailDetailToInboundMessage({
 
   return {
     accountEmail: connection.account_email,
+    attachments: collectGmailAttachments(detail.payload),
     automated: automatedFromHeaders(headers, from.email, subject),
     bodyHtml,
     bodyText,
@@ -1106,6 +1475,7 @@ function gmailDetailToInboundMessage({
     fromName: from.name,
     headers,
     provider: "google" as const,
+    providerMessageId: detail.id ?? itemId,
     receivedAt,
     snippet: textValue(detail.snippet),
     subject,
@@ -1140,10 +1510,13 @@ async function fetchGmailMessageById({
 
   const detail = (await detailResponse.json()) as GmailMessageResponse;
 
-  return gmailDetailToInboundMessage({
-    connection,
-    detail,
-    itemId: messageId,
+  return hydrateGmailAttachments({
+    accessToken,
+    message: gmailDetailToInboundMessage({
+      connection,
+      detail,
+      itemId: messageId,
+    }),
   });
 }
 
@@ -1195,12 +1568,17 @@ async function fetchGmailMessages({
     }
 
     const detail = (await detailResponse.json()) as GmailMessageResponse;
-    messages.push(
-      gmailDetailToInboundMessage({
+    const inboundMessage = gmailDetailToInboundMessage({
         connection,
         detail,
         itemId: item.id,
         itemThreadId: item.threadId,
+      });
+
+    messages.push(
+      await hydrateGmailAttachments({
+        accessToken,
+        message: inboundMessage,
       }),
     );
   }
@@ -1209,6 +1587,14 @@ async function fetchGmailMessages({
 }
 
 type OutlookMessage = {
+  attachments?: Array<{
+    contentBytes?: string;
+    contentType?: string;
+    id?: string;
+    isInline?: boolean;
+    name?: string;
+    size?: number;
+  }>;
   body?: {
     content?: string;
     contentType?: string;
@@ -1250,9 +1636,29 @@ function outlookMessageToInboundMessage(
     ? stripHtml(htmlBody)
     : textValue(message.bodyPreview) ?? "";
   const receivedAt = textValue(message.receivedDateTime) ?? new Date().toISOString();
+  const attachments: InboundEmailAttachment[] = [];
+
+  for (const attachment of message.attachments ?? []) {
+    const filename = textValue(attachment.name);
+
+    if (!filename) {
+      continue;
+    }
+
+    attachments.push({
+      attachmentId: textValue(attachment.id),
+      contentBase64: textValue(attachment.contentBytes),
+      contentType: textValue(attachment.contentType),
+      filename,
+      isInline: Boolean(attachment.isInline),
+      provider: "microsoft",
+      sizeBytes: numberValue(attachment.size),
+    });
+  }
 
   return {
     accountEmail: connection.account_email,
+    attachments,
     automated: automatedFromHeaders(headers, fromEmail, subject),
     bodyHtml: htmlBody,
     bodyText,
@@ -1263,6 +1669,7 @@ function outlookMessageToInboundMessage(
     fromName,
     headers,
     provider: "microsoft" as const,
+    providerMessageId: textValue(message.id),
     receivedAt,
     snippet: textValue(message.bodyPreview),
     subject,
@@ -1291,6 +1698,10 @@ async function fetchOutlookMessageById({
   url.searchParams.set(
     "$select",
     "id,conversationId,internetMessageId,subject,bodyPreview,body,from,toRecipients,receivedDateTime,internetMessageHeaders",
+  );
+  url.searchParams.set(
+    "$expand",
+    "attachments($select=id,name,contentType,size,isInline,contentBytes)",
   );
   const response = await fetch(url, {
     headers: {
@@ -1321,6 +1732,10 @@ async function fetchOutlookMessages({
   url.searchParams.set(
     "$select",
     "id,conversationId,internetMessageId,subject,bodyPreview,body,from,toRecipients,receivedDateTime,internetMessageHeaders",
+  );
+  url.searchParams.set(
+    "$expand",
+    "attachments($select=id,name,contentType,size,isInline,contentBytes)",
   );
 
   const response = await fetch(url, {
@@ -1492,7 +1907,7 @@ async function loadConversationByThread({
 
   const { data, error } = await supabase
     .from("conversations")
-    .select("id,status,contact_id,lead_id")
+    .select("id,status,contact_id,lead_id,external_thread_id")
     .eq("workspace_id", workspaceId)
     .eq("channel_id", channelId)
     .eq("external_thread_id", externalThreadId)
@@ -1504,6 +1919,137 @@ async function loadConversationByThread({
   }
 
   return data;
+}
+
+async function loadConversationById({
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  conversationId: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select("id,status,contact_id,lead_id,external_thread_id")
+    .eq("workspace_id", workspaceId)
+    .eq("id", conversationId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to look up matched email conversation: ${error.message}`);
+  }
+
+  return data;
+}
+
+async function loadConversationByMessageReferences({
+  channelId,
+  message,
+  supabase,
+  workspaceId,
+}: {
+  channelId: string;
+  message: InboundEmailMessage;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const thread = inboundEmailThreadMetadata(message);
+  const referenceIds = new Set([
+    ...thread.references,
+    thread.inReplyTo,
+  ].filter((value): value is string => Boolean(value)));
+
+  if (referenceIds.size === 0) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("conversation_id,metadata")
+    .eq("workspace_id", workspaceId)
+    .eq("channel_id", channelId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    throw new Error(`Unable to inspect email message references: ${error.message}`);
+  }
+
+  for (const row of data ?? []) {
+    const metadata = objectRecord(row.metadata);
+    const metadataThread = objectRecord(metadata.thread);
+    const headerMessageId =
+      normalizeEmailMessageId(metadataThread.headerMessageId) ??
+      normalizeEmailMessageId(metadata.headerMessageId);
+
+    if (!headerMessageId || !referenceIds.has(headerMessageId)) {
+      continue;
+    }
+
+    const conversationId = textValue(row.conversation_id);
+
+    return conversationId
+      ? loadConversationById({ conversationId, supabase, workspaceId })
+      : null;
+  }
+
+  return null;
+}
+
+async function loadConversationBySubjectAndContact({
+  channelId,
+  contactId,
+  message,
+  supabase,
+  workspaceId,
+}: {
+  channelId: string;
+  contactId: string;
+  message: InboundEmailMessage;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const normalizedSubject = normalizeEmailSubject(message.subject);
+
+  if (!normalizedSubject || normalizedSubject.length < 5) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("conversation_id,metadata,subject")
+    .eq("workspace_id", workspaceId)
+    .eq("channel_id", channelId)
+    .eq("contact_id", contactId)
+    .order("created_at", { ascending: false })
+    .limit(120);
+
+  if (error) {
+    throw new Error(`Unable to inspect email subject matches: ${error.message}`);
+  }
+
+  for (const row of data ?? []) {
+    const metadata = objectRecord(row.metadata);
+    const metadataThread = objectRecord(metadata.thread);
+    const storedSubject =
+      normalizeEmailSubject(metadataThread.normalizedSubject) ??
+      normalizeEmailSubject(row.subject);
+
+    if (storedSubject !== normalizedSubject) {
+      continue;
+    }
+
+    const conversationId = textValue(row.conversation_id);
+
+    return conversationId
+      ? loadConversationById({ conversationId, supabase, workspaceId })
+      : null;
+  }
+
+  return null;
 }
 
 async function buildThreadSummary(supabase: SupabaseClient, workspaceId: string, conversationId: string) {
@@ -1633,6 +2179,7 @@ async function promoteEmailMessage({
       conversationId: String(existingMessage.conversation_id),
       duplicate: true,
       messageId: String(existingMessage.id),
+      threadMatchStrategy: "duplicate",
     };
   }
 
@@ -1643,6 +2190,29 @@ async function promoteEmailMessage({
     supabase,
     workspaceId,
   });
+  let threadMatchStrategy = conversation ? "provider_thread" : "new_conversation";
+
+  if (!conversation) {
+    conversation = await loadConversationByMessageReferences({
+      channelId,
+      message,
+      supabase,
+      workspaceId,
+    });
+    threadMatchStrategy = conversation ? "message_reference" : threadMatchStrategy;
+  }
+
+  if (!conversation) {
+    conversation = await loadConversationBySubjectAndContact({
+      channelId,
+      contactId,
+      message,
+      supabase,
+      workspaceId,
+    });
+    threadMatchStrategy = conversation ? "contact_subject" : threadMatchStrategy;
+  }
+
   let leadId = conversation?.lead_id ? String(conversation.lead_id) : null;
   const leadTitle = classification.suggestedServiceType
     ? `${classification.suggestedServiceType} email from ${contactNameFromMessage(message)}`
@@ -1700,7 +2270,7 @@ async function promoteEmailMessage({
         lead_id: leadId,
         status: "open",
       })
-      .select("id,status,contact_id,lead_id")
+      .select("id,status,contact_id,lead_id,external_thread_id")
       .single();
 
     if (conversationError || !createdConversation) {
@@ -1708,9 +2278,20 @@ async function promoteEmailMessage({
     }
 
     conversation = createdConversation;
+    threadMatchStrategy = "new_conversation";
   }
 
   const conversationId = String(conversation.id);
+  const baseMessageMetadata = {
+    accountEmail: message.accountEmail,
+    classification,
+    eventId,
+    fromEmail: message.fromEmail,
+    provider: message.provider,
+    source: "email_inbound_sync",
+    threadMatchStrategy,
+    ...inboundEmailEventMetadata(message),
+  };
   const { data: savedMessage, error: messageError } = await supabase
     .from("messages")
     .insert({
@@ -1722,15 +2303,7 @@ async function promoteEmailMessage({
       conversation_id: conversationId,
       direction: "inbound",
       external_message_id: message.externalMessageId,
-      metadata: {
-        accountEmail: message.accountEmail,
-        classification,
-        eventId,
-        externalThreadId: message.externalThreadId,
-        fromEmail: message.fromEmail,
-        provider: message.provider,
-        source: "email_inbound_sync",
-      },
+      metadata: baseMessageMetadata,
       received_at: message.receivedAt,
       subject: message.subject,
     })
@@ -1741,13 +2314,42 @@ async function promoteEmailMessage({
     throw new Error(`Unable to create inbound email message: ${messageError?.message ?? "unknown error"}`);
   }
 
+  const storedAttachments = await persistInboundEmailAttachments({
+    attachments: message.attachments,
+    messageId: String(savedMessage.id),
+    workspaceId,
+  });
+  const messageMetadata = {
+    ...baseMessageMetadata,
+    attachmentCount: storedAttachments.length,
+    attachments: storedAttachments,
+  };
+
+  if (storedAttachments.length > 0) {
+    const { error: metadataError } = await supabase
+      .from("messages")
+      .update({ metadata: messageMetadata })
+      .eq("workspace_id", workspaceId)
+      .eq("id", savedMessage.id);
+
+    if (metadataError) {
+      throw new Error(`Unable to update email attachment metadata: ${metadataError.message}`);
+    }
+  }
+
   const previousStatus = String(conversation.status ?? "open");
+  const conversationUpdate: Record<string, unknown> = {
+    last_message_at: message.receivedAt,
+    status: "open",
+  };
+
+  if (message.externalThreadId && !textValue(conversation.external_thread_id)) {
+    conversationUpdate.external_thread_id = message.externalThreadId;
+  }
+
   const { error: updateConversationError } = await supabase
     .from("conversations")
-    .update({
-      last_message_at: message.receivedAt,
-      status: "open",
-    })
+    .update(conversationUpdate)
     .eq("workspace_id", workspaceId)
     .eq("id", conversationId);
 
@@ -1787,8 +2389,10 @@ async function promoteEmailMessage({
       status: previousStatus,
     },
     after: {
+      attachmentCount: storedAttachments.length,
       messageId: String(savedMessage.id),
       status: "open",
+      threadMatchStrategy,
     },
   });
 
@@ -1841,6 +2445,7 @@ async function promoteEmailMessage({
     duplicate: false,
     leadId,
     messageId: String(savedMessage.id),
+    threadMatchStrategy,
   };
 }
 
@@ -1864,6 +2469,34 @@ function skippedEventClassification(payload: Record<string, unknown>): EmailClas
   };
 }
 
+function inboundAttachmentsFromEventPayload(
+  payload: Record<string, unknown>,
+  provider: InboundEmailProvider,
+) {
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const inboundAttachments: InboundEmailAttachment[] = [];
+
+  for (const value of attachments) {
+    const attachment = objectRecord(value);
+    const filename = textValue(attachment.filename);
+
+    if (!filename) {
+      continue;
+    }
+
+    inboundAttachments.push({
+      attachmentId: textValue(attachment.attachmentId),
+      contentType: textValue(attachment.contentType),
+      filename,
+      isInline: false,
+      provider,
+      sizeBytes: numberValue(attachment.sizeBytes),
+    });
+  }
+
+  return inboundAttachments;
+}
+
 function fallbackMessageFromSkippedEvent({
   connection,
   eventId,
@@ -1885,6 +2518,7 @@ function fallbackMessageFromSkippedEvent({
 
   return {
     accountEmail: textValue(payload.accountEmail) ?? connection.account_email,
+    attachments: inboundAttachmentsFromEventPayload(payload, provider),
     automated: false,
     bodyHtml: null,
     bodyText: summary,
@@ -1895,6 +2529,7 @@ function fallbackMessageFromSkippedEvent({
     fromName: null,
     headers: {},
     provider,
+    providerMessageId: textValue(payload.providerMessageId),
     receivedAt: textValue(payload.receivedAt) ?? new Date().toISOString(),
     snippet: summary,
     subject,
@@ -1915,7 +2550,8 @@ async function refetchSkippedEmailMessage({
   supabase: SupabaseClient;
   workspaceId: string;
 }) {
-  const externalMessageId = textValue(payload.externalMessageId);
+  const externalMessageId =
+    textValue(payload.providerMessageId) ?? textValue(payload.externalMessageId);
 
   if (!externalMessageId) {
     return null;
@@ -2027,8 +2663,10 @@ export async function promoteSkippedEmailEvent({
         promotedFromSkippedEmail: true,
         refetchedOriginalMessage: Boolean(refetchedMessage),
         stage: "promoted",
+        threadMatchStrategy: promoted.threadMatchStrategy,
         triageActionId: promoted.actionId ?? null,
         triageAiRunId: promoted.aiRunId ?? null,
+        ...inboundEmailEventMetadata(message),
       },
       processed_at: new Date().toISOString(),
       status: "processed",
@@ -2082,13 +2720,12 @@ async function processMessage({
       idempotency_key: idempotencyKey,
       payload: {
         accountEmail: message.accountEmail,
-        externalMessageId: message.externalMessageId,
-        externalThreadId: message.externalThreadId,
         fromEmail: message.fromEmail,
         provider: message.provider,
         receivedAt: message.receivedAt,
         stage: "received",
         subject: message.subject,
+        ...inboundEmailEventMetadata(message),
       },
       source: `${message.provider}.email`,
       status: "processing",
@@ -2127,14 +2764,13 @@ async function processMessage({
           payload: {
             accountEmail: message.accountEmail,
             classification,
-            externalMessageId: message.externalMessageId,
-            externalThreadId: message.externalThreadId,
             fromEmail: message.fromEmail,
             provider: message.provider,
             receivedAt: message.receivedAt,
             stage: "observed",
             subject: message.subject,
             summary: settings.includeAwarenessEvents ? safeSummaryText(message) : null,
+            ...inboundEmailEventMetadata(message),
           },
           processed_at: new Date().toISOString(),
           status: "processed",
@@ -2163,8 +2799,6 @@ async function processMessage({
           classification,
           contactEmail: message.fromEmail,
           conversationId: promoted.conversationId,
-          externalMessageId: message.externalMessageId,
-          externalThreadId: message.externalThreadId,
           leadId: promoted.leadId,
           messageId: promoted.messageId,
           provider: message.provider,
@@ -2172,8 +2806,10 @@ async function processMessage({
           stage: "promoted",
           subject: message.subject,
           summary: safeSummaryText(message),
+          threadMatchStrategy: promoted.threadMatchStrategy,
           triageActionId: promoted.actionId,
           triageAiRunId: promoted.aiRunId,
+          ...inboundEmailEventMetadata(message),
         },
         processed_at: new Date().toISOString(),
         status: "processed",
@@ -2201,10 +2837,10 @@ async function processMessage({
         payload: {
           accountEmail: message.accountEmail,
           error: messageText,
-          externalMessageId: message.externalMessageId,
           provider: message.provider,
           stage: "failed",
           subject: message.subject,
+          ...inboundEmailEventMetadata(message),
         },
         processed_at: new Date().toISOString(),
         status: "failed",

@@ -5,6 +5,7 @@ import {
   getConversationList,
   getQuoteDraftList,
   getQuoteDraftProfile,
+  getSkippedEmailSummaries,
   type ContactListItem,
   type ConversationListItem,
   type QuoteDraftListItem,
@@ -47,6 +48,7 @@ import {
 } from "../documents/templates";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { syncInboundEmail } from "../integrations/inbound-email-sync";
+import { getInboundEmailOperationalSummary } from "../integrations/inbound-email-settings";
 import {
   buildLlmUsageEvents,
   toUsageEventRows,
@@ -813,6 +815,42 @@ function looksLikeEmailSyncRequest(prompt: string) {
   );
 }
 
+export function looksLikeInboundEmailAwarenessRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  if (looksLikeEmailSyncRequest(prompt)) {
+    return false;
+  }
+
+  if (
+    text.includes("needs reply") ||
+    text.includes("need reply") ||
+    text.includes("work queue") ||
+    /\b(leads?|jobs?)\b/.test(text)
+  ) {
+    return false;
+  }
+
+  if (
+    text.includes("skipped email") ||
+    text.includes("skipped mail") ||
+    text.includes("filtered out") ||
+    text.includes("filtered email")
+  ) {
+    return true;
+  }
+
+  const hasEmailSubject = /\b(email|emails|mail|gmail|outlook|emailed|inbound)\b/.test(
+    text,
+  );
+  const hasAwarenessIntent =
+    /\b(anyone|anybody|customer|client|reply|replied|sent|came|come|overnight|today|morning|latest|new|recent|seen|ignored|skipped|filtered|attachment|attachments)\b/.test(
+      text,
+    );
+
+  return hasEmailSubject && hasAwarenessIntent;
+}
+
 export function looksLikeQuoteSendRequest(prompt: string) {
   const text = normalized(prompt);
   const hasQuoteTarget = /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(
@@ -1014,6 +1052,10 @@ export async function resolveAssistantCommand({
     return emailSyncCommand({ supabase, user, workspace });
   }
 
+  if (looksLikeInboundEmailAwarenessRequest(prompt)) {
+    return inboundEmailAwarenessCommand({ prompt, supabase, workspace });
+  }
+
   if (looksLikeQuoteHistoryRequest(prompt)) {
     return quoteHistoryCommand({ prompt, supabase, workspace });
   }
@@ -1213,6 +1255,86 @@ async function emailSyncCommand({
         ),
       ),
     title: "Email sync",
+  };
+}
+
+async function inboundEmailAwarenessCommand({
+  prompt,
+  supabase,
+  workspace,
+}: Pick<CommandInput, "prompt" | "supabase" | "workspace">): Promise<AssistantCommandResult> {
+  const text = normalized(prompt);
+  const [operationalSummary, skippedSummary] = await Promise.all([
+    getInboundEmailOperationalSummary(supabase, workspace.id),
+    getSkippedEmailSummaries(supabase, workspace.id),
+  ]);
+  const decisions = operationalSummary.decisions;
+  const promoted = decisions.filter((decision) => decision.stage === "promoted");
+  const observed = decisions.filter((decision) => decision.stage === "observed");
+  const failed = decisions.filter((decision) => decision.stage === "failed");
+  const withAttachments = decisions.filter((decision) => decision.attachmentCount > 0);
+  const wantsSkipped =
+    text.includes("skipped") ||
+    text.includes("filtered") ||
+    text.includes("ignored");
+  const wantsAttachments = text.includes("attachment") || text.includes("file");
+  const latest = wantsSkipped
+    ? observed[0] ?? decisions[0]
+    : wantsAttachments
+      ? withAttachments[0] ?? decisions[0]
+      : decisions[0];
+  const promotedLinks = promoted
+    .filter((decision) => decision.conversationId)
+    .slice(0, 4)
+    .map((decision) =>
+      rowLink(
+        decision.subject,
+        `/inbox/${decision.conversationId}`,
+        `${titleCase(decision.stage ?? "email")} - ${assistantDate(
+          decision.receivedAt ?? decision.createdAt,
+        )}`,
+      ),
+    );
+  const links =
+    promotedLinks.length > 0
+      ? promotedLinks
+      : [
+          rowLink(
+            "Filtered-out emails",
+            "/inbox?skipped=1",
+            `${skippedSummary.last24HoursCount} last 24h`,
+          ),
+          rowLink(
+            "Inbound email settings",
+            "/settings?section=integrations",
+            "Connected inboxes",
+          ),
+        ];
+  const latestLine = latest
+    ? `Latest seen: "${latest.subject}" from ${latest.fromEmail ?? "unknown sender"} (${titleCase(
+        latest.stage ?? latest.status,
+      )}).`
+    : "Kyro has not recorded any inbound email decisions yet.";
+  const skippedLine = wantsSkipped
+    ? `There are ${skippedSummary.items.length} filtered-out emails in the tray, with ${skippedSummary.last24HoursCount} from the last 24 hours.`
+    : `Recent inbound summary: ${promoted.length} promoted, ${observed.length} observed/filtered, ${failed.length} failed.`;
+  const attachmentLine =
+    withAttachments.length > 0
+      ? `${withAttachments.length} recent email decision(s) included attachments.`
+      : "No recent inbound email decisions show attachments.";
+
+  return {
+    context: {
+      decisions,
+      skippedEmails: skippedSummary.items.slice(0, 8),
+      syncRuns: operationalSummary.syncRuns,
+    },
+    fallbackAnswer: wantsAttachments
+      ? `${attachmentLine} ${latestLine}`
+      : `${skippedLine} ${latestLine}`,
+    intent: "inbound_email_awareness",
+    links,
+    title: "Inbound email awareness",
   };
 }
 

@@ -51,7 +51,9 @@ export type InboundEmailSyncHistoryItem = {
 
 export type InboundEmailDecisionItem = {
   accountEmail: string | null;
+  attachmentCount: number;
   category: string | null;
+  conversationId: string | null;
   createdAt: string;
   fromEmail: string | null;
   id: string;
@@ -63,6 +65,7 @@ export type InboundEmailDecisionItem = {
   stage: string | null;
   status: string;
   subject: string;
+  threadMatchStrategy: string | null;
 };
 
 export type InboundEmailOperationalSummary = {
@@ -520,7 +523,9 @@ export function normalizeInboundEmailDecisionRow(row: {
 
   return {
     accountEmail: textValue(payload.accountEmail),
+    attachmentCount: numberValue(payload.attachmentCount) ?? 0,
     category: textValue(classification.category),
+    conversationId: textValue(payload.conversationId),
     createdAt: textValue(row.created_at) ?? new Date(0).toISOString(),
     fromEmail: textValue(payload.fromEmail) ?? textValue(payload.contactEmail),
     id: row.id,
@@ -532,6 +537,7 @@ export function normalizeInboundEmailDecisionRow(row: {
     stage: textValue(payload.stage),
     status: textValue(row.status) ?? "unknown",
     subject: textValue(payload.subject) ?? "Inbound email",
+    threadMatchStrategy: textValue(payload.threadMatchStrategy),
   };
 }
 

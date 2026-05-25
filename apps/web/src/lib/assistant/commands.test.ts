@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import {
   documentTemplateControlIntent,
+  looksLikeInboundEmailAwarenessRequest,
   looksLikeQuoteHistoryRequest,
   looksLikeQuoteSendReadyListRequest,
   looksLikeQuoteSendRequest,
@@ -244,5 +245,22 @@ describe("assistant document command helpers", () => {
     assert.equal(selection.kind, "ambiguous");
     assert.equal(selection.quote, null);
     assert.equal(selection.candidates.length, 2);
+  });
+});
+
+describe("assistant inbound email routing helpers", () => {
+  it("routes email awareness questions without stealing work queue requests", () => {
+    assert.equal(
+      looksLikeInboundEmailAwarenessRequest("Did anyone email back today?"),
+      true,
+    );
+    assert.equal(
+      looksLikeInboundEmailAwarenessRequest("Show skipped emails from today"),
+      true,
+    );
+    assert.equal(
+      looksLikeInboundEmailAwarenessRequest("Show me leads needing reply"),
+      false,
+    );
   });
 });

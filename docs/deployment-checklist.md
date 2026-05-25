@@ -30,6 +30,7 @@ Required for the current product:
 - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret.
 - `INTEGRATION_TOKEN_ENCRYPTION_KEY`: stable secret used to encrypt OAuth refresh tokens.
 - `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`: bearer secret for scheduled email sync.
+- `KYRO_FILE_STORAGE_BUCKET`: optional private Supabase Storage bucket name for inbound attachments. Defaults to `kyro-files`.
 
 Optional until those integrations are enabled:
 
@@ -125,6 +126,8 @@ Before enabling production cron:
 - check the Settings inbound trace for the latest sync run counts and recent email decisions,
 - confirm reconnect-needed states are visible for accounts with missing scopes or undecryptable tokens,
 - confirm quiet-hours settings suppress scheduled checks when expected.
+- confirm the private attachment bucket exists or can be created by the service-role server path,
+- send a test inbound email with an attachment and verify the Inbox/Assistant preview shows a downloadable attachment chip.
 
 ## 8. Vercel Deployment
 
@@ -143,8 +146,8 @@ Recommended deploy sequence:
 ## 9. Current Known Production Gaps
 
 - Gmail/Outlook push mailbox watches are deferred; production uses 5-minute polling.
-- Inbound email attachments are not persisted yet; add Storage/Drive-backed attachment intake before relying on emailed files as job evidence.
-- Deep RFC email thread matching (`References`/`In-Reply-To`) is deferred beyond provider thread id and contact/email matching.
+- Inbound email attachments are persisted to private Supabase Storage when provider bytes are available, but richer Drive/job-file organisation is future work.
+- Deep provider history/watch sync is deferred; current thread matching uses provider thread id, RFC references, and same-contact same-subject fallback.
 - SMS/phone providers are not connected yet.
 - Native iOS shell is future work; current UI is web/iOS-shaped.
 - Billing UI is usage visibility only, not payment collection.

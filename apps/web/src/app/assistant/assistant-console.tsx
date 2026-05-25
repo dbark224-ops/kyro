@@ -25,6 +25,7 @@ import type {
   AssistantThreadState,
 } from "../../lib/assistant/types";
 import Link from "next/link";
+import { MessageAttachmentList } from "../components/message-attachments";
 
 const QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -1602,6 +1603,7 @@ function ConversationPreview({
                 </div>
                 {message.subject ? <strong>{message.subject}</strong> : null}
                 <p>{message.bodyText ?? "No message body."}</p>
+                <MessageAttachmentList metadata={message.metadata} />
               </article>
             ))
           ) : (

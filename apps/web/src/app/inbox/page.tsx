@@ -33,6 +33,7 @@ import {
   executeDashboardAction,
 } from "../engine/actions";
 import Link from "next/link";
+import { MessageAttachmentList } from "../components/message-attachments";
 import type { ReactNode } from "react";
 
 type CommunicationSettings = Awaited<
@@ -216,6 +217,7 @@ function skippedEmailSearchText(email: SkippedEmailSummaryItem) {
     email.source,
     email.subject,
     email.summary,
+    email.attachmentNames.join(" "),
   ]
     .filter(Boolean)
     .join(" ")
@@ -392,6 +394,12 @@ function SkippedEmailDialog({
                           Replied
                         </span>
                       ) : null}
+                      {email.attachmentCount > 0 ? (
+                        <span className="skipped-email-meta-pill attachment">
+                          {email.attachmentCount} attachment
+                          {email.attachmentCount === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="skipped-email-title">
                       <strong>{email.subject}</strong>
@@ -420,7 +428,7 @@ function SkippedEmailDialog({
                   >
                     <input name="eventId" type="hidden" value={email.id} />
                     <button className="primary-button compact" type="submit">
-                      Promote
+                      Promote to work queue
                     </button>
                   </form>
                   {email.fromEmail ? (
@@ -994,6 +1002,7 @@ function InboxSplitPreview({
                   </div>
                   {message.subject ? <strong>{message.subject}</strong> : null}
                   <p>{message.bodyText ?? "No message body recorded."}</p>
+                  <MessageAttachmentList metadata={message.metadata} />
                 </article>
               ))}
             </div>

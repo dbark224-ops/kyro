@@ -31,6 +31,7 @@ Kyro can currently help with:
 - checking connected Gmail or Outlook inboxes on request,
 - classifying inbound email and promoting business-actionable messages into the CRM,
 - showing filtered-out emails separately so personal/newsletter/noise stays out of the work queue,
+- preserving inbound email attachment metadata and stored attachment files where provider payloads include them,
 - generating a draft reply from a short user instruction,
 - remembering explicit instructions when the user says to remember or note something,
 - updating pronunciation vocabulary when the user asks,
@@ -84,6 +85,7 @@ Use it to:
 - look up quote drafts,
 - create a quote draft from a template,
 - ask Kyro to check email,
+- ask what inbound email has seen recently, including skipped/filter decisions and attachment-bearing email,
 - ask how Kyro or a setting works,
 - ask Kyro to remember explicit instructions,
 - ask Kyro to update pronunciation vocabulary,
@@ -1558,7 +1560,8 @@ Important behavior:
 - Filtered-out email now has a primary Promote action that calls \`promoteSkippedEmailEvent\`. That helper tries to refetch the original provider message by provider message id, falls back to stored event metadata when needed, then creates or reuses the same contact, lead, conversation, inbound message, and triage path as normal promoted inbound mail.
 - Sender-specific learning rules live inside the existing \`inbound_email\` workspace policy JSON as \`senderRules\`, so no schema migration is needed for v1. The filtered-out email three-dot menu can add \`always_promote\` or \`always_ignore\` rules for a sender email address and displays the current set/not-set state for each option. Settings -> Integrations includes a Sender rules manager that can add email/domain rules, switch rules between relevant/ignored, or remove rules. Sync checks those structured rules before classifier work; matched promote rules produce \`sender_rule\` classifications and matched ignore rules skip promotion.
 - Actionable business mail creates or reuses a contact, lead, conversation, and inbound message, then runs the same AI triage/action-proposal path as manual inbound.
-- Follow-up emails on an existing provider thread reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
+- Follow-up emails can match an existing conversation by provider thread id, message \`References\` / \`In-Reply-To\` headers, or a conservative same-contact same-subject fallback. Matched follow-ups reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
+- Inbound Gmail and Outlook attachments are captured into message metadata. When the provider returns file bytes, Kyro stores the file in the private Supabase Storage bucket configured by \`KYRO_FILE_STORAGE_BUCKET\` or \`kyro-files\`, records a \`files\` row, and shows downloadable attachment chips in Inbox and Assistant previews. If storage is unavailable, Kyro still keeps metadata-only attachment chips instead of losing the context.
 - The classifier uses heuristics first and, when \`OPENAI_API_KEY\` is available, a low-cost OpenAI structured-output classifier for non-automated mail. The heuristic layer catches common trade phrases such as sewerage backup, bathroom renovation, drainage, repairs, quotes, site visits, and "come out/check/look" wording before spending model calls. Classification usage is recorded in \`usage_events\`.
 - No new tables were added for the first version; \`workspace_policies\`, \`integration_connections\`, \`channels\`, \`events\`, \`messages\`, and existing CRM tables are enough.
 
@@ -1826,9 +1829,9 @@ These are not bugs:
 
 - Gmail and Outlook OAuth plus real outbound email are connected for approved/user-triggered sends.
 - Gmail and Outlook inbound sync have a first poll-based implementation. Push/webhook mailbox watches are intentionally deferred.
-- Inbound email attachments are not stored or promoted into CRM document records yet.
-- Inbound email thread matching is provider-thread-id first; deeper \`References\`
-  and \`In-Reply-To\` reconciliation is deferred.
+- Inbound email attachments are stored as private file records and visible on message previews, but they are not yet promoted into editable CRM document records.
+- Inbound email thread matching now uses provider thread id first, then \`References\` /
+  \`In-Reply-To\` reconciliation, then a conservative same-contact same-subject fallback.
 - SMS is not connected yet.
 - AI triage and Assistant narration can use OpenAI in this local setup; local Ollama remains a development option on machines that support it.
 - Voice mode has a WebRTC/OpenAI Realtime path, but the native mobile shell, deeper barge-in tuning, and user-facing realtime voice controls are still future work.

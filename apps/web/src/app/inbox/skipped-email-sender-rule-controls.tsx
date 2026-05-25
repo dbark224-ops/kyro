@@ -27,11 +27,11 @@ const OPTIONS: Array<{
 }> = [
   {
     action: "always_promote",
-    label: "Treat sender as relevant",
+    label: "Promote this sender",
   },
   {
     action: "always_ignore",
-    label: "Always ignore sender",
+    label: "Ignore this sender",
   },
 ];
 
@@ -79,7 +79,7 @@ export function SkippedEmailSenderRuleControls({
             >
               <span className="skipped-email-rule-label">{option.label}</span>
               <span className="skipped-email-rule-state">
-                {isSaving ? "Saving" : isActive ? "On" : "Off"}
+                {isSaving ? "Saving" : isActive ? "Rule on" : "Off"}
               </span>
             </button>
           </form>

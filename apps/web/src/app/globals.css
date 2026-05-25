@@ -1668,6 +1668,34 @@ h2 {
   padding-left: 10px;
 }
 
+.message-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.message-attachment-chip {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 44%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cyan) 8%, transparent);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 4px 8px;
+  text-decoration: none;
+}
+
+.message-attachment-chip.unavailable {
+  border-color: color-mix(in srgb, var(--line) 84%, transparent);
+  background: color-mix(in srgb, var(--surface-strong) 58%, transparent);
+  color: var(--muted);
+}
+
 .assistant-preview-details {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2470,7 +2498,7 @@ h2 {
   --skipped-email-action-gap: 8px;
   --skipped-email-action-top: 10px;
   --skipped-email-more-size: 30px;
-  --skipped-email-promote-width: 64px;
+  --skipped-email-promote-width: 126px;
   --skipped-email-reply-width: 48px;
   display: grid;
   gap: 10px;
@@ -2486,7 +2514,7 @@ h2 {
 }
 
 .skipped-email-row.has-actions:not(.has-reply) .skipped-email-main {
-  padding-right: 154px;
+  padding-right: 216px;
 }
 
 .skipped-email-row.has-expand:not(.has-reply) .skipped-email-main {
@@ -2548,6 +2576,11 @@ h2 {
   border-color: color-mix(in srgb, #22c55e 46%, var(--line));
   background: color-mix(in srgb, #22c55e 13%, transparent);
   color: color-mix(in srgb, #15803d 76%, var(--text));
+}
+
+.skipped-email-meta-pill.attachment {
+  border-color: color-mix(in srgb, var(--purple) 40%, var(--line));
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
 }
 
 .skipped-email-title {
