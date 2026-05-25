@@ -21,6 +21,7 @@ Start here:
 - [Platform strategy](docs/platform-strategy.md)
 - [Usage-based billing](docs/usage-based-billing.md)
 - [Implementation plan](docs/implementation-plan.md)
+- [Desktop handover - May 24, 2026](docs/desktop-handover-2026-05-24.md)
 
 ## Local Development
 
