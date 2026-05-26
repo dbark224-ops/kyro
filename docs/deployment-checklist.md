@@ -29,8 +29,9 @@ Required for the current product:
 - `GOOGLE_CLIENT_ID`: Google OAuth client id.
 - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret.
 - `INTEGRATION_TOKEN_ENCRYPTION_KEY`: stable secret used to encrypt OAuth refresh tokens.
-- `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`: bearer secret for scheduled email sync.
-- `KYRO_FILE_STORAGE_BUCKET`: optional private Supabase Storage bucket name for inbound attachments. Defaults to `kyro-files`.
+- `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`: bearer secret for scheduled email sync and outbox processing.
+- `OUTBOUND_DELIVERY_SECRET`: optional separate bearer secret for `/api/outbox/process`; if omitted, Kyro accepts `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`.
+- `KYRO_FILE_STORAGE_BUCKET`: optional private Supabase Storage bucket name for inbound attachments and retryable outbound email attachments. Defaults to `kyro-files`.
 
 Optional until those integrations are enabled:
 
@@ -118,16 +119,28 @@ Run a smoke test for:
 }
 ```
 
+It also registers the outbound delivery processor:
+
+```json
+{
+  "path": "/api/outbox/process",
+  "schedule": "*/5 * * * *"
+}
+```
+
 Before enabling production cron:
 
 - set `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`,
 - confirm `/api/integrations/email/sync` returns authorized only with the bearer secret,
+- confirm `/api/outbox/process` returns authorized only with `OUTBOUND_DELIVERY_SECRET`, `INBOUND_EMAIL_SYNC_SECRET`, or `CRON_SECRET`,
 - run one manual sync from Settings,
 - check the Settings inbound trace for the latest sync run counts and recent email decisions,
 - confirm reconnect-needed states are visible for accounts with missing scopes or undecryptable tokens,
 - confirm quiet-hours settings suppress scheduled checks when expected.
 - confirm the private attachment bucket exists or can be created by the service-role server path,
 - send a test inbound email with an attachment and verify the Inbox/Assistant preview shows a downloadable attachment chip.
+- send a test outbound email with a local file or quote PDF attachment and verify the outbox row stores `fileId`/`storagePath` references rather than base64 payloads.
+- force a failed outbound email by disconnecting/revoking the provider, confirm `outbound_messages.status` moves to `retry_scheduled` or `failed`, reconnect, and retry from the Inbox delivery panel or Developer -> Outbox operations.
 
 ## 8. Vercel Deployment
 

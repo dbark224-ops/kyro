@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { sendSkippedEmailReplyAction } from "./actions";
 import { ReplyGenerator } from "./reply-generator";
@@ -17,6 +17,7 @@ export function SkippedEmailReplyDetails({
   replyRedirectHref,
 }: SkippedEmailReplyDetailsProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const submissionKey = useId();
 
   return (
     <details
@@ -31,6 +32,7 @@ export function SkippedEmailReplyDetails({
         >
           <input name="eventId" type="hidden" value={emailId} />
           <input name="redirectTo" type="hidden" value={replyRedirectHref} />
+          <input name="submissionKey" type="hidden" value={submissionKey} />
           <label className="skipped-email-reply-subject">
             <span>Subject</span>
             <input defaultValue={defaultSubject} name="subject" type="text" />

@@ -49,7 +49,6 @@ import {
 } from "../../lib/integrations/google";
 import {
   INBOUND_EMAIL_POLL_INTERVALS,
-  INBOUND_EMAIL_QUIET_HOURS_MODES,
   INBOUND_EMAIL_SYNC_MODES,
   getInboundEmailOperationalSummary,
   getInboundEmailSettings,
@@ -85,18 +84,24 @@ type SettingsPageProps = {
   searchParams?: Promise<{
     engine_error?: string;
     engine_message?: string;
+    inboundTrace?: string;
     section?: string;
+    senderRules?: string;
     window?: string;
   }>;
 };
 
 function normalizeSettingsSection(value: string | undefined) {
-  if (value === "google" || value === "microsoft" || value === "integrations") {
+  if (
+    value === "communication" ||
+    value === "google" ||
+    value === "microsoft" ||
+    value === "integrations"
+  ) {
     return "integrations" satisfies SettingsSection;
   }
 
   if (
-    value === "communication" ||
     value === "general" ||
     value === "usage" ||
     value === "voice"
@@ -1031,12 +1036,6 @@ function inboundSyncModeLabel(value: string) {
       : "Paused";
 }
 
-function inboundQuietHoursModeLabel(value: string) {
-  return value === "same_interval"
-    ? "Same as daytime"
-    : "Pause until quiet hours end";
-}
-
 function senderRuleActionLabel(value: InboundEmailSenderRule["action"]) {
   return value === "always_promote" ? "Always relevant" : "Always ignore";
 }
@@ -1222,77 +1221,181 @@ function inboundDecisionLabel(decision: InboundEmailDecisionItem) {
 }
 
 function InboundEmailOperationsPanel({
+  showTrace,
   summary,
 }: Readonly<{
+  showTrace: boolean;
   summary: InboundEmailOperationalSummary;
 }>) {
+  const recordCount = summary.syncRuns.length + summary.decisions.length;
+
   return (
     <section className="email-sync-ops-panel">
       <div className="panel-heading compact-panel-heading">
         <div>
           <p className="eyebrow">Inbound trace</p>
-          <h3>Recent sync runs and decisions</h3>
+          <h3>Sync runs and decisions</h3>
+          <p>Review recent polling and email-classification history.</p>
         </div>
-        <span className="pill">
-          {summary.syncRuns.length + summary.decisions.length} records
-        </span>
+        <div className="email-sync-ops-actions">
+          <span className="pill">{recordCount} records</span>
+          <Link
+            className="secondary-button compact"
+            href="/settings?section=integrations&inboundTrace=1"
+          >
+            Open trace log
+          </Link>
+        </div>
       </div>
 
-      <div className="email-sync-ops-grid">
-        <article className="email-sync-ops-card">
-          <div className="email-sync-ops-heading">
-            <strong>Sync runs</strong>
-            <span>Last {summary.syncRuns.length}</span>
-          </div>
-          {summary.syncRuns.length > 0 ? (
-            <div className="email-sync-ops-list">
-              {summary.syncRuns.map((run) => (
-                <div className="email-sync-ops-row" key={run.id}>
-                  <span className={`email-sync-dot ${syncRunTone(run)}`} />
-                  <div>
-                    <strong>{formatLabel(run.trigger)}</strong>
-                    <span>{syncRunSummary(run)}</span>
-                  </div>
-                  <time dateTime={run.createdAt}>{formatDate(run.createdAt)}</time>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-copy">No sync runs recorded yet.</p>
-          )}
-        </article>
+      <div className="email-sync-ops-summary">
+        <span>{summary.syncRuns.length} sync runs</span>
+        <span>{summary.decisions.length} email decisions</span>
+      </div>
 
-        <article className="email-sync-ops-card">
-          <div className="email-sync-ops-heading">
-            <strong>Email decisions</strong>
-            <span>Last {summary.decisions.length}</span>
+      {showTrace ? <InboundEmailTraceModal summary={summary} /> : null}
+    </section>
+  );
+}
+
+function InboundEmailTraceModal({
+  summary,
+}: Readonly<{
+  summary: InboundEmailOperationalSummary;
+}>) {
+  const recordCount = summary.syncRuns.length + summary.decisions.length;
+
+  return (
+    <div className="sender-rules-modal-backdrop email-sync-ops-modal-backdrop">
+      <section
+        aria-labelledby="inbound-trace-title"
+        aria-modal="true"
+        className="sender-rules-modal email-sync-ops-modal"
+        role="dialog"
+      >
+        <div className="sender-rules-modal-header">
+          <div>
+            <p className="eyebrow">Inbound trace</p>
+            <h3 id="inbound-trace-title">Recent sync runs and decisions</h3>
+            <p>
+              Read-only operational history for polling runs and provider email
+              classification decisions.
+            </p>
           </div>
-          {summary.decisions.length > 0 ? (
-            <div className="email-sync-ops-list">
-              {summary.decisions.map((decision) => (
-                <div className="email-sync-ops-row" key={decision.id}>
-                  <span
-                    className={`email-sync-dot ${inboundDecisionTone(decision)}`}
-                  />
-                  <div>
-                    <strong>{decision.subject}</strong>
-                    <span>
-                      {inboundDecisionLabel(decision)} -{" "}
-                      {decision.providerUsed
-                        ? formatLabel(decision.providerUsed)
-                        : "No classifier"}
-                    </span>
-                  </div>
-                  <time dateTime={decision.processedAt ?? decision.createdAt}>
-                    {formatDate(decision.processedAt ?? decision.createdAt)}
-                  </time>
+          <div className="sender-rules-modal-actions">
+            <span className="pill">{recordCount} records</span>
+            <Link
+              className="secondary-button compact"
+              href="/settings?section=integrations"
+            >
+              Close
+            </Link>
+          </div>
+        </div>
+
+        <div className="sender-rules-modal-body email-sync-ops-modal-body">
+          <div className="email-sync-ops-grid">
+            <article className="email-sync-ops-card">
+              <div className="email-sync-ops-heading">
+                <strong>Sync runs</strong>
+                <span>Last {summary.syncRuns.length}</span>
+              </div>
+              {summary.syncRuns.length > 0 ? (
+                <div className="email-sync-ops-list">
+                  {summary.syncRuns.map((run) => (
+                    <div className="email-sync-ops-row" key={run.id}>
+                      <span className={`email-sync-dot ${syncRunTone(run)}`} />
+                      <div>
+                        <strong>{formatLabel(run.trigger)}</strong>
+                        <span>{syncRunSummary(run)}</span>
+                      </div>
+                      <time dateTime={run.createdAt}>
+                        {formatDate(run.createdAt)}
+                      </time>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-copy">No inbound email decisions recorded yet.</p>
-          )}
-        </article>
+              ) : (
+                <p className="empty-copy">No sync runs recorded yet.</p>
+              )}
+            </article>
+
+            <article className="email-sync-ops-card">
+              <div className="email-sync-ops-heading">
+                <strong>Email decisions</strong>
+                <span>Last {summary.decisions.length}</span>
+              </div>
+              {summary.decisions.length > 0 ? (
+                <div className="email-sync-ops-list">
+                  {summary.decisions.map((decision) => (
+                    <div className="email-sync-ops-row" key={decision.id}>
+                      <span
+                        className={`email-sync-dot ${inboundDecisionTone(
+                          decision,
+                        )}`}
+                      />
+                      <div>
+                        <strong>{decision.subject}</strong>
+                        <span>
+                          {inboundDecisionLabel(decision)} -{" "}
+                          {decision.providerUsed
+                            ? formatLabel(decision.providerUsed)
+                            : "No classifier"}
+                        </span>
+                      </div>
+                      <time
+                        dateTime={decision.processedAt ?? decision.createdAt}
+                      >
+                        {formatDate(decision.processedAt ?? decision.createdAt)}
+                      </time>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-copy">
+                  No inbound email decisions recorded yet.
+                </p>
+              )}
+            </article>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SenderRulesLauncher({
+  rules,
+}: Readonly<{
+  rules: InboundEmailSenderRule[];
+}>) {
+  return (
+    <section className="sender-rules-launcher">
+      <div>
+        <p className="eyebrow">Sender learning</p>
+        <div className="setting-card-heading">
+          <h3>Sender rules</h3>
+          <InfoBubble>
+            Sender rules override normal email classification. Use them for
+            senders Kyro should always treat as business-relevant or always
+            keep out of the work queue.
+          </InfoBubble>
+        </div>
+        <p>
+          Keep permanent promote and ignore rules out of the main settings
+          flow.
+        </p>
+      </div>
+      <div className="sender-rules-launcher-actions">
+        <span className="pill">
+          {rules.length} {rules.length === 1 ? "rule" : "rules"}
+        </span>
+        <Link
+          className="secondary-button compact"
+          href="/settings?section=integrations&senderRules=1"
+        >
+          Manage senders
+        </Link>
       </div>
     </section>
   );
@@ -1311,108 +1414,153 @@ function SenderRulesSettings({
   });
 
   return (
-    <section className="sender-rules-panel">
-      <div className="panel-heading compact-panel-heading">
-        <div>
-          <p className="eyebrow">Sender learning</p>
-          <div className="setting-card-heading">
-            <h3>Sender rules</h3>
-            <InfoBubble>
-              Sender rules override normal email classification. Use them for
-              senders Kyro should always treat as business-relevant or always
-              keep out of the work queue.
-            </InfoBubble>
+    <div className="sender-rules-modal-backdrop">
+      <section
+        aria-labelledby="sender-rules-title"
+        aria-modal="true"
+        className="sender-rules-modal"
+        role="dialog"
+      >
+        <div className="sender-rules-modal-header">
+          <div>
+            <p className="eyebrow">Sender learning</p>
+            <div className="setting-card-heading">
+              <h3 id="sender-rules-title">Sender rules</h3>
+              <InfoBubble>
+                Sender rules override normal email classification. Use them for
+                senders Kyro should always treat as business-relevant or always
+                keep out of the work queue.
+              </InfoBubble>
+            </div>
+            <p>
+              Add, edit, or remove permanent rules for senders and domains Kyro
+              has learned from inbound mail.
+            </p>
+          </div>
+          <div className="sender-rules-modal-actions">
+            <span className="pill">
+              {sortedRules.length}{" "}
+              {sortedRules.length === 1 ? "rule" : "rules"}
+            </span>
+            <Link
+              className="secondary-button compact"
+              href="/settings?section=integrations"
+            >
+              Close
+            </Link>
           </div>
         </div>
-        <span className="pill">
-          {sortedRules.length} {sortedRules.length === 1 ? "rule" : "rules"}
-        </span>
-      </div>
 
-      <form
-        action={upsertInboundEmailSenderRuleSettingsAction}
-        className="sender-rule-add-form"
-      >
-        <label>
-          <span>Sender</span>
-          <input
-            name="senderRuleValue"
-            placeholder="client@example.com or example.com"
-            required
-          />
-        </label>
-        <label>
-          <span>Match</span>
-          <select defaultValue="email" name="senderRuleMatch">
-            <option value="email">Email address</option>
-            <option value="domain">Domain</option>
-          </select>
-        </label>
-        <label>
-          <span>Action</span>
-          <select defaultValue="always_promote" name="senderRuleAction">
-            <option value="always_promote">Always relevant</option>
-            <option value="always_ignore">Always ignore</option>
-          </select>
-        </label>
-        <button className="primary-button compact" type="submit">
-          Add rule
-        </button>
-      </form>
+        <div className="sender-rules-modal-body">
+          <form
+            action={upsertInboundEmailSenderRuleSettingsAction}
+            className="sender-rule-add-form"
+          >
+            <input name="returnToSenderRules" type="hidden" value="1" />
+            <label>
+              <span>Sender</span>
+              <input
+                name="senderRuleValue"
+                placeholder="client@example.com or example.com"
+                required
+              />
+            </label>
+            <label>
+              <span>Match</span>
+              <select defaultValue="email" name="senderRuleMatch">
+                <option value="email">Email address</option>
+                <option value="domain">Domain</option>
+              </select>
+            </label>
+            <label>
+              <span>Action</span>
+              <select defaultValue="always_promote" name="senderRuleAction">
+                <option value="always_promote">Always relevant</option>
+                <option value="always_ignore">Always ignore</option>
+              </select>
+            </label>
+            <button className="primary-button compact" type="submit">
+              Add rule
+            </button>
+          </form>
 
-      {sortedRules.length > 0 ? (
-        <div className="sender-rule-list">
-          {sortedRules.map((rule) => (
-            <article
-              className={`sender-rule-row ${
-                rule.action === "always_promote" ? "promote" : "ignore"
-              }`}
-              key={`${rule.match}:${rule.value}`}
-            >
-              <div className="sender-rule-main">
-                <strong>{rule.value}</strong>
-                <span>
-                  {senderRuleMatchLabel(rule.match)} -{" "}
-                  {senderRuleSourceLabel(rule)} - {senderRuleCreatedLabel(rule)}
-                </span>
-              </div>
-              <form
-                action={upsertInboundEmailSenderRuleSettingsAction}
-                className="sender-rule-edit-form"
-              >
-                <input name="senderRuleMatch" type="hidden" value={rule.match} />
-                <input name="senderRuleValue" type="hidden" value={rule.value} />
-                <select defaultValue={rule.action} name="senderRuleAction">
-                  <option value="always_promote">Always relevant</option>
-                  <option value="always_ignore">Always ignore</option>
-                </select>
-                <button className="secondary-button compact" type="submit">
-                  Save
-                </button>
-              </form>
-              <form
-                action={removeInboundEmailSenderRuleSettingsAction}
-                className="sender-rule-remove-form"
-              >
-                <input name="senderRuleMatch" type="hidden" value={rule.match} />
-                <input name="senderRuleValue" type="hidden" value={rule.value} />
-                <button className="text-button danger" type="submit">
-                  Remove
-                </button>
-              </form>
-              <span className="sender-rule-action-pill">
-                {senderRuleActionLabel(rule.action)}
-              </span>
-            </article>
-          ))}
+          {sortedRules.length > 0 ? (
+            <div className="sender-rule-list">
+              {sortedRules.map((rule) => (
+                <article
+                  className={`sender-rule-row ${
+                    rule.action === "always_promote" ? "promote" : "ignore"
+                  }`}
+                  key={`${rule.match}:${rule.value}`}
+                >
+                  <div className="sender-rule-main">
+                    <strong>{rule.value}</strong>
+                    <span>
+                      {senderRuleMatchLabel(rule.match)} -{" "}
+                      {senderRuleSourceLabel(rule)} -{" "}
+                      {senderRuleCreatedLabel(rule)}
+                    </span>
+                  </div>
+                  <form
+                    action={upsertInboundEmailSenderRuleSettingsAction}
+                    className="sender-rule-edit-form"
+                  >
+                    <input name="returnToSenderRules" type="hidden" value="1" />
+                    <input
+                      name="senderRuleMatch"
+                      type="hidden"
+                      value={rule.match}
+                    />
+                    <input
+                      name="senderRuleValue"
+                      type="hidden"
+                      value={rule.value}
+                    />
+                    <select defaultValue={rule.action} name="senderRuleAction">
+                      <option value="always_promote">Always relevant</option>
+                      <option value="always_ignore">Always ignore</option>
+                    </select>
+                    <button
+                      className="secondary-button compact"
+                      type="submit"
+                    >
+                      Save
+                    </button>
+                  </form>
+                  <form
+                    action={removeInboundEmailSenderRuleSettingsAction}
+                    className="sender-rule-remove-form"
+                  >
+                    <input name="returnToSenderRules" type="hidden" value="1" />
+                    <input
+                      name="senderRuleMatch"
+                      type="hidden"
+                      value={rule.match}
+                    />
+                    <input
+                      name="senderRuleValue"
+                      type="hidden"
+                      value={rule.value}
+                    />
+                    <button className="text-button danger" type="submit">
+                      Remove
+                    </button>
+                  </form>
+                  <span className="sender-rule-action-pill">
+                    {senderRuleActionLabel(rule.action)}
+                  </span>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">
+              No sender rules yet. Use the filtered-out email menu or add one
+              here when Kyro should always trust or ignore a sender.
+            </p>
+          )}
         </div>
-      ) : (
-        <p className="empty-copy">
-          No sender rules yet. Use the filtered-out email menu or add one here
-          when Kyro should always trust or ignore a sender.
-        </p>
-      )}
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -1499,10 +1647,14 @@ function InboundEmailSyncSettings({
   connections,
   operationalSummary,
   settings,
+  showInboundTrace,
+  showSenderRules,
 }: Readonly<{
   connections: EmailProviderConnection[];
   operationalSummary: InboundEmailOperationalSummary;
   settings: InboundEmailSettings;
+  showInboundTrace: boolean;
+  showSenderRules: boolean;
 }>) {
   const syncStatus =
     settings.syncMode === "automatic"
@@ -1526,7 +1678,10 @@ function InboundEmailSyncSettings({
 
       <EmailSyncHealthPanel connections={connections} settings={settings} />
 
-      <InboundEmailOperationsPanel summary={operationalSummary} />
+      <InboundEmailOperationsPanel
+        showTrace={showInboundTrace}
+        summary={operationalSummary}
+      />
 
       <form action={updateInboundEmailSettingsAction} className="settings-form">
         <div className="settings-grid">
@@ -1610,29 +1765,6 @@ function InboundEmailSyncSettings({
                 name="inboundQuietHoursEnd"
                 type="time"
               />
-            </label>
-            <label className="setting-card">
-              <SettingCardHeading
-                info={
-                  <>
-                    Default: pause scheduled checks during quiet hours, then
-                    resume on the first scheduled poll after quiet hours end.
-                    Emergency businesses can keep normal polling overnight.
-                  </>
-                }
-              >
-                Quiet-hours behavior
-              </SettingCardHeading>
-              <select
-                defaultValue={settings.quietHoursMode}
-                name="inboundQuietHoursMode"
-              >
-                {INBOUND_EMAIL_QUIET_HOURS_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {inboundQuietHoursModeLabel(mode)}
-                  </option>
-                ))}
-              </select>
             </label>
           </div>
         </fieldset>
@@ -1727,7 +1859,10 @@ function InboundEmailSyncSettings({
         </div>
       </form>
 
-      <SenderRulesSettings rules={settings.senderRules} />
+      <SenderRulesLauncher rules={settings.senderRules} />
+      {showSenderRules ? (
+        <SenderRulesSettings rules={settings.senderRules} />
+      ) : null}
 
       <form action={syncInboundEmailNowAction} className="settings-footer">
         <span>
@@ -1783,19 +1918,25 @@ function ProviderDetails({
 }
 
 function WorkspaceIntegrationsSettings({
+  communicationSettings,
   googleOverview,
   googleStatus,
   inboundEmailSettings,
   inboundEmailSummary,
   microsoftOverview,
   microsoftStatus,
+  showInboundTrace,
+  showSenderRules,
 }: Readonly<{
+  communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
   googleOverview: GoogleIntegrationOverview;
   googleStatus: string;
   inboundEmailSettings: InboundEmailSettings;
   inboundEmailSummary: InboundEmailOperationalSummary;
   microsoftOverview: MicrosoftIntegrationOverview;
   microsoftStatus: string;
+  showInboundTrace: boolean;
+  showSenderRules: boolean;
 }>) {
   const googleConnection = latestConnectedConnection(
     googleOverview.connections,
@@ -1846,6 +1987,9 @@ function WorkspaceIntegrationsSettings({
       connection.status === "connected" &&
       connectionNeedsReconnect(connection),
   );
+  const communicationStatus = communicationSettings.approvalRequired
+    ? "Approval required"
+    : "Auto outbound";
 
   return (
     <div className="integration-provider-stack">
@@ -1853,6 +1997,8 @@ function WorkspaceIntegrationsSettings({
         connections={emailConnections}
         operationalSummary={inboundEmailSummary}
         settings={inboundEmailSettings}
+        showInboundTrace={showInboundTrace}
+        showSenderRules={showSenderRules}
       />
 
       <section className="integration-choice-panel">
@@ -1873,6 +2019,18 @@ function WorkspaceIntegrationsSettings({
           {anyConnected ? "Ready to send" : "Setup required"}
         </span>
       </section>
+
+      <ProviderDetails
+        description={`${communicationSettings.allowedChannels.length} channels and email signatures`}
+        isCurrent={false}
+        label="Outbound communication"
+        provider="Rules"
+        status={communicationStatus}
+      >
+        <CommunicationSettingsDetail
+          communicationSettings={communicationSettings}
+        />
+      </ProviderDetails>
 
       <ProviderDetails
         description={
@@ -2131,6 +2289,8 @@ function PronunciationVocabularySettings({
   entries: AssistantPronunciationEntry[];
 }>) {
   const visibleEntries = entries.filter((entry) => entry.status !== "ignored");
+  const previewEntries = visibleEntries.slice(0, 10);
+  const collapsedEntries = visibleEntries.slice(10);
 
   return (
     <section className="pronunciation-settings-stack">
@@ -2190,89 +2350,24 @@ function PronunciationVocabularySettings({
 
       <div className="pronunciation-entry-list">
         {visibleEntries.length > 0 ? (
-          visibleEntries.map((entry) => (
-            <article className="pronunciation-entry-card" key={entry.id}>
-              <div className="pronunciation-entry-row">
-                <form
-                  action={updatePronunciationEntryAction}
-                  className="pronunciation-entry-inline-form"
-                >
-                  <input name="entryId" type="hidden" value={entry.id} />
-                  <label className="pronunciation-row-field">
-                    <span>Phrase</span>
-                    <input defaultValue={entry.phrase} name="phrase" required />
-                  </label>
-                  <label className="pronunciation-row-field pronunciation-hint-field">
-                    <span>Say it like</span>
-                    <input
-                      defaultValue={pronunciationHintValue(entry)}
-                      name="pronunciationHint"
-                    />
-                  </label>
-                  <label className="pronunciation-row-field pronunciation-category-field">
-                    <span>Category</span>
-                    <select defaultValue={entry.category} name="category">
-                      {PRONUNCIATION_CATEGORIES.map((category) => (
-                        <option key={category} value={category}>
-                          {formatLabel(category)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="pronunciation-row-field pronunciation-aliases-field">
-                    <span>Aliases</span>
-                    <input
-                      defaultValue={formatPronunciationAliases(entry.aliases)}
-                      name="aliases"
-                    />
-                  </label>
-                  <div className="pronunciation-row-meta">
-                    <small>
-                      {pronunciationEntrySourceLabel(entry)} -{" "}
-                      {pronunciationUsageLabel(entry)}
-                    </small>
-                  </div>
-                  <span className="pill subtle">
-                    {pronunciationEntryPill(entry)}
-                  </span>
-                  <PronunciationPreviewPlayer
-                    entryId={entry.id}
-                    fallbackSrc={`/api/assistant/pronunciation/preview?entryId=${entry.id}`}
-                  />
-                  <button className="secondary-button compact" type="submit">
-                    Save
-                  </button>
-                </form>
-
-                <form
-                  action={ignorePronunciationEntryAction}
-                  className="pronunciation-entry-remove-form"
-                >
-                  <input name="entryId" type="hidden" value={entry.id} />
-                  <input name="phrase" type="hidden" value={entry.phrase} />
-                  <input
-                    name="pronunciationHint"
-                    type="hidden"
-                    value={pronunciationHintValue(entry)}
-                  />
-                  <input name="category" type="hidden" value={entry.category} />
-                  <input
-                    name="aliases"
-                    type="hidden"
-                    value={formatPronunciationAliases(entry.aliases)}
-                  />
-                  <button
-                    aria-label={`Remove ${entry.phrase}`}
-                    className="pronunciation-icon-button danger"
-                    title="Remove pronunciation"
-                    type="submit"
-                  >
-                    <span aria-hidden="true">X</span>
-                  </button>
-                </form>
-              </div>
-            </article>
-          ))
+          <>
+            {previewEntries.map((entry) => (
+              <PronunciationEntryCard entry={entry} key={entry.id} />
+            ))}
+            {collapsedEntries.length > 0 ? (
+              <details className="pronunciation-entry-expander">
+                <summary>
+                  <span>Show {collapsedEntries.length} more</span>
+                  <span className="pronunciation-collapse-label">Collapse</span>
+                </summary>
+                <div className="pronunciation-entry-list nested">
+                  {collapsedEntries.map((entry) => (
+                    <PronunciationEntryCard entry={entry} key={entry.id} />
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </>
         ) : (
           <p className="empty-copy">
             No pronunciation entries yet. Add common names, suburbs, acronyms,
@@ -2281,6 +2376,94 @@ function PronunciationVocabularySettings({
         )}
       </div>
     </section>
+  );
+}
+
+function PronunciationEntryCard({
+  entry,
+}: Readonly<{
+  entry: AssistantPronunciationEntry;
+}>) {
+  return (
+    <article className="pronunciation-entry-card">
+      <div className="pronunciation-entry-row">
+        <form
+          action={updatePronunciationEntryAction}
+          className="pronunciation-entry-inline-form"
+        >
+          <input name="entryId" type="hidden" value={entry.id} />
+          <label className="pronunciation-row-field">
+            <span>Phrase</span>
+            <input defaultValue={entry.phrase} name="phrase" required />
+          </label>
+          <label className="pronunciation-row-field pronunciation-hint-field">
+            <span>Say it like</span>
+            <input
+              defaultValue={pronunciationHintValue(entry)}
+              name="pronunciationHint"
+            />
+          </label>
+          <label className="pronunciation-row-field pronunciation-category-field">
+            <span>Category</span>
+            <select defaultValue={entry.category} name="category">
+              {PRONUNCIATION_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {formatLabel(category)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="pronunciation-row-field pronunciation-aliases-field">
+            <span>Aliases</span>
+            <input
+              defaultValue={formatPronunciationAliases(entry.aliases)}
+              name="aliases"
+            />
+          </label>
+          <div className="pronunciation-row-meta">
+            <small>
+              {pronunciationEntrySourceLabel(entry)} -{" "}
+              {pronunciationUsageLabel(entry)}
+            </small>
+          </div>
+          <span className="pill subtle">{pronunciationEntryPill(entry)}</span>
+          <PronunciationPreviewPlayer
+            entryId={entry.id}
+            fallbackSrc={`/api/assistant/pronunciation/preview?entryId=${entry.id}`}
+          />
+          <button className="secondary-button compact" type="submit">
+            Save
+          </button>
+        </form>
+
+        <form
+          action={ignorePronunciationEntryAction}
+          className="pronunciation-entry-remove-form"
+        >
+          <input name="entryId" type="hidden" value={entry.id} />
+          <input name="phrase" type="hidden" value={entry.phrase} />
+          <input
+            name="pronunciationHint"
+            type="hidden"
+            value={pronunciationHintValue(entry)}
+          />
+          <input name="category" type="hidden" value={entry.category} />
+          <input
+            name="aliases"
+            type="hidden"
+            value={formatPronunciationAliases(entry.aliases)}
+          />
+          <button
+            aria-label={`Remove ${entry.phrase}`}
+            className="pronunciation-icon-button danger"
+            title="Remove pronunciation"
+            type="submit"
+          >
+            <span aria-hidden="true">X</span>
+          </button>
+        </form>
+      </div>
+    </article>
   );
 }
 
@@ -2492,6 +2675,10 @@ export default async function SettingsPage({
   ]);
   const activeWindow = normalizeUsageWindow(query?.window);
   const selectedSection = normalizeSettingsSection(query?.section);
+  const showInboundTrace =
+    selectedSection === "integrations" && query?.inboundTrace === "1";
+  const showSenderRules =
+    selectedSection === "integrations" && query?.senderRules === "1";
   const [
     communicationSettings,
     generalSettings,
@@ -2500,7 +2687,7 @@ export default async function SettingsPage({
     usageReport,
     voiceSettings,
   ] = await Promise.all([
-    selectedSection === "communication"
+    selectedSection === "integrations"
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "general" || selectedSection === "usage"
@@ -2545,13 +2732,11 @@ export default async function SettingsPage({
       title: "System defaults",
     },
     {
-      detail: communicationSettings
-        ? `${communicationSettings.allowedChannels.length} channels`
-        : "Approval rules, channels, and signatures",
-      eyebrow: "Outbound",
-      href: settingsSectionHref("communication", activeWindow),
-      section: "communication",
-      title: "Communication settings",
+      detail: "Accounts, outbound rules, and inbound sync",
+      eyebrow: "Integrations",
+      href: settingsSectionHref("integrations", activeWindow),
+      section: "integrations",
+      title: "Connected accounts",
     },
     {
       detail: voiceSettings
@@ -2561,13 +2746,6 @@ export default async function SettingsPage({
       href: settingsSectionHref("voice", activeWindow),
       section: "voice",
       title: "Voice assistant",
-    },
-    {
-      detail: "Gmail, Drive, Outlook and Microsoft 365",
-      eyebrow: "Integrations",
-      href: settingsSectionHref("integrations", activeWindow),
-      section: "integrations",
-      title: "Connected accounts",
     },
     {
       detail: usageReport
@@ -2598,16 +2776,8 @@ export default async function SettingsPage({
       >
         <GeneralSettingsDetail settings={generalSettings} />
       </SettingsDetailShell>
-    ) : selectedSection === "communication" && communicationSettings ? (
-      <SettingsDetailShell
-        eyebrow="Outbound"
-        title="Communication settings"
-      >
-        <CommunicationSettingsDetail
-          communicationSettings={communicationSettings}
-        />
-      </SettingsDetailShell>
     ) : selectedSection === "integrations" &&
+      communicationSettings &&
       googleOverview &&
       microsoftOverview &&
       inboundEmailSettings &&
@@ -2617,12 +2787,15 @@ export default async function SettingsPage({
         title="Connected accounts"
       >
         <WorkspaceIntegrationsSettings
+          communicationSettings={communicationSettings}
           googleOverview={googleOverview}
           googleStatus={googleStatus}
           inboundEmailSettings={inboundEmailSettings}
           inboundEmailSummary={inboundEmailSummary}
           microsoftOverview={microsoftOverview}
           microsoftStatus={microsoftStatus}
+          showInboundTrace={showInboundTrace}
+          showSenderRules={showSenderRules}
         />
       </SettingsDetailShell>
     ) : selectedSection === "usage" && usageReport && generalSettings ? (

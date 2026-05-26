@@ -28,9 +28,11 @@ Kyro can currently help with:
 - finding work that needs attention,
 - creating saved internal quote drafts from existing reusable document templates,
 - drafting and sending user-approved manual replies through connected email,
+- queuing outbound email in a durable delivery ledger so failed sends can be retried or dismissed,
 - checking connected Gmail or Outlook inboxes on request,
 - classifying inbound email and promoting business-actionable messages into the CRM,
 - showing filtered-out emails separately so personal/newsletter/noise stays out of the work queue,
+- preserving inbound and outbound email attachment metadata, with private file storage when provider or upload bytes are available,
 - generating a draft reply from a short user instruction,
 - remembering explicit instructions when the user says to remember or note something,
 - updating pronunciation vocabulary when the user asks,
@@ -50,7 +52,7 @@ Some product areas are intentionally not complete yet:
 
 - Kyro does not place real outbound phone calls yet.
 - SMS and phone channels are internal/manual records until providers are connected.
-- Quote drafts can now render as print-ready customer quote documents, generate server-side PDFs, and collect customer approval or change requests through secure quote links. Drive file storage, invoice/accounting exports, and payment collection are future work.
+- Quote drafts can now render as print-ready customer quote documents, generate server-side PDFs, and collect customer approval or change requests through secure quote links. Drive document filing, invoice/accounting exports, and payment collection are future work.
 - Payments, invoicing, reconciliation, taxes, and billing collection are not implemented.
 - Provider push/webhook inbox sync is not implemented; current inbound email uses scheduled/manual polling.
 - Kyro does not automatically send approval-gated AI replies without a user action.
@@ -84,6 +86,8 @@ Use it to:
 - look up quote drafts,
 - create a quote draft from a template,
 - ask Kyro to check email,
+- ask what inbound email has seen recently, including skipped/filter decisions and attachment-bearing email,
+- ask for help understanding failed outbound delivery or outbox retry status,
 - ask how Kyro or a setting works,
 - ask Kyro to remember explicit instructions,
 - ask Kyro to update pronunciation vocabulary,
@@ -148,6 +152,10 @@ Manual user-written replies are treated as approved because the user wrote the b
 
 The reply composer can also generate a draft from a short instruction. The user should review the generated draft before sending.
 
+Email delivery is recorded through Kyro's outbox layer. That means Kyro creates a durable delivery row before calling Gmail or Outlook, records the attempt, links the resulting provider message id when available, and keeps enough metadata to inspect or retry delivery later.
+
+The user-facing screens normally show only the useful result, such as a sent message, a failed send, or a retry option. The internal Developer -> Outbox operations page is for deeper delivery inspection.
+
 ## Filtered-Out Emails
 
 Filtered-out emails are messages Kyro noticed but did not turn into CRM work. This keeps personal mail, newsletters, automated messages, spam, receipts, and low-value noise out of the main Inbox while still allowing the user to quickly review what was skipped.
@@ -162,15 +170,40 @@ The filtered-out email popup:
 - collapses already-replied skipped emails into a short two-line row,
 - can expand a replied row with the small expand control,
 - has a primary Promote button to turn a skipped email into a CRM work item,
-- can send a user-approved reply through connected email,
+- can send a user-approved reply through the same connected-email outbox path as normal replies,
 - hides decision details such as confidence, reason, classifier, and sender-learning actions inside the three-dot menu,
 - can teach Kyro that future emails from a sender should be treated as relevant or ignored, with the menu showing whether each sender rule is currently set,
-- links conceptually to Settings, where sender rules can be reviewed, edited, added, or removed later,
+- links conceptually to Settings, where sender rules open in a dedicated pop-up manager for review, edits, additions, and removals,
 - shows a Kyro `Replied` pill when Kyro has replied through this popup.
 
 The `Replied` indicator is Kyro's internal log only. It does not try to detect replies sent directly in Gmail or Outlook.
 
 Promoting a filtered-out email creates or reuses the normal CRM contact, lead, conversation, inbound message, and AI triage path. Kyro tries to refetch the original email from Gmail or Outlook when possible; if that is unavailable, it can still create a minimal work item from the stored sender, subject, summary, and classification metadata.
+
+Replying to a filtered-out email does not create a normal conversation unless the user promotes it. Kyro still records the reply through the outbound delivery ledger and shows its own `Replied` indicator once the provider send has succeeded.
+
+## Outbound Delivery And Outbox
+
+Kyro uses a durable outbox for real email delivery. The outbox is different from the visible conversation thread:
+
+- the outbox row tracks the delivery attempt, provider, recipient, subject, retry state, attachments, and errors,
+- the conversation message is the user-facing communication history,
+- skipped-email replies can use an outbox row without creating a full CRM conversation,
+- failed sends can be retried without retyping the email,
+- stale failed test sends can be dismissed without deleting the audit trail.
+
+Common delivery states include:
+
+- Queued: Kyro has recorded the outbound request and it is ready to send.
+- Sending: Kyro is currently attempting the provider call.
+- Sent: Gmail or Outlook accepted the message.
+- Retry scheduled: the send failed temporarily and Kyro has scheduled another attempt.
+- Failed: Kyro could not send after the available attempts or hit a non-retryable problem.
+- Dismissed: an operator intentionally hid a stale or irrelevant failed row from the active operations view.
+
+Quote PDFs and uploaded local files can be attached to outbound email. Kyro stores retryable attachment bytes in private Supabase Storage when needed, then keeps file metadata on the outbox row so a scheduled retry can rebuild the provider request without storing raw base64 in Postgres.
+
+Scheduled retry processing lives behind the protected `/api/outbox/process` endpoint. End users should not need to call that route directly; it is for cron or operator tooling.
 
 ## CRM Screen
 
@@ -239,11 +272,11 @@ The customer approval page lives at `/quote/approve/[token]` and does not requir
 
 Quote revisions are tracked automatically. A new quote starts as `v1`. If a customer requests changes, the quote remains tied to the same draft but is flagged as needing revision in Inbox and Documents. The user edits the quote normally; once the content changes after the request, Kyro increments the version, for example from `v1` to `v2`, and treats the customer request as resolved for that revision. Sending the revised quote creates a fresh approval link and a new reviewable email draft. Older active approval links for the same quote are revoked when a fresh link is created.
 
-When the user sends a generated quote email, Kyro regenerates the PDF attachment, sends through the connected Gmail or Outlook account, records the outbound message, and marks the quote draft sent.
+When the user sends a generated quote email, Kyro regenerates the PDF attachment, stores the retryable attachment file privately when needed, queues/sends through the connected Gmail or Outlook account, records the outbound message, and marks the quote draft sent after provider acceptance.
 
 Quote drafts also show a lightweight document and customer approval history. Kyro records document events in quote metadata when a PDF is downloaded, when an email is prepared with the PDF attached, when the PDF is actually sent, when a customer views the approval page, when they approve, and when they request changes. Each generated document metadata record includes a content hash of the quote data and template settings used to render it, plus the active quote version. The quote page compares that hash with the current quote content and can show whether the quote has changed since the last generated/prepared/sent document. Users can ask Kyro in Assistant or Voice questions such as "has this quote been sent?", "when did we send Sarah the bathroom quote?", "has Sarah approved the quote?", "did Sarah request changes?", "what version is the quote on?", or "has this quote changed since it was sent?"
 
-The current generated-document storage is metadata-first. Kyro records filename, content type, size, renderer, generation time, content hash, version-history events, and send/audit details on the quote draft and message metadata. The PDF bytes are generated on demand for download and send rather than stored in Supabase Storage yet. Drive storage, accounting exports, invoice issuing, payment collection, and durable generated-document file records are still future work.
+The current generated-document storage is metadata-first for quote history. Kyro records filename, content type, size, renderer, generation time, content hash, version-history events, and send/audit details on the quote draft and message metadata. PDFs are generated on demand for preview/download, and outbound sends can temporarily store the attached PDF in private Supabase Storage so delivery retries work. Long-term Drive filing, accounting exports, invoice issuing, payment collection, and full generated-document library records are still future work.
 
 For marketing or creative documents, Kyro should use a different path from quotes and invoices. Marketing images, social graphics, flyers, and campaign-style creative assets can use OpenAI image generation later because those assets benefit from more visual generation and iteration. Transactional quote/invoice documents should stay structured first, with AI helping fill content and adjust templates rather than inventing totals or legal/payment details.
 
@@ -263,14 +296,27 @@ It can show recent:
 
 The Log supports filtering and searching so a user or builder can understand what Kyro did and why.
 
+## Developer Screen
+
+Developer is an internal testing and operations area. It is not intended as a normal customer-facing screen.
+
+Developer currently includes:
+
+- mock inbound inquiry tools for testing CRM workflows,
+- the Outbox operations screen at `/developer/outbox`,
+- delivery filters for queued, retry-scheduled, failed, sent, and dismissed outbound rows,
+- retry and dismiss controls for outbox rows,
+- delivery metadata for provider ids, provider request ids, attempts, next retry time, errors, and attachments.
+
+Use Developer -> Outbox operations when a sent email appears to have failed, a provider was disconnected during send, or a retry needs manual inspection.
+
 ## Settings Overview
 
 Settings is split into these sections:
 
 - General: workspace-wide defaults such as timezone and display currency.
-- Communication: outbound reply/channel rules and signatures.
+- Integrations: connected email accounts, outbound reply/channel rules, signatures, inbound email sync, quiet hours, and sync limits.
 - Voice: assistant voice, outbound pronunciation policy, and pronunciation vocabulary.
-- Integrations: Google Workspace, Microsoft Outlook, inbound email sync, quiet hours, and sync limits.
 - Usage: customer-facing usage charge visibility, task/model breakdowns, and metered usage ledger.
 
 Settings sections are URL-addressable so a link or assistant card can open the correct section directly.
@@ -297,7 +343,7 @@ Kyro can change the display currency when the user asks clearly, for example: "S
 
 ## Communication Settings
 
-Communication settings define outbound communication behaviour.
+Communication settings define outbound communication behaviour. They now live inside Settings -> Connected accounts because outbound rules, email signatures, and provider connections belong together.
 
 Current communication settings include:
 
@@ -349,6 +395,8 @@ Each entry can include:
 Aliases help Kyro recognise related terms and track usage. They do not automatically replace what Kyro says aloud. For example, if `Woolloongabba` has an alias `the Gabba`, Kyro can understand they may be related, but it should still say the words in the user's message unless the context calls for the full place name.
 
 Kyro can auto-add likely difficult terms with a best-effort default pronunciation. Users do not need to approve every entry. The list is meant to maintain itself in the background, while still allowing the user to correct it.
+
+Voice settings show the first 10 pronunciation entries by default. If the list grows beyond 10 entries, the rest sit behind a show-more control so the settings screen stays tidy.
 
 Users can also ask Kyro directly, for example:
 
@@ -441,7 +489,7 @@ The default quiet-hours behaviour is:
 
 Quiet hours do not need a special "once during quiet hours" run. The intended behaviour is simply to stop scheduled polling during the quiet period and resume afterwards.
 
-Emergency or after-hours businesses can change quiet-hours behaviour so polling stays the same overnight.
+If a business wants normal polling overnight, turn quiet hours off rather than changing a separate quiet-hours behaviour setting.
 
 ## Lookback And Fetch Cap
 
@@ -459,7 +507,7 @@ Kyro always records enough provider event information to avoid reprocessing dupl
 
 Turning summaries off can reduce AI/classifier work, but makes filtered-out email review less useful.
 
-Sender learning rules can be created from the filtered-out email three-dot menu or managed later in Settings -> Integrations -> Sender rules. They are structured policy rules, not keyword rules the user has to write. "Treat sender as relevant" tells future syncs to promote matching sender email addresses or domains before normal classifier uncertainty. "Always ignore sender" tells future syncs to skip matching sender email addresses or domains before model classification. Settings can add rules manually, switch a rule between relevant/ignored, or remove a rule if Kyro learned the wrong thing.
+Sender learning rules can be created from the filtered-out email three-dot menu or managed later in Settings -> Integrations -> Sender rules, which opens a pop-up manager so long sender lists do not crowd the settings page. They are structured policy rules, not keyword rules the user has to write. "Treat sender as relevant" tells future syncs to promote matching sender email addresses or domains before normal classifier uncertainty. "Always ignore sender" tells future syncs to skip matching sender email addresses or domains before model classification. Settings can add rules manually, switch a rule between relevant/ignored, or remove a rule if Kyro learned the wrong thing.
 
 ## Usage Settings
 
@@ -524,7 +572,6 @@ Kyro can directly change a constrained set of low-risk settings when the user as
 - daytime email poll frequency,
 - quiet-hours enabled/disabled state,
 - quiet-hours start and end times,
-- quiet-hours behaviour,
 - missed-mail lookback,
 - fetch cap per sync,
 - skipped-mail summaries,
@@ -614,6 +661,15 @@ If inbound email does not work:
 - ask Kyro to check recent email,
 - check sync errors in Settings when surfaced.
 
+If outbound email does not send:
+
+- check that Gmail or Outlook is connected,
+- check that the recipient contact has an email address,
+- check whether the provider account needs reconnecting,
+- open the conversation and look for a failed delivery or retry state,
+- use Developer -> Outbox operations for deeper retry or dismiss controls,
+- check that `/api/outbox/process` is configured with the expected cron secret in production.
+
 If voice does not work:
 
 - check browser microphone permission,
@@ -645,7 +701,7 @@ This manual is primarily for end-user help. If the user asks as a builder about 
 Relevant builder references include:
 
 - `docs/current-architecture.md` for app structure, data flow, integration behaviour, known gaps, and verification commands.
-- `docs/deployment-checklist.md` for production environment variables, OAuth setup, Supabase checks, cron sync, OpenAI/realtime voice, and deployment smoke tests.
+- `docs/deployment-checklist.md` for production environment variables, OAuth setup, Supabase checks, cron sync, outbox processing, OpenAI/realtime voice, and deployment smoke tests.
 - `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build`, and `npm run env:check` for local verification.
 
 ## How Kyro Should Answer Help Questions

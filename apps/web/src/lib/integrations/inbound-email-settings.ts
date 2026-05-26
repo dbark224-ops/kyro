@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const INBOUND_EMAIL_POLICY_TYPE = "inbound_email";
 
 export const INBOUND_EMAIL_SYNC_MODES = ["automatic", "manual_only", "paused"] as const;
-export const INBOUND_EMAIL_QUIET_HOURS_MODES = ["paused", "same_interval"] as const;
+export const INBOUND_EMAIL_QUIET_HOURS_MODES = ["paused"] as const;
 export const INBOUND_EMAIL_POLL_INTERVALS = [5, 15, 30, 60] as const;
 export const INBOUND_EMAIL_SENDER_RULE_ACTIONS = ["always_promote", "always_ignore"] as const;
 
@@ -175,12 +175,8 @@ function normalizeSyncMode(value: unknown): InboundEmailSyncMode {
 }
 
 function normalizeQuietHoursMode(value: unknown): InboundEmailQuietHoursMode {
-  if (value === "once") {
-    return "paused";
-  }
-
-  return INBOUND_EMAIL_QUIET_HOURS_MODES.includes(value as InboundEmailQuietHoursMode)
-    ? (value as InboundEmailQuietHoursMode)
+  return value === "paused" || value === "once" || value === "same_interval"
+    ? "paused"
     : DEFAULT_INBOUND_EMAIL_SETTINGS.quietHoursMode;
 }
 
@@ -602,10 +598,6 @@ export function shouldRunInboundEmailSync({
   const currentQuietWindow = quietWindowKey(now, settings);
 
   if (!currentQuietWindow) {
-    return regularIntervalDue;
-  }
-
-  if (settings.quietHoursMode === "same_interval") {
     return regularIntervalDue;
   }
 

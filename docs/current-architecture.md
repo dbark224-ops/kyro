@@ -69,10 +69,13 @@ All business data is workspace-scoped. The important tables are:
   provider connect flows.
 - `conversations`: message threads.
 - `messages`: inbound/outbound communication records.
-- `files`: private file metadata for uploaded/generated/stored files, including inbound email attachments stored in Supabase Storage.
+- `files`: private file metadata for uploaded/generated/stored files, including inbound email attachments and outbound retry attachments stored in Supabase Storage.
 - `inquiry_facts`: current editable inquiry facts for a conversation, separate from raw AI output.
 - `events`: idempotent ingestion and workflow events.
 - `actions`: proposed or executable work, including AI-proposed replies.
+- `outbound_messages`: durable outbound delivery queue/ledger for user and
+  action-triggered sends, including idempotency keys, attempt counts, retry
+  scheduling, provider metadata, and last-error state.
 - `quote_drafts`: internal quote document placeholders created from approved actions.
 - `assistant_threads`: persistent Assistant conversations per workspace/user.
 - `assistant_messages`: saved Assistant/user turns, tool-call records, and UI block records.
@@ -175,7 +178,11 @@ primarily in Assistant, Inbox, CRM, Documents, and Settings.
 
 ### Developer
 
-File: `apps/web/src/app/developer/page.tsx`
+Files:
+
+- `apps/web/src/app/developer/page.tsx`
+- `apps/web/src/app/developer/outbox/page.tsx`
+- `apps/web/src/app/developer/outbox/actions.ts`
 
 Purpose:
 
@@ -183,7 +190,11 @@ Purpose:
 - expose the mock inbound inquiry form for local testing,
 - submit through the same `createManualInboundAction` and `ingestManualInbound` flow
   used by previous dashboard/manual testing,
-- redirect back to `/developer` with success/error messages after ingestion.
+- redirect back to `/developer` with success/error messages after ingestion,
+- expose an internal outbox operations surface at `/developer/outbox` for queued,
+  retry-scheduled, failed, sent, and dismissed outbound delivery rows,
+- let an operator retry queued/scheduled/failed outbox rows or dismiss dead test
+  rows without deleting audit history.
 
 The Developer page is not intended as an end-user surface. It is a convenient place
 to keep test controls while Gmail, Drive, SMS, and other integrations are being wired.
@@ -238,7 +249,8 @@ The inquiry review page shows:
 - text channel labels on message rows,
 - outbound composer for email, SMS, phone, or manual notes,
 - reusable AI reply prompt for manual outbound composers,
-- outbound metadata including channel type, dry-run/external-send state, provider message id, local attachment summaries, and quote draft attachment references,
+- outbound metadata including channel type, dry-run/external-send state, provider message id, provider request id, local attachment summaries, quote draft attachment references, and the linked outbox delivery id,
+- outbound delivery state showing queued/sending/sent/failed/retry-scheduled attempts with retry controls for failures,
 - mock follow-up inbound message form,
 - draft reply work surface,
 - action-specific proposal cards for missing info, site visits, quote drafts, follow-ups, and not-fit decisions,
@@ -251,19 +263,34 @@ The inquiry review page shows:
 - usage events collapsed by default,
 - audit history collapsed by default.
 
-Outbound email can send through the connected Gmail or Outlook account. Workspace communication
-settings use `workspace_policies` with policy type `communication_outbound` once the
-settings page has saved them, and fall back to strict defaults when that row does not
-exist yet. User-written manual replies are treated as already approved because the
+Outbound email can send through the connected Gmail or Outlook account. The shared
+mail abstraction selects the latest connected Google or Microsoft provider, and the
+outbound layer writes a durable `outbound_messages` row before any provider call.
+That row stores the recipient, subject/body, private file references for retryable
+attachments, idempotency key, attempt count, retry schedule, provider
+message/request ids, and last error. User-written manual replies are treated as already approved because the
 user typed the body and pressed send; email sends immediately through the connected
-email provider when a
-contact email exists. AI-generated/action-queue replies still go through the action
-engine and approval/execution controls. SMS, phone, and manual channels are still
-internal records until their providers are connected. Email sends can include local
-file uploads from the composer and a server-generated PDF attachment for a selected
-quote draft. Generated quote PDFs are created on demand from structured quote data
-and recorded as message/quote metadata; durable Drive/Supabase Storage files are
-still a later storage step.
+email provider when a contact email exists, but the send is still traceable and
+retryable through the outbox ledger. AI-generated/action-queue replies still go
+through the action engine and approval/execution controls. SMS, phone, and manual
+channels are still internal records until their providers are connected. Email
+sends can include local file uploads from the composer and a server-generated PDF
+attachment for a selected quote draft. Generated quote PDFs are created on demand
+from structured quote data; before delivery, attachment bytes are uploaded into
+the private Supabase Storage bucket (`KYRO_FILE_STORAGE_BUCKET`, default
+`kyro-files`) and the outbox keeps `files` metadata references rather than binary
+payloads in Postgres. This same outbox path is also used for replies to
+filtered-out/skipped email events, which record an `outbound.filtered_email.reply_sent`
+event after provider acceptance instead of bypassing the delivery ledger.
+Scheduled outbox retry processing lives at `/api/outbox/process`, protected by
+`OUTBOUND_DELIVERY_SECRET`, `INBOUND_EMAIL_SYNC_SECRET`, or `CRON_SECRET`.
+`vercel.json` schedules it every five minutes. Failed provider sends move to
+`retry_scheduled` until attempts are exhausted; the Inbox preview also exposes
+manual retry for failed or scheduled delivery rows. Developer -> Outbox operations
+is the cross-conversation operational view for the same ledger: it shows
+active/sent/dismissed delivery rows, provider ids, attachment summaries, last
+errors, reconnect guidance, manual retry, and an operations-only `dismissed`
+state for clearing stale test failures without deleting records.
 Email signatures are Kyro-managed per workspace: one default signature for manual or
 user-edited sends, plus an optional assistant signature for untouched AI-generated
 replies. Signature settings live inside the `communication_outbound` policy, support
@@ -362,7 +389,9 @@ is deterministic HTML for browser preview/printing plus deterministic server-sid
 `apps/web/src/lib/documents/pdf.ts`, not a GPT-generated image. Downloaded PDFs and outbound attachments are generated
 on demand from the saved quote draft. The current storage model records generated-document metadata such as filename,
 content type, size, renderer, content hash, generation time, and version-history events in `quote_drafts.metadata` and
-message metadata; it does not yet store binary PDFs in Supabase Storage or Drive. Customer approval links live in
+message metadata. PDFs attached to outbound emails are temporarily persisted in private Supabase Storage so the outbox
+can retry sends, but Kyro does not yet keep a first-class generated-document record in Supabase Storage or Drive.
+Customer approval links live in
 `quote_approval_links`, which stores a hashed bearer token, lifecycle status, customer email, expiry, view/approval
 timestamps, and the latest change-request note. The content hash is calculated from the quote draft, customer/job
 details, line items, and document design settings with volatile send/history/approval metadata excluded, so the app can
@@ -628,7 +657,7 @@ Purpose:
 - allow the assistant command router to update pronunciation entries directly from text or voice requests such as "pronounce Woolloongabba as wuh-lun-gabba",
 - give auto-learned entries a best-effort default pronunciation hint so the list does not depend on user maintenance before it becomes useful,
 - run a quick optional OpenAI alias/category enrichment pass for new auto-learned entries, using the surrounding message context plus general model knowledge,
-- present saved entries as compact one-line rows with phrase, hint, category, aliases, usage, preview, save, and remove controls,
+- present saved entries as compact one-line rows with phrase, hint, category, aliases, usage, preview, save, and remove controls, showing the first 10 rows by default and placing the rest behind a lightweight details expander,
 - show the add-pronunciation control as a compact accented row so it is clearly the interactive new-entry surface,
 - make pronunciation previews use a mini OpenAI Realtime/WebRTC session with the saved Kyro voice, speaking only the target phrase,
 - tell the preview model that phonetic hints are private pronunciation guidance and separators such as hyphens are syllable cues, not text to read aloud,
@@ -750,10 +779,9 @@ costs; OpenAI text-to-speech uses a pricing-derived estimate when direct audio t
 is unavailable. Unknown text models fall back to the configured/default low-cost model
 price and mark the row as price-estimated in metadata.
 
-Settings sections are URL-addressable (`?section=general`, `?section=communication`,
-`?section=voice`, `?section=integrations`, `?section=usage`) and fetch data on demand for the selected
-section. This keeps the default Settings route light and makes each section a cleaner
-future API/native-screen boundary.
+Settings sections are URL-addressable (`?section=general`, `?section=voice`,
+`?section=integrations`, `?section=usage`) and fetch data on demand for the selected
+section. Legacy `?section=communication` links normalize to `?section=integrations` because outbound approval/channel/signature settings now live inside Connected accounts beside Google, Microsoft, and inbound email controls. This keeps the default Settings route light and makes each section a cleaner future API/native-screen boundary.
 
 Assistant-facing help uses `docs/assistant-help-manual.md` as the user-facing
 source. The manual now covers the current product surfaces end-to-end: Assistant,
@@ -779,9 +807,10 @@ billing/metering, provider secrets, destructive data changes, final pricing,
 tax/accounting treatment, and payment collection remain explicit UI or future
 workflow flows.
 
-Settings expose outbound policy and a combined Integrations area for Google Workspace
-and Microsoft Outlook. Gmail and Outlook are the first real external send providers
-and the first inbound email readers. SMS, phone, and calendar remain future integrations.
+Settings expose outbound policy inside the combined Connected accounts area for
+Google Workspace and Microsoft Outlook. Gmail and Outlook are the first real
+external send providers and the first inbound email readers. SMS, phone, and
+calendar remain future integrations.
 
 Inbound email settings live in `workspace_policies` with policy type `inbound_email`.
 The default posture is automatic five-minute polling during active hours, paused
@@ -881,20 +910,21 @@ Important behavior:
   This avoids a new table while still showing missing scopes, reconnect-needed
   warnings, last successful sync, last check attempt, sync failures, and next
   scheduled sync.
-- Settings also shows a compact inbound trace from existing `audit_logs` and
-  `events`: recent sync runs, fetched/promoted/observed/duplicate counts, and
-  recent provider email decisions. This is deliberately read-only operational
-  visibility, not a second queue.
+- Settings shows a compact inbound trace launcher backed by existing `audit_logs`
+  and `events`. Opening it displays a scrollable pop-up with recent sync runs,
+  fetched/promoted/observed/duplicate counts, and recent provider email
+  decisions. This is deliberately read-only operational visibility, not a second
+  queue, and it stays out of the main settings controls because the list can grow.
 - Scheduled polling is exposed through `/api/integrations/email/sync`, protected by `INBOUND_EMAIL_SYNC_SECRET` or Vercel's `CRON_SECRET`, and backed by a server-only Supabase service role client. Vercel Cron calls it with `GET`; manual scheduler/testing calls can still use `POST`.
 - `vercel.json` registers this route to run every five minutes in production. The sync worker still respects each workspace's policy, including quiet-hours rules.
-- The default quiet-hours behavior pauses scheduled polling between 10pm and 4am to reduce provider/API/classifier cost, then resumes on the first scheduled poll after quiet hours end. Emergency businesses can keep the same interval overnight.
+- Quiet-hours behavior is intentionally singular: scheduled polling pauses between the configured start and end times, then resumes on the first scheduled poll after quiet hours end. Businesses that need overnight polling should disable quiet hours rather than choose a second behavior mode.
 - Manual Settings checks and assistant-triggered checks bypass the schedule gate so the user or agent can fetch fresh email when context demands it.
 - Every provider message gets an idempotent `events` row before processing; duplicate provider messages are skipped.
 - Non-actionable mail is not promoted into the CRM. It is recorded as a lightweight awareness event with classification/summary metadata, not as a full conversation.
 - Inbox exposes a separate filtered-out email pop-up for those observed/skipped events. Its header button shows only the count from the last 24 hours on the normal Inbox load; the full bounded recent list and reply-log state are fetched only when the pop-up opens. The pop-up has its own sender/subject/reason search so operators can inspect noise without mixing it into the main work queue. It is intentionally not a normal work-queue filter so personal/newsletter/noise stays outside the actionable CRM queue while still being quick to review.
-- The filtered-out email pop-up scrolls inside the modal and can send a user-approved direct reply through the connected email provider using the stored subject, sender, summary, and classification metadata. Hidden reply composers are mounted only after a user opens `Reply`, so the modal can render many skipped emails without shipping every AI reply form up front. Those direct replies create internal `outbound.filtered_email.reply_sent` events, and the pop-up displays Kyro's own replied indicator from that log; it does not try to infer replies sent directly in Gmail or Outlook.
+- The filtered-out email pop-up scrolls inside the modal and can send a user-approved reply through the same outbox delivery layer as normal conversation replies, using the stored subject, sender, summary, and classification metadata. Hidden reply composers are mounted only after a user opens `Reply`, so the modal can render many skipped emails without shipping every AI reply form up front. Those replies create an `outbound_messages` row first, then record an internal `outbound.filtered_email.reply_sent` event after provider acceptance; the pop-up displays Kyro's own replied indicator from that log and does not try to infer replies sent directly in Gmail or Outlook.
 - Filtered-out email now has a primary Promote action that calls `promoteSkippedEmailEvent`. That helper tries to refetch the original provider message by provider message id, falls back to stored event metadata when needed, then creates or reuses the same contact, lead, conversation, inbound message, and triage path as normal promoted inbound mail.
-- Sender-specific learning rules live inside the existing `inbound_email` workspace policy JSON as `senderRules`, so no schema migration is needed for v1. The filtered-out email three-dot menu can add `always_promote` or `always_ignore` rules for a sender email address and displays the current set/not-set state for each option. Settings -> Integrations includes a Sender rules manager that can add email/domain rules, switch rules between relevant/ignored, or remove rules. Sync checks those structured rules before classifier work; matched promote rules produce `sender_rule` classifications and matched ignore rules skip promotion.
+- Sender-specific learning rules live inside the existing `inbound_email` workspace policy JSON as `senderRules`, so no schema migration is needed for v1. The filtered-out email three-dot menu can add `always_promote` or `always_ignore` rules for a sender email address and displays the current set/not-set state for each option. Settings -> Integrations includes a compact Sender rules launcher that opens a pop-up manager for adding email/domain rules, switching rules between relevant/ignored, or removing rules. Sync checks those structured rules before classifier work; matched promote rules produce `sender_rule` classifications and matched ignore rules skip promotion.
 - Actionable business mail creates or reuses a contact, lead, conversation, and inbound message, then runs the same AI triage/action-proposal path as manual inbound.
 - Inbound email attachment metadata is stored on the event/message. If Gmail or Outlook provides attachment bytes, Kyro stores current-size attachments in a private Supabase Storage bucket (`KYRO_FILE_STORAGE_BUCKET`, falling back to `kyro-files`), inserts a `files` row, and renders attachment chips in Inbox and Assistant previews. Oversized attachments and storage failures fall back to metadata-only/failed chips so the user still sees that an attachment existed.
 - Follow-up emails match existing conversations by provider thread id first, then RFC message references (`References` / `In-Reply-To`), then a conservative same-contact same-subject fallback. Matched follow-ups reopen the conversation, cancel stale pending/approved proposal actions, and rerun triage with the thread summary.
@@ -994,9 +1024,9 @@ Current action behavior:
 - user-written manual reply composers send or record immediately because the button press is the explicit approval,
 - manual reply composers can open a compact `Generate with AI` prompt that calls `/api/inbox/reply-draft`, uses the conversation or skipped-email context plus the user's quick direction, and inserts a draft into the subject/body fields for review,
 - pending draft replies can be edited from the inquiry review page before approval,
-- executing a `draft_reply` sends through Gmail when the channel is email and the contact has an email address,
+- executing a `draft_reply` queues an `outbound_messages` delivery and then sends through Gmail/Outlook when the channel is email and the contact has an email address,
 - executing non-email channels records an internal outbound `messages` row until SMS/phone providers exist,
-- outbound message metadata records `dryRun`, `externalSend`, `provider`, `sentTo`, attachments, and any external provider message id,
+- outbound message metadata records `dryRun`, `externalSend`, `provider`, `sentTo`, attachments, external provider message/request ids, and the linked outbox delivery id,
 - `create_quote_draft` actions create internal `quote_drafts` rows only,
 - quote drafts created from inquiry actions prefill customer/job metadata from the linked contact, lead, and saved inquiry facts,
 - `book_site_visit` completes as an internal dry-run plan,
@@ -1004,8 +1034,9 @@ Current action behavior:
 - `mark_not_fit` updates the attached lead status to `not_fit`,
 - SMS/phone/calendar are still not connected.
 
-This is intentional. Gmail is the first real outbound provider; the same action-executor seam should be reused for
-SMS, phone, calendar, and Drive/PDF document generation later.
+This is intentional. Gmail and Outlook are the first real outbound providers; the same
+outbox/action-executor seam should be reused for SMS, phone, calendar, and
+Drive/PDF document generation later.
 
 Conversation statuses currently used by the review workflow:
 
@@ -1076,12 +1107,14 @@ Current performance approach:
 
 - routes are server-rendered for fresh authenticated data,
 - `RoutePreloader` idle-prefetches core logged-in tabs with a stagger so navigation
-  is warm without hammering every detail route or duplicating nav-link prefetches,
+  is warm without hammering every detail route or duplicating nav-link prefetches;
+  it dedupes routes already prefetched in the browser session and skips background
+  prefetching on data-saver or slow network connections,
 - long repeated list rows intentionally keep `prefetch={false}`,
 - list/detail pages have skeleton loading states,
 - CRM filter/search/sort state is URL-backed and rendered server-side so the split profile panel can preserve context across clicks and saves,
 - inbox split-view fetches the list, selected preview, and communication settings in parallel after workspace resolution,
-- Settings fetches only the selected section's data so Usage/task/ledger data is not loaded for communication, voice, or integrations changes,
+- Settings fetches only the selected section's data so Usage/task/ledger data is not loaded for general, voice, or integrations changes; the integrations section intentionally fetches communication policy, provider overviews, and inbound email settings together because those now share one Connected accounts surface,
 - log data, engine queues, and AI ledger data are fetched in parallel after workspace resolution,
 - log counts are workspace-scoped,
 - the Assistant landing page uses count queries where possible and reuses the bounded
@@ -1123,7 +1156,8 @@ Use this map before editing:
 - New contact type label: `apps/web/src/lib/crm/contact-types.ts`
 - New contact mutation: `apps/web/src/app/contacts/actions.ts`
 - New manual inquiry behavior: `apps/web/src/lib/inbound/manual.ts`
-- New developer/test tool screen: `apps/web/src/app/developer/page.tsx`
+- New developer/test tool screens: `apps/web/src/app/developer/page.tsx` and
+  `apps/web/src/app/developer/outbox/page.tsx`
 - New action transition/execution behavior: `apps/web/src/lib/engine/event-action-audit.ts`
 - New AI triage behavior: `apps/web/src/lib/ai/triage.ts`
 - New inquiry fact editing behavior: `apps/web/src/app/inbox/actions.ts`
@@ -1157,6 +1191,8 @@ Use this map before editing:
 - New Gmail/Outlook send behavior: `apps/web/src/lib/integrations/gmail.ts`,
   `apps/web/src/lib/integrations/outlook.ts`, `apps/web/src/lib/integrations/mail.ts`,
   `apps/web/src/lib/communication/outbound.ts`, and `apps/web/src/lib/communication/signatures.ts`
+- New outbox worker route: `apps/web/src/app/api/outbox/process/route.ts`
+- New outbox operations actions: `apps/web/src/app/developer/outbox/actions.ts`
 - New inbound email sync behavior: `apps/web/src/lib/integrations/inbound-email-settings.ts`,
   `apps/web/src/lib/integrations/inbound-email-sync.ts`, and
   `apps/web/src/app/api/integrations/email/sync/route.ts`

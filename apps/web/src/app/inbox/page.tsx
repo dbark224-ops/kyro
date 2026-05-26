@@ -20,6 +20,7 @@ import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
   createMockOutboundMessageAction,
   promoteSkippedEmailToWorkItemAction,
+  retryOutboundDeliveryAction,
   sendDraftReplyAction,
   updateDraftReplyAction,
 } from "./actions";
@@ -775,6 +776,7 @@ function InboxManualReplyComposer({
 }) {
   const defaultChannel = preferredReplyChannel(profile, settings);
   const defaultSubject = defaultReplySubject(profile);
+  const submissionKey = crypto.randomUUID();
 
   return (
     <InboxPreviewPanel title="Manual reply">
@@ -788,6 +790,7 @@ function InboxManualReplyComposer({
           type="hidden"
           value={profile.conversation.id}
         />
+        <input name="submissionKey" type="hidden" value={submissionKey} />
         <input name="redirectTo" type="hidden" value={redirectTo} />
         <div className="mini-facts-grid">
           <label>
@@ -884,6 +887,92 @@ function InboxManualReplyComposer({
           Send reply
         </button>
       </form>
+    </InboxPreviewPanel>
+  );
+}
+
+function deliveryStatusLabel(status: string) {
+  if (status === "retry_scheduled") {
+    return "Retry scheduled";
+  }
+
+  return formatLabel(status);
+}
+
+function deliveryStatusClass(status: string) {
+  if (status === "sent") {
+    return "pill success";
+  }
+
+  if (status === "failed" || status === "retry_scheduled") {
+    return "pill warning";
+  }
+
+  return "pill subtle";
+}
+
+function OutboundDeliveryPanel({
+  deliveries,
+  conversationId,
+  redirectTo,
+}: {
+  deliveries: ConversationReview["outboundMessages"];
+  conversationId: string;
+  redirectTo: string;
+}) {
+  if (deliveries.length === 0) {
+    return null;
+  }
+
+  return (
+    <InboxPreviewPanel title="Outbound delivery">
+      <div className="assistant-preview-list compact outbound-delivery-list">
+        {deliveries.map((delivery) => (
+          <article className="assistant-preview-row" key={delivery.id}>
+            <div>
+              <strong>{delivery.subject ?? "Outbound message"}</strong>
+              <span>
+                {formatLabel(delivery.channelType)}
+                {delivery.provider ? ` - ${formatLabel(delivery.provider)}` : ""}
+                {" - "}
+                {delivery.sentAt
+                  ? `Sent ${formatDate(delivery.sentAt)}`
+                  : `Attempt ${delivery.attemptCount}/${delivery.maxAttempts}`}
+              </span>
+              <p>
+                {delivery.lastError ??
+                  (delivery.recipient
+                    ? `To ${delivery.recipient}`
+                    : "Delivery is recorded against this conversation.")}
+              </p>
+            </div>
+            <div className="delivery-actions">
+              <span className={deliveryStatusClass(delivery.status)}>
+                {deliveryStatusLabel(delivery.status)}
+              </span>
+              {delivery.status === "failed" ||
+              delivery.status === "retry_scheduled" ? (
+                <form action={retryOutboundDeliveryAction}>
+                  <input
+                    name="conversationId"
+                    type="hidden"
+                    value={conversationId}
+                  />
+                  <input
+                    name="outboundQueueId"
+                    type="hidden"
+                    value={delivery.id}
+                  />
+                  <input name="redirectTo" type="hidden" value={redirectTo} />
+                  <button className="secondary-button compact" type="submit">
+                    Retry
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          </article>
+        ))}
+      </div>
     </InboxPreviewPanel>
   );
 }
@@ -1015,6 +1104,12 @@ function InboxSplitPreview({
           profile={profile}
           redirectTo={redirectTo}
           settings={communicationSettings}
+        />
+
+        <OutboundDeliveryPanel
+          conversationId={profile.conversation.id}
+          deliveries={profile.outboundMessages}
+          redirectTo={redirectTo}
         />
 
         {visibleActions.length > 0 ? (

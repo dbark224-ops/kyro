@@ -289,6 +289,7 @@ async function recordDraftReplyOutbound(
     attachments: signedBody.inlineAttachments,
     source: "action.draft_reply",
     actionId: action.id,
+    idempotencyKey: `action.${action.id}.draft_reply`,
     settingsSnapshot: {
       ...objectRecord(action.input.settingsSnapshot),
       signatureApplied: signedBody.signatureApplied,
@@ -531,6 +532,7 @@ async function recordSendOutboundMessage(
     attachments: signedBody.inlineAttachments,
     source: "action.send_outbound_message",
     actionId: action.id,
+    idempotencyKey: `action.${action.id}.send_outbound_message`,
     settingsSnapshot: {
       ...objectRecord(action.input.settingsSnapshot),
       signatureApplied: signedBody.signatureApplied,

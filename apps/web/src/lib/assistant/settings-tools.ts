@@ -457,16 +457,6 @@ export function parseAssistantEditableSettingChanges(
       targetSections.push("integrations");
     }
 
-    if (text.includes("same as daytime") || text.includes("same interval") || text.includes("emergency")) {
-      settings.quietHoursMode = "same_interval";
-      labels.push("quiet-hours behaviour to same as daytime");
-      targetSections.push("integrations");
-    } else if (text.includes("pause") || text.includes("stop")) {
-      settings.quietHoursMode = "paused";
-      labels.push("quiet-hours behaviour to pause scheduled polling");
-      targetSections.push("integrations");
-    }
-
     if (times.length >= 2) {
       settings.quietHoursStart = times[0];
       settings.quietHoursEnd = times[1];

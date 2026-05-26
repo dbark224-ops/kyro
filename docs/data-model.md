@@ -189,6 +189,63 @@ entitlements, and audit logs.
 - `created_at`
 - `updated_at`
 
+### `outbound_messages`
+
+Durable delivery queue and ledger for outbound communications. This is separate
+from `messages`: an outbox row tracks provider attempts and retry state, while a
+`messages` row is the conversation-facing record once delivery/recording succeeds.
+Event-only sends, such as replies to filtered-out/skipped email, use the same
+outbox row and record an `events` row after delivery instead of creating a
+conversation message.
+
+- `id`
+- `workspace_id`
+- `conversation_id`
+- `action_id`
+- `event_id`
+- `user_id`
+- `channel_id`
+- `channel_type`
+- `provider`
+- `service`
+- `connection_id`
+- `recipient`
+- `subject`
+- `body_text`
+- `body_html`
+- `attachments`
+- `settings_snapshot`
+- `status`
+- `idempotency_key`
+- `source`
+- `attempt_count`
+- `max_attempts`
+- `next_attempt_at`
+- `queued_at`
+- `sending_at`
+- `sent_at`
+- `failed_at`
+- `provider_message_id`
+- `provider_thread_id`
+- `provider_request_id`
+- `last_error`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+Current statuses are `queued`, `sending`, `sent`, `retry_scheduled`, `failed`,
+and `dismissed`. `dismissed` is an operations-only terminal state used to clear
+dead or stale test rows from the active outbox view without deleting the record or
+its audit trail.
+The `(workspace_id, idempotency_key)` unique index prevents double sends from
+double-clicks or repeated action execution. Attachment JSON stores metadata and
+private file references (`fileId`, `storageBucket`, `storagePath`,
+`storageStatus`) only. The binary payload is uploaded to the private Supabase
+Storage bucket configured by `KYRO_FILE_STORAGE_BUCKET` before the row is sent,
+so scheduled retries can rebuild provider attachments without storing base64
+blobs in Postgres. Legacy rows that still contain `contentBase64` are readable
+for compatibility but new rows should not be written that way.
+
 ### `tasks` planned
 
 - `id`
@@ -435,9 +492,9 @@ the active version used to render or send that artifact.
 When the email is sent, outbound message metadata records the PDF attachment
 summary and the quote draft metadata records sent timestamps, provider/message ids,
 the outbound message id, and an `email_sent` history event. The binary PDF is
-generated on demand for download and send rather than being stored in Supabase
-Storage or Drive yet. Durable generated file rows, Drive storage, invoice exports,
-and accounting/payment records remain planned
+generated on demand for download and stored as a private outbox attachment only
+when it is queued for email delivery; durable generated-document file rows,
+Drive storage, invoice exports, and accounting/payment records remain planned
 later work.
 
 Current revision state is stored inside `quote_drafts.metadata.quoteRevision`

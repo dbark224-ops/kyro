@@ -12,6 +12,7 @@ export type EmailSendResult = {
   connectionId: string;
   messageId: string | null;
   provider: "google" | "microsoft";
+  providerRequestId?: string | null;
   service: "gmail" | "outlook_mail";
   threadId: string | null;
 };

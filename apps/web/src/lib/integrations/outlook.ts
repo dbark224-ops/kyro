@@ -283,6 +283,7 @@ export async function sendOutlookMessage(
     throw new Error("The connected Outlook account does not have a usable access token.");
   }
 
+  const providerRequestId = crypto.randomUUID();
   const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
     body: JSON.stringify({
       message: {
@@ -304,7 +305,9 @@ export async function sendOutlookMessage(
     }),
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      "client-request-id": providerRequestId,
       "Content-Type": "application/json",
+      "return-client-request-id": "true",
     },
     method: "POST",
   });
@@ -333,6 +336,10 @@ export async function sendOutlookMessage(
     connectionId: connection.id,
     messageId: null,
     provider: "microsoft",
+    providerRequestId:
+      response.headers.get("client-request-id") ??
+      response.headers.get("request-id") ??
+      providerRequestId,
     service: "outlook_mail",
     threadId: null,
   };

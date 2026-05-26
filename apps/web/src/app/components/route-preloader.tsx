@@ -5,6 +5,12 @@ import { useEffect } from "react";
 
 type IdleWindow = typeof window & {
   cancelIdleCallback?: (handle: number) => void;
+  navigator: Navigator & {
+    connection?: {
+      effectiveType?: string;
+      saveData?: boolean;
+    };
+  };
   requestIdleCallback?: (
     callback: () => void,
     options?: { timeout: number },
@@ -12,6 +18,17 @@ type IdleWindow = typeof window & {
 };
 
 const PREFETCH_STAGGER_MS = 140;
+const prefetchedRoutes = new Set<string>();
+
+function shouldSkipPrefetch(idleWindow: IdleWindow) {
+  const connection = idleWindow.navigator.connection;
+
+  return (
+    connection?.saveData === true ||
+    connection?.effectiveType === "slow-2g" ||
+    connection?.effectiveType === "2g"
+  );
+}
 
 export function RoutePreloader({
   activeHref,
@@ -26,12 +43,19 @@ export function RoutePreloader({
     let cancelled = false;
     const timeouts: number[] = [];
     const idleWindow = window as IdleWindow;
-    const routesToPrefetch = routes.filter((route) => route !== activeHref);
+    const routesToPrefetch = routes.filter(
+      (route) => route !== activeHref && !prefetchedRoutes.has(route),
+    );
+
+    if (routesToPrefetch.length === 0 || shouldSkipPrefetch(idleWindow)) {
+      return;
+    }
 
     const prefetchRoutes = () => {
       routesToPrefetch.forEach((route, index) => {
         const timeout = window.setTimeout(() => {
           if (!cancelled) {
+            prefetchedRoutes.add(route);
             router.prefetch(route);
           }
         }, index * PREFETCH_STAGGER_MS);

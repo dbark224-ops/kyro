@@ -32,7 +32,7 @@ The applied migrations currently create:
 
 - Tenant/auth tables.
 - Workspace policies and entitlements.
-- Contacts, leads, channels, conversations, messages, quote drafts, inquiry facts, Assistant memory tables, and files.
+- Contacts, leads, channels, conversations, messages, outbound delivery rows, quote drafts, inquiry facts, Assistant memory tables, and files.
 - Events, workflow runs, actions, AI runs, model routes, and audit logs.
 - Usage events, usage rollups, pricing rules, and workspace budgets.
 - Contact profile fields for contact type and address are added by a follow-up migration.
@@ -61,12 +61,18 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260518175710_pronunciation_vocabulary.sql`: adds assistant pronunciation vocabulary records.
 - `20260522001249_event_skipped_email_indexes.sql`: adds skipped-email event indexes for filtered-out email review.
 - `20260524194856_quote_approval_links.sql`: adds tokenized customer quote approval links with workspace RLS policies.
+- `20260525143000_outbound_messages.sql`: adds the durable outbound delivery queue/ledger with workspace RLS, idempotency, retry scheduling, provider ids, and updated-at trigger.
 
 Document template preferences do not currently need a new migration. The web app stores
 the first quote-output settings in `workspace_policies` with policy type
 `document_templates`; quote output is rendered from existing `quote_drafts` data as
 print-ready HTML or an on-demand server-generated PDF. Generated PDF metadata is
 stored in existing `quote_drafts.metadata` and outbound `messages.metadata`.
+Outbound sends are also tracked in `outbound_messages`: the outbox row is created
+before provider delivery, stores retryable attachment references to private
+Supabase Storage/files rows, and links back to either the final conversation
+`messages` row or event-only delivery record through metadata once recording
+succeeds.
 `quote_drafts.metadata.documentHistory` is the current lightweight version trail
 for generated/prepared/sent PDFs and customer approval events. Quote revision
 state is also metadata-backed in `quote_drafts.metadata.quoteRevision`: the app
@@ -74,4 +80,4 @@ tracks the active quote version, pending/resolved customer change requests, and
 prepared/sent/approved versions without a new migration. Customer approval links
 use `quote_approval_links`: raw tokens stay in customer URLs, while the database
 stores only `token_hash`, status, expiry, view/approval timestamps, and
-change-request text. Durable binary file storage will need a future migration/storage policy.
+change-request text.

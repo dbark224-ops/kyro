@@ -130,6 +130,25 @@ const HELP_LINKS: Array<AssistantLink & { keywords: string[] }> = [
     label: "Billing and metering",
     meta: "Usage, cost, and metering",
   },
+  {
+    href: "/developer/outbox",
+    keywords: [
+      "outbox",
+      "outbound email",
+      "failed send",
+      "failed email",
+      "email failed",
+      "send failed",
+      "retry",
+      "retry email",
+      "retry delivery",
+      "delivery failed",
+      "outbound delivery",
+      "developer outbox",
+    ],
+    label: "Outbox operations",
+    meta: "Inspect, retry, or dismiss outbound delivery rows",
+  },
 ];
 
 const SECTION_BOOSTS: Array<{
@@ -166,6 +185,28 @@ const SECTION_BOOSTS: Array<{
     heading: "Filtered-Out Emails",
     keywords: ["filtered out", "skipped email", "skipped mail", "newsletter", "sender", "promote"],
     weight: 10,
+  },
+  {
+    heading: "Outbound Delivery And Outbox",
+    keywords: [
+      "outbox",
+      "outbound email",
+      "failed send",
+      "failed email",
+      "email failed",
+      "send failed",
+      "retry",
+      "retry email",
+      "delivery failed",
+      "outbound delivery",
+      "dismiss failed",
+    ],
+    weight: 12,
+  },
+  {
+    heading: "Developer Screen",
+    keywords: ["developer", "outbox operations", "retry", "dismiss", "delivery"],
+    weight: 8,
   },
   {
     heading: "Pronunciation Vocabulary",
@@ -297,9 +338,13 @@ function truncateSnippet(value: string) {
 
 function relevantLinks(prompt: string) {
   const text = normalized(prompt);
-  const links = HELP_LINKS.filter((link) =>
-    link.keywords.some((keyword) => textIncludesKeyword(text, keyword)),
-  );
+  const links = HELP_LINKS.map((link) => ({
+    ...link,
+    score: link.keywords.filter((keyword) => textIncludesKeyword(text, keyword))
+      .length,
+  }))
+    .filter((link) => link.score > 0)
+    .sort((left, right) => right.score - left.score);
 
   return (links.length > 0 ? links : HELP_LINKS.slice(0, 2)).map((link) => ({
     href: link.href,

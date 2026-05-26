@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 export type SettingsSection =
-  | "communication"
   | "general"
   | "integrations"
   | "usage"

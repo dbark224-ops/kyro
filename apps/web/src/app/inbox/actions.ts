@@ -11,10 +11,11 @@ import {
   selectEmailSignature,
 } from "../../lib/communication/signatures";
 import {
+  recordOutboundEventEmail,
   recordOutboundMessage,
+  retryOutboundMessage,
   type OutboundAttachment,
 } from "../../lib/communication/outbound";
-import { sendConnectedEmailMessage } from "../../lib/integrations/mail";
 import {
   INBOUND_EMAIL_POLICY_TYPE,
   normalizeInboundEmailSettings,
@@ -1113,6 +1114,7 @@ export async function sendDraftReplyAction(formData: FormData) {
 }
 
 export async function createMockOutboundMessageAction(formData: FormData) {
+  const submissionKey = formString(formData, "submissionKey") || crypto.randomUUID();
   const conversationId = formString(formData, "conversationId");
   const channelType = formString(formData, "channelType");
   const subject = nullableText(formString(formData, "subject"));
@@ -1258,6 +1260,7 @@ export async function createMockOutboundMessageAction(formData: FormData) {
       attachmentQuoteDraftId,
       attachments: [...signedBody.inlineAttachments, ...localAttachments],
       source: "composer.outbound",
+      idempotencyKey: `composer.outbound.${conversationId}.${submissionKey}`,
       settingsSnapshot,
     });
   } catch (error) {
@@ -1287,12 +1290,13 @@ export async function createMockOutboundMessageAction(formData: FormData) {
       channelType: outboundResult.channelType,
       conversationId: outboundResult.conversationId,
       direction: "outbound",
-      dryRun: outboundResult.dryRun,
-      externalMessageId: outboundResult.externalMessageId,
-      externalSend: outboundResult.externalSend,
-      attachments: outboundResult.attachments,
-      sentTo: outboundResult.sentTo,
-      subject: outboundResult.subject,
+        dryRun: outboundResult.dryRun,
+        externalMessageId: outboundResult.externalMessageId,
+        externalSend: outboundResult.externalSend,
+        outboundQueueId: outboundResult.outboundQueueId,
+        attachments: outboundResult.attachments,
+        sentTo: outboundResult.sentTo,
+        subject: outboundResult.subject,
     },
     metadata: {
       requestedByUserId: user.id,
@@ -1323,6 +1327,7 @@ export async function createMockOutboundMessageAction(formData: FormData) {
         externalMessageId: outboundResult.externalMessageId,
         externalSend: outboundResult.externalSend,
         outboundMessageId: outboundResult.outboundMessageId,
+        outboundQueueId: outboundResult.outboundQueueId,
       },
       metadata: {
         requestedByUserId: user.id,
@@ -1344,6 +1349,82 @@ export async function createMockOutboundMessageAction(formData: FormData) {
     outboundResult.externalSend
       ? "Reply sent and recorded in the thread."
       : "Outbound message recorded in the thread.",
+    redirectTo,
+  );
+}
+
+export async function retryOutboundDeliveryAction(formData: FormData) {
+  const outboundQueueId = formString(formData, "outboundQueueId");
+  const conversationId = formString(formData, "conversationId");
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationPath(conversationId),
+  );
+
+  if (!outboundQueueId) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Outbound delivery id is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let result: Awaited<ReturnType<typeof retryOutboundMessage>>;
+
+  try {
+    result = await retryOutboundMessage(supabase, {
+      workspaceId: workspace.id,
+      userId: user.id,
+      outboundQueueId,
+    });
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to retry outbound delivery.",
+      redirectTo,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "outbound_message.manual_retry_completed",
+    entityType: "outbound_message",
+    entityId: outboundQueueId,
+    after: {
+      externalMessageId: result.externalMessageId,
+      externalSend: result.externalSend,
+      messageId: result.outboundMessageId,
+      sentTo: result.sentTo,
+      status: result.outboxStatus,
+    },
+    metadata: {
+      conversationId,
+      source: "inbox.retry_outbound_delivery",
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    result.externalSend
+      ? "Outbound delivery retried and sent."
+      : "Outbound delivery retried and recorded.",
     redirectTo,
   );
 }
@@ -1596,6 +1677,7 @@ export async function updateSkippedEmailSenderRuleAction(formData: FormData) {
 }
 
 export async function sendSkippedEmailReplyAction(formData: FormData) {
+  const submissionKey = formString(formData, "submissionKey") || crypto.randomUUID();
   const eventId = formString(formData, "eventId");
   const subject = nullableText(formString(formData, "subject"));
   const body = formString(formData, "body");
@@ -1679,73 +1761,45 @@ export async function sendSkippedEmailReplyAction(formData: FormData) {
       };
   const resolvedSubject =
     subject ?? defaultSkippedReplySubject(textValue(payload.subject));
-  const emailResult = await sendConnectedEmailMessage(supabase, {
-    attachments: signedBody.inlineAttachments,
-    body: signedBody.bodyText,
-    htmlBody: signedBody.htmlBody,
-    subject: resolvedSubject,
-    to,
-    workspaceId: workspace.id,
-  });
-  const now = new Date().toISOString();
-  const { data: replyEvent, error: replyEventError } = await supabase
-    .from("events")
-    .insert({
-      idempotency_key: `email.filtered_reply.${eventId}.${crypto.randomUUID()}`,
-      payload: {
-        accountEmail: emailResult.accountEmail,
-        externalMessageId: emailResult.messageId,
-        externalThreadId: emailResult.threadId,
-        originalEventId: eventId,
-        provider: emailResult.provider,
-        sentAt: now,
-        sentTo: to,
-        service: emailResult.service,
-        signatureApplied: signedBody.signatureApplied,
-        subject: resolvedSubject,
-      },
-      processed_at: now,
-      source: "inbox.filtered_email_reply",
-      status: "processed",
-      type: "outbound.filtered_email.reply_sent",
-      workspace_id: workspace.id,
-    })
-    .select("id")
-    .single();
+  let outboundResult: Awaited<ReturnType<typeof recordOutboundEventEmail>>;
 
-  if (replyEventError) {
+  try {
+    outboundResult = await recordOutboundEventEmail(supabase, {
+      workspaceId: workspace.id,
+      userId: user.id,
+      eventId,
+      recipientEmail: to,
+      subject: resolvedSubject,
+      body: signedBody.bodyText,
+      htmlBody: signedBody.htmlBody,
+      attachments: signedBody.inlineAttachments,
+      source: "inbox.filtered_email_reply",
+      idempotencyKey: `email.filtered_reply.${eventId}.${submissionKey}`,
+      settingsSnapshot: {
+        approvalRequired: settings.approvalRequired,
+        approvalSatisfiedBy: "manual_user_send",
+        allowedChannels: settings.allowedChannels,
+        signatureApplied: signedBody.signatureApplied,
+        signatureIncluded: shouldApplySignature,
+        signatureVariant: shouldApplySignature ? signatureVariant : null,
+      },
+      replyEventPayload: {
+        originalEventId: eventId,
+        originalExternalMessageId: textValue(payload.externalMessageId),
+        originalExternalThreadId: textValue(payload.externalThreadId),
+        signatureApplied: signedBody.signatureApplied,
+      },
+      replyEventType: "outbound.filtered_email.reply_sent",
+    });
+  } catch (error) {
     redirectWithInboxMessage(
       "engine_error",
-      replyEventError.message,
+      error instanceof Error
+        ? error.message
+        : "Unable to send filtered-out email reply.",
       redirectTo,
     );
   }
-
-  await supabase.from("usage_events").insert({
-    currency: "USD",
-    cost_snapshot: "0",
-    customer_charge_snapshot: "0",
-    metadata: {
-      originalEventId: eventId,
-      provider: emailResult.provider,
-      service: emailResult.service,
-      source: "filtered_email_reply",
-      sentTo: to,
-    },
-    model: null,
-    provider: emailResult.provider,
-    provider_usage_id: emailResult.messageId,
-    quantity: "1",
-    service: emailResult.service,
-    source_id: replyEvent?.id ?? eventId,
-    source_type: "event",
-    unit: "message",
-    unit_cost_snapshot: "0",
-    markup_snapshot: "0",
-    usage_type: "outbound_email",
-    user_id: user.id,
-    workspace_id: workspace.id,
-  });
 
   await insertAuditLog(supabase, {
     workspaceId: workspace.id,
@@ -1755,12 +1809,14 @@ export async function sendSkippedEmailReplyAction(formData: FormData) {
     entityType: "event",
     entityId: eventId,
     after: {
-      externalMessageId: emailResult.messageId,
+      externalMessageId: outboundResult.externalMessageId,
+      outboundQueueId: outboundResult.outboundQueueId,
+      replyEventId: outboundResult.outboundRecordId,
       sentTo: to,
       subject: resolvedSubject,
     },
     metadata: {
-      replyEventId: replyEvent?.id ?? null,
+      replyEventId: outboundResult.outboundRecordId,
       source: "skipped_email_dialog",
     },
   });

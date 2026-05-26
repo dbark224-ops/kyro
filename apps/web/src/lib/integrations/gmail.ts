@@ -488,6 +488,7 @@ export async function sendGmailMessage(
     connectionId: connection.id,
     messageId: sent.id,
     provider: "google",
+    providerRequestId: response.headers.get("x-request-id"),
     service: "gmail",
     threadId: textValue(sent.threadId),
   };

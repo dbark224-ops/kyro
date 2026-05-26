@@ -191,17 +191,20 @@ describe("shouldRunInboundEmailSync", () => {
     );
   });
 
-  it("can keep the same polling interval overnight for emergency businesses", () => {
+  it("normalizes legacy same-interval quiet-hours settings back to pause", () => {
+    const legacySettings = normalizeInboundEmailSettings({
+      ...automaticSettings,
+      quietHoursMode: "same_interval",
+    });
+
+    assert.equal(legacySettings.quietHoursMode, "paused");
     assert.equal(
       shouldRunInboundEmailSync({
         lastSyncAt: "2026-05-21T23:00:00.000Z",
         now: new Date("2026-05-21T23:10:00.000Z"),
-        settings: {
-          ...automaticSettings,
-          quietHoursMode: "same_interval",
-        },
+        settings: legacySettings,
       }),
-      true,
+      false,
     );
   });
 

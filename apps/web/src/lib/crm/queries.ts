@@ -7,6 +7,7 @@ const REVIEW_MESSAGE_LIMIT = 120;
 const REVIEW_AI_RUN_LIMIT = 30;
 const REVIEW_ACTION_LIMIT = 80;
 const REVIEW_QUOTE_DRAFT_LIMIT = 30;
+const REVIEW_OUTBOUND_LIMIT = 30;
 
 export type LeadListItem = {
   id: string;
@@ -328,6 +329,30 @@ export type ConversationReview = {
     createdAt: string;
     approvedAt: string | null;
     executedAt: string | null;
+  }>;
+  outboundMessages: Array<{
+    id: string;
+    actionId: string | null;
+    channelType: string;
+    provider: string | null;
+    service: string | null;
+    recipient: string | null;
+    subject: string | null;
+    status: string;
+    attemptCount: number;
+    maxAttempts: number;
+    nextAttemptAt: string | null;
+    queuedAt: string;
+    sendingAt: string | null;
+    sentAt: string | null;
+    failedAt: string | null;
+    providerMessageId: string | null;
+    providerRequestId: string | null;
+    lastError: string | null;
+    source: string;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
   }>;
   quoteDrafts: Array<{
     id: string;
@@ -2336,8 +2361,16 @@ export async function getConversationReview(
     : null;
   const leadId = conversation.lead_id ? String(conversation.lead_id) : null;
 
-  const [messages, contact, lead, aiRuns, actions, quoteDrafts, inquiryFacts] =
-    await Promise.all([
+  const [
+    messages,
+    contact,
+    lead,
+    aiRuns,
+    actions,
+    outboundMessages,
+    quoteDrafts,
+    inquiryFacts,
+  ] = await Promise.all([
       supabase
         .from("messages")
         .select(
@@ -2385,6 +2418,15 @@ export async function getConversationReview(
         .order("created_at", { ascending: false })
         .limit(REVIEW_ACTION_LIMIT),
       supabase
+        .from("outbound_messages")
+        .select(
+          "id,action_id,channel_type,provider,service,recipient,subject,status,attempt_count,max_attempts,next_attempt_at,queued_at,sending_at,sent_at,failed_at,provider_message_id,provider_request_id,last_error,source,metadata,created_at,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(REVIEW_OUTBOUND_LIMIT),
+      supabase
         .from("quote_drafts")
         .select(
           "id,title,status,line_items,notes,metadata,created_at,updated_at",
@@ -2423,6 +2465,12 @@ export async function getConversationReview(
     throw new Error(`Unable to load actions: ${actions.error.message}`);
   }
 
+  if (outboundMessages.error) {
+    throw new Error(
+      `Unable to load outbound deliveries: ${outboundMessages.error.message}`,
+    );
+  }
+
   if (quoteDrafts.error) {
     throw new Error(
       `Unable to load quote drafts: ${quoteDrafts.error.message}`,
@@ -2438,6 +2486,9 @@ export async function getConversationReview(
   const aiRunIds = uniqueIds((aiRuns.data ?? []).map((run) => String(run.id)));
   const actionIds = uniqueIds(
     (actions.data ?? []).map((action) => String(action.id)),
+  );
+  const outboundMessageIds = uniqueIds(
+    (outboundMessages.data ?? []).map((message) => String(message.id)),
   );
   const messageIds = uniqueIds(
     (messages.data ?? []).map((message) => String(message.id)),
@@ -2456,6 +2507,7 @@ export async function getConversationReview(
     contactId,
     leadId,
     ...messageIds,
+    ...outboundMessageIds,
     ...aiRunIds,
     ...actionIds,
     ...quoteDraftIds,
@@ -2626,6 +2678,42 @@ export async function getConversationReview(
       createdAt: String(action.created_at),
       approvedAt: action.approved_at ? String(action.approved_at) : null,
       executedAt: action.executed_at ? String(action.executed_at) : null,
+    })),
+    outboundMessages: (outboundMessages.data ?? []).map((message) => ({
+      id: String(message.id),
+      actionId: message.action_id ? String(message.action_id) : null,
+      channelType: String(message.channel_type),
+      provider: message.provider ? String(message.provider) : null,
+      service: message.service ? String(message.service) : null,
+      recipient: message.recipient ? String(message.recipient) : null,
+      subject: message.subject ? String(message.subject) : null,
+      status: String(message.status),
+      attemptCount:
+        typeof message.attempt_count === "number"
+          ? message.attempt_count
+          : Number(message.attempt_count ?? 0),
+      maxAttempts:
+        typeof message.max_attempts === "number"
+          ? message.max_attempts
+          : Number(message.max_attempts ?? 0),
+      nextAttemptAt: message.next_attempt_at
+        ? String(message.next_attempt_at)
+        : null,
+      queuedAt: String(message.queued_at),
+      sendingAt: message.sending_at ? String(message.sending_at) : null,
+      sentAt: message.sent_at ? String(message.sent_at) : null,
+      failedAt: message.failed_at ? String(message.failed_at) : null,
+      providerMessageId: message.provider_message_id
+        ? String(message.provider_message_id)
+        : null,
+      providerRequestId: message.provider_request_id
+        ? String(message.provider_request_id)
+        : null,
+      lastError: message.last_error ? String(message.last_error) : null,
+      source: String(message.source),
+      metadata: objectRecord(message.metadata),
+      createdAt: String(message.created_at),
+      updatedAt: String(message.updated_at),
     })),
     quoteDrafts: (quoteDrafts.data ?? []).map((quoteDraft) => ({
       id: String(quoteDraft.id),

@@ -31,13 +31,13 @@ describe("assistant editable settings parsing", () => {
     assert.ok(parsed.targetSections.includes("general"));
   });
 
-  it("parses quiet-hours windows and pause behaviour", () => {
+  it("parses quiet-hours windows", () => {
     const parsed = parseAssistantEditableSettingChanges(
       "Enable quiet hours from 10pm to 4am and pause polling overnight.",
     );
 
     assert.equal(parsed.settings.quietHoursEnabled, true);
-    assert.equal(parsed.settings.quietHoursMode, "paused");
+    assert.equal(parsed.settings.quietHoursMode, undefined);
     assert.equal(parsed.settings.quietHoursStart, "22:00");
     assert.equal(parsed.settings.quietHoursEnd, "04:00");
   });

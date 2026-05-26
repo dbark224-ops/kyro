@@ -465,6 +465,60 @@ export const actions = pgTable("actions", {
   ...timestamps,
 });
 
+export const outboundMessages = pgTable(
+  "outbound_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    conversationId: uuid("conversation_id").references(() => conversations.id),
+    actionId: uuid("action_id").references(() => actions.id),
+    eventId: uuid("event_id").references(() => events.id),
+    userId: uuid("user_id").references(() => users.id),
+    channelId: uuid("channel_id").references(() => channels.id),
+    channelType: text("channel_type").notNull(),
+    provider: text("provider"),
+    service: text("service"),
+    connectionId: uuid("connection_id").references(() => integrationConnections.id),
+    recipient: text("recipient"),
+    subject: text("subject"),
+    bodyText: text("body_text").notNull(),
+    bodyHtml: text("body_html"),
+    attachments: jsonb("attachments").notNull().default([]),
+    settingsSnapshot: jsonb("settings_snapshot").notNull().default({}),
+    status: text("status").notNull().default("queued"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    source: text("source").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    queuedAt: timestamp("queued_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    sendingAt: timestamp("sending_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    providerMessageId: text("provider_message_id"),
+    providerThreadId: text("provider_thread_id"),
+    providerRequestId: text("provider_request_id"),
+    lastError: text("last_error"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    outboundMessagesWorkspaceStatusIdx: index(
+      "outbound_messages_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.nextAttemptAt),
+    outboundMessagesConversationIdx: index(
+      "outbound_messages_conversation_idx",
+    ).on(table.workspaceId, table.conversationId, table.createdAt),
+    outboundMessagesIdempotencyIdx: uniqueIndex(
+      "outbound_messages_workspace_idempotency_idx",
+    ).on(table.workspaceId, table.idempotencyKey),
+  }),
+);
+
 export const quoteDrafts = pgTable(
   "quote_drafts",
   {

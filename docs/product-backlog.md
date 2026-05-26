@@ -39,6 +39,11 @@ This is the parking lot for useful ideas that should not pull us away from the c
 - Add workspace/user customization for outbound customer prompts, including tone, wording style, message length, sign-off, and trade-specific phrasing.
 - Let users store reusable reply instructions that the AI must apply when drafting email/SMS replies.
 
+## Outbound Delivery Hardening
+
+- Expand the Developer outbox operations page into a future admin/operator console with cross-workspace support, assignment, bulk actions, and richer dead-letter review.
+- When a scheduled retry succeeds for a previously failed action, decide whether to reopen/update the original `actions` row or keep the outbox as the source of truth for delivery recovery.
+
 ## Voice and Vocabulary
 
 - Add workspace and per-user vocabulary/pronunciation lists for voice transcription and assistant prompts, including the product name, business name, staff names, customer names, supplier names, suburbs, streets, product brands, trade terms, and common acronyms.

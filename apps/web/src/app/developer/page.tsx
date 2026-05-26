@@ -1,5 +1,6 @@
 import { AppFrame } from "../components/app-frame";
 import { createManualInboundAction } from "../inbound/actions";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -129,7 +130,9 @@ export default async function DeveloperPage({
               </div>
               <div>
                 <span>Outbound</span>
-                <strong>Test from Inbox or Assistant</strong>
+                <strong>
+                  <Link href="/developer/outbox">Open outbox operations</Link>
+                </strong>
               </div>
               <div>
                 <span>External email</span>

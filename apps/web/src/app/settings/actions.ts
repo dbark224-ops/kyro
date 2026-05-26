@@ -37,7 +37,6 @@ import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
   INBOUND_EMAIL_POLICY_TYPE,
   INBOUND_EMAIL_POLL_INTERVALS,
-  INBOUND_EMAIL_QUIET_HOURS_MODES,
   INBOUND_EMAIL_SENDER_RULE_ACTIONS,
   INBOUND_EMAIL_SYNC_MODES,
   normalizeInboundEmailSettings,
@@ -145,20 +144,25 @@ async function signatureLogoPayload(
 }
 
 function redirectWithSectionMessage(
-  section: "communication" | "general" | "integrations" | "voice",
+  section: "general" | "integrations" | "voice",
   key: "engine_error" | "engine_message",
   message: string,
+  options: { senderRules?: boolean } = {},
 ): never {
-  redirect(
-    `/settings?section=${section}&${key}=${encodeURIComponent(message)}`,
-  );
+  const params = new URLSearchParams({ section, [key]: message });
+
+  if (options.senderRules) {
+    params.set("senderRules", "1");
+  }
+
+  redirect(`/settings?${params.toString()}`);
 }
 
 function redirectWithSettingsMessage(
   key: "engine_error" | "engine_message",
   message: string,
 ): never {
-  redirectWithSectionMessage("communication", key, message);
+  redirectWithSectionMessage("integrations", key, message);
 }
 
 function integrationService(provider: string) {
@@ -628,7 +632,6 @@ export async function disconnectIntegrationAction(formData: FormData) {
 
 export async function updateInboundEmailSettingsAction(formData: FormData) {
   const syncMode = formString(formData, "inboundSyncMode");
-  const quietHoursMode = formString(formData, "inboundQuietHoursMode");
 
   if (
     !INBOUND_EMAIL_SYNC_MODES.includes(
@@ -639,18 +642,6 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
       "integrations",
       "engine_error",
       "Inbound email sync mode is invalid.",
-    );
-  }
-
-  if (
-    !INBOUND_EMAIL_QUIET_HOURS_MODES.includes(
-      quietHoursMode as InboundEmailSettings["quietHoursMode"],
-    )
-  ) {
-    redirectWithSectionMessage(
-      "integrations",
-      "engine_error",
-      "Inbound email quiet-hours mode is invalid.",
     );
   }
 
@@ -704,7 +695,7 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
     pollIntervalMinutes,
     quietHoursEnabled: formBoolean(formData, "inboundQuietHoursEnabled"),
     quietHoursEnd: formString(formData, "inboundQuietHoursEnd"),
-    quietHoursMode,
+    quietHoursMode: "paused",
     quietHoursStart: formString(formData, "inboundQuietHoursStart"),
     syncMode,
     timeZone: beforeSettings.timeZone,
@@ -782,6 +773,7 @@ async function loadInboundEmailPolicyForSenderRule() {
 export async function upsertInboundEmailSenderRuleSettingsAction(
   formData: FormData,
 ) {
+  const returnToSenderRules = formData.get("returnToSenderRules") === "1";
   const match = formSenderRuleMatch(formString(formData, "senderRuleMatch"));
   const action = formSenderRuleActionValue(
     formString(formData, "senderRuleAction"),
@@ -795,6 +787,7 @@ export async function upsertInboundEmailSenderRuleSettingsAction(
       "integrations",
       "engine_error",
       "Add a valid sender email or domain and choose what Kyro should do.",
+      { senderRules: returnToSenderRules },
     );
   }
 
@@ -836,12 +829,14 @@ export async function upsertInboundEmailSenderRuleSettingsAction(
     "integrations",
     "engine_message",
     `${value} will be treated as ${senderRuleActionLabel(action)}.`,
+    { senderRules: returnToSenderRules },
   );
 }
 
 export async function removeInboundEmailSenderRuleSettingsAction(
   formData: FormData,
 ) {
+  const returnToSenderRules = formData.get("returnToSenderRules") === "1";
   const match = formSenderRuleMatch(formString(formData, "senderRuleMatch"));
   const value = match
     ? senderRuleTargetFromInput(formString(formData, "senderRuleValue"), match)
@@ -852,6 +847,7 @@ export async function removeInboundEmailSenderRuleSettingsAction(
       "integrations",
       "engine_error",
       "Choose a valid sender rule to remove.",
+      { senderRules: returnToSenderRules },
     );
   }
 
@@ -866,6 +862,7 @@ export async function removeInboundEmailSenderRuleSettingsAction(
       "integrations",
       "engine_error",
       "That sender rule is no longer saved.",
+      { senderRules: returnToSenderRules },
     );
   }
 
@@ -896,6 +893,7 @@ export async function removeInboundEmailSenderRuleSettingsAction(
     "integrations",
     "engine_message",
     `Removed the sender rule for ${value}.`,
+    { senderRules: returnToSenderRules },
   );
 }
 
