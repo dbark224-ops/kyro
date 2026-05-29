@@ -16,9 +16,15 @@ import {
   type DocumentTemplateReferenceFile,
 } from "../../lib/documents/settings";
 import {
+  buildInvoicePdfArtifactForDraft,
   buildQuotePdfArtifactForDraft,
   quotePdfMetadata,
 } from "../../lib/documents/pdf";
+import {
+  generatedDocumentMetadata,
+  recordQuoteGeneratedDocument,
+} from "../../lib/documents/generated-documents";
+import { fileGeneratedDocumentToGoogleDrive } from "../../lib/integrations/google-drive";
 import {
   createQuoteApprovalLinkForDraft,
 } from "../../lib/documents/approval";
@@ -70,7 +76,7 @@ function objectRecord(value: unknown) {
 }
 
 function documentPath(quoteDraftId: string) {
-  return `/documents/${encodeURIComponent(quoteDraftId)}`;
+  return `/files/${encodeURIComponent(quoteDraftId)}`;
 }
 
 function newDocumentPath(templateKey: string | null = null) {
@@ -82,14 +88,14 @@ function newDocumentPath(templateKey: string | null = null) {
 
   const query = params.toString();
 
-  return query ? `/documents/new?${query}` : "/documents/new";
+  return query ? `/files/new?${query}` : "/files/new";
 }
 
 function redirectWithDocumentsMessage(
   key: "engine_error" | "engine_message",
   message: string,
 ): never {
-  redirect(`/documents?${key}=${encodeURIComponent(message)}`);
+  redirect(`/files?${key}=${encodeURIComponent(message)}`);
 }
 
 function redirectWithNewDocumentMessage(
@@ -105,18 +111,28 @@ function redirectWithNewDocumentMessage(
 
   params.set(key, message);
 
-  redirect(`/documents/new?${params.toString()}`);
+  redirect(`/files/new?${params.toString()}`);
 }
 
 function redirectWithTemplateBuilderMessage(
   key: "engine_error" | "engine_message",
   message: string,
 ): never {
-  redirect(`/documents/templates/new?${key}=${encodeURIComponent(message)}`);
+  redirect(`/files/templates/new?${key}=${encodeURIComponent(message)}`);
 }
 
 function templatePath(templateKey: string) {
-  return `/documents/templates/${encodeURIComponent(templateKey)}`;
+  return `/files/templates/${encodeURIComponent(templateKey)}`;
+}
+
+function revalidateFilesHome() {
+  revalidatePath("/files");
+  revalidatePath("/documents");
+}
+
+function revalidateTemplateBuilder() {
+  revalidatePath("/files/templates/new");
+  revalidatePath("/documents/templates/new");
 }
 
 function redirectWithTemplateMessage(
@@ -422,7 +438,7 @@ export async function createQuoteDraftAction(formData: FormData) {
     },
   });
 
-  revalidatePath("/documents");
+  revalidateFilesHome();
   redirectWithDocumentMessage(
     String(quoteDraft.id),
     "engine_message",
@@ -434,7 +450,7 @@ export async function applyQuoteTemplateAction(formData: FormData) {
   const quoteDraftId = formString(formData, "quoteDraftId");
 
   if (!quoteDraftId) {
-    redirect("/documents?engine_error=Quote draft id is required.");
+    redirect("/files?engine_error=Quote draft id is required.");
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -522,7 +538,7 @@ export async function applyQuoteTemplateAction(formData: FormData) {
     },
   });
 
-  revalidatePath("/documents");
+  revalidateFilesHome();
   revalidatePath(documentPath(quoteDraftId));
   redirectWithDocumentMessage(quoteDraftId, "engine_message", "Template applied.");
 }
@@ -596,8 +612,8 @@ export async function createDocumentTemplateAction(formData: FormData) {
     },
   });
 
-  revalidatePath("/documents");
-  revalidatePath("/documents/templates/new");
+  revalidateFilesHome();
+  revalidateTemplateBuilder();
   revalidatePath(templatePath(template.key));
   redirectWithTemplateMessage(template.key, "engine_message", "Document template created.");
 }
@@ -691,7 +707,7 @@ export async function updateDocumentTemplateAction(formData: FormData) {
     },
   });
 
-  revalidatePath("/documents");
+  revalidateFilesHome();
   revalidatePath(templatePath(template.key));
   redirectWithTemplateMessage(template.key, "engine_message", "Document template saved.");
 }
@@ -703,7 +719,7 @@ export async function updateQuoteDraftAction(formData: FormData) {
   const selectedContactId = nullableText(formString(formData, "contactId"));
 
   if (!quoteDraftId) {
-    redirect("/documents?engine_error=Quote draft id is required.");
+    redirect("/files?engine_error=Quote draft id is required.");
   }
 
   if (!title) {
@@ -834,7 +850,7 @@ export async function updateQuoteDraftAction(formData: FormData) {
     },
   });
 
-  revalidatePath("/documents");
+  revalidateFilesHome();
   revalidatePath(documentPath(quoteDraftId));
 
   if (before.conversation_id) {
@@ -848,7 +864,7 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
   const quoteDraftId = formString(formData, "quoteDraftId");
 
   if (!quoteDraftId) {
-    redirect("/documents?engine_error=Quote draft id is required.");
+    redirect("/files?engine_error=Quote draft id is required.");
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -969,8 +985,19 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     quoteDraftId,
     workspace,
   });
+  const generatedDocument = await recordQuoteGeneratedDocument(supabase, {
+    artifact,
+    createdByUserId: user.id,
+    documentType: "quote",
+    quoteDraft,
+    source: "documents.prepare_quote_send",
+    workspaceId: workspace.id,
+  });
   const documentMetadata = quoteVersionedDocumentMetadata(
-    quotePdfMetadata(artifact),
+    {
+      ...quotePdfMetadata(artifact),
+      ...generatedDocumentMetadata(generatedDocument),
+    },
     metadata,
   );
   const customerName =
@@ -1009,10 +1036,12 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
         body,
         channelType: "email",
         generatedDocument: documentMetadata,
+        generatedDocumentId: generatedDocument.id,
         quoteDraftId,
         settingsSnapshot: {
           approvalRequired: true,
           generatedDocument: documentMetadata,
+          generatedDocumentId: generatedDocument.id,
           quoteApprovalLinkId: approvalLink.approvalLink.id,
           source: "documents.prepare_quote_send",
         },
@@ -1109,7 +1138,7 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     },
   });
 
-  revalidatePath("/documents");
+  revalidateFilesHome();
   revalidatePath(documentPath(quoteDraftId));
   revalidatePath(`/inbox/${conversationId}`);
   redirect(
@@ -1119,11 +1148,139 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
   );
 }
 
+export async function generateInvoiceDocumentAction(formData: FormData) {
+  const quoteDraftId = formString(formData, "quoteDraftId");
+
+  if (!quoteDraftId) {
+    redirect("/files?engine_error=Quote draft id is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: quoteDraft, error: quoteDraftError } = await supabase
+    .from("quote_drafts")
+    .select("id,title,status,metadata,contact_id,conversation_id,lead_id")
+    .eq("workspace_id", workspace.id)
+    .eq("id", quoteDraftId)
+    .maybeSingle();
+
+  if (quoteDraftError) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", quoteDraftError.message);
+  }
+
+  if (!quoteDraft) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", "Quote draft was not found.");
+  }
+
+  let failureMessage: string | null = null;
+
+  try {
+    const artifact = await buildInvoicePdfArtifactForDraft(supabase, {
+      quoteDraftId,
+      workspace,
+    });
+    const generatedDocument = await recordQuoteGeneratedDocument(supabase, {
+      artifact,
+      createdByUserId: user.id,
+      documentType: "invoice",
+      quoteDraft,
+      source: "documents.generate_invoice",
+      workspaceId: workspace.id,
+    });
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "generated_document.invoice_generated",
+      entityType: "generated_document",
+      entityId: generatedDocument.id,
+      after: {
+        documentType: generatedDocument.documentType,
+        filename: generatedDocument.filename,
+        quoteDraftId,
+        status: generatedDocument.lifecycleStatus,
+      },
+      metadata: {
+        source: "documents.generate_invoice",
+      },
+    });
+
+    revalidateFilesHome();
+    revalidatePath(documentPath(quoteDraftId));
+  } catch (error) {
+    failureMessage =
+      error instanceof Error ? error.message : "Unable to generate invoice PDF.";
+  }
+
+  if (failureMessage) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", failureMessage);
+  }
+
+  redirectWithDocumentMessage(
+    quoteDraftId,
+    "engine_message",
+    "Invoice PDF generated and saved.",
+  );
+}
+
+export async function fileGeneratedDocumentToDriveAction(formData: FormData) {
+  const generatedDocumentId = formString(formData, "generatedDocumentId");
+  const quoteDraftId = nullableText(formString(formData, "quoteDraftId"));
+
+  if (!generatedDocumentId) {
+    redirectWithDocumentsMessage("engine_error", "Generated document id is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+
+  let failureMessage: string | null = null;
+
+  try {
+    await fileGeneratedDocumentToGoogleDrive(supabase, {
+      generatedDocumentId,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    revalidateFilesHome();
+
+    if (quoteDraftId) {
+      revalidatePath(documentPath(quoteDraftId));
+    }
+  } catch (error) {
+    failureMessage =
+      error instanceof Error
+        ? error.message
+        : "Unable to file document to Google Drive.";
+  }
+
+  if (failureMessage && quoteDraftId) {
+    redirectWithDocumentMessage(quoteDraftId, "engine_error", failureMessage);
+  }
+
+  if (failureMessage) {
+    redirectWithDocumentsMessage("engine_error", failureMessage);
+  }
+
+  if (quoteDraftId) {
+    redirectWithDocumentMessage(
+      quoteDraftId,
+      "engine_message",
+      "Document filed to Google Drive.",
+    );
+  }
+
+  redirectWithDocumentsMessage(
+    "engine_message",
+    "Document filed to Google Drive.",
+  );
+}
+
 export async function createQuoteApprovalLinkAction(formData: FormData) {
   const quoteDraftId = formString(formData, "quoteDraftId");
 
   if (!quoteDraftId) {
-    redirect("/documents?engine_error=Quote draft id is required.");
+    redirect("/files?engine_error=Quote draft id is required.");
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -1273,7 +1430,7 @@ export async function updateDocumentTemplateSettingsAction(formData: FormData) {
     },
   });
 
-  revalidatePath("/documents");
+  revalidateFilesHome();
   redirectWithDocumentsMessage(
     "engine_message",
     "Document template direction saved.",

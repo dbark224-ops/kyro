@@ -9,11 +9,17 @@ import {
   INBOUND_EMAIL_POLICY_TYPE,
   normalizeInboundEmailSettings,
 } from "../integrations/inbound-email-settings";
+import {
+  DEFAULT_PHONE_REGION,
+  normalizePhoneRegion,
+  type PhoneRegion,
+} from "../crm/identity";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const WORKSPACE_GENERAL_POLICY_TYPE = "workspace_general";
 
 export type WorkspaceGeneralSettings = {
+  defaultPhoneRegion: PhoneRegion;
   displayCurrency: DisplayCurrency;
   exchangeRateProvider: DisplayCurrencyProvider;
   exchangeRateUpdatedAt: string | null;
@@ -22,6 +28,7 @@ export type WorkspaceGeneralSettings = {
 
 export const DEFAULT_WORKSPACE_GENERAL_SETTINGS: WorkspaceGeneralSettings = {
   ...DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  defaultPhoneRegion: DEFAULT_PHONE_REGION,
   timeZone: defaultTimeZone(),
 };
 
@@ -43,7 +50,10 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function normalizeTimeZone(value: unknown, fallback = defaultTimeZone()) {
+export function normalizeTimeZone(
+  value: unknown,
+  fallback = defaultTimeZone(),
+) {
   const timeZone = textValue(value) ?? fallback;
 
   try {
@@ -61,7 +71,8 @@ export function normalizeWorkspaceGeneralSettings(
 ): WorkspaceGeneralSettings {
   const settings = objectRecord(value);
   const fallbackDisplayCurrency =
-    fallback.displayCurrency ?? DEFAULT_WORKSPACE_GENERAL_SETTINGS.displayCurrency;
+    fallback.displayCurrency ??
+    DEFAULT_WORKSPACE_GENERAL_SETTINGS.displayCurrency;
 
   return {
     displayCurrency: normalizeDisplayCurrency(
@@ -75,6 +86,11 @@ export function normalizeWorkspaceGeneralSettings(
       textValue(settings.exchangeRateUpdatedAt) ??
       fallback.exchangeRateUpdatedAt ??
       DEFAULT_WORKSPACE_GENERAL_SETTINGS.exchangeRateUpdatedAt,
+    defaultPhoneRegion: normalizePhoneRegion(
+      textValue(settings.defaultPhoneRegion),
+      fallback.defaultPhoneRegion ??
+        DEFAULT_WORKSPACE_GENERAL_SETTINGS.defaultPhoneRegion,
+    ),
     timeZone: normalizeTimeZone(
       settings.timeZone,
       fallback.timeZone ?? DEFAULT_WORKSPACE_GENERAL_SETTINGS.timeZone,

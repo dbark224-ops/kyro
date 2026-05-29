@@ -8,6 +8,7 @@ import {
   useState,
   useTransition,
   type FormEvent,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 import {
@@ -15,6 +16,7 @@ import {
   runAssistantResourceActionAction,
   sendAssistantManualReplyAction,
   sendAssistantMessageAction,
+  updateAssistantMemorySuggestionAction,
   updateAssistantDraftReplyAction,
 } from "./actions";
 import type {
@@ -23,11 +25,13 @@ import type {
   AssistantResourcePreviewResult,
   AssistantThreadMessage,
   AssistantThreadState,
+  AssistantUiBlock,
 } from "../../lib/assistant/types";
+import Image from "next/image";
 import Link from "next/link";
 import { MessageAttachmentList } from "../components/message-attachments";
 
-const QUICK_PROMPTS = [
+const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
   "What quote drafts are ready?",
   "Create a bathroom quote draft",
@@ -35,13 +39,31 @@ const QUICK_PROMPTS = [
 ];
 const MAX_ATTACHMENT_TEXT_BYTES = 48 * 1024;
 type VoiceCompletionMode = "draft" | "send";
+type PendingAssistantActivity = "image_generation" | null;
 
 type AssistantAttachment = {
+  file: File | null;
   id: string;
   name: string;
   previewText: string | null;
   size: number;
   type: string;
+};
+
+type OptimisticAssistantMessage = AssistantThreadMessage & {
+  submittedAtMs: number;
+};
+
+type GeneratedImageBlock = Extract<
+  AssistantUiBlock,
+  { type: "generated_image" }
+>;
+type GeneratedImage = GeneratedImageBlock["images"][number];
+type AssistantDisplayAttachment = {
+  contentType: string | null;
+  href: string | null;
+  name: string;
+  sizeLabel: string | null;
 };
 
 type PreviewState =
@@ -66,8 +88,10 @@ type PreviewState =
 
 export function AssistantConsole({
   initialState,
+  promptSuggestions,
 }: {
   initialState: AssistantThreadState;
+  promptSuggestions?: string[];
 }) {
   const [state, formAction, pending] = useActionState(
     sendAssistantMessageAction,
@@ -77,8 +101,12 @@ export function AssistantConsole({
   const chatRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  const draftRef = useRef("");
+  const submissionInFlightRef = useRef(false);
   const previousLastMessageIdRef = useRef(lastMessageId(state.messages));
-  const previewCacheRef = useRef<Map<string, AssistantResourcePreviewResult>>(new Map());
+  const previewCacheRef = useRef<Map<string, AssistantResourcePreviewResult>>(
+    new Map(),
+  );
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
@@ -86,23 +114,33 @@ export function AssistantConsole({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserAnimationRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<AssistantAttachment[]>([]);
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [voiceLevel, setVoiceLevel] = useState(0);
+  const [pendingActivity, setPendingActivity] =
+    useState<PendingAssistantActivity>(null);
   const [optimisticMessage, setOptimisticMessage] =
-    useState<AssistantThreadMessage | null>(null);
+    useState<OptimisticAssistantMessage | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>({
     status: "closed",
   });
   const [previewActionId, setPreviewActionId] = useState<string | null>(null);
-  const [linkOverrides, setLinkOverrides] = useState<Record<string, AssistantLink>>({});
+  const [linkOverrides, setLinkOverrides] = useState<
+    Record<string, AssistantLink>
+  >({});
+  const [memorySuggestionStatuses, setMemorySuggestionStatuses] = useState<
+    Record<string, "active" | "pending_approval" | "rejected">
+  >({});
+  const [expandedImage, setExpandedImage] = useState<GeneratedImage | null>(
+    null,
+  );
   const visibleOptimisticMessage = useMemo(
     () =>
-      optimisticMessage && !isOptimisticMessageSaved(state.messages, optimisticMessage)
+      optimisticMessage &&
+      !isOptimisticMessageSaved(state.messages, optimisticMessage)
         ? optimisticMessage
         : null,
     [optimisticMessage, state.messages],
@@ -116,44 +154,118 @@ export function AssistantConsole({
   );
   const isAssistantGenerating = pending || Boolean(visibleOptimisticMessage);
   const isVoiceBusy = isListening || isTranscribing;
+  const quickPrompts =
+    promptSuggestions && promptSuggestions.length > 0
+      ? promptSuggestions
+      : FALLBACK_QUICK_PROMPTS;
+
+  const updateMemorySuggestion = (
+    memoryId: string,
+    status: "active" | "rejected",
+  ) => {
+    setMemorySuggestionStatuses((current) => ({
+      ...current,
+      [memoryId]: status,
+    }));
+    startSubmitTransition(async () => {
+      try {
+        const result = await updateAssistantMemorySuggestionAction({
+          memoryId,
+          status,
+        });
+
+        setMemorySuggestionStatuses((current) => ({
+          ...current,
+          [memoryId]:
+            result.status === "active" || result.status === "rejected"
+              ? result.status
+              : status,
+        }));
+      } catch {
+        setMemorySuggestionStatuses((current) => ({
+          ...current,
+          [memoryId]: "pending_approval",
+        }));
+      }
+    });
+  };
+
+  const readComposerDraft = () =>
+    promptInputRef.current?.value ?? draftRef.current;
+
+  const setComposerDraft = (
+    value: string,
+    options: { focus?: boolean } = {},
+  ) => {
+    draftRef.current = value;
+
+    const promptInput = promptInputRef.current;
+
+    if (promptInput && promptInput.value !== value) {
+      promptInput.value = value;
+    }
+
+    resizePromptInput(promptInput);
+
+    if (options.focus) {
+      window.requestAnimationFrame(() => {
+        promptInputRef.current?.focus();
+      });
+    }
+  };
 
   const appendQuickPrompt = (prompt: string) => {
-    setDraft((currentDraft) => {
-      const trimmedDraft = currentDraft.trim();
+    const trimmedDraft = readComposerDraft().trim();
+    const nextDraft = trimmedDraft ? `${trimmedDraft}, ${prompt}` : prompt;
 
-      if (!trimmedDraft) {
-        return prompt;
-      }
-
-      return `${trimmedDraft}, ${prompt}`;
-    });
+    setComposerDraft(nextDraft, { focus: true });
   };
 
   const submitAssistantPrompt = (
     rawPrompt: string,
-    options: { inputSource?: "typed" | "voice" } = {},
+    options: {
+      attachmentsOverride?: AssistantAttachment[];
+      inputSource?: "typed" | "voice";
+    } = {},
   ) => {
-    const prompt = buildPromptWithAttachments(rawPrompt, attachments);
+    const submissionAttachments = options.attachmentsOverride ?? attachments;
+    const prompt = buildPromptWithAttachments(rawPrompt, submissionAttachments);
+    const nextPendingActivity = pendingActivityForPrompt({
+      attachments: submissionAttachments,
+      messages: state.messages,
+      rawPrompt,
+    });
 
-    if (!prompt || isAssistantGenerating) {
+    if (!prompt || isAssistantGenerating || submissionInFlightRef.current) {
       return;
     }
 
     const formData = new FormData();
-    const createdAt = new Date().toISOString();
+    const { createdAt, submissionId, submittedAtMs } =
+      createAssistantSubmissionMetadata();
 
     formData.set("prompt", prompt);
     formData.set("threadId", state.threadId ?? "");
     formData.set("inputSource", options.inputSource ?? "typed");
+    submissionAttachments.forEach((attachment) => {
+      if (attachment.file) {
+        formData.append("assistantFiles", attachment.file, attachment.name);
+      }
+    });
 
+    submissionInFlightRef.current = true;
     setOptimisticMessage({
       content: prompt,
       createdAt,
-      id: `optimistic-user-${Date.now()}`,
+      id: `optimistic-user-${submissionId}`,
       role: "user",
+      submittedAtMs,
     });
-    setDraft("");
-    setAttachments([]);
+    setPendingActivity(nextPendingActivity);
+    setComposerDraft("");
+    if (!options.attachmentsOverride) {
+      setAttachments([]);
+    }
     setVoiceStatus(null);
     startSubmitTransition(() => {
       formAction(formData);
@@ -172,7 +284,7 @@ export function AssistantConsole({
       return;
     }
 
-    submitAssistantPrompt(draft);
+    submitAssistantPrompt(readComposerDraft());
   };
 
   const chooseAttachments = () => {
@@ -186,7 +298,9 @@ export function AssistantConsole({
       return;
     }
 
-    const nextAttachments = await Promise.all(files.map(fileToAssistantAttachment));
+    const nextAttachments = await Promise.all(
+      files.map(fileToAssistantAttachment),
+    );
 
     setAttachments((currentAttachments) => [
       ...currentAttachments,
@@ -202,6 +316,17 @@ export function AssistantConsole({
     setAttachments((currentAttachments) =>
       currentAttachments.filter((attachment) => attachment.id !== id),
     );
+  };
+
+  const submitImageEdit = (
+    prompt: string,
+    editAttachments: AssistantAttachment[],
+  ) => {
+    submitAssistantPrompt(prompt, {
+      attachmentsOverride: editAttachments,
+      inputSource: "typed",
+    });
+    setExpandedImage(null);
   };
 
   const stopRecordingTracks = () => {
@@ -306,7 +431,7 @@ export function AssistantConsole({
       mediaRecorderRef.current = recorder;
       voiceCompletionModeRef.current = "draft";
       audioChunksRef.current = [];
-      recordingStartedAtRef.current = Date.now();
+      recordingStartedAtRef.current = currentTimestampMs();
       setRecordingElapsedMs(0);
       startVoiceAnalysis(stream);
 
@@ -332,7 +457,7 @@ export function AssistantConsole({
         const completionMode = voiceCompletionModeRef.current;
         const chunks = audioChunksRef.current;
         const durationMs = recordingStartedAtRef.current
-          ? Date.now() - recordingStartedAtRef.current
+          ? currentTimestampMs() - recordingStartedAtRef.current
           : null;
         const audioType = recorder.mimeType || mimeType || "audio/webm";
 
@@ -366,12 +491,12 @@ export function AssistantConsole({
             return;
           }
 
-          setDraft((currentDraft) =>
-            mergeTranscriptIntoDraft(currentDraft, transcript),
+          setComposerDraft(
+            mergeTranscriptIntoDraft(readComposerDraft(), transcript),
+            {
+              focus: true,
+            },
           );
-          window.requestAnimationFrame(() => {
-            promptInputRef.current?.focus();
-          });
         } catch (error) {
           setIsTranscribing(false);
           setVoiceStatus(
@@ -590,8 +715,13 @@ export function AssistantConsole({
   useEffect(() => {
     const currentLastMessageId = lastMessageId(state.messages);
 
-    if (currentLastMessageId !== previousLastMessageIdRef.current || state.error) {
+    if (
+      currentLastMessageId !== previousLastMessageIdRef.current ||
+      state.error
+    ) {
       setOptimisticMessage(null);
+      setPendingActivity(null);
+      submissionInFlightRef.current = false;
     }
 
     previousLastMessageIdRef.current = currentLastMessageId;
@@ -635,17 +765,29 @@ export function AssistantConsole({
     const promptInput = promptInputRef.current;
 
     if (!promptInput) {
-      return;
+      return undefined;
     }
 
-    promptInput.style.height = "auto";
-    promptInput.style.height = `${Math.min(promptInput.scrollHeight, 150)}px`;
-  }, [draft]);
+    const submitOnEnter = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
+        return;
+      }
+
+      event.preventDefault();
+      promptInput.form?.requestSubmit();
+    };
+
+    promptInput.addEventListener("keydown", submitOnEnter);
+
+    return () => promptInput.removeEventListener("keydown", submitOnEnter);
+  }, []);
 
   const isPreviewOpen = previewState.status !== "closed";
 
   return (
-    <section className={`assistant-workspace${isPreviewOpen ? " has-preview" : ""}`}>
+    <section
+      className={`assistant-workspace${isPreviewOpen ? " has-preview" : ""}`}
+    >
       <section className="panel assistant-command-panel">
         <div className="panel-heading">
           <div>
@@ -657,26 +799,34 @@ export function AssistantConsole({
 
         <div className="assistant-chat" aria-live="polite" ref={chatRef}>
           {visibleMessages.map((message) => (
-            <div
-              className={`assistant-turn ${message.role}`}
-              key={message.id}
-            >
+            <div className={`assistant-turn ${message.role}`} key={message.id}>
               <article className={`assistant-message ${message.role}`}>
                 <div className="assistant-message-meta">
-                  <strong>{message.role === "assistant" ? "Kyro" : "You"}</strong>
+                  <strong>
+                    {message.role === "assistant" ? "Kyro" : "You"}
+                  </strong>
                   {message.createdAt ? (
-                    <time dateTime={message.createdAt} title={formatFullMessageTime(message.createdAt)}>
+                    <time
+                      dateTime={message.createdAt}
+                      title={formatFullMessageTime(message.createdAt)}
+                    >
                       {formatMessageTime(message.createdAt)}
                     </time>
                   ) : null}
                   <AssistantProviderPill message={message} />
                 </div>
-                <p>{assistantMessageContent(message, linkOverrides)}</p>
+                <AssistantMessageBody
+                  linkOverrides={linkOverrides}
+                  message={message}
+                />
               </article>
               <AssistantMessageBlocks
                 linkOverrides={linkOverrides}
+                memorySuggestionStatuses={memorySuggestionStatuses}
                 message={message}
+                onOpenImagePreview={setExpandedImage}
                 onOpenPreview={openResourcePreview}
+                onUpdateMemorySuggestion={updateMemorySuggestion}
               />
               <AssistantMessageLinks
                 linkOverrides={linkOverrides}
@@ -685,13 +835,15 @@ export function AssistantConsole({
               />
             </div>
           ))}
-          {isAssistantGenerating ? <AssistantTypingIndicator /> : null}
+          {isAssistantGenerating ? (
+            <AssistantTypingIndicator activity={pendingActivity} />
+          ) : null}
         </div>
 
         {state.error ? <p className="form-alert error">{state.error}</p> : null}
 
         <div className="assistant-suggestions">
-          {QUICK_PROMPTS.map((prompt) => (
+          {quickPrompts.map((prompt) => (
             <button
               className="filter-pill"
               key={prompt}
@@ -729,18 +881,8 @@ export function AssistantConsole({
               autoComplete="off"
               disabled={isAssistantGenerating || isVoiceBusy}
               name="prompt"
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-              onChange={(event) => {
-                setDraft(event.target.value);
-              }}
               placeholder="Ask Kyro about leads, quotes, customers, or next actions..."
               rows={1}
-              value={draft}
             />
             <button
               aria-label={
@@ -771,11 +913,7 @@ export function AssistantConsole({
             </button>
             <button
               className="primary-button"
-              disabled={
-                isAssistantGenerating ||
-                isTranscribing ||
-                (!isListening && !draft.trim() && attachments.length === 0)
-              }
+              disabled={isAssistantGenerating || isTranscribing}
               title={isListening ? "Transcribe and send voice note" : undefined}
               type="submit"
             >
@@ -826,8 +964,393 @@ export function AssistantConsole({
         onSendManualReply={sendManualReply}
         state={previewState}
       />
+      <AssistantImageLightbox
+        disabled={isAssistantGenerating}
+        image={expandedImage}
+        key={expandedImage?.fileId ?? "closed"}
+        onClose={() => setExpandedImage(null)}
+        onSubmitEdit={submitImageEdit}
+      />
     </section>
   );
+}
+
+function AssistantImageLightbox({
+  disabled,
+  image,
+  onClose,
+  onSubmitEdit,
+}: {
+  disabled: boolean;
+  image: GeneratedImage | null;
+  onClose: () => void;
+  onSubmitEdit: (
+    prompt: string,
+    attachments: AssistantAttachment[],
+  ) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageElementRef = useRef<HTMLImageElement>(null);
+  const isDrawingRef = useRef(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editPrompt, setEditPrompt] = useState("");
+  const [hasAnnotation, setHasAnnotation] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isPreparingEdit, setIsPreparingEdit] = useState(false);
+
+  const resizeAnnotationCanvas = () => {
+    const canvas = canvasRef.current;
+    const imageElement = imageElementRef.current;
+
+    if (!canvas || !imageElement) {
+      return;
+    }
+
+    const rect = imageElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = Math.max(1, Math.round(rect.width * dpr));
+    canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+
+    const context = canvas.getContext("2d");
+
+    if (context) {
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.lineWidth = 5;
+      context.strokeStyle = "#ff2b57";
+    }
+
+    setHasAnnotation(false);
+  };
+
+  const clearAnnotation = () => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+
+    if (!canvas || !context) {
+      return;
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    setHasAnnotation(false);
+  };
+
+  const pointerPosition = (event: PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  };
+
+  const startDrawing = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (!isEditing) {
+      return;
+    }
+
+    const context = event.currentTarget.getContext("2d");
+
+    if (!context) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    isDrawingRef.current = true;
+
+    const point = pointerPosition(event);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    setHasAnnotation(true);
+  };
+
+  const continueDrawing = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current || !isEditing) {
+      return;
+    }
+
+    const context = event.currentTarget.getContext("2d");
+
+    if (!context) {
+      return;
+    }
+
+    event.preventDefault();
+    const point = pointerPosition(event);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    setHasAnnotation(true);
+  };
+
+  const stopDrawing = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) {
+      return;
+    }
+
+    isDrawingRef.current = false;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const sendImageEdit = async () => {
+    if (!image || disabled || isPreparingEdit) {
+      return;
+    }
+
+    const request = editPrompt.trim();
+
+    if (!request && !hasAnnotation) {
+      setEditError("Add an edit note or draw on the image before sending.");
+      return;
+    }
+
+    setEditError(null);
+    setIsPreparingEdit(true);
+
+    try {
+      const attachments: AssistantAttachment[] = [
+        await attachmentFromImageUrl({
+          contentType: image.contentType,
+          filename: `source-${image.filename}`,
+          href: image.href,
+        }),
+      ];
+
+      if (hasAnnotation) {
+        attachments.push(
+          await attachmentFromCanvas({
+            canvas: canvasRef.current,
+            filename: `markup-${image.fileId}.png`,
+          }),
+        );
+      }
+
+      const prompt = [
+        "Edit the previously generated image using this user feedback.",
+        `User edit request: ${
+          request || "Use the attached red markup as the edit instructions."
+        }`,
+        `Kyro file ID: ${image.fileId}`,
+        hasAnnotation
+          ? "The attached markup image is a transparent red annotation layer showing the requested changes."
+          : null,
+        "Use the original generated image as the source/reference. Generate and save the edited image; do not only describe the edit.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      onSubmitEdit(prompt, attachments);
+    } catch (error) {
+      setEditError(
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare the annotated image edit.",
+      );
+    } finally {
+      setIsPreparingEdit(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isEditing) {
+      return undefined;
+    }
+
+    const animationFrame = window.requestAnimationFrame(resizeAnnotationCanvas);
+
+    window.addEventListener("resize", resizeAnnotationCanvas);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", resizeAnnotationCanvas);
+    };
+  }, [isEditing]);
+
+  if (!image) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="Generated image preview"
+      aria-modal="true"
+      className="assistant-image-lightbox"
+      role="dialog"
+    >
+      <button
+        aria-label="Close image preview"
+        className="assistant-image-lightbox-backdrop"
+        onClick={onClose}
+        type="button"
+      />
+      <article className="assistant-image-lightbox-panel">
+        <div className="assistant-image-lightbox-header">
+          <div>
+            <p className="eyebrow">Generated image</p>
+          </div>
+          <div className="row-actions">
+            <button
+              className="assistant-generated-image-action"
+              disabled={disabled || isPreparingEdit}
+              onClick={() => setIsEditing((current) => !current)}
+              type="button"
+            >
+              {isEditing ? "Done marking" : "Edit image"}
+            </button>
+            <a
+              className="assistant-generated-image-action"
+              href={image.downloadHref}
+            >
+              Download
+            </a>
+            <button
+              className="assistant-generated-image-action"
+              onClick={onClose}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="assistant-image-lightbox-media">
+          <div
+            className={
+              isEditing
+                ? "assistant-image-annotation-stage is-editing"
+                : "assistant-image-annotation-stage"
+            }
+          >
+            <Image
+              alt={image.alt}
+              height={1536}
+              onLoad={resizeAnnotationCanvas}
+              ref={imageElementRef}
+              src={image.href}
+              unoptimized
+              width={1536}
+            />
+            <canvas
+              aria-label="Draw red markup on this image"
+              className="assistant-image-annotation-canvas"
+              onPointerCancel={stopDrawing}
+              onPointerDown={startDrawing}
+              onPointerLeave={stopDrawing}
+              onPointerMove={continueDrawing}
+              onPointerUp={stopDrawing}
+              ref={canvasRef}
+            />
+          </div>
+        </div>
+        {isEditing ? (
+          <div className="assistant-image-edit-panel">
+            <label>
+              <span>Edit note</span>
+              <textarea
+                disabled={disabled || isPreparingEdit}
+                onChange={(event) => setEditPrompt(event.target.value)}
+                placeholder="Describe what you want changed, or draw directly on the image."
+                rows={3}
+                value={editPrompt}
+              />
+            </label>
+            <div className="assistant-image-edit-actions">
+              <span className="assistant-image-edit-hint">
+                Red pen markup will be sent with the original image.
+              </span>
+              <div className="row-actions">
+                <button
+                  className="assistant-generated-image-action"
+                  disabled={!hasAnnotation || disabled || isPreparingEdit}
+                  onClick={clearAnnotation}
+                  type="button"
+                >
+                  Clear pen
+                </button>
+                <button
+                  className="assistant-generated-image-action primary"
+                  disabled={disabled || isPreparingEdit}
+                  onClick={sendImageEdit}
+                  type="button"
+                >
+                  {isPreparingEdit ? "Preparing" : "Send edit"}
+                </button>
+              </div>
+            </div>
+            {editError ? <p className="form-alert error">{editError}</p> : null}
+          </div>
+        ) : null}
+      </article>
+    </div>
+  );
+}
+
+async function attachmentFromImageUrl({
+  contentType,
+  filename,
+  href,
+}: {
+  contentType: string | null;
+  filename: string;
+  href: string;
+}) {
+  const response = await fetch(href);
+
+  if (!response.ok) {
+    throw new Error("Unable to load the original image for editing.");
+  }
+
+  const blob = await response.blob();
+  const file = new File([blob], safeAssistantFilename(filename, "image.png"), {
+    type: blob.type || contentType || "image/png",
+  });
+
+  return fileToAssistantAttachment(file);
+}
+
+async function attachmentFromCanvas({
+  canvas,
+  filename,
+}: {
+  canvas: HTMLCanvasElement | null;
+  filename: string;
+}) {
+  if (!canvas) {
+    throw new Error("Unable to read the image markup.");
+  }
+
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/png"),
+  );
+
+  if (!blob) {
+    throw new Error("Unable to export the image markup.");
+  }
+
+  return fileToAssistantAttachment(
+    new File([blob], safeAssistantFilename(filename, "markup.png"), {
+      type: "image/png",
+    }),
+  );
+}
+
+function safeAssistantFilename(value: string, fallback: string) {
+  const cleaned = value
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 120);
+
+  return cleaned || fallback;
 }
 
 function buildPromptWithAttachments(
@@ -853,6 +1376,100 @@ function buildPromptWithAttachments(
     .join("\n\n");
 
   return `${prompt || "Please review the attached file context."}\n\nAttached file context:\n${attachmentContext}`;
+}
+
+function pendingActivityForPrompt({
+  attachments,
+  messages,
+  rawPrompt,
+}: {
+  attachments: AssistantAttachment[];
+  messages: AssistantThreadMessage[];
+  rawPrompt: string;
+}): PendingAssistantActivity {
+  return looksLikePendingImageRequest(rawPrompt, attachments, messages)
+    ? "image_generation"
+    : null;
+}
+
+function looksLikePendingImageRequest(
+  rawPrompt: string,
+  attachments: AssistantAttachment[],
+  messages: AssistantThreadMessage[],
+) {
+  const text = rawPrompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) {
+    return attachments.some((attachment) =>
+      attachment.type.toLowerCase().startsWith("image/"),
+    );
+  }
+
+  const hasVisualNoun =
+    /\b(image|picture|photo|render|rendering|visual|mockup|mock-up|concept|graphic|poster|flyer|banner|hero|logo)\b/.test(
+      text,
+    );
+  const hasGenerationVerb =
+    /\b(create|generate|make|render|draw|produce|design|visualise|visualize|mock|mockup|mock-up)\b/.test(
+      text,
+    );
+  const hasEditVerb =
+    /\b(edit|change|update|adjust|modify|redo|regenerate|rework|revise|turn|make)\b/.test(
+      text,
+    );
+  const hasImageAttachment = attachments.some((attachment) =>
+    attachment.type.toLowerCase().startsWith("image/"),
+  );
+
+  if (hasVisualNoun && (hasGenerationVerb || hasEditVerb)) {
+    return true;
+  }
+
+  if (hasImageAttachment && (hasGenerationVerb || hasEditVerb || hasVisualNoun)) {
+    return true;
+  }
+
+  const recentGeneratedImage = messages
+    .slice(-8)
+    .some(
+      (message) =>
+        generatedImageBlocksForMessage(message).length > 0 ||
+        /\bgenerated (?:an |the )?image\b/i.test(message.content),
+    );
+
+  return recentGeneratedImage && hasEditVerb;
+}
+
+function resizePromptInput(promptInput: HTMLTextAreaElement | null) {
+  if (!promptInput) {
+    return;
+  }
+
+  promptInput.style.height = "auto";
+  promptInput.style.height = `${Math.min(promptInput.scrollHeight, 150)}px`;
+}
+
+function createAssistantSubmissionMetadata() {
+  const submittedAtMs = currentTimestampMs();
+  const createdAt = new Date(submittedAtMs).toISOString();
+  const randomId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+
+  return {
+    createdAt,
+    submissionId: `${submittedAtMs}-${randomId}`,
+    submittedAtMs,
+  };
+}
+
+function currentTimestampMs() {
+  return Date.now();
 }
 
 function mergeTranscriptIntoDraft(currentDraft: string, transcript: string) {
@@ -927,12 +1544,11 @@ function preferredAudioMimeType() {
     return "";
   }
 
-  return [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/mpeg",
-  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+  return (
+    ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/mpeg"].find(
+      (mimeType) => MediaRecorder.isTypeSupported(mimeType),
+    ) ?? ""
+  );
 }
 
 function audioExtensionForType(mimeType: string) {
@@ -993,9 +1609,7 @@ async function transcribeVoiceBlob(audioBlob: Blob, durationMs: number | null) {
       ? payload.data
       : null;
   const text =
-    data && typeof data === "object" && "text" in data
-      ? data.text
-      : null;
+    data && typeof data === "object" && "text" in data ? data.text : null;
 
   if (typeof text !== "string" || !text.trim()) {
     throw new Error("The transcription came back empty.");
@@ -1004,12 +1618,15 @@ async function transcribeVoiceBlob(audioBlob: Blob, durationMs: number | null) {
   return text.trim();
 }
 
-async function fileToAssistantAttachment(file: File): Promise<AssistantAttachment> {
+async function fileToAssistantAttachment(
+  file: File,
+): Promise<AssistantAttachment> {
   const shouldReadText =
     file.size <= MAX_ATTACHMENT_TEXT_BYTES && isTextLikeFile(file);
   const previewText = shouldReadText ? await file.text() : null;
 
   return {
+    file,
     id:
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
@@ -1026,16 +1643,9 @@ function isTextLikeFile(file: File) {
 
   return (
     file.type.startsWith("text/") ||
-    [
-      ".csv",
-      ".json",
-      ".log",
-      ".md",
-      ".txt",
-      ".xml",
-      ".yaml",
-      ".yml",
-    ].some((extension) => lowerName.endsWith(extension))
+    [".csv", ".json", ".log", ".md", ".txt", ".xml", ".yaml", ".yml"].some(
+      (extension) => lowerName.endsWith(extension),
+    )
   );
 }
 
@@ -1131,7 +1741,10 @@ function AssistantProviderPill({
 
   if (message.fallbackReason) {
     return (
-      <span className="assistant-provider-pill fallback" title={message.fallbackReason}>
+      <span
+        className="assistant-provider-pill fallback"
+        title={message.fallbackReason}
+      >
         Fallback
       </span>
     );
@@ -1142,34 +1755,44 @@ function AssistantProviderPill({
   }
 
   return (
-    <span className="assistant-provider-pill" title={message.model ?? message.provider}>
+    <span
+      className="assistant-provider-pill"
+      title={message.model ?? message.provider}
+    >
       {formatProviderLabel(message.provider)}
     </span>
   );
 }
 
-function AssistantTypingIndicator() {
+function AssistantTypingIndicator({
+  activity,
+}: {
+  activity: PendingAssistantActivity;
+}) {
+  const label = activity === "image_generation" ? "Generating image" : null;
+
   return (
     <div className="assistant-turn assistant">
       <article
-        aria-label="Kyro is typing"
-        className="assistant-typing-message"
+        aria-label={label ? `Kyro is ${label.toLowerCase()}` : "Kyro is typing"}
+        className={
+          label
+            ? "assistant-typing-message with-label"
+            : "assistant-typing-message"
+        }
       >
         <span aria-hidden="true" className="typing-dots">
           <span />
           <span />
           <span />
         </span>
+        {label ? <span className="typing-status-label">{label}</span> : null}
       </article>
     </div>
   );
 }
 
-function AssistantDevDiagnostics({
-  state,
-}: {
-  state: AssistantThreadState;
-}) {
+function AssistantDevDiagnostics({ state }: { state: AssistantThreadState }) {
   return (
     <details className="assistant-dev-diagnostics">
       <summary>
@@ -1211,7 +1834,7 @@ function AssistantDevDiagnostics({
             </div>
             <div>
               <span>Writes allowed</span>
-              <strong>Internal quote drafts only</strong>
+              <strong>Known tools and approval gates</strong>
             </div>
           </div>
         </article>
@@ -1226,6 +1849,8 @@ function AssistantDevDiagnostics({
             <span>Contact summaries</span>
             <span>Draft creation</span>
             <span>Remember explicit facts</span>
+            <span>Approve memory suggestions</span>
+            <span>Known UI blocks</span>
           </div>
         </article>
       </div>
@@ -1301,14 +1926,76 @@ function AssistantResourceCard({
   }
 
   return (
-    <Link
-      className="assistant-link-card"
-      href={link.href}
-      prefetch={false}
-    >
+    <Link className="assistant-link-card" href={link.href} prefetch={false}>
       <strong>{link.label}</strong>
       {link.meta ? <span>{link.meta}</span> : null}
     </Link>
+  );
+}
+
+function AssistantMessageBody({
+  linkOverrides,
+  message,
+}: {
+  linkOverrides: Record<string, AssistantLink>;
+  message: AssistantThreadMessage;
+}) {
+  const display = assistantMessageDisplay(message, linkOverrides);
+
+  return (
+    <>
+      {display.text ? <p>{display.text}</p> : null}
+      {display.attachments.length > 0 ? (
+        <AssistantInlineAttachments attachments={display.attachments} />
+      ) : null}
+    </>
+  );
+}
+
+function AssistantInlineAttachments({
+  attachments,
+}: {
+  attachments: AssistantDisplayAttachment[];
+}) {
+  return (
+    <div className="assistant-message-attachments">
+      {attachments.map((attachment) => {
+        const body = (
+          <>
+            <span className="assistant-message-attachment-icon">
+              <PaperclipIcon />
+            </span>
+            <span className="assistant-message-attachment-main">
+              <strong>{attachment.name}</strong>
+              <span>
+                {[attachment.sizeLabel, attachment.contentType]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </span>
+          </>
+        );
+
+        return attachment.href ? (
+          <a
+            className="assistant-message-attachment"
+            href={attachment.href}
+            key={`${attachment.name}-${attachment.sizeLabel ?? "file"}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {body}
+          </a>
+        ) : (
+          <span
+            className="assistant-message-attachment"
+            key={`${attachment.name}-${attachment.sizeLabel ?? "file"}`}
+          >
+            {body}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1337,24 +2024,303 @@ function lastMessageId(messages: AssistantThreadMessage[]) {
 
 function isOptimisticMessageSaved(
   messages: AssistantThreadMessage[],
-  optimisticMessage: AssistantThreadMessage,
+  optimisticMessage: OptimisticAssistantMessage,
 ) {
-  return messages.some(
-    (message) =>
-      message.role === "user" &&
-      message.content === optimisticMessage.content &&
-      message.id !== optimisticMessage.id,
+  const optimisticContent = normalizeAssistantMessageContent(
+    optimisticMessage.content,
   );
+
+  return messages.some(
+    (message) => {
+      if (message.role !== "user" || message.id === optimisticMessage.id) {
+        return false;
+      }
+
+      const persistedAtMs = Date.parse(message.createdAt ?? "");
+
+      if (
+        Number.isFinite(persistedAtMs) &&
+        persistedAtMs < optimisticMessage.submittedAtMs - 2000
+      ) {
+        return false;
+      }
+
+      const persistedContent = normalizeAssistantMessageContent(message.content);
+
+      return (
+        persistedContent === optimisticContent ||
+        persistedContent.startsWith(optimisticContent) ||
+        optimisticContent.startsWith(persistedContent)
+      );
+    },
+  );
+}
+
+function normalizeAssistantMessageContent(content: string) {
+  return content.trim().replace(/\s+/g, " ");
+}
+
+function generatedImageBlocksForMessage(
+  message: AssistantThreadMessage,
+): GeneratedImageBlock[] {
+  const structuredBlocks =
+    message.uiBlocks?.filter(
+      (block): block is GeneratedImageBlock =>
+        block.type === "generated_image",
+    ) ?? [];
+
+  if (structuredBlocks.length > 0) {
+    return structuredBlocks;
+  }
+
+  const legacyBlock = legacyGeneratedImageBlockFromContent(message);
+
+  return legacyBlock ? [legacyBlock] : [];
+}
+
+function legacyGeneratedImageBlockFromContent(
+  message: AssistantThreadMessage,
+): GeneratedImageBlock | null {
+  if (message.role !== "assistant") {
+    return null;
+  }
+
+  const links = [
+    ...message.content.matchAll(
+      /\[([^\]]+)\]\((\/api\/files\/([0-9a-f-]{36})(?:\?[^)]*)?)\)/gi,
+    ),
+  ]
+    .map((match) => ({
+      fileId: match[3],
+      href: match[2],
+      label: match[1],
+    }))
+    .filter(
+      (link): link is { fileId: string; href: string; label: string } =>
+        Boolean(link.fileId && link.href && link.label),
+    );
+
+  const imageLink = links.find(
+    (link) =>
+      /image|picture|photo|render|visual/i.test(link.label) ||
+      /[?&]disposition=inline\b/i.test(link.href),
+  );
+
+  if (!imageLink) {
+    return null;
+  }
+
+  const downloadLink = links.find(
+    (link) =>
+      link.fileId === imageLink.fileId &&
+      (/\bdownload\b/i.test(link.label) ||
+        !/[?&]disposition=inline\b/i.test(link.href)),
+  );
+  const downloadHref =
+    downloadLink?.href.split("?")[0] ?? `/api/files/${imageLink.fileId}`;
+  const href = /[?&]disposition=inline\b/i.test(imageLink.href)
+    ? imageLink.href
+    : `${downloadHref}?disposition=inline`;
+
+  return {
+    images: [
+      {
+        alt: "Generated image",
+        contentType: "image/png",
+        downloadHref,
+        editMode: false,
+        fileId: imageLink.fileId,
+        filename: imageLink.label,
+        href,
+        meta: "Generated image",
+        model: "unknown",
+        prompt: message.content,
+        provider: "kyro",
+        quality: "generated",
+        referenceCount: 0,
+        size: "stored file",
+      },
+    ],
+    title: "Generated image",
+    type: "generated_image",
+  };
+}
+
+function cleanGeneratedImageMessageContent(content: string) {
+  const cleaned = content
+    .replace(
+      /\n?\s*Here(?:'|\u2019)?s your image:\s*\n?\s*\[[^\]]*image[^\]]*\]\(\/api\/files\/[^)]+\)\s*/gi,
+      "\nThe image is attached below.",
+    )
+    .replace(
+      /\[[^\]]*(?:download it|download image)[^\]]*\]\(\/api\/files\/[^)]+\)/gi,
+      "download it from the image card",
+    )
+    .replace(
+      /\[[^\]]*image[^\]]*\]\(\/api\/files\/[^)]+\)/gi,
+      "the image below",
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return cleaned || "I generated the image and saved it to Kyro files.";
+}
+
+function assistantMessageDisplay(
+  message: AssistantThreadMessage,
+  linkOverrides: Record<string, AssistantLink>,
+) {
+  const content = assistantMessageContent(message, linkOverrides);
+
+  return splitAssistantAttachmentContext(content);
+}
+
+function splitAssistantAttachmentContext(content: string): {
+  attachments: AssistantDisplayAttachment[];
+  text: string;
+} {
+  const markerPattern =
+    /(?:^|\n{2,})(?:Attached file context|Stored Kyro attachment context):\n/gi;
+  const markers = [...content.matchAll(markerPattern)];
+
+  if (markers.length === 0) {
+    return { attachments: [], text: content };
+  }
+
+  const firstMarker = markers[0];
+  const text = content.slice(0, firstMarker.index ?? 0).trim();
+  const contexts = markers.map((marker, index) => {
+    const start = (marker.index ?? 0) + marker[0].length;
+    const nextMarker = markers[index + 1];
+    const end = nextMarker?.index ?? content.length;
+
+    return content.slice(start, end).trim();
+  });
+  const attachments = uniqueDisplayAttachments(
+    contexts.flatMap(parseAssistantAttachmentContext),
+  );
+
+  return {
+    attachments,
+    text:
+      text === "Please review the attached file context." ||
+      text === "Please review the stored Kyro attachment context."
+        ? ""
+        : text,
+  };
+}
+
+function parseAssistantAttachmentContext(context: string) {
+  return context
+    .split(/\n{2,}/)
+    .map(parseAssistantAttachmentBlock)
+    .filter(
+      (attachment): attachment is AssistantDisplayAttachment =>
+        attachment !== null,
+    );
+}
+
+function parseAssistantAttachmentBlock(
+  block: string,
+): AssistantDisplayAttachment | null {
+  const lines = block.split(/\r?\n/).map((line) => line.trim());
+  const fileLine = lines.find((line) => line.startsWith("File: "));
+
+  if (!fileLine) {
+    return null;
+  }
+
+  const parsedFile = parseAssistantFileLine(fileLine);
+
+  if (!parsedFile) {
+    return null;
+  }
+
+  const href =
+    lines
+      .find((line) => line.startsWith("Kyro file URL: "))
+      ?.replace("Kyro file URL: ", "")
+      .trim() || null;
+
+  return {
+    contentType: parsedFile.contentType,
+    href,
+    name: parsedFile.name,
+    sizeLabel: parsedFile.sizeLabel,
+  };
+}
+
+function parseAssistantFileLine(fileLine: string) {
+  const value = fileLine.replace(/^File:\s+/, "").trim();
+  const metadataStart = value.lastIndexOf(" (");
+
+  if (metadataStart === -1 || !value.endsWith(")")) {
+    return {
+      contentType: null,
+      name: value,
+      sizeLabel: null,
+    };
+  }
+
+  const name = value.slice(0, metadataStart).trim();
+  const metadata = value.slice(metadataStart + 2, -1);
+  const [contentType, sizeLabel] = metadata.split(",").map((part) => part.trim());
+
+  return {
+    contentType: contentType || null,
+    name,
+    sizeLabel: normalizeAttachmentSizeLabel(sizeLabel),
+  };
+}
+
+function normalizeAttachmentSizeLabel(sizeLabel: string | undefined) {
+  if (!sizeLabel) {
+    return null;
+  }
+
+  const bytesMatch = sizeLabel.match(/^(\d+)\s+bytes?$/i);
+
+  if (!bytesMatch) {
+    return sizeLabel;
+  }
+
+  return formatBytes(Number(bytesMatch[1]));
+}
+
+function uniqueDisplayAttachments(attachments: AssistantDisplayAttachment[]) {
+  const byKey = new Map<string, AssistantDisplayAttachment>();
+
+  for (const attachment of attachments) {
+    const key = [
+      attachment.name.toLowerCase(),
+      attachment.contentType?.toLowerCase() ?? "",
+      attachment.sizeLabel ?? "",
+    ].join("|");
+    const existing = byKey.get(key);
+
+    if (!existing || (!existing.href && attachment.href)) {
+      byKey.set(key, attachment);
+    }
+  }
+
+  return [...byKey.values()];
 }
 
 function assistantMessageContent(
   message: AssistantThreadMessage,
   linkOverrides: Record<string, AssistantLink>,
 ) {
-  const links = message.links?.map((link) => mergeAssistantLink(link, linkOverrides)) ?? [];
+  const content =
+    generatedImageBlocksForMessage(message).length > 0
+      ? cleanGeneratedImageMessageContent(message.content)
+      : message.content;
+  const links =
+    message.links?.map((link) => mergeAssistantLink(link, linkOverrides)) ?? [];
 
   if (message.intent === "work_queue" && links.length > 0) {
-    const visibleLinks = links.filter((link) => shouldRenderAssistantLink(message, link));
+    const visibleLinks = links.filter((link) =>
+      shouldRenderAssistantLink(message, link),
+    );
 
     if (visibleLinks.length !== links.length) {
       return visibleLinks.length > 0
@@ -1371,10 +2337,10 @@ function assistantMessageContent(
   );
 
   if (!staleLink?.meta) {
-    return message.content;
+    return content;
   }
 
-  return message.content.replace(
+  return content.replace(
     staleLink.meta,
     linkOverrides[staleLink.href]?.meta ?? staleLink.meta,
   );
@@ -1442,10 +2408,18 @@ function AssistantPreviewPane({
           <h2>{title}</h2>
         </div>
         <div className="row-actions">
-          <Link className="secondary-button compact" href={href} prefetch={false}>
+          <Link
+            className="secondary-button compact"
+            href={href}
+            prefetch={false}
+          >
             Open full screen
           </Link>
-          <button className="secondary-button compact" onClick={onClose} type="button">
+          <button
+            className="secondary-button compact"
+            onClick={onClose}
+            type="button"
+          >
             Close
           </button>
         </div>
@@ -1549,11 +2523,14 @@ function ConversationPreview({
     href: string;
     subject: string;
   }) => Promise<void>;
-  profile: Extract<AssistantResourcePreview, { type: "conversation" }>["profile"];
+  profile: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"];
 }) {
   const messages = profile.messages.slice(-12);
-  const actionQueue = profile.actions.filter(
-    (action) => isAssistantQueueAction(action),
+  const actionQueue = profile.actions.filter((action) =>
+    isAssistantQueueAction(action),
   );
 
   return (
@@ -1561,7 +2538,9 @@ function ConversationPreview({
       <div className="assistant-preview-status-row">
         <span className="pill">{formatLabel(profile.conversation.status)}</span>
         {profile.conversation.lastMessageAt ? (
-          <span>Last message {formatDate(profile.conversation.lastMessageAt)}</span>
+          <span>
+            Last message {formatDate(profile.conversation.lastMessageAt)}
+          </span>
         ) : null}
       </div>
 
@@ -1595,11 +2574,23 @@ function ConversationPreview({
         <div className="assistant-preview-thread">
           {messages.length > 0 ? (
             messages.map((message) => (
-              <article className={`preview-message ${message.direction}`} key={message.id}>
+              <article
+                className={`preview-message ${message.direction}`}
+                key={message.id}
+              >
                 <div className="preview-message-meta">
                   <strong>{formatLabel(message.direction)}</strong>
-                  <span>{channelLabel(message.channelType, message.channelDisplayName)}</span>
-                  <time>{formatDate(message.receivedAt ?? message.sentAt ?? message.createdAt)}</time>
+                  <span>
+                    {channelLabel(
+                      message.channelType,
+                      message.channelDisplayName,
+                    )}
+                  </span>
+                  <time>
+                    {formatDate(
+                      message.receivedAt ?? message.sentAt ?? message.createdAt,
+                    )}
+                  </time>
                 </div>
                 {message.subject ? <strong>{message.subject}</strong> : null}
                 <p>{message.bodyText ?? "No message body."}</p>
@@ -1607,7 +2598,9 @@ function ConversationPreview({
               </article>
             ))
           ) : (
-            <p className="empty-copy">No messages are attached to this inquiry yet.</p>
+            <p className="empty-copy">
+              No messages are attached to this inquiry yet.
+            </p>
           )}
         </div>
       </PreviewPanel>
@@ -1649,10 +2642,15 @@ function ConversationPreview({
                 <div>
                   <strong>{quote.title}</strong>
                   <span>
-                    {formatLabel(quote.status)} - {quote.lineItems.length} line items
+                    {formatLabel(quote.status)} - {quote.lineItems.length} line
+                    items
                   </span>
                 </div>
-                <Link className="secondary-button compact" href={`/documents/${quote.id}`} prefetch={false}>
+                <Link
+                  className="secondary-button compact"
+                  href={`/files/${quote.id}`}
+                  prefetch={false}
+                >
                   Open
                 </Link>
               </article>
@@ -1683,7 +2681,10 @@ function AssistantPreviewActionCard({
   onRunAction,
   onSaveDraftReply,
 }: {
-  action: Extract<AssistantResourcePreview, { type: "conversation" }>["profile"]["actions"][number];
+  action: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["actions"][number];
   actionPendingId: string | null;
   href: string;
   onRunAction: (
@@ -1698,25 +2699,32 @@ function AssistantPreviewActionCard({
     subject: string;
   }) => Promise<boolean>;
 }) {
-  const draftSubject = textValue(action.input.subject) ?? "Thanks for reaching out";
+  const draftSubject =
+    textValue(action.input.subject) ?? "Thanks for reaching out";
   const draftBody = textValue(action.input.body) ?? "";
-  const canEditDraft = action.type === "draft_reply" && action.status === "pending_approval";
+  const canEditDraft =
+    action.type === "draft_reply" && action.status === "pending_approval";
   const shouldApproveAndSend =
     action.status === "pending_approval" &&
     (action.type === "draft_reply" || action.type === "send_outbound_message");
-  const sendLabel = action.type === "draft_reply" ? "Send generated reply" : "Send reply";
+  const sendLabel =
+    action.type === "draft_reply" ? "Send generated reply" : "Send reply";
   const [subject, setSubject] = useState(draftSubject);
   const [body, setBody] = useState(draftBody);
 
   return (
     <details
       className="assistant-preview-action-card"
-      open={action.type === "draft_reply" || action.type === "send_outbound_message"}
+      open={
+        action.type === "draft_reply" || action.type === "send_outbound_message"
+      }
     >
       <summary>
         <div>
           <strong>{formatLabel(action.type)}</strong>
-          <span>{formatLabel(action.status)} - {formatDate(action.createdAt)}</span>
+          <span>
+            {formatLabel(action.status)} - {formatDate(action.createdAt)}
+          </span>
         </div>
         <span className="pill">{formatLabel(action.status)}</span>
       </summary>
@@ -1746,7 +2754,9 @@ function AssistantPreviewActionCard({
               }
               type="button"
             >
-              {actionPendingId === `save:${action.id}` ? "Saving" : "Save edits"}
+              {actionPendingId === `save:${action.id}`
+                ? "Saving"
+                : "Save edits"}
             </button>
           ) : null}
           {action.status === "pending_approval" ? (
@@ -1781,12 +2791,12 @@ function AssistantPreviewActionCard({
               {actionPendingId === `approve:${action.id}` ||
               actionPendingId === `approve_execute:${action.id}`
                 ? shouldApproveAndSend
-                    ? "Sending"
-                    : "Approving"
+                  ? "Sending"
+                  : "Approving"
                 : shouldApproveAndSend
                   ? sendLabel
                   : "Approve"}
-              </button>
+            </button>
           ) : null}
           {action.status === "approved" ? (
             <button
@@ -1795,9 +2805,9 @@ function AssistantPreviewActionCard({
               onClick={() => onRunAction(action.id, href, "execute")}
               type="button"
             >
-                {actionPendingId === `execute:${action.id}`
-                  ? "Sending"
-                  : actionExecuteLabel(action.type)}
+              {actionPendingId === `execute:${action.id}`
+                ? "Sending"
+                : actionExecuteLabel(action.type)}
             </button>
           ) : null}
         </div>
@@ -1809,7 +2819,10 @@ function AssistantPreviewActionCard({
 type ManualReplyChannel = "email" | "sms" | "manual";
 
 function preferredReplyChannel(
-  contact: Extract<AssistantResourcePreview, { type: "conversation" }>["profile"]["contact"],
+  contact: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["contact"],
 ): ManualReplyChannel {
   if (contact?.email) {
     return "email";
@@ -1840,8 +2853,11 @@ function AssistantManualReplyComposer({
   }) => Promise<void>;
   preferredChannel: ManualReplyChannel;
 }) {
-  const [channelType, setChannelType] = useState<ManualReplyChannel>(preferredChannel);
-  const [subject, setSubject] = useState(leadTitle ? `Re: ${leadTitle}` : "Thanks for reaching out");
+  const [channelType, setChannelType] =
+    useState<ManualReplyChannel>(preferredChannel);
+  const [subject, setSubject] = useState(
+    leadTitle ? `Re: ${leadTitle}` : "Thanks for reaching out",
+  );
   const [body, setBody] = useState("");
   const canSend = Boolean(body.trim()) && !isPending;
 
@@ -1864,7 +2880,9 @@ function AssistantManualReplyComposer({
       <label>
         <span>Channel</span>
         <select
-          onChange={(event) => setChannelType(event.target.value as ManualReplyChannel)}
+          onChange={(event) =>
+            setChannelType(event.target.value as ManualReplyChannel)
+          }
           value={channelType}
         >
           <option value="email">Email</option>
@@ -1891,7 +2909,9 @@ function AssistantManualReplyComposer({
         />
       </label>
       <div className="action-button-row">
-        <span className="pill warning">Email sends through Gmail; other channels are internal</span>
+        <span className="pill warning">
+          Email sends through Gmail; other channels are internal
+        </span>
         <button
           className="primary-button compact"
           disabled={!canSend}
@@ -1913,7 +2933,10 @@ function AssistantPreviewActionDetails({
   onSubjectChange,
   subject,
 }: {
-  action: Extract<AssistantResourcePreview, { type: "conversation" }>["profile"]["actions"][number];
+  action: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["actions"][number];
   body: string;
   canEditDraft: boolean;
   onBodyChange: (value: string) => void;
@@ -1953,7 +2976,9 @@ function AssistantPreviewActionDetails({
             value={body}
           />
         </label>
-        <span className="pill warning">Email sends through Gmail after approval</span>
+        <span className="pill warning">
+          Email sends through Gmail after approval
+        </span>
       </div>
     );
   }
@@ -1963,7 +2988,10 @@ function AssistantPreviewActionDetails({
 
     return (
       <div className="assistant-preview-action-copy">
-        <p>{textValue(action.input.prompt) ?? "Ask the customer for missing details."}</p>
+        <p>
+          {textValue(action.input.prompt) ??
+            "Ask the customer for missing details."}
+        </p>
         {missingInfo.length > 0 ? (
           <div className="module-list">
             {missingInfo.map((item) => (
@@ -1994,7 +3022,9 @@ function AssistantPreviewActionDetails({
           <span>Outbound body</span>
           <textarea readOnly value={textValue(action.input.body) ?? ""} />
         </label>
-        <span className="pill warning">Email sends through Gmail after approval</span>
+        <span className="pill warning">
+          Email sends through Gmail after approval
+        </span>
       </div>
     );
   }
@@ -2020,7 +3050,10 @@ function AssistantPreviewActionDetails({
         <div className="assistant-preview-list compact">
           {lineItems.length > 0 ? (
             lineItems.map((item, index) => (
-              <article className="assistant-preview-row" key={`${action.id}-line-${index}`}>
+              <article
+                className="assistant-preview-row"
+                key={`${action.id}-line-${index}`}
+              >
                 <div>
                   <strong>{lineItemLabel(item)}</strong>
                   <span>{lineItemMeta(item)}</span>
@@ -2069,8 +3102,16 @@ function QuotePreview({
         <PreviewPanel title="Job">
           <PreviewFacts
             facts={[
-              ["Job", profile.inquiryFacts?.jobType ?? textValue(quote.metadata.jobType)],
-              ["Address", profile.inquiryFacts?.address ?? textValue(quote.metadata.jobAddress)],
+              [
+                "Job",
+                profile.inquiryFacts?.jobType ??
+                  textValue(quote.metadata.jobType),
+              ],
+              [
+                "Address",
+                profile.inquiryFacts?.address ??
+                  textValue(quote.metadata.jobAddress),
+              ],
               ["Preferred", profile.inquiryFacts?.preferredTime],
               ["Budget", profile.inquiryFacts?.budget],
             ]}
@@ -2082,7 +3123,10 @@ function QuotePreview({
         <div className="assistant-preview-list compact">
           {quote.lineItems.length > 0 ? (
             quote.lineItems.map((item, index) => (
-              <article className="assistant-preview-row" key={`${quote.id}-line-${index}`}>
+              <article
+                className="assistant-preview-row"
+                key={`${quote.id}-line-${index}`}
+              >
                 <div>
                   <strong>{lineItemLabel(item)}</strong>
                   <span>{lineItemMeta(item)}</span>
@@ -2138,10 +3182,17 @@ function ContactPreview({
       <PreviewPanel title="Recent messages">
         <div className="assistant-preview-thread">
           {profile.messages.slice(0, 8).map((message) => (
-            <article className={`preview-message ${message.direction}`} key={message.id}>
+            <article
+              className={`preview-message ${message.direction}`}
+              key={message.id}
+            >
               <div className="preview-message-meta">
                 <strong>{formatLabel(message.direction)}</strong>
-                <time>{formatDate(message.receivedAt ?? message.sentAt ?? message.createdAt)}</time>
+                <time>
+                  {formatDate(
+                    message.receivedAt ?? message.sentAt ?? message.createdAt,
+                  )}
+                </time>
               </div>
               {message.subject ? <strong>{message.subject}</strong> : null}
               <p>{message.bodyText ?? "No message body."}</p>
@@ -2156,7 +3207,9 @@ function ContactPreview({
             <article className="assistant-preview-row" key={lead.id}>
               <div>
                 <strong>{lead.title}</strong>
-                <span>{formatLabel(lead.status)} - {lead.nextStep ?? "No next step"}</span>
+                <span>
+                  {formatLabel(lead.status)} - {lead.nextStep ?? "No next step"}
+                </span>
               </div>
             </article>
           ))}
@@ -2164,9 +3217,15 @@ function ContactPreview({
             <article className="assistant-preview-row" key={quote.id}>
               <div>
                 <strong>{quote.title}</strong>
-                <span>{formatLabel(quote.status)} - {quote.lineItemCount} line items</span>
+                <span>
+                  {formatLabel(quote.status)} - {quote.lineItemCount} line items
+                </span>
               </div>
-              <Link className="secondary-button compact" href={`/documents/${quote.id}`} prefetch={false}>
+              <Link
+                className="secondary-button compact"
+                href={`/files/${quote.id}`}
+                prefetch={false}
+              >
                 Open
               </Link>
             </article>
@@ -2210,11 +3269,14 @@ function PreviewFacts({
 }
 
 function isPreviewableHref(href: string) {
-  return /^\/(inbox|documents|contacts)\/[^/?#]+(?:[?#].*)?$/.test(href);
+  return /^\/(inbox|files|documents|contacts)\/[^/?#]+(?:[?#].*)?$/.test(href);
 }
 
 function isAssistantQueueAction(
-  action: Extract<AssistantResourcePreview, { type: "conversation" }>["profile"]["actions"][number],
+  action: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["actions"][number],
 ) {
   if (action.status !== "pending_approval" && action.status !== "approved") {
     return false;
@@ -2255,7 +3317,10 @@ function formatLabel(value: string | null | undefined) {
     .join(" ");
 }
 
-function channelLabel(channelType: string | null, channelDisplayName: string | null) {
+function channelLabel(
+  channelType: string | null,
+  channelDisplayName: string | null,
+) {
   if (channelType === "manual_inbound") {
     return "Manual";
   }
@@ -2323,15 +3388,27 @@ function lineItemLabel(item: unknown) {
 
 function lineItemMeta(item: unknown) {
   const row = objectRecord(item);
-  const quantity = row.quantity === null || row.quantity === undefined ? null : String(row.quantity);
+  const quantity =
+    row.quantity === null || row.quantity === undefined
+      ? null
+      : String(row.quantity);
   const unit = textValue(row.unit);
   const unitPrice =
-    row.unitPrice === null || row.unitPrice === undefined ? null : String(row.unitPrice);
-  const total = row.total === null || row.total === undefined ? null : String(row.total);
+    row.unitPrice === null || row.unitPrice === undefined
+      ? null
+      : String(row.unitPrice);
+  const total =
+    row.total === null || row.total === undefined ? null : String(row.total);
 
-  return [quantity && unit ? `${quantity} ${unit}` : quantity ?? unit, unitPrice, total]
-    .filter(Boolean)
-    .join(" - ") || "No pricing set";
+  return (
+    [
+      quantity && unit ? `${quantity} ${unit}` : (quantity ?? unit),
+      unitPrice,
+      total,
+    ]
+      .filter(Boolean)
+      .join(" - ") || "No pricing set"
+  );
 }
 
 function textValue(value: unknown) {
@@ -2378,27 +3455,211 @@ function formatProviderLabel(value: string) {
 
 function AssistantMessageBlocks({
   linkOverrides,
+  memorySuggestionStatuses,
   message,
+  onOpenImagePreview,
   onOpenPreview,
+  onUpdateMemorySuggestion,
 }: {
   linkOverrides: Record<string, AssistantLink>;
+  memorySuggestionStatuses: Record<
+    string,
+    "active" | "pending_approval" | "rejected"
+  >;
   message: AssistantThreadMessage;
+  onOpenImagePreview: (image: GeneratedImage) => void;
   onOpenPreview: (link: AssistantLink) => void;
+  onUpdateMemorySuggestion: (
+    memoryId: string,
+    status: "active" | "rejected",
+  ) => void;
 }) {
-  if (!message.uiBlocks?.length) {
+  const blocks = message.uiBlocks?.length
+    ? message.uiBlocks
+    : generatedImageBlocksForMessage(message);
+
+  if (!blocks.length) {
     return null;
   }
 
   return (
     <>
-      {message.uiBlocks.map((block, index) => {
+      {blocks.map((block, index) => {
         if (block.type === "memory_notice") {
           return (
-            <div className="assistant-memory-notice" key={`${message.id}-memory-${index}`}>
+            <div
+              className="assistant-memory-notice"
+              key={`${message.id}-memory-${index}`}
+            >
               <strong>{block.title}</strong>
               <span>{block.content}</span>
             </div>
           );
+        }
+
+        if (block.type === "memory_suggestion") {
+          const status =
+            memorySuggestionStatuses[block.memoryId] ?? block.status;
+
+          return (
+            <div
+              className="assistant-memory-notice suggestion"
+              key={`${message.id}-memory-suggestion-${index}`}
+            >
+              <strong>{block.title}</strong>
+              <span>{block.content}</span>
+              {status === "pending_approval" ? (
+                <div className="assistant-block-actions">
+                  <button
+                    className="secondary-button compact"
+                    onClick={() =>
+                      onUpdateMemorySuggestion(block.memoryId, "active")
+                    }
+                    type="button"
+                  >
+                    Remember
+                  </button>
+                  <button
+                    className="ghost-button compact"
+                    onClick={() =>
+                      onUpdateMemorySuggestion(block.memoryId, "rejected")
+                    }
+                    type="button"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ) : (
+                <span className="pill">
+                  {status === "active" ? "Remembered" : "Dismissed"}
+                </span>
+              )}
+            </div>
+          );
+        }
+
+        if (block.type === "summary_cards") {
+          return (
+            <div
+              className="assistant-known-block"
+              key={`${message.id}-summary-${index}`}
+            >
+              <strong>{block.title}</strong>
+              <div className="assistant-summary-grid">
+                {block.cards.map((card) => (
+                  <AssistantBlockCard
+                    detail={card.detail}
+                    href={card.href}
+                    key={`${card.label}-${card.value}`}
+                    label={card.label}
+                    onOpenPreview={onOpenPreview}
+                    tone={card.tone}
+                    value={card.value}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (block.type === "timeline") {
+          return (
+            <div
+              className="assistant-known-block"
+              key={`${message.id}-timeline-${index}`}
+            >
+              <strong>{block.title}</strong>
+              <div className="assistant-timeline-block">
+                {block.items.map((item) => (
+                  <AssistantTimelineItem
+                    detail={item.detail}
+                    href={item.href}
+                    key={`${item.label}-${item.at ?? ""}`}
+                    label={item.label}
+                    onOpenPreview={onOpenPreview}
+                    time={item.at}
+                    tone={item.tone}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (block.type === "approval_queue") {
+          return (
+            <div
+              className="assistant-known-block"
+              key={`${message.id}-approval-${index}`}
+            >
+              <strong>{block.title}</strong>
+              <div className="assistant-approval-block">
+                {block.items.map((item) => (
+                  <AssistantApprovalItem
+                    detail={item.detail}
+                    href={item.href}
+                    key={item.id}
+                    label={item.label}
+                    onOpenPreview={onOpenPreview}
+                    status={item.status}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (block.type === "generated_image") {
+          return (
+            <div
+              className="assistant-known-block generated-image"
+              key={`${message.id}-generated-image-${index}`}
+            >
+              <strong>{block.title}</strong>
+              <div className="assistant-generated-image-grid">
+                {block.images.map((image) => (
+                  <article
+                    className="assistant-generated-image-card"
+                    key={image.fileId}
+                  >
+                    <button
+                      className="assistant-generated-image-preview"
+                      onClick={() => onOpenImagePreview(image)}
+                      type="button"
+                    >
+                      <Image
+                        alt={image.alt}
+                        height={1024}
+                        src={image.href}
+                        unoptimized
+                        width={1024}
+                      />
+                    </button>
+                    <div className="assistant-generated-image-actions">
+                      <a
+                        className="assistant-generated-image-action"
+                        href={image.href}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Open
+                      </a>
+                      <a
+                        className="assistant-generated-image-action"
+                        href={image.downloadHref}
+                      >
+                        Download
+                      </a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (block.type !== "link_cards") {
+          return null;
         }
 
         const visibleLinks = block.links
@@ -2423,4 +3684,141 @@ function AssistantMessageBlocks({
       })}
     </>
   );
+}
+
+function AssistantBlockCard({
+  detail,
+  href,
+  label,
+  onOpenPreview,
+  tone = "neutral",
+  value,
+}: {
+  detail?: string;
+  href?: string;
+  label: string;
+  onOpenPreview: (link: AssistantLink) => void;
+  tone?: string;
+  value: string;
+}) {
+  const className = `assistant-summary-card ${tone}`;
+
+  if (href && isPreviewableHref(href)) {
+    return (
+      <button
+        className={className}
+        onClick={() => onOpenPreview({ href, label, meta: detail ?? value })}
+        type="button"
+      >
+        <span>{label}</span>
+        <strong>{value}</strong>
+        {detail ? <small>{detail}</small> : null}
+      </button>
+    );
+  }
+
+  if (href) {
+    return (
+      <Link className={className} href={href} prefetch={false}>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        {detail ? <small>{detail}</small> : null}
+      </Link>
+    );
+  }
+
+  return (
+    <div className={className}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {detail ? <small>{detail}</small> : null}
+    </div>
+  );
+}
+
+function AssistantTimelineItem({
+  detail,
+  href,
+  label,
+  onOpenPreview,
+  time,
+  tone = "neutral",
+}: {
+  detail?: string;
+  href?: string;
+  label: string;
+  onOpenPreview: (link: AssistantLink) => void;
+  time?: string | null;
+  tone?: string;
+}) {
+  const content = (
+    <>
+      <span className={`assistant-timeline-dot ${tone}`} />
+      <div>
+        <strong>{label}</strong>
+        {detail ? <p>{detail}</p> : null}
+      </div>
+      {time ? <time>{formatDate(time)}</time> : null}
+    </>
+  );
+
+  if (href && isPreviewableHref(href)) {
+    return (
+      <button
+        className="assistant-timeline-item"
+        onClick={() => onOpenPreview({ href, label, meta: detail })}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  if (href) {
+    return (
+      <Link className="assistant-timeline-item" href={href} prefetch={false}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className="assistant-timeline-item">{content}</div>;
+}
+
+function AssistantApprovalItem({
+  detail,
+  href,
+  label,
+  onOpenPreview,
+  status,
+}: {
+  detail?: string;
+  href?: string;
+  label: string;
+  onOpenPreview: (link: AssistantLink) => void;
+  status: string;
+}) {
+  const content = (
+    <>
+      <div>
+        <strong>{label}</strong>
+        {detail ? <span>{detail}</span> : null}
+      </div>
+      <span className="pill warning">{formatLabel(status)}</span>
+    </>
+  );
+
+  if (href && isPreviewableHref(href)) {
+    return (
+      <button
+        className="assistant-approval-item"
+        onClick={() => onOpenPreview({ href, label, meta: detail ?? status })}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className="assistant-approval-item">{content}</div>;
 }

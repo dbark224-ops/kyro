@@ -64,6 +64,48 @@
       "when": 1779652136805,
       "tag": "20260524194856_quote_approval_links",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779761344711,
+      "tag": "20260526020904_contact_identity_normalization",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779762316186,
+      "tag": "20260526022516_international_phone_identity_normalization",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779770565699,
+      "tag": "20260526044245_contact_lifecycle_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779779736524,
+      "tag": "20260526071536_contact_profile_resolution",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779810926674,
+      "tag": "20260526155526_fixed_arclight",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779849864131,
+      "tag": "20260527024424_structured_addresses",
+      "breakpoints": true
     }
   ]
 }

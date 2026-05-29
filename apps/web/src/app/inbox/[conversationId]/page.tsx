@@ -1,12 +1,15 @@
 import {
   createMockOutboundMessageAction,
   createManualFollowUpAction,
+  createConversationAppointmentAction,
   regenerateAiPlanAction,
   sendDraftReplyAction,
   updateInquiryFactsAction,
   updateConversationStatusAction,
   updateDraftReplyAction,
 } from "../actions";
+import { ConversationWorkflowPanel } from "../conversation-workflow-panel";
+import { MessageWorkflowControls } from "../message-workflow-controls";
 import { ReplyGenerator } from "../reply-generator";
 import {
   approveAndExecuteDashboardAction,
@@ -14,6 +17,7 @@ import {
   executeDashboardAction,
 } from "../../engine/actions";
 import { AppFrame } from "../../components/app-frame";
+import { AddressAutocompleteField } from "../../components/address-autocomplete-field";
 import {
   getConversationReview,
   type ConversationReview,
@@ -259,9 +263,11 @@ function ActionControls({
 
 function ProposedActionCard({
   action,
+  conversationId,
   redirectTo,
 }: {
   action: ConversationReview["actions"][number];
+  conversationId: string;
   redirectTo: string;
 }) {
   const quoteDraft = objectRecord(action.input.quoteDraft);
@@ -419,11 +425,49 @@ function ProposedActionCard({
         ) : null}
       </div>
 
-      <ActionControls
-        action={action}
-        executeLabel={executeLabel}
-        redirectTo={redirectTo}
-      />
+      {action.type === "book_site_visit" &&
+      ["approved", "pending_approval"].includes(action.status) ? (
+        <form
+          action={createConversationAppointmentAction}
+          className="action-button-row"
+        >
+          <input name="conversationId" type="hidden" value={conversationId} />
+          <input name="sourceActionId" type="hidden" value={action.id} />
+          <input name="redirectTo" type="hidden" value={redirectTo} />
+          <input
+            name="title"
+            type="hidden"
+            value={
+              textValue(action.input.title) ??
+              textValue(action.input.jobType) ??
+              "Site visit"
+            }
+          />
+          <input
+            name="location"
+            type="hidden"
+            value={textValue(action.input.address) ?? ""}
+          />
+          <input
+            name="description"
+            type="hidden"
+            value={
+              textValue(action.input.preferredTime)
+                ? `Customer preferred time: ${textValue(action.input.preferredTime)}`
+                : "Site visit suggested by Kyro."
+            }
+          />
+          <button className="primary-button compact" type="submit">
+            Save appointment
+          </button>
+        </form>
+      ) : (
+        <ActionControls
+          action={action}
+          executeLabel={executeLabel}
+          redirectTo={redirectTo}
+        />
+      )}
     </article>
   );
 }
@@ -501,6 +545,51 @@ function buildTimeline(review: ConversationReview) {
         tone: "system",
       });
     }
+  }
+
+  for (const task of review.tasks) {
+    items.push({
+      id: `task-${task.id}`,
+      at: task.completedAt ?? task.createdAt,
+      title:
+        task.status === "completed"
+          ? `Task completed: ${task.title}`
+          : `Task created: ${task.title}`,
+      detail: [
+        formatLabel(task.taskType),
+        formatLabel(task.priority),
+        task.dueAt ? `Due ${formatDate(task.dueAt)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+      tone: "system",
+    });
+  }
+
+  for (const appointment of review.appointments) {
+    items.push({
+      id: `appointment-${appointment.id}`,
+      at: appointment.startsAt ?? appointment.createdAt,
+      title: `Appointment ${formatLabel(appointment.status)}: ${appointment.title}`,
+      detail: [
+        formatLabel(appointment.appointmentType),
+        appointment.location,
+        appointment.startsAt ? formatDate(appointment.startsAt) : null,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+      tone: "system",
+    });
+  }
+
+  for (const note of review.notes) {
+    items.push({
+      id: `note-${note.id}`,
+      at: note.createdAt,
+      title: "Internal note added",
+      detail: previewText(note.body),
+      tone: "system",
+    });
   }
 
   for (const quoteDraft of review.quoteDrafts) {
@@ -654,7 +743,9 @@ export default async function ConversationReviewPage({
           <div className="compact-metrics" aria-label="Inquiry counters">
             <span>{review.messages.length} msg</span>
             <span>{review.aiRuns.length} AI</span>
-            <span>{formatMoney(String(usageTotal), "USD", generalSettings)}</span>
+            <span>
+              {formatMoney(String(usageTotal), "USD", generalSettings)}
+            </span>
           </div>
           <form action={updateConversationStatusAction} className="status-form">
             <input name="conversationId" type="hidden" value={conversationId} />
@@ -786,15 +877,13 @@ export default async function ConversationReviewPage({
                 type="text"
               />
             </label>
-            <label className="fact-item fact-input">
-              <strong>Address</strong>
-              <input
-                defaultValue={textValue(currentInquiryFacts.address) ?? ""}
-                name="address"
-                placeholder="Job address"
-                type="text"
-              />
-            </label>
+            <AddressAutocompleteField
+              className="fact-item fact-input"
+              defaultValue={textValue(currentInquiryFacts.address) ?? ""}
+              label="Address"
+              name="address"
+              placeholder="Job address"
+            />
             <label className="fact-item fact-input">
               <strong>Preferred time</strong>
               <input
@@ -1019,6 +1108,13 @@ export default async function ConversationReviewPage({
                       External send disabled
                     </div>
                   ) : null}
+                  <MessageWorkflowControls
+                    conversationId={conversationId}
+                    message={message}
+                    notes={review.notes}
+                    redirectTo={redirectTo}
+                    tasks={review.tasks}
+                  />
                 </div>
               ))
             ) : (
@@ -1162,6 +1258,8 @@ export default async function ConversationReviewPage({
             </form>
           </article>
 
+          <ConversationWorkflowPanel redirectTo={redirectTo} review={review} />
+
           <article className="panel">
             <div className="panel-heading">
               <div>
@@ -1265,6 +1363,7 @@ export default async function ConversationReviewPage({
                 {otherActions.map((action) => (
                   <ProposedActionCard
                     action={action}
+                    conversationId={conversationId}
                     key={action.id}
                     redirectTo={redirectTo}
                   />
@@ -1304,7 +1403,7 @@ export default async function ConversationReviewPage({
                     >
                       <Link
                         className="plain-link"
-                        href={`/documents/${quoteDraft.id}`}
+                        href={`/files/${quoteDraft.id}`}
                         prefetch={false}
                       >
                         <div>
@@ -1340,7 +1439,7 @@ export default async function ConversationReviewPage({
                           {needsRevision ? (
                             <Link
                               className="secondary-button compact link-button"
-                              href={`/documents/${quoteDraft.id}`}
+                              href={`/files/${quoteDraft.id}`}
                               prefetch={false}
                             >
                               Edit quote
@@ -1353,7 +1452,10 @@ export default async function ConversationReviewPage({
                                 type="hidden"
                                 value={quoteDraft.id}
                               />
-                              <button className="primary-button compact" type="submit">
+                              <button
+                                className="primary-button compact"
+                                type="submit"
+                              >
                                 Send revised quote
                               </button>
                             </form>

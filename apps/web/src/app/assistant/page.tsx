@@ -1,5 +1,6 @@
 import { AssistantConsole } from "./assistant-console";
 import { AppFrame } from "../components/app-frame";
+import { getAssistantPromptSuggestionState } from "../../lib/assistant/prompt-suggestions";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
@@ -7,16 +8,32 @@ import type { AssistantThreadState } from "../../lib/assistant/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function AssistantPage() {
+type AssistantPageProps = {
+  searchParams?: Promise<{
+    threadId?: string;
+  }>;
+};
+
+export default async function AssistantPage({
+  searchParams,
+}: AssistantPageProps) {
+  const query = await searchParams;
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
+  const promptSuggestionsPromise = getAssistantPromptSuggestionState({
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
   const threadStatePromise = getAssistantThreadState({
+    threadId: query?.threadId,
     supabase,
     user,
     workspace,
   });
-  const [metrics, threadState] = await Promise.all([
+  const [metrics, promptSuggestions, threadState] = await Promise.all([
     metricsPromise,
+    promptSuggestionsPromise,
     threadStatePromise,
   ]);
 
@@ -29,8 +46,8 @@ export default async function AssistantPage() {
     links: [
       { href: "/inbox", label: "Inbox", meta: `${needsReply} need reply` },
       {
-        href: "/documents",
-        label: "Documents",
+        href: "/files",
+        label: "Files",
         meta: `${readyQuotes} ready quotes`,
       },
     ],
@@ -74,7 +91,10 @@ export default async function AssistantPage() {
         </header>
 
         <section className="assistant-page-grid">
-          <AssistantConsole initialState={initialState} />
+          <AssistantConsole
+            initialState={initialState}
+            promptSuggestions={promptSuggestions.visibleSuggestions}
+          />
         </section>
       </div>
     </AppFrame>

@@ -25,7 +25,10 @@ import {
   type AssistantPronunciationEntry,
 } from "../../lib/assistant/pronunciation";
 import {
+  MAX_FOLLOW_UP_DELAY_DAYS,
+  MIN_FOLLOW_UP_DELAY_DAYS,
   OUTBOUND_CHANNELS,
+  REPLY_MESSAGE_LENGTH_OPTIONS,
   getCommunicationSettings,
   type EmailSignatureSettings,
 } from "../../lib/communication/settings";
@@ -67,6 +70,7 @@ import {
   getWorkspaceGeneralSettings,
   type WorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
+import { PHONE_REGION_OPTIONS } from "../../lib/crm/identity";
 import Link from "next/link";
 import {
   SettingsShell,
@@ -101,11 +105,7 @@ function normalizeSettingsSection(value: string | undefined) {
     return "integrations" satisfies SettingsSection;
   }
 
-  if (
-    value === "general" ||
-    value === "usage" ||
-    value === "voice"
-  ) {
+  if (value === "general" || value === "usage" || value === "voice") {
     return value satisfies SettingsSection;
   }
 
@@ -411,6 +411,97 @@ function EmptySettingsDetail() {
         </p>
       </div>
     </section>
+  );
+}
+
+function OutboundWritingStyleEditor({
+  communicationSettings,
+}: Readonly<{
+  communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+}>) {
+  const writing = communicationSettings.replyWriting;
+
+  return (
+    <details className="settings-accordion">
+      <summary>
+        <div className="settings-accordion-title">
+          <strong>Outbound writing style</strong>
+          <InfoBubble>
+            These instructions are injected into AI-generated email and SMS
+            reply drafts.
+          </InfoBubble>
+        </div>
+        <span className="pill">Prompt editor</span>
+      </summary>
+
+      <div className="settings-accordion-body">
+        <div className="settings-grid">
+          <label className="setting-card">
+            <SettingCardHeading info="The customer-facing feel Kyro should use.">
+              Tone
+            </SettingCardHeading>
+            <input
+              defaultValue={writing.tone}
+              name="replyTone"
+              placeholder="Friendly and direct"
+              type="text"
+            />
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="How much detail should a normal draft include.">
+              Message length
+            </SettingCardHeading>
+            <select
+              defaultValue={writing.messageLength}
+              name="replyMessageLength"
+            >
+              {REPLY_MESSAGE_LENGTH_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {formatLabel(option)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <label className="settings-textarea">
+          Wording style
+          <textarea
+            defaultValue={writing.wordingStyle}
+            name="replyWordingStyle"
+            placeholder="Plain English, practical, helpful, no corporate fluff..."
+          />
+        </label>
+
+        <label className="settings-textarea">
+          Trade-specific phrasing
+          <textarea
+            defaultValue={writing.tradePhrasing}
+            name="replyTradePhrasing"
+            placeholder="Use normal plumbing terms, ask for photos when useful, mention site visits naturally..."
+          />
+        </label>
+
+        <label className="settings-textarea">
+          Sign-off instructions
+          <textarea
+            defaultValue={writing.signOff}
+            name="replySignOff"
+            placeholder="Use the saved email signature and avoid duplicate sign-offs..."
+          />
+        </label>
+
+        <label className="settings-textarea">
+          Reusable reply instructions
+          <textarea
+            defaultValue={writing.reusableInstructions}
+            name="replyReusableInstructions"
+            placeholder="Always ask for site access details on quote replies. Avoid promising exact arrival times unless the user provided one."
+          />
+        </label>
+      </div>
+    </details>
   );
 }
 
@@ -797,12 +888,14 @@ function latestTimestamp(
   connections: ProviderConnection[],
   key: "lastCheckedAt" | "lastSyncAt",
 ) {
-  return connections
-    .map((connection) => connection[key])
-    .filter((value): value is string => Boolean(value))
-    .sort(
-      (left, right) => new Date(right).getTime() - new Date(left).getTime(),
-    )[0] ?? null;
+  return (
+    connections
+      .map((connection) => connection[key])
+      .filter((value): value is string => Boolean(value))
+      .sort(
+        (left, right) => new Date(right).getTime() - new Date(left).getTime(),
+      )[0] ?? null
+  );
 }
 
 function hasRequiredReadScope(connection: EmailProviderConnection) {
@@ -952,7 +1045,8 @@ function syncHealthStatus({
   );
   const reconnectNeeded = connected.filter(connectionNeedsReconnect);
   const failures = connected.filter(
-    (connection) => connection.lastError && !connectionNeedsReconnect(connection),
+    (connection) =>
+      connection.lastError && !connectionNeedsReconnect(connection),
   );
 
   if (connected.length === 0) {
@@ -989,7 +1083,8 @@ function syncHealthStatus({
 
   if (settings.syncMode === "manual_only") {
     return {
-      detail: "Scheduled polling is off. Manual and assistant-triggered checks still work.",
+      detail:
+        "Scheduled polling is off. Manual and assistant-triggered checks still work.",
       tone: "neutral" as const,
       title: "Manual only",
     };
@@ -1049,7 +1144,9 @@ function senderRuleSourceLabel(rule: InboundEmailSenderRule) {
 }
 
 function senderRuleCreatedLabel(rule: InboundEmailSenderRule) {
-  return rule.createdAt ? `Added ${formatDate(rule.createdAt)}` : "Added before tracking";
+  return rule.createdAt
+    ? `Added ${formatDate(rule.createdAt)}`
+    : "Added before tracking";
 }
 
 function scopeLabel(value: string) {
@@ -1100,7 +1197,9 @@ function EmailSyncHealthPanel({
         </article>
         <article>
           <span>Last check attempt</span>
-          <strong>{lastCheckedAt ? formatDate(lastCheckedAt) : "Not yet"}</strong>
+          <strong>
+            {lastCheckedAt ? formatDate(lastCheckedAt) : "Not yet"}
+          </strong>
         </article>
         <article>
           <span>Next scheduled sync</span>
@@ -1113,8 +1212,7 @@ function EmailSyncHealthPanel({
           {connected.map((connection) => {
             const missingScope = missingReadScope(connection);
             const needsReconnect = connectionNeedsReconnect(connection);
-            const hasFailure =
-              connection.lastError && !needsReconnect;
+            const hasFailure = connection.lastError && !needsReconnect;
 
             return (
               <article
@@ -1131,9 +1229,9 @@ function EmailSyncHealthPanel({
                       ? `Missing ${scopeLabel(missingScope)}`
                       : needsReconnect
                         ? "Reconnect account"
-                      : hasFailure
-                        ? "Last sync failed"
-                        : "Inbox read access ready"}
+                        : hasFailure
+                          ? "Last sync failed"
+                          : "Inbox read access ready"}
                   </span>
                   {hasFailure ? <p>{connection.lastError}</p> : null}
                 </div>
@@ -1145,7 +1243,9 @@ function EmailSyncHealthPanel({
                     Reconnect
                   </Link>
                 ) : (
-                  <span className={hasFailure ? "pill warning" : "pill success"}>
+                  <span
+                    className={hasFailure ? "pill warning" : "pill success"}
+                  >
                     {hasFailure ? "Failed" : "Ready"}
                   </span>
                 )}
@@ -1377,13 +1477,12 @@ function SenderRulesLauncher({
           <h3>Sender rules</h3>
           <InfoBubble>
             Sender rules override normal email classification. Use them for
-            senders Kyro should always treat as business-relevant or always
-            keep out of the work queue.
+            senders Kyro should always treat as business-relevant or always keep
+            out of the work queue.
           </InfoBubble>
         </div>
         <p>
-          Keep permanent promote and ignore rules out of the main settings
-          flow.
+          Keep permanent promote and ignore rules out of the main settings flow.
         </p>
       </div>
       <div className="sender-rules-launcher-actions">
@@ -1439,8 +1538,7 @@ function SenderRulesSettings({
           </div>
           <div className="sender-rules-modal-actions">
             <span className="pill">
-              {sortedRules.length}{" "}
-              {sortedRules.length === 1 ? "rule" : "rules"}
+              {sortedRules.length} {sortedRules.length === 1 ? "rule" : "rules"}
             </span>
             <Link
               className="secondary-button compact"
@@ -1520,10 +1618,7 @@ function SenderRulesSettings({
                       <option value="always_promote">Always relevant</option>
                       <option value="always_ignore">Always ignore</option>
                     </select>
-                    <button
-                      className="secondary-button compact"
-                      type="submit"
-                    >
+                    <button className="secondary-button compact" type="submit">
                       Save
                     </button>
                   </form>
@@ -1627,13 +1722,37 @@ function GeneralSettingsDetail({
             ))}
           </select>
         </label>
+        <label className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Used when a customer gives a local phone number without a
+                country code. Numbers that already include a country code are
+                kept international.
+              </>
+            }
+          >
+            Default phone region
+          </SettingCardHeading>
+          <select
+            defaultValue={settings.defaultPhoneRegion}
+            name="workspaceDefaultPhoneRegion"
+          >
+            {PHONE_REGION_OPTIONS.map((region) => (
+              <option key={region.value} value={region.value}>
+                {region.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="settings-footer">
         <span>
-          Timezone powers quiet hours and scheduling. Display currency currently
-          uses {displayCurrencySourceLabel(settings)} until the billing provider
-          is connected.
+          Timezone powers quiet hours and scheduling. Phone region only applies
+          to bare local numbers. Display currency currently uses{" "}
+          {displayCurrencySourceLabel(settings)} until the billing provider is
+          connected.
         </span>
         <button className="primary-button compact" type="submit">
           Save workspace defaults
@@ -2091,7 +2210,7 @@ function CommunicationSettingsDetail({
       <input
         name="defaultTone"
         type="hidden"
-        value={communicationSettings.defaultTone}
+        value={communicationSettings.replyWriting.tone}
       />
 
       <div className="settings-grid single">
@@ -2141,6 +2260,38 @@ function CommunicationSettingsDetail({
               <span>{formatLabel(channel)}</span>
             </label>
           ))}
+        </div>
+      </fieldset>
+
+      <OutboundWritingStyleEditor
+        communicationSettings={communicationSettings}
+      />
+
+      <fieldset className="settings-fieldset">
+        <legend>Follow-up reminders</legend>
+        <div className="settings-grid">
+          <label className="compact-checkbox-row setting-card">
+            <input
+              defaultChecked={communicationSettings.followUpRemindersEnabled}
+              name="followUpRemindersEnabled"
+              type="checkbox"
+            />
+            <span>Automatically create internal follow-up reminders</span>
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="Kyro creates the reminder after an outbound reply is recorded. It stays internal until calendar/task integrations are added later.">
+              Default delay
+            </SettingCardHeading>
+            <input
+              defaultValue={communicationSettings.followUpDelayDays}
+              max={MAX_FOLLOW_UP_DELAY_DAYS}
+              min={MIN_FOLLOW_UP_DELAY_DAYS}
+              name="followUpDelayDays"
+              type="number"
+            />
+            <span>Days after the outbound reply before follow-up is due.</span>
+          </label>
         </div>
       </fieldset>
 
@@ -2477,7 +2628,11 @@ function modelUsageDescription(row: UsageBreakdownRow) {
     return "Used for Kyro's live voice assistant: low-latency spoken conversations, audio/text tokens, cached context, and voice tool calls.";
   }
 
-  if (service === "speech_to_text" || model.includes("transcribe") || model.includes("whisper")) {
+  if (
+    service === "speech_to_text" ||
+    model.includes("transcribe") ||
+    model.includes("whisper")
+  ) {
     return "Used when Kyro turns recorded or uploaded audio into text before it can answer or take action.";
   }
 
@@ -2555,7 +2710,10 @@ function UsageSettingsDetail({
           </div>
           {usageReport.taskBreakdown.length > 0 ? (
             <div className="usage-table">
-              <div className="usage-row usage-row-three heading" aria-hidden="true">
+              <div
+                className="usage-row usage-row-three heading"
+                aria-hidden="true"
+              >
                 <span>Task</span>
                 <span>Events</span>
                 <span>Usage charge</span>
@@ -2607,7 +2765,10 @@ function UsageSettingsDetail({
           </div>
           {usageReport.providerBreakdown.length > 0 ? (
             <div className="usage-table">
-              <div className="usage-row usage-row-three heading" aria-hidden="true">
+              <div
+                className="usage-row usage-row-three heading"
+                aria-hidden="true"
+              >
                 <span>Provider / model</span>
                 <span>Events</span>
                 <span>Usage charge</span>
@@ -2660,7 +2821,6 @@ function UsageSettingsDetail({
             </p>
           )}
         </article>
-
       </div>
     </>
   );
@@ -2724,7 +2884,7 @@ export default async function SettingsPage({
   const settingsItems: SettingsMenuItem[] = [
     {
       detail: generalSettings
-        ? `${generalSettings.timeZone} - ${generalSettings.displayCurrency}`
+        ? `${generalSettings.timeZone} - ${generalSettings.displayCurrency} - ${generalSettings.defaultPhoneRegion}`
         : "Timezone, currency, and workspace defaults",
       eyebrow: "General",
       href: settingsSectionHref("general", activeWindow),
@@ -2770,10 +2930,7 @@ export default async function SettingsPage({
   ];
   const selectedDetail =
     selectedSection === "general" && generalSettings ? (
-      <SettingsDetailShell
-        eyebrow="General"
-        title="System defaults"
-      >
+      <SettingsDetailShell eyebrow="General" title="System defaults">
         <GeneralSettingsDetail settings={generalSettings} />
       </SettingsDetailShell>
     ) : selectedSection === "integrations" &&
@@ -2782,10 +2939,7 @@ export default async function SettingsPage({
       microsoftOverview &&
       inboundEmailSettings &&
       inboundEmailSummary ? (
-      <SettingsDetailShell
-        eyebrow="Integrations"
-        title="Connected accounts"
-      >
+      <SettingsDetailShell eyebrow="Integrations" title="Connected accounts">
         <WorkspaceIntegrationsSettings
           communicationSettings={communicationSettings}
           googleOverview={googleOverview}
@@ -2799,10 +2953,7 @@ export default async function SettingsPage({
         />
       </SettingsDetailShell>
     ) : selectedSection === "usage" && usageReport && generalSettings ? (
-      <SettingsDetailShell
-        eyebrow="Usage"
-        title="Usage and billing"
-      >
+      <SettingsDetailShell eyebrow="Usage" title="Usage and billing">
         <UsageSettingsDetail
           activeWindow={activeWindow}
           displayCurrencySettings={generalSettings}
@@ -2810,10 +2961,7 @@ export default async function SettingsPage({
         />
       </SettingsDetailShell>
     ) : selectedSection === "voice" && voiceSettings ? (
-      <SettingsDetailShell
-        eyebrow="Voice"
-        title="Voice assistant"
-      >
+      <SettingsDetailShell eyebrow="Voice" title="Voice assistant">
         <VoiceSettingsDetail
           pronunciationEntries={pronunciationEntries}
           voiceSettings={voiceSettings}

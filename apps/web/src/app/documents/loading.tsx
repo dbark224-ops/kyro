@@ -3,8 +3,8 @@ import { PageSkeleton } from "../components/page-skeleton";
 
 export default function DocumentsLoading() {
   return (
-    <AppFrame active="Documents">
-      <PageSkeleton eyebrow="Loading" title="Documents" />
+    <AppFrame active="Files">
+      <PageSkeleton eyebrow="Loading" title="Files" />
     </AppFrame>
   );
 }

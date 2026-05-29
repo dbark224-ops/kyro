@@ -32,7 +32,7 @@ The applied migrations currently create:
 
 - Tenant/auth tables.
 - Workspace policies and entitlements.
-- Contacts, leads, channels, conversations, messages, outbound delivery rows, quote drafts, inquiry facts, Assistant memory tables, and files.
+- Contacts, leads, contact lifecycle fields, channels, conversations, messages, conversation tasks/appointments/notes, outbound delivery rows, quote drafts, generated documents, inquiry facts, Assistant memory tables, and files.
 - Events, workflow runs, actions, AI runs, model routes, and audit logs.
 - Usage events, usage rollups, pricing rules, and workspace budgets.
 - Contact profile fields for contact type and address are added by a follow-up migration.
@@ -62,17 +62,53 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260522001249_event_skipped_email_indexes.sql`: adds skipped-email event indexes for filtered-out email review.
 - `20260524194856_quote_approval_links.sql`: adds tokenized customer quote approval links with workspace RLS policies.
 - `20260525143000_outbound_messages.sql`: adds the durable outbound delivery queue/ledger with workspace RLS, idempotency, retry scheduling, provider ids, and updated-at trigger.
+- `20260527005033_generated_documents.sql`: adds first-class generated quote/invoice PDF records linked to private file storage, CRM/conversation/quote context, outbound sent messages, and Google Drive filing metadata.
+- `20260526020904_contact_identity_normalization.sql`: adds normalized contact email, phone, and company fields, workspace-scoped indexes, backfill SQL, and the trigger that keeps identity fields in sync on contact edits.
+- `20260526022516_international_phone_identity_normalization.sql`: upgrades the database phone normalizer and backfills contact phone identities into canonical international-style values for explicit country-coded numbers and common local formats.
+- `20260526044245_contact_lifecycle_fields.sql`: adds contact lifecycle stage/source/reason/review timestamp fields and a workspace lifecycle index. These fields support manual lead/client switching plus scheduled review suggestions without changing `contact_type`.
+- `20260526071536_contact_profile_resolution.sql`: adds profile-resolution status/reason/conflict/merge fields to `contacts`, indexes active review and merged-source lookups, and updates the identity trigger so app-side default-phone-region normalization is preserved.
+- `20260526155526_fixed_arclight.sql`: adds `conversation_tasks`, `conversation_appointments`, and `conversation_notes` with workspace RLS, updated-at triggers, and indexes for conversation/message/status lookups.
+- `20260527024424_structured_addresses.sql`: adds structured Google/manual address fields to `contacts` and `inquiry_facts`, including line/locality/postal/country/coordinate/place-id fields, validation status, raw structured JSON, and workspace indexes for place/postal lookups.
+
+CRM profile identity now uses normalized email, normalized phone, and normalized company values. App code normalizes bare local phone numbers with the workspace default phone region before falling back through broader international parsing. Explicit country-coded numbers remain country-safe.
+
+Address identity now keeps the typed/display address in `address` while storing
+structured components beside it. Google Places selections can populate a place id,
+postal components, coordinates, validation status, and structured JSON; manually
+typed addresses remain accepted and are marked as manual/unverified rather than
+blocking the workflow.
+
+CRM lifecycle and profile resolution are contact-level concepts:
+
+- lifecycle fields track whether the relationship is currently a lead or client, separately from contact category,
+- lifecycle review creates `review_lifecycle_stage` actions rather than silently changing profiles, and users can clear manual lifecycle overrides when they want automated suggestions again,
+- profile conflicts and duplicate identity signals can create review work in CRM,
+- merging profiles moves linked conversations, messages, leads, inquiry facts, quote drafts, and contact-targeted actions to the kept profile,
+- merged source profiles stay in `contacts` with `merged_into_contact_id` so audit history remains traceable while the normal CRM list hides archived merged sources.
+
+Inbox workflow state now has durable rows:
+
+- `conversation_tasks` stores user-created tasks, automatic `customer_follow_up` reminders, site-visit tasks, and message-resolution markers linked to conversations/messages/actions,
+- `conversation_appointments` stores site-visit/appointment records before any external calendar provider is connected,
+- `conversation_notes` stores internal-only operator notes linked to conversations or individual messages.
+
+Assistant memory/thread behavior does not currently need a new migration.
+`assistant_threads.status` is used for active versus archived threads, and
+`assistant_memories.status` is used for active, pending-approval, and rejected
+memories. Suggested memories are stored as pending rows and only become active
+context after the user approves them.
 
 Document template preferences do not currently need a new migration. The web app stores
 the first quote-output settings in `workspace_policies` with policy type
 `document_templates`; quote output is rendered from existing `quote_drafts` data as
-print-ready HTML or an on-demand server-generated PDF. Generated PDF metadata is
-stored in existing `quote_drafts.metadata` and outbound `messages.metadata`.
-Outbound sends are also tracked in `outbound_messages`: the outbox row is created
-before provider delivery, stores retryable attachment references to private
-Supabase Storage/files rows, and links back to either the final conversation
-`messages` row or event-only delivery record through metadata once recording
-succeeds.
+print-ready HTML or an on-demand server-generated PDF. Generated quote and invoice
+PDFs are now promoted into `generated_documents` rows backed by private
+Supabase Storage/files rows, while lightweight timeline metadata remains in
+`quote_drafts.metadata` and outbound `messages.metadata`. Outbound sends are also
+tracked in `outbound_messages`: the outbox row is created before provider
+delivery, stores retryable attachment references to private Supabase Storage/files
+rows, and links back to either the final conversation `messages` row or
+event-only delivery record through metadata once recording succeeds.
 `quote_drafts.metadata.documentHistory` is the current lightweight version trail
 for generated/prepared/sent PDFs and customer approval events. Quote revision
 state is also metadata-backed in `quote_drafts.metadata.quoteRevision`: the app
@@ -81,3 +117,10 @@ prepared/sent/approved versions without a new migration. Customer approval links
 use `quote_approval_links`: raw tokens stay in customer URLs, while the database
 stores only `token_hash`, status, expiry, view/approval timestamps, and
 change-request text.
+
+Assistant image generation does not currently need a new migration. Uploaded
+assistant reference files and generated image outputs both use the existing
+`files` table plus private Supabase Storage, with `source` values such as
+`assistant_upload` and `generated_image`. The tool execution is recorded in
+`ai_runs`, image spend is recorded in `usage_events` with `usage_type =
+image_generation`, and the generated file is linked through audit logs.

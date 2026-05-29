@@ -11,11 +11,17 @@ import {
 } from "../usage/openai";
 import { resolveAssistantCommand } from "./commands";
 import { runAssistantModel } from "./providers";
+import {
+  planAssistantToolCall,
+  type AssistantToolPlanResult,
+} from "./tool-planner";
 import { linkCardsBlock } from "./ui-blocks";
 import { dedupeAssistantLinks } from "./web-search";
 import type {
+  AssistantContextSnapshot,
   AssistantMemoryItem,
   AssistantModelRoute,
+  AssistantRecentMessage,
   AssistantToolCallRecord,
   AssistantTurnResult,
 } from "./types";
@@ -26,14 +32,11 @@ type WorkspaceInput = {
 };
 
 type RunAssistantTurnInput = {
+  contextSnapshots?: AssistantContextSnapshot[];
   inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
   prompt: string;
-  recentMessages?: Array<{
-    content: string;
-    intent?: string | null;
-    role: "assistant" | "user";
-  }>;
+  recentMessages?: AssistantRecentMessage[];
   supabase: SupabaseClient;
   threadId?: string | null;
   threadSummary?: string | null;
@@ -57,7 +60,10 @@ function assistantModel() {
   return envValue("ASSISTANT_MODEL") || envValue("OLLAMA_MODEL") || "qwen3:8b";
 }
 
-function routeAssistantModel(workspace: WorkspaceInput, user: User): AssistantModelRoute {
+function routeAssistantModel(
+  workspace: WorkspaceInput,
+  user: User,
+): AssistantModelRoute {
   const provider = assistantProviderMode();
 
   if (["ollama", "local"].includes(provider)) {
@@ -82,6 +88,7 @@ function routeAssistantModel(workspace: WorkspaceInput, user: User): AssistantMo
 }
 
 export async function runAssistantTurn({
+  contextSnapshots = [],
   inputSource = "typed",
   memories = [],
   prompt,
@@ -98,16 +105,39 @@ export async function runAssistantTurn({
     throw new Error("Ask Kyro something first.");
   }
 
+  const route = routeAssistantModel(workspace, user);
+  const toolPlan = await planAssistantToolCall({
+    contextSnapshots,
+    inputSource,
+    prompt: trimmedPrompt,
+    recentMessages,
+    route,
+    threadSummary,
+  });
   const command = await resolveAssistantCommand({
     prompt: trimmedPrompt,
+    recentMessages,
     supabase,
+    threadId,
+    toolPlanModelPlanned: toolPlan.modelPlanned,
+    toolSelection: toolPlan.selection,
     user,
     workspace,
   });
-  const commandToolCalls = commandToToolCalls(command, trimmedPrompt);
-  const route = routeAssistantModel(workspace, user);
+  const commandToolCalls = [
+    ...plannerToToolCalls(toolPlan, trimmedPrompt),
+    ...commandToToolCalls(command, trimmedPrompt),
+  ];
   const inputTokensEstimate = estimateTokens(
-    JSON.stringify({ command, prompt: trimmedPrompt }),
+    JSON.stringify({
+      command,
+      prompt: trimmedPrompt,
+      toolPlan: {
+        fallbackReason: toolPlan.fallbackReason ?? null,
+        modelPlanned: toolPlan.modelPlanned,
+        selection: toolPlan.selection,
+      },
+    }),
   );
   const { data: aiRun, error: aiRunError } = await supabase
     .from("ai_runs")
@@ -137,12 +167,15 @@ export async function runAssistantTurn({
     .single();
 
   if (aiRunError || !aiRun) {
-    throw new Error(`Unable to create assistant AI run: ${aiRunError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create assistant AI run: ${aiRunError?.message ?? "unknown error"}`,
+    );
   }
 
   const aiRunId = String(aiRun.id);
   const modelOutput = await runAssistantModel(route, {
     command,
+    contextSnapshots,
     inputSource,
     memories,
     prompt: trimmedPrompt,
@@ -150,7 +183,17 @@ export async function runAssistantTurn({
     threadSummary,
   });
   const webSourceLinks = modelOutput.webSources ?? [];
-  const resultLinks = dedupeAssistantLinks([...command.links, ...webSourceLinks]);
+  const resultLinks = dedupeAssistantLinks([
+    ...command.links,
+    ...webSourceLinks,
+  ]);
+  const commandUiBlocks = command.uiBlocks ?? [];
+  const commandHasGeneratedImageBlock = commandUiBlocks.some(
+    (block) => block.type === "generated_image",
+  );
+  const assistantContent = commandHasGeneratedImageBlock
+    ? command.fallbackAnswer
+    : modelOutput.text;
   const toolCalls = [
     ...commandToolCalls,
     ...webSearchToToolCalls(modelOutput, trimmedPrompt),
@@ -176,6 +219,10 @@ export async function runAssistantTurn({
         memoryCount: memories.length,
         providerMode: assistantProviderMode(),
         recentMessageCount: recentMessages.length,
+        contextSnapshotCount: contextSnapshots.length,
+        toolPlannerFallbackReason: toolPlan.fallbackReason ?? null,
+        toolPlannerModelPlanned: toolPlan.modelPlanned,
+        toolPlannerSelection: toolPlan.selection,
         webSearchSourceCount: webSourceLinks.length,
         webSearchUsed: Boolean(modelOutput.webSearchUsed),
         inputSource,
@@ -192,27 +239,56 @@ export async function runAssistantTurn({
     });
 
   if (routeError) {
-    throw new Error(`Unable to record assistant model route: ${routeError.message}`);
+    throw new Error(
+      `Unable to record assistant model route: ${routeError.message}`,
+    );
   }
 
-  const usageEvents = buildLlmUsageEvents({
-    context: {
-      aiRunId,
-      metadata: {
-        source: "assistant.turn",
-        webSearchUsed: Boolean(modelOutput.webSearchUsed),
+  const usageEvents = [
+    ...(toolPlan.tokenUsage
+      ? buildLlmUsageEvents({
+          context: {
+            aiRunId,
+            metadata: {
+              selectedTool: toolPlan.selection?.name ?? null,
+              source: "assistant.tool_planner",
+              contextSnapshotCount: contextSnapshots.length,
+            },
+            providerUsageId: toolPlan.providerUsageId,
+            sourceId: aiRunId,
+            sourceType: "ai_run",
+            userId: user.id,
+            workspaceId: workspace.id,
+          },
+          model: route.model,
+          provider: route.provider,
+          service: "llm",
+          usage: toolPlan.tokenUsage,
+        })
+      : []),
+    ...buildLlmUsageEvents({
+      context: {
+        aiRunId,
+        metadata: {
+          source: "assistant.turn",
+          contextSnapshotCount: contextSnapshots.length,
+          toolPlannerFallbackReason: toolPlan.fallbackReason ?? null,
+          toolPlannerModelPlanned: toolPlan.modelPlanned,
+          toolPlannerSelection: toolPlan.selection,
+          webSearchUsed: Boolean(modelOutput.webSearchUsed),
+        },
+        providerUsageId: modelOutput.providerUsageId,
+        sourceId: aiRunId,
+        sourceType: "ai_run",
+        userId: user.id,
+        workspaceId: workspace.id,
       },
-      providerUsageId: modelOutput.providerUsageId,
-      sourceId: aiRunId,
-      sourceType: "ai_run",
-      userId: user.id,
-      workspaceId: workspace.id,
-    },
-    model: route.model,
-    provider: route.provider,
-    service: "llm",
-    usage: tokenUsage,
-  });
+      model: route.model,
+      provider: route.provider,
+      service: "llm",
+      usage: tokenUsage,
+    }),
+  ];
 
   if (modelOutput.webSearchUsed && route.provider === "openai") {
     usageEvents.push(
@@ -241,7 +317,7 @@ export async function runAssistantTurn({
   }
 
   const output = {
-    answer: modelOutput.text,
+    answer: assistantContent,
     command: {
       context: command.context,
       intent: command.intent,
@@ -273,7 +349,9 @@ export async function runAssistantTurn({
     .eq("id", aiRunId);
 
   if (completeError) {
-    throw new Error(`Unable to complete assistant run: ${completeError.message}`);
+    throw new Error(
+      `Unable to complete assistant run: ${completeError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -297,7 +375,7 @@ export async function runAssistantTurn({
   });
 
   return {
-    content: modelOutput.text,
+    content: assistantContent,
     fallbackReason: modelOutput.fallbackReason,
     id: aiRunId,
     intent: command.intent,
@@ -307,7 +385,10 @@ export async function runAssistantTurn({
     role: "assistant",
     toolCalls,
     uiBlocks: [
-      ...linkCardsBlock(command.title, command.links),
+      ...commandUiBlocks,
+      ...(commandHasGeneratedImageBlock
+        ? []
+        : linkCardsBlock(command.title, command.links)),
       ...linkCardsBlock("Web sources", webSourceLinks),
     ],
   };
@@ -332,6 +413,28 @@ function webSearchToToolCalls(
         sources: modelOutput.webSources ?? [],
       },
       status: modelOutput.fallbackReason ? "blocked" : "completed",
+    },
+  ];
+}
+
+function plannerToToolCalls(
+  toolPlan: AssistantToolPlanResult,
+  prompt: string,
+): AssistantToolCallRecord[] {
+  return [
+    {
+      input: {
+        prompt,
+      },
+      name: "assistant_tool_planner",
+      result: {
+        fallbackReason: toolPlan.fallbackReason ?? null,
+        inputTokens: toolPlan.inputTokens,
+        modelPlanned: toolPlan.modelPlanned,
+        outputTokens: toolPlan.outputTokens,
+        selection: toolPlan.selection,
+      },
+      status: toolPlan.fallbackReason ? "blocked" : "completed",
     },
   ];
 }

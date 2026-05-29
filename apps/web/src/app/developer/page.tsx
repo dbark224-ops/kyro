@@ -1,4 +1,5 @@
 import { AppFrame } from "../components/app-frame";
+import { AddressAutocompleteField } from "../components/address-autocomplete-field";
 import { createManualInboundAction } from "../inbound/actions";
 import Link from "next/link";
 
@@ -59,7 +60,11 @@ export default async function DeveloperPage({
               </label>
               <label>
                 Email
-                <input name="email" placeholder="customer@example.com" type="email" />
+                <input
+                  name="email"
+                  placeholder="customer@example.com"
+                  type="email"
+                />
               </label>
               <label>
                 Phone
@@ -88,14 +93,12 @@ export default async function DeveloperPage({
                   type="text"
                 />
               </label>
-              <label className="full-row">
-                Address
-                <input
-                  name="address"
-                  placeholder="Site or contact address"
-                  type="text"
-                />
-              </label>
+              <AddressAutocompleteField
+                className="full-row"
+                label="Address"
+                name="address"
+                placeholder="Site or contact address"
+              />
               <label className="full-row">
                 Inquiry message
                 <textarea
@@ -107,7 +110,10 @@ export default async function DeveloperPage({
             </div>
 
             <div className="settings-footer">
-              <span>Creates the contact/profile, lead, conversation, message, AI triage, actions, audit, and usage rows.</span>
+              <span>
+                Creates the contact/profile, lead, conversation, message, AI
+                triage, actions, audit, and usage rows.
+              </span>
               <button className="primary-button compact" type="submit">
                 Ingest mock inquiry
               </button>
@@ -135,8 +141,32 @@ export default async function DeveloperPage({
                 </strong>
               </div>
               <div>
+                <span>Health</span>
+                <strong>
+                  <Link href="/developer/system-health">
+                    Open system health
+                  </Link>
+                </strong>
+              </div>
+              <div>
+                <span>Smoke tests</span>
+                <strong>
+                  <Link href="/developer/smoke-tests">
+                    Open smoke checklist
+                  </Link>
+                </strong>
+              </div>
+              <div>
+                <span>Assistant</span>
+                <strong>
+                  <Link href="/developer/assistant-tools">
+                    Open tool registry
+                  </Link>
+                </strong>
+              </div>
+              <div>
                 <span>External email</span>
-                <strong>Gmail only for now</strong>
+                <strong>Gmail and Outlook</strong>
               </div>
             </div>
           </article>

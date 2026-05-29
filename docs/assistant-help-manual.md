@@ -14,7 +14,7 @@ Kyro currently has these main areas:
 - Voice: speak with the same Kyro assistant through OpenAI realtime voice.
 - Inbox: review business conversations and action customer enquiries.
 - CRM: manage contacts, leads, customers, suppliers, builders, contractors, and property managers.
-- Documents: create, edit, and print/save customer quote documents from quote drafts.
+- Files: view generated and uploaded files, plus create, edit, print/save, and file customer quote/invoice PDFs from structured quote drafts.
 - Log: inspect recent workspace activity.
 - Settings: configure communication rules, voice, integrations, usage visibility, and general workspace defaults.
 - Developer: internal testing tools, not an end-user screen.
@@ -26,6 +26,7 @@ Kyro can currently help with:
 - answering questions about the workspace and current CRM records,
 - summarising contacts, leads, conversations, and quote drafts,
 - finding work that needs attention,
+- generating one-off images, renovation concept renders, and simple marketing/social graphics from text prompts and optional uploaded image references,
 - creating saved internal quote drafts from existing reusable document templates,
 - drafting and sending user-approved manual replies through connected email,
 - queuing outbound email in a durable delivery ledger so failed sends can be retried or dismissed,
@@ -34,12 +35,17 @@ Kyro can currently help with:
 - showing filtered-out emails separately so personal/newsletter/noise stays out of the work queue,
 - preserving inbound and outbound email attachment metadata, with private file storage when provider or upload bytes are available,
 - generating a draft reply from a short user instruction,
+- adding internal Inbox tasks, site-visit appointment records, message-resolution markers, and private notes,
 - remembering explicit instructions when the user says to remember or note something,
+- suggesting likely durable memories for user approval when the user implies a
+  stable preference without explicitly saying "remember",
 - updating pronunciation vocabulary when the user asks,
 - updating a small allowlist of safe workspace settings,
 - updating basic quote document template settings when the user asks,
 - creating and revising reusable document templates when the user asks,
 - preparing quote-send emails that include a generated PDF and customer approval link,
+- generating saved quote/invoice PDF records from quote drafts,
+- filing user-approved generated PDFs to Google Drive,
 - answering whether a customer has viewed, approved, requested changes to, or received a revised version of a quote,
 - using web search for public/current internet information when enabled,
 - answering help questions from this manual and architecture notes.
@@ -52,8 +58,9 @@ Some product areas are intentionally not complete yet:
 
 - Kyro does not place real outbound phone calls yet.
 - SMS and phone channels are internal/manual records until providers are connected.
-- Quote drafts can now render as print-ready customer quote documents, generate server-side PDFs, and collect customer approval or change requests through secure quote links. Drive document filing, invoice/accounting exports, and payment collection are future work.
-- Payments, invoicing, reconciliation, taxes, and billing collection are not implemented.
+- Generated images, uploaded files, inbound attachments, and generated PDFs are saved as private Kyro files and can be opened or downloaded from Files.
+- Quote drafts can now render as print-ready customer quote documents, generate server-side quote/invoice PDFs, store those PDFs privately as generated document records, file user-approved PDFs to Google Drive, and collect customer approval or change requests through secure quote links.
+- Payment processing, bookkeeping, reconciliation, taxes, and billing collection are not implemented.
 - Provider push/webhook inbox sync is not implemented; current inbound email uses scheduled/manual polling.
 - Kyro does not automatically send approval-gated AI replies without a user action.
 - OAuth connection setup remains a Settings flow, not a chat-only flow.
@@ -85,19 +92,30 @@ Use it to:
 - ask about a customer or inquiry,
 - look up quote drafts,
 - create a quote draft from a template,
+- attach images/files and ask Kyro to generate a concept render, social graphic, simple flyer, or other one-off visual,
 - ask Kyro to check email,
 - ask what inbound email has seen recently, including skipped/filter decisions and attachment-bearing email,
 - ask for help understanding failed outbound delivery or outbox retry status,
 - ask how Kyro or a setting works,
 - ask Kyro to remember explicit instructions,
+- approve or dismiss suggested memories,
 - ask Kyro to update pronunciation vocabulary,
 - ask Kyro to update safe basic settings,
 - ask Kyro to update quote document template direction, currency, validity, payment terms, or footer text,
 - ask general questions.
 
-Assistant results can include cards. Cards are deterministic UI links generated by the app, not links invented by the model. For example, if Kyro finds a conversation or quote draft, the UI renders a card to open it.
+Assistant results can include cards. Cards are deterministic UI generated by the app, not arbitrary layouts invented by the model. For example, if Kyro finds a conversation or quote draft, the UI can render a card to open it. Some answers can also include summary cards, approval queues, contact timelines, usage summaries, generated-image cards, and memory suggestions. Kyro uses the model to decide which approved app tool fits the request, then the app code validates and executes that tool.
 
-The Assistant persists conversation history in the workspace thread. Voice mode uses the same thread so the user can move between typing and talking without losing context.
+Image generation works best from the text Assistant because the user can attach photos, plans, inspiration images, or written direction and then review the generated image card. Kyro stores uploaded references privately, calls OpenAI Images when the request is clearly visual, saves the result as a Kyro file, and shows open/download actions in chat and Files. Follow-up edits such as "make it night time" reuse the latest generated image saved in the current Assistant thread, so they can recover even after a browser refresh or dev-server restart. Kyro lets OpenAI choose the image size by default, but pins the closest supported size when the user clearly asks for a format: landscape/wide/16:9-style requests use the landscape size, portrait/vertical/9:16-style requests use the portrait size, and square/1:1/9:9 requests use square. For quote/invoice PDFs, use Files; image generation is for one-off visuals, concepts, and marketing material rather than transactional documents.
+
+The suggestion buttons above the Assistant message box are adaptive. Kyro keeps a
+small stored set of reusable, customer-agnostic prompts for each workspace user,
+based on the user's recent first-of-day or first-of-session Assistant requests.
+The visible four suggestions can rotate from the stored list over time. Kyro must
+not turn specific customer names, addresses, emails, phone numbers, or one-off
+file ids into suggestion buttons.
+
+The Assistant persists conversation history for the main user chat without making the user manage chat threads. Kyro uses internal threads, summaries, and best-effort context snapshots to keep context efficient over time. If snapshot storage is unavailable, chat turns continue from raw recent messages and saved memories. Separate customer-facing calls or future channel conversations can use their own internal threads while still receiving the right CRM context.
 
 ## Voice Screen
 
@@ -108,7 +126,7 @@ Voice mode is intended to be the same assistant as the text Assistant:
 - same workspace,
 - same Assistant thread,
 - same memory context,
-- same CRM command router,
+- same LLM-first tool planner and audited tool executors,
 - same help/manual access,
 - same safe settings permissions,
 - same connected email sync tool,
@@ -116,7 +134,7 @@ Voice mode is intended to be the same assistant as the text Assistant:
 
 Use Voice when the user wants a more natural back-and-forth conversation. Use text Assistant when the user wants to review cards, links, details, or typed instructions.
 
-Voice can call Kyro tools while speaking. For example, if the user asks "check my email" or "what does lookback mean", voice should call the context tool rather than guessing.
+Voice can call Kyro tools while speaking. For example, if the user asks "check my email" or "what does lookback mean", voice should call the context tool rather than guessing. Voice can also start a simple image-generation request, but for complex visual work it should guide the user back to the text Assistant so they can attach images and inspect the result.
 
 ## Inbox Screen
 
@@ -128,6 +146,7 @@ Inbox buckets can include:
 
 - Needs reply: conversations where the customer likely needs a response.
 - Missing info: Kyro needs details before a quote or next step is practical.
+- Follow-up due: Kyro already replied, the workspace follow-up delay has passed, and the customer has not replied yet.
 - Ready to quote: Kyro has enough information to prepare or send a quote.
 - Site visit needed: the job likely needs an appointment or inspection.
 - Awaiting customer: Kyro is waiting for the customer to reply.
@@ -135,7 +154,17 @@ Inbox buckets can include:
 - Needs review: Kyro needs the user to check information or classification.
 - Needs approval: an action is waiting for user approval.
 
-Opening a conversation shows the customer profile, lead status, inquiry facts, thread messages, draft replies, proposed actions, quote draft links, AI triage details, usage events, audit history, and status controls.
+Opening a conversation shows the customer profile, lead status, inquiry facts, thread messages, draft replies, proposed actions, quote draft links, internal tasks, site-visit appointment records, AI triage details, usage events, audit history, and status controls.
+
+Each message in a conversation has message controls. The user can:
+
+- assign a task to themselves,
+- mark that specific message resolved without closing the whole conversation,
+- add an internal note that is never sent to the customer.
+
+Site-visit suggestions are saved as internal appointment/task records first. Calendar integration is future work; the saved Kyro record is the source of truth for now.
+
+Follow-up reminders are internal CRM reminders. By default Kyro creates a follow-up reminder two days after an outbound reply is recorded, but the workspace default can be changed in Settings. The reminder only surfaces as due once that delay has passed, and it is cleared automatically if a new inbound customer message arrives.
 
 ## Replying From Inbox
 
@@ -216,16 +245,63 @@ Use it to:
 - search by name, company, job, email, phone, or address,
 - sort by last interacted, alphabetical order, most messages, or most leads,
 - edit contact details,
+- use Google-powered address autocomplete where available while still allowing manual address entry,
+- set whether a profile is currently a lead or a client, separately from its contact category,
+- see duplicate warnings when another profile shares the same normalized email or phone,
+- review profile conflicts when email and phone point at different existing profiles,
+- merge duplicate profiles without losing messages, leads, quote drafts, actions, or audit history,
+- see other contacts attached to the same company name,
+- review lifecycle suggestions when Kyro thinks a lead/client stage looks stale,
 - inspect linked conversations, leads, messages, AI runs, actions, audit history, and quote drafts.
 
 The old `/leads` route redirects to CRM because leads are now a CRM filter rather than a separate primary screen.
 
-## Documents Screen
+Contact category and lifecycle are intentionally separate. Category describes
+what kind of person or organisation the profile is, such as client, supplier,
+contractor, builder, property manager, or other. Lifecycle describes whether the
+relationship is still a lead or has become a client. Users can change lifecycle
+manually from the CRM profile editor. Manual lifecycle changes are treated as
+authoritative until the user clears the manual lifecycle override from the CRM
+profile panel.
 
-Documents currently focuses on quote drafts and print-ready customer quote output.
+Kyro can also review lifecycle status in the background or from the CRM review
+buttons. It looks for evidence such as accepted quote links, approved/booked
+work, repeated two-way communication, completed business actions, and future
+commercial records such as paid invoices, work orders, and billing records.
+Automated review does not silently change the profile; even high-confidence
+findings create a suggestion with a reason that the user can apply or ignore.
+
+Profile resolution is also handled in CRM. If a new inquiry has identity signals
+that conflict, such as an email that matches one profile and a phone number that
+matches another, Kyro creates or flags a profile for review instead of guessing.
+The Profile review filter shows these records and normalized email/phone
+duplicates. From the profile panel, the user can merge either direction or mark
+the profiles reviewed and separate. A merge keeps the chosen profile active,
+moves linked messages, conversations, leads, inquiry facts, quote drafts, and
+contact-targeted actions to it, and archives the source profile so its audit
+history remains traceable.
+
+Address entry stores two layers of data. The visible `address` is the human-readable
+address the user sees and can edit. When the user selects a Google address result,
+Kyro also stores structured components such as line one, suburb/locality, state,
+postcode, country, latitude/longitude, Google place id, and validation status.
+If Google lookup is unavailable or the user types a non-standard job-site note,
+Kyro still saves the manual address and marks it as manual/unverified rather than
+blocking the workflow.
+
+Autocomplete is country-aware. Kyro uses the workspace default phone region as
+the address country filter, so an Australian workspace should not see Canadian
+address suggestions for normal address entry. The server can also be configured
+with an operating-area location bias so local addresses appear first while
+interstate addresses inside the same country can still be selected.
+
+## Files Screen
+
+Files focuses on saved assets, quote drafts, reusable templates, generated quote/invoice PDFs, and customer quote output.
 
 Use it to:
 
+- open/download generated images, uploaded references, inbound attachments, and generated PDFs,
 - list saved quote drafts,
 - filter drafts by all, draft, ready, sent, archived, linked, or unlinked,
 - open an unsaved quote-draft editor from a reusable template,
@@ -238,6 +314,8 @@ Use it to:
 - save basic document template direction such as accent colour, currency, validity period, payment terms, and footer text,
 - open a customer-facing quote document and use the browser print flow,
 - download a server-generated customer PDF from a quote draft,
+- generate an invoice PDF from a saved quote draft without payment processing or bookkeeping,
+- see recent saved generated PDFs and download or file them to Google Drive,
 - prepare a customer email with the generated quote PDF attached for user review and approval,
 - create a secure customer approval link so the customer can approve a quote or request changes,
 - send a linked quote draft back to an inquiry composer with that draft preselected as the PDF attachment.
@@ -266,17 +344,17 @@ Users can ask Kyro in Assistant or Voice to create a quote draft from an existin
 
 Users can also ask Kyro in Assistant or Voice what quotes are ready to send, or ask it to prepare a quote email, for example "what quotes are ready to send?", "send the bathroom quote to Mikel", or "draft an email for this quote". Kyro does not directly send the customer email from that instruction. Instead, it finds the matching open quote, checks that the quote is linked to an inquiry and has a customer email, creates a secure customer approval link, generates the current PDF, creates a reviewable email draft action with the PDF attached, and links the user to the inquiry so they can approve or edit before sending. If the quote is a revision, Kyro keeps the active quote version and uses a revised-quote subject. If the request is vague or several quote drafts could match, Kyro asks the user to choose.
 
-Quote drafts now have three customer-output paths. The Print / PDF button opens deterministic customer-facing HTML for browser print/preview. The Download PDF button creates a server-generated PDF from the same structured quote data. The Send to customer button creates a secure approval link, generates the PDF, records the generated-document metadata on the quote draft, creates a reviewable email draft action with the PDF attached and approval URL in the email body, and redirects to the linked inquiry so the user can check the message before sending. The quote page also has a Customer approval card where the user can create a fresh approval link manually. Fresh links revoke older active links for the same quote draft.
+Quote drafts now have four customer-output paths. The Print / PDF button opens deterministic customer-facing HTML for browser print/preview. The Download PDF button creates and saves a server-generated PDF from the same structured quote data. The Generate invoice button creates and saves an invoice PDF from the same saved quote/template data without any payment, bookkeeping, or reconciliation side effects. The Send to customer button creates a secure approval link, generates and saves the PDF, creates a reviewable email draft action with the PDF attached and approval URL in the email body, and redirects to the linked inquiry so the user can check the message before sending. The quote page also has a Customer approval card where the user can create a fresh approval link manually. Fresh links revoke older active links for the same quote draft.
 
 The customer approval page lives at `/quote/approve/[token]` and does not require the customer to sign in. The token is a bearer secret in the URL; Kyro stores a hash of it in `quote_approval_links` rather than storing the raw token. Customers can approve the quote or request changes. Approval marks the quote draft `approved` and records a `customer_approved` history event. Change requests mark the quote draft `changes_requested`, record the note, reopen the linked conversation when there is one, and add a portal-origin inbound message so the user sees the requested change in the work queue.
 
 Quote revisions are tracked automatically. A new quote starts as `v1`. If a customer requests changes, the quote remains tied to the same draft but is flagged as needing revision in Inbox and Documents. The user edits the quote normally; once the content changes after the request, Kyro increments the version, for example from `v1` to `v2`, and treats the customer request as resolved for that revision. Sending the revised quote creates a fresh approval link and a new reviewable email draft. Older active approval links for the same quote are revoked when a fresh link is created.
 
-When the user sends a generated quote email, Kyro regenerates the PDF attachment, stores the retryable attachment file privately when needed, queues/sends through the connected Gmail or Outlook account, records the outbound message, and marks the quote draft sent after provider acceptance.
+When the user sends a generated quote email, Kyro regenerates the PDF attachment, stores or reuses the generated document record, stores retryable attachment bytes privately for the outbox when needed, queues/sends through the connected Gmail or Outlook account, records the outbound message, and marks the quote draft and generated document sent after provider acceptance.
 
 Quote drafts also show a lightweight document and customer approval history. Kyro records document events in quote metadata when a PDF is downloaded, when an email is prepared with the PDF attached, when the PDF is actually sent, when a customer views the approval page, when they approve, and when they request changes. Each generated document metadata record includes a content hash of the quote data and template settings used to render it, plus the active quote version. The quote page compares that hash with the current quote content and can show whether the quote has changed since the last generated/prepared/sent document. Users can ask Kyro in Assistant or Voice questions such as "has this quote been sent?", "when did we send Sarah the bathroom quote?", "has Sarah approved the quote?", "did Sarah request changes?", "what version is the quote on?", or "has this quote changed since it was sent?"
 
-The current generated-document storage is metadata-first for quote history. Kyro records filename, content type, size, renderer, generation time, content hash, version-history events, and send/audit details on the quote draft and message metadata. PDFs are generated on demand for preview/download, and outbound sends can temporarily store the attached PDF in private Supabase Storage so delivery retries work. Long-term Drive filing, accounting exports, invoice issuing, payment collection, and full generated-document library records are still future work.
+Generated-document storage is now first-class for quote and invoice PDFs. Kyro records each generated PDF in `generated_documents`, stores the binary in private Supabase Storage through a `files` row, links it back to the quote draft/contact/lead/conversation, and keeps lightweight history snapshots on the quote draft for the timeline. The user can download saved PDFs or file them to Google Drive when a connected Google account has Drive access. Payment collection, bookkeeping, reconciliation, billing-provider integration, and full accounting exports are still future work.
 
 For marketing or creative documents, Kyro should use a different path from quotes and invoices. Marketing images, social graphics, flyers, and campaign-style creative assets can use OpenAI image generation later because those assets benefit from more visual generation and iteration. Transactional quote/invoice documents should stay structured first, with AI helping fill content and adjust templates rather than inventing totals or legal/payment details.
 
@@ -303,12 +381,20 @@ Developer is an internal testing and operations area. It is not intended as a no
 Developer currently includes:
 
 - mock inbound inquiry tools for testing CRM workflows,
+- the System Health screen at `/developer/system-health`,
+- the Smoke Test Checklist at `/developer/smoke-tests`,
 - the Outbox operations screen at `/developer/outbox`,
+- the Assistant tool registry at `/developer/assistant-tools`,
+- readiness checks for Supabase tables, private storage, OAuth scopes, provider env, cron/worker secrets, inbound sync, outbox processing, generated documents, and recent failed rows,
+- a read-only manual runbook for checking mock inbound, draft replies, generated PDFs, outbound delivery, inbound email, and Log/audit visibility,
 - delivery filters for queued, retry-scheduled, failed, sent, and dismissed outbound rows,
 - retry and dismiss controls for outbox rows,
-- delivery metadata for provider ids, provider request ids, attempts, next retry time, errors, and attachments.
+- delivery metadata for provider ids, provider request ids, attempts, next retry time, errors, and attachments,
+- a registry view of Assistant tools, permission gates, provider readiness, and known UI block types.
 
 Use Developer -> Outbox operations when a sent email appears to have failed, a provider was disconnected during send, or a retry needs manual inspection.
+Use Developer -> System Health when checking whether the local or deployed environment has the right tables, buckets, providers, OAuth scopes, and worker secrets. It reports whether values are present or missing, but it should not display secret values.
+Use Developer -> Smoke Test Checklist as the builder runbook after larger changes or deployment. It links to the relevant app surfaces but does not create test data on its own.
 
 ## Settings Overview
 
@@ -341,17 +427,27 @@ The current display conversion layer uses placeholder static rates and clearly m
 
 Kyro can change the display currency when the user asks clearly, for example: "Set the display currency to AUD."
 
+Default phone region also lives in General. It is only used when a customer gives
+Kyro a bare local phone number without an international country code. Explicit
+international numbers such as `+61`, `+1`, or `+44` keep their own country. The
+default region helps Kyro normalize local numbers correctly for duplicate
+detection and contact matching in Australia, the USA, the UK, or another
+supported region.
+
 ## Communication Settings
 
 Communication settings define outbound communication behaviour. They now live inside Settings -> Connected accounts because outbound rules, email signatures, and provider connections belong together.
 
 Current communication settings include:
 
-- default reply tone,
+- outbound writing style for AI-generated replies, including tone, wording style, message length, sign-off guidance, trade phrasing, and reusable reply instructions,
 - whether approval is required before outbound actions,
 - allowed channels such as email, SMS, phone, and manual notes,
 - user email signature,
 - optional separate assistant-generated signature.
+
+The saved writing style is applied to AI-generated email/SMS drafts from the inbox
+reply generator and inbound triage. It is not just display text in Settings.
 
 High-risk communication choices remain user-controlled in Settings. Kyro can explain them, but it should not silently change outbound approval policy, signatures, or provider secrets through chat.
 
@@ -517,7 +613,7 @@ Usage can show:
 
 - total usage charge for the selected period,
 - ledger event count,
-- usage by task, such as live voice, inbound email processing, document generation, web search, reply drafting, or pronunciation vocabulary,
+- usage by task, such as live voice, inbound email processing, document generation, image generation, web search, reply drafting, or pronunciation vocabulary,
 - provider/model/service breakdown with small info bubbles explaining what each model/service is used for,
 - detailed usage ledger events in a modal opened from the Usage screen, with CSV export for the selected range.
 
@@ -534,6 +630,10 @@ tracks text input, audio input, cached input, text output, audio output, and rea
 tokens separately.
 OpenAI text-to-speech rows use a pricing-derived estimate when the provider does not return
 audio-token usage directly; the row metadata marks those estimates and records the pricing source.
+OpenAI image generation rows prefer provider-returned image token usage when available. That
+means render/edit costs can include prompt text tokens, reference-image input tokens, and
+generated-image output tokens. If the provider does not return usage, Kyro falls back to a
+per-image price snapshot and marks the row as estimated.
 
 The read-only billing export endpoint is `/api/billing/usage`. It returns stored
 customer-charge snapshots for a monthly, weekly, or custom range so a future Stripe,
@@ -568,6 +668,7 @@ Kyro can directly change a constrained set of low-risk settings when the user as
 
 - workspace timezone,
 - workspace display currency,
+- workspace default phone region,
 - inbound email sync mode,
 - daytime email poll frequency,
 - quiet-hours enabled/disabled state,
@@ -607,6 +708,16 @@ Kyro can save explicit long-term memories when the user asks clearly, for exampl
 - "Note that John is our main supplier contact."
 
 Kyro should not treat every casual statement as a permanent memory. Memories are for deliberate user instructions or durable context.
+
+Kyro can also suggest a memory when a message sounds like a durable preference, policy, or future instruction but the user did not explicitly say "remember". Suggested memories are shown for approval in the Assistant. They do not affect future context unless the user presses Remember. If the user dismisses a suggestion, it remains rejected rather than being silently used later.
+
+Kyro also keeps compacted Assistant context snapshots behind the scenes. The user
+does not need to manage threads or start a new chat. Raw Assistant turns remain
+stored, while older chat context is summarized into daily snapshots and
+weekly/monthly rollups. Normal turns receive only recent messages, approved
+memories, the rolling thread summary, and a few relevant snapshots. If the user
+asks what was discussed earlier, Kyro can search those snapshots and the saved raw
+message log instead of stuffing months of chat into every model prompt.
 
 ## Data And Audit Trail
 
@@ -660,6 +771,7 @@ If inbound email does not work:
 - use the manual Check inbox button,
 - ask Kyro to check recent email,
 - check sync errors in Settings when surfaced.
+- use Developer -> System Health to check provider scopes, worker secrets, recent sync failures, and Supabase/storage readiness.
 
 If outbound email does not send:
 
@@ -668,7 +780,15 @@ If outbound email does not send:
 - check whether the provider account needs reconnecting,
 - open the conversation and look for a failed delivery or retry state,
 - use Developer -> Outbox operations for deeper retry or dismiss controls,
+- use Developer -> System Health for recent failed outbox rows and provider/worker readiness,
 - check that `/api/outbox/process` is configured with the expected cron secret in production.
+
+If image generation does not work:
+
+- check `OPENAI_API_KEY`,
+- check that the private Supabase Storage bucket exists or can be created by the service-role server path,
+- check that the uploaded reference files are supported images such as PNG, JPEG, or WebP,
+- ask from the text Assistant for complex visual work so Kyro can use attachments and show the generated image card.
 
 If voice does not work:
 
@@ -702,6 +822,8 @@ Relevant builder references include:
 
 - `docs/current-architecture.md` for app structure, data flow, integration behaviour, known gaps, and verification commands.
 - `docs/deployment-checklist.md` for production environment variables, OAuth setup, Supabase checks, cron sync, outbox processing, OpenAI/realtime voice, and deployment smoke tests.
+- OpenAI image generation needs server-side `OPENAI_API_KEY`; optional `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_SIZE`, and `OPENAI_IMAGE_QUALITY` values control the image provider defaults. Current app defaults use `gpt-image-2`, high quality, and `auto` size unless the prompt explicitly asks for landscape, portrait, or square. Costing prefers provider-returned image token usage; `OPENAI_IMAGE_COST_PER_IMAGE` is only a fallback, and `OPENAI_IMAGE_*_COST_PER_1M` token-price overrides can update the pricing snapshot without code changes.
+- Google address lookup needs server-side `GOOGLE_MAPS_API_KEY`; `GOOGLE_ADDRESS_VALIDATION_API_KEY` can override validation if a separate key is used. Optional `GOOGLE_MAPS_LOCATION_BIAS_LAT`, `GOOGLE_MAPS_LOCATION_BIAS_LNG`, and `GOOGLE_MAPS_LOCATION_BIAS_RADIUS_METERS` values bias autocomplete toward the service area.
 - `npm run test`, `npm run typecheck`, `npm run lint`, `npm run build`, and `npm run env:check` for local verification.
 
 ## How Kyro Should Answer Help Questions

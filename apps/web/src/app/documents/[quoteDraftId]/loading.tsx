@@ -3,7 +3,7 @@ import { PageSkeleton } from "../../components/page-skeleton";
 
 export default function QuoteDraftLoading() {
   return (
-    <AppFrame active="Documents">
+    <AppFrame active="Files">
       <PageSkeleton detail eyebrow="Loading" title="Quote draft" />
     </AppFrame>
   );

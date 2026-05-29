@@ -74,4 +74,36 @@ describe("buildReplyDraftPrompt", () => {
       false,
     );
   });
+
+  it("includes saved outbound writing settings in the draft rules", () => {
+    const prompt = parsePrompt({
+      contactName: "Sarah",
+      latestSubject: "Drain quote",
+      prompt: null,
+      replyWriting: {
+        messageLength: "short",
+        reusableInstructions: "Ask for photos before booking drain work.",
+        signOff: "Use the saved signature only.",
+        tone: "Warm but no nonsense",
+        tradePhrasing: "Use plumbing language and mention site access.",
+        wordingStyle: "Plain text with short sentences.",
+      },
+      source: "conversation",
+      thread: [
+        {
+          body: "Can you look at my blocked drain?",
+          direction: "inbound",
+          subject: "Drain quote",
+        },
+      ],
+    });
+
+    assert.equal(prompt.context.replyWriting?.tone, "Warm but no nonsense");
+    assert.ok(
+      prompt.rules.some((rule) => rule.includes("Writing style - Tone")),
+    );
+    assert.ok(
+      prompt.rules.some((rule) => rule.includes("Ask for photos")),
+    );
+  });
 });

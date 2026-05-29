@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getConversationReview } from "../../../../lib/crm/queries";
 import {
+  DEFAULT_REPLY_WRITING_SETTINGS,
+  getCommunicationSettings,
+  replyWritingPromptRules,
+  type ReplyWritingSettings,
+} from "../../../../lib/communication/settings";
+import {
   buildLlmUsageEvents,
   openAiProviderUsageId,
   openAiUsageFromResponse,
@@ -31,6 +37,7 @@ export type ReplyDraftContext = {
   latestSubject?: string | null;
   leadTitle?: string | null;
   prompt: string | null;
+  replyWriting?: ReplyWritingSettings;
   source: "conversation" | "skipped_email";
   skippedEmail?: {
     category: string | null;
@@ -132,6 +139,12 @@ function replySubject(value: string | null) {
 }
 
 export function buildReplyDraftPrompt(context: ReplyDraftContext) {
+  const replyWriting =
+    context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  const promptContext: ReplyDraftContext = {
+    ...context,
+    replyWriting,
+  };
   const skippedEmailRules =
     context.source === "skipped_email"
       ? [
@@ -148,7 +161,7 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
 
   return JSON.stringify(
     {
-      context,
+      context: promptContext,
       outputContract: {
         body: "string",
         subject: "string",
@@ -156,10 +169,13 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
       rules: [
         "Return JSON only.",
         "Write as Kyro on behalf of the business owner, not as an AI assistant.",
-        "Keep the reply friendly, practical, and concise.",
+        "Apply context.replyWriting to tone, wording style, message length, sign-off behavior, trade phrasing, and reusable instructions.",
         "Do not invent prices, availability, addresses, phone numbers, or promises not present in context.",
         "Follow the user's direction prompt if provided, unless it conflicts with the available context.",
         "Use a normal email subject beginning with Re: when appropriate.",
+        ...replyWritingPromptRules(replyWriting).map(
+          (rule) => `Writing style - ${rule}`,
+        ),
         ...skippedEmailRules,
       ],
       task: "Draft an outbound email reply for the user to review before sending.",
@@ -196,7 +212,7 @@ async function runOpenAiReplyDraft(context: ReplyDraftContext) {
     body: JSON.stringify({
       input: prompt,
       instructions:
-        "You draft concise customer email replies for Kyro, a trades/service CRM. Return compact JSON matching the schema.",
+        "You draft customer email replies for Kyro, a trades/service CRM. Apply the workspace writing style in the prompt and return compact JSON matching the schema.",
       max_output_tokens: replyDraftMaxOutputTokens(),
       model,
       text: {
@@ -393,7 +409,13 @@ export async function POST(request: Request) {
       );
     }
 
-    context.businessProfile = await loadBusinessProfile(supabase, workspace.id);
+    const [businessProfile, communicationSettings] = await Promise.all([
+      loadBusinessProfile(supabase, workspace.id),
+      getCommunicationSettings(supabase, workspace.id),
+    ]);
+
+    context.businessProfile = businessProfile;
+    context.replyWriting = communicationSettings.replyWriting;
 
     const startedAt = Date.now();
     const draft = await runOpenAiReplyDraft(context);

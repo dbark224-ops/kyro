@@ -48,7 +48,7 @@ export default async function NewQuoteDraftPage({
 
   if (!template) {
     redirect(
-      `/documents?engine_error=${encodeURIComponent(
+      `/files?engine_error=${encodeURIComponent(
         "Choose a reusable template before starting a quote draft.",
       )}`,
     );
@@ -58,7 +58,7 @@ export default async function NewQuoteDraftPage({
   const title = draftTitleFromTemplate(template);
 
   return (
-    <AppFrame active="Documents">
+    <AppFrame active="Files">
       <header className="topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>

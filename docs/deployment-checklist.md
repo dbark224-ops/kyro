@@ -25,16 +25,20 @@ Required for the current product:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase publishable/anon key for browser clients.
 - `SUPABASE_SERVICE_ROLE_KEY`: server-only Supabase service role key.
 - `DATABASE_URL`: Postgres connection string used by Drizzle migrations.
-- `OPENAI_API_KEY`: OpenAI key for assistant, triage, realtime voice, transcription, and reply drafting.
+- `OPENAI_API_KEY`: OpenAI key for assistant, triage, realtime voice, transcription, reply drafting, and image generation.
 - `GOOGLE_CLIENT_ID`: Google OAuth client id.
 - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret.
 - `INTEGRATION_TOKEN_ENCRYPTION_KEY`: stable secret used to encrypt OAuth refresh tokens.
 - `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`: bearer secret for scheduled email sync and outbox processing.
 - `OUTBOUND_DELIVERY_SECRET`: optional separate bearer secret for `/api/outbox/process`; if omitted, Kyro accepts `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`.
-- `KYRO_FILE_STORAGE_BUCKET`: optional private Supabase Storage bucket name for inbound attachments and retryable outbound email attachments. Defaults to `kyro-files`.
+- `ASSISTANT_SUGGESTION_REFRESH_SECRET`: optional separate bearer secret for `/api/assistant/suggestions/refresh`; if omitted, Kyro accepts `CRON_SECRET`.
+- `KYRO_FILE_STORAGE_BUCKET`: optional private Supabase Storage bucket name for inbound attachments, assistant uploads, generated images, and retryable outbound email attachments. Defaults to `kyro-files`.
 
 Optional until those integrations are enabled:
 
+- `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_SIZE`, and `OPENAI_IMAGE_QUALITY` if production wants image-generation defaults beyond the app defaults. Kyro currently defaults to `gpt-image-2`, high quality, and `auto` size, with prompt-aware landscape/portrait/square overrides only when the user explicitly asks for a format. `OPENAI_IMAGE_COST_PER_IMAGE` is only a fallback when provider image token usage is unavailable; production can also override token prices with `OPENAI_IMAGE_TEXT_INPUT_COST_PER_1M`, `OPENAI_IMAGE_INPUT_COST_PER_1M`, and `OPENAI_IMAGE_OUTPUT_COST_PER_1M` or model-specific `OPENAI_<MODEL>_IMAGE_*` keys.
+- `GOOGLE_MAPS_API_KEY`
+- `GOOGLE_ADDRESS_VALIDATION_API_KEY` if using a separate key from Places
 - `MICROSOFT_CLIENT_ID`
 - `MICROSOFT_CLIENT_SECRET`
 - `MICROSOFT_TENANT_ID`
@@ -69,6 +73,7 @@ Verify:
 - service-role access is only used from server routes/actions/helpers,
 - the production database is not using a local or throwaway connection string.
 - `quote_approval_links` is not granted to `anon`; public customer approval pages load by token hash through server-only service-role code.
+- Developer -> System Health shows all required tables as reachable through the expected server-side Supabase client path.
 
 ## 4. Google OAuth
 
@@ -90,18 +95,39 @@ If Outlook is enabled, configure Microsoft Entra:
 - tenant id set to `common` unless the product is limited to one tenant,
 - Mail read/send scopes reviewed and approved.
 
-## 6. OpenAI And Realtime Voice
+## 5a. Google Maps Address Lookup
+
+If address autocomplete/verification is enabled:
+
+- enable Places API (New) for autocomplete and place details,
+- enable Address Validation API if stricter postal validation is desired,
+- set `GOOGLE_MAPS_API_KEY` server-side,
+- optionally set `GOOGLE_ADDRESS_VALIDATION_API_KEY` if validation uses a different key,
+- set the workspace default phone region to the main country so autocomplete
+  restricts suggestions to that country,
+- optionally set `GOOGLE_MAPS_LOCATION_BIAS_LAT`,
+  `GOOGLE_MAPS_LOCATION_BIAS_LNG`, and
+  `GOOGLE_MAPS_LOCATION_BIAS_RADIUS_METERS` to bias suggestions toward the
+  business service area without blocking valid interstate addresses,
+- restrict the key to the deployed app/server environment before production use,
+- test CRM profile address editing, Inbox inquiry-fact address editing, and Developer mock inbound.
+
+## 6. OpenAI, Images, And Realtime Voice
 
 Verify production has:
 
 - `OPENAI_API_KEY`,
 - assistant/text model vars,
+- image-generation vars if overriding the defaults,
 - realtime model and voice vars,
 - transcription/TTS model vars if using fallback speech routes.
 
 Run a smoke test for:
 
+- Developer -> System Health, confirming no required production check is unexpectedly missing,
+- Developer -> Smoke Test Checklist, using it as the manual runbook for the items below,
 - text assistant answer,
+- text assistant image generation with and without an uploaded reference image,
 - realtime voice session creation,
 - pronunciation preview,
 - reply draft generation,
@@ -128,11 +154,22 @@ It also registers the outbound delivery processor:
 }
 ```
 
+It also registers the weekly adaptive assistant suggestion refresh:
+
+```json
+{
+  "path": "/api/assistant/suggestions/refresh",
+  "schedule": "0 11 * * 0"
+}
+```
+
 Before enabling production cron:
 
 - set `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`,
+- set `ASSISTANT_SUGGESTION_REFRESH_SECRET` if the assistant suggestion refresh should not share `CRON_SECRET`,
 - confirm `/api/integrations/email/sync` returns authorized only with the bearer secret,
 - confirm `/api/outbox/process` returns authorized only with `OUTBOUND_DELIVERY_SECRET`, `INBOUND_EMAIL_SYNC_SECRET`, or `CRON_SECRET`,
+- confirm `/api/assistant/suggestions/refresh` returns authorized only with `ASSISTANT_SUGGESTION_REFRESH_SECRET` or `CRON_SECRET`,
 - run one manual sync from Settings,
 - check the Settings inbound trace for the latest sync run counts and recent email decisions,
 - confirm reconnect-needed states are visible for accounts with missing scopes or undecryptable tokens,
@@ -154,7 +191,8 @@ Recommended deploy sequence:
 6. Run `npm run build`.
 7. Apply migrations with `npm run db:migrate` against production only when ready.
 8. Deploy.
-9. Smoke test sign-in, Settings, Assistant, Voice, Inbox, Gmail connect, Gmail send, and inbound sync.
+9. Open Developer -> System Health and confirm required production checks are green or explicitly understood.
+10. Run Developer -> Smoke Test Checklist for sign-in, Settings, Assistant, Voice, Inbox, Gmail connect, Gmail send, generated documents, outbox, Log/audit, and inbound sync.
 
 ## 9. Current Known Production Gaps
 
@@ -164,4 +202,4 @@ Recommended deploy sequence:
 - SMS/phone providers are not connected yet.
 - Native iOS shell is future work; current UI is web/iOS-shaped.
 - Billing UI is usage visibility only, not payment collection.
-- Quote PDF generation can download/send server-generated PDFs, but durable PDF storage, Drive sync, accounting exports, and payment collection are still future work.
+- Image generation is Assistant/file-storage backed. Rich media gallery/history, multi-turn visual editing, and mobile camera-first flows are future work.

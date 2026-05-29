@@ -36,15 +36,15 @@ export default async function TemplateReviewPage({
   }
 
   return (
-    <AppFrame active="Documents">
+    <AppFrame active="Files">
       <header className="topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>
           <h1>Review template</h1>
         </div>
         <div className="topbar-actions">
-          <Link className="secondary-button link-button" href="/documents" prefetch={false}>
-            Back to documents
+          <Link className="secondary-button link-button" href="/files" prefetch={false}>
+            Back to files
           </Link>
         </div>
       </header>

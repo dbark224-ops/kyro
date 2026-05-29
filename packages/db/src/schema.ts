@@ -156,8 +156,54 @@ export const contacts = pgTable(
     email: text("email"),
     phone: text("phone"),
     company: text("company"),
+    normalizedEmail: text("normalized_email"),
+    normalizedPhone: text("normalized_phone"),
+    normalizedCompany: text("normalized_company"),
     contactType: text("contact_type").notNull().default("client"),
+    lifecycleStage: text("lifecycle_stage").notNull().default("lead"),
+    lifecycleSource: text("lifecycle_source").notNull().default("system"),
+    lifecycleReason: text("lifecycle_reason"),
+    lifecycleReviewedAt: timestamp("lifecycle_reviewed_at", {
+      withTimezone: true,
+    }),
+    profileResolutionStatus: text("profile_resolution_status")
+      .notNull()
+      .default("clear"),
+    profileResolutionReason: text("profile_resolution_reason"),
+    profileConflictContactIds: jsonb("profile_conflict_contact_ids")
+      .notNull()
+      .default([]),
+    mergedIntoContactId: uuid("merged_into_contact_id"),
+    profileResolvedAt: timestamp("profile_resolved_at", {
+      withTimezone: true,
+    }),
+    profileResolvedByUserId: uuid("profile_resolved_by_user_id").references(
+      () => users.id,
+    ),
     address: text("address"),
+    addressLine1: text("address_line1"),
+    addressLine2: text("address_line2"),
+    addressLocality: text("address_locality"),
+    addressAdministrativeArea: text("address_administrative_area"),
+    addressPostalCode: text("address_postal_code"),
+    addressCountryCode: text("address_country_code"),
+    addressLatitude: numeric("address_latitude", {
+      precision: 12,
+      scale: 8,
+    }),
+    addressLongitude: numeric("address_longitude", {
+      precision: 12,
+      scale: 8,
+    }),
+    addressPlaceId: text("address_place_id"),
+    addressSource: text("address_source").notNull().default("manual"),
+    addressValidationStatus: text("address_validation_status")
+      .notNull()
+      .default("unverified"),
+    addressValidatedAt: timestamp("address_validated_at", {
+      withTimezone: true,
+    }),
+    addressStructured: jsonb("address_structured").notNull().default({}),
     source: text("source"),
     notes: text("notes"),
     tags: jsonb("tags").notNull().default([]),
@@ -169,6 +215,42 @@ export const contacts = pgTable(
       table.workspaceId,
       table.contactType,
     ),
+    contactWorkspaceLifecycleIdx: index("contacts_workspace_lifecycle_idx").on(
+      table.workspaceId,
+      table.lifecycleStage,
+      table.lifecycleSource,
+    ),
+    contactWorkspaceProfileResolutionIdx: index(
+      "contacts_workspace_profile_resolution_idx",
+    ).on(table.workspaceId, table.profileResolutionStatus),
+    contactWorkspaceMergedIntoIdx: index("contacts_workspace_merged_into_idx")
+      .on(table.workspaceId, table.mergedIntoContactId)
+      .where(sql`${table.mergedIntoContactId} is not null`),
+    contactWorkspaceNormalizedEmailIdx: index(
+      "contacts_workspace_normalized_email_idx",
+    )
+      .on(table.workspaceId, table.normalizedEmail)
+      .where(sql`${table.normalizedEmail} is not null`),
+    contactWorkspaceNormalizedPhoneIdx: index(
+      "contacts_workspace_normalized_phone_idx",
+    )
+      .on(table.workspaceId, table.normalizedPhone)
+      .where(sql`${table.normalizedPhone} is not null`),
+    contactWorkspaceNormalizedCompanyIdx: index(
+      "contacts_workspace_normalized_company_idx",
+    )
+      .on(table.workspaceId, table.normalizedCompany)
+      .where(sql`${table.normalizedCompany} is not null`),
+    contactWorkspaceAddressPlaceIdx: index(
+      "contacts_workspace_address_place_idx",
+    )
+      .on(table.workspaceId, table.addressPlaceId)
+      .where(sql`${table.addressPlaceId} is not null`),
+    contactWorkspaceAddressPostalIdx: index(
+      "contacts_workspace_address_postal_idx",
+    )
+      .on(table.workspaceId, table.addressCountryCode, table.addressPostalCode)
+      .where(sql`${table.addressPostalCode} is not null`),
   }),
 );
 
@@ -465,6 +547,114 @@ export const actions = pgTable("actions", {
   ...timestamps,
 });
 
+export const conversationTasks = pgTable(
+  "conversation_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    conversationId: uuid("conversation_id").references(() => conversations.id),
+    messageId: uuid("message_id").references(() => messages.id),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    leadId: uuid("lead_id").references(() => leads.id),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    sourceActionId: uuid("source_action_id").references(() => actions.id),
+    taskType: text("task_type").notNull().default("manual_task"),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("open"),
+    priority: text("priority").notNull().default("normal"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    conversationTasksWorkspaceStatusIdx: index(
+      "conversation_tasks_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.dueAt),
+    conversationTasksConversationIdx: index(
+      "conversation_tasks_conversation_idx",
+    ).on(table.workspaceId, table.conversationId, table.createdAt),
+    conversationTasksMessageIdx: index("conversation_tasks_message_idx").on(
+      table.workspaceId,
+      table.messageId,
+    ),
+    conversationTasksAssigneeIdx: index("conversation_tasks_assignee_idx").on(
+      table.workspaceId,
+      table.assignedToUserId,
+      table.status,
+    ),
+  }),
+);
+
+export const conversationAppointments = pgTable(
+  "conversation_appointments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    conversationId: uuid("conversation_id").references(() => conversations.id),
+    messageId: uuid("message_id").references(() => messages.id),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    leadId: uuid("lead_id").references(() => leads.id),
+    taskId: uuid("task_id").references(() => conversationTasks.id),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    sourceActionId: uuid("source_action_id").references(() => actions.id),
+    appointmentType: text("appointment_type").notNull().default("site_visit"),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("suggested"),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    location: text("location"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    conversationAppointmentsWorkspaceStatusIdx: index(
+      "conversation_appointments_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.startsAt),
+    conversationAppointmentsConversationIdx: index(
+      "conversation_appointments_conversation_idx",
+    ).on(table.workspaceId, table.conversationId, table.createdAt),
+    conversationAppointmentsTaskIdx: index(
+      "conversation_appointments_task_idx",
+    ).on(table.workspaceId, table.taskId),
+  }),
+);
+
+export const conversationNotes = pgTable(
+  "conversation_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    conversationId: uuid("conversation_id").references(() => conversations.id),
+    messageId: uuid("message_id").references(() => messages.id),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    leadId: uuid("lead_id").references(() => leads.id),
+    authorUserId: uuid("author_user_id").references(() => users.id),
+    body: text("body").notNull(),
+    visibility: text("visibility").notNull().default("internal"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    conversationNotesConversationIdx: index(
+      "conversation_notes_conversation_idx",
+    ).on(table.workspaceId, table.conversationId, table.createdAt),
+    conversationNotesMessageIdx: index("conversation_notes_message_idx").on(
+      table.workspaceId,
+      table.messageId,
+    ),
+  }),
+);
+
 export const outboundMessages = pgTable(
   "outbound_messages",
   {
@@ -480,7 +670,9 @@ export const outboundMessages = pgTable(
     channelType: text("channel_type").notNull(),
     provider: text("provider"),
     service: text("service"),
-    connectionId: uuid("connection_id").references(() => integrationConnections.id),
+    connectionId: uuid("connection_id").references(
+      () => integrationConnections.id,
+    ),
     recipient: text("recipient"),
     subject: text("subject"),
     bodyText: text("body_text").notNull(),
@@ -586,9 +778,78 @@ export const quoteApprovalLinks = pgTable(
       table.workspaceId,
       table.quoteDraftId,
     ),
-    quoteApprovalLinkStatusIdx: index(
-      "quote_approval_links_status_idx",
-    ).on(table.workspaceId, table.status),
+    quoteApprovalLinkStatusIdx: index("quote_approval_links_status_idx").on(
+      table.workspaceId,
+      table.status,
+    ),
+  }),
+);
+
+export const generatedDocuments = pgTable(
+  "generated_documents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    documentType: text("document_type").notNull(),
+    lifecycleStatus: text("lifecycle_status").notNull().default("generated"),
+    title: text("title").notNull(),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    leadId: uuid("lead_id").references(() => leads.id),
+    conversationId: uuid("conversation_id").references(() => conversations.id),
+    quoteDraftId: uuid("quote_draft_id").references(() => quoteDrafts.id),
+    fileId: uuid("file_id").references(() => files.id),
+    storageBucket: text("storage_bucket"),
+    storagePath: text("storage_path"),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull().default("application/pdf"),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    contentHash: text("content_hash"),
+    renderer: text("renderer"),
+    documentVersion: text("document_version"),
+    googleDriveFileId: text("google_drive_file_id"),
+    googleDriveWebUrl: text("google_drive_web_url"),
+    googleDriveSyncedAt: timestamp("google_drive_synced_at", {
+      withTimezone: true,
+    }),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    sentMessageId: uuid("sent_message_id").references(() => messages.id),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    filedAt: timestamp("filed_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    generatedDocumentsWorkspaceStatusIdx: index(
+      "generated_documents_workspace_status_idx",
+    ).on(table.workspaceId, table.lifecycleStatus, table.updatedAt),
+    generatedDocumentsWorkspaceTypeIdx: index(
+      "generated_documents_workspace_type_idx",
+    ).on(table.workspaceId, table.documentType, table.updatedAt),
+    generatedDocumentsContactIdx: index("generated_documents_contact_idx").on(
+      table.workspaceId,
+      table.contactId,
+      table.updatedAt,
+    ),
+    generatedDocumentsConversationIdx: index(
+      "generated_documents_conversation_idx",
+    ).on(table.workspaceId, table.conversationId, table.updatedAt),
+    generatedDocumentsQuoteDraftIdx: index(
+      "generated_documents_quote_draft_idx",
+    ).on(table.workspaceId, table.quoteDraftId, table.updatedAt),
+    generatedDocumentsQuoteContentIdx: uniqueIndex(
+      "generated_documents_quote_content_idx",
+    )
+      .on(
+        table.workspaceId,
+        table.quoteDraftId,
+        table.documentType,
+        table.contentHash,
+      )
+      .where(
+        sql`${table.quoteDraftId} is not null and ${table.contentHash} is not null`,
+      ),
   }),
 );
 
@@ -607,6 +868,29 @@ export const inquiryFacts = pgTable(
     sourceAiRunId: uuid("source_ai_run_id").references(() => aiRuns.id),
     jobType: text("job_type"),
     address: text("address"),
+    addressLine1: text("address_line1"),
+    addressLine2: text("address_line2"),
+    addressLocality: text("address_locality"),
+    addressAdministrativeArea: text("address_administrative_area"),
+    addressPostalCode: text("address_postal_code"),
+    addressCountryCode: text("address_country_code"),
+    addressLatitude: numeric("address_latitude", {
+      precision: 12,
+      scale: 8,
+    }),
+    addressLongitude: numeric("address_longitude", {
+      precision: 12,
+      scale: 8,
+    }),
+    addressPlaceId: text("address_place_id"),
+    addressSource: text("address_source").notNull().default("manual"),
+    addressValidationStatus: text("address_validation_status")
+      .notNull()
+      .default("unverified"),
+    addressValidatedAt: timestamp("address_validated_at", {
+      withTimezone: true,
+    }),
+    addressStructured: jsonb("address_structured").notNull().default({}),
     preferredTime: text("preferred_time"),
     urgency: text("urgency").notNull().default("normal"),
     budget: text("budget"),
@@ -625,6 +909,11 @@ export const inquiryFacts = pgTable(
       table.workspaceId,
       table.leadId,
     ),
+    inquiryFactsAddressPlaceIdx: index(
+      "inquiry_facts_workspace_address_place_idx",
+    )
+      .on(table.workspaceId, table.addressPlaceId)
+      .where(sql`${table.addressPlaceId} is not null`),
   }),
 );
 
@@ -718,6 +1007,94 @@ export const assistantMemories = pgTable(
     assistantMemoriesSourceThreadIdx: index(
       "assistant_memories_source_thread_idx",
     ).on(table.workspaceId, table.sourceThreadId),
+  }),
+  );
+
+export const assistantContextSnapshots = pgTable(
+  "assistant_context_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => assistantThreads.id),
+    snapshotType: text("snapshot_type").notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    keyPoints: jsonb("key_points").notNull().default([]),
+    entities: jsonb("entities").notNull().default([]),
+    sourceMessageIds: jsonb("source_message_ids").notNull().default([]),
+    messageCount: integer("message_count").notNull().default(0),
+    tokenEstimate: integer("token_estimate").notNull().default(0),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    assistantContextSnapshotsUniquePeriodIdx: uniqueIndex(
+      "assistant_context_snapshots_unique_period_idx",
+    ).on(
+      table.workspaceId,
+      table.userId,
+      table.threadId,
+      table.snapshotType,
+      table.periodStart,
+    ),
+    assistantContextSnapshotsThreadPeriodIdx: index(
+      "assistant_context_snapshots_thread_period_idx",
+    ).on(
+      table.workspaceId,
+      table.userId,
+      table.threadId,
+      table.snapshotType,
+      table.periodEnd,
+    ),
+    assistantContextSnapshotsWorkspacePeriodIdx: index(
+      "assistant_context_snapshots_workspace_period_idx",
+    ).on(
+      table.workspaceId,
+      table.userId,
+      table.snapshotType,
+      table.periodEnd,
+    ),
+  }),
+);
+
+export const assistantPromptSuggestionSets = pgTable(
+  "assistant_prompt_suggestion_sets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status").notNull().default("active"),
+    source: text("source").notNull().default("weekly"),
+    suggestions: jsonb("suggestions").notNull().default([]),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    model: text("model"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    assistantPromptSuggestionSetsActiveIdx: index(
+      "assistant_prompt_suggestion_sets_active_idx",
+    ).on(table.workspaceId, table.userId, table.status, table.generatedAt),
+    assistantPromptSuggestionSetsPeriodIdx: index(
+      "assistant_prompt_suggestion_sets_period_idx",
+    ).on(table.workspaceId, table.userId, table.periodEnd),
   }),
 );
 

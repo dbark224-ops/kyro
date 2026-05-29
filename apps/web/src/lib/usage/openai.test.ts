@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildLlmUsageEvents,
+  buildOpenAiImageGenerationUsageEvent,
   buildOpenAiWebSearchCallUsageEvent,
   buildRealtimeUsageEvents,
+  openAiImageUsageFromResponse,
   openAiRealtimeUsageFromResponse,
   openAiUsageFromResponse,
   toUsageEventRows,
@@ -20,6 +22,17 @@ const priceEnvKeys = [
   "OPENAI_LLM_MARKUP_RATE",
   "USAGE_MARKUP_RATE",
   "OPENAI_WEB_SEARCH_COST_PER_1K_CALLS",
+  "OPENAI_IMAGE_COST_PER_IMAGE",
+  "OPENAI_IMAGE_TEXT_INPUT_COST_PER_1M",
+  "OPENAI_IMAGE_CACHED_TEXT_INPUT_COST_PER_1M",
+  "OPENAI_IMAGE_INPUT_COST_PER_1M",
+  "OPENAI_IMAGE_CACHED_INPUT_COST_PER_1M",
+  "OPENAI_IMAGE_OUTPUT_COST_PER_1M",
+  "OPENAI_GPT_IMAGE_1_IMAGE_TEXT_INPUT_COST_PER_1M",
+  "OPENAI_GPT_IMAGE_1_IMAGE_CACHED_TEXT_INPUT_COST_PER_1M",
+  "OPENAI_GPT_IMAGE_1_IMAGE_INPUT_COST_PER_1M",
+  "OPENAI_GPT_IMAGE_1_IMAGE_CACHED_INPUT_COST_PER_1M",
+  "OPENAI_GPT_IMAGE_1_IMAGE_OUTPUT_COST_PER_1M",
   "OPENAI_REALTIME_AUDIO_INPUT_COST_PER_1M",
   "OPENAI_REALTIME_AUDIO_OUTPUT_COST_PER_1M",
   "OPENAI_REALTIME_CACHED_INPUT_COST_PER_1M",
@@ -140,6 +153,94 @@ describe("OpenAI usage metering", () => {
       assert.equal(event.usageType, "web_search_calls");
       assert.equal(event.quantity, 1);
       assert.equal(event.costSnapshot, 0.025);
+    }));
+
+  it("normalizes OpenAI image generation usage into text, image, and output token buckets", () => {
+    const usage = openAiImageUsageFromResponse({
+      usage: {
+        input_tokens: 300,
+        input_tokens_details: {
+          image_tokens: 220,
+          text_tokens: 80,
+        },
+        output_tokens: 1056,
+        total_tokens: 1356,
+      },
+    });
+
+    assert.ok(usage);
+    assert.equal(usage.inputTokens, 300);
+    assert.equal(usage.textInputTokens, 80);
+    assert.equal(usage.imageInputTokens, 220);
+    assert.equal(usage.outputImageTokens, 1056);
+    assert.equal(usage.totalTokens, 1356);
+    assert.equal(usage.tokenSplitEstimated, false);
+  });
+
+  it("prices OpenAI image generation from provider token usage when available", () =>
+    withoutPriceEnv(() => {
+      const providerUsage = openAiImageUsageFromResponse({
+        usage: {
+          input_tokens: 300,
+          input_tokens_details: {
+            image_tokens: 220,
+            text_tokens: 80,
+          },
+          output_tokens: 1056,
+          total_tokens: 1356,
+        },
+      });
+
+      assert.ok(providerUsage);
+
+      const event = buildOpenAiImageGenerationUsageEvent({
+        context: {
+          providerUsageId: "img_123",
+          userId: "00000000-0000-4000-8000-000000000002",
+          workspaceId: "00000000-0000-4000-8000-000000000003",
+        },
+        editMode: true,
+        model: "gpt-image-1",
+        providerUsage,
+        quality: "medium",
+        size: "1024x1024",
+      });
+
+      assert.equal(event.usageType, "image_generation");
+      assert.equal(event.quantity, 1);
+      assert.equal(event.unit, "image");
+      assert.equal(event.costSnapshot, 0.04484);
+      assert.equal(event.metadata?.usagePricingMethod, "provider_image_token_usage");
+      assert.equal(event.metadata?.priceEstimated, false);
+      assert.deepEqual(event.metadata?.imageUsage, {
+        cachedImageInputTokens: 0,
+        cachedTextInputTokens: 0,
+        imageInputTokens: 220,
+        inputTokens: 300,
+        outputImageTokens: 1056,
+        outputTokens: 1056,
+        textInputTokens: 80,
+        tokenSplitEstimated: false,
+        totalTokens: 1356,
+      });
+      assert.equal(toUsageEventRows([event])[0].provider_usage_id, "img_123");
+    }));
+
+  it("falls back to per-image image pricing when OpenAI does not return image usage", () =>
+    withoutPriceEnv(() => {
+      const event = buildOpenAiImageGenerationUsageEvent({
+        context: {
+          workspaceId: "00000000-0000-4000-8000-000000000003",
+        },
+        editMode: false,
+        model: "gpt-image-1",
+        quality: "medium",
+        size: "1024x1024",
+      });
+
+      assert.equal(event.costSnapshot, 0.042);
+      assert.equal(event.metadata?.usageEstimated, true);
+      assert.equal(event.metadata?.usagePricingMethod, "per_image_snapshot");
     }));
 
   it("normalizes realtime usage into text, audio, cached, and reasoning rows", () =>

@@ -19,11 +19,14 @@ import {
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
   createMockOutboundMessageAction,
+  createConversationAppointmentAction,
   promoteSkippedEmailToWorkItemAction,
   retryOutboundDeliveryAction,
   sendDraftReplyAction,
   updateDraftReplyAction,
 } from "./actions";
+import { ConversationWorkflowPanel } from "./conversation-workflow-panel";
+import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ReplyGenerator } from "./reply-generator";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
 import { SkippedEmailReplyDetails } from "./skipped-email-reply-details";
@@ -60,6 +63,7 @@ const FILTERS = [
   { value: "all", label: "All" },
   { value: "needs_reply", label: "Needs reply" },
   { value: "missing_info", label: "Missing info" },
+  { value: "follow_up_due", label: "Follow-up due" },
   { value: "ready_to_quote", label: "Ready to quote" },
   { value: "site_visit_needed", label: "Site visit needed" },
   { value: "awaiting_customer", label: "Awaiting customer" },
@@ -78,12 +82,13 @@ const SORT_OPTIONS = [
 const WORKFLOW_RANK: Record<string, number> = {
   needs_reply: 1,
   missing_info: 2,
-  site_visit_needed: 3,
-  ready_to_quote: 4,
-  needs_review: 5,
-  awaiting_customer: 6,
-  open: 7,
-  resolved: 8,
+  follow_up_due: 3,
+  site_visit_needed: 4,
+  ready_to_quote: 5,
+  needs_review: 6,
+  awaiting_customer: 7,
+  open: 8,
+  resolved: 9,
 };
 
 function formatDate(value: string | null) {
@@ -194,6 +199,8 @@ function conversationSearchText(
     conversation.latestBody,
     conversation.originalInquiryBody,
     conversation.nextActionLabel,
+    conversation.followUpIsDue ? "follow-up due" : null,
+    conversation.followUpDueAt,
     conversation.status,
     conversation.workflowBucket,
     conversation.inquiryFacts?.jobType,
@@ -588,11 +595,55 @@ function isActionablePreviewAction(
 
 function InboxActionControls({
   action,
+  conversationId,
   redirectTo,
 }: {
   action: ConversationReview["actions"][number];
+  conversationId: string;
   redirectTo: string;
 }) {
+  if (
+    action.type === "book_site_visit" &&
+    ["approved", "pending_approval"].includes(action.status)
+  ) {
+    return (
+      <form
+        action={createConversationAppointmentAction}
+        className="action-button-row"
+      >
+        <input name="conversationId" type="hidden" value={conversationId} />
+        <input name="sourceActionId" type="hidden" value={action.id} />
+        <input name="redirectTo" type="hidden" value={redirectTo} />
+        <input
+          name="title"
+          type="hidden"
+          value={
+            textValue(action.input.title) ??
+            textValue(action.input.jobType) ??
+            "Site visit"
+          }
+        />
+        <input
+          name="location"
+          type="hidden"
+          value={textValue(action.input.address) ?? ""}
+        />
+        <input
+          name="description"
+          type="hidden"
+          value={
+            textValue(action.input.preferredTime)
+              ? `Customer preferred time: ${textValue(action.input.preferredTime)}`
+              : "Site visit suggested by Kyro."
+          }
+        />
+        <button className="primary-button compact" type="submit">
+          Save appointment
+        </button>
+      </form>
+    );
+  }
+
   return (
     <div className="action-button-row">
       {action.status === "pending_approval" ? (
@@ -933,7 +984,9 @@ function OutboundDeliveryPanel({
               <strong>{delivery.subject ?? "Outbound message"}</strong>
               <span>
                 {formatLabel(delivery.channelType)}
-                {delivery.provider ? ` - ${formatLabel(delivery.provider)}` : ""}
+                {delivery.provider
+                  ? ` - ${formatLabel(delivery.provider)}`
+                  : ""}
                 {" - "}
                 {delivery.sentAt
                   ? `Sent ${formatDate(delivery.sentAt)}`
@@ -1092,6 +1145,13 @@ function InboxSplitPreview({
                   {message.subject ? <strong>{message.subject}</strong> : null}
                   <p>{message.bodyText ?? "No message body recorded."}</p>
                   <MessageAttachmentList metadata={message.metadata} />
+                  <MessageWorkflowControls
+                    conversationId={profile.conversation.id}
+                    message={message}
+                    notes={profile.notes}
+                    redirectTo={redirectTo}
+                    tasks={profile.tasks}
+                  />
                 </article>
               ))}
             </div>
@@ -1104,6 +1164,12 @@ function InboxSplitPreview({
           profile={profile}
           redirectTo={redirectTo}
           settings={communicationSettings}
+        />
+
+        <ConversationWorkflowPanel
+          compact
+          redirectTo={redirectTo}
+          review={profile}
         />
 
         <OutboundDeliveryPanel
@@ -1135,6 +1201,7 @@ function InboxSplitPreview({
                     </div>
                     <InboxActionControls
                       action={action}
+                      conversationId={profile.conversation.id}
                       redirectTo={redirectTo}
                     />
                   </article>
@@ -1307,8 +1374,8 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const awaitingCustomerCount = conversations.filter(
     (conversation) => conversation.workflowBucket === "awaiting_customer",
   ).length;
-  const approvalConversations = conversations.filter(
-    (conversation) => conversation.pendingApprovalCount > 0,
+  const followUpDueCount = conversations.filter(
+    (conversation) => conversation.workflowBucket === "follow_up_due",
   ).length;
 
   return (
@@ -1333,7 +1400,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             <article className="metric-card pink">
               <p>Awaiting customer</p>
               <strong>{awaitingCustomerCount}</strong>
-              <span>{approvalConversations} needing approval</span>
+              <span>{followUpDueCount} follow-ups due</span>
             </article>
           </section>
         </div>
@@ -1458,8 +1525,9 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                   conversation.originalInquiryBody ??
                   conversation.latestBody ??
                   "No message body recorded.";
-                const rowMeta =
-                  conversation.pendingApprovalCount > 0
+                const rowMeta = conversation.followUpIsDue
+                  ? "Follow-up due"
+                  : conversation.pendingApprovalCount > 0
                     ? `${conversation.pendingApprovalCount} approvals`
                     : conversation.quoteDraftCount > 0
                       ? `${conversation.quoteDraftCount} quote drafts`
@@ -1470,7 +1538,8 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     className={[
                       "data-row conversation-row",
                       conversation.leadPriority === "high" ||
-                      conversation.workflowBucket === "needs_review"
+                      conversation.workflowBucket === "needs_review" ||
+                      conversation.followUpIsDue
                         ? "flagged"
                         : null,
                       isSelected ? "active" : null,
@@ -1505,7 +1574,8 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       <time>{formatDate(conversation.originalInquiryAt)}</time>
                       <span
                         className={
-                          conversation.leadPriority === "high"
+                          conversation.leadPriority === "high" ||
+                          conversation.followUpIsDue
                             ? "pill warning"
                             : "pill"
                         }

@@ -1,66 +1,44 @@
 # Product Backlog
 
-This is the parking lot for useful ideas that should not pull us away from the current goal: make mock ingested inquiries flow cleanly through profiles, AI triage, actions, and usage metering before we add real channels.
+This is the parking lot for useful ideas that are still not part of the current Kyro architecture. Items that have now shipped, such as Gmail/Outlook email, the durable outbox, quote draft/send flows, realtime voice, pronunciation settings, inbound sync controls, CRM identity normalization, CRM profile resolution/merge, contact lifecycle review, inbox task/appointment/note workflows, automatic internal follow-up reminders, Assistant memory suggestions, Assistant thread switching/archive, richer Assistant UI blocks, the Assistant tool registry, and outbound reply style prompting have been removed or narrowed here.
 
-## CRM Identity
-
-- Add normalized identity fields for contacts, such as `normalized_email` and `normalized_phone`, with workspace-scoped indexes.
-- Add a profile match review queue for cases where email and phone point at different existing profiles.
-- Add a merge flow so the user can attach a new inquiry profile to an existing contact without losing audit history.
-- Add duplicate detection beyond exact matches, including likely phone formatting variants and alternate emails.
-- Show visual warnings when a phone number appears on multiple profiles.
-
-## CRM Lifecycle
-
-- Define concrete rules for when a profile should move from lead to client once communication and billing flows are more complete.
-- Keep a manual lead/client switch in the profile editor so the user can override lifecycle status at any time.
-- Let the LLM periodically review workspace records and suggest lifecycle/status cleanup, such as leads that should become clients or stale profiles that need attention, with clear audit history for any automated or user-approved changes.
-
-## Addresses
-
-- Use Google address verification/autocomplete for address inputs before storing contact or job-site addresses.
-- Store both the human-readable address and structured address components so future scheduling, maps, routing, and service-area checks are reliable.
-
-## Inbox Actions
-
-- Add per-message actions after the inbox model is stable: draft reply, approve reply, assign task, mark resolved, convert to quote.
-- Add richer per-message controls inside the existing conversation review pages.
-- Add saved task/appointment objects once the action cards need more durable scheduling state.
-
-## Follow-Up Reminders
-
-- Add a workspace setting for automatic customer follow-up reminders after an outbound reply is recorded, defaulting to two days.
-- Surface follow-up due states in lead/inbox lists after the configured delay passes, instead of proposing immediate `schedule_follow_up` approval actions in the reply screen.
-- Let users change the default follow-up delay globally and eventually override it per inquiry.
-- Keep follow-up reminders as internal CRM reminders first; only add external calendar/task integrations after the internal due-state model is reliable.
-
-## Outbound Communication Style
-
-- Add workspace/user customization for outbound customer prompts, including tone, wording style, message length, sign-off, and trade-specific phrasing.
-- Let users store reusable reply instructions that the AI must apply when drafting email/SMS replies.
-
-## Outbound Delivery Hardening
+## Outbound Delivery Operations
 
 - Expand the Developer outbox operations page into a future admin/operator console with cross-workspace support, assignment, bulk actions, and richer dead-letter review.
 - When a scheduled retry succeeds for a previously failed action, decide whether to reopen/update the original `actions` row or keep the outbox as the source of truth for delivery recovery.
 
+## Billing Integration
+
+- Add billing-system integration so workspace usage charges can become real customer invoices or payment-provider charges.
+- Decide billing periods, billing contacts, tax/GST/VAT handling, payment-provider customer ids, invoice status mapping, and operator review rules before public billing is enabled.
+- Keep the current read-only usage export as the source ledger until a payment provider is selected and tested.
+- Add provider-side usage reconciliation jobs before public billing, starting with OpenAI organization usage exports/API totals and later SMS/voice/image providers, so Kyro can compare provider invoices against `usage_events` by period, provider, model, service, and request id where available.
+
 ## Voice and Vocabulary
 
-- Add workspace and per-user vocabulary/pronunciation lists for voice transcription and assistant prompts, including the product name, business name, staff names, customer names, supplier names, suburbs, streets, product brands, trade terms, and common acronyms.
-- Let users add and edit vocabulary items in Settings, with optional pronunciation hints and notes about whether the term is a person, place, supplier, product, or internal nickname.
-- Feed the relevant vocabulary into speech-to-text prompts and assistant turns so voice input handles names and local terminology reliably.
-- Upgrade the current post-response voice playback into true realtime voice mode for mobile, including interruption/barge-in behavior, partial audio streaming, and lower-latency model routing.
+- Keep tuning realtime voice for mobile, especially interruption/barge-in behavior, partial audio UX, and lower-latency model routing.
+- Add customer-facing outbound voice/call preflight rules before phone providers are connected.
 
-## Assistant Memory and Tools
+## Assistant External Tools
 
-- Add automatic memory suggestions for user approval after the explicit `remember...` flow proves reliable.
-- Add more known UI block types: contact summary, quote table, usage summary, approval queue, and timeline.
-- Add approval-gated external tools for email, SMS, phone, and calendar only after the internal tool registry is stable.
-- Add thread switching and archived Assistant threads once there is more than one useful working thread.
+- Add real approval-gated external SMS, phone, and calendar providers once email send/receive boundaries remain stable in production-like testing.
+- Reuse the Assistant tool registry, action engine, outbox/audit trail, and known UI block model for those external tools instead of giving the LLM direct provider access.
+
+## Image Generation Hardening
+
+- Promote generated images from private file rows into a richer media gallery/history if one-off visuals become common.
+- Add multi-turn image revision controls so users can pick a generated image and ask for a follow-up edit without reattaching context.
+- Design the mobile camera-first workflow for renovation photos, inspiration references, and customer-ready render previews.
 
 ## Future Channels
 
+- Add per-inquiry follow-up delay overrides if the global workspace follow-up delay proves too blunt in real use.
 - Upgrade Gmail/Outlook inbound sync from bounded polling to provider push/watch delivery once the polling path is stable in production.
 - Promote stored inbound email attachments into richer job-file/document records, including Drive sync and user-facing document organisation.
 - Add deeper forwarded-message parsing and provider history cursors for edge-case email chains that do not preserve provider thread ids or RFC references cleanly.
-- Add SMS, social DMs, and web chat only after email send/receive behavior and permission boundaries feel solid.
+- Add SMS, social DMs, and web chat now that email send/receive behavior exists, after provider selection, permission boundaries, and audit trails feel solid.
+
+## Mobile And Native Shell
+
+- Build the native iOS shell around the web-tested workflows once Assistant, Inbox, CRM, Voice, and Settings have settled enough to avoid rework.
+- Add mobile-specific offline/error states for field use, especially around voice, inbox triage, and job-site contact details.

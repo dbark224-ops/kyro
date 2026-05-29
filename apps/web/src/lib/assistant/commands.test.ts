@@ -3,15 +3,18 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import {
   documentTemplateControlIntent,
+  looksLikeImageFollowUpRequest,
   looksLikeInboundEmailAwarenessRequest,
   looksLikeQuoteHistoryRequest,
   looksLikeQuoteSendReadyListRequest,
   looksLikeQuoteSendRequest,
+  resolveAssistantCommand,
   selectContactForAssistantPrompt,
   selectQuoteDraftForAssistantPrompt,
   selectQuoteTemplateForAssistantPrompt,
 } from "./commands";
 import type { ContactListItem, QuoteDraftListItem } from "../crm/queries";
+import type { AssistantRecentMessage } from "./types";
 
 function template(overrides: Partial<QuoteTemplate>): QuoteTemplate {
   return {
@@ -29,13 +32,22 @@ function contact(overrides: Partial<ContactListItem>): ContactListItem {
     address: null,
     company: null,
     contactType: "customer",
+    duplicateWarnings: [],
     email: null,
     id: "contact-1",
     lastMessageAt: null,
+    lifecycleReason: null,
+    lifecycleReviewedAt: null,
+    lifecycleSource: "system",
+    lifecycleStage: "lead",
+    mergedIntoContactId: null,
     messageCount: 0,
     name: null,
     notes: null,
     phone: null,
+    profileConflictContactIds: [],
+    profileResolutionReason: null,
+    profileResolutionStatus: "clear",
     source: null,
     updatedAt: new Date(0).toISOString(),
     ...overrides,
@@ -156,7 +168,9 @@ describe("assistant document command helpers", () => {
       true,
     );
     assert.equal(
-      looksLikeQuoteSendRequest("Draft an email for this quote but do not send it"),
+      looksLikeQuoteSendRequest(
+        "Draft an email for this quote but do not send it",
+      ),
       true,
     );
     assert.equal(looksLikeQuoteSendRequest("Create a quote for Sarah"), false);
@@ -173,7 +187,9 @@ describe("assistant document command helpers", () => {
       true,
     );
     assert.equal(
-      looksLikeQuoteHistoryRequest("Did Sarah request changes to the bathroom quote?"),
+      looksLikeQuoteHistoryRequest(
+        "Did Sarah request changes to the bathroom quote?",
+      ),
       true,
     );
     assert.equal(
@@ -262,5 +278,75 @@ describe("assistant inbound email routing helpers", () => {
       looksLikeInboundEmailAwarenessRequest("Show me leads needing reply"),
       false,
     );
+  });
+});
+
+describe("assistant generated image follow-up helpers", () => {
+  const recentImageMessages: AssistantRecentMessage[] = [
+    {
+      content: "I generated the image and saved it to Kyro files.",
+      intent: "image_generation",
+      role: "assistant",
+      uiBlocks: [
+        {
+          images: [
+            {
+              alt: "Generated image",
+              contentType: "image/png",
+              downloadHref: "/api/files/11111111-1111-4111-8111-111111111111",
+              editMode: false,
+              fileId: "11111111-1111-4111-8111-111111111111",
+              filename: "bathroom.png",
+              href: "/api/files/11111111-1111-4111-8111-111111111111?disposition=inline",
+              meta: "openai gpt-image-1",
+              model: "gpt-image-1",
+              prompt: "Create a luxury bathroom overlooking Sydney Harbour",
+              provider: "openai",
+              quality: "medium",
+              referenceCount: 0,
+              size: "1024x1024",
+            },
+          ],
+          title: "Generated image",
+          type: "generated_image",
+        },
+      ],
+    },
+  ];
+
+  it("routes visual follow-ups against the previous generated image", () => {
+    assert.equal(
+      looksLikeImageFollowUpRequest(
+        "can you make it night time",
+        recentImageMessages,
+      ),
+      true,
+    );
+    assert.equal(
+      looksLikeImageFollowUpRequest(
+        "edit the image so it has warmer lighting",
+        recentImageMessages,
+      ),
+      true,
+    );
+    assert.equal(
+      looksLikeImageFollowUpRequest("where is it", recentImageMessages),
+      false,
+    );
+  });
+});
+
+describe("assistant LLM-first command routing", () => {
+  it("treats a successful no-tool planner decision as general chat", async () => {
+    const command = await resolveAssistantCommand({
+      prompt: "do you think image generation will matter for trades businesses?",
+      supabase: {} as never,
+      toolPlanModelPlanned: true,
+      toolSelection: null,
+      user: { id: "user-1" } as never,
+      workspace: { id: "workspace-1", name: "WFA Plumbing" },
+    });
+
+    assert.equal(command.intent, "general_chat");
   });
 });

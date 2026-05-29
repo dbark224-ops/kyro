@@ -1,6 +1,8 @@
 import { selectModelRoute } from "@kyro/ai";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { runStubAiTriage } from "../ai/triage";
+import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
+import { normalizeContactEmail } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
   buildLlmUsageEvents,
@@ -234,19 +236,25 @@ export function normalizeEmailSubject(value: unknown) {
 
 function normalizeScopes(value: unknown) {
   return Array.isArray(value)
-    ? value.filter((scope): scope is string => typeof scope === "string" && scope.length > 0)
+    ? value.filter(
+        (scope): scope is string =>
+          typeof scope === "string" && scope.length > 0,
+      )
     : [];
 }
 
 function tokenExpiresAt(tokenSet: OAuthTokenSet) {
   const obtainedAt = textValue(tokenSet.obtainedAt);
-  const expiresIn = typeof tokenSet.expiresIn === "number" ? tokenSet.expiresIn : null;
+  const expiresIn =
+    typeof tokenSet.expiresIn === "number" ? tokenSet.expiresIn : null;
 
   if (!obtainedAt || !expiresIn) {
     return null;
   }
 
-  return new Date(new Date(obtainedAt).getTime() + expiresIn * 1000).toISOString();
+  return new Date(
+    new Date(obtainedAt).getTime() + expiresIn * 1000,
+  ).toISOString();
 }
 
 function isExpiring(tokenSet: OAuthTokenSet) {
@@ -256,10 +264,14 @@ function isExpiring(tokenSet: OAuthTokenSet) {
     return true;
   }
 
-  return new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS;
+  return (
+    new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS
+  );
 }
 
-function providerFromConnection(connection: ProviderConnectionRow): InboundEmailProvider | null {
+function providerFromConnection(
+  connection: ProviderConnectionRow,
+): InboundEmailProvider | null {
   if (connection.provider === GOOGLE_PROVIDER) {
     return "google";
   }
@@ -272,19 +284,25 @@ function providerFromConnection(connection: ProviderConnectionRow): InboundEmail
 }
 
 function hasMicrosoftScope(scopes: string[], requested: string) {
-  const requestedShort = requested.replace("https://graph.microsoft.com/", "").toLowerCase();
+  const requestedShort = requested
+    .replace("https://graph.microsoft.com/", "")
+    .toLowerCase();
 
   return scopes.some((scope) => {
     const normalized = scope.toLowerCase();
 
-    return normalized === requestedShort || normalized === requested.toLowerCase();
+    return (
+      normalized === requestedShort || normalized === requested.toLowerCase()
+    );
   });
 }
 
 function truncate(value: string, maxLength: number) {
   const normalized = value.replace(/\s+/g, " ").trim();
 
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3)}...` : normalized;
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength - 3)}...`
+    : normalized;
 }
 
 function safeSummaryText(message: InboundEmailMessage) {
@@ -295,16 +313,21 @@ export function inboundEmailIdempotencyKey({
   connectionId,
   externalMessageId,
   provider,
-}: Pick<InboundEmailMessage, "connectionId" | "externalMessageId" | "provider">) {
+}: Pick<
+  InboundEmailMessage,
+  "connectionId" | "externalMessageId" | "provider"
+>) {
   return `email.inbound.${provider}.${connectionId}.${externalMessageId}`;
 }
 
 function safeStorageSegment(value: string) {
-  return value
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 96) || "attachment";
+  return (
+    value
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 96) || "attachment"
+  );
 }
 
 export function summarizeInboundEmailAttachments(
@@ -361,9 +384,12 @@ async function ensureInboundAttachmentBucket(
     return;
   }
 
-  const { error: createError } = await serviceSupabase.storage.createBucket(bucket, {
-    public: false,
-  });
+  const { error: createError } = await serviceSupabase.storage.createBucket(
+    bucket,
+    {
+      public: false,
+    },
+  );
 
   if (createError && !/already exists/i.test(createError.message)) {
     throw new Error(createError.message);
@@ -389,9 +415,13 @@ async function persistInboundEmailAttachments({
 
   try {
     serviceSupabase = createServiceSupabaseClient();
-    await ensureInboundAttachmentBucket(serviceSupabase, INBOUND_ATTACHMENT_BUCKET);
+    await ensureInboundAttachmentBucket(
+      serviceSupabase,
+      INBOUND_ATTACHMENT_BUCKET,
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Storage unavailable.";
+    const message =
+      error instanceof Error ? error.message : "Storage unavailable.";
 
     return summarizeInboundEmailAttachments(attachments).map((attachment) => ({
       ...attachment,
@@ -449,7 +479,9 @@ async function persistInboundEmailAttachments({
           size_bytes: attachment.sizeBytes ?? buffer.byteLength,
           source: "inbound_email",
         })
-        .select("id,storage_bucket,storage_path,filename,content_type,size_bytes")
+        .select(
+          "id,storage_bucket,storage_path,filename,content_type,size_bytes",
+        )
         .single();
 
       if (fileError || !file) {
@@ -468,7 +500,8 @@ async function persistInboundEmailAttachments({
         storageStatus: "stored",
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Attachment upload failed.";
+      const message =
+        error instanceof Error ? error.message : "Attachment upload failed.";
 
       stored.push({
         ...summarizeInboundEmailAttachments([attachment])[0],
@@ -498,14 +531,19 @@ function stripHtml(value: string) {
     .trim();
 }
 
-function safeIsoDate(value: string | null, fallback = new Date().toISOString()) {
+function safeIsoDate(
+  value: string | null,
+  fallback = new Date().toISOString(),
+) {
   if (!value) {
     return fallback;
   }
 
   const timestamp = new Date(value).getTime();
 
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : fallback;
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toISOString()
+    : fallback;
 }
 
 function parseEmailAddress(value: string | null) {
@@ -515,8 +553,13 @@ function parseEmailAddress(value: string | null) {
 
   const angleMatch = value.match(/^(.*?)<([^>]+)>/);
   const rawName = angleMatch?.[1]?.replace(/^"|"$/g, "").trim();
-  const email = (angleMatch?.[2] ?? value).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? null;
-  const name = rawName || (email ? value.replace(email, "").replace(/[<>]/g, "").trim() : null);
+  const email =
+    (angleMatch?.[2] ?? value).match(
+      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+    )?.[0] ?? null;
+  const name =
+    rawName ||
+    (email ? value.replace(email, "").replace(/[<>]/g, "").trim() : null);
 
   return {
     email: email?.toLowerCase() ?? null,
@@ -532,11 +575,13 @@ function contactNameFromMessage(message: InboundEmailMessage) {
   if (message.fromEmail) {
     const local = message.fromEmail.split("@")[0] ?? "Email contact";
 
-    return local
-      .split(/[._-]/)
-      .filter(Boolean)
-      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-      .join(" ") || "Email contact";
+    return (
+      local
+        .split(/[._-]/)
+        .filter(Boolean)
+        .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+        .join(" ") || "Email contact"
+    );
   }
 
   return "Email contact";
@@ -578,7 +623,9 @@ function responseOutputText(payload: unknown) {
 function providerErrorMessage(payload: unknown) {
   const error = objectRecord(objectRecord(payload).error);
 
-  return textValue(error.message) ?? "OpenAI email classification request failed.";
+  return (
+    textValue(error.message) ?? "OpenAI email classification request failed."
+  );
 }
 
 function extractJsonObject(text: string) {
@@ -594,7 +641,9 @@ function extractJsonObject(text: string) {
   return JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
 }
 
-function normalizeClassificationCategory(value: unknown): EmailClassificationCategory {
+function normalizeClassificationCategory(
+  value: unknown,
+): EmailClassificationCategory {
   const category = textValue(value);
 
   if (
@@ -617,9 +666,15 @@ function normalizeClassification(
   providerUsed: EmailClassification["providerUsed"],
 ): EmailClassification {
   const raw = objectRecord(value);
-  const category = normalizeClassificationCategory(raw.category ?? fallback.category);
-  const confidence = Math.max(0, Math.min(1, numberValue(raw.confidence) ?? fallback.confidence));
-  const promote = typeof raw.promote === "boolean" ? raw.promote : fallback.promote;
+  const category = normalizeClassificationCategory(
+    raw.category ?? fallback.category,
+  );
+  const confidence = Math.max(
+    0,
+    Math.min(1, numberValue(raw.confidence) ?? fallback.confidence),
+  );
+  const promote =
+    typeof raw.promote === "boolean" ? raw.promote : fallback.promote;
 
   return {
     actionHint: textValue(raw.actionHint) ?? fallback.actionHint,
@@ -628,7 +683,8 @@ function normalizeClassification(
     providerUsed,
     promote: category === "business_actionable" ? promote : false,
     reason: textValue(raw.reason) ?? fallback.reason,
-    suggestedServiceType: textValue(raw.suggestedServiceType) ?? fallback.suggestedServiceType,
+    suggestedServiceType:
+      textValue(raw.suggestedServiceType) ?? fallback.suggestedServiceType,
     summary: textValue(raw.summary) ?? fallback.summary,
   };
 }
@@ -636,11 +692,19 @@ function normalizeClassification(
 export function classifyInboundEmailHeuristically(
   message: InboundEmailClassificationInput,
 ): EmailClassification {
-  const text = `${message.subject}\n${message.fromEmail ?? ""}\n${message.bodyText}`.toLowerCase();
-  const businessPattern = /\b(quote|estimate|pricing|price|book|booking|appointment|job|site visit|invoice|urgent|emergency|leak|blocked|blockage|backup|backed up|repair|install|service|availability|reschedule|cancel|supplier|delivery|purchase order|po\b|work order|renovat(?:e|ing|ion)|bathroom|shower|toilet|tap|pipe|drain|sewer|sewerage|come out|come and (?:quote|look|inspect|check))\b/i;
-  const personalPattern = /\b(lol|haha|dinner|weekend|birthday|family|wife|husband|kids|holiday|meme|joke)\b/i;
+  const text =
+    `${message.subject}\n${message.fromEmail ?? ""}\n${message.bodyText}`.toLowerCase();
+  const businessPattern =
+    /\b(quote|estimate|pricing|price|book|booking|appointment|job|site visit|invoice|urgent|emergency|leak|blocked|blockage|backup|backed up|repair|install|service|availability|reschedule|cancel|supplier|delivery|purchase order|po\b|work order|renovat(?:e|ing|ion)|bathroom|shower|toilet|tap|pipe|drain|sewer|sewerage|come out|come and (?:quote|look|inspect|check))\b/i;
+  const personalPattern =
+    /\b(lol|haha|dinner|weekend|birthday|family|wife|husband|kids|holiday|meme|joke)\b/i;
 
-  if (message.automated || /\b(unsubscribe|newsletter|promotion|sale|marketing|notification|digest)\b/i.test(text)) {
+  if (
+    message.automated ||
+    /\b(unsubscribe|newsletter|promotion|sale|marketing|notification|digest)\b/i.test(
+      text,
+    )
+  ) {
     return {
       actionHint: null,
       category: "newsletter_or_automated",
@@ -655,12 +719,14 @@ export function classifyInboundEmailHeuristically(
 
   if (businessPattern.test(text)) {
     return {
-      actionHint: "Review as an inbound business email and prepare any useful next step.",
+      actionHint:
+        "Review as an inbound business email and prepare any useful next step.",
       category: "business_actionable",
       confidence: 0.68,
       providerUsed: "heuristic",
       promote: true,
-      reason: "Contains business/action keywords such as quote, job, booking, invoice, or service terms.",
+      reason:
+        "Contains business/action keywords such as quote, job, booking, invoice, or service terms.",
       suggestedServiceType: null,
       summary: truncate(message.bodyText || message.subject, 180),
     };
@@ -673,7 +739,8 @@ export function classifyInboundEmailHeuristically(
       confidence: 0.64,
       providerUsed: "heuristic",
       promote: false,
-      reason: "Looks personal or conversational rather than business-actionable.",
+      reason:
+        "Looks personal or conversational rather than business-actionable.",
       suggestedServiceType: null,
       summary: truncate(message.bodyText || message.subject, 180),
     };
@@ -685,7 +752,8 @@ export function classifyInboundEmailHeuristically(
     confidence: 0.5,
     providerUsed: "heuristic",
     promote: false,
-    reason: "No strong action signal found; keeping it as reference awareness only.",
+    reason:
+      "No strong action signal found; keeping it as reference awareness only.",
     suggestedServiceType: null,
     summary: truncate(message.bodyText || message.subject, 180),
   };
@@ -693,21 +761,27 @@ export function classifyInboundEmailHeuristically(
 
 export function classificationForSenderRule(
   rule: InboundEmailSenderRule,
-  message: Pick<InboundEmailMessage, "bodyText" | "fromEmail" | "snippet" | "subject">,
+  message: Pick<
+    InboundEmailMessage,
+    "bodyText" | "fromEmail" | "snippet" | "subject"
+  >,
 ): EmailClassification {
-  const target =
-    rule.match === "domain" ? `domain ${rule.value}` : rule.value;
+  const target = rule.match === "domain" ? `domain ${rule.value}` : rule.value;
 
   if (rule.action === "always_promote") {
     return {
-      actionHint: "Create or update CRM work from this email because the sender has been marked relevant.",
+      actionHint:
+        "Create or update CRM work from this email because the sender has been marked relevant.",
       category: "business_actionable",
       confidence: 1,
       providerUsed: "sender_rule",
       promote: true,
       reason: `Sender rule matched ${target}; user marked this sender as relevant.`,
       suggestedServiceType: null,
-      summary: truncate(message.bodyText || message.snippet || message.subject, 180),
+      summary: truncate(
+        message.bodyText || message.snippet || message.subject,
+        180,
+      ),
     };
   }
 
@@ -719,11 +793,17 @@ export function classificationForSenderRule(
     promote: false,
     reason: `Sender rule matched ${target}; user chose to ignore this sender.`,
     suggestedServiceType: null,
-    summary: truncate(message.bodyText || message.snippet || message.subject, 180),
+    summary: truncate(
+      message.bodyText || message.snippet || message.subject,
+      180,
+    ),
   };
 }
 
-function buildClassifierInput(message: InboundEmailMessage, settings: InboundEmailSettings) {
+function buildClassifierInput(
+  message: InboundEmailMessage,
+  settings: InboundEmailSettings,
+) {
   return JSON.stringify(
     {
       task: "Classify whether this inbound email should become an actionable Kyro CRM conversation.",
@@ -956,11 +1036,16 @@ async function classifyWithOpenAi({
     const content = responseOutputText(payload);
 
     if (!content) {
-      throw new Error("OpenAI returned an empty email classification response.");
+      throw new Error(
+        "OpenAI returned an empty email classification response.",
+      );
     }
 
     const parsed = extractJsonObject(content);
-    const tokenUsage = openAiUsageFromResponse(payload, { prompt, text: content });
+    const tokenUsage = openAiUsageFromResponse(payload, {
+      prompt,
+      text: content,
+    });
     const classification = normalizeClassification(parsed, fallback, "openai");
 
     const usageTotals = await recordClassifierUsage({
@@ -998,7 +1083,10 @@ async function classifyWithOpenAi({
       .from("ai_runs")
       .update({
         completed_at: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Email classification failed.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Email classification failed.",
         output: {
           fallback,
         },
@@ -1078,7 +1166,9 @@ async function updateConnectionStatus({
     .from("integration_connections")
     .update({
       last_error: lastError,
-      last_sync_at: lastError ? connection.last_sync_at : new Date().toISOString(),
+      last_sync_at: lastError
+        ? connection.last_sync_at
+        : new Date().toISOString(),
       metadata: {
         ...metadata,
         inboundEmail: {
@@ -1092,7 +1182,10 @@ async function updateConnectionStatus({
     .eq("id", connection.id);
 
   if (error) {
-    console.warn("Unable to update inbound email connection status", error.message);
+    console.warn(
+      "Unable to update inbound email connection status",
+      error.message,
+    );
   }
 }
 
@@ -1128,7 +1221,9 @@ async function refreshGoogleAccessToken({
   });
 
   if (!response.ok) {
-    throw new Error(`Google token refresh failed: ${await readApiError(response)}`);
+    throw new Error(
+      `Google token refresh failed: ${await readApiError(response)}`,
+    );
   }
 
   const refreshed = (await response.json()) as {
@@ -1153,13 +1248,17 @@ async function refreshGoogleAccessToken({
     .update({
       access_token_expires_at: tokenExpiresAt(updatedTokenSet),
       last_error: null,
-      token_set: encryptIntegrationTokenSet(updatedTokenSet as Record<string, unknown>),
+      token_set: encryptIntegrationTokenSet(
+        updatedTokenSet as Record<string, unknown>,
+      ),
     })
     .eq("workspace_id", workspaceId)
     .eq("id", connection.id);
 
   if (error) {
-    throw new Error(`Unable to save refreshed Google access token: ${error.message}`);
+    throw new Error(
+      `Unable to save refreshed Google access token: ${error.message}`,
+    );
   }
 
   return updatedTokenSet;
@@ -1197,7 +1296,9 @@ async function refreshMicrosoftAccessToken({
   });
 
   if (!response.ok) {
-    throw new Error(`Microsoft token refresh failed: ${await readApiError(response)}`);
+    throw new Error(
+      `Microsoft token refresh failed: ${await readApiError(response)}`,
+    );
   }
 
   const refreshed = (await response.json()) as {
@@ -1223,13 +1324,17 @@ async function refreshMicrosoftAccessToken({
     .update({
       access_token_expires_at: tokenExpiresAt(updatedTokenSet),
       last_error: null,
-      token_set: encryptIntegrationTokenSet(updatedTokenSet as Record<string, unknown>),
+      token_set: encryptIntegrationTokenSet(
+        updatedTokenSet as Record<string, unknown>,
+      ),
     })
     .eq("workspace_id", workspaceId)
     .eq("id", connection.id);
 
   if (error) {
-    throw new Error(`Unable to save refreshed Microsoft access token: ${error.message}`);
+    throw new Error(
+      `Unable to save refreshed Microsoft access token: ${error.message}`,
+    );
   }
 
   return updatedTokenSet;
@@ -1249,15 +1354,28 @@ async function accessTokenForConnection({
   );
 
   if (isExpiring(tokenSet)) {
-    tokenSet = connection.provider === GOOGLE_PROVIDER
-      ? await refreshGoogleAccessToken({ connection, supabase, tokenSet, workspaceId })
-      : await refreshMicrosoftAccessToken({ connection, supabase, tokenSet, workspaceId });
+    tokenSet =
+      connection.provider === GOOGLE_PROVIDER
+        ? await refreshGoogleAccessToken({
+            connection,
+            supabase,
+            tokenSet,
+            workspaceId,
+          })
+        : await refreshMicrosoftAccessToken({
+            connection,
+            supabase,
+            tokenSet,
+            workspaceId,
+          });
   }
 
   const accessToken = textValue(tokenSet.accessToken);
 
   if (!accessToken) {
-    throw new Error(`${providerLabel(providerFromConnection(connection) ?? "google")} access token is missing.`);
+    throw new Error(
+      `${providerLabel(providerFromConnection(connection) ?? "google")} access token is missing.`,
+    );
   }
 
   return accessToken;
@@ -1405,7 +1523,10 @@ async function hydrateGmailAttachments({
   };
 }
 
-function collectGmailBodies(payload: GmailPayload | undefined, bodies = { html: [] as string[], text: [] as string[] }) {
+function collectGmailBodies(
+  payload: GmailPayload | undefined,
+  bodies = { html: [] as string[], text: [] as string[] },
+) {
   if (!payload) {
     return bodies;
   }
@@ -1427,17 +1548,23 @@ function collectGmailBodies(payload: GmailPayload | undefined, bodies = { html: 
   return bodies;
 }
 
-function automatedFromHeaders(headers: Record<string, string>, fromEmail: string | null, subject: string) {
+function automatedFromHeaders(
+  headers: Record<string, string>,
+  fromEmail: string | null,
+  subject: string,
+) {
   const autoSubmitted = headers["auto-submitted"]?.toLowerCase();
   const precedence = headers.precedence?.toLowerCase();
   const from = fromEmail?.toLowerCase() ?? "";
 
   return Boolean(
     (autoSubmitted && autoSubmitted !== "no") ||
-      headers["list-unsubscribe"] ||
-      ["bulk", "junk", "list"].includes(precedence ?? "") ||
-      /\b(no-?reply|donotreply|notification|newsletter|mailer-daemon)\b/i.test(from) ||
-      /\b(unsubscribe|newsletter|digest|notification)\b/i.test(subject),
+    headers["list-unsubscribe"] ||
+    ["bulk", "junk", "list"].includes(precedence ?? "") ||
+    /\b(no-?reply|donotreply|notification|newsletter|mailer-daemon)\b/i.test(
+      from,
+    ) ||
+    /\b(unsubscribe|newsletter|digest|notification)\b/i.test(subject),
   );
 }
 
@@ -1457,10 +1584,13 @@ function gmailDetailToInboundMessage({
   const subject = textValue(headers.subject) ?? "Inbound email";
   const bodies = collectGmailBodies(detail.payload);
   const bodyHtml = bodies.html.join("\n\n") || null;
-  const bodyText = bodies.text.join("\n\n") || (bodyHtml ? stripHtml(bodyHtml) : detail.snippet ?? "");
-  const receivedAt = detail.internalDate && Number.isFinite(Number(detail.internalDate))
-    ? new Date(Number(detail.internalDate)).toISOString()
-    : safeIsoDate(textValue(headers.date));
+  const bodyText =
+    bodies.text.join("\n\n") ||
+    (bodyHtml ? stripHtml(bodyHtml) : (detail.snippet ?? ""));
+  const receivedAt =
+    detail.internalDate && Number.isFinite(Number(detail.internalDate))
+      ? new Date(Number(detail.internalDate)).toISOString()
+      : safeIsoDate(textValue(headers.date));
 
   return {
     accountEmail: connection.account_email,
@@ -1529,7 +1659,9 @@ async function fetchGmailMessages({
   connection: ProviderConnectionRow;
   settings: InboundEmailSettings;
 }): Promise<InboundEmailMessage[]> {
-  const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
+  const listUrl = new URL(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+  );
   listUrl.searchParams.set("maxResults", String(settings.maxMessagesPerSync));
   listUrl.searchParams.set(
     "q",
@@ -1543,10 +1675,14 @@ async function fetchGmailMessages({
   });
 
   if (!listResponse.ok) {
-    throw new Error(`Gmail inbox fetch failed: ${await readApiError(listResponse)}`);
+    throw new Error(
+      `Gmail inbox fetch failed: ${await readApiError(listResponse)}`,
+    );
   }
 
-  const listed = (await listResponse.json()) as { messages?: Array<{ id?: string; threadId?: string }> };
+  const listed = (await listResponse.json()) as {
+    messages?: Array<{ id?: string; threadId?: string }>;
+  };
   const messages: InboundEmailMessage[] = [];
 
   for (const item of listed.messages ?? []) {
@@ -1564,16 +1700,18 @@ async function fetchGmailMessages({
     );
 
     if (!detailResponse.ok) {
-      throw new Error(`Gmail message fetch failed: ${await readApiError(detailResponse)}`);
+      throw new Error(
+        `Gmail message fetch failed: ${await readApiError(detailResponse)}`,
+      );
     }
 
     const detail = (await detailResponse.json()) as GmailMessageResponse;
     const inboundMessage = gmailDetailToInboundMessage({
-        connection,
-        detail,
-        itemId: item.id,
-        itemThreadId: item.threadId,
-      });
+      connection,
+      detail,
+      itemId: item.id,
+      itemThreadId: item.threadId,
+    });
 
     messages.push(
       await hydrateGmailAttachments({
@@ -1626,16 +1764,21 @@ function outlookMessageToInboundMessage(
   const headers = Object.fromEntries(
     (message.internetMessageHeaders ?? [])
       .filter((header) => header.name && header.value)
-      .map((header) => [String(header.name).toLowerCase(), String(header.value)]),
+      .map((header) => [
+        String(header.name).toLowerCase(),
+        String(header.value),
+      ]),
   );
-  const fromEmail = textValue(message.from?.emailAddress?.address)?.toLowerCase() ?? null;
+  const fromEmail =
+    textValue(message.from?.emailAddress?.address)?.toLowerCase() ?? null;
   const fromName = textValue(message.from?.emailAddress?.name);
   const subject = textValue(message.subject) ?? "Inbound email";
   const htmlBody = textValue(message.body?.content);
   const bodyText = htmlBody
     ? stripHtml(htmlBody)
-    : textValue(message.bodyPreview) ?? "";
-  const receivedAt = textValue(message.receivedDateTime) ?? new Date().toISOString();
+    : (textValue(message.bodyPreview) ?? "");
+  const receivedAt =
+    textValue(message.receivedDateTime) ?? new Date().toISOString();
   const attachments: InboundEmailAttachment[] = [];
 
   for (const attachment of message.attachments ?? []) {
@@ -1663,7 +1806,10 @@ function outlookMessageToInboundMessage(
     bodyHtml: htmlBody,
     bodyText,
     connectionId: connection.id,
-    externalMessageId: textValue(message.internetMessageId) ?? textValue(message.id) ?? crypto.randomUUID(),
+    externalMessageId:
+      textValue(message.internetMessageId) ??
+      textValue(message.id) ??
+      crypto.randomUUID(),
     externalThreadId: textValue(message.conversationId),
     fromEmail,
     fromName,
@@ -1674,7 +1820,10 @@ function outlookMessageToInboundMessage(
     snippet: textValue(message.bodyPreview),
     subject,
     toEmails: (message.toRecipients ?? [])
-      .map((recipient) => textValue(recipient.emailAddress?.address)?.toLowerCase() ?? null)
+      .map(
+        (recipient) =>
+          textValue(recipient.emailAddress?.address)?.toLowerCase() ?? null,
+      )
       .filter((value): value is string => Boolean(value)),
   } satisfies InboundEmailMessage;
 }
@@ -1714,7 +1863,10 @@ async function fetchOutlookMessageById({
     return null;
   }
 
-  return outlookMessageToInboundMessage((await response.json()) as OutlookMessage, connection);
+  return outlookMessageToInboundMessage(
+    (await response.json()) as OutlookMessage,
+    connection,
+  );
 }
 
 async function fetchOutlookMessages({
@@ -1726,7 +1878,9 @@ async function fetchOutlookMessages({
   connection: ProviderConnectionRow;
   settings: InboundEmailSettings;
 }): Promise<InboundEmailMessage[]> {
-  const url = new URL("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages");
+  const url = new URL(
+    "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
+  );
   url.searchParams.set("$top", String(settings.maxMessagesPerSync));
   url.searchParams.set("$orderby", "receivedDateTime desc");
   url.searchParams.set(
@@ -1746,7 +1900,9 @@ async function fetchOutlookMessages({
   });
 
   if (!response.ok) {
-    throw new Error(`Outlook inbox fetch failed: ${await readApiError(response)}`);
+    throw new Error(
+      `Outlook inbox fetch failed: ${await readApiError(response)}`,
+    );
   }
 
   const payload = (await response.json()) as { value?: OutlookMessage[] };
@@ -1782,7 +1938,9 @@ async function findOrCreateEmailChannel({
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to look up email channel: ${existingError.message}`);
+    throw new Error(
+      `Unable to look up email channel: ${existingError.message}`,
+    );
   }
 
   if (existing) {
@@ -1796,7 +1954,9 @@ async function findOrCreateEmailChannel({
       workspace_id: workspaceId,
       integration_id: connection.id,
       type: "email",
-      display_name: message.accountEmail ? `${label} - ${message.accountEmail}` : label,
+      display_name: message.accountEmail
+        ? `${label} - ${message.accountEmail}`
+        : label,
       external_id: `${message.provider}:email:${message.accountEmail ?? connection.id}`,
       status: "active",
       settings: {
@@ -1810,7 +1970,9 @@ async function findOrCreateEmailChannel({
     .single();
 
   if (error || !channel) {
-    throw new Error(`Unable to create email channel: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create email channel: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   return String(channel.id);
@@ -1827,19 +1989,21 @@ async function findOrCreateEmailContact({
   user: User;
   workspaceId: string;
 }) {
-  const email = message.fromEmail;
+  const email = normalizeContactEmail(message.fromEmail);
 
   if (email) {
     const { data: existing, error: existingError } = await supabase
       .from("contacts")
       .select("id,name,email")
       .eq("workspace_id", workspaceId)
-      .eq("email", email)
+      .eq("normalized_email", email)
       .limit(1)
       .maybeSingle();
 
     if (existingError) {
-      throw new Error(`Unable to look up sender contact: ${existingError.message}`);
+      throw new Error(
+        `Unable to look up sender contact: ${existingError.message}`,
+      );
     }
 
     if (existing) {
@@ -1862,6 +2026,7 @@ async function findOrCreateEmailContact({
       workspace_id: workspaceId,
       name,
       email,
+      normalized_email: email,
       contact_type: "client",
       source: `${message.provider}_email_inbound`,
       tags: ["email_inbound", message.provider],
@@ -1870,7 +2035,9 @@ async function findOrCreateEmailContact({
     .single();
 
   if (error || !contact) {
-    throw new Error(`Unable to create email contact: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create email contact: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -1939,7 +2106,9 @@ async function loadConversationById({
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Unable to look up matched email conversation: ${error.message}`);
+    throw new Error(
+      `Unable to look up matched email conversation: ${error.message}`,
+    );
   }
 
   return data;
@@ -1957,10 +2126,11 @@ async function loadConversationByMessageReferences({
   workspaceId: string;
 }) {
   const thread = inboundEmailThreadMetadata(message);
-  const referenceIds = new Set([
-    ...thread.references,
-    thread.inReplyTo,
-  ].filter((value): value is string => Boolean(value)));
+  const referenceIds = new Set(
+    [...thread.references, thread.inReplyTo].filter((value): value is string =>
+      Boolean(value),
+    ),
+  );
 
   if (referenceIds.size === 0) {
     return null;
@@ -1975,7 +2145,9 @@ async function loadConversationByMessageReferences({
     .limit(200);
 
   if (error) {
-    throw new Error(`Unable to inspect email message references: ${error.message}`);
+    throw new Error(
+      `Unable to inspect email message references: ${error.message}`,
+    );
   }
 
   for (const row of data ?? []) {
@@ -2028,7 +2200,9 @@ async function loadConversationBySubjectAndContact({
     .limit(120);
 
   if (error) {
-    throw new Error(`Unable to inspect email subject matches: ${error.message}`);
+    throw new Error(
+      `Unable to inspect email subject matches: ${error.message}`,
+    );
   }
 
   for (const row of data ?? []) {
@@ -2052,7 +2226,11 @@ async function loadConversationBySubjectAndContact({
   return null;
 }
 
-async function buildThreadSummary(supabase: SupabaseClient, workspaceId: string, conversationId: string) {
+async function buildThreadSummary(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  conversationId: string,
+) {
   const { data, error } = await supabase
     .from("messages")
     .select("direction,subject,body_text")
@@ -2061,7 +2239,9 @@ async function buildThreadSummary(supabase: SupabaseClient, workspaceId: string,
     .order("created_at", { ascending: true });
 
   if (error) {
-    throw new Error(`Unable to load email conversation thread: ${error.message}`);
+    throw new Error(
+      `Unable to load email conversation thread: ${error.message}`,
+    );
   }
 
   return {
@@ -2071,7 +2251,9 @@ async function buildThreadSummary(supabase: SupabaseClient, workspaceId: string,
       .map((item, index) => {
         const direction = String(item.direction);
         const body = truncate(
-          textValue(item.body_text) ?? textValue(item.subject) ?? "No message body.",
+          textValue(item.body_text) ??
+            textValue(item.subject) ??
+            "No message body.",
           120,
         );
 
@@ -2119,7 +2301,9 @@ async function cancelStaleConversationActions({
     .select("id,status");
 
   if (error) {
-    throw new Error(`Unable to cancel stale proposed actions: ${error.message}`);
+    throw new Error(
+      `Unable to cancel stale proposed actions: ${error.message}`,
+    );
   }
 
   for (const action of cancelledActions ?? []) {
@@ -2160,7 +2344,12 @@ async function promoteEmailMessage({
   user: User;
   workspaceId: string;
 }) {
-  const channelId = await findOrCreateEmailChannel({ connection, message, supabase, workspaceId });
+  const channelId = await findOrCreateEmailChannel({
+    connection,
+    message,
+    supabase,
+    workspaceId,
+  });
   const { data: existingMessage, error: existingMessageError } = await supabase
     .from("messages")
     .select("id,conversation_id")
@@ -2171,7 +2360,9 @@ async function promoteEmailMessage({
     .maybeSingle();
 
   if (existingMessageError) {
-    throw new Error(`Unable to check existing email message: ${existingMessageError.message}`);
+    throw new Error(
+      `Unable to check existing email message: ${existingMessageError.message}`,
+    );
   }
 
   if (existingMessage) {
@@ -2183,14 +2374,21 @@ async function promoteEmailMessage({
     };
   }
 
-  const contactId = await findOrCreateEmailContact({ message, supabase, user, workspaceId });
+  const contactId = await findOrCreateEmailContact({
+    message,
+    supabase,
+    user,
+    workspaceId,
+  });
   let conversation = await loadConversationByThread({
     channelId,
     externalThreadId: message.externalThreadId,
     supabase,
     workspaceId,
   });
-  let threadMatchStrategy = conversation ? "provider_thread" : "new_conversation";
+  let threadMatchStrategy = conversation
+    ? "provider_thread"
+    : "new_conversation";
 
   if (!conversation) {
     conversation = await loadConversationByMessageReferences({
@@ -2199,7 +2397,9 @@ async function promoteEmailMessage({
       supabase,
       workspaceId,
     });
-    threadMatchStrategy = conversation ? "message_reference" : threadMatchStrategy;
+    threadMatchStrategy = conversation
+      ? "message_reference"
+      : threadMatchStrategy;
   }
 
   if (!conversation) {
@@ -2210,7 +2410,9 @@ async function promoteEmailMessage({
       supabase,
       workspaceId,
     });
-    threadMatchStrategy = conversation ? "contact_subject" : threadMatchStrategy;
+    threadMatchStrategy = conversation
+      ? "contact_subject"
+      : threadMatchStrategy;
   }
 
   let leadId = conversation?.lead_id ? String(conversation.lead_id) : null;
@@ -2240,7 +2442,9 @@ async function promoteEmailMessage({
       .single();
 
     if (leadError || !lead) {
-      throw new Error(`Unable to create email lead: ${leadError?.message ?? "unknown error"}`);
+      throw new Error(
+        `Unable to create email lead: ${leadError?.message ?? "unknown error"}`,
+      );
     }
 
     leadId = String(lead.id);
@@ -2259,22 +2463,25 @@ async function promoteEmailMessage({
       },
     });
 
-    const { data: createdConversation, error: conversationError } = await supabase
-      .from("conversations")
-      .insert({
-        workspace_id: workspaceId,
-        channel_id: channelId,
-        contact_id: contactId,
-        external_thread_id: message.externalThreadId,
-        last_message_at: message.receivedAt,
-        lead_id: leadId,
-        status: "open",
-      })
-      .select("id,status,contact_id,lead_id,external_thread_id")
-      .single();
+    const { data: createdConversation, error: conversationError } =
+      await supabase
+        .from("conversations")
+        .insert({
+          workspace_id: workspaceId,
+          channel_id: channelId,
+          contact_id: contactId,
+          external_thread_id: message.externalThreadId,
+          last_message_at: message.receivedAt,
+          lead_id: leadId,
+          status: "open",
+        })
+        .select("id,status,contact_id,lead_id,external_thread_id")
+        .single();
 
     if (conversationError || !createdConversation) {
-      throw new Error(`Unable to create email conversation: ${conversationError?.message ?? "unknown error"}`);
+      throw new Error(
+        `Unable to create email conversation: ${conversationError?.message ?? "unknown error"}`,
+      );
     }
 
     conversation = createdConversation;
@@ -2311,7 +2518,9 @@ async function promoteEmailMessage({
     .single();
 
   if (messageError || !savedMessage) {
-    throw new Error(`Unable to create inbound email message: ${messageError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create inbound email message: ${messageError?.message ?? "unknown error"}`,
+    );
   }
 
   const storedAttachments = await persistInboundEmailAttachments({
@@ -2333,7 +2542,9 @@ async function promoteEmailMessage({
       .eq("id", savedMessage.id);
 
     if (metadataError) {
-      throw new Error(`Unable to update email attachment metadata: ${metadataError.message}`);
+      throw new Error(
+        `Unable to update email attachment metadata: ${metadataError.message}`,
+      );
     }
   }
 
@@ -2354,7 +2565,9 @@ async function promoteEmailMessage({
     .eq("id", conversationId);
 
   if (updateConversationError) {
-    throw new Error(`Unable to update email conversation: ${updateConversationError.message}`);
+    throw new Error(
+      `Unable to update email conversation: ${updateConversationError.message}`,
+    );
   }
 
   const cancelledActionCount = await cancelStaleConversationActions({
@@ -2364,6 +2577,15 @@ async function promoteEmailMessage({
     user,
     workspaceId,
   });
+  const completedFollowUpReminderCount =
+    await completeOpenCustomerFollowUpReminders(supabase, {
+      workspaceId,
+      actorType: "system",
+      actorId: user.id,
+      conversationId,
+      messageId: String(savedMessage.id),
+      reason: "new_inbound_email",
+    });
 
   if (leadId) {
     await supabase
@@ -2393,10 +2615,15 @@ async function promoteEmailMessage({
       messageId: String(savedMessage.id),
       status: "open",
       threadMatchStrategy,
+      completedFollowUpReminderCount,
     },
   });
 
-  const thread = await buildThreadSummary(supabase, workspaceId, conversationId);
+  const thread = await buildThreadSummary(
+    supabase,
+    workspaceId,
+    conversationId,
+  );
   const { data: leadProfile, error: leadProfileError } = leadId
     ? await supabase
         .from("leads")
@@ -2413,15 +2640,21 @@ async function promoteEmailMessage({
     .maybeSingle();
 
   if (leadProfileError) {
-    throw new Error(`Unable to load email lead context: ${leadProfileError.message}`);
+    throw new Error(
+      `Unable to load email lead context: ${leadProfileError.message}`,
+    );
   }
 
   if (contactProfileError) {
-    throw new Error(`Unable to load email contact context: ${contactProfileError.message}`);
+    throw new Error(
+      `Unable to load email contact context: ${contactProfileError.message}`,
+    );
   }
 
   const triageResult = await runStubAiTriage(supabase, user, workspaceId, {
-    contactAddress: contactProfile?.address ? String(contactProfile.address) : null,
+    contactAddress: contactProfile?.address
+      ? String(contactProfile.address)
+      : null,
     contactId,
     conversationId,
     leadId: leadId ?? undefined,
@@ -2441,6 +2674,7 @@ async function promoteEmailMessage({
     actionId: triageResult.actionId,
     aiRunId: triageResult.aiRunId,
     cancelledActionCount,
+    completedFollowUpReminderCount,
     conversationId,
     duplicate: false,
     leadId,
@@ -2449,7 +2683,9 @@ async function promoteEmailMessage({
   };
 }
 
-function skippedEventClassification(payload: Record<string, unknown>): EmailClassification {
+function skippedEventClassification(
+  payload: Record<string, unknown>,
+): EmailClassification {
   const classification = objectRecord(payload.classification);
   const summary =
     textValue(payload.summary) ??
@@ -2458,7 +2694,8 @@ function skippedEventClassification(payload: Record<string, unknown>): EmailClas
     "Filtered-out email promoted by the user.";
 
   return {
-    actionHint: "Review as manually promoted inbound email and prepare any useful next step.",
+    actionHint:
+      "Review as manually promoted inbound email and prepare any useful next step.",
     category: "business_actionable",
     confidence: 1,
     providerUsed: "manual",
@@ -2473,7 +2710,9 @@ function inboundAttachmentsFromEventPayload(
   payload: Record<string, unknown>,
   provider: InboundEmailProvider,
 ) {
-  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const attachments = Array.isArray(payload.attachments)
+    ? payload.attachments
+    : [];
   const inboundAttachments: InboundEmailAttachment[] = [];
 
   for (const value of attachments) {
@@ -2523,7 +2762,8 @@ function fallbackMessageFromSkippedEvent({
     bodyHtml: null,
     bodyText: summary,
     connectionId: connection.id,
-    externalMessageId: textValue(payload.externalMessageId) ?? `skipped-event-${eventId}`,
+    externalMessageId:
+      textValue(payload.externalMessageId) ?? `skipped-event-${eventId}`,
     externalThreadId: textValue(payload.externalThreadId),
     fromEmail: textValue(payload.fromEmail),
     fromName: null,
@@ -2551,14 +2791,19 @@ async function refetchSkippedEmailMessage({
   workspaceId: string;
 }) {
   const externalMessageId =
-    textValue(payload.providerMessageId) ?? textValue(payload.externalMessageId);
+    textValue(payload.providerMessageId) ??
+    textValue(payload.externalMessageId);
 
   if (!externalMessageId) {
     return null;
   }
 
   try {
-    const accessToken = await accessTokenForConnection({ connection, supabase, workspaceId });
+    const accessToken = await accessTokenForConnection({
+      connection,
+      supabase,
+      workspaceId,
+    });
 
     return provider === "google"
       ? await fetchGmailMessageById({
@@ -2607,11 +2852,18 @@ export async function promoteSkippedEmailEvent({
   const payload = objectRecord(event.payload);
 
   if (textValue(payload.stage) !== "observed") {
-    throw new Error("Only filtered-out emails can be promoted into work items.");
+    throw new Error(
+      "Only filtered-out emails can be promoted into work items.",
+    );
   }
 
-  const provider = textValue(payload.provider) === "microsoft" ? "microsoft" : "google";
-  const connections = await loadEmailConnections({ provider, supabase, workspaceId });
+  const provider =
+    textValue(payload.provider) === "microsoft" ? "microsoft" : "google";
+  const connections = await loadEmailConnections({
+    provider,
+    supabase,
+    workspaceId,
+  });
   const accountEmail = textValue(payload.accountEmail);
   const connection =
     connections.find(
@@ -2621,7 +2873,9 @@ export async function promoteSkippedEmailEvent({
     ) ?? connections[0];
 
   if (!connection) {
-    throw new Error(`Reconnect ${providerLabel(provider)} before promoting this email.`);
+    throw new Error(
+      `Reconnect ${providerLabel(provider)} before promoting this email.`,
+    );
   }
 
   const classification = skippedEventClassification(payload);
@@ -2675,7 +2929,9 @@ export async function promoteSkippedEmailEvent({
     .eq("id", eventId);
 
   if (updateEventError) {
-    throw new Error(`Unable to update promoted email event: ${updateEventError.message}`);
+    throw new Error(
+      `Unable to update promoted email event: ${updateEventError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -2740,11 +2996,16 @@ async function processMessage({
       return;
     }
 
-    throw new Error(`Unable to record inbound email event: ${eventError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to record inbound email event: ${eventError?.message ?? "unknown error"}`,
+    );
   }
 
   try {
-    const senderRule = findInboundEmailSenderRule(settings.senderRules, message.fromEmail);
+    const senderRule = findInboundEmailSenderRule(
+      settings.senderRules,
+      message.fromEmail,
+    );
     const classification = senderRule
       ? classificationForSenderRule(senderRule, message)
       : await classifyEmail({
@@ -2755,7 +3016,8 @@ async function processMessage({
           user,
           workspaceId,
         });
-    const shouldPromote = settings.autoPromoteActionable && classification.promote;
+    const shouldPromote =
+      settings.autoPromoteActionable && classification.promote;
 
     if (!shouldPromote) {
       await supabase
@@ -2769,7 +3031,9 @@ async function processMessage({
             receivedAt: message.receivedAt,
             stage: "observed",
             subject: message.subject,
-            summary: settings.includeAwarenessEvents ? safeSummaryText(message) : null,
+            summary: settings.includeAwarenessEvents
+              ? safeSummaryText(message)
+              : null,
             ...inboundEmailEventMetadata(message),
           },
           processed_at: new Date().toISOString(),
@@ -2829,7 +3093,10 @@ async function processMessage({
       subject: message.subject,
     });
   } catch (error) {
-    const messageText = error instanceof Error ? error.message : "Inbound email processing failed.";
+    const messageText =
+      error instanceof Error
+        ? error.message
+        : "Inbound email processing failed.";
 
     await supabase
       .from("events")
@@ -2863,7 +3130,9 @@ async function loadEmailConnections({
 }) {
   let query = supabase
     .from("integration_connections")
-    .select("id,provider,service,account_email,scopes,token_set,last_sync_at,metadata")
+    .select(
+      "id,provider,service,account_email,scopes,token_set,last_sync_at,metadata",
+    )
     .eq("workspace_id", workspaceId)
     .eq("status", "connected")
     .in("provider", [GOOGLE_PROVIDER, MICROSOFT_PROVIDER])
@@ -2874,7 +3143,9 @@ async function loadEmailConnections({
   }
 
   if (provider === "microsoft") {
-    query = query.eq("provider", MICROSOFT_PROVIDER).eq("service", MICROSOFT_SERVICE);
+    query = query
+      .eq("provider", MICROSOFT_PROVIDER)
+      .eq("service", MICROSOFT_SERVICE);
   }
 
   const { data, error } = await query;
@@ -2923,13 +3194,14 @@ async function syncConnection({
   }
 
   const scopes = normalizeScopes(connection.scopes);
-  const missingScope = provider === "google"
-    ? scopes.includes(GOOGLE_GMAIL_READ_SCOPE)
-      ? null
-      : GOOGLE_GMAIL_READ_SCOPE
-    : hasMicrosoftScope(scopes, MICROSOFT_MAIL_READ_SCOPE)
-      ? null
-      : MICROSOFT_MAIL_READ_SCOPE;
+  const missingScope =
+    provider === "google"
+      ? scopes.includes(GOOGLE_GMAIL_READ_SCOPE)
+        ? null
+        : GOOGLE_GMAIL_READ_SCOPE
+      : hasMicrosoftScope(scopes, MICROSOFT_MAIL_READ_SCOPE)
+        ? null
+        : MICROSOFT_MAIL_READ_SCOPE;
 
   if (missingScope) {
     result.needsReconnect.push({
@@ -2947,10 +3219,15 @@ async function syncConnection({
   }
 
   try {
-    const accessToken = await accessTokenForConnection({ connection, supabase, workspaceId });
-    const messages = provider === "google"
-      ? await fetchGmailMessages({ accessToken, connection, settings })
-      : await fetchOutlookMessages({ accessToken, connection, settings });
+    const accessToken = await accessTokenForConnection({
+      connection,
+      supabase,
+      workspaceId,
+    });
+    const messages =
+      provider === "google"
+        ? await fetchGmailMessages({ accessToken, connection, settings })
+        : await fetchOutlookMessages({ accessToken, connection, settings });
 
     result.fetchedMessages += messages.length;
 
@@ -2968,7 +3245,10 @@ async function syncConnection({
       } catch (error) {
         result.errors.push({
           accountEmail: connection.account_email,
-          message: error instanceof Error ? error.message : "Inbound email message processing failed.",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Inbound email message processing failed.",
           provider,
         });
       }
@@ -2988,7 +3268,8 @@ async function syncConnection({
       workspaceId,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Inbound email sync failed.";
+    const message =
+      error instanceof Error ? error.message : "Inbound email sync failed.";
 
     if (isRecoverableTokenAccessError(message)) {
       result.needsReconnect.push({
@@ -3045,7 +3326,11 @@ export async function syncInboundEmail({
     skippedBySchedule: 0,
     trigger,
   };
-  const connections = await loadEmailConnections({ provider, supabase, workspaceId });
+  const connections = await loadEmailConnections({
+    provider,
+    supabase,
+    workspaceId,
+  });
 
   for (const connection of connections) {
     await syncConnection({
@@ -3069,7 +3354,12 @@ export async function syncInboundEmail({
   ) {
     await insertAuditLog(supabase, {
       workspaceId,
-      actorType: trigger === "assistant" ? "ai" : trigger === "manual" ? "user" : "system",
+      actorType:
+        trigger === "assistant"
+          ? "ai"
+          : trigger === "manual"
+            ? "user"
+            : "system",
       actorId: user.id,
       action: "inbound.email_sync.completed",
       entityType: "workspace",

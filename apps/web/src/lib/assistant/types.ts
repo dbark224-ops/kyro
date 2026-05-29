@@ -26,6 +26,67 @@ export type AssistantUiBlock =
       type: "memory_notice";
       title: string;
       content: string;
+    }
+  | {
+      type: "memory_suggestion";
+      title: string;
+      content: string;
+      memoryId: string;
+      status: "active" | "pending_approval" | "rejected";
+    }
+  | {
+      type: "summary_cards";
+      title: string;
+      cards: Array<{
+        detail?: string;
+        href?: string;
+        label: string;
+        tone?: "cyan" | "purple" | "pink" | "warning" | "success" | "neutral";
+        value: string;
+      }>;
+    }
+  | {
+      type: "timeline";
+      title: string;
+      items: Array<{
+        at?: string | null;
+        detail?: string;
+        href?: string;
+        label: string;
+        tone?: "cyan" | "purple" | "pink" | "warning" | "success" | "neutral";
+      }>;
+    }
+  | {
+      type: "approval_queue";
+      title: string;
+      items: Array<{
+        actionLabel?: string;
+        detail?: string;
+        href?: string;
+        id: string;
+        label: string;
+        status: string;
+      }>;
+    }
+  | {
+      type: "generated_image";
+      title: string;
+      images: Array<{
+        alt: string;
+        contentType: string;
+        downloadHref: string;
+        editMode: boolean;
+        fileId: string;
+        filename: string;
+        href: string;
+        meta?: string;
+        model: string;
+        prompt: string;
+        provider: string;
+        quality: string;
+        referenceCount: number;
+        size: string;
+      }>;
     };
 
 export type AssistantCommandResult = {
@@ -34,11 +95,21 @@ export type AssistantCommandResult = {
   fallbackAnswer: string;
   context: Record<string, unknown>;
   links: AssistantLink[];
+  uiBlocks?: AssistantUiBlock[];
   mutation?: {
     entityId: string;
     entityType: string;
     label: string;
   };
+};
+
+export type AssistantRecentMessage = {
+  content: string;
+  createdAt?: string;
+  intent?: string | null;
+  links?: AssistantLink[];
+  role: "assistant" | "user";
+  uiBlocks?: AssistantUiBlock[];
 };
 
 export type AssistantToolCallRecord = {
@@ -51,13 +122,10 @@ export type AssistantToolCallRecord = {
 export type AssistantModelInput = {
   prompt: string;
   command: AssistantCommandResult;
+  contextSnapshots?: AssistantContextSnapshot[];
   inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
-  recentMessages?: Array<{
-    content: string;
-    intent?: string | null;
-    role: "assistant" | "user";
-  }>;
+  recentMessages?: AssistantRecentMessage[];
   threadSummary?: string | null;
 };
 
@@ -111,12 +179,34 @@ export type AssistantMemoryItem = {
   tags: string[];
 };
 
+export type AssistantContextSnapshot = {
+  id: string;
+  snapshotType: "rolling" | "daily" | "weekly" | "monthly" | "manual" | string;
+  title: string;
+  summary: string;
+  keyPoints: string[];
+  entities: string[];
+  periodStart: string;
+  periodEnd: string;
+  messageCount: number;
+};
+
 export type AssistantThreadState = {
   memories?: AssistantMemoryItem[];
   messages: AssistantThreadMessage[];
   summary?: string | null;
   threadId?: string | null;
+  threads?: AssistantThreadSummary[];
   error?: string | null;
+};
+
+export type AssistantThreadSummary = {
+  createdAt: string;
+  id: string;
+  status: string;
+  summary: string | null;
+  title: string;
+  updatedAt: string;
 };
 
 export type AssistantResourcePreview =

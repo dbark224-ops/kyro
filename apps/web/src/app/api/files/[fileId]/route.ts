@@ -10,7 +10,7 @@ function safeDownloadName(value: string) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ fileId: string }> },
 ) {
   const { fileId } = await params;
@@ -45,9 +45,14 @@ export async function GET(
     );
   }
 
+  const disposition =
+    new URL(request.url).searchParams.get("disposition") === "inline"
+      ? "inline"
+      : "attachment";
+
   return new Response(data, {
     headers: {
-      "Content-Disposition": `attachment; filename="${safeDownloadName(
+      "Content-Disposition": `${disposition}; filename="${safeDownloadName(
         String(file.filename),
       )}"`,
       "Content-Type": String(file.content_type ?? "application/octet-stream"),

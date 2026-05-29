@@ -4,6 +4,12 @@ import type { ModelRouteRequest } from "@kyro/contracts";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
+  DEFAULT_REPLY_WRITING_SETTINGS,
+  getCommunicationSettings,
+  replyWritingPromptRules,
+  type ReplyWritingSettings,
+} from "../communication/settings";
+import {
   buildLlmUsageEvents,
   estimateTokens,
   openAiProviderUsageId,
@@ -58,6 +64,7 @@ export type StubAiTriageContext = {
   threadMessageCount?: number;
   threadSummary?: string;
   inquiryFactsOverride?: InquiryFacts;
+  replyWriting?: ReplyWritingSettings;
 };
 
 export type InquiryFacts = {
@@ -569,6 +576,9 @@ function normalizeLocalFacts(value: unknown, fallback: InquiryFacts): InquiryFac
 }
 
 function buildOllamaPrompt(context: StubAiTriageContext) {
+  const replyWriting =
+    context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+
   return JSON.stringify(
     {
       task: context.inquiryFactsOverride
@@ -598,9 +608,13 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "For example, 'renovating my bathroom' plus 'quote' should become 'Bathroom Renovation Quote'.",
         "If authoritativeInquiryFacts is present, echo it exactly in inquiryFacts and do not reinterpret it.",
         "If required info is missing, put it in missingInfo.",
-        "Keep the reply draft friendly, direct, and suitable for a trades business."
+        "Apply replyWriting to the replyDraft tone, wording style, length, sign-off, trade phrasing, and reusable instructions.",
+        ...replyWritingPromptRules(replyWriting).map(
+          (rule) => `Writing style - ${rule}`
+        )
       ],
       authoritativeInquiryFacts: context.inquiryFactsOverride ?? null,
+      replyWriting,
       context
     },
     null,
@@ -1043,7 +1057,15 @@ export async function runStubAiTriage(
     }
   });
 
-  const triageDecision = await resolveTriageDecision(context, route.model);
+  const communicationSettings = await getCommunicationSettings(
+    supabase,
+    workspaceId
+  );
+  const triageContext: StubAiTriageContext = {
+    ...context,
+    replyWriting: context.replyWriting ?? communicationSettings.replyWriting
+  };
+  const triageDecision = await resolveTriageDecision(triageContext, route.model);
   const { error: routeError } = await supabase.from("model_route_decisions").insert({
     workspace_id: workspaceId,
     user_id: user.id,
@@ -1108,7 +1130,7 @@ export async function runStubAiTriage(
   const actionProposals = buildActionProposals(
     aiRunId,
     String(event.id),
-    context,
+    triageContext,
     inquiryFacts,
     triageDecision.replyDraft
   );
@@ -1117,10 +1139,10 @@ export async function runStubAiTriage(
     confidence: triageDecision.providerUsed === "ollama" ? 0.76 : 0.86,
     fallbackReason: triageDecision.fallbackReason ?? null,
     inquiryFacts,
-    authoritativeFactsUsed: Boolean(context.inquiryFactsOverride),
+    authoritativeFactsUsed: Boolean(triageContext.inquiryFactsOverride),
     providerUsed: triageDecision.providerUsed,
     summary: triageDecision.summary,
-    threadMessageCount: context.threadMessageCount ?? null,
+    threadMessageCount: triageContext.threadMessageCount ?? null,
     proposedActionTypes: actionProposals.map((proposal) => proposal.type)
   };
 

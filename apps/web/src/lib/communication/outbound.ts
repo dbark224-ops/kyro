@@ -6,12 +6,20 @@ import {
 } from "../integrations/mail";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { buildQuotePdfArtifactForDraft } from "../documents/pdf";
+import {
+  markGeneratedDocumentSent,
+  recordQuoteGeneratedDocument,
+} from "../documents/generated-documents";
 import { appendQuoteDocumentHistory } from "../documents/history";
 import {
   markQuoteSentToCustomer,
   quoteRevisionState,
 } from "../documents/revisions";
-import { isOutboundChannel, type OutboundChannel } from "./settings";
+import {
+  getCommunicationSettings,
+  isOutboundChannel,
+  type OutboundChannel,
+} from "./settings";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const SCHEDULED_PROCESS_LIMIT = 25;
@@ -24,6 +32,7 @@ const ensuredOutboundAttachmentBuckets = new Set<string>();
 export type OutboundAttachment = EmailAttachment & {
   contentHash?: string | null;
   generatedAt?: string | null;
+  generatedDocumentId?: string | null;
   quoteDraftId?: string | null;
   quoteVersion?: number | null;
   source: "local_upload" | "quote_draft" | "signature_logo";
@@ -125,6 +134,7 @@ export type RecordOutboundMessageResult = {
   externalThreadId: string | null;
   attachments: Array<{
     filename: string;
+    generatedDocumentId?: string | null;
     quoteDraftId: string | null;
     sizeBytes: number;
     source: string;
@@ -150,9 +160,7 @@ function textValue(value: unknown) {
 }
 
 function numberValue(value: unknown, fallback = 0) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : fallback;
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function objectRecord(value: unknown) {
@@ -200,6 +208,7 @@ function attachmentSummary(
     fileId: "fileId" in attachment ? attachment.fileId : null,
     filename: attachment.filename,
     generatedAt: attachment.generatedAt ?? null,
+    generatedDocumentId: attachment.generatedDocumentId ?? null,
     quoteDraftId: attachment.quoteDraftId ?? null,
     quoteVersion: attachment.quoteVersion ?? null,
     sizeBytes: attachment.sizeBytes,
@@ -294,7 +303,9 @@ async function persistOutboundAttachments({
       });
 
     if (uploadError) {
-      throw new Error(`Unable to store outbound attachment: ${uploadError.message}`);
+      throw new Error(
+        `Unable to store outbound attachment: ${uploadError.message}`,
+      );
     }
 
     const { data: file, error: fileError } = await serviceSupabase
@@ -327,6 +338,7 @@ async function persistOutboundAttachments({
       fileId: String(file.id),
       filename: String(file.filename),
       generatedAt: attachment.generatedAt ?? null,
+      generatedDocumentId: attachment.generatedDocumentId ?? null,
       quoteDraftId: attachment.quoteDraftId ?? null,
       quoteVersion: attachment.quoteVersion ?? null,
       sizeBytes: numberValue(file.size_bytes, buffer.byteLength),
@@ -363,6 +375,7 @@ function parseStoredOutboundAttachment(
     fileId: textValue(record.fileId),
     filename,
     generatedAt: textValue(record.generatedAt),
+    generatedDocumentId: textValue(record.generatedDocumentId),
     quoteDraftId: textValue(record.quoteDraftId),
     quoteVersion:
       typeof record.quoteVersion === "number" ? record.quoteVersion : null,
@@ -393,7 +406,9 @@ function storedAttachmentSummary(value: unknown) {
     .map((attachment) => attachmentSummary([attachment])[0]);
 }
 
-async function storedAttachments(value: unknown): Promise<OutboundAttachment[]> {
+async function storedAttachments(
+  value: unknown,
+): Promise<OutboundAttachment[]> {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -444,6 +459,7 @@ async function storedAttachments(value: unknown): Promise<OutboundAttachment[]> 
       disposition: parsed.disposition,
       filename: parsed.filename,
       generatedAt: parsed.generatedAt,
+      generatedDocumentId: parsed.generatedDocumentId,
       quoteDraftId: parsed.quoteDraftId,
       quoteVersion: parsed.quoteVersion,
       sizeBytes: parsed.sizeBytes,
@@ -503,6 +519,7 @@ async function insertOutboundAuditLog(
     workspaceId: string;
     action: string;
     entityId: string;
+    entityType?: string;
     actorId?: string | null;
     after?: Record<string, unknown> | null;
     before?: Record<string, unknown> | null;
@@ -514,7 +531,7 @@ async function insertOutboundAuditLog(
     actor_type: "system",
     actor_id: input.actorId ?? null,
     action: input.action,
-    entity_type: "outbound_message",
+    entity_type: input.entityType ?? "outbound_message",
     entity_id: input.entityId,
     before: input.before ?? null,
     after: input.after ?? null,
@@ -526,22 +543,197 @@ async function insertOutboundAuditLog(
   }
 }
 
+function addDaysIso(startIso: string, days: number) {
+  const date = new Date(startIso);
+  date.setDate(date.getDate() + days);
+
+  return date.toISOString();
+}
+
+async function scheduleAutomaticFollowUpReminder(
+  supabase: SupabaseClient,
+  input: {
+    channelType: OutboundChannel;
+    contactId: string | null;
+    conversationId: string;
+    leadId: string | null;
+    messageId: string;
+    outboundQueueId: string;
+    sentAt: string;
+    userId: string | null;
+    workspaceId: string;
+  },
+) {
+  const settings = await getCommunicationSettings(supabase, input.workspaceId);
+
+  if (!settings.followUpRemindersEnabled) {
+    return;
+  }
+
+  const dueAt = addDaysIso(input.sentAt, settings.followUpDelayDays);
+  const description = `Check in if the customer has not replied after ${settings.followUpDelayDays} day${
+    settings.followUpDelayDays === 1 ? "" : "s"
+  }.`;
+  const metadata = {
+    channelType: input.channelType,
+    delayDays: settings.followUpDelayDays,
+    outboundMessageId: input.messageId,
+    outboundQueueId: input.outboundQueueId,
+    scheduledAfter: input.sentAt,
+    source: "automatic_follow_up",
+  };
+  const { data: existingTask, error: existingError } = await supabase
+    .from("conversation_tasks")
+    .select("id,due_at,metadata")
+    .eq("workspace_id", input.workspaceId)
+    .eq("conversation_id", input.conversationId)
+    .eq("task_type", "customer_follow_up")
+    .eq("status", "open")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(
+      `Unable to inspect follow-up reminder: ${existingError.message}`,
+    );
+  }
+
+  if (existingTask) {
+    const { error: updateError } = await supabase
+      .from("conversation_tasks")
+      .update({
+        assigned_to_user_id: input.userId,
+        description,
+        due_at: dueAt,
+        lead_id: input.leadId,
+        message_id: input.messageId,
+        metadata: {
+          ...objectRecord(existingTask.metadata),
+          ...metadata,
+          previousDueAt: existingTask.due_at
+            ? String(existingTask.due_at)
+            : null,
+        },
+        priority: "normal",
+        title: "Follow up with customer",
+      })
+      .eq("workspace_id", input.workspaceId)
+      .eq("id", existingTask.id);
+
+    if (updateError) {
+      throw new Error(
+        `Unable to reschedule follow-up reminder: ${updateError.message}`,
+      );
+    }
+
+    await insertOutboundAuditLog(supabase, {
+      workspaceId: input.workspaceId,
+      action: "conversation_follow_up.rescheduled",
+      entityId: String(existingTask.id),
+      entityType: "conversation_task",
+      actorId: input.userId,
+      after: {
+        dueAt,
+        taskType: "customer_follow_up",
+      },
+      metadata: {
+        conversationId: input.conversationId,
+        outboundMessageId: input.messageId,
+        outboundQueueId: input.outboundQueueId,
+      },
+    });
+
+    return;
+  }
+
+  const { data: task, error: insertError } = await supabase
+    .from("conversation_tasks")
+    .insert({
+      assigned_to_user_id: input.userId,
+      contact_id: input.contactId,
+      conversation_id: input.conversationId,
+      created_by_user_id: input.userId,
+      description,
+      due_at: dueAt,
+      lead_id: input.leadId,
+      message_id: input.messageId,
+      metadata,
+      priority: "normal",
+      status: "open",
+      task_type: "customer_follow_up",
+      title: "Follow up with customer",
+      workspace_id: input.workspaceId,
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !task) {
+    throw new Error(
+      `Unable to create follow-up reminder: ${insertError?.message ?? "unknown error"}`,
+    );
+  }
+
+  await insertOutboundAuditLog(supabase, {
+    workspaceId: input.workspaceId,
+    action: "conversation_follow_up.scheduled",
+    entityId: String(task.id),
+    entityType: "conversation_task",
+    actorId: input.userId,
+    after: {
+      dueAt,
+      taskType: "customer_follow_up",
+    },
+    metadata: {
+      conversationId: input.conversationId,
+      outboundMessageId: input.messageId,
+      outboundQueueId: input.outboundQueueId,
+    },
+  });
+}
+
 async function buildQuoteDraftAttachment(
   supabase: SupabaseClient,
   workspaceId: string,
   quoteDraftId: string,
+  createdByUserId: string | null,
 ): Promise<OutboundAttachment> {
   const { data: workspace } = await supabase
     .from("workspaces")
     .select("name")
     .eq("id", workspaceId)
     .maybeSingle();
+  const { data: quoteDraft, error: quoteDraftError } = await supabase
+    .from("quote_drafts")
+    .select("id,title,status,metadata,contact_id,lead_id,conversation_id")
+    .eq("workspace_id", workspaceId)
+    .eq("id", quoteDraftId)
+    .maybeSingle();
+
+  if (quoteDraftError) {
+    throw new Error(
+      `Unable to load quote draft for generated document record: ${quoteDraftError.message}`,
+    );
+  }
+
+  if (!quoteDraft) {
+    throw new Error("Quote draft was not found.");
+  }
+
   const artifact = await buildQuotePdfArtifactForDraft(supabase, {
     quoteDraftId,
     workspace: {
       id: workspaceId,
       name: textValue(workspace?.name) ?? "Kyro workspace",
     },
+  });
+  const generatedDocument = await recordQuoteGeneratedDocument(supabase, {
+    artifact,
+    createdByUserId,
+    documentType: "quote",
+    quoteDraft,
+    source: "outbound.quote_attachment",
+    workspaceId,
   });
 
   return {
@@ -550,6 +742,7 @@ async function buildQuoteDraftAttachment(
     contentType: artifact.contentType,
     filename: artifact.filename,
     generatedAt: artifact.generatedAt,
+    generatedDocumentId: generatedDocument.id,
     quoteDraftId,
     sizeBytes: artifact.sizeBytes,
     source: "quote_draft",
@@ -575,7 +768,9 @@ export async function findOrCreateMockOutboundChannel(
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to load mock outbound channel: ${existingError.message}`);
+    throw new Error(
+      `Unable to load mock outbound channel: ${existingError.message}`,
+    );
   }
 
   if (existingChannel) {
@@ -600,7 +795,9 @@ export async function findOrCreateMockOutboundChannel(
     .single();
 
   if (error || !channel) {
-    throw new Error(`Unable to create mock outbound channel: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create mock outbound channel: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   return String(channel.id);
@@ -642,7 +839,9 @@ async function findOrCreateEmailOutboundChannel(
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to load email outbound channel: ${existingError.message}`);
+    throw new Error(
+      `Unable to load email outbound channel: ${existingError.message}`,
+    );
   }
 
   if (existingChannel) {
@@ -653,7 +852,9 @@ async function findOrCreateEmailOutboundChannel(
       .eq("id", existingChannel.id);
 
     if (error) {
-      throw new Error(`Unable to update email outbound channel: ${error.message}`);
+      throw new Error(
+        `Unable to update email outbound channel: ${error.message}`,
+      );
     }
 
     return String(existingChannel.id);
@@ -666,7 +867,9 @@ async function findOrCreateEmailOutboundChannel(
     .single();
 
   if (error || !channel) {
-    throw new Error(`Unable to create email outbound channel: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create email outbound channel: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   return String(channel.id);
@@ -770,7 +973,9 @@ async function enqueueOutboundDelivery(
   }
 
   if (error?.code !== "23505") {
-    throw new Error(`Unable to queue outbound delivery: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to queue outbound delivery: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   const { data: existingRow, error: existingError } = await supabase
@@ -831,7 +1036,9 @@ async function loadOutboundQueueRowByIdempotency(
   return data ? (data as OutboundQueueRow) : null;
 }
 
-function storedResultFromRow(row: OutboundQueueRow): RecordOutboundMessageResult | null {
+function storedResultFromRow(
+  row: OutboundQueueRow,
+): RecordOutboundMessageResult | null {
   const stored = objectRecord(objectRecord(row.metadata).recordResult);
   const outboundRecordId =
     textValue(stored.outboundRecordId) ?? textValue(stored.outboundMessageId);
@@ -839,7 +1046,8 @@ function storedResultFromRow(row: OutboundQueueRow): RecordOutboundMessageResult
     textValue(stored.outboundRecordType) === "event" ? "event" : "message";
   const channelId = textValue(stored.channelId);
   const channelType = textValue(stored.channelType);
-  const conversationId = textValue(stored.conversationId) ?? textValue(row.conversation_id);
+  const conversationId =
+    textValue(stored.conversationId) ?? textValue(row.conversation_id);
 
   if (!outboundRecordId || !channelId || !channelType) {
     return null;
@@ -855,6 +1063,7 @@ function storedResultFromRow(row: OutboundQueueRow): RecordOutboundMessageResult
 
         return {
           filename: textValue(record.filename) ?? "attachment",
+          generatedDocumentId: textValue(record.generatedDocumentId),
           quoteDraftId: textValue(record.quoteDraftId),
           sizeBytes: numberValue(record.sizeBytes),
           source: textValue(record.source) ?? "unknown",
@@ -879,7 +1088,8 @@ function storedResultFromRow(row: OutboundQueueRow): RecordOutboundMessageResult
     outboundRecordType,
     outboundQueueId: row.id,
     outboxStatus: normalizeDeliveryStatus(row.status),
-    previousConversationStatus: textValue(stored.previousConversationStatus) ?? "unknown",
+    previousConversationStatus:
+      textValue(stored.previousConversationStatus) ?? "unknown",
     provider: textValue(stored.provider),
     providerRequestId: textValue(stored.providerRequestId),
     quoteDraftStatusAfter: textValue(stored.quoteDraftStatusAfter),
@@ -935,7 +1145,9 @@ async function startOutboundAttempt(
   }
 
   if (!data) {
-    throw new Error("Unable to start outbound delivery because its status changed.");
+    throw new Error(
+      "Unable to start outbound delivery because its status changed.",
+    );
   }
 
   await insertOutboundAuditLog(supabase, {
@@ -995,7 +1207,10 @@ async function markOutboundFailed(
   actorId: string | null,
 ) {
   const failedAt = nowIso();
-  const maxAttempts = Math.max(1, numberValue(row.max_attempts, DEFAULT_MAX_ATTEMPTS));
+  const maxAttempts = Math.max(
+    1,
+    numberValue(row.max_attempts, DEFAULT_MAX_ATTEMPTS),
+  );
   const nextAttemptAt = nextOutboundAttemptAtIso(
     attemptCount,
     maxAttempts,
@@ -1153,7 +1368,9 @@ async function deliverOutboundQueueItem(
   const conversationId = textValue(activeRow.conversation_id);
   const outboxMetadata = objectRecord(activeRow.metadata);
   const deliveryMode =
-    textValue(outboxMetadata.deliveryMode) === "event" ? "event" : "conversation";
+    textValue(outboxMetadata.deliveryMode) === "event"
+      ? "event"
+      : "conversation";
 
   if (!channelType || !isOutboundChannel(channelType)) {
     throw new Error("Outbound delivery has an invalid channel.");
@@ -1179,17 +1396,25 @@ async function deliverOutboundQueueItem(
     : { data: null, error: null };
 
   if (conversationError) {
-    throw new Error(`Unable to load outbound conversation: ${conversationError.message}`);
+    throw new Error(
+      `Unable to load outbound conversation: ${conversationError.message}`,
+    );
   }
 
   if (conversationId && !conversation) {
-    throw new Error("Unable to deliver outbound message because the conversation was not found.");
+    throw new Error(
+      "Unable to deliver outbound message because the conversation was not found.",
+    );
   }
 
   const attachments = await storedAttachments(activeRow.attachments);
   const attachmentMetadata = storedAttachmentSummary(activeRow.attachments);
-  const attachmentQuoteDraftId = textValue(outboxMetadata.attachmentQuoteDraftId);
-  const quoteDraftStatusBefore = textValue(outboxMetadata.quoteDraftStatusBefore);
+  const attachmentQuoteDraftId = textValue(
+    outboxMetadata.attachmentQuoteDraftId,
+  );
+  const quoteDraftStatusBefore = textValue(
+    outboxMetadata.quoteDraftStatusBefore,
+  );
   const now = nowIso();
   let channelId: string;
   let dryRun = true;
@@ -1218,7 +1443,9 @@ async function deliverOutboundQueueItem(
           : null);
 
       if (!recipientEmail) {
-        throw new Error("This contact does not have an email address, so Kyro cannot send this reply.");
+        throw new Error(
+          "This contact does not have an email address, so Kyro cannot send this reply.",
+        );
       }
 
       const emailResult = await sendConnectedEmailMessage(supabase, {
@@ -1261,7 +1488,9 @@ async function deliverOutboundQueueItem(
 
     let outboundRecordId: string;
     let outboundRecordType: "event" | "message" = "message";
-    const beforeStatus = conversation ? String(conversation.status) : "not_applicable";
+    const beforeStatus = conversation
+      ? String(conversation.status)
+      : "not_applicable";
     let quoteDraftStatusAfter: string | null = null;
 
     if (deliveryMode === "event") {
@@ -1362,7 +1591,30 @@ async function deliverOutboundQueueItem(
         .eq("id", conversationId);
 
       if (conversationUpdateError) {
-        throw new Error(`Unable to update conversation after outbound: ${conversationUpdateError.message}`);
+        throw new Error(
+          `Unable to update conversation after outbound: ${conversationUpdateError.message}`,
+        );
+      }
+
+      try {
+        await scheduleAutomaticFollowUpReminder(supabase, {
+          channelType,
+          contactId: conversation.contact_id
+            ? String(conversation.contact_id)
+            : null,
+          conversationId,
+          leadId: conversation.lead_id ? String(conversation.lead_id) : null,
+          messageId: outboundRecordId,
+          outboundQueueId: activeRow.id,
+          sentAt: now,
+          userId: activeRow.user_id ? String(activeRow.user_id) : null,
+          workspaceId: activeRow.workspace_id,
+        });
+      } catch (followUpError) {
+        console.warn(
+          "Unable to schedule automatic follow-up reminder",
+          errorMessage(followUpError),
+        );
       }
     }
 
@@ -1376,11 +1628,15 @@ async function deliverOutboundQueueItem(
         .maybeSingle();
 
       if (quoteDraftError) {
-        throw new Error(`Unable to load attached quote draft: ${quoteDraftError.message}`);
+        throw new Error(
+          `Unable to load attached quote draft: ${quoteDraftError.message}`,
+        );
       }
 
       if (!quoteDraft) {
-        throw new Error("Unable to mark attached quote draft sent because it was not found.");
+        throw new Error(
+          "Unable to mark attached quote draft sent because it was not found.",
+        );
       }
 
       quoteDraftStatusAfter = "sent";
@@ -1393,6 +1649,7 @@ async function deliverOutboundQueueItem(
             contentType: quoteDraftAttachment.contentType,
             filename: quoteDraftAttachment.filename,
             generatedAt: quoteDraftAttachment.generatedAt ?? now,
+            generatedDocumentId: quoteDraftAttachment.generatedDocumentId ?? null,
             quoteVersion: quoteDraftAttachment.quoteVersion ?? null,
             renderer: "pdf-lib",
             sizeBytes: quoteDraftAttachment.sizeBytes,
@@ -1444,6 +1701,14 @@ async function deliverOutboundQueueItem(
         throw new Error(
           `Unable to mark attached quote draft sent: ${quoteDraftUpdateError.message}`,
         );
+      }
+
+      if (quoteDraftAttachment?.generatedDocumentId) {
+        await markGeneratedDocumentSent(supabase, {
+          generatedDocumentId: quoteDraftAttachment.generatedDocumentId,
+          messageId: outboundRecordId,
+          workspaceId: activeRow.workspace_id,
+        });
       }
     }
 
@@ -1540,17 +1805,23 @@ export async function recordOutboundMessage(
     .maybeSingle();
 
   if (conversationError) {
-    throw new Error(`Unable to load outbound conversation: ${conversationError.message}`);
+    throw new Error(
+      `Unable to load outbound conversation: ${conversationError.message}`,
+    );
   }
 
   if (!conversation) {
-    throw new Error("Unable to record outbound message because the conversation was not found.");
+    throw new Error(
+      "Unable to record outbound message because the conversation was not found.",
+    );
   }
 
   const body = textValue(input.body);
 
   if (!body) {
-    throw new Error("Unable to record outbound message because the body is empty.");
+    throw new Error(
+      "Unable to record outbound message because the body is empty.",
+    );
   }
 
   const subject =
@@ -1603,6 +1874,7 @@ export async function recordOutboundMessage(
       supabase,
       input.workspaceId,
       String(data.id),
+      input.userId,
     );
     quoteDraftAttachment.quoteVersion = quoteRevisionState(
       objectRecord(data.metadata),
@@ -1613,13 +1885,17 @@ export async function recordOutboundMessage(
   const sentTo =
     input.channelType === "email"
       ? await loadEmailRecipient(supabase, {
-          contactId: conversation.contact_id ? String(conversation.contact_id) : null,
+          contactId: conversation.contact_id
+            ? String(conversation.contact_id)
+            : null,
           workspaceId: input.workspaceId,
         })
       : null;
 
   if (input.channelType === "email" && !sentTo) {
-    throw new Error("This contact does not have an email address, so Kyro cannot send this reply.");
+    throw new Error(
+      "This contact does not have an email address, so Kyro cannot send this reply.",
+    );
   }
 
   const storedAttachmentsForQueue = await persistOutboundAttachments({
@@ -1670,11 +1946,15 @@ export async function recordOutboundEventEmail(
   const recipientEmail = textValue(input.recipientEmail);
 
   if (!body) {
-    throw new Error("Unable to record outbound email because the body is empty.");
+    throw new Error(
+      "Unable to record outbound email because the body is empty.",
+    );
   }
 
   if (!recipientEmail) {
-    throw new Error("Unable to record outbound email because the recipient is empty.");
+    throw new Error(
+      "Unable to record outbound email because the recipient is empty.",
+    );
   }
 
   const subject = textValue(input.subject) ?? "Follow-up";
@@ -1765,7 +2045,12 @@ export async function processDueOutboundMessages(
     .in("status", ["queued", "retry_scheduled"])
     .order("next_attempt_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
-    .limit(Math.max(options.limit ?? SCHEDULED_PROCESS_LIMIT, SCHEDULED_PROCESS_LIMIT));
+    .limit(
+      Math.max(
+        options.limit ?? SCHEDULED_PROCESS_LIMIT,
+        SCHEDULED_PROCESS_LIMIT,
+      ),
+    );
 
   if (options.workspaceId) {
     query = query.eq("workspace_id", options.workspaceId);
@@ -1790,11 +2075,7 @@ export async function processDueOutboundMessages(
 
   for (const row of dueRows) {
     try {
-      const result = await deliverOutboundQueueItem(
-        supabase,
-        row,
-        row.user_id,
-      );
+      const result = await deliverOutboundQueueItem(supabase, row, row.user_id);
 
       results.push({
         ok: true,

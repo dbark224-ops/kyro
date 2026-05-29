@@ -46,6 +46,7 @@ const required = [
 const optional = [
   "MICROSOFT_CLIENT_ID",
   "MICROSOFT_CLIENT_SECRET",
+  "GOOGLE_MAPS_API_KEY",
   "TWILIO_ACCOUNT_SID",
   "STRIPE_SECRET_KEY",
 ];

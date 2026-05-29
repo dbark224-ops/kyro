@@ -35,6 +35,7 @@ Current routing is intentionally simple but production-shaped:
 - Assistant supports OpenAI by default and local Ollama through `ASSISTANT_PROVIDER=ollama` for development,
 - both paths record `ai_runs`, `model_route_decisions`, `usage_events`, and `audit_logs`,
 - Assistant turns also persist `assistant_threads`, `assistant_messages`, tool-call records, known UI blocks, rolling summaries, and explicit memories,
+- on OpenAI Assistant routes, a lightweight LLM tool planner decides whether the turn needs a Kyro tool before any deterministic keyword router runs,
 - the Usage settings section reads the metered ledger for customer-facing usage charge, task breakdowns, provider/model explanations, and detailed ledger review,
 - OpenAI Responses usage is normalized through `apps/web/src/lib/usage/openai.ts` so uncached input tokens,
   cached input tokens, visible output tokens, reasoning tokens, and web-search tool calls are tracked separately.
@@ -44,6 +45,10 @@ Current routing is intentionally simple but production-shaped:
 - OpenAI text-to-speech usage is recorded as usage rows too. When direct audio-token
   usage is not returned, Kyro uses a pricing-derived estimate and marks that row as
   estimated in metadata.
+- OpenAI image generation is metered as a single image usage row, but the row prefers
+  provider-returned image token usage for pricing when OpenAI supplies it. The metadata
+  stores text input tokens, image input tokens, output image tokens, cost method, pricing
+  source, and token cost breakdown.
 
 Provider-specific logic is kept behind `apps/web/src/lib/ai/triage.ts` for inquiry triage,
 `apps/web/src/lib/assistant/providers.ts` for Assistant narration, and shared usage helpers
@@ -54,10 +59,13 @@ Local Ollama calls default to `think: false`, bounded `num_predict` values, and 
 especially important for qwen-style reasoning models, because hidden thinking can be slower than the actual CRM answer
 and can trigger timeout fallbacks during development.
 
-Assistant record lookup is deterministic before the model narrates it. For example, "what happened with the Jamie
-inquiry?" first resolves exact or partial workspace-scoped inquiry matches, then passes those records to the local model
-for a short operator-friendly response. The LLM should not invent search results or render raw links; the frontend renders
-known CRM cards from the command result.
+Assistant tool use is LLM-first but code-executed. For example, "what happened with the Jamie inquiry?" is first sent to
+the OpenAI planner with compact recent context. The planner can choose the inquiry lookup tool, no tool for normal chat,
+or an image-generation edit when the user says "make it nighttime" after a generated image. Kyro's deterministic code then
+validates and executes the chosen tool against workspace-scoped data, records the decision and usage, and gives the
+result back to the narration model. The older keyword router remains as a degraded-mode fallback when the planner is
+unavailable or the Assistant is running against local Ollama. The LLM should not invent search results or render raw
+links; the frontend renders known CRM cards from the executed tool result.
 
 ## Task Classes
 
@@ -156,7 +164,7 @@ Track at minimum:
 - Cached input tokens if available.
 - Reasoning tokens if available.
 - Embedding tokens.
-- Image generation count and size/quality.
+- Image generation count, size/quality, and provider-returned text/image token usage where available.
 - Speech-to-text minutes.
 - Text-to-speech characters or seconds.
 - SMS segments.

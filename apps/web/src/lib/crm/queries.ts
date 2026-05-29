@@ -1,13 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  normalizeCompanyName,
+  normalizeContactEmail,
+  normalizeContactPhone,
+} from "./identity";
+import {
+  normalizeContactLifecycleSource,
+  normalizeContactLifecycleStage,
+} from "./lifecycle";
 
 const LIST_MESSAGE_LIMIT = 500;
 const LIST_ACTION_LIMIT = 500;
 const LIST_QUOTE_DRAFT_LIMIT = 250;
+const LIST_TASK_LIMIT = 500;
+const CONTACT_IDENTITY_SCAN_LIMIT = 2000;
 const REVIEW_MESSAGE_LIMIT = 120;
 const REVIEW_AI_RUN_LIMIT = 30;
 const REVIEW_ACTION_LIMIT = 80;
 const REVIEW_QUOTE_DRAFT_LIMIT = 30;
 const REVIEW_OUTBOUND_LIMIT = 30;
+const REVIEW_TASK_LIMIT = 80;
+const REVIEW_APPOINTMENT_LIMIT = 40;
+const REVIEW_NOTE_LIMIT = 120;
 
 export type LeadListItem = {
   id: string;
@@ -21,6 +35,9 @@ export type LeadListItem = {
   serviceType: string | null;
   nextStep: string | null;
   estimatedValue: string | null;
+  followUpDueAt: string | null;
+  followUpIsDue: boolean;
+  followUpTaskId: string | null;
   updatedAt: string;
   contact: {
     id: string;
@@ -40,9 +57,18 @@ export type ContactListItem = {
   phone: string | null;
   company: string | null;
   contactType: string;
+  lifecycleStage: string;
+  lifecycleSource: string;
+  lifecycleReason: string | null;
+  lifecycleReviewedAt: string | null;
+  profileConflictContactIds: string[];
+  profileResolutionReason: string | null;
+  profileResolutionStatus: string;
+  mergedIntoContactId: string | null;
   address: string | null;
   source: string | null;
   notes: string | null;
+  duplicateWarnings: IdentityDuplicateWarning[];
   lastMessageAt: string | null;
   updatedAt: string;
   messageCount: number;
@@ -69,6 +95,9 @@ export type ConversationListItem = {
   activeActionTypes: string[];
   completedActionTypes: string[];
   quoteDraftCount: number;
+  followUpDueAt: string | null;
+  followUpIsDue: boolean;
+  followUpTaskId: string | null;
   inquiryFacts: {
     jobType: string | null;
     address: string | null;
@@ -131,6 +160,7 @@ type ConversationListOptions = {
 
 type ConversationWorkflowCounts = {
   awaitingCustomer: number;
+  followUpDue: number;
   missingInfo: number;
   needsReply: number;
   needsReview: number;
@@ -157,6 +187,47 @@ type ActionSummary = {
   latestActionType: string | null;
   pendingApprovalCount: number;
 };
+
+type FollowUpReminderSummary = {
+  dueAt: string | null;
+  id: string;
+  isDue: boolean;
+};
+
+function isPastDue(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = Date.parse(value);
+
+  return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
+function setEarliestFollowUpReminder(
+  map: Map<string, FollowUpReminderSummary>,
+  key: string | null,
+  task: { id: unknown; due_at: unknown },
+) {
+  if (!key) {
+    return;
+  }
+
+  const dueAt = task.due_at ? String(task.due_at) : null;
+  const current = map.get(key);
+  const currentTime = current?.dueAt
+    ? Date.parse(current.dueAt)
+    : Number.POSITIVE_INFINITY;
+  const nextTime = dueAt ? Date.parse(dueAt) : Number.POSITIVE_INFINITY;
+
+  if (!current || nextTime < currentTime) {
+    map.set(key, {
+      dueAt,
+      id: String(task.id),
+      isDue: isPastDue(dueAt),
+    });
+  }
+}
 
 function skippedEmailLast24HoursStart() {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -330,6 +401,59 @@ export type ConversationReview = {
     approvedAt: string | null;
     executedAt: string | null;
   }>;
+  tasks: Array<{
+    id: string;
+    conversationId: string | null;
+    messageId: string | null;
+    contactId: string | null;
+    leadId: string | null;
+    assignedToUserId: string | null;
+    createdByUserId: string | null;
+    sourceActionId: string | null;
+    taskType: string;
+    title: string;
+    description: string | null;
+    status: string;
+    priority: string;
+    dueAt: string | null;
+    completedAt: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  appointments: Array<{
+    id: string;
+    conversationId: string | null;
+    messageId: string | null;
+    contactId: string | null;
+    leadId: string | null;
+    taskId: string | null;
+    createdByUserId: string | null;
+    sourceActionId: string | null;
+    appointmentType: string;
+    title: string;
+    description: string | null;
+    status: string;
+    startsAt: string | null;
+    endsAt: string | null;
+    location: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  notes: Array<{
+    id: string;
+    conversationId: string | null;
+    messageId: string | null;
+    contactId: string | null;
+    leadId: string | null;
+    authorUserId: string | null;
+    body: string;
+    visibility: string;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
   outboundMessages: Array<{
     id: string;
     actionId: string | null;
@@ -416,11 +540,23 @@ export type ContactProfile = {
     phone: string | null;
     company: string | null;
     contactType: string;
+    lifecycleStage: string;
+    lifecycleSource: string;
+    lifecycleReason: string | null;
+    lifecycleReviewedAt: string | null;
+    profileConflictContactIds: string[];
+    profileResolutionReason: string | null;
+    profileResolutionStatus: string;
+    mergedIntoContactId: string | null;
     address: string | null;
     source: string | null;
     notes: string | null;
     updatedAt: string;
   };
+  identityWarnings: IdentityDuplicateWarning[];
+  mergedSources: ContactResolutionCandidate[];
+  resolutionCandidates: ContactResolutionCandidate[];
+  companyContacts: ContactCompanyPeer[];
   counts: {
     leads: number;
     conversations: number;
@@ -467,7 +603,10 @@ export type ContactProfile = {
     id: string;
     type: string;
     status: string;
+    targetType: string | null;
+    targetId: string | null;
     input: Record<string, unknown>;
+    result: Record<string, unknown>;
     createdAt: string;
   }>;
   quoteDrafts: Array<{
@@ -487,6 +626,33 @@ export type ContactProfile = {
     entityType: string;
     createdAt: string;
   }>;
+};
+
+export type IdentityDuplicateWarning = {
+  field: "email" | "phone";
+  value: string;
+  count: number;
+  contactIds: string[];
+};
+
+export type ContactCompanyPeer = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  contactType: string;
+  updatedAt: string;
+};
+
+export type ContactResolutionCandidate = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  contactType: string;
+  updatedAt: string;
+  matchFields: Array<"email" | "phone" | "profile_conflict">;
 };
 
 export type QuoteDraftListItem = {
@@ -571,6 +737,118 @@ function uniqueIds(values: Array<string | null | undefined>) {
   ];
 }
 
+type ContactIdentityRow = {
+  id: unknown;
+  email?: unknown;
+  phone?: unknown;
+  normalized_email?: unknown;
+  normalized_phone?: unknown;
+};
+
+function normalizedEmailForRow(row: ContactIdentityRow) {
+  return (
+    textValue(row.normalized_email) ??
+    normalizeContactEmail(textValue(row.email))
+  );
+}
+
+function normalizedPhoneForRow(row: ContactIdentityRow) {
+  return (
+    textValue(row.normalized_phone) ??
+    normalizeContactPhone(textValue(row.phone))
+  );
+}
+
+function buildContactDuplicateWarningMap(rows: ContactIdentityRow[]) {
+  const emailGroups = new Map<string, string[]>();
+  const phoneGroups = new Map<string, string[]>();
+
+  for (const row of rows) {
+    const id = String(row.id);
+    const email = normalizedEmailForRow(row);
+    const phone = normalizedPhoneForRow(row);
+
+    if (email) {
+      emailGroups.set(email, [...(emailGroups.get(email) ?? []), id]);
+    }
+
+    if (phone) {
+      phoneGroups.set(phone, [...(phoneGroups.get(phone) ?? []), id]);
+    }
+  }
+
+  const warningsByContact = new Map<string, IdentityDuplicateWarning[]>();
+
+  function addWarnings(
+    field: "email" | "phone",
+    groups: Map<string, string[]>,
+  ) {
+    for (const [value, contactIds] of groups) {
+      const uniqueContactIds = uniqueIds(contactIds);
+
+      if (uniqueContactIds.length < 2) {
+        continue;
+      }
+
+      for (const contactId of uniqueContactIds) {
+        warningsByContact.set(contactId, [
+          ...(warningsByContact.get(contactId) ?? []),
+          {
+            contactIds: uniqueContactIds.filter((id) => id !== contactId),
+            count: uniqueContactIds.length,
+            field,
+            value,
+          },
+        ]);
+      }
+    }
+  }
+
+  addWarnings("email", emailGroups);
+  addWarnings("phone", phoneGroups);
+
+  return warningsByContact;
+}
+
+function duplicateWarningsForContact(
+  contact: ContactIdentityRow,
+  duplicateContacts: ContactIdentityRow[],
+) {
+  const contactEmail = normalizedEmailForRow(contact);
+  const contactPhone = normalizedPhoneForRow(contact);
+  const warnings: IdentityDuplicateWarning[] = [];
+  const emailMatches = contactEmail
+    ? duplicateContacts.filter(
+        (candidate) => normalizedEmailForRow(candidate) === contactEmail,
+      )
+    : [];
+  const phoneMatches = contactPhone
+    ? duplicateContacts.filter(
+        (candidate) => normalizedPhoneForRow(candidate) === contactPhone,
+      )
+    : [];
+
+  if (contactEmail && emailMatches.length > 0) {
+    warnings.push({
+      contactIds: emailMatches.map((match) => String(match.id)),
+      count: emailMatches.length + 1,
+      field: "email",
+      value: contactEmail,
+    });
+  }
+
+  if (contactPhone && phoneMatches.length > 0) {
+    warnings.push({
+      contactIds: phoneMatches.map((match) => String(match.id)),
+      count: phoneMatches.length + 1,
+      field: "phone",
+      value: contactPhone,
+    });
+  }
+
+  return warnings;
+}
+
 export async function getLeadList(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -594,6 +872,7 @@ export async function getLeadList(
   const leadIds = uniqueIds((leads ?? []).map((lead) => String(lead.id)));
   const contactsById = new Map<string, LeadListItem["contact"]>();
   const conversationByLeadId = new Map<string, string>();
+  const followUpByLeadId = new Map<string, FollowUpReminderSummary>();
 
   if (contactIds.length > 0) {
     const { data: contacts, error: contactsError } = await supabase
@@ -620,45 +899,77 @@ export async function getLeadList(
   }
 
   if (leadIds.length > 0) {
-    const { data: conversations, error: conversationsError } = await supabase
-      .from("conversations")
-      .select("id,lead_id")
-      .eq("workspace_id", workspaceId)
-      .in("lead_id", leadIds);
+    const [conversationsResult, followUpsResult] = await Promise.all([
+      supabase
+        .from("conversations")
+        .select("id,lead_id")
+        .eq("workspace_id", workspaceId)
+        .in("lead_id", leadIds),
+      supabase
+        .from("conversation_tasks")
+        .select("id,lead_id,due_at")
+        .eq("workspace_id", workspaceId)
+        .eq("task_type", "customer_follow_up")
+        .eq("status", "open")
+        .in("lead_id", leadIds)
+        .order("due_at", { ascending: true, nullsFirst: false })
+        .limit(LIST_TASK_LIMIT),
+    ]);
 
-    if (conversationsError) {
+    if (conversationsResult.error) {
       throw new Error(
-        `Unable to load lead conversations: ${conversationsError.message}`,
+        `Unable to load lead conversations: ${conversationsResult.error.message}`,
       );
     }
 
-    for (const conversation of conversations ?? []) {
+    if (followUpsResult.error) {
+      throw new Error(
+        `Unable to load lead follow-up reminders: ${followUpsResult.error.message}`,
+      );
+    }
+
+    for (const conversation of conversationsResult.data ?? []) {
       const leadId = conversation.lead_id ? String(conversation.lead_id) : null;
 
       if (leadId && !conversationByLeadId.has(leadId)) {
         conversationByLeadId.set(leadId, String(conversation.id));
       }
     }
+
+    for (const task of followUpsResult.data ?? []) {
+      setEarliestFollowUpReminder(
+        followUpByLeadId,
+        task.lead_id ? String(task.lead_id) : null,
+        task,
+      );
+    }
   }
 
-  return (leads ?? []).map((lead) => ({
-    id: String(lead.id),
-    contactId: lead.contact_id ? String(lead.contact_id) : null,
-    conversationId: conversationByLeadId.get(String(lead.id)) ?? null,
-    title: String(lead.title),
-    description: lead.description ? String(lead.description) : null,
-    source: lead.source ? String(lead.source) : null,
-    status: String(lead.status),
-    priority: String(lead.priority),
-    serviceType: lead.service_type ? String(lead.service_type) : null,
-    nextStep: lead.next_step ? String(lead.next_step) : null,
-    estimatedValue:
-      lead.estimated_value === null || lead.estimated_value === undefined
-        ? null
-        : String(lead.estimated_value),
-    updatedAt: String(lead.updated_at),
-    contact: contactsById.get(String(lead.contact_id)) ?? null,
-  })) satisfies LeadListItem[];
+  return (leads ?? []).map((lead) => {
+    const followUp = followUpByLeadId.get(String(lead.id));
+
+    return {
+      id: String(lead.id),
+      contactId: lead.contact_id ? String(lead.contact_id) : null,
+      conversationId: conversationByLeadId.get(String(lead.id)) ?? null,
+      title: String(lead.title),
+      description: lead.description ? String(lead.description) : null,
+      source: lead.source ? String(lead.source) : null,
+      status: String(lead.status),
+      priority: String(lead.priority),
+      serviceType: lead.service_type ? String(lead.service_type) : null,
+      nextStep: lead.next_step ? String(lead.next_step) : null,
+      estimatedValue:
+        lead.estimated_value === null || lead.estimated_value === undefined
+          ? null
+          : String(lead.estimated_value),
+      followUpDueAt: followUp?.dueAt ?? null,
+      followUpIsDue: followUp?.isDue ?? false,
+      followUpTaskId: followUp?.id ?? null,
+      updatedAt: String(lead.updated_at),
+      contact: contactsById.get(String(lead.contact_id)) ?? null,
+    };
+  }) satisfies LeadListItem[];
 }
 
 export async function getContactList(
@@ -668,9 +979,10 @@ export async function getContactList(
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select(
-      "id,name,email,phone,company,contact_type,address,source,notes,updated_at",
+      "id,name,email,phone,company,normalized_email,normalized_phone,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,source,notes,updated_at",
     )
     .eq("workspace_id", workspaceId)
+    .is("merged_into_contact_id", null)
     .order("updated_at", { ascending: false })
     .limit(100);
 
@@ -681,25 +993,42 @@ export async function getContactList(
   const contactIds = uniqueIds(
     (contacts ?? []).map((contact) => String(contact.id)),
   );
-  const { data: messages, error: messagesError } =
+  const [messagesResult, identityResult] = await Promise.all([
     contactIds.length > 0
-      ? await supabase
+      ? supabase
           .from("messages")
           .select("id,contact_id,created_at,received_at,sent_at")
           .eq("workspace_id", workspaceId)
           .in("contact_id", contactIds)
-      : { data: [], error: null };
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("contacts")
+      .select("id,email,phone,normalized_email,normalized_phone")
+      .eq("workspace_id", workspaceId)
+      .is("merged_into_contact_id", null)
+      .or("normalized_email.not.is.null,normalized_phone.not.is.null")
+      .limit(CONTACT_IDENTITY_SCAN_LIMIT),
+  ]);
 
-  if (messagesError) {
+  if (messagesResult.error) {
     throw new Error(
-      `Unable to load contact message counts: ${messagesError.message}`,
+      `Unable to load contact message counts: ${messagesResult.error.message}`,
+    );
+  }
+
+  if (identityResult.error) {
+    throw new Error(
+      `Unable to load contact duplicate signals: ${identityResult.error.message}`,
     );
   }
 
   const messageCounts = new Map<string, number>();
   const latestMessageAtByContact = new Map<string, string>();
+  const duplicateWarningsByContact = buildContactDuplicateWarningMap(
+    identityResult.data ?? [],
+  );
 
-  for (const message of messages ?? []) {
+  for (const message of messagesResult.data ?? []) {
     const contactId = message.contact_id ? String(message.contact_id) : null;
 
     if (contactId) {
@@ -730,9 +1059,26 @@ export async function getContactList(
     phone: contact.phone ? String(contact.phone) : null,
     company: contact.company ? String(contact.company) : null,
     contactType: contact.contact_type ? String(contact.contact_type) : "client",
+    lifecycleStage: normalizeContactLifecycleStage(contact.lifecycle_stage),
+    lifecycleSource: normalizeContactLifecycleSource(contact.lifecycle_source),
+    lifecycleReason: textValue(contact.lifecycle_reason),
+    lifecycleReviewedAt: contact.lifecycle_reviewed_at
+      ? String(contact.lifecycle_reviewed_at)
+      : null,
+    profileConflictContactIds: jsonStringArray(
+      contact.profile_conflict_contact_ids,
+    ),
+    profileResolutionReason: textValue(contact.profile_resolution_reason),
+    profileResolutionStatus: profileResolutionStatusValue(
+      contact.profile_resolution_status,
+    ),
+    mergedIntoContactId: textValue(contact.merged_into_contact_id),
     address: contact.address ? String(contact.address) : null,
     source: contact.source ? String(contact.source) : null,
     notes: contact.notes ? String(contact.notes) : null,
+    duplicateWarnings:
+      duplicateWarningsByContact.get(String(contact.id)) ??
+      duplicateWarningsForContact(contact, []),
     lastMessageAt: latestMessageAtByContact.get(String(contact.id)) ?? null,
     updatedAt: String(contact.updated_at),
     messageCount: messageCounts.get(String(contact.id)) ?? 0,
@@ -756,16 +1102,28 @@ export function contactSearchFilter(value: string) {
   }
 
   const pattern = `%${needle}%`;
+  const normalizedEmail = needle.includes("@")
+    ? normalizeContactEmail(needle)
+    : null;
+  const normalizedPhone = normalizeContactPhone(needle);
+  const normalizedCompany = normalizeCompanyName(needle);
+  const filters = ["name", "company", "email", "phone", "address"].map(
+    (column) => `${column}.ilike.${pattern}`,
+  );
 
-  return [
-    "name",
-    "company",
-    "email",
-    "phone",
-    "address",
-  ]
-    .map((column) => `${column}.ilike.${pattern}`)
-    .join(",");
+  if (normalizedEmail) {
+    filters.push(`normalized_email.eq.${normalizedEmail}`);
+  }
+
+  if (normalizedPhone) {
+    filters.push(`normalized_phone.eq.${normalizedPhone}`);
+  }
+
+  if (normalizedCompany) {
+    filters.push(`normalized_company.ilike.%${normalizedCompany}%`);
+  }
+
+  return filters.join(",");
 }
 
 export async function searchContacts(
@@ -782,8 +1140,11 @@ export async function searchContacts(
 
   const { data: contacts, error } = await supabase
     .from("contacts")
-    .select("id,name,email,phone,company,address,updated_at")
+    .select(
+      "id,name,email,phone,company,address,normalized_email,normalized_phone,normalized_company,updated_at",
+    )
     .eq("workspace_id", workspaceId)
+    .is("merged_into_contact_id", null)
     .or(filter)
     .order("updated_at", { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 20));
@@ -853,6 +1214,7 @@ export async function getConversationList(
     actionsResult,
     factsResult,
     quoteDraftsResult,
+    followUpsResult,
   ] = await Promise.all([
     conversationIds.length > 0
       ? supabase
@@ -906,6 +1268,17 @@ export async function getConversationList(
           .in("conversation_id", conversationIds)
           .limit(LIST_QUOTE_DRAFT_LIMIT)
       : Promise.resolve({ data: [], error: null }),
+    conversationIds.length > 0
+      ? supabase
+          .from("conversation_tasks")
+          .select("id,conversation_id,due_at")
+          .eq("workspace_id", workspaceId)
+          .eq("task_type", "customer_follow_up")
+          .eq("status", "open")
+          .in("conversation_id", conversationIds)
+          .order("due_at", { ascending: true, nullsFirst: false })
+          .limit(LIST_TASK_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (messagesResult.error) {
@@ -941,6 +1314,12 @@ export async function getConversationList(
   if (quoteDraftsResult.error) {
     throw new Error(
       `Unable to load conversation quote drafts: ${quoteDraftsResult.error.message}`,
+    );
+  }
+
+  if (followUpsResult.error) {
+    throw new Error(
+      `Unable to load conversation follow-up reminders: ${followUpsResult.error.message}`,
     );
   }
 
@@ -1047,6 +1426,7 @@ export async function getConversationList(
     ]),
   );
   const quoteDraftsByConversation = new Map<string, QuoteDraftSummary>();
+  const followUpByConversation = new Map<string, FollowUpReminderSummary>();
 
   for (const quoteDraft of quoteDraftsResult.data ?? []) {
     const conversationId = quoteDraft.conversation_id
@@ -1079,6 +1459,14 @@ export async function getConversationList(
     }
 
     quoteDraftsByConversation.set(conversationId, summary);
+  }
+
+  for (const task of followUpsResult.data ?? []) {
+    setEarliestFollowUpReminder(
+      followUpByConversation,
+      task.conversation_id ? String(task.conversation_id) : null,
+      task,
+    );
   }
 
   const actionsByConversation = new Map<string, ActionSummary>();
@@ -1164,6 +1552,7 @@ export async function getConversationList(
       total: 0,
     };
     const quoteDraftCount = quoteDraftSummary.total;
+    const followUp = followUpByConversation.get(String(conversation.id));
     const activeActionTypes = [...new Set(actionSummary.activeActionTypes)];
     const completedActionTypes = [
       ...new Set(actionSummary.completedActionTypes),
@@ -1173,6 +1562,7 @@ export async function getConversationList(
       approvedActionCount: actionSummary.approvedActionCount,
       completedActionTypes,
       facts,
+      followUpIsDue: followUp?.isDue ?? false,
       latestDirection,
       leadPriority: lead?.priority ?? null,
       pendingApprovalCount: actionSummary.pendingApprovalCount,
@@ -1216,6 +1606,9 @@ export async function getConversationList(
       approvedActionCount: actionSummary.approvedActionCount,
       activeActionTypes,
       completedActionTypes,
+      followUpDueAt: followUp?.dueAt ?? null,
+      followUpIsDue: followUp?.isDue ?? false,
+      followUpTaskId: followUp?.id ?? null,
       inquiryFacts: facts,
       quoteDraftCount,
       nextActionLabel,
@@ -1343,6 +1736,7 @@ export async function getConversationWorkflowCounts(
     actionsResult,
     factsResult,
     quoteDraftsResult,
+    followUpsResult,
   ] = await Promise.all([
     conversationIds.length > 0
       ? supabase
@@ -1385,6 +1779,17 @@ export async function getConversationWorkflowCounts(
           .in("conversation_id", conversationIds)
           .limit(LIST_QUOTE_DRAFT_LIMIT)
       : Promise.resolve({ data: [], error: null }),
+    conversationIds.length > 0
+      ? supabase
+          .from("conversation_tasks")
+          .select("id,conversation_id,due_at")
+          .eq("workspace_id", workspaceId)
+          .eq("task_type", "customer_follow_up")
+          .eq("status", "open")
+          .in("conversation_id", conversationIds)
+          .order("due_at", { ascending: true, nullsFirst: false })
+          .limit(LIST_TASK_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (messagesResult.error) {
@@ -1414,6 +1819,12 @@ export async function getConversationWorkflowCounts(
   if (quoteDraftsResult.error) {
     throw new Error(
       `Unable to load conversation quote counts: ${quoteDraftsResult.error.message}`,
+    );
+  }
+
+  if (followUpsResult.error) {
+    throw new Error(
+      `Unable to load conversation follow-up counts: ${followUpsResult.error.message}`,
     );
   }
 
@@ -1450,6 +1861,7 @@ export async function getConversationWorkflowCounts(
     ]),
   );
   const quoteDraftsByConversation = new Map<string, QuoteDraftSummary>();
+  const followUpByConversation = new Map<string, FollowUpReminderSummary>();
 
   for (const quoteDraft of quoteDraftsResult.data ?? []) {
     const conversationId = quoteDraft.conversation_id
@@ -1482,6 +1894,14 @@ export async function getConversationWorkflowCounts(
     }
 
     quoteDraftsByConversation.set(conversationId, summary);
+  }
+
+  for (const task of followUpsResult.data ?? []) {
+    setEarliestFollowUpReminder(
+      followUpByConversation,
+      task.conversation_id ? String(task.conversation_id) : null,
+      task,
+    );
   }
 
   const actionsByConversation = new Map<string, ActionSummary>();
@@ -1536,6 +1956,7 @@ export async function getConversationWorkflowCounts(
 
   const counts: ConversationWorkflowCounts = {
     awaitingCustomer: 0,
+    followUpDue: 0,
     missingInfo: 0,
     needsReply: 0,
     needsReview: 0,
@@ -1568,6 +1989,7 @@ export async function getConversationWorkflowCounts(
       approvedActionCount: actionSummary.approvedActionCount,
       completedActionTypes: [...new Set(actionSummary.completedActionTypes)],
       facts: factsByConversation.get(conversationId) ?? null,
+      followUpIsDue: followUpByConversation.get(conversationId)?.isDue ?? false,
       latestDirection:
         latestDirectionByConversation.get(conversationId) ?? null,
       leadPriority: conversation.lead_id
@@ -1580,6 +2002,8 @@ export async function getConversationWorkflowCounts(
 
     if (workflowBucket === "awaiting_customer") {
       counts.awaitingCustomer += 1;
+    } else if (workflowBucket === "follow_up_due") {
+      counts.followUpDue += 1;
     } else if (workflowBucket === "missing_info") {
       counts.missingInfo += 1;
     } else if (workflowBucket === "needs_reply") {
@@ -1605,6 +2029,7 @@ function deriveConversationWorkflow({
   approvedActionCount,
   completedActionTypes,
   facts,
+  followUpIsDue,
   latestDirection,
   leadPriority,
   pendingApprovalCount,
@@ -1615,6 +2040,7 @@ function deriveConversationWorkflow({
   approvedActionCount: number;
   completedActionTypes: string[];
   facts: ConversationFactsSummary;
+  followUpIsDue: boolean;
   latestDirection: string | null;
   leadPriority: string | null;
   pendingApprovalCount: number;
@@ -1648,49 +2074,53 @@ function deriveConversationWorkflow({
       ? "resolved"
       : leadPriority === "high"
         ? "needs_review"
-        : hasQuoteChangeRequest
-          ? "ready_to_quote"
-        : isAwaitingCustomer || hasSentQuoteDraft
-          ? "awaiting_customer"
-          : hasMissingInfo
-            ? "missing_info"
-            : pendingApprovalCount > 0 ||
-                status === "reply_drafted" ||
-                latestDirection === "inbound"
-              ? "needs_reply"
-              : hasSiteVisitAction
-                ? "site_visit_needed"
-                : hasQuoteAction || hasActiveQuoteDraft
-                  ? "ready_to_quote"
-                  : facts?.fit === "needs_review"
-                    ? "needs_review"
-                    : "open";
+        : followUpIsDue
+          ? "follow_up_due"
+          : hasQuoteChangeRequest
+            ? "ready_to_quote"
+            : isAwaitingCustomer || hasSentQuoteDraft
+              ? "awaiting_customer"
+              : hasMissingInfo
+                ? "missing_info"
+                : pendingApprovalCount > 0 ||
+                    status === "reply_drafted" ||
+                    latestDirection === "inbound"
+                  ? "needs_reply"
+                  : hasSiteVisitAction
+                    ? "site_visit_needed"
+                    : hasQuoteAction || hasActiveQuoteDraft
+                      ? "ready_to_quote"
+                      : facts?.fit === "needs_review"
+                        ? "needs_review"
+                        : "open";
   const nextActionLabel =
     leadPriority === "high"
       ? "Profile check"
-      : hasQuoteChangeRequest
-        ? "Review quote changes"
-      : isAwaitingCustomer
-        ? "Awaiting customer"
-        : pendingApprovalCount > 0
-          ? "Needs approval"
-          : hasMissingInfo
-            ? "Missing info"
-            : approvedActionCount > 0
-              ? "Ready to record"
-              : hasSiteVisitAction
-                ? "Site visit"
-                : hasQuoteAction || hasActiveQuoteDraft
-                  ? "Ready to quote"
-                  : hasSentQuoteDraft
-                    ? "Quote sent"
-                    : status === "reply_drafted"
-                      ? "Review draft"
-                      : status === "resolved"
-                        ? "Resolved"
-                        : latestDirection === "inbound"
-                          ? "Needs reply"
-                          : "Open";
+      : followUpIsDue
+        ? "Follow-up due"
+        : hasQuoteChangeRequest
+          ? "Review quote changes"
+          : isAwaitingCustomer
+            ? "Awaiting customer"
+            : pendingApprovalCount > 0
+              ? "Needs approval"
+              : hasMissingInfo
+                ? "Missing info"
+                : approvedActionCount > 0
+                  ? "Ready to record"
+                  : hasSiteVisitAction
+                    ? "Site visit"
+                    : hasQuoteAction || hasActiveQuoteDraft
+                      ? "Ready to quote"
+                      : hasSentQuoteDraft
+                        ? "Quote sent"
+                        : status === "reply_drafted"
+                          ? "Review draft"
+                          : status === "resolved"
+                            ? "Resolved"
+                            : latestDirection === "inbound"
+                              ? "Needs reply"
+                              : "Open";
 
   return {
     nextActionLabel,
@@ -1712,6 +2142,20 @@ function jsonArray(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
+function jsonStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((item) => (typeof item === "string" ? item.trim() : null))
+        .filter((item): item is string => Boolean(item))
+    : [];
+}
+
+function profileResolutionStatusValue(value: unknown) {
+  const status = textValue(value);
+
+  return status === "needs_review" || status === "merged" ? status : "clear";
+}
+
 export async function getContactProfile(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -1720,7 +2164,7 @@ export async function getContactProfile(
   const { data: contact, error } = await supabase
     .from("contacts")
     .select(
-      "id,name,email,phone,company,contact_type,address,source,notes,updated_at",
+      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,source,notes,updated_at",
     )
     .eq("workspace_id", workspaceId)
     .eq("id", contactId)
@@ -1732,6 +2176,28 @@ export async function getContactProfile(
 
   if (!contact) {
     return null;
+  }
+
+  const normalizedEmail =
+    textValue(contact.normalized_email) ??
+    normalizeContactEmail(textValue(contact.email));
+  const normalizedPhone =
+    textValue(contact.normalized_phone) ??
+    normalizeContactPhone(textValue(contact.phone));
+  const normalizedCompany =
+    textValue(contact.normalized_company) ??
+    normalizeCompanyName(textValue(contact.company));
+  const conflictContactIds = jsonStringArray(
+    contact.profile_conflict_contact_ids,
+  );
+  const duplicateFilters = [];
+
+  if (normalizedEmail) {
+    duplicateFilters.push(`normalized_email.eq.${normalizedEmail}`);
+  }
+
+  if (normalizedPhone) {
+    duplicateFilters.push(`normalized_phone.eq.${normalizedPhone}`);
   }
 
   const [leads, conversations, messages, aiRuns, quoteDrafts] =
@@ -1818,17 +2284,137 @@ export async function getContactProfile(
     (leads.data ?? []).map((lead) => [String(lead.id), String(lead.title)]),
   );
 
-  const actions =
-    conversationIds.length > 0
+  const [duplicateContacts, companyContacts, mergedSourceContacts] =
+    await Promise.all([
+      duplicateFilters.length > 0
+        ? supabase
+            .from("contacts")
+            .select(
+              "id,name,email,phone,company,normalized_email,normalized_phone,contact_type,updated_at",
+            )
+            .eq("workspace_id", workspaceId)
+            .is("merged_into_contact_id", null)
+            .or(duplicateFilters.join(","))
+            .neq("id", contactId)
+            .order("updated_at", { ascending: false })
+            .limit(12)
+        : Promise.resolve({ data: [], error: null }),
+      normalizedCompany
+        ? supabase
+            .from("contacts")
+            .select("id,name,email,phone,contact_type,updated_at")
+            .eq("workspace_id", workspaceId)
+            .eq("normalized_company", normalizedCompany)
+            .is("merged_into_contact_id", null)
+            .neq("id", contactId)
+            .order("updated_at", { ascending: false })
+            .limit(12)
+        : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("contacts")
+        .select("id,name,email,phone,company,contact_type,updated_at")
+        .eq("workspace_id", workspaceId)
+        .eq("merged_into_contact_id", contactId)
+        .order("updated_at", { ascending: false })
+        .limit(20),
+    ]);
+
+  if (duplicateContacts.error) {
+    throw new Error(
+      `Unable to load contact duplicate warnings: ${duplicateContacts.error.message}`,
+    );
+  }
+
+  if (companyContacts.error) {
+    throw new Error(
+      `Unable to load company contacts: ${companyContacts.error.message}`,
+    );
+  }
+
+  if (mergedSourceContacts.error) {
+    throw new Error(
+      `Unable to load merged source profiles: ${mergedSourceContacts.error.message}`,
+    );
+  }
+
+  const duplicateWarnings = duplicateWarningsForContact(
+    contact,
+    duplicateContacts.data ?? [],
+  );
+  const candidateIds = uniqueIds([
+    ...conflictContactIds,
+    ...duplicateWarnings.flatMap((warning) => warning.contactIds),
+  ]);
+  const resolutionCandidatesResult =
+    candidateIds.length > 0
       ? await supabase
+          .from("contacts")
+          .select("id,name,email,phone,company,contact_type,updated_at")
+          .eq("workspace_id", workspaceId)
+          .is("merged_into_contact_id", null)
+          .in("id", candidateIds)
+          .order("updated_at", { ascending: false })
+      : { data: [], error: null };
+
+  if (resolutionCandidatesResult.error) {
+    throw new Error(
+      `Unable to load profile resolution candidates: ${resolutionCandidatesResult.error.message}`,
+    );
+  }
+
+  const matchFieldsByCandidate = new Map<
+    string,
+    Set<"email" | "phone" | "profile_conflict">
+  >();
+
+  for (const candidateId of conflictContactIds) {
+    matchFieldsByCandidate.set(candidateId, new Set(["profile_conflict"]));
+  }
+
+  for (const warning of duplicateWarnings) {
+    for (const candidateId of warning.contactIds) {
+      const fields =
+        matchFieldsByCandidate.get(candidateId) ??
+        new Set<"email" | "phone" | "profile_conflict">();
+      fields.add(warning.field);
+      matchFieldsByCandidate.set(candidateId, fields);
+    }
+  }
+
+  const [conversationActions, contactActions] = await Promise.all([
+    conversationIds.length > 0
+      ? supabase
           .from("actions")
-          .select("id,type,status,input,created_at")
+          .select(
+            "id,type,status,target_type,target_id,input,result,created_at",
+          )
           .eq("workspace_id", workspaceId)
           .eq("target_type", "conversation")
           .in("target_id", conversationIds)
           .order("created_at", { ascending: false })
           .limit(50)
-      : { data: [], error: null };
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("actions")
+      .select("id,type,status,target_type,target_id,input,result,created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "contact")
+      .eq("target_id", contactId)
+      .order("created_at", { ascending: false })
+      .limit(25),
+  ]);
+
+  const actions = {
+    data: [
+      ...(contactActions.data ?? []),
+      ...(conversationActions.data ?? []),
+    ].sort(
+      (left, right) =>
+        new Date(String(right.created_at)).getTime() -
+        new Date(String(left.created_at)).getTime(),
+    ),
+    error: contactActions.error ?? conversationActions.error,
+  };
 
   if (actions.error) {
     throw new Error(`Unable to load contact actions: ${actions.error.message}`);
@@ -1837,8 +2423,12 @@ export async function getContactProfile(
   const actionIds = uniqueIds(
     (actions.data ?? []).map((action) => String(action.id)),
   );
+  const mergedSourceIds = uniqueIds(
+    (mergedSourceContacts.data ?? []).map((source) => String(source.id)),
+  );
   const entityIds = uniqueIds([
     contactId,
+    ...mergedSourceIds,
     ...leadIds,
     ...conversationIds,
     ...messageIds,
@@ -1874,11 +2464,62 @@ export async function getContactProfile(
       contactType: contact.contact_type
         ? String(contact.contact_type)
         : "client",
+      lifecycleStage: normalizeContactLifecycleStage(contact.lifecycle_stage),
+      lifecycleSource: normalizeContactLifecycleSource(
+        contact.lifecycle_source,
+      ),
+      lifecycleReason: textValue(contact.lifecycle_reason),
+      lifecycleReviewedAt: contact.lifecycle_reviewed_at
+        ? String(contact.lifecycle_reviewed_at)
+        : null,
+      profileConflictContactIds: conflictContactIds,
+      profileResolutionReason: textValue(contact.profile_resolution_reason),
+      profileResolutionStatus: profileResolutionStatusValue(
+        contact.profile_resolution_status,
+      ),
+      mergedIntoContactId: textValue(contact.merged_into_contact_id),
       address: contact.address ? String(contact.address) : null,
       source: contact.source ? String(contact.source) : null,
       notes: contact.notes ? String(contact.notes) : null,
       updatedAt: String(contact.updated_at),
     },
+    identityWarnings: duplicateWarnings,
+    mergedSources: (mergedSourceContacts.data ?? []).map((source) => ({
+      company: textValue(source.company),
+      contactType: source.contact_type ? String(source.contact_type) : "client",
+      email: textValue(source.email),
+      id: String(source.id),
+      matchFields: [],
+      name: textValue(source.name),
+      phone: textValue(source.phone),
+      updatedAt: String(source.updated_at),
+    })),
+    resolutionCandidates: (resolutionCandidatesResult.data ?? []).map(
+      (candidate) => ({
+        company: textValue(candidate.company),
+        contactType: candidate.contact_type
+          ? String(candidate.contact_type)
+          : "client",
+        email: textValue(candidate.email),
+        id: String(candidate.id),
+        matchFields: [
+          ...(matchFieldsByCandidate.get(String(candidate.id)) ?? []),
+        ],
+        name: textValue(candidate.name),
+        phone: textValue(candidate.phone),
+        updatedAt: String(candidate.updated_at),
+      }),
+    ),
+    companyContacts: (companyContacts.data ?? []).map((companyContact) => ({
+      contactType: companyContact.contact_type
+        ? String(companyContact.contact_type)
+        : "client",
+      email: companyContact.email ? String(companyContact.email) : null,
+      id: String(companyContact.id),
+      name: companyContact.name ? String(companyContact.name) : null,
+      phone: companyContact.phone ? String(companyContact.phone) : null,
+      updatedAt: String(companyContact.updated_at),
+    })),
     counts: {
       leads: leads.data?.length ?? 0,
       conversations: conversations.data?.length ?? 0,
@@ -1934,7 +2575,10 @@ export async function getContactProfile(
       id: String(action.id),
       type: String(action.type),
       status: String(action.status),
+      targetType: action.target_type ? String(action.target_type) : null,
+      targetId: action.target_id ? String(action.target_id) : null,
       input: objectRecord(action.input),
+      result: objectRecord(action.result),
       createdAt: String(action.created_at),
     })),
     quoteDrafts: (quoteDrafts.data ?? []).map((quoteDraft) => ({
@@ -2367,83 +3011,109 @@ export async function getConversationReview(
     lead,
     aiRuns,
     actions,
+    tasks,
+    appointments,
+    notes,
     outboundMessages,
     quoteDrafts,
     inquiryFacts,
   ] = await Promise.all([
-      supabase
-        .from("messages")
-        .select(
-          "id,direction,channel_id,subject,body_text,metadata,created_at,received_at,sent_at",
-        )
-        .eq("workspace_id", workspaceId)
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: false })
-        .limit(REVIEW_MESSAGE_LIMIT),
-      contactId
-        ? supabase
-            .from("contacts")
-            .select("id,name,email,phone,company,contact_type,address,notes")
-            .eq("workspace_id", workspaceId)
-            .eq("id", contactId)
-            .maybeSingle()
-        : Promise.resolve({ data: null, error: null }),
-      leadId
-        ? supabase
-            .from("leads")
-            .select(
-              "id,title,description,status,priority,source,service_type,next_step,estimated_value,created_at,updated_at",
-            )
-            .eq("workspace_id", workspaceId)
-            .eq("id", leadId)
-            .maybeSingle()
-        : Promise.resolve({ data: null, error: null }),
-      supabase
-        .from("ai_runs")
-        .select(
-          "id,task_type,status,provider,model,output,usage,actual_cost,created_at,completed_at",
-        )
-        .eq("workspace_id", workspaceId)
-        .contains("input_refs", { conversationId })
-        .order("created_at", { ascending: false })
-        .limit(REVIEW_AI_RUN_LIMIT),
-      supabase
-        .from("actions")
-        .select(
-          "id,type,status,input,result,created_at,approved_at,executed_at",
-        )
-        .eq("workspace_id", workspaceId)
-        .eq("target_type", "conversation")
-        .eq("target_id", conversationId)
-        .order("created_at", { ascending: false })
-        .limit(REVIEW_ACTION_LIMIT),
-      supabase
-        .from("outbound_messages")
-        .select(
-          "id,action_id,channel_type,provider,service,recipient,subject,status,attempt_count,max_attempts,next_attempt_at,queued_at,sending_at,sent_at,failed_at,provider_message_id,provider_request_id,last_error,source,metadata,created_at,updated_at",
-        )
-        .eq("workspace_id", workspaceId)
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: false })
-        .limit(REVIEW_OUTBOUND_LIMIT),
-      supabase
-        .from("quote_drafts")
-        .select(
-          "id,title,status,line_items,notes,metadata,created_at,updated_at",
-        )
-        .eq("workspace_id", workspaceId)
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: false })
-        .limit(REVIEW_QUOTE_DRAFT_LIMIT),
-      supabase
-        .from("inquiry_facts")
-        .select(
-          "id,source_ai_run_id,job_type,address,preferred_time,urgency,budget,fit,missing_info,source,edited_by_user_id,metadata,created_at,updated_at",
-        )
-        .eq("workspace_id", workspaceId)
-        .eq("conversation_id", conversationId)
-        .maybeSingle(),
-    ]);
+    supabase
+      .from("messages")
+      .select(
+        "id,direction,channel_id,subject,body_text,metadata,created_at,received_at,sent_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_MESSAGE_LIMIT),
+    contactId
+      ? supabase
+          .from("contacts")
+          .select("id,name,email,phone,company,contact_type,address,notes")
+          .eq("workspace_id", workspaceId)
+          .eq("id", contactId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    leadId
+      ? supabase
+          .from("leads")
+          .select(
+            "id,title,description,status,priority,source,service_type,next_step,estimated_value,created_at,updated_at",
+          )
+          .eq("workspace_id", workspaceId)
+          .eq("id", leadId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    supabase
+      .from("ai_runs")
+      .select(
+        "id,task_type,status,provider,model,output,usage,actual_cost,created_at,completed_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .contains("input_refs", { conversationId })
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_AI_RUN_LIMIT),
+    supabase
+      .from("actions")
+      .select("id,type,status,input,result,created_at,approved_at,executed_at")
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "conversation")
+      .eq("target_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_ACTION_LIMIT),
+    supabase
+      .from("conversation_tasks")
+      .select(
+        "id,conversation_id,message_id,contact_id,lead_id,assigned_to_user_id,created_by_user_id,source_action_id,task_type,title,description,status,priority,due_at,completed_at,metadata,created_at,updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_TASK_LIMIT),
+    supabase
+      .from("conversation_appointments")
+      .select(
+        "id,conversation_id,message_id,contact_id,lead_id,task_id,created_by_user_id,source_action_id,appointment_type,title,description,status,starts_at,ends_at,location,metadata,created_at,updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_APPOINTMENT_LIMIT),
+    supabase
+      .from("conversation_notes")
+      .select(
+        "id,conversation_id,message_id,contact_id,lead_id,author_user_id,body,visibility,metadata,created_at,updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_NOTE_LIMIT),
+    supabase
+      .from("outbound_messages")
+      .select(
+        "id,action_id,channel_type,provider,service,recipient,subject,status,attempt_count,max_attempts,next_attempt_at,queued_at,sending_at,sent_at,failed_at,provider_message_id,provider_request_id,last_error,source,metadata,created_at,updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_OUTBOUND_LIMIT),
+    supabase
+      .from("quote_drafts")
+      .select("id,title,status,line_items,notes,metadata,created_at,updated_at")
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_QUOTE_DRAFT_LIMIT),
+    supabase
+      .from("inquiry_facts")
+      .select(
+        "id,source_ai_run_id,job_type,address,preferred_time,urgency,budget,fit,missing_info,source,edited_by_user_id,metadata,created_at,updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .maybeSingle(),
+  ]);
 
   if (messages.error) {
     throw new Error(`Unable to load messages: ${messages.error.message}`);
@@ -2463,6 +3133,22 @@ export async function getConversationReview(
 
   if (actions.error) {
     throw new Error(`Unable to load actions: ${actions.error.message}`);
+  }
+
+  if (tasks.error) {
+    throw new Error(
+      `Unable to load conversation tasks: ${tasks.error.message}`,
+    );
+  }
+
+  if (appointments.error) {
+    throw new Error(
+      `Unable to load appointments: ${appointments.error.message}`,
+    );
+  }
+
+  if (notes.error) {
+    throw new Error(`Unable to load internal notes: ${notes.error.message}`);
   }
 
   if (outboundMessages.error) {
@@ -2487,6 +3173,11 @@ export async function getConversationReview(
   const actionIds = uniqueIds(
     (actions.data ?? []).map((action) => String(action.id)),
   );
+  const taskIds = uniqueIds((tasks.data ?? []).map((task) => String(task.id)));
+  const appointmentIds = uniqueIds(
+    (appointments.data ?? []).map((appointment) => String(appointment.id)),
+  );
+  const noteIds = uniqueIds((notes.data ?? []).map((note) => String(note.id)));
   const outboundMessageIds = uniqueIds(
     (outboundMessages.data ?? []).map((message) => String(message.id)),
   );
@@ -2510,6 +3201,9 @@ export async function getConversationReview(
     ...outboundMessageIds,
     ...aiRunIds,
     ...actionIds,
+    ...taskIds,
+    ...appointmentIds,
+    ...noteIds,
     ...quoteDraftIds,
     inquiryFactsId,
   ]);
@@ -2678,6 +3372,77 @@ export async function getConversationReview(
       createdAt: String(action.created_at),
       approvedAt: action.approved_at ? String(action.approved_at) : null,
       executedAt: action.executed_at ? String(action.executed_at) : null,
+    })),
+    tasks: (tasks.data ?? []).map((task) => ({
+      id: String(task.id),
+      conversationId: task.conversation_id
+        ? String(task.conversation_id)
+        : null,
+      messageId: task.message_id ? String(task.message_id) : null,
+      contactId: task.contact_id ? String(task.contact_id) : null,
+      leadId: task.lead_id ? String(task.lead_id) : null,
+      assignedToUserId: task.assigned_to_user_id
+        ? String(task.assigned_to_user_id)
+        : null,
+      createdByUserId: task.created_by_user_id
+        ? String(task.created_by_user_id)
+        : null,
+      sourceActionId: task.source_action_id
+        ? String(task.source_action_id)
+        : null,
+      taskType: String(task.task_type),
+      title: String(task.title),
+      description: task.description ? String(task.description) : null,
+      status: String(task.status),
+      priority: String(task.priority),
+      dueAt: task.due_at ? String(task.due_at) : null,
+      completedAt: task.completed_at ? String(task.completed_at) : null,
+      metadata: objectRecord(task.metadata),
+      createdAt: String(task.created_at),
+      updatedAt: String(task.updated_at),
+    })),
+    appointments: (appointments.data ?? []).map((appointment) => ({
+      id: String(appointment.id),
+      conversationId: appointment.conversation_id
+        ? String(appointment.conversation_id)
+        : null,
+      messageId: appointment.message_id ? String(appointment.message_id) : null,
+      contactId: appointment.contact_id ? String(appointment.contact_id) : null,
+      leadId: appointment.lead_id ? String(appointment.lead_id) : null,
+      taskId: appointment.task_id ? String(appointment.task_id) : null,
+      createdByUserId: appointment.created_by_user_id
+        ? String(appointment.created_by_user_id)
+        : null,
+      sourceActionId: appointment.source_action_id
+        ? String(appointment.source_action_id)
+        : null,
+      appointmentType: String(appointment.appointment_type),
+      title: String(appointment.title),
+      description: appointment.description
+        ? String(appointment.description)
+        : null,
+      status: String(appointment.status),
+      startsAt: appointment.starts_at ? String(appointment.starts_at) : null,
+      endsAt: appointment.ends_at ? String(appointment.ends_at) : null,
+      location: appointment.location ? String(appointment.location) : null,
+      metadata: objectRecord(appointment.metadata),
+      createdAt: String(appointment.created_at),
+      updatedAt: String(appointment.updated_at),
+    })),
+    notes: (notes.data ?? []).map((note) => ({
+      id: String(note.id),
+      conversationId: note.conversation_id
+        ? String(note.conversation_id)
+        : null,
+      messageId: note.message_id ? String(note.message_id) : null,
+      contactId: note.contact_id ? String(note.contact_id) : null,
+      leadId: note.lead_id ? String(note.lead_id) : null,
+      authorUserId: note.author_user_id ? String(note.author_user_id) : null,
+      body: String(note.body),
+      visibility: String(note.visibility),
+      metadata: objectRecord(note.metadata),
+      createdAt: String(note.created_at),
+      updatedAt: String(note.updated_at),
     })),
     outboundMessages: (outboundMessages.data ?? []).map((message) => ({
       id: String(message.id),

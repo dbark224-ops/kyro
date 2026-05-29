@@ -8,8 +8,8 @@ Schema source of truth: `packages/db/src/schema.ts`.
 This document separates current implemented tables from planned later tables.
 Planned later tables are marked as planned and are not available in the current database yet.
 The current implemented schema includes identity/workspace, CRM, files, events/actions,
-AI/model routing, Assistant memory, quote drafts, inquiry facts, usage/pricing/budget,
-entitlements, and audit logs.
+conversation tasks/appointments/notes, AI/model routing, Assistant memory/context and image generation, quote drafts,
+generated document records, inquiry facts, usage/pricing/budget, entitlements, and audit logs.
 
 ## Identity and Tenant Model
 
@@ -90,13 +90,72 @@ entitlements, and audit logs.
 - `email`
 - `phone`
 - `company`
+- `normalized_email`
+- `normalized_phone`
+- `normalized_company`
 - `contact_type`
+- `lifecycle_stage`
+- `lifecycle_source`
+- `lifecycle_reason`
+- `lifecycle_reviewed_at`
+- `profile_resolution_status`
+- `profile_resolution_reason`
+- `profile_conflict_contact_ids`
+- `merged_into_contact_id`
+- `profile_resolved_at`
+- `profile_resolved_by_user_id`
 - `address`
+- `address_line1`
+- `address_line2`
+- `address_locality`
+- `address_administrative_area`
+- `address_postal_code`
+- `address_country_code`
+- `address_latitude`
+- `address_longitude`
+- `address_place_id`
+- `address_source`
+- `address_validation_status`
+- `address_validated_at`
+- `address_structured`
 - `source`
 - `notes`
 - `tags`
 - `created_at`
 - `updated_at`
+
+The normalized contact fields are derived identity fields used for matching,
+search, duplicate warnings, and company grouping. `normalized_phone` stores a
+canonical international-style value where the phone number can be parsed or has
+an explicit country prefix. App-side writes use the workspace default phone
+region from `workspace_general.defaultPhoneRegion` when a local number has no
+country code; the database trigger preserves that app-supplied normalized value.
+
+`address` remains the human-readable display value. The structured address fields
+store the Google/manual source, place id, postal components, coordinates, validation
+status, and raw structured payload used for future maps, service-area checks,
+routing, scheduling, and cleaner quote/job-site output.
+
+Lifecycle fields separate the profile's business stage from its category.
+`lifecycle_stage` is currently `lead` or `client`; `contact_type` remains the
+operational category such as client, supplier, contractor, builder, property
+manager, or other. `lifecycle_source` records whether the stage came from the
+system default, a manual user edit, or an applied AI/backend suggestion.
+`lifecycle_reason` and `lifecycle_reviewed_at` capture the latest explanation
+and review timestamp. Manual overrides can be cleared by the user, which sets
+the source back to `system` so future scheduled or manual lifecycle reviews can
+suggest changes again.
+
+Profile resolution fields track identity conflicts and merges. `clear` means no
+active profile-review work is pending, `needs_review` means the profile was
+created or flagged because identity signals conflict, and `merged` means the
+profile has been archived into `merged_into_contact_id`. The conflict id array
+stores candidate contact ids for the review panel. Merge actions move linked
+leads, conversations, messages, inquiry facts, quote drafts, and contact-targeted
+actions to the kept profile, while leaving the source contact and audit logs in
+place for historical traceability. Normal CRM list/search views filter out
+merged source contacts; the kept profile can still show merged source summaries
+and audit history.
 
 ### `leads`
 
@@ -186,6 +245,97 @@ entitlements, and audit logs.
 - `result`
 - `policy_snapshot`
 - `error`
+- `created_at`
+- `updated_at`
+
+`review_lifecycle_stage` actions target contacts, not conversations. Their
+`input` stores the current stage, recommended stage, confidence, evidence, and
+reason produced by the lifecycle review pass. Current evidence comes from linked
+leads, messages, quote approvals, quote metadata, and contact-targeted business
+actions. The evaluator is also shaped to accept future commercial evidence such
+as paid invoices, booked jobs, work orders, and billing records once those
+records exist. Applying the action updates the contact lifecycle; dismissing it
+leaves the contact unchanged while preserving the audit trail. Automated review
+is suggestion-only for now, including high-confidence evidence.
+
+`merge_contact_profiles` actions target the kept contact profile. Their `input`
+stores the source and target contact ids plus the user reason; their `result`
+stores source/target snapshots, the target patch, and counts of moved linked
+records.
+
+### `conversation_tasks`
+
+Durable internal work items attached to a conversation. A task can also be linked
+to one message, contact, lead, user assignee, and source action. Message-level
+`message_resolution` tasks are the audit-friendly marker for "this message was
+handled"; normal user-created tasks use `manual_task` or more specific types
+such as `site_visit`. Automatic follow-up reminders use
+`customer_follow_up`; outbound replies create or reschedule one open reminder
+for the conversation, and inbound customer messages complete any open reminder
+so stale due states do not remain after the customer has replied.
+
+- `id`
+- `workspace_id`
+- `conversation_id`
+- `message_id`
+- `contact_id`
+- `lead_id`
+- `assigned_to_user_id`
+- `created_by_user_id`
+- `source_action_id`
+- `task_type`
+- `title`
+- `description`
+- `status`
+- `priority`
+- `due_at`
+- `completed_at`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+### `conversation_appointments`
+
+Durable appointment/site-visit records before calendar integration exists. Site
+visit action cards now create an appointment plus a linked `conversation_tasks`
+row, so proposed scheduling work is not lost inside a transient action result.
+
+- `id`
+- `workspace_id`
+- `conversation_id`
+- `message_id`
+- `contact_id`
+- `lead_id`
+- `task_id`
+- `created_by_user_id`
+- `source_action_id`
+- `appointment_type`
+- `title`
+- `description`
+- `status`
+- `starts_at`
+- `ends_at`
+- `location`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+### `conversation_notes`
+
+Internal-only conversation notes. Notes can be attached to a whole conversation
+or to one message. They are not customer-visible and are intended for operator
+context, handover, and triage explanations.
+
+- `id`
+- `workspace_id`
+- `conversation_id`
+- `message_id`
+- `contact_id`
+- `lead_id`
+- `author_user_id`
+- `body`
+- `visibility`
+- `metadata`
 - `created_at`
 - `updated_at`
 
@@ -284,6 +434,11 @@ for compatibility but new rows should not be written that way.
 - `created_at`
 - `completed_at`
 
+Image generation `ai_runs.usage` stores the request-level provider cost/customer
+charge snapshot and, when OpenAI returns it, the provider image usage object. The
+matching `usage_events.image_generation` row is the append-only billing ledger
+source and includes the token split/cost breakdown in metadata.
+
 ### `model_routes`
 
 - `id`
@@ -360,6 +515,9 @@ for compatibility but new rows should not be written that way.
 - `created_at`
 
 `ui_blocks` stores known renderable blocks such as link cards and memory notices. The LLM does not store arbitrary HTML.
+Current known block types include `link_cards`, `memory_notice`,
+`memory_suggestion`, `summary_cards`, `timeline`, `approval_queue`, and
+`generated_image`.
 
 ### `assistant_memories`
 
@@ -378,7 +536,66 @@ for compatibility but new rows should not be written that way.
 - `created_at`
 - `updated_at`
 
-Current long-term memory capture is explicit only. A memory is saved when the user uses instructions such as "remember..." or "for future...".
+Current long-term memory capture has two paths. Explicit instructions such as
+"remember..." or "for future..." are saved as active memories immediately.
+Durable-looking preferences that are not explicit memory instructions are saved
+as `pending_approval` suggestions and shown in the Assistant. Only `active`
+memories are loaded into future model context; rejected suggestions remain
+stored for audit/history but are not used as context.
+
+### `assistant_context_snapshots`
+
+- `id`
+- `workspace_id`
+- `user_id`
+- `thread_id`
+- `snapshot_type`
+- `period_start`
+- `period_end`
+- `title`
+- `summary`
+- `key_points`
+- `entities`
+- `source_message_ids`
+- `message_count`
+- `token_estimate`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+Assistant context snapshots are the compaction layer for Kyro's single persistent
+assistant chat. They do not replace `assistant_messages`; they summarize older
+saved turns into daily snapshots and opportunistic weekly/monthly rollups. The
+assistant model receives only a small ranked set of these snapshots before a turn,
+and the history-search tool can search snapshots plus raw messages when the user
+asks what was discussed earlier. This keeps long-running Assistant use responsive
+without losing auditability or the ability to recover older context. Snapshot
+lookup and compaction are intentionally fail-soft: missing tables, stale
+Supabase schema cache, or compaction errors should degrade to raw message memory,
+not block Assistant responses.
+
+### `assistant_prompt_suggestion_sets`
+
+- `id`
+- `workspace_id`
+- `user_id`
+- `status`
+- `source`
+- `suggestions`
+- `period_start`
+- `period_end`
+- `generated_at`
+- `model`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+Prompt suggestion sets store the reusable suggestion pills shown above the
+Assistant composer. The active row is per workspace/user. `suggestions` is a JSON
+array of customer-agnostic prompts, usually generated weekly from recent initial
+Assistant prompts and filtered to avoid customer names, addresses, emails, phone
+numbers, and file ids. The UI rotates four visible suggestions from the stored
+set and falls back to defaults if no active set exists.
 
 ## Knowledge and Files
 
@@ -393,6 +610,14 @@ Current long-term memory capture is explicit only. A memory is saved when the us
 - `size_bytes`
 - `source`
 - `created_at`
+
+Current `source` values include inbound/provider attachments, retryable outbound
+attachments, generated document PDFs, assistant uploads, and generated images.
+Assistant image generation v1 stores image input references and generated output
+images here rather than creating a separate media table. Generated-image UI
+blocks are also persisted on `assistant_messages`, allowing later image edit or
+recall requests in the same thread to recover the last generated image after
+page reloads or server restarts.
 
 ### `knowledge_documents` planned
 
@@ -481,21 +706,21 @@ or as a server-generated PDF at request/send time. Browser save-to-PDF remains
 available from the print view, and `/documents/[quoteDraftId]/pdf` streams a PDF
 generated from the same structured quote data.
 
-Generated-document state is metadata-first for now. When the user prepares a
-quote send, Kyro stores `metadata.lastGeneratedDocument` with the PDF filename,
-content type, byte size, renderer, generation timestamp, and content hash.
+Generated-document state now has two layers. Quote draft metadata keeps
+`metadata.lastGeneratedDocument` with the PDF filename, content type, byte size,
+renderer, generation timestamp, generated document id, storage location, and content hash.
 `metadata.documentHistory` records lightweight `pdf_generated`, `email_prepared`,
 `email_sent`, `customer_viewed`, `customer_approved`, and
 `customer_changes_requested` events so the quote page and Assistant can explain what happened.
 Each event can carry `quoteVersion`, and generated document metadata also includes
 the active version used to render or send that artifact.
+The durable PDF record lives in `generated_documents`, linked to the quote draft,
+contact, lead, conversation, private `files` row, and optional sent message.
 When the email is sent, outbound message metadata records the PDF attachment
 summary and the quote draft metadata records sent timestamps, provider/message ids,
 the outbound message id, and an `email_sent` history event. The binary PDF is
-generated on demand for download and stored as a private outbox attachment only
-when it is queued for email delivery; durable generated-document file rows,
-Drive storage, invoice exports, and accounting/payment records remain planned
-later work.
+stored in a private Supabase Storage bucket and can also be filed to Google Drive
+when the user presses the Drive filing action.
 
 Current revision state is stored inside `quote_drafts.metadata.quoteRevision`
 rather than in a separate table. The object tracks `currentVersion`, the latest
@@ -564,9 +789,10 @@ Those custom templates currently include a stable key, label, description, line
 item structure, notes, reference-file metadata, latest revision request, and a
 design settings snapshot. The template review/edit UI updates that policy array
 directly for now and renders previews through the same HTML renderer used by the
-quote print route. The separate `document_templates`, `document_template_versions`,
-and `generated_documents` tables below remain planned for richer template
-versioning, file storage, and generated-document workflows.
+quote print route. The separate `document_templates` and
+`document_template_versions` tables below remain planned for richer template
+versioning. Generated PDF instances now use the implemented `generated_documents`
+table while reusable template definitions still live in the workspace policy.
 
 Assistant-created or assistant-revised reusable templates update this same
 `document_templates` workspace policy. Creation adds a new `customTemplates[]`
@@ -595,22 +821,46 @@ draft links and template identity remain stable.
 - `render_settings`
 - `created_at`
 
-### `generated_documents` planned
+### `generated_documents`
 
 - `id`
 - `workspace_id`
-- `document_template_id`
-- `document_template_version_id`
 - `document_type`
 - `title`
-- `status`
-- `source_context`
-- `field_values`
-- `output_file_id`
-- `created_by_action_id`
-- `created_by_ai_run_id`
+- `lifecycle_status`
+- `contact_id`
+- `lead_id`
+- `conversation_id`
+- `quote_draft_id`
+- `file_id`
+- `storage_bucket`
+- `storage_path`
+- `filename`
+- `content_type`
+- `size_bytes`
+- `content_hash`
+- `renderer`
+- `document_version`
+- `google_drive_file_id`
+- `google_drive_web_url`
+- `google_drive_synced_at`
+- `created_by_user_id`
+- `sent_message_id`
+- `sent_at`
+- `filed_at`
+- `metadata`
 - `created_at`
 - `updated_at`
+
+Generated documents are first-class records for quote and invoice PDFs generated
+from structured quote draft data. Current `document_type` values are `quote` and
+`invoice`. Current lifecycle values are `generated`, `filed`, `sent`, and
+`voided`. The record points at a private storage-backed `files` row and keeps
+clear links back to the source contact, lead, conversation, and quote draft.
+Google Drive filing updates the Drive file id/link and `filed_at` fields. Invoice
+documents are generated from the same saved document-template settings as the
+source quote draft; they do not create payment, bookkeeping, or reconciliation
+records.
 
 ## Inquiry Facts
 
@@ -624,6 +874,19 @@ draft links and template identity remain stable.
 - `source_ai_run_id`
 - `job_type`
 - `address`
+- `address_line1`
+- `address_line2`
+- `address_locality`
+- `address_administrative_area`
+- `address_postal_code`
+- `address_country_code`
+- `address_latitude`
+- `address_longitude`
+- `address_place_id`
+- `address_source`
+- `address_validation_status`
+- `address_validated_at`
+- `address_structured`
 - `preferred_time`
 - `urgency`
 - `budget`
@@ -637,7 +900,18 @@ draft links and template identity remain stable.
 
 There is one current fact row per workspace/conversation. Users can edit it, and AI replanning should treat the saved row as the authoritative corrected state.
 
-## Media planned
+## Media
+
+Image generation v1 uses existing records:
+
+- `assistant_upload` rows in `files` for uploaded references,
+- `generated_image` rows in `files` for generated outputs,
+- `ai_runs.task_type = image_generation` for the tool execution,
+- `usage_events.usage_type = image_generation` for provider and customer-charge snapshots,
+- `audit_logs.action = image.generated` for traceability.
+
+A dedicated media gallery/history table can still be added later if generated
+visuals become a large first-class product area.
 
 ### `media_generations` planned
 
@@ -678,7 +952,7 @@ Recommended `policy_type` values:
 - `quiet_hours`
 - `blocked_recipients`
 
-`workspace_general` stores workspace-wide defaults that are not tied to one feature, currently `timeZone`, `displayCurrency`, `exchangeRateProvider`, and `exchangeRateUpdatedAt`. Timezone is still mirrored into `inbound_email` for quiet-hours polling compatibility. `communication_outbound` is the current web settings policy used for dry-run outbound approval, channel, style, and email signature settings. It stores a default signature plus an optional assistant signature for untouched AI-generated sends. `outbound_email` and `outbound_sms` are still seeded by bootstrap as narrower channel policies and may be consolidated later.
+`workspace_general` stores workspace-wide defaults that are not tied to one feature, currently `timeZone`, `displayCurrency`, `exchangeRateProvider`, `exchangeRateUpdatedAt`, and `defaultPhoneRegion`. Timezone is still mirrored into `inbound_email` for quiet-hours polling compatibility. `defaultPhoneRegion` is used for bare local phone numbers where the customer did not include an international country code. CRM lifecycle review policy is currently hard-coded to suggestion-only rather than stored as an auto-apply setting. `communication_outbound` is the current web settings policy used for dry-run outbound approval, channel, outbound writing style, follow-up reminders, and email signature settings. Its `replyWriting` object stores tone, wording style, message length, sign-off guidance, trade-specific phrasing, and reusable reply instructions that AI draft generation must apply. It also stores a default signature plus an optional assistant signature for untouched AI-generated sends. `outbound_email` and `outbound_sms` are still seeded by bootstrap as narrower channel policies and may be consolidated later.
 
 ## Usage and Billing Readiness
 

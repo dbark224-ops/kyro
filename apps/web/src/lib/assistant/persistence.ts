@@ -1,15 +1,18 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { getConversationList } from "../crm/queries";
 import { conversationToAssistantLink } from "./conversation-links";
+import { getAssistantContextSnapshots } from "./context-compaction";
 import { capturePronunciationSignalsFromText } from "./pronunciation";
 import {
   linkCardsBlock,
   linksFromBlocks,
   memoryNoticeBlock,
+  memorySuggestionBlock,
 } from "./ui-blocks";
 import type {
   AssistantLink,
   AssistantMemoryItem,
+  AssistantThreadSummary,
   AssistantThreadMessage,
   AssistantThreadState,
   AssistantTurnResult,
@@ -26,8 +29,12 @@ type WorkspaceInput = {
 };
 
 type AssistantThreadRow = {
+  created_at?: unknown;
   id: unknown;
+  status?: unknown;
   summary: unknown;
+  title?: unknown;
+  updated_at?: unknown;
 };
 
 type AssistantMessageRow = {
@@ -46,7 +53,13 @@ type AssistantMemoryRow = {
   id: unknown;
   content: unknown;
   memory_type: unknown;
+  status?: unknown;
   tags: unknown;
+};
+
+export type AssistantMemorySuggestion = {
+  content: string;
+  id: string;
 };
 
 export async function getOrCreateAssistantThread(
@@ -110,17 +123,24 @@ export async function getAssistantThreadState({
   workspace: WorkspaceInput;
 }): Promise<AssistantThreadState> {
   const thread = threadId
-    ? await getAssistantThread(supabase, workspace.id, threadId)
+    ? await getAssistantThread(supabase, workspace.id, threadId, user.id)
     : await getOrCreateAssistantThread(supabase, workspace, user);
   const resolvedThreadId = String(thread.id);
-  const [messages, memories] = await Promise.all([
+  const [messages, memories, threads] = await Promise.all([
     getAssistantMessages(supabase, workspace.id, resolvedThreadId),
     getAssistantMemories(supabase, workspace.id, user.id),
+    getAssistantThreadSummaries(supabase, workspace.id, user.id),
   ]);
+  const messagesWithMemoryStatuses =
+    await refreshAssistantMemorySuggestionBlocks(
+      supabase,
+      workspace.id,
+      messages,
+    );
   const refreshedMessages = await refreshAssistantConversationLinks(
     supabase,
     workspace.id,
-    messages,
+    messagesWithMemoryStatuses,
   );
 
   return {
@@ -134,6 +154,7 @@ export async function getAssistantThreadState({
           : [],
     summary: textValue(thread.summary),
     threadId: resolvedThreadId,
+    threads,
   };
 }
 
@@ -150,23 +171,35 @@ export async function getAssistantTurnContext({
   user: User;
   workspaceId: string;
 }) {
-  const [thread, recentMessages, memories] = await Promise.all([
-    getAssistantThread(supabase, workspaceId, threadId),
-    getAssistantMessages(
-      supabase,
-      workspaceId,
-      threadId,
-      MODEL_RECENT_MESSAGE_LIMIT,
-    ),
-    getRelevantMemories(supabase, workspaceId, user.id, prompt),
-  ]);
+  const [thread, recentMessages, memories, contextSnapshots] =
+    await Promise.all([
+      getAssistantThread(supabase, workspaceId, threadId, user.id),
+      getAssistantMessages(
+        supabase,
+        workspaceId,
+        threadId,
+        MODEL_RECENT_MESSAGE_LIMIT,
+      ),
+      getRelevantMemories(supabase, workspaceId, user.id, prompt),
+      getAssistantContextSnapshots({
+        prompt,
+        supabase,
+        threadId,
+        userId: user.id,
+        workspaceId,
+      }),
+    ]);
 
   return {
+    contextSnapshots,
     memories,
     recentMessages: recentMessages.map((message) => ({
       content: message.content,
+      createdAt: message.createdAt,
       intent: message.intent ?? null,
+      links: message.links,
       role: message.role,
+      uiBlocks: message.uiBlocks,
     })),
     summary: textValue(thread.summary),
   };
@@ -233,6 +266,7 @@ export async function appendUserAssistantMessage({
 
 export async function appendAssistantTurnMessage({
   memorySaved,
+  memorySuggestion,
   result,
   supabase,
   threadId,
@@ -240,15 +274,25 @@ export async function appendAssistantTurnMessage({
   workspaceId,
 }: {
   memorySaved?: string | null;
+  memorySuggestion?: AssistantMemorySuggestion | null;
   result: AssistantTurnResult;
   supabase: SupabaseClient;
   threadId: string;
   user: User;
   workspaceId: string;
 }) {
-  const uiBlocks = memorySaved
-    ? [...result.uiBlocks, memoryNoticeBlock(memorySaved)]
-    : result.uiBlocks;
+  const uiBlocks = [
+    ...result.uiBlocks,
+    ...(memorySaved ? [memoryNoticeBlock(memorySaved)] : []),
+    ...(memorySuggestion
+      ? [
+          memorySuggestionBlock({
+            content: memorySuggestion.content,
+            memoryId: memorySuggestion.id,
+          }),
+        ]
+      : []),
+  ];
   const { error } = await supabase.from("assistant_messages").insert({
     ai_run_id: result.id,
     content: result.content,
@@ -367,6 +411,145 @@ export async function maybeSaveAssistantMemory({
   return content;
 }
 
+export async function maybeSuggestAssistantMemory({
+  prompt,
+  sourceMessageId,
+  supabase,
+  threadId,
+  user,
+  workspaceId,
+}: {
+  prompt: string;
+  sourceMessageId: string;
+  supabase: SupabaseClient;
+  threadId: string;
+  user: User;
+  workspaceId: string;
+}): Promise<AssistantMemorySuggestion | null> {
+  const content = extractSuggestedMemory(prompt);
+
+  if (!content) {
+    return null;
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("assistant_memories")
+    .select("id,status")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("content", content)
+    .in("status", ["active", "pending_approval"])
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(
+      `Unable to check assistant memory suggestions: ${existingError.message}`,
+    );
+  }
+
+  if (existing) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("assistant_memories")
+    .insert({
+      confidence: "0.55",
+      content,
+      memory_type: "suggested_preference",
+      metadata: {
+        approvalRequired: true,
+        source: "assistant.suggested_memory",
+      },
+      source_message_id: sourceMessageId,
+      source_thread_id: threadId,
+      status: "pending_approval",
+      tags: inferMemoryTags(content),
+      user_id: user.id,
+      workspace_id: workspaceId,
+    })
+    .select("id,content")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to create assistant memory suggestion: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  return {
+    content: String(data.content),
+    id: String(data.id),
+  };
+}
+
+export async function setAssistantMemorySuggestionStatus({
+  memoryId,
+  status,
+  supabase,
+  user,
+  workspaceId,
+}: {
+  memoryId: string;
+  status: "active" | "rejected";
+  supabase: SupabaseClient;
+  user: User;
+  workspaceId: string;
+}) {
+  const { data: memory, error: loadError } = await supabase
+    .from("assistant_memories")
+    .select("id,content,status")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("id", memoryId)
+    .maybeSingle();
+
+  if (loadError) {
+    throw new Error(`Unable to load memory suggestion: ${loadError.message}`);
+  }
+
+  if (!memory) {
+    throw new Error("Memory suggestion was not found.");
+  }
+
+  const currentStatus = textValue(memory.status) ?? "pending_approval";
+
+  if (currentStatus !== "pending_approval") {
+    return {
+      content: String(memory.content),
+      id: String(memory.id),
+      status: currentStatus,
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from("assistant_memories")
+    .update({
+      metadata: {
+        approvedByUserId: status === "active" ? user.id : null,
+        decisionAt: new Date().toISOString(),
+        source: "assistant.suggested_memory",
+      },
+      status,
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("id", memoryId);
+
+  if (updateError) {
+    throw new Error(
+      `Unable to update memory suggestion: ${updateError.message}`,
+    );
+  }
+
+  return {
+    content: String(memory.content),
+    id: String(memory.id),
+    status,
+  };
+}
+
 export async function updateAssistantThreadSummary({
   prompt,
   result,
@@ -413,11 +596,13 @@ async function getAssistantThread(
   supabase: SupabaseClient,
   workspaceId: string,
   threadId: string,
+  userId: string,
 ) {
   const { data, error } = await supabase
     .from("assistant_threads")
     .select("id,summary")
     .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
     .eq("id", threadId)
     .maybeSingle();
 
@@ -430,6 +615,89 @@ async function getAssistantThread(
   }
 
   return data as unknown as AssistantThreadRow;
+}
+
+export async function createAssistantThread({
+  supabase,
+  user,
+  workspace,
+}: {
+  supabase: SupabaseClient;
+  user: User;
+  workspace: WorkspaceInput;
+}) {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .insert({
+      metadata: {
+        source: "assistant.new_thread",
+      },
+      title: `${workspace.name} Assistant`,
+      user_id: user.id,
+      workspace_id: workspace.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to create assistant thread: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  return String(data.id);
+}
+
+export async function archiveAssistantThread({
+  supabase,
+  threadId,
+  user,
+  workspaceId,
+}: {
+  supabase: SupabaseClient;
+  threadId: string;
+  user: User;
+  workspaceId: string;
+}) {
+  const { error } = await supabase
+    .from("assistant_threads")
+    .update({
+      status: "archived",
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("id", threadId);
+
+  if (error) {
+    throw new Error(`Unable to archive assistant thread: ${error.message}`);
+  }
+}
+
+async function getAssistantThreadSummaries(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  userId: string,
+): Promise<AssistantThreadSummary[]> {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .select("id,title,status,summary,created_at,updated_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(`Unable to load assistant threads: ${error.message}`);
+  }
+
+  return ((data ?? []) as unknown as AssistantThreadRow[]).map((thread) => ({
+    createdAt: textValue(thread.created_at) ?? new Date().toISOString(),
+    id: String(thread.id),
+    status: textValue(thread.status) ?? "active",
+    summary: textValue(thread.summary),
+    title: textValue(thread.title) ?? "Assistant thread",
+    updatedAt: textValue(thread.updated_at) ?? new Date().toISOString(),
+  }));
 }
 
 async function getAssistantMessages(
@@ -677,8 +945,79 @@ function normalizeUiBlocks(value: unknown): AssistantUiBlock[] {
     }
 
     const record = block as Record<string, unknown>;
-    return record.type === "link_cards" || record.type === "memory_notice";
+    return [
+      "approval_queue",
+      "generated_image",
+      "link_cards",
+      "memory_notice",
+      "memory_suggestion",
+      "summary_cards",
+      "timeline",
+    ].includes(textValue(record.type) ?? "");
   });
+}
+
+async function refreshAssistantMemorySuggestionBlocks(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  messages: AssistantThreadMessage[],
+): Promise<AssistantThreadMessage[]> {
+  const memoryIds = [
+    ...new Set(
+      messages.flatMap((message) =>
+        (message.uiBlocks ?? []).flatMap((block) =>
+          block.type === "memory_suggestion" ? [block.memoryId] : [],
+        ),
+      ),
+    ),
+  ];
+
+  if (memoryIds.length === 0) {
+    return messages;
+  }
+
+  const { data, error } = await supabase
+    .from("assistant_memories")
+    .select("id,status")
+    .eq("workspace_id", workspaceId)
+    .in("id", memoryIds);
+
+  if (error) {
+    throw new Error(
+      `Unable to refresh memory suggestion status: ${error.message}`,
+    );
+  }
+
+  const statusById = new Map<
+    string,
+    "active" | "pending_approval" | "rejected"
+  >(
+    (data ?? []).map((row) => [
+      String(row.id),
+      toMemorySuggestionStatus(textValue(row.status)),
+    ]),
+  );
+
+  return messages.map((message) => ({
+    ...message,
+    uiBlocks: (message.uiBlocks ?? []).map((block) => {
+      if (block.type !== "memory_suggestion") {
+        return block;
+      }
+
+      const status = statusById.get(block.memoryId);
+
+      return status ? { ...block, status } : block;
+    }),
+  }));
+}
+
+function toMemorySuggestionStatus(
+  value: string | null,
+): "active" | "pending_approval" | "rejected" {
+  return value === "active" || value === "rejected"
+    ? value
+    : "pending_approval";
 }
 
 function objectRecord(value: unknown) {
@@ -707,6 +1046,35 @@ function extractExplicitMemory(prompt: string) {
   }
 
   return null;
+}
+
+function extractSuggestedMemory(prompt: string) {
+  if (extractExplicitMemory(prompt)) {
+    return null;
+  }
+
+  const cleaned = prompt.trim().replace(/\s+/g, " ");
+  const text = cleaned.toLowerCase();
+  const durablePreference =
+    /\b(?:i|we)\s+(?:prefer|usually|normally|like|want|don't|do not|always|never)\b/.test(
+      text,
+    ) ||
+    /\b(?:please|can you)\s+(?:always|never)\b/.test(text) ||
+    /\b(?:from now on|going forward|default|preference|policy)\b/.test(text);
+
+  if (!durablePreference) {
+    return null;
+  }
+
+  if (cleaned.length < 16 || cleaned.length > 600) {
+    return null;
+  }
+
+  if (/[?]/.test(cleaned) && !/\b(?:can you|please)\b/.test(text)) {
+    return null;
+  }
+
+  return truncate(cleaned, 500);
 }
 
 function inferMemoryTags(content: string) {

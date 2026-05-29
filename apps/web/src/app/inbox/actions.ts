@@ -1,5 +1,6 @@
 "use server";
 
+import { parseAddressFormData } from "../../lib/addresses/form";
 import { ingestManualConversationFollowUp } from "../../lib/inbound/follow-up";
 import {
   getCommunicationSettings,
@@ -490,6 +491,7 @@ export async function updateInquiryFactsAction(formData: FormData) {
   const conversationId = formString(formData, "conversationId");
   const urgency = formString(formData, "urgency") || "normal";
   const fit = formString(formData, "fit") || "needs_review";
+  const addressFields = parseAddressFormData(formData, "address");
 
   if (!conversationId) {
     redirect("/inbox?engine_error=Conversation id is required.");
@@ -569,7 +571,11 @@ export async function updateInquiryFactsAction(formData: FormData) {
         contact_id: conversation.contact_id ?? null,
         lead_id: conversation.lead_id ?? null,
         job_type: facts.jobType,
-        address: facts.address,
+        ...(formString(formData, "addressGooglePlaceId") ||
+        !beforeFacts ||
+        facts.address !== (beforeFacts.address ?? null)
+          ? addressFields
+          : { address: facts.address }),
         preferred_time: facts.preferredTime,
         urgency: facts.urgency,
         budget: facts.budget,
@@ -1114,7 +1120,8 @@ export async function sendDraftReplyAction(formData: FormData) {
 }
 
 export async function createMockOutboundMessageAction(formData: FormData) {
-  const submissionKey = formString(formData, "submissionKey") || crypto.randomUUID();
+  const submissionKey =
+    formString(formData, "submissionKey") || crypto.randomUUID();
   const conversationId = formString(formData, "conversationId");
   const channelType = formString(formData, "channelType");
   const subject = nullableText(formString(formData, "subject"));
@@ -1290,13 +1297,13 @@ export async function createMockOutboundMessageAction(formData: FormData) {
       channelType: outboundResult.channelType,
       conversationId: outboundResult.conversationId,
       direction: "outbound",
-        dryRun: outboundResult.dryRun,
-        externalMessageId: outboundResult.externalMessageId,
-        externalSend: outboundResult.externalSend,
-        outboundQueueId: outboundResult.outboundQueueId,
-        attachments: outboundResult.attachments,
-        sentTo: outboundResult.sentTo,
-        subject: outboundResult.subject,
+      dryRun: outboundResult.dryRun,
+      externalMessageId: outboundResult.externalMessageId,
+      externalSend: outboundResult.externalSend,
+      outboundQueueId: outboundResult.outboundQueueId,
+      attachments: outboundResult.attachments,
+      sentTo: outboundResult.sentTo,
+      subject: outboundResult.subject,
     },
     metadata: {
       requestedByUserId: user.id,
@@ -1338,8 +1345,10 @@ export async function createMockOutboundMessageAction(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath("/inbox");
+  revalidatePath("/files");
   revalidatePath("/documents");
   if (outboundResult.attachmentQuoteDraftId) {
+    revalidatePath(`/files/${outboundResult.attachmentQuoteDraftId}`);
     revalidatePath(`/documents/${outboundResult.attachmentQuoteDraftId}`);
   }
   revalidatePath(conversationPath(conversationId));
@@ -1476,7 +1485,9 @@ export async function promoteSkippedEmailToWorkItemAction(formData: FormData) {
   }
 }
 
-function formSenderRuleAction(value: string): InboundEmailSenderRuleAction | null {
+function formSenderRuleAction(
+  value: string,
+): InboundEmailSenderRuleAction | null {
   if (value === "always_promote" || value === "always_ignore") {
     return value;
   }
@@ -1677,7 +1688,8 @@ export async function updateSkippedEmailSenderRuleAction(formData: FormData) {
 }
 
 export async function sendSkippedEmailReplyAction(formData: FormData) {
-  const submissionKey = formString(formData, "submissionKey") || crypto.randomUUID();
+  const submissionKey =
+    formString(formData, "submissionKey") || crypto.randomUUID();
   const eventId = formString(formData, "eventId");
   const subject = nullableText(formString(formData, "subject"));
   const body = formString(formData, "body");
@@ -1825,6 +1837,818 @@ export async function sendSkippedEmailReplyAction(formData: FormData) {
   redirectWithInboxMessage(
     "engine_message",
     "Reply sent from filtered-out email.",
+    redirectTo,
+  );
+}
+
+const TASK_STATUSES = new Set(["open", "completed", "cancelled"]);
+const TASK_PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
+const APPOINTMENT_STATUSES = new Set([
+  "suggested",
+  "scheduled",
+  "completed",
+  "cancelled",
+]);
+
+function optionalIsoDateTime(value: string) {
+  if (!value.trim()) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function workflowPriority(value: string) {
+  return TASK_PRIORITIES.has(value) ? value : "normal";
+}
+
+function workflowStatus(value: string) {
+  return TASK_STATUSES.has(value) ? value : "open";
+}
+
+function appointmentStatus(value: string, startsAt: string | null) {
+  if (APPOINTMENT_STATUSES.has(value)) {
+    return value;
+  }
+
+  return startsAt ? "scheduled" : "suggested";
+}
+
+async function loadWorkflowConversation(
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"],
+  workspaceId: string,
+  conversationId: string,
+) {
+  const { data: conversation, error } = await supabase
+    .from("conversations")
+    .select("id,contact_id,lead_id,status")
+    .eq("workspace_id", workspaceId)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!conversation) {
+    throw new Error("Conversation was not found.");
+  }
+
+  return conversation;
+}
+
+async function loadWorkflowMessage(
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"],
+  workspaceId: string,
+  conversationId: string,
+  messageId: string,
+) {
+  const { data: message, error } = await supabase
+    .from("messages")
+    .select("id,conversation_id,contact_id,subject,body_text")
+    .eq("workspace_id", workspaceId)
+    .eq("conversation_id", conversationId)
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!message) {
+    throw new Error("Message was not found in this conversation.");
+  }
+
+  return message;
+}
+
+export async function createConversationTaskAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const messageId = nullableText(formString(formData, "messageId"));
+  const title = formString(formData, "title");
+  const description = nullableText(formString(formData, "description"));
+  const taskType =
+    nullableText(formString(formData, "taskType")) ?? "manual_task";
+  const dueAt = optionalIsoDateTime(formString(formData, "dueAt"));
+  const priority = workflowPriority(formString(formData, "priority"));
+  const status = workflowStatus(formString(formData, "status"));
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationId ? conversationPath(conversationId) : "/inbox",
+  );
+
+  if (!conversationId) {
+    redirectWithInboxMessage("engine_error", "Conversation id is required.");
+  }
+
+  if (!title) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Task title is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let conversation: Awaited<ReturnType<typeof loadWorkflowConversation>>;
+
+  try {
+    conversation = await loadWorkflowConversation(
+      supabase,
+      workspace.id,
+      conversationId,
+    );
+
+    if (messageId) {
+      await loadWorkflowMessage(
+        supabase,
+        workspace.id,
+        conversationId,
+        messageId,
+      );
+    }
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load workflow target.",
+      redirectTo,
+    );
+  }
+
+  const { data: task, error } = await supabase
+    .from("conversation_tasks")
+    .insert({
+      workspace_id: workspace.id,
+      conversation_id: conversationId,
+      message_id: messageId,
+      contact_id: conversation.contact_id ?? null,
+      lead_id: conversation.lead_id ?? null,
+      assigned_to_user_id: user.id,
+      created_by_user_id: user.id,
+      task_type: taskType,
+      title,
+      description,
+      status,
+      priority,
+      due_at: dueAt,
+      metadata: {
+        source: messageId ? "message_control" : "conversation_control",
+      },
+    })
+    .select("id")
+    .single();
+
+  if (error || !task) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error?.message ?? "Unable to create task.",
+      redirectTo,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "conversation_task.created",
+    entityType: "conversation_task",
+    entityId: String(task.id),
+    after: {
+      conversationId,
+      dueAt,
+      messageId,
+      priority,
+      status,
+      taskType,
+      title,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Task saved.",
+    redirectTo,
+  );
+}
+
+export async function completeConversationTaskAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const taskId = formString(formData, "taskId");
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationId ? conversationPath(conversationId) : "/inbox",
+  );
+
+  if (!conversationId || !taskId) {
+    redirectWithInboxMessage("engine_error", "Task request is invalid.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const now = new Date().toISOString();
+  const { data: task, error: loadError } = await supabase
+    .from("conversation_tasks")
+    .select("id,status,title")
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (loadError || !task) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      loadError?.message ?? "Task was not found.",
+      redirectTo,
+    );
+  }
+
+  const { error } = await supabase
+    .from("conversation_tasks")
+    .update({
+      completed_at: now,
+      status: "completed",
+    })
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .eq("id", taskId);
+
+  if (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error.message,
+      redirectTo,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "conversation_task.completed",
+    entityType: "conversation_task",
+    entityId: taskId,
+    before: {
+      status: task.status,
+    },
+    after: {
+      completedAt: now,
+      status: "completed",
+      title: task.title,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Task completed.",
+    redirectTo,
+  );
+}
+
+export async function resolveMessageAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const messageId = formString(formData, "messageId");
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationId ? conversationPath(conversationId) : "/inbox",
+  );
+
+  if (!conversationId || !messageId) {
+    redirectWithInboxMessage("engine_error", "Message resolution is invalid.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let message: Awaited<ReturnType<typeof loadWorkflowMessage>>;
+  let conversation: Awaited<ReturnType<typeof loadWorkflowConversation>>;
+
+  try {
+    [conversation, message] = await Promise.all([
+      loadWorkflowConversation(supabase, workspace.id, conversationId),
+      loadWorkflowMessage(supabase, workspace.id, conversationId, messageId),
+    ]);
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error ? error.message : "Unable to load message.",
+      redirectTo,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from("conversation_tasks")
+    .update({
+      completed_at: now,
+      status: "completed",
+    })
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .eq("message_id", messageId)
+    .eq("status", "open");
+
+  if (updateError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      updateError.message,
+      redirectTo,
+    );
+  }
+
+  const { data: existingResolution, error: existingError } = await supabase
+    .from("conversation_tasks")
+    .select("id")
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .eq("message_id", messageId)
+    .eq("task_type", "message_resolution")
+    .maybeSingle();
+
+  if (existingError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      existingError.message,
+      redirectTo,
+    );
+  }
+
+  let resolutionTaskId = existingResolution?.id
+    ? String(existingResolution.id)
+    : null;
+
+  if (resolutionTaskId) {
+    const { error } = await supabase
+      .from("conversation_tasks")
+      .update({
+        completed_at: now,
+        status: "completed",
+      })
+      .eq("workspace_id", workspace.id)
+      .eq("id", resolutionTaskId);
+
+    if (error) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        error.message,
+        redirectTo,
+      );
+    }
+  } else {
+    const { data: resolutionTask, error } = await supabase
+      .from("conversation_tasks")
+      .insert({
+        workspace_id: workspace.id,
+        conversation_id: conversationId,
+        message_id: messageId,
+        contact_id: conversation.contact_id ?? message.contact_id ?? null,
+        lead_id: conversation.lead_id ?? null,
+        assigned_to_user_id: user.id,
+        created_by_user_id: user.id,
+        task_type: "message_resolution",
+        title: `Resolved: ${
+          textValue(message.subject) ??
+          preview(textValue(message.body_text), 64) ??
+          "message"
+        }`,
+        status: "completed",
+        priority: "normal",
+        completed_at: now,
+        metadata: {
+          source: "message_mark_resolved",
+        },
+      })
+      .select("id")
+      .single();
+
+    if (error || !resolutionTask) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        error?.message ?? "Unable to mark message resolved.",
+        redirectTo,
+      );
+    }
+
+    resolutionTaskId = String(resolutionTask.id);
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "message.resolved",
+    entityType: "message",
+    entityId: messageId,
+    after: {
+      conversationId,
+      resolutionTaskId,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Message marked resolved.",
+    redirectTo,
+  );
+}
+
+export async function createInternalNoteAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const messageId = nullableText(formString(formData, "messageId"));
+  const body = formString(formData, "body");
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationId ? conversationPath(conversationId) : "/inbox",
+  );
+
+  if (!conversationId) {
+    redirectWithInboxMessage("engine_error", "Conversation id is required.");
+  }
+
+  if (!body) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Internal note is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let conversation: Awaited<ReturnType<typeof loadWorkflowConversation>>;
+
+  try {
+    conversation = await loadWorkflowConversation(
+      supabase,
+      workspace.id,
+      conversationId,
+    );
+
+    if (messageId) {
+      await loadWorkflowMessage(
+        supabase,
+        workspace.id,
+        conversationId,
+        messageId,
+      );
+    }
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error ? error.message : "Unable to load note target.",
+      redirectTo,
+    );
+  }
+
+  const { data: note, error } = await supabase
+    .from("conversation_notes")
+    .insert({
+      workspace_id: workspace.id,
+      conversation_id: conversationId,
+      message_id: messageId,
+      contact_id: conversation.contact_id ?? null,
+      lead_id: conversation.lead_id ?? null,
+      author_user_id: user.id,
+      body,
+      visibility: "internal",
+      metadata: {
+        source: messageId ? "message_control" : "conversation_control",
+      },
+    })
+    .select("id")
+    .single();
+
+  if (error || !note) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error?.message ?? "Unable to add internal note.",
+      redirectTo,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "conversation_note.created",
+    entityType: "conversation_note",
+    entityId: String(note.id),
+    after: {
+      conversationId,
+      messageId,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Internal note saved.",
+    redirectTo,
+  );
+}
+
+export async function createConversationAppointmentAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const messageId = nullableText(formString(formData, "messageId"));
+  const sourceActionId = nullableText(formString(formData, "sourceActionId"));
+  const title = formString(formData, "title") || "Site visit";
+  const description = nullableText(formString(formData, "description"));
+  const location = nullableText(formString(formData, "location"));
+  const startsAt = optionalIsoDateTime(formString(formData, "startsAt"));
+  const endsAt = optionalIsoDateTime(formString(formData, "endsAt"));
+  const status = appointmentStatus(formString(formData, "status"), startsAt);
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationId ? conversationPath(conversationId) : "/inbox",
+  );
+
+  if (!conversationId) {
+    redirectWithInboxMessage("engine_error", "Conversation id is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let conversation: Awaited<ReturnType<typeof loadWorkflowConversation>>;
+  let sourceAction: Record<string, unknown> | null = null;
+
+  try {
+    conversation = await loadWorkflowConversation(
+      supabase,
+      workspace.id,
+      conversationId,
+    );
+
+    if (messageId) {
+      await loadWorkflowMessage(
+        supabase,
+        workspace.id,
+        conversationId,
+        messageId,
+      );
+    }
+  } catch (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load appointment target.",
+      redirectTo,
+    );
+  }
+
+  if (sourceActionId) {
+    const { data: action, error } = await supabase
+      .from("actions")
+      .select("id,type,status,input,result,approved_at")
+      .eq("workspace_id", workspace.id)
+      .eq("target_type", "conversation")
+      .eq("target_id", conversationId)
+      .eq("id", sourceActionId)
+      .maybeSingle();
+
+    if (error || !action) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        error?.message ?? "Source action was not found.",
+        redirectTo,
+      );
+    }
+
+    sourceAction = action;
+  }
+
+  const { data: task, error: taskError } = await supabase
+    .from("conversation_tasks")
+    .insert({
+      workspace_id: workspace.id,
+      conversation_id: conversationId,
+      message_id: messageId,
+      contact_id: conversation.contact_id ?? null,
+      lead_id: conversation.lead_id ?? null,
+      assigned_to_user_id: user.id,
+      created_by_user_id: user.id,
+      source_action_id: sourceActionId,
+      task_type: "site_visit",
+      title: `Arrange ${title}`,
+      description:
+        description ??
+        (location ? `Site visit location: ${location}` : "Site visit task."),
+      status: "open",
+      priority: "normal",
+      due_at: startsAt,
+      metadata: {
+        source: sourceActionId ? "action_card" : "manual_appointment",
+      },
+    })
+    .select("id")
+    .single();
+
+  if (taskError || !task) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      taskError?.message ?? "Unable to create appointment task.",
+      redirectTo,
+    );
+  }
+
+  const { data: appointment, error: appointmentError } = await supabase
+    .from("conversation_appointments")
+    .insert({
+      workspace_id: workspace.id,
+      conversation_id: conversationId,
+      message_id: messageId,
+      contact_id: conversation.contact_id ?? null,
+      lead_id: conversation.lead_id ?? null,
+      task_id: task.id,
+      created_by_user_id: user.id,
+      source_action_id: sourceActionId,
+      appointment_type: "site_visit",
+      title,
+      description,
+      status,
+      starts_at: startsAt,
+      ends_at: endsAt,
+      location,
+      metadata: {
+        source: sourceActionId ? "action_card" : "manual_appointment",
+      },
+    })
+    .select("id")
+    .single();
+
+  if (appointmentError || !appointment) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      appointmentError?.message ?? "Unable to save appointment.",
+      redirectTo,
+    );
+  }
+
+  if (sourceActionId && sourceAction) {
+    const now = new Date().toISOString();
+    const previousResult = objectRecord(sourceAction.result);
+    const { error: actionUpdateError } = await supabase
+      .from("actions")
+      .update({
+        approved_by_user_id: user.id,
+        approved_at: sourceAction.approved_at ? sourceAction.approved_at : now,
+        executed_at: now,
+        result: {
+          ...previousResult,
+          appointmentId: appointment.id,
+          taskId: task.id,
+          recordedAs: "conversation_appointment",
+        },
+        status: "completed",
+      })
+      .eq("workspace_id", workspace.id)
+      .eq("id", sourceActionId);
+
+    if (actionUpdateError) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        actionUpdateError.message,
+        redirectTo,
+      );
+    }
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "conversation_appointment.created",
+    entityType: "conversation_appointment",
+    entityId: String(appointment.id),
+    after: {
+      conversationId,
+      location,
+      sourceActionId,
+      startsAt,
+      status,
+      taskId: task.id,
+      title,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Appointment and task saved.",
+    redirectTo,
+  );
+}
+
+export async function completeConversationAppointmentAction(
+  formData: FormData,
+) {
+  const conversationId = formString(formData, "conversationId");
+  const appointmentId = formString(formData, "appointmentId");
+  const taskId = nullableText(formString(formData, "taskId"));
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    conversationId ? conversationPath(conversationId) : "/inbox",
+  );
+
+  if (!conversationId || !appointmentId) {
+    redirectWithInboxMessage("engine_error", "Appointment request is invalid.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("conversation_appointments")
+    .update({
+      status: "completed",
+    })
+    .eq("workspace_id", workspace.id)
+    .eq("conversation_id", conversationId)
+    .eq("id", appointmentId);
+
+  if (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error.message,
+      redirectTo,
+    );
+  }
+
+  if (taskId) {
+    const { error: taskError } = await supabase
+      .from("conversation_tasks")
+      .update({
+        completed_at: now,
+        status: "completed",
+      })
+      .eq("workspace_id", workspace.id)
+      .eq("conversation_id", conversationId)
+      .eq("id", taskId);
+
+    if (taskError) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        taskError.message,
+        redirectTo,
+      );
+    }
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "conversation_appointment.completed",
+    entityType: "conversation_appointment",
+    entityId: appointmentId,
+    after: {
+      conversationId,
+      taskId,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(redirectTo.split("?")[0] || "/inbox");
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Appointment completed.",
     redirectTo,
   );
 }

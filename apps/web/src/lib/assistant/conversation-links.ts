@@ -4,6 +4,7 @@ import type { AssistantLink } from "./types";
 const LIVE_WORK_QUEUE_BUCKETS = [
   "needs_reply",
   "missing_info",
+  "follow_up_due",
   "ready_to_quote",
   "site_visit_needed",
   "needs_review",

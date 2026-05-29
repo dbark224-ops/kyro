@@ -3,8 +3,82 @@ import type { UsageEventCreate, UsageType } from "@kyro/contracts";
 
 const DEFAULT_MARKUP_RATE = 0.25;
 const PRICE_SOURCE = "openai_api_pricing_2026_05_24";
+const IMAGE_PRICE_SOURCE = "openai_api_pricing_2026_05_27";
 const WEB_SEARCH_NON_REASONING_COST_PER_1K_CALLS = 25;
 const WEB_SEARCH_REASONING_COST_PER_1K_CALLS = 10;
+const DEFAULT_GPT_IMAGE_1_PRICES: Record<string, Record<string, number>> = {
+  high: {
+    "1024x1024": 0.167,
+    "1024x1536": 0.25,
+    "1536x1024": 0.25,
+  },
+  low: {
+    "1024x1024": 0.011,
+    "1024x1536": 0.016,
+    "1536x1024": 0.016,
+  },
+  medium: {
+    "1024x1024": 0.042,
+    "1024x1536": 0.063,
+    "1536x1024": 0.063,
+  },
+};
+
+const OPENAI_IMAGE_TOKEN_MODEL_PRICES: Array<{
+  match: string;
+  price: ImageTokenPrice;
+}> = [
+  {
+    match: "gpt-image-2",
+    price: {
+      cachedImageInputPer1M: 2,
+      cachedTextInputPer1M: 1.25,
+      imageInputPer1M: 8,
+      imageOutputPer1M: 30,
+      textInputPer1M: 5,
+    },
+  },
+  {
+    match: "gpt-image-1.5",
+    price: {
+      cachedImageInputPer1M: 2,
+      cachedTextInputPer1M: 1.25,
+      imageInputPer1M: 8,
+      imageOutputPer1M: 32,
+      textInputPer1M: 5,
+    },
+  },
+  {
+    match: "gpt-image-1-mini",
+    price: {
+      cachedImageInputPer1M: 0.25,
+      cachedTextInputPer1M: 0.2,
+      imageInputPer1M: 2.5,
+      imageOutputPer1M: 8,
+      textInputPer1M: 2,
+    },
+  },
+  {
+    match: "gpt-image-1",
+    price: {
+      cachedImageInputPer1M: 2.5,
+      cachedTextInputPer1M: 1.25,
+      imageInputPer1M: 10,
+      imageOutputPer1M: 40,
+      textInputPer1M: 5,
+    },
+  },
+  {
+    match: "chatgpt-image-latest",
+    price: {
+      cachedImageInputPer1M: 2,
+      cachedTextInputPer1M: 1.25,
+      imageInputPer1M: 8,
+      imageOutputPer1M: 32,
+      textInputPer1M: 5,
+    },
+  },
+];
 
 type JsonObject = Record<string, unknown>;
 
@@ -12,6 +86,14 @@ type ModelPrice = {
   cachedInputPer1M: number | null;
   inputPer1M: number;
   outputPer1M: number;
+};
+
+type ImageTokenPrice = {
+  cachedImageInputPer1M: number | null;
+  cachedTextInputPer1M: number | null;
+  imageInputPer1M: number;
+  imageOutputPer1M: number;
+  textInputPer1M: number;
 };
 
 export type OpenAiTokenUsage = {
@@ -35,6 +117,19 @@ export type OpenAiRealtimeTokenUsage = {
   reasoningTokens: number;
   textInputTokens: number;
   textOutputTokens: number;
+  totalTokens: number;
+};
+
+export type OpenAiImageUsage = {
+  cachedImageInputTokens: number;
+  cachedTextInputTokens: number;
+  estimated: boolean;
+  imageInputTokens: number;
+  inputTokens: number;
+  outputImageTokens: number;
+  outputTokens: number;
+  textInputTokens: number;
+  tokenSplitEstimated: boolean;
   totalTokens: number;
 };
 
@@ -290,6 +385,208 @@ function realtimeUnitCostFor(input: {
   };
 }
 
+function imageUnitCostFor(input: {
+  model: string;
+  quality: string;
+  size: string;
+}) {
+  const prefix = modelEnvPrefix(input.model);
+  const modelSpecific = numberEnv(`OPENAI_${prefix}_IMAGE_COST_PER_IMAGE`);
+  const generic = numberEnv("OPENAI_IMAGE_COST_PER_IMAGE");
+
+  if (modelSpecific !== null || generic !== null) {
+    return {
+      priceEstimated: false,
+      priceSource:
+        modelSpecific !== null
+          ? `env:${prefix}_IMAGE_COST_PER_IMAGE`
+          : "env:OPENAI_IMAGE_COST_PER_IMAGE",
+      unitCost: modelSpecific ?? generic ?? 0,
+    };
+  }
+
+  const normalizedModel = input.model.trim().toLowerCase();
+  const normalizedQuality = input.quality.trim().toLowerCase() || "medium";
+  const normalizedSize = input.size.trim().toLowerCase() || "1024x1024";
+  const catalogPrice =
+    normalizedModel === "gpt-image-1" ||
+    normalizedModel.startsWith("gpt-image-1-")
+      ? DEFAULT_GPT_IMAGE_1_PRICES[normalizedQuality]?.[normalizedSize]
+      : null;
+
+  if (catalogPrice !== null && catalogPrice !== undefined) {
+    return {
+      priceEstimated: false,
+      priceSource: `${IMAGE_PRICE_SOURCE}:gpt-image-1:${normalizedQuality}:${normalizedSize}`,
+      unitCost: catalogPrice,
+    };
+  }
+
+  const fallbackPrice = DEFAULT_GPT_IMAGE_1_PRICES.medium["1024x1024"];
+
+  return {
+    priceEstimated: true,
+    priceSource: `${IMAGE_PRICE_SOURCE}:fallback:gpt-image-1:medium:1024x1024`,
+    unitCost: fallbackPrice,
+  };
+}
+
+function imageTokenPriceFor(model: string) {
+  const prefix = modelEnvPrefix(model);
+  const envPrice: ImageTokenPrice | null = (() => {
+    const textInput = numberEnv(`OPENAI_${prefix}_IMAGE_TEXT_INPUT_COST_PER_1M`);
+    const cachedTextInput = numberEnv(
+      `OPENAI_${prefix}_IMAGE_CACHED_TEXT_INPUT_COST_PER_1M`,
+    );
+    const imageInput = numberEnv(`OPENAI_${prefix}_IMAGE_INPUT_COST_PER_1M`);
+    const cachedImageInput = numberEnv(
+      `OPENAI_${prefix}_IMAGE_CACHED_INPUT_COST_PER_1M`,
+    );
+    const imageOutput = numberEnv(`OPENAI_${prefix}_IMAGE_OUTPUT_COST_PER_1M`);
+
+    if (textInput !== null && imageInput !== null && imageOutput !== null) {
+      return {
+        cachedImageInputPer1M: cachedImageInput,
+        cachedTextInputPer1M: cachedTextInput,
+        imageInputPer1M: imageInput,
+        imageOutputPer1M: imageOutput,
+        textInputPer1M: textInput,
+      };
+    }
+
+    return null;
+  })();
+
+  if (envPrice) {
+    return {
+      estimated: false,
+      price: envPrice,
+      source: `env:${prefix}:image_tokens`,
+    };
+  }
+
+  const defaultTextInput = numberEnv("OPENAI_IMAGE_TEXT_INPUT_COST_PER_1M");
+  const defaultCachedTextInput = numberEnv(
+    "OPENAI_IMAGE_CACHED_TEXT_INPUT_COST_PER_1M",
+  );
+  const defaultImageInput = numberEnv("OPENAI_IMAGE_INPUT_COST_PER_1M");
+  const defaultCachedImageInput = numberEnv(
+    "OPENAI_IMAGE_CACHED_INPUT_COST_PER_1M",
+  );
+  const defaultImageOutput = numberEnv("OPENAI_IMAGE_OUTPUT_COST_PER_1M");
+
+  if (
+    defaultTextInput !== null &&
+    defaultImageInput !== null &&
+    defaultImageOutput !== null
+  ) {
+    return {
+      estimated: false,
+      price: {
+        cachedImageInputPer1M: defaultCachedImageInput,
+        cachedTextInputPer1M: defaultCachedTextInput,
+        imageInputPer1M: defaultImageInput,
+        imageOutputPer1M: defaultImageOutput,
+        textInputPer1M: defaultTextInput,
+      },
+      source: "env:OPENAI_IMAGE_TOKEN_DEFAULT",
+    };
+  }
+
+  const normalized = model.trim().toLowerCase();
+  const catalog = OPENAI_IMAGE_TOKEN_MODEL_PRICES.find(
+    ({ match }) => normalized === match || normalized.startsWith(`${match}-`),
+  );
+
+  if (catalog) {
+    return {
+      estimated: false,
+      price: catalog.price,
+      source: `${IMAGE_PRICE_SOURCE}:${catalog.match}:image_tokens`,
+    };
+  }
+
+  return null;
+}
+
+function imageTokenUsageCostFor(input: {
+  model: string;
+  usage: OpenAiImageUsage;
+}) {
+  const pricing = imageTokenPriceFor(input.model);
+
+  if (!pricing) {
+    return null;
+  }
+
+  const price = pricing.price;
+  const billableTextInputTokens = Math.max(
+    0,
+    input.usage.textInputTokens - input.usage.cachedTextInputTokens,
+  );
+  const billableImageInputTokens = Math.max(
+    0,
+    input.usage.imageInputTokens - input.usage.cachedImageInputTokens,
+  );
+  const textInputCost = (billableTextInputTokens * price.textInputPer1M) / 1_000_000;
+  const cachedTextInputCost =
+    (input.usage.cachedTextInputTokens *
+      (price.cachedTextInputPer1M ?? price.textInputPer1M)) /
+    1_000_000;
+  const imageInputCost =
+    (billableImageInputTokens * price.imageInputPer1M) / 1_000_000;
+  const cachedImageInputCost =
+    (input.usage.cachedImageInputTokens *
+      (price.cachedImageInputPer1M ?? price.imageInputPer1M)) /
+    1_000_000;
+  const imageOutputCost =
+    (input.usage.outputImageTokens * price.imageOutputPer1M) / 1_000_000;
+
+  return {
+    costMethod: "provider_image_token_usage",
+    priceEstimated: pricing.estimated || input.usage.estimated,
+    priceSource: pricing.source,
+    tokenCostBreakdown: {
+      cachedImageInputCost: roundMoney(cachedImageInputCost),
+      cachedTextInputCost: roundMoney(cachedTextInputCost),
+      imageInputCost: roundMoney(imageInputCost),
+      imageOutputCost: roundMoney(imageOutputCost),
+      textInputCost: roundMoney(textInputCost),
+    },
+    unitCost: roundMoney(
+      textInputCost +
+        cachedTextInputCost +
+        imageInputCost +
+        cachedImageInputCost +
+        imageOutputCost,
+    ),
+  };
+}
+
+function imageUsageCostFor(input: {
+  model: string;
+  providerUsage?: OpenAiImageUsage | null;
+  quality: string;
+  size: string;
+}) {
+  if (input.providerUsage) {
+    const tokenCost = imageTokenUsageCostFor({
+      model: input.model,
+      usage: input.providerUsage,
+    });
+
+    if (tokenCost) {
+      return tokenCost;
+    }
+  }
+
+  return {
+    ...imageUnitCostFor(input),
+    costMethod: "per_image_snapshot",
+    tokenCostBreakdown: null,
+  };
+}
+
 function priceQuantity(quantity: number, unitCost: number) {
   const cost = quantity * unitCost;
   const markup = markupRate();
@@ -377,6 +674,72 @@ export function openAiUsageFromTokenCounts(input: {
     reasoningTokens: 0,
     totalTokens: inputTokens + outputTokens,
     visibleOutputTokens: outputTokens,
+  };
+}
+
+export function openAiImageUsageFromResponse(
+  payload: unknown,
+): OpenAiImageUsage | null {
+  const usage = objectRecord(objectRecord(payload).usage);
+  const rawInputTokens = numberValue(usage.input_tokens);
+  const rawOutputTokens = numberValue(usage.output_tokens);
+  const rawTotalTokens = numberValue(usage.total_tokens);
+  const inputDetails = objectRecord(usage.input_tokens_details);
+
+  if (
+    rawInputTokens === null &&
+    rawOutputTokens === null &&
+    rawTotalTokens === null &&
+    Object.keys(inputDetails).length === 0
+  ) {
+    return null;
+  }
+
+  const rawTextInputTokens = numberValue(inputDetails.text_tokens);
+  const rawImageInputTokens = numberValue(inputDetails.image_tokens);
+  const inputTokens = Math.trunc(
+    rawInputTokens ?? (rawTextInputTokens ?? 0) + (rawImageInputTokens ?? 0),
+  );
+  const outputTokens = Math.trunc(rawOutputTokens ?? 0);
+  const hasTokenSplit = rawTextInputTokens !== null || rawImageInputTokens !== null;
+  const textInputTokens = clampTokenCount(
+    rawTextInputTokens ??
+      (hasTokenSplit ? Math.max(0, inputTokens - (rawImageInputTokens ?? 0)) : inputTokens),
+    inputTokens,
+  );
+  const imageInputTokens = clampTokenCount(
+    rawImageInputTokens ??
+      (hasTokenSplit ? Math.max(0, inputTokens - textInputTokens) : 0),
+    inputTokens,
+  );
+  const cachedDetails = {
+    ...objectRecord(inputDetails.cached_tokens_details),
+    ...objectRecord(inputDetails.cached_token_details),
+  };
+  const cachedTextInputTokens = clampTokenCount(
+    numberValue(inputDetails.cached_text_tokens) ??
+      numberValue(cachedDetails.text_tokens) ??
+      0,
+    textInputTokens,
+  );
+  const cachedImageInputTokens = clampTokenCount(
+    numberValue(inputDetails.cached_image_tokens) ??
+      numberValue(cachedDetails.image_tokens) ??
+      0,
+    imageInputTokens,
+  );
+
+  return {
+    cachedImageInputTokens,
+    cachedTextInputTokens,
+    estimated: rawInputTokens === null || rawOutputTokens === null,
+    imageInputTokens,
+    inputTokens,
+    outputImageTokens: outputTokens,
+    outputTokens,
+    textInputTokens,
+    tokenSplitEstimated: inputTokens > 0 && !hasTokenSplit,
+    totalTokens: Math.trunc(rawTotalTokens ?? inputTokens + outputTokens),
   };
 }
 
@@ -648,6 +1011,76 @@ export function buildOpenAiWebSearchCallUsageEvent(input: {
     unit: "call",
     unitCostSnapshot: price.unitCostSnapshot,
     usageType: "web_search_calls",
+    userId: input.context.userId ?? undefined,
+    workspaceId: input.context.workspaceId,
+  };
+}
+
+export function buildOpenAiImageGenerationUsageEvent(input: {
+  context: {
+    aiRunId?: string | null;
+    metadata?: JsonObject;
+    providerUsageId?: string | null;
+    sourceId?: string | null;
+    sourceType?: string | null;
+    userId?: string | null;
+    workspaceId: string;
+  };
+  editMode: boolean;
+  model: string;
+  providerUsage?: OpenAiImageUsage | null;
+  quality: string;
+  size: string;
+}): UsageEventDraft {
+  const unit = imageUsageCostFor({
+    model: input.model,
+    providerUsage: input.providerUsage,
+    quality: input.quality,
+    size: input.size,
+  });
+  const price = priceQuantity(1, unit.unitCost);
+  const usage = input.providerUsage ?? null;
+
+  return {
+    aiRunId: input.context.aiRunId ?? undefined,
+    costSnapshot: price.costSnapshot,
+    currency: "USD",
+    customerChargeSnapshot: price.customerChargeSnapshot,
+    markupSnapshot: price.markupSnapshot,
+    metadata: {
+      ...input.context.metadata,
+      editMode: input.editMode,
+      imageQuality: input.quality,
+      imageSize: input.size,
+      imageUsage: usage
+        ? {
+            cachedImageInputTokens: usage.cachedImageInputTokens,
+            cachedTextInputTokens: usage.cachedTextInputTokens,
+            imageInputTokens: usage.imageInputTokens,
+            inputTokens: usage.inputTokens,
+            outputImageTokens: usage.outputImageTokens,
+            outputTokens: usage.outputTokens,
+            textInputTokens: usage.textInputTokens,
+            tokenSplitEstimated: usage.tokenSplitEstimated,
+            totalTokens: usage.totalTokens,
+          }
+        : null,
+      priceEstimated: unit.priceEstimated,
+      priceSource: unit.priceSource,
+      tokenCostBreakdown: unit.tokenCostBreakdown,
+      usageEstimated: usage?.estimated ?? true,
+      usagePricingMethod: unit.costMethod,
+    },
+    model: input.model,
+    provider: "openai",
+    providerUsageId: input.context.providerUsageId ?? undefined,
+    quantity: 1,
+    service: "image_generation",
+    sourceId: input.context.sourceId ?? undefined,
+    sourceType: input.context.sourceType ?? undefined,
+    unit: "image",
+    unitCostSnapshot: price.unitCostSnapshot,
+    usageType: "image_generation",
     userId: input.context.userId ?? undefined,
     workspaceId: input.context.workspaceId,
   };

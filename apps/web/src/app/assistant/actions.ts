@@ -4,16 +4,25 @@ import { runAssistantTurn } from "../../lib/assistant/engine";
 import {
   appendAssistantTurnMessage,
   appendUserAssistantMessage,
+  archiveAssistantThread,
+  createAssistantThread,
   getAssistantThreadState,
   getAssistantTurnContext,
   getOrCreateAssistantThread,
+  maybeSuggestAssistantMemory,
   maybeSaveAssistantMemory,
+  setAssistantMemorySuggestionStatus,
   updateAssistantThreadSummary,
 } from "../../lib/assistant/persistence";
 import type {
   AssistantResourcePreviewResult,
   AssistantThreadState,
 } from "../../lib/assistant/types";
+import {
+  appendStoredAttachmentContext,
+  storeAssistantAttachmentsFromFormData,
+} from "../../lib/assistant/attachments";
+import { maybeCompactAssistantThreadContext } from "../../lib/assistant/context-compaction";
 import {
   getContactProfile,
   getConversationList,
@@ -22,7 +31,10 @@ import {
 } from "../../lib/crm/queries";
 import { conversationToAssistantLink } from "../../lib/assistant/conversation-links";
 import { recordOutboundMessage } from "../../lib/communication/outbound";
-import { getCommunicationSettings, isOutboundChannel } from "../../lib/communication/settings";
+import {
+  getCommunicationSettings,
+  isOutboundChannel,
+} from "../../lib/communication/settings";
 import {
   buildSignedEmailBody,
   selectEmailSignature,
@@ -34,6 +46,7 @@ import {
 } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -98,9 +111,7 @@ function previewTitle(
   }
 
   return (
-    preview.profile.contact.name ??
-    preview.profile.contact.company ??
-    "Contact"
+    preview.profile.contact.name ?? preview.profile.contact.company ?? "Contact"
   );
 }
 
@@ -118,7 +129,11 @@ async function loadAssistantResourcePreview(
   const { supabase, workspace } = await requireWorkspaceContext();
 
   if (target.type === "conversation") {
-    const profile = await getConversationReview(supabase, workspace.id, target.id);
+    const profile = await getConversationReview(
+      supabase,
+      workspace.id,
+      target.id,
+    );
 
     if (!profile) {
       return { error: "That inquiry could not be found." };
@@ -150,7 +165,11 @@ async function loadAssistantResourcePreview(
   }
 
   if (target.type === "quote") {
-    const profile = await getQuoteDraftProfile(supabase, workspace.id, target.id);
+    const profile = await getQuoteDraftProfile(
+      supabase,
+      workspace.id,
+      target.id,
+    );
 
     if (!profile) {
       return { error: "That quote draft could not be found." };
@@ -259,7 +278,9 @@ export async function updateAssistantDraftReplyAction({
     const target = assistantPreviewTarget(href);
 
     if (target?.type !== "conversation") {
-      return { error: "Draft replies can only be edited from an inquiry preview." };
+      return {
+        error: "Draft replies can only be edited from an inquiry preview.",
+      };
     }
 
     const cleanSubject = subject.trim() || "Thanks for reaching out";
@@ -376,7 +397,9 @@ export async function sendAssistantManualReplyAction({
     const target = assistantPreviewTarget(href);
 
     if (target?.type !== "conversation") {
-      return { error: "Manual replies can only be sent from an inquiry preview." };
+      return {
+        error: "Manual replies can only be sent from an inquiry preview.",
+      };
     }
 
     const cleanBody = body.trim();
@@ -473,21 +496,33 @@ export async function sendAssistantMessageAction(
   previousState: AssistantThreadState,
   formData: FormData,
 ): Promise<AssistantThreadState> {
-  const prompt = formString(formData, "prompt");
-  const inputSource = formString(formData, "inputSource") === "voice" ? "voice" : "typed";
+  const submittedPrompt = formString(formData, "prompt");
+  const inputSource =
+    formString(formData, "inputSource") === "voice" ? "voice" : "typed";
   const submittedThreadId = formString(formData, "threadId");
 
-  if (!prompt) {
+  if (!submittedPrompt) {
     return {
       error: "Ask Kyro something first.",
       messages: previousState.messages,
       summary: previousState.summary,
       threadId: previousState.threadId,
+      threads: previousState.threads,
     };
   }
 
   try {
     const { supabase, user, workspace } = await requireWorkspaceContext();
+    const storedAttachments = await storeAssistantAttachmentsFromFormData({
+      formData,
+      supabase,
+      user,
+      workspaceId: workspace.id,
+    });
+    const prompt = appendStoredAttachmentContext(
+      submittedPrompt,
+      storedAttachments,
+    );
     const existingThreadId = submittedThreadId || previousState.threadId;
     const thread = existingThreadId
       ? { id: existingThreadId, summary: previousState.summary }
@@ -509,6 +544,7 @@ export async function sendAssistantMessageAction(
       workspaceId: workspace.id,
     });
     const assistantMessage = await runAssistantTurn({
+      contextSnapshots: context.contextSnapshots,
       memories: context.memories,
       inputSource,
       prompt,
@@ -527,9 +563,20 @@ export async function sendAssistantMessageAction(
       user,
       workspaceId: workspace.id,
     });
+    const memorySuggestion = memorySaved
+      ? null
+      : await maybeSuggestAssistantMemory({
+          prompt,
+          sourceMessageId: userMessageId,
+          supabase,
+          threadId,
+          user,
+          workspaceId: workspace.id,
+        });
 
     await appendAssistantTurnMessage({
       memorySaved,
+      memorySuggestion,
       result: assistantMessage,
       supabase,
       threadId,
@@ -543,10 +590,17 @@ export async function sendAssistantMessageAction(
       threadId,
       workspaceId: workspace.id,
     });
+    await maybeCompactAssistantThreadContext({
+      supabase,
+      threadId,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
 
     revalidatePath("/");
     revalidatePath("/assistant");
     revalidatePath("/voice");
+    revalidatePath("/files");
     revalidatePath("/documents");
     revalidatePath("/inbox");
 
@@ -559,12 +613,79 @@ export async function sendAssistantMessageAction(
   } catch (error) {
     return {
       error:
-        error instanceof Error
-          ? error.message
-          : "Unable to run the assistant.",
+        error instanceof Error ? error.message : "Unable to run the assistant.",
       messages: previousState.messages,
       summary: previousState.summary,
       threadId: previousState.threadId,
+      threads: previousState.threads,
     };
   }
+}
+
+export async function updateAssistantMemorySuggestionAction({
+  memoryId,
+  status,
+}: {
+  memoryId: string;
+  status: "active" | "rejected";
+}) {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const result = await setAssistantMemorySuggestionStatus({
+    memoryId,
+    status,
+    supabase,
+    user,
+    workspaceId: workspace.id,
+  });
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action:
+      status === "active"
+        ? "assistant_memory.approved"
+        : "assistant_memory.rejected",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      content: result.content,
+      status: result.status,
+    },
+    entityId: memoryId,
+    entityType: "assistant_memory",
+    metadata: {
+      source: "assistant.memory_suggestion",
+    },
+  });
+
+  revalidatePath("/assistant");
+
+  return result;
+}
+
+export async function createAssistantThreadAction() {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const threadId = await createAssistantThread({ supabase, user, workspace });
+
+  revalidatePath("/assistant");
+  redirect(`/assistant?threadId=${encodeURIComponent(threadId)}`);
+}
+
+export async function archiveAssistantThreadAction(formData: FormData) {
+  const threadId = formString(formData, "threadId");
+
+  if (!threadId) {
+    redirect("/assistant");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+
+  await archiveAssistantThread({
+    supabase,
+    threadId,
+    user,
+    workspaceId: workspace.id,
+  });
+
+  revalidatePath("/assistant");
+  redirect("/assistant");
 }

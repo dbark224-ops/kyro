@@ -611,8 +611,8 @@ export function looksLikeSettingsUpdatePrompt(prompt: string) {
 function settingsLinks(sections: SettingsSection[]) {
   const links = {
     documents: {
-      href: "/documents",
-      label: "Documents",
+      href: "/files",
+      label: "Files",
       meta: "Quote template direction",
     },
     general: {

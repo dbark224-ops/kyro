@@ -6,6 +6,8 @@ import {
   OUTBOUND_CHANNELS,
   isOutboundChannel,
   normalizeEmailSignatureSettings,
+  normalizeFollowUpDelayDays,
+  normalizeReplyWritingSettings,
   type CommunicationSettings,
 } from "../../lib/communication/settings";
 import {
@@ -53,6 +55,11 @@ import {
   MICROSOFT_PROVIDER,
   MICROSOFT_SERVICE,
 } from "../../lib/integrations/microsoft";
+import {
+  DEFAULT_PHONE_REGION,
+  normalizePhoneRegion,
+  PHONE_REGION_OPTIONS,
+} from "../../lib/crm/identity";
 import {
   WORKSPACE_GENERAL_POLICY_TYPE,
   normalizeWorkspaceGeneralSettings,
@@ -264,6 +271,17 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
   const approvalMode = formString(formData, "approvalMode");
   const defaultTone = formString(formData, "defaultTone");
   const allowedChannels = [...new Set(formChannels(formData))];
+  const replyWriting = normalizeReplyWritingSettings({
+    messageLength: formString(formData, "replyMessageLength"),
+    reusableInstructions: formString(formData, "replyReusableInstructions"),
+    signOff: formString(formData, "replySignOff"),
+    tone: formString(formData, "replyTone"),
+    tradePhrasing: formString(formData, "replyTradePhrasing"),
+    wordingStyle: formString(formData, "replyWordingStyle"),
+  });
+  const followUpDelayDays = normalizeFollowUpDelayDays(
+    formInteger(formData, "followUpDelayDays"),
+  );
   const manualLogo = await signatureLogoPayload(formData, "manualSignature");
   const aiLogo = await signatureLogoPayload(formData, "aiGeneratedSignature");
   const manualSignature = normalizeEmailSignatureSettings({
@@ -315,9 +333,13 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     aiGeneratedSignature,
     allowedChannels,
     businessSignature: manualSignature.text,
-    defaultTone: defaultTone || DEFAULT_COMMUNICATION_SETTINGS.defaultTone,
+    defaultTone:
+      replyWriting.tone || defaultTone || DEFAULT_COMMUNICATION_SETTINGS.defaultTone,
     dryRunOnly: true,
+    followUpDelayDays,
+    followUpRemindersEnabled: formBoolean(formData, "followUpRemindersEnabled"),
     manualSignature,
+    replyWriting,
     useSeparateAiSignature: formBoolean(formData, "useSeparateAiSignature"),
   };
 
@@ -388,6 +410,9 @@ function assertValidTimeZone(value: string) {
 
 export async function updateGeneralSettingsAction(formData: FormData) {
   const timeZone = formString(formData, "workspaceTimeZone");
+  const defaultPhoneRegion = normalizePhoneRegion(
+    formString(formData, "workspaceDefaultPhoneRegion"),
+  );
   const displayCurrency = normalizeDisplayCurrency(
     formString(formData, "workspaceDisplayCurrency"),
   );
@@ -407,6 +432,16 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       "Choose a supported display currency.",
+    );
+  }
+
+  if (
+    !PHONE_REGION_OPTIONS.some((option) => option.value === defaultPhoneRegion)
+  ) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      `Choose a supported phone region such as ${DEFAULT_PHONE_REGION}.`,
     );
   }
 
@@ -451,6 +486,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
   );
   const generalSettings = normalizeWorkspaceGeneralSettings({
     ...beforeGeneralSettings,
+    defaultPhoneRegion,
     displayCurrency,
     timeZone,
   });

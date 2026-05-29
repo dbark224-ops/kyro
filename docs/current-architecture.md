@@ -69,17 +69,32 @@ All business data is workspace-scoped. The important tables are:
   provider connect flows.
 - `conversations`: message threads.
 - `messages`: inbound/outbound communication records.
-- `files`: private file metadata for uploaded/generated/stored files, including inbound email attachments and outbound retry attachments stored in Supabase Storage.
+- `files`: private file metadata for uploaded/generated/stored files, including inbound email attachments, assistant uploads, generated images, generated document PDFs, and outbound retry attachments stored in Supabase Storage.
+- `generated_documents`: first-class quote/invoice PDF records linked to contacts, leads, conversations, quote drafts, storage files, outbound messages, and optional Google Drive file ids.
 - `inquiry_facts`: current editable inquiry facts for a conversation, separate from raw AI output.
 - `events`: idempotent ingestion and workflow events.
 - `actions`: proposed or executable work, including AI-proposed replies.
+- `conversation_tasks`: durable internal tasks linked to a conversation and optionally a message/action.
+- `conversation_appointments`: durable appointment/site-visit records linked to a conversation, task, and optional action.
+- `conversation_notes`: internal-only notes linked to a conversation and optionally a specific message.
 - `outbound_messages`: durable outbound delivery queue/ledger for user and
   action-triggered sends, including idempotency keys, attempt counts, retry
   scheduling, provider metadata, and last-error state.
 - `quote_drafts`: internal quote document placeholders created from approved actions.
 - `assistant_threads`: persistent Assistant conversations per workspace/user.
 - `assistant_messages`: saved Assistant/user turns, tool-call records, and UI block records.
-- `assistant_memories`: explicit long-term Assistant memories for future retrieval.
+- `assistant_memories`: active long-term Assistant memories plus pending/rejected
+  suggested memories for user approval.
+- `assistant_context_snapshots`: compacted daily/weekly/monthly Assistant context
+  snapshots that let the single persistent chat stay responsive without losing
+  searchable long-term history. Snapshot reads and compaction are best-effort:
+  if the table is unavailable or Supabase has a stale schema cache, the Assistant
+  continues from raw messages, memories, and the thread summary rather than
+  failing the user's turn.
+- `assistant_prompt_suggestion_sets`: per-workspace/user suggestion-pill sets
+  generated from recent first-of-day/session Assistant prompts. The Assistant
+  shows a rotating subset while the full stored set is available through
+  `/api/assistant/suggestions` for the web and mobile apps.
 - `ai_runs`: AI workflow records.
 - `model_route_decisions`: model selection audit trail.
 - `usage_events`: metered provider/API usage.
@@ -124,11 +139,14 @@ Shared visual helpers:
 - `apps/web/src/app/components/brand-mark.tsx`
 - `apps/web/src/app/components/page-skeleton.tsx`
 - `apps/web/src/app/components/route-preloader.tsx`
+- `apps/web/src/app/components/smart-prefetch-link.tsx`
 
 The shell also mounts a small client-side route preloader. After the browser is idle,
 it staggers prefetches for the main logged-in routes so the high-traffic tabs feel
-warmer without preloading every row/detail page. The nav links leave automatic Next
-prefetching off so this controlled preloader is the single warmup mechanism.
+warmer without preloading every row/detail page. Nav links still leave automatic
+Next prefetching off, but `SmartPrefetchLink` prefetches on user intent
+(`hover`, keyboard focus, or mobile touch) so deliberate navigation feels
+immediate without loading the whole app up front.
 
 On narrow mobile viewports, the shell hides the desktop sidebar, exposes the full
 navigation through a drawer menu, and pins a bottom quick-nav for Assistant, Voice,
@@ -148,7 +166,7 @@ The app shell currently exposes:
 - Voice: `/voice`
 - Inbox: `/inbox`
 - CRM: `/contacts`
-- Documents: `/documents`
+- Files: `/files`
 - Log: `/`
 - Developer: `/developer`
 - Settings: `/settings`
@@ -156,7 +174,37 @@ The app shell currently exposes:
 Legacy convenience routes:
 
 - `/leads` redirects to `/contacts`.
+- `/documents` and its child quote/template routes re-export the Files/quote
+  implementation for compatibility with older links.
 - `/usage` redirects to `/settings#usage`.
+
+## Assistant Prompt Suggestions
+
+Assistant suggestion pills are no longer hard-coded as the only source of truth.
+The web page loads the latest active `assistant_prompt_suggestion_sets` row for
+the current workspace/user, rotates four visible suggestions from the stored
+list, and falls back to safe defaults if the table is missing or empty.
+
+Generation lives in `apps/web/src/lib/assistant/prompt-suggestions.ts`.
+The generator looks at the first few user prompts per Assistant thread/day from
+the previous week, removes attachment context, rejects customer-specific details
+such as names, emails, phone numbers, addresses, and file ids, then asks OpenAI
+for a reusable list when available. If OpenAI is unavailable, deterministic
+fallback scoring still produces a useful customer-agnostic list.
+
+APIs:
+
+- `GET /api/assistant/suggestions`: returns the current visible/stored
+  suggestion set. It accepts normal web cookies or a Supabase bearer token for
+  mobile clients.
+- `POST /api/assistant/suggestions`: manually refreshes the current user's
+  suggestion set.
+- `GET|POST /api/assistant/suggestions/refresh`: scheduled refresh endpoint
+  protected by `ASSISTANT_SUGGESTION_REFRESH_SECRET` or `CRON_SECRET`.
+
+`vercel.json` schedules the refresh weekly. The route uses the service role to
+walk workspace members, but each generated set remains tied to a specific
+workspace and user.
 
 ## Current Screens
 
@@ -174,7 +222,7 @@ Purpose:
 - show a latest-activity summary and event-type breakdown.
 
 The old dashboard concept has been collapsed into `Log`. Operational work now happens
-primarily in Assistant, Inbox, CRM, Documents, and Settings.
+primarily in Assistant, Inbox, CRM, Files, and Settings.
 
 ### Developer
 
@@ -183,6 +231,11 @@ Files:
 - `apps/web/src/app/developer/page.tsx`
 - `apps/web/src/app/developer/outbox/page.tsx`
 - `apps/web/src/app/developer/outbox/actions.ts`
+- `apps/web/src/app/developer/assistant-tools/page.tsx`
+- `apps/web/src/app/developer/system-health/page.tsx`
+- `apps/web/src/app/developer/smoke-tests/page.tsx`
+- `apps/web/src/lib/assistant/tool-registry.ts`
+- `apps/web/src/lib/developer/system-health.ts`
 
 Purpose:
 
@@ -194,10 +247,23 @@ Purpose:
 - expose an internal outbox operations surface at `/developer/outbox` for queued,
   retry-scheduled, failed, sent, and dismissed outbound delivery rows,
 - let an operator retry queued/scheduled/failed outbox rows or dismiss dead test
-  rows without deleting audit history.
+  rows without deleting audit history,
+- expose an Assistant tool registry at `/developer/assistant-tools` so production
+  tools, permission gates, provider status, and renderable UI blocks can be
+  reviewed in one place,
+- expose a read-only System Health screen at `/developer/system-health` for
+  environment presence, Supabase table API availability, private storage bucket
+  readiness, connected-account scope readiness, cron/worker readiness, provider
+  configuration, and recent failed operational rows,
+- expose a Smoke Test Checklist at `/developer/smoke-tests` that turns those
+  readiness checks into a manual runbook for mock inbound, reply sending,
+  generated documents, outbox inspection, inbound sync, and log/audit visibility.
 
 The Developer page is not intended as an end-user surface. It is a convenient place
 to keep test controls while Gmail, Drive, SMS, and other integrations are being wired.
+Developer health checks deliberately report whether required configuration exists
+without printing secret values, and the smoke-test checklist does not create test
+records by itself.
 
 ### Inbox
 
@@ -205,6 +271,9 @@ Files:
 
 - `apps/web/src/app/inbox/page.tsx`
 - `apps/web/src/app/inbox/[conversationId]/page.tsx`
+- `apps/web/src/app/inbox/actions.ts`
+- `apps/web/src/app/inbox/message-workflow-controls.tsx`
+- `apps/web/src/app/inbox/conversation-workflow-panel.tsx`
 
 Purpose:
 
@@ -247,13 +316,16 @@ The inquiry review page shows:
 - a collapsed AI transparency trace showing model, fallback, token usage, proposed action types, and raw debug JSON,
 - message thread,
 - text channel labels on message rows,
+- per-message controls to assign a task, mark the message resolved, and add an internal note,
+- durable task and appointment panels for internal follow-up/site-visit work,
 - outbound composer for email, SMS, phone, or manual notes,
-- reusable AI reply prompt for manual outbound composers,
+- reusable AI reply prompt for manual outbound composers; generated drafts also use the saved workspace writing style for tone, wording, length, sign-off, trade phrasing, and reusable instructions,
 - outbound metadata including channel type, dry-run/external-send state, provider message id, provider request id, local attachment summaries, quote draft attachment references, and the linked outbox delivery id,
 - outbound delivery state showing queued/sending/sent/failed/retry-scheduled attempts with retry controls for failures,
+- automatic internal customer follow-up reminders after outbound replies, driven by workspace communication settings,
 - mock follow-up inbound message form,
 - draft reply work surface,
-- action-specific proposal cards for missing info, site visits, quote drafts, follow-ups, and not-fit decisions,
+- action-specific proposal cards for missing info, site visits, quote drafts, and not-fit decisions,
 - saved quote draft placeholders when a quote draft action has been executed,
 - latest AI triage summary,
 - workflow timeline,
@@ -296,6 +368,13 @@ user-edited sends, plus an optional assistant signature for untouched AI-generat
 replies. Signature settings live inside the `communication_outbound` policy, support
 text plus a small inline logo, and are applied during outbound execution rather than
 relying on the user's native email signature.
+Outbound writing style is also Kyro-managed per workspace in the
+`communication_outbound` policy. The Settings -> Connected accounts -> Outbound
+communication panel has a prompt editor for tone, wording style, message length,
+sign-off instructions, trade-specific phrasing, and reusable reply instructions.
+The on-demand inbox reply generator and inbound triage draft path both inject
+these saved settings into the LLM prompt before creating customer-facing email/SMS
+drafts.
 Real Gmail/Outlook sends also write zero-cost `usage_events` rows so the billing endpoint can
 count outbound email volume before paid pricing is decided.
 
@@ -306,18 +385,26 @@ Files:
 - `apps/web/src/app/contacts/page.tsx`
 - `apps/web/src/app/contacts/[contactId]/page.tsx`
 - `apps/web/src/app/contacts/actions.ts`
+- `apps/web/src/lib/crm/profile-resolution.ts`
 - `apps/web/src/app/leads/page.tsx`
 
 Purpose:
 
 - list contact profiles and leads in one CRM surface,
 - keep the CRM list on the left and the selected profile on the right,
-- filter by all, leads, clients, suppliers, contractors, builders, property managers, or other,
+- filter by all, leads, profile review, clients, suppliers, contractors, builders, property managers, or other,
 - search by name/company/job/contact details,
 - expand advanced search fields for email, phone, and address,
 - sort by last interacted, alphabetical, most messages, or most leads,
 - keep active filters, search, sort, and selected profile in the URL so navigation and saves do not lose context,
 - edit contact fields,
+- edit a contact's lead/client lifecycle stage separately from their contact category,
+- show normalized email/phone duplicate warnings when another profile shares the same identity value,
+- show a dedicated profile-resolution panel when an inquiry creates an email/phone conflict or normalized identity duplicates are detected,
+- merge duplicate profiles in either direction while moving linked messages, leads, conversations, inquiry facts, quote drafts, and contact-targeted actions to the kept profile,
+- keep merged source profiles archived with `merged_into_contact_id` so audit history is not discarded,
+- show other people attached to the same normalized company name,
+- show lifecycle review suggestions that can be applied or ignored from the CRM profile,
 - show all linked conversations, leads, messages, AI runs, actions, audit history, and quote drafts linked to the contact.
 
 `/leads` now redirects to `/contacts`; leads are a CRM filter rather than a separate primary tab.
@@ -331,14 +418,97 @@ Contact types currently supported:
 - `property_manager`
 - `other`
 
-Shared helper: `apps/web/src/lib/crm/contact-types.ts`.
+Shared helpers:
 
-### Documents
+- `apps/web/src/app/components/address-autocomplete-field.tsx`
+- `apps/web/src/app/api/addresses/autocomplete/route.ts`
+- `apps/web/src/app/api/addresses/place/route.ts`
+- `apps/web/src/lib/addresses/google.ts`
+- `apps/web/src/lib/addresses/form.ts`
+- `apps/web/src/lib/crm/contact-types.ts`
+- `apps/web/src/lib/crm/identity.ts`
+- `apps/web/src/lib/crm/lifecycle.ts`
+- `apps/web/src/lib/crm/lifecycle-review.ts`
+- `apps/web/src/lib/crm/profile-resolution.ts`
+
+Contact identity fields are stored directly on `contacts`: `normalized_email`,
+`normalized_phone`, and `normalized_company`. The database migration
+`20260526020904_contact_identity_normalization.sql` backfills those fields and
+adds a trigger so edits keep the normalized values current. The follow-up
+`20260526022516_international_phone_identity_normalization.sql` migration updates
+the phone normalizer to store canonical international-style phone values. App-side
+normalization uses `libphonenumber-js`, trying the workspace default phone region,
+the main launch markets, and then the wider supported country list; explicit
+international formats such as `+61`, `+1`, `+44`, `0086`, `01181`, and `001149`
+normalize without being tied to Australia. Exact matching and duplicate warnings
+use those normalized fields instead of repeatedly scanning raw email/phone
+strings. `20260526071536_contact_profile_resolution.sql` adds the profile
+resolution columns and adjusts the contact identity trigger so app-supplied
+default-region phone normalization is preserved on writes.
+
+Profile resolution fields are also stored directly on `contacts`:
+`profile_resolution_status`, `profile_resolution_reason`,
+`profile_conflict_contact_ids`, `merged_into_contact_id`,
+`profile_resolved_at`, and `profile_resolved_by_user_id`. Manual and inbound
+contact creation marks email/phone conflicts as `needs_review`; the CRM profile
+panel lists the candidate profiles and provides merge buttons. A merge marks the
+source profile `merged`, points it at the kept profile, moves attached CRM work
+to the kept profile, records a completed `merge_contact_profiles` action, and
+writes audit entries for both source and target. Normal CRM list/search views
+hide archived merged sources, while the kept profile shows its merged sources
+and includes their source-contact audit ids in the profile audit query.
+
+Address fields are stored as both human-readable text and structured data.
+`contacts` and `inquiry_facts` keep the display address in `address`, while
+Google/manual metadata lives in `address_line1`, `address_line2`,
+`address_locality`, `address_administrative_area`, `address_postal_code`,
+`address_country_code`, `address_latitude`, `address_longitude`,
+`address_place_id`, `address_source`, `address_validation_status`,
+`address_validated_at`, and `address_structured`. The reusable
+`AddressAutocompleteField` calls protected server routes for Google Places
+Autocomplete and Place Details so the browser never needs a public Maps key.
+Autocomplete requests are restricted to the workspace default phone country
+(`defaultPhoneRegion`) and can also use an optional server-side operating-area
+bias from `GOOGLE_MAPS_LOCATION_BIAS_LAT`, `GOOGLE_MAPS_LOCATION_BIAS_LNG`, and
+`GOOGLE_MAPS_LOCATION_BIAS_RADIUS_METERS`. The country restriction prevents
+irrelevant overseas matches, while the location bias nudges results toward the
+business service area without blocking valid interstate work inside that country.
+Selecting a Google result stores structured components and validation metadata;
+typing an address manually still works and stores the address as manual/unverified.
+The same component is currently wired into CRM profile editing, Inbox inquiry-fact
+editing, and Developer mock inbound.
+
+Contact lifecycle fields are also stored directly on `contacts`:
+`lifecycle_stage`, `lifecycle_source`, `lifecycle_reason`, and
+`lifecycle_reviewed_at`. `lifecycle_stage` currently supports `lead` and
+`client`. This is separate from `contact_type`: a profile can be a client,
+supplier, contractor, builder, property manager, or other contact type while
+still being in a lead/client lifecycle stage. Manual user changes set
+`lifecycle_source` to `manual` and are treated as authoritative by automated
+review until the user clears the manual override from the CRM profile panel.
+
+The lifecycle review engine can run from CRM profile/list buttons or from the
+protected `/api/crm/lifecycle/review` route. `vercel.json` schedules that route
+every six hours in production, using `CRM_LIFECYCLE_REVIEW_SECRET` or
+`CRON_SECRET`. The review looks at linked leads, messages, quote drafts, quote
+approval links, contact-targeted business actions, and future commercial record
+inputs such as paid invoices, booked jobs, work orders, and billing records.
+When a non-manual profile appears stale, it creates a `review_lifecycle_stage`
+action against the contact with the recommended stage, confidence, evidence,
+and reason. Automated review is intentionally suggestion-only for now, including
+high-confidence evidence. Applying the suggestion updates the contact lifecycle
+and writes audit history; ignoring it completes the suggestion without changing
+the contact.
+
+### Files
 
 Files:
 
-- `apps/web/src/app/documents/page.tsx`
-- `apps/web/src/app/documents/new/page.tsx`
+- `apps/web/src/app/files/page.tsx`
+- `apps/web/src/app/documents/page.tsx` compatibility re-export
+- `apps/web/src/lib/files/library.ts`
+- `apps/web/src/app/files/new/page.tsx`
+- `apps/web/src/app/documents/new/page.tsx` compatibility re-export
 - `apps/web/src/app/documents/[quoteDraftId]/page.tsx`
 - `apps/web/src/app/documents/[quoteDraftId]/pdf/route.ts`
 - `apps/web/src/app/documents/[quoteDraftId]/print/route.ts`
@@ -348,6 +518,7 @@ Files:
 - `apps/web/src/app/api/documents/templates/revise/route.ts`
 - `apps/web/src/app/documents/actions.ts`
 - `apps/web/src/lib/documents/pdf.ts`
+- `apps/web/src/lib/documents/generated-documents.ts`
 - `apps/web/src/lib/documents/render.ts`
 - `apps/web/src/lib/documents/revisions.ts`
 - `apps/web/src/lib/documents/settings.ts`
@@ -356,6 +527,8 @@ Files:
 
 Purpose:
 
+- show a saved file library for generated images, uploaded files, inbound/outbound email attachments, and generated PDFs,
+- let users open previewable images/PDFs inline or download any stored file through `/api/files/[fileId]`,
 - list saved quote drafts,
 - filter quote drafts by all, draft, ready, approved, changes requested, sent, archived, linked, or unlinked,
 - open an unsaved quote-draft editor from saved reusable templates,
@@ -372,6 +545,9 @@ Purpose:
 - render customer-facing quote output as print-ready HTML from structured quote data,
 - let users open the print view and save through the browser's Print / PDF flow,
 - let users download a server-generated PDF from the quote draft,
+- save generated quote and invoice PDFs as `generated_documents` rows backed by private Supabase Storage and `files` metadata,
+- generate an invoice PDF from a saved quote draft using the same user-defined document template/design settings, without payment processing, bookkeeping, or reconciliation,
+- file saved generated PDFs to Google Drive when the user explicitly approves the filing action,
 - prepare a customer email with the generated quote PDF attached and route that email through the normal approval/send action flow,
 - create secure customer approval links for quote drafts,
 - let customers approve a quote or request changes from a public no-login review page,
@@ -380,29 +556,36 @@ Purpose:
 - hand a linked quote draft back to the inquiry outbound composer with that draft preselected,
 - show linked CRM context, recent thread messages, and audit history when the draft came from an inquiry.
 
+The navigation label and canonical top-level route are now `Files` at `/files`.
+Older `/documents` quote/editor routes remain as compatibility re-exports for
+existing links. The top-level page loads the file library from private `files` metadata through the service role after
+`requireWorkspaceContext()` has scoped the user to a workspace. File downloads still go through the authenticated
+`/api/files/[fileId]` route, which checks the current workspace before streaming private Supabase Storage bytes.
+
 Quote drafts remain the structured source of truth. The customer document is generated from that saved data at view
 time rather than stored as the canonical record. Customer fields can be populated from an existing CRM contact via an
 async typeahead search, but the quote still stores editable metadata for the sent document state. Line item rows save
 structured descriptions, quantities, units, unit prices, calculated totals, and optional per-line notes. This keeps totals, customer details,
 line items, terms, and audit history predictable while still allowing the visual template to evolve. The current output
 is deterministic HTML for browser preview/printing plus deterministic server-side PDF generation through
-`apps/web/src/lib/documents/pdf.ts`, not a GPT-generated image. Downloaded PDFs and outbound attachments are generated
-on demand from the saved quote draft. The current storage model records generated-document metadata such as filename,
-content type, size, renderer, content hash, generation time, and version-history events in `quote_drafts.metadata` and
-message metadata. PDFs attached to outbound emails are temporarily persisted in private Supabase Storage so the outbox
-can retry sends, but Kyro does not yet keep a first-class generated-document record in Supabase Storage or Drive.
+`apps/web/src/lib/documents/pdf.ts`, not a GPT-generated image. Download, prepare-send, and outbound attachment flows
+record a first-class `generated_documents` row with lifecycle status, content hash, storage location, linked contact,
+lead, conversation, quote draft, and backing `files` row. Quote metadata still keeps lightweight `lastGeneratedDocument`
+and `documentHistory` snapshots for the timeline and revision checks, but the durable PDF record now lives in
+`generated_documents`. User-approved Google Drive filing uploads the stored PDF through the connected Google account and
+stores the Drive file id/link on the generated document record.
 Customer approval links live in
 `quote_approval_links`, which stores a hashed bearer token, lifecycle status, customer email, expiry, view/approval
 timestamps, and the latest change-request note. The content hash is calculated from the quote draft, customer/job
 details, line items, and document design settings with volatile send/history/approval metadata excluded, so the app can
-flag when a quote has changed since the latest generated/prepared/sent PDF. Accounting/invoice export, payment
-collection, and durable generated-document file storage are still future document steps.
+flag when a quote has changed since the latest generated/prepared/sent PDF. Invoice PDF generation exists as a document
+recording step only; payment collection, bookkeeping, reconciliation, and billing-provider integration are still out of scope.
 
 Quote revisions are metadata-backed for now rather than a separate migration. `quote_drafts.metadata.quoteRevision`
 stores the active version, pending or resolved customer change request, latest prepared/sent version, approval version,
 and timestamps. `apps/web/src/lib/documents/revisions.ts` owns that state. A new draft starts at `v1`. When a customer
 requests changes, Kyro marks the draft `changes_requested`, records the request against the current version, reopens the
-linked inquiry, and shows a revision banner in both Inbox and Documents. When the user edits the quote after that
+linked inquiry, and shows a revision banner in both Inbox and Files. When the user edits the quote after that
 request, Kyro increments the version, resolves the pending request, and returns the draft to the normal send path. The
 next customer email is labelled as a revised quote, gets a fresh approval link, and records the new `quoteVersion` on
 generated, prepared, sent, viewed, approved, and change-request history events. This gives the product a usable revision
@@ -469,24 +652,47 @@ Files:
 - `apps/web/src/app/assistant/assistant-console.tsx`
 - `apps/web/src/app/assistant/actions.ts`
 - `apps/web/src/app/api/assistant/transcribe/route.ts`
+- `apps/web/src/lib/assistant/attachments.ts`
 - `apps/web/src/lib/assistant/commands.ts`
 - `apps/web/src/lib/assistant/conversation-links.ts`
+- `apps/web/src/lib/assistant/context-compaction.ts`
 - `apps/web/src/lib/assistant/providers.ts`
 - `apps/web/src/lib/assistant/engine.ts`
+- `apps/web/src/lib/assistant/tool-planner.ts`
 - `apps/web/src/lib/assistant/transcription.ts`
+- `apps/web/src/lib/assistant/ui-blocks.ts`
+- `apps/web/src/lib/assistant/tool-registry.ts`
+- `apps/web/src/lib/images/generation.ts`
 
 Purpose:
 
 - provide a chat-style command layer over existing CRM data,
-- persist Assistant threads and messages across page refreshes,
+- persist the main user Assistant thread and messages across page refreshes,
 - store known UI blocks such as link cards instead of letting the LLM invent UI,
-- store deterministic command results as tool-call records,
-- retrieve a compact rolling thread summary and relevant explicit memories before each turn,
-- route safe commands deterministically before involving a model,
-- use local Ollama to narrate answers while preserving deterministic links/actions,
+- store planned and executed tool results as tool-call records,
+- retrieve recent messages, a compact rolling thread summary, relevant approved memories, and ranked long-term context snapshots before each turn,
+- ask the OpenAI Assistant tool planner to choose the right Kyro tool before deterministic keyword routing,
+- execute the selected tool in audited deterministic code, then let the Assistant model narrate the result,
+- fall back to the older deterministic router only when the planner is unavailable, fails, or local Ollama development mode is active,
+- accept assistant file/image uploads, store them privately, and pass stored file context into the turn,
+- generate one-off images/renderings through OpenAI Images and save the result as a private Kyro file,
 - accept browser-recorded voice notes, transcribe them server-side, and submit the transcript through the normal Assistant turn flow,
 - record assistant turns as `ai_runs`, `model_route_decisions`, `usage_events`, and `audit_logs`,
 - keep provider handling swappable for later cloud model APIs.
+
+The Assistant chat is now LLM-first for OpenAI routes. `tool-planner.ts` sends the
+current prompt, compact recent message context, recent generated-image metadata,
+thread summary, and input source to OpenAI Responses with a fixed list of Kyro
+function tools. The model can select one tool such as work queue, inquiry lookup,
+quote send, image generation, image recall, email sync, assistant history search, settings update, memory
+save, or app help. If the model successfully decides no tool is needed, Kyro treats
+the turn as normal conversation instead of letting the keyword router overrule it.
+If the planner is not available, returns an error, or the route is Ollama/local,
+Kyro falls back to `commands.ts` deterministic intent detection so development
+and degraded provider states still work. The LLM never executes the tool itself:
+`commands.ts` validates the selection, runs workspace-scoped Supabase/provider
+code, creates known UI blocks, and records audit/usage/tool-call metadata before
+`providers.ts` writes the final response.
 
 Current safe command families:
 
@@ -495,10 +701,15 @@ Current safe command families:
 - inquiry lookup by customer/job text, including exact and partial name matches,
 - quote/document lookup and ready quote drafts,
 - quote-send preparation that creates a reviewable email with the generated quote PDF and customer approval link attached,
+- one-off image generation, image-reference editing, renovation concept renders, and simple marketing/social graphics,
 - contact/customer summaries,
 - standalone quote draft creation from saved reusable templates,
 - reusable document template creation and revision,
 - explicit memory capture when the user says things like "remember..." or "for future...",
+- pending memory suggestions when a durable preference is implied but the user
+  did not explicitly say to remember it,
+- usage summaries, richer contact timelines, queue summaries, and approval queue
+  UI blocks,
 - general conversational turns that do not render CRM cards unless the user asks for CRM data.
 
 Assistant writes are intentionally narrow. It can create internal quote drafts from templates, because that is a
@@ -519,16 +730,51 @@ resulting customer view/approval/change-request events. From an Assistant inquir
 manual reply; email replies send through connected Gmail and non-email channels are recorded internally. The LLM does not
 autonomously send email/SMS, execute approval-gated actions, alter payments, or perform bookkeeping.
 
+Assistant image generation is deliberately a tool call, not arbitrary model output. Browser-selected files are first
+stored in the private Supabase Storage bucket configured by `KYRO_FILE_STORAGE_BUCKET` and recorded as `files` rows with
+`source = assistant_upload`. If the user asks for an image, render, concept, social graphic, or similar visual output,
+`apps/web/src/lib/images/generation.ts` calls the OpenAI Image API with the saved prompt and up to eight supported
+reference images from those stored files. The generated PNG/JPEG/WebP is uploaded back into the same private storage
+bucket, recorded as a `files` row with `source = generated_image`, linked to an `ai_runs` row, metered as a
+`usage_events.image_generation` row, and rendered in chat through a deterministic `generated_image` UI block with open
+and download links. The helper defaults to `gpt-image-2` at high quality and `auto` size so OpenAI can choose the best
+layout from the prompt. Kyro only pins the closest supported image size when the user explicitly asks for a shape:
+square `1024x1024`, landscape `1536x1024`, or portrait `1024x1536`. When OpenAI returns image token usage, Kyro prices that image event from the provider usage split
+between text input tokens, image input tokens, and output image tokens; if the provider does not return image usage, the
+ledger falls back to the configured per-image snapshot. Voice can reach the same command path through the shared tool
+endpoint; for complex visual context, the assistant should guide the user to the text Assistant where file attachments
+and image previews are practical.
+
 Assistant memory layers currently implemented:
 
 - active thread: `assistant_threads`,
-- full saved turns: `assistant_messages`,
+- full saved turns: `assistant_messages`; raw transcripts are preserved and are
+  not deleted by compaction,
 - rolling deterministic thread summary on the thread row,
-- explicit long-term memories in `assistant_memories`,
+- active explicit or approved suggested long-term memories in `assistant_memories`,
+- pending/rejected memory suggestions in `assistant_memories.status` so suggestions
+  can be approved or dismissed without entering active model context first,
+- compacted context snapshots in `assistant_context_snapshots`, written
+  opportunistically after Assistant turns once the thread is long enough. These
+  hold daily summaries and roll up into weekly/monthly summaries so Kyro can
+  carry old context without sending months of raw messages to the model,
+- assistant history search, exposed as a known tool, searches compacted snapshots
+  and raw saved turns when the user asks about something discussed earlier,
 - structured workspace truth loaded from CRM/document/usage tables as needed.
 
-The LLM does not invent UI. It receives command results and optional thread/memory context, then writes short narration.
-The frontend renders known `ui_blocks`, currently link cards and memory notices.
+The intended long-running context policy is: current turn plus a small recent
+message window for conversational continuity, rolling thread summary for immediate
+state, approved memories for durable user/workspace preferences, compacted
+snapshots for older narrative context, and targeted database/tool lookups for
+facts. This keeps the Assistant feeling like one persistent assistant while
+preventing the prompt from growing every day the product is used.
+
+The LLM does not invent UI. It plans a known tool when app data or side effects are needed, receives
+validated tool results plus optional thread/memory context, then writes short narration.
+The frontend renders known `ui_blocks`, currently link cards, memory notices,
+memory suggestions, summary cards, timelines, approval queues, and generated-image cards. External
+SMS, phone, and calendar tools are present in the registry as provider-needed,
+approval-gated future tools; they are not executable until providers are wired.
 
 Assistant voice input uses the browser `MediaRecorder` API only for capture. Audio is posted to
 `/api/assistant/transcribe`, where the server calls OpenAI's audio transcription endpoint with the configured
@@ -633,7 +879,7 @@ ElevenLabs helper code is retained for possible future experimentation, but it i
 `normalizeVoiceSettings()` forces the saved provider to OpenAI.
 
 The provider abstraction lives in `apps/web/src/lib/assistant/providers.ts`. Future cloud providers should plug into
-`runAssistantModel()` without changing the Assistant UI or deterministic command router.
+`runAssistantModel()` and the planner boundary without changing the Assistant UI or audited tool executors.
 
 ### Voice Vocabulary And Pronunciation
 
@@ -723,7 +969,7 @@ Purpose:
 - save a default email signature and optional assistant signature,
 - choose the Voice Assistant OpenAI voice,
 - choose the outbound voice pronunciation policy and manage pronunciation vocabulary,
-- manage general workspace defaults such as timezone and preferred display currency in a dedicated General settings section,
+- manage general workspace defaults such as timezone, preferred display currency, and default phone region in a dedicated General settings section,
 - configure inbound email sync cadence, quiet-hours polling, and action-filtering rules,
 - show inbound email sync health in Settings, including reconnect-needed state,
   missing inbox-read scopes, last successful sync, last check attempt, next
@@ -771,13 +1017,19 @@ values by period and user so a future payment system can consume the same ledger
 It does not invoice, collect payment, alter pricing rules, or push data to Stripe/Apple.
 It is a visibility layer over the metering data that triage, Assistant, inbound email sync,
 reply drafting, document-template editing, pronunciation alias enrichment, realtime web-search tools,
-realtime voice turns, speech-to-text, text-to-speech, and future API integrations record.
+realtime voice turns, speech-to-text, text-to-speech, image generation, and future API integrations record.
 OpenAI LLM usage is priced from a model catalog with environment overrides for production pricing updates;
 OpenAI web-search calls use separate reasoning and non-reasoning tool-call rates; OpenAI
 Realtime voice usage is priced separately so audio tokens do not get blended into text token
 costs; OpenAI text-to-speech uses a pricing-derived estimate when direct audio token usage
 is unavailable. Unknown text models fall back to the configured/default low-cost model
 price and mark the row as price-estimated in metadata.
+
+The default phone region is used only when a user or inbound/manual capture gives
+Kyro a bare local number without a country code. Explicit international numbers
+still win. This prevents an Australian workspace from incorrectly treating every
+country-less number as Australian when the workspace should default to the USA,
+UK, or another supported region.
 
 Settings sections are URL-addressable (`?section=general`, `?section=voice`,
 `?section=integrations`, `?section=usage`) and fetch data on demand for the selected
@@ -855,8 +1107,12 @@ Important behavior:
 - `manual.ts` writes the ingestion event first.
 - Duplicate submissions with the same idempotency key are ignored.
 - Contact matching is workspace-scoped.
-- Exact email or phone matches attach to existing contacts.
-- Email/phone conflicts create a new contact and mark the lead as high priority/profile check.
+- Normalized email or phone matches attach to existing contacts, so common casing,
+  spacing, punctuation, explicit international phone prefixes, and common
+  local/national phone formats resolve to the same profile where they can be
+  safely parsed. Bare local numbers use the workspace default phone region before
+  falling back through the wider parser.
+- Email/phone conflicts create a new contact marked `needs_review` and mark the lead as high priority/profile check.
 - Missing contact details can be filled on an existing matched profile.
 - AI triage currently extracts simple inquiry facts, normalizes generic model labels like "new inquiry from John" back to trade-specific job types where possible, saves the current fact row, proposes one or more actions, and marks the conversation as `reply_drafted` once proposals exist.
 - If the user edits the saved inquiry facts and regenerates the plan, Kyro cancels stale pending/approved proposal actions for that conversation plus any stale lead-level `mark_not_fit` proposal, audits the cancellation, and reruns triage with the corrected facts locked as authoritative input.
@@ -1027,16 +1283,20 @@ Current action behavior:
 - executing a `draft_reply` queues an `outbound_messages` delivery and then sends through Gmail/Outlook when the channel is email and the contact has an email address,
 - executing non-email channels records an internal outbound `messages` row until SMS/phone providers exist,
 - outbound message metadata records `dryRun`, `externalSend`, `provider`, `sentTo`, attachments, external provider message/request ids, and the linked outbox delivery id,
+- after an outbound reply is recorded, Kyro creates or reschedules one open `customer_follow_up` task for the conversation using the workspace follow-up delay, defaulting to two days,
+- open `customer_follow_up` tasks become a `follow_up_due` Inbox/CRM due state only after the due time passes; they are completed automatically when a new inbound customer message arrives,
+- future automatic follow-up tasks are hidden from task/workflow panels until due, so they do not clutter a freshly replied conversation,
 - `create_quote_draft` actions create internal `quote_drafts` rows only,
 - quote drafts created from inquiry actions prefill customer/job metadata from the linked contact, lead, and saved inquiry facts,
-- `book_site_visit` completes as an internal dry-run plan,
-- follow-up reminders are intentionally not shown as immediate approval actions; they should become due-state reminders driven by a workspace follow-up delay setting,
+- `book_site_visit` is converted into durable `conversation_appointments` and `conversation_tasks` records before any future calendar integration,
+- follow-up reminders are intentionally not shown as immediate approval actions,
 - `mark_not_fit` updates the attached lead status to `not_fit`,
 - SMS/phone/calendar are still not connected.
 
 This is intentional. Gmail and Outlook are the first real outbound providers; the same
-outbox/action-executor seam should be reused for SMS, phone, calendar, and
-Drive/PDF document generation later.
+outbox/action-executor seam should be reused for SMS, phone, and calendar later.
+Generated PDF records and user-approved Drive filing already use the same audited,
+permission-bound pattern.
 
 Conversation statuses currently used by the review workflow:
 
@@ -1107,9 +1367,16 @@ Current performance approach:
 
 - routes are server-rendered for fresh authenticated data,
 - `RoutePreloader` idle-prefetches core logged-in tabs with a stagger so navigation
-  is warm without hammering every detail route or duplicating nav-link prefetches;
+  is warm without hammering every detail route;
   it dedupes routes already prefetched in the browser session and skips background
   prefetching on data-saver or slow network connections,
+- `SmartPrefetchLink` warms a route on hover, focus, or touch intent for the
+  sidebar, mobile drawer, and mobile bottom-nav links while keeping automatic
+  Next.js link prefetch disabled,
+- internal dev-only provider/margin pills use a short per-user/workspace server
+  cache so moving between routes does not repeatedly scan recent usage rows,
+- the dev LLM connectivity pill also uses a short server cache and in-flight
+  request dedupe so Ollama/OpenAI status checks do not stall normal navigation,
 - long repeated list rows intentionally keep `prefetch={false}`,
 - list/detail pages have skeleton loading states,
 - CRM filter/search/sort state is URL-backed and rendered server-side so the split profile panel can preserve context across clicks and saves,
@@ -1122,7 +1389,7 @@ Current performance approach:
 
 Do not preload everything. The current reasonable preload set is:
 
-- main app routes: Assistant, Voice, Inbox, CRM, Documents, Log, Settings,
+- main app routes: Assistant, Voice, Inbox, CRM, Files, Log, Settings,
 - already-open split-view records,
 - compact list summaries and counts for the active screen.
 
@@ -1155,9 +1422,17 @@ Use this map before editing:
 - New CRM list/read data: `apps/web/src/lib/crm/queries.ts`
 - New contact type label: `apps/web/src/lib/crm/contact-types.ts`
 - New contact mutation: `apps/web/src/app/contacts/actions.ts`
+- New address autocomplete/provider behavior: `apps/web/src/app/components/address-autocomplete-field.tsx`,
+  `apps/web/src/app/api/addresses/autocomplete/route.ts`,
+  `apps/web/src/app/api/addresses/place/route.ts`,
+  `apps/web/src/lib/addresses/google.ts`, and `apps/web/src/lib/addresses/form.ts`
 - New manual inquiry behavior: `apps/web/src/lib/inbound/manual.ts`
-- New developer/test tool screens: `apps/web/src/app/developer/page.tsx` and
-  `apps/web/src/app/developer/outbox/page.tsx`
+- New developer/test tool screens: `apps/web/src/app/developer/page.tsx`,
+  `apps/web/src/app/developer/outbox/page.tsx`,
+  `apps/web/src/app/developer/assistant-tools/page.tsx`,
+  `apps/web/src/app/developer/system-health/page.tsx`, and
+  `apps/web/src/app/developer/smoke-tests/page.tsx`
+- New developer readiness/smoke-test logic: `apps/web/src/lib/developer/system-health.ts`
 - New action transition/execution behavior: `apps/web/src/lib/engine/event-action-audit.ts`
 - New AI triage behavior: `apps/web/src/lib/ai/triage.ts`
 - New inquiry fact editing behavior: `apps/web/src/app/inbox/actions.ts`
@@ -1169,6 +1444,10 @@ Use this map before editing:
 - New assistant route metrics behavior: `apps/web/src/lib/assistant/route-metrics.ts`
 - New assistant persistence/memory behavior: `apps/web/src/lib/assistant/persistence.ts`
 - New assistant UI block behavior: `apps/web/src/lib/assistant/ui-blocks.ts`
+- New assistant tool/admin registry behavior: `apps/web/src/lib/assistant/tool-registry.ts`
+- New assistant attachments and generated image behavior:
+  `apps/web/src/lib/assistant/attachments.ts`, `apps/web/src/lib/images/generation.ts`,
+  `apps/web/src/lib/usage/openai.ts`, and `apps/web/src/app/api/files/[fileId]/route.ts`
 - New assistant speech-to-text behavior: `apps/web/src/app/api/assistant/transcribe/route.ts`
   and `apps/web/src/lib/assistant/transcription.ts`
 - New assistant text-to-speech behavior: `apps/web/src/app/api/assistant/speech/route.ts`
@@ -1220,11 +1499,16 @@ These are not bugs:
 - Pronunciation vocabulary supports Settings management, previews, prompt injection, lightweight usage counts, and background suggestions; customer-facing outbound phone calls and pronunciation preflight gates are still future work.
 - Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
 - Gmail/Outlook can send uploaded local file attachments and server-generated PDF attachments for selected quote drafts.
-- Browser print/save-to-PDF quote output and server-generated quote PDFs exist. Invoice/accounting exports, durable PDF storage in Drive/Supabase Storage, and fully parsed user-uploaded template assets are not implemented yet.
+- Assistant can generate and store one-off images/renderings through OpenAI Images; richer media galleries, multi-turn
+  visual editing, and mobile camera-first flows are still future product work.
+- Browser print/save-to-PDF quote output, server-generated quote/invoice PDFs, first-class generated document records, private PDF storage, and user-approved Google Drive filing exist. Payment-provider billing, bookkeeping, reconciliation, and fully parsed user-uploaded template assets are not implemented yet.
 - Assistant chat is implemented as a persisted safe command/tool layer, not a free-roaming autonomous agent.
-- Assistant long-term memory only saves explicit user memory instructions for now; automatic inferred memory is intentionally not active yet.
+- Assistant long-term memory saves explicit instructions immediately and can suggest implied durable preferences for user approval. Suggested memories are not active until approved.
 - Usage visibility exists in Settings, but payments, payment-provider billing, bookkeeping, reconciliation, and tax are intentionally out of scope.
-- Address input is plain text for now. The backlog notes future Google address verification.
+- Google address autocomplete is wired for CRM contacts, inquiry facts, and mock
+  inbound once `GOOGLE_MAPS_API_KEY` is configured. Manual addresses are still
+  allowed when Google lookup is unavailable or the user intentionally types a
+  non-standard job-site description.
 
 ## Verification Commands
 

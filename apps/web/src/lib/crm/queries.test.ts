@@ -12,6 +12,7 @@ describe("contactSearchFilter", () => {
         "email.ilike.%Daniel Barker%",
         "phone.ilike.%Daniel Barker%",
         "address.ilike.%Daniel Barker%",
+        "normalized_company.ilike.%daniel barker%",
       ].join(","),
     );
   });
@@ -26,6 +27,22 @@ describe("contactSearchFilter", () => {
         "email.ilike.%daniel barker%",
         "phone.ilike.%daniel barker%",
         "address.ilike.%daniel barker%",
+        "normalized_company.ilike.%daniel barker%",
+      ].join(","),
+    );
+  });
+
+  it("adds normalized identity filters where possible", () => {
+    assert.equal(
+      contactSearchFilter("0474 783 952"),
+      [
+        "name.ilike.%0474 783 952%",
+        "company.ilike.%0474 783 952%",
+        "email.ilike.%0474 783 952%",
+        "phone.ilike.%0474 783 952%",
+        "address.ilike.%0474 783 952%",
+        "normalized_phone.eq.+61474783952",
+        "normalized_company.ilike.%0474 783 952%",
       ].join(","),
     );
   });

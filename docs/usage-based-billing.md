@@ -90,7 +90,7 @@ Examples:
 - LLM usage: provider cost plus percentage margin.
 - SMS: provider segment cost plus percentage or fixed markup.
 - Voice: provider minute cost plus margin.
-- Image generation: per-render charge with margin.
+- Image generation: provider image token usage when returned, otherwise a per-render snapshot with margin.
 - Document rendering/storage: bundled up to a threshold, then metered.
 
 ## Cost Visibility
@@ -141,11 +141,22 @@ Current OpenAI metering behaviour:
   `OPENAI_TTS_UNIT_COST_PER_SECOND_USD` is configured. Otherwise the default
   `gpt-4o-mini-tts` path estimates text-input and audio-output cost from the current
   OpenAI rate card and marks the row metadata as price-estimated.
+- OpenAI image generation records one `image_generation` usage event per render/edit. When
+  the Image API response includes provider usage, Kyro prices the row from text input
+  tokens, image input tokens, cached input tokens if supplied, and output image tokens.
+  The token split and cost breakdown are stored in row metadata. If provider usage is
+  unavailable, Kyro falls back to `OPENAI_IMAGE_COST_PER_IMAGE` or the snapshotted
+  image-quality/size catalog and marks the row as estimated.
 - Known OpenAI model prices are snapshotted from the in-app catalog, with environment
   overrides available for production updates:
   `OPENAI_<MODEL>_INPUT_COST_PER_1M`, `OPENAI_<MODEL>_CACHED_INPUT_COST_PER_1M`,
   `OPENAI_<MODEL>_OUTPUT_COST_PER_1M`, or the generic `OPENAI_LLM_*_COST_PER_1M`
   fallbacks.
+- Image-generation token prices can be overridden with model-specific keys such as
+  `OPENAI_GPT_IMAGE_2_IMAGE_TEXT_INPUT_COST_PER_1M`,
+  `OPENAI_GPT_IMAGE_2_IMAGE_INPUT_COST_PER_1M`, and
+  `OPENAI_GPT_IMAGE_2_IMAGE_OUTPUT_COST_PER_1M`, or the generic `OPENAI_IMAGE_*`
+  fallback keys.
 - Realtime voice prices can be overridden independently with
   `OPENAI_<MODEL>_TEXT_INPUT_COST_PER_1M`, `OPENAI_<MODEL>_AUDIO_INPUT_COST_PER_1M`,
   `OPENAI_<MODEL>_TEXT_OUTPUT_COST_PER_1M`, `OPENAI_<MODEL>_AUDIO_OUTPUT_COST_PER_1M`,
@@ -157,7 +168,9 @@ Current OpenAI metering behaviour:
   provider cost and customer charge are `0` because there is no provider invoice.
 
 Before public launch, billing periods should be finalized into immutable invoice/charge
-records and the pricing catalog should be reviewed against the live provider pricing page.
+records, the pricing catalog should be reviewed against the live provider pricing page, and
+a provider reconciliation job should compare Kyro's `usage_events` with provider-side usage
+exports or organization usage APIs for OpenAI and any later SMS/voice/image providers.
 
 ## Budget Controls
 

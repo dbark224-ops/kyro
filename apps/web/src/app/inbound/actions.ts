@@ -1,5 +1,6 @@
 "use server";
 
+import { parseAddressFormData } from "../../lib/addresses/form";
 import { ingestManualInbound } from "../../lib/inbound/manual";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
@@ -37,6 +38,7 @@ export async function createManualInboundAction(formData: FormData) {
   const company = formString(formData, "company");
   const contactType = formString(formData, "contactType");
   const address = formString(formData, "address");
+  const addressFields = parseAddressFormData(formData, "address");
   const serviceType = formString(formData, "serviceType");
   const message = formString(formData, "message");
 
@@ -64,6 +66,7 @@ export async function createManualInboundAction(formData: FormData) {
       company,
       contactType,
       address,
+      addressFields,
       serviceType,
       message
     });

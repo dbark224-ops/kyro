@@ -47,6 +47,10 @@ import {
   type QuoteTemplate,
 } from "../documents/templates";
 import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  generateKyroImage,
+  looksLikeKyroImageGenerationRequest,
+} from "../images/generation";
 import { syncInboundEmail } from "../integrations/inbound-email-sync";
 import { getInboundEmailOperationalSummary } from "../integrations/inbound-email-settings";
 import {
@@ -54,10 +58,12 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { getUsageReport } from "../usage/queries";
 import {
   conversationToAssistantLink,
   isConversationInLiveWorkQueue,
 } from "./conversation-links";
+import { searchAssistantHistory } from "./context-compaction";
 import { getAssistantKnowledge } from "./knowledge";
 import {
   getPronunciationEntries,
@@ -70,7 +76,19 @@ import {
   looksLikeSettingsUpdatePrompt,
   updateAssistantEditableSettings,
 } from "./settings-tools";
-import type { AssistantCommandResult, AssistantLink } from "./types";
+import type { AssistantToolSelection } from "./tool-planner";
+import type {
+  AssistantCommandResult,
+  AssistantLink,
+  AssistantRecentMessage,
+  AssistantUiBlock,
+} from "./types";
+import {
+  approvalQueueBlock,
+  generatedImageBlock,
+  summaryCardsBlock,
+  timelineBlock,
+} from "./ui-blocks";
 
 type WorkspaceInput = {
   id: string;
@@ -79,10 +97,19 @@ type WorkspaceInput = {
 
 type CommandInput = {
   prompt: string;
+  recentMessages?: AssistantRecentMessage[];
   supabase: SupabaseClient;
+  threadId?: string | null;
+  toolPlanModelPlanned?: boolean;
+  toolSelection?: AssistantToolSelection | null;
   user: User;
   workspace: WorkspaceInput;
 };
+
+type RecentGeneratedImage = Extract<
+  AssistantUiBlock,
+  { type: "generated_image" }
+>["images"][number];
 
 function normalized(value: string) {
   return value
@@ -121,6 +148,14 @@ function assistantDate(value: string | null | undefined) {
     month: "short",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function assistantMoney(value: number, currency: string) {
+  return new Intl.NumberFormat("en", {
+    currency,
+    maximumFractionDigits: value < 1 ? 6 : 2,
+    style: "currency",
+  }).format(value);
 }
 
 function quoteSearchTerm(prompt: string) {
@@ -221,7 +256,9 @@ function scoreTemplateMatch(prompt: string, template: QuoteTemplate) {
     score += 80;
   }
 
-  const labelMatches = labelTokens.filter((token) => promptText.includes(token));
+  const labelMatches = labelTokens.filter((token) =>
+    promptText.includes(token),
+  );
   const keyMatches = keyTokens.filter((token) => promptText.includes(token));
   const descriptionMatches = descriptionTokens.filter((token) =>
     promptText.includes(token),
@@ -413,7 +450,10 @@ function quoteSendReadiness(quote: QuoteDraftListItem) {
     blockers.push(`status is ${titleCase(quote.status)}`);
   }
 
-  if (quote.status === "changes_requested" || revisionState.pendingChangeRequest) {
+  if (
+    quote.status === "changes_requested" ||
+    revisionState.pendingChangeRequest
+  ) {
     blockers.push("customer changes need to be edited and saved first");
   }
 
@@ -514,7 +554,9 @@ export function selectQuoteDraftForAssistantPrompt(
   if (!searchTerm) {
     if (candidates.length === 1) {
       return {
-        candidates: [{ quote: candidates[0], reasons: ["only unsent quote"], score: 1 }],
+        candidates: [
+          { quote: candidates[0], reasons: ["only unsent quote"], score: 1 },
+        ],
         kind: "selected",
         quote: candidates[0],
         searchTerm,
@@ -587,11 +629,17 @@ export function documentTemplateControlIntent(prompt: string) {
     return null;
   }
 
-  if (/\b(create|build|generate)\b/.test(text) || /\bnew\b.*\btemplate\b/.test(text)) {
+  if (
+    /\b(create|build|generate)\b/.test(text) ||
+    /\bnew\b.*\btemplate\b/.test(text)
+  ) {
     return "create" as const;
   }
 
-  if (/\bmake me\b.*\btemplate\b/.test(text) || /\bmake us\b.*\btemplate\b/.test(text)) {
+  if (
+    /\bmake me\b.*\btemplate\b/.test(text) ||
+    /\bmake us\b.*\btemplate\b/.test(text)
+  ) {
     return "create" as const;
   }
 
@@ -840,9 +888,8 @@ export function looksLikeInboundEmailAwarenessRequest(prompt: string) {
     return true;
   }
 
-  const hasEmailSubject = /\b(email|emails|mail|gmail|outlook|emailed|inbound)\b/.test(
-    text,
-  );
+  const hasEmailSubject =
+    /\b(email|emails|mail|gmail|outlook|emailed|inbound)\b/.test(text);
   const hasAwarenessIntent =
     /\b(anyone|anybody|customer|client|reply|replied|sent|came|come|overnight|today|morning|latest|new|recent|seen|ignored|skipped|filtered|attachment|attachments)\b/.test(
       text,
@@ -851,11 +898,23 @@ export function looksLikeInboundEmailAwarenessRequest(prompt: string) {
   return hasEmailSubject && hasAwarenessIntent;
 }
 
+function looksLikeAssistantHistorySearchRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(earlier|previously|before|yesterday|last week|last month|remember|talked|discussed|chat history|conversation history)\b/.test(
+      text,
+    ) &&
+    /\b(what|where|when|did|have|find|search|show|pull|look|talked|discussed)\b/.test(
+      text,
+    )
+  );
+}
+
 export function looksLikeQuoteSendRequest(prompt: string) {
   const text = normalized(prompt);
-  const hasQuoteTarget = /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(
-    text,
-  );
+  const hasQuoteTarget =
+    /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(text);
 
   if (!hasQuoteTarget) {
     return false;
@@ -881,9 +940,8 @@ export function looksLikeQuoteSendRequest(prompt: string) {
 
 export function looksLikeQuoteSendReadyListRequest(prompt: string) {
   const text = normalized(prompt);
-  const hasQuoteTarget = /\b(quote|quotes|document|documents|invoice|invoices)\b/.test(
-    text,
-  );
+  const hasQuoteTarget =
+    /\b(quote|quotes|document|documents|invoice|invoices)\b/.test(text);
 
   if (!hasQuoteTarget) {
     return false;
@@ -898,9 +956,8 @@ export function looksLikeQuoteSendReadyListRequest(prompt: string) {
 
 export function looksLikeQuoteHistoryRequest(prompt: string) {
   const text = normalized(prompt);
-  const hasQuoteTarget = /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(
-    text,
-  );
+  const hasQuoteTarget =
+    /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(text);
 
   if (!hasQuoteTarget) {
     return false;
@@ -1007,13 +1064,564 @@ function looksLikeHelpRequest(prompt: string) {
   return directHelpIntent || (explainerIntent && kyroTopic);
 }
 
-export async function resolveAssistantCommand({
+function looksLikeUsageSummaryRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(usage|cost|spend|billing|api bill|tokens?|metered)\b/.test(text) &&
+    /\b(summary|report|how much|costing|spending|this month|last 30|today|week|show|where)\b/.test(
+      text,
+    )
+  );
+}
+
+function latestGeneratedImageFromRecentMessages(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+): RecentGeneratedImage | null {
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+    const image = latestGeneratedImageFromBlocks(message?.uiBlocks);
+
+    if (image) {
+      return image;
+    }
+  }
+
+  return null;
+}
+
+function generatedImageFromValue(value: unknown): RecentGeneratedImage | null {
+  const image = objectRecord(value);
+  const fileId = textValue(image.fileId);
+
+  if (!fileId) {
+    return null;
+  }
+
+  return {
+    alt: textValue(image.alt) ?? "Generated image",
+    contentType: textValue(image.contentType) ?? "image/png",
+    downloadHref: textValue(image.downloadHref) ?? `/api/files/${fileId}`,
+    editMode: Boolean(image.editMode),
+    fileId,
+    filename: textValue(image.filename) ?? "generated-image.png",
+    href: textValue(image.href) ?? `/api/files/${fileId}?disposition=inline`,
+    meta: textValue(image.meta) ?? undefined,
+    model: textValue(image.model) ?? "unknown",
+    prompt: textValue(image.prompt) ?? "",
+    provider: textValue(image.provider) ?? "openai",
+    quality: textValue(image.quality) ?? "unknown",
+    referenceCount: Number.isFinite(Number(image.referenceCount))
+      ? Number(image.referenceCount)
+      : 0,
+    size: textValue(image.size) ?? "auto",
+  };
+}
+
+function latestGeneratedImageFromBlocks(blocksValue: unknown) {
+  const blocks = Array.isArray(blocksValue) ? blocksValue : [];
+
+  for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+    const block = objectRecord(blocks[blockIndex]);
+
+    if (block.type !== "generated_image") {
+      continue;
+    }
+
+    const images = Array.isArray(block.images) ? block.images : [];
+
+    for (let imageIndex = images.length - 1; imageIndex >= 0; imageIndex -= 1) {
+      const image = generatedImageFromValue(images[imageIndex]);
+
+      if (image) {
+        return image;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function latestGeneratedImageFromThread({
+  supabase,
+  threadId,
+  workspaceId,
+}: {
+  supabase: SupabaseClient;
+  threadId?: string | null;
+  workspaceId: string;
+}) {
+  if (!threadId) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("assistant_messages")
+    .select("ui_blocks")
+    .eq("workspace_id", workspaceId)
+    .eq("thread_id", threadId)
+    .eq("role", "assistant")
+    .order("created_at", { ascending: false })
+    .limit(80);
+
+  if (error) {
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    const image = latestGeneratedImageFromBlocks(objectRecord(row).ui_blocks);
+
+    if (image) {
+      return image;
+    }
+  }
+
+  return null;
+}
+
+function looksLikeImageEditFollowUpText(prompt: string) {
+  const text = normalized(prompt);
+  const explicitEdit =
+    /\b(edit|change|update|adjust|modify|redo|regenerate|rework|revise)\b.*\b(image|picture|photo|render|rendering|version|it|that|this|one)\b/.test(
+      text,
+    ) ||
+    /\b(image|picture|photo|render|rendering|version)\b.*\b(edit|change|update|adjust|modify|redo|regenerate|rework|revise)\b/.test(
+      text,
+    );
+  const action =
+    /\b(make|turn|change|edit|redo|regenerate|rework|update|adjust|modify|revise|create|generate|render|produce)\b/.test(
+      text,
+    );
+  const target =
+    /\b(it|that|this|image|picture|photo|render|rendering|version|one|previous|same)\b/.test(
+      text,
+    );
+  const visualChange =
+    /\b(night|nighttime|evening|day|daytime|morning|darker|brighter|lighting|light|colour|color|style|view|background|realistic|luxury|modern|warmer|cooler|different|another|variation|variant|more|less|black|white|blue|green|red|replace|remove|add|with|without)\b/.test(
+      text,
+    );
+
+  return explicitEdit || (action && target && visualChange);
+}
+
+function previousImagePromptSummary(prompt: string) {
+  return prompt
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        !/\b(?:kyro\s+file\s+id|file\s+id|source\s+file)\s*:/i.test(line),
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
+export function looksLikeImageFollowUpRequest(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  return Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
+    looksLikeImageEditFollowUpText(prompt);
+}
+
+function looksLikeDirectImageGenerationCommand(prompt: string) {
+  if (!looksLikeKyroImageGenerationRequest(prompt)) {
+    return false;
+  }
+
+  const text = normalized(prompt);
+  const directCreation =
+    /\b(create|generate|make|render|draw|produce|design|visualise|visualize|mock up)\b/.test(
+      text,
+    ) &&
+    /\b(image|picture|photo|render|rendering|visual|mockup|concept|graphic|flyer|poster)\b/.test(
+      text,
+    );
+  const discussion =
+    /\b(do you think|what do you think|will|would|should|could|why|how|explain|tell me about|matter|important|useful)\b/.test(
+      text,
+    );
+
+  return directCreation || !discussion;
+}
+
+function imageFollowUpPromptFromRecentMessages(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  return imageFollowUpPromptForImage(
+    prompt,
+    latestGeneratedImageFromRecentMessages(recentMessages),
+  );
+}
+
+async function imageFollowUpPromptFromThread({
   prompt,
   supabase,
+  threadId,
+  workspaceId,
+}: {
+  prompt: string;
+  supabase: SupabaseClient;
+  threadId?: string | null;
+  workspaceId: string;
+}) {
+  if (!looksLikeImageEditFollowUpText(prompt)) {
+    return null;
+  }
+
+  return imageFollowUpPromptForImage(
+    prompt,
+    await latestGeneratedImageFromThread({
+      supabase,
+      threadId,
+      workspaceId,
+    }),
+  );
+}
+
+function imageFollowUpPromptForImage(
+  prompt: string,
+  image: RecentGeneratedImage | null,
+) {
+  if (!image || !looksLikeImageEditFollowUpText(prompt)) {
+    return null;
+  }
+
+  const previousPrompt = image.prompt
+    ? previousImagePromptSummary(image.prompt)
+    : null;
+
+  return [
+    `Edit the previously generated image using this follow-up request: ${prompt.trim()}`,
+    `Source file: ${image.fileId}`,
+    previousPrompt ? `Previous image prompt: ${previousPrompt}` : null,
+    "Preserve the same core subject and composition unless the follow-up explicitly asks to change them.",
+    "Generate and save the edited image; do not only describe the edit.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function looksLikeGeneratedImageRecallText(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(where|show|open|find|download|send|see|view)\b/.test(text) &&
+    /\b(it|that|this|image|picture|photo|render|rendering|file|download)\b/.test(
+      text,
+    )
+  );
+}
+
+function looksLikeGeneratedImageRecallRequest(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  return Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
+    looksLikeGeneratedImageRecallText(prompt);
+}
+
+function generatedImageRecallResult({
+  image,
+  prompt,
+}: {
+  image: RecentGeneratedImage | null;
+  prompt: string;
+}): AssistantCommandResult {
+  if (!image) {
+    return {
+      context: {
+        prompt,
+      },
+      fallbackAnswer: generalChatFallback(prompt),
+      intent: "general_chat",
+      links: [],
+      title: "Chat",
+    };
+  }
+
+  const label = image.editMode
+    ? "Generated image with references"
+    : "Generated image";
+  const meta = [image.provider, image.model, image.size, image.quality]
+    .filter(Boolean)
+    .join(" - ");
+
+  return {
+    context: {
+      generatedImage: {
+        editMode: image.editMode,
+        fileId: image.fileId,
+        filename: image.filename,
+        model: image.model,
+        provider: image.provider,
+        quality: image.quality,
+        referenceCount: image.referenceCount,
+        size: image.size,
+      },
+    },
+    fallbackAnswer: "Here is the latest generated image from this thread.",
+    intent: "image_generation_recall",
+    links: [
+      rowLink(label, image.href, meta),
+      rowLink("Download image", image.downloadHref, image.filename),
+    ],
+    title: "Generated image",
+    uiBlocks: generatedImageBlock("Generated image", [image]),
+  };
+}
+
+async function generatedImageRecallCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "recentMessages" | "supabase" | "threadId" | "workspace"
+>): Promise<AssistantCommandResult> {
+  return generatedImageRecallResult({
+    image:
+      latestGeneratedImageFromRecentMessages(recentMessages) ??
+      (await latestGeneratedImageFromThread({
+        supabase,
+        threadId,
+        workspaceId: workspace.id,
+      })),
+    prompt,
+  });
+}
+
+async function resolvePlannedAssistantCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  toolSelection,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult | null> {
+  if (!toolSelection) {
+    return null;
+  }
+
+  const plannedPrompt = toolSelection.prompt.trim() || prompt;
+
+  switch (toolSelection.name) {
+    case "general_chat":
+      return generalChatCommand({ prompt });
+    case "work_queue":
+      return workQueueCommand({ supabase, workspace });
+    case "inquiry_lookup":
+      return inquiryLookupCommand({
+        prompt: plannedPrompt,
+        supabase,
+        workspace,
+      });
+    case "contact_lookup":
+      return contactCommand({ prompt: plannedPrompt, supabase, workspace });
+    case "quote_lookup":
+      return quoteCommand({ prompt: plannedPrompt, supabase, workspace });
+    case "quote_create":
+      return createQuoteDraftCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "quote_send":
+      return quoteSendCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "quote_send_ready_list":
+      return quoteSendReadyListCommand({ supabase, workspace });
+    case "quote_history":
+      return quoteHistoryCommand({
+        prompt: plannedPrompt,
+        supabase,
+        workspace,
+      });
+    case "image_recall":
+      return generatedImageRecallCommand({
+        prompt,
+        recentMessages,
+        supabase,
+        threadId,
+        workspace,
+      });
+    case "image_generation": {
+      const imagePrompt =
+        toolSelection.mode === "edit_previous_image"
+          ? (imageFollowUpPromptFromRecentMessages(
+              plannedPrompt,
+              recentMessages,
+            ) ??
+              (await imageFollowUpPromptFromThread({
+                prompt: plannedPrompt,
+                supabase,
+                threadId,
+                workspaceId: workspace.id,
+              })))
+          : null;
+
+      return imageGenerationCommand({
+        prompt: imagePrompt ?? plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    }
+    case "document_template_create":
+      return documentTemplateControlCommand({
+        intent: "create",
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "document_template_update":
+      return documentTemplateControlCommand({
+        intent: "update",
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "usage_summary":
+      return usageSummaryCommand({ supabase, workspace });
+    case "app_help":
+      return helpCommand({ prompt: plannedPrompt });
+    case "email_sync":
+      return emailSyncCommand({ supabase, user, workspace });
+    case "inbound_email_awareness":
+      return inboundEmailAwarenessCommand({
+        prompt: plannedPrompt,
+        supabase,
+        workspace,
+      });
+    case "history_search":
+      return assistantHistorySearchCommand({
+        prompt: plannedPrompt,
+        supabase,
+        threadId,
+        user,
+        workspace,
+      });
+    case "settings_update":
+      return updateAssistantEditableSettings({
+        prompt: plannedPrompt,
+        supabase,
+        user,
+        workspace,
+      });
+    case "memory_save":
+      return memoryCommand({ prompt: plannedPrompt });
+    case "pronunciation_update":
+      return pronunciationUpdateCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "overview":
+      return overviewCommand({ supabase, workspace });
+    default:
+      return null;
+  }
+}
+
+export async function resolveAssistantCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  toolPlanModelPlanned = false,
+  toolSelection = null,
   user,
   workspace,
 }: CommandInput): Promise<AssistantCommandResult> {
   const text = normalized(prompt);
+  const plannedCommand = await resolvePlannedAssistantCommand({
+    prompt,
+    recentMessages,
+    supabase,
+    threadId,
+    toolSelection,
+    user,
+    workspace,
+  });
+
+  if (plannedCommand) {
+    return plannedCommand;
+  }
+
+  const imageFollowUpPrompt =
+    imageFollowUpPromptFromRecentMessages(prompt, recentMessages) ??
+    (await imageFollowUpPromptFromThread({
+      prompt,
+      supabase,
+      threadId,
+      workspaceId: workspace.id,
+    }));
+
+  if (imageFollowUpPrompt) {
+    return imageGenerationCommand({
+      prompt: imageFollowUpPrompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
+  if (
+    toolPlanModelPlanned
+      ? looksLikeDirectImageGenerationCommand(prompt)
+      : looksLikeKyroImageGenerationRequest(prompt)
+  ) {
+    return imageGenerationCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
+  if (
+    looksLikeGeneratedImageRecallRequest(prompt, recentMessages) ||
+    looksLikeGeneratedImageRecallText(prompt)
+  ) {
+    return generatedImageRecallCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      threadId,
+      workspace,
+    });
+  }
+
+  if (toolPlanModelPlanned) {
+    return generalChatCommand({ prompt });
+  }
 
   if (looksLikePronunciationUpdatePrompt(prompt)) {
     return pronunciationUpdateCommand({ prompt, supabase, user, workspace });
@@ -1044,6 +1652,10 @@ export async function resolveAssistantCommand({
     });
   }
 
+  if (looksLikeUsageSummaryRequest(prompt)) {
+    return usageSummaryCommand({ supabase, workspace });
+  }
+
   if (looksLikeHelpRequest(prompt)) {
     return helpCommand({ prompt });
   }
@@ -1054,6 +1666,16 @@ export async function resolveAssistantCommand({
 
   if (looksLikeInboundEmailAwarenessRequest(prompt)) {
     return inboundEmailAwarenessCommand({ prompt, supabase, workspace });
+  }
+
+  if (looksLikeAssistantHistorySearchRequest(prompt)) {
+    return assistantHistorySearchCommand({
+      prompt,
+      supabase,
+      threadId,
+      user,
+      workspace,
+    });
   }
 
   if (looksLikeQuoteHistoryRequest(prompt)) {
@@ -1262,26 +1884,35 @@ async function inboundEmailAwarenessCommand({
   prompt,
   supabase,
   workspace,
-}: Pick<CommandInput, "prompt" | "supabase" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "prompt" | "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
   const text = normalized(prompt);
   const [operationalSummary, skippedSummary] = await Promise.all([
     getInboundEmailOperationalSummary(supabase, workspace.id),
     getSkippedEmailSummaries(supabase, workspace.id),
   ]);
   const decisions = operationalSummary.decisions;
-  const promoted = decisions.filter((decision) => decision.stage === "promoted");
-  const observed = decisions.filter((decision) => decision.stage === "observed");
+  const promoted = decisions.filter(
+    (decision) => decision.stage === "promoted",
+  );
+  const observed = decisions.filter(
+    (decision) => decision.stage === "observed",
+  );
   const failed = decisions.filter((decision) => decision.stage === "failed");
-  const withAttachments = decisions.filter((decision) => decision.attachmentCount > 0);
+  const withAttachments = decisions.filter(
+    (decision) => decision.attachmentCount > 0,
+  );
   const wantsSkipped =
     text.includes("skipped") ||
     text.includes("filtered") ||
     text.includes("ignored");
   const wantsAttachments = text.includes("attachment") || text.includes("file");
   const latest = wantsSkipped
-    ? observed[0] ?? decisions[0]
+    ? (observed[0] ?? decisions[0])
     : wantsAttachments
-      ? withAttachments[0] ?? decisions[0]
+      ? (withAttachments[0] ?? decisions[0])
       : decisions[0];
   const promotedLinks = promoted
     .filter((decision) => decision.conversationId)
@@ -1336,6 +1967,85 @@ async function inboundEmailAwarenessCommand({
     links,
     title: "Inbound email awareness",
   };
+}
+
+async function assistantHistorySearchCommand({
+  prompt,
+  supabase,
+  threadId,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "supabase" | "threadId" | "user" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const resolvedThreadId =
+    threadId ?? (await activeAssistantThreadId(supabase, workspace.id, user.id));
+  const result = await searchAssistantHistory({
+    query: prompt,
+    supabase,
+    threadId: resolvedThreadId,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+  const top = result.items.slice(0, 5);
+
+  return {
+    context: {
+      matches: result.items.map((item) => ({
+        excerpt: item.excerpt,
+        label: item.label,
+        meta: item.meta ?? null,
+        occurredAt: item.occurredAt,
+        type: item.type,
+      })),
+      query: prompt,
+      scope:
+        "Searches raw assistant messages and compacted long-term context snapshots for the current user's persistent assistant.",
+    },
+    fallbackAnswer:
+      top.length > 0
+        ? `I found ${top.length} relevant assistant history item${top.length === 1 ? "" : "s"}. The strongest match is "${top[0].label}" from ${assistantDate(top[0].occurredAt)}.`
+        : "I searched the assistant history I have indexed so far, but I did not find a clear match.",
+    intent: "assistant_history_search",
+    links: [],
+    title: "Assistant history",
+    uiBlocks: timelineBlock(
+      "Assistant history",
+      top.map((item) => ({
+        at: assistantDate(item.occurredAt),
+        detail: item.excerpt,
+        label: item.label,
+        tone: item.type === "snapshot" ? "purple" : "cyan",
+      })),
+    ),
+  };
+}
+
+async function activeAssistantThreadId(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  userId: string,
+) {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load assistant thread: ${error.message}`);
+  }
+
+  if (!data?.id) {
+    throw new Error("Assistant thread was not found.");
+  }
+
+  return String(data.id);
 }
 
 async function memoryCommand({
@@ -1394,6 +2104,16 @@ async function workQueueCommand({
   const conversations = await getConversationList(supabase, workspace.id);
   const actionable = conversations.filter(isConversationInLiveWorkQueue);
   const top = actionable.slice(0, 5);
+  const approvalItems = actionable
+    .filter((conversation) => conversation.pendingApprovalCount > 0)
+    .slice(0, 5)
+    .map((conversation) => ({
+      detail: `${conversation.pendingApprovalCount} approval${conversation.pendingApprovalCount === 1 ? "" : "s"} - ${conversation.nextActionLabel}`,
+      href: `/inbox/${conversation.id}`,
+      id: conversation.id,
+      label: conversation.contactName ?? conversation.leadTitle ?? "Inquiry",
+      status: conversation.workflowBucket,
+    }));
 
   return {
     context: {
@@ -1418,6 +2138,25 @@ async function workQueueCommand({
     intent: "work_queue",
     links: top.map(conversationToAssistantLink),
     title: "Work queue",
+    uiBlocks: [
+      ...summaryCardsBlock("Queue summary", [
+        {
+          detail: "Live work queue",
+          href: "/inbox",
+          label: "Needs attention",
+          tone: actionable.length > 0 ? "warning" : "success",
+          value: String(actionable.length),
+        },
+        {
+          detail: "Replies or approvals",
+          href: "/inbox?filter=needs_reply",
+          label: "Top items",
+          tone: "cyan",
+          value: String(top.length),
+        },
+      ]),
+      ...approvalQueueBlock("Approval queue", approvalItems),
+    ],
   };
 }
 
@@ -1560,7 +2299,7 @@ async function quoteCommand({
     links: top.map((quote) =>
       rowLink(
         quote.title,
-        `/documents/${quote.id}`,
+        `/files/${quote.id}`,
         `${titleCase(quote.status)} - ${quote.lineItemCount} line items`,
       ),
     ),
@@ -1625,13 +2364,17 @@ async function quoteSendReadyListCommand({
   const quotes = await getQuoteDraftList(supabase, workspace.id);
   const openQuotes = quotes.filter(quoteIsSendableStatus);
   const ready = openQuotes.filter((quote) => quoteSendReadiness(quote).ready);
-  const blocked = openQuotes.filter((quote) => !quoteSendReadiness(quote).ready);
+  const blocked = openQuotes.filter(
+    (quote) => !quoteSendReadiness(quote).ready,
+  );
   const top = ready.slice(0, 6);
 
   return {
     context: {
       blockedCount: blocked.length,
-      blockedExamples: recordsContext(blocked.slice(0, 6).map(quoteReadyRecord)),
+      blockedExamples: recordsContext(
+        blocked.slice(0, 6).map(quoteReadyRecord),
+      ),
       readyCount: ready.length,
       readyQuotes: recordsContext(top.map(quoteReadyRecord)),
     },
@@ -1645,7 +2388,7 @@ async function quoteSendReadyListCommand({
     links: top.map((quote) =>
       rowLink(
         quote.title,
-        `/documents/${quote.id}`,
+        `/files/${quote.id}`,
         `${quoteCustomerLabel(quote)} - ${titleCase(quote.status)}`,
       ),
     ),
@@ -1689,7 +2432,7 @@ async function quoteHistoryCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.quote.title,
-          `/documents/${candidate.quote.id}`,
+          `/files/${candidate.quote.id}`,
           `${quoteCustomerLabel(candidate.quote)} - ${titleCase(candidate.quote.status)}`,
         ),
       ),
@@ -1729,9 +2472,15 @@ async function quoteHistoryCommand({
     history,
   });
   const sentEvent = history.find((event) => event.kind === "email_sent");
-  const preparedEvent = history.find((event) => event.kind === "email_prepared");
-  const generatedEvent = history.find((event) => event.kind === "pdf_generated");
-  const approvedEvent = history.find((event) => event.kind === "customer_approved");
+  const preparedEvent = history.find(
+    (event) => event.kind === "email_prepared",
+  );
+  const generatedEvent = history.find(
+    (event) => event.kind === "pdf_generated",
+  );
+  const approvedEvent = history.find(
+    (event) => event.kind === "customer_approved",
+  );
   const changesRequestedEvent = history.find(
     (event) => event.kind === "customer_changes_requested",
   );
@@ -1753,10 +2502,10 @@ async function quoteHistoryCommand({
   const changedLine = revisionState.pendingChangeRequest
     ? `The customer requested changes to v${revisionState.pendingChangeRequest.requestedFromVersion}: ${revisionState.pendingChangeRequest.message ?? "no note was provided"}.`
     : freshness.latest
-    ? freshness.changed
-      ? "The quote has changed since the latest document event, so generate or prepare a fresh PDF before relying on it."
-      : "The latest document event matches the current quote content."
-    : "There is no document version to compare against yet.";
+      ? freshness.changed
+        ? "The quote has changed since the latest document event, so generate or prepare a fresh PDF before relying on it."
+        : "The latest document event matches the current quote content."
+      : "There is no document version to compare against yet.";
 
   return {
     context: {
@@ -1778,7 +2527,7 @@ async function quoteHistoryCommand({
     links: [
       rowLink(
         profile.quoteDraft.title,
-        `/documents/${profile.quoteDraft.id}`,
+        `/files/${profile.quoteDraft.id}`,
         "Quote history",
       ),
       ...(profile.quoteDraft.conversation
@@ -1884,7 +2633,9 @@ async function prepareQuoteDraftSendFromAssistant({
   ]);
 
   if (contactResult.error) {
-    throw new Error(`Unable to load customer contact: ${contactResult.error.message}`);
+    throw new Error(
+      `Unable to load customer contact: ${contactResult.error.message}`,
+    );
   }
 
   if (leadResult.error) {
@@ -1898,7 +2649,10 @@ async function prepareQuoteDraftSendFromAssistant({
   const customerEmail =
     textValue(contact.email) ?? textValue(metadata.customerEmail);
 
-  if (String(quoteDraft.status) === "changes_requested" || revisionState.pendingChangeRequest) {
+  if (
+    String(quoteDraft.status) === "changes_requested" ||
+    revisionState.pendingChangeRequest
+  ) {
     return {
       message:
         "That quote has customer-requested changes waiting. Open it, edit and save the revision, then I can prepare the revised quote email.",
@@ -1931,7 +2685,9 @@ async function prepareQuoteDraftSendFromAssistant({
     .limit(25);
 
   if (pending.error) {
-    throw new Error(`Unable to check pending quote emails: ${pending.error.message}`);
+    throw new Error(
+      `Unable to check pending quote emails: ${pending.error.message}`,
+    );
   }
 
   const duplicateAction = (pending.data ?? []).find((action) => {
@@ -2040,19 +2796,16 @@ async function prepareQuoteDraftSendFromAssistant({
     },
     source: "assistant.quote_send",
   });
-  const nextMetadata = appendQuoteDocumentHistory(
-    preparedMetadata,
-    {
-      actionId: String(action.id),
-      actorType: "ai",
-      contentHash: documentMetadata.contentHash,
-      document: documentMetadata,
-      kind: "email_prepared",
-      occurredAt: documentMetadata.generatedAt,
-      quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
-      source: "assistant.quote_send",
-    },
-  );
+  const nextMetadata = appendQuoteDocumentHistory(preparedMetadata, {
+    actionId: String(action.id),
+    actorType: "ai",
+    contentHash: documentMetadata.contentHash,
+    document: documentMetadata,
+    kind: "email_prepared",
+    occurredAt: documentMetadata.generatedAt,
+    quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
+    source: "assistant.quote_send",
+  });
   const { error: updateError } = await supabase
     .from("quote_drafts")
     .update({
@@ -2146,11 +2899,12 @@ async function quoteSendCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.quote.title,
-          `/documents/${candidate.quote.id}`,
+          `/files/${candidate.quote.id}`,
           `${quoteCustomerLabel(candidate.quote)} - ${titleCase(candidate.quote.status)}`,
         ),
       ),
-      title: selection.kind === "ambiguous" ? "Choose a quote" : "Quote not found",
+      title:
+        selection.kind === "ambiguous" ? "Choose a quote" : "Quote not found",
     };
   }
 
@@ -2167,7 +2921,7 @@ async function quoteSendCommand({
       links: [
         rowLink(
           selection.quote.title,
-          `/documents/${selection.quote.id}`,
+          `/files/${selection.quote.id}`,
           "Fix quote details",
         ),
       ],
@@ -2192,7 +2946,11 @@ async function quoteSendCommand({
       fallbackAnswer: result.message,
       intent: "quote_send_prepare",
       links: [
-        rowLink(result.quoteTitle, `/documents/${result.quoteDraftId}`, "Quote draft"),
+        rowLink(
+          result.quoteTitle,
+          `/files/${result.quoteDraftId}`,
+          "Quote draft",
+        ),
       ],
       title: "Quote needs setup",
     };
@@ -2209,8 +2967,16 @@ async function quoteSendCommand({
         "A quote email is already prepared for this draft. Review the pending message in the linked inquiry before creating another one.",
       intent: "quote_send_prepare",
       links: [
-        rowLink(result.quoteTitle, `/inbox/${result.conversationId}`, "Review email"),
-        rowLink(result.quoteTitle, `/documents/${result.quoteDraftId}`, "Quote draft"),
+        rowLink(
+          result.quoteTitle,
+          `/inbox/${result.conversationId}`,
+          "Review email",
+        ),
+        rowLink(
+          result.quoteTitle,
+          `/files/${result.quoteDraftId}`,
+          "Quote draft",
+        ),
       ],
       title: "Quote email already prepared",
     };
@@ -2229,8 +2995,16 @@ async function quoteSendCommand({
       "I prepared a reviewable customer email with the quote PDF attached. It has not been sent yet; open the inquiry, check the message, then send it when you are happy.",
     intent: "quote_send_prepare",
     links: [
-      rowLink(result.quoteTitle, `/inbox/${result.conversationId}`, "Review and send"),
-      rowLink(result.quoteTitle, `/documents/${result.quoteDraftId}`, "Quote draft"),
+      rowLink(
+        result.quoteTitle,
+        `/inbox/${result.conversationId}`,
+        "Review and send",
+      ),
+      rowLink(
+        result.quoteTitle,
+        `/files/${result.quoteDraftId}`,
+        "Quote draft",
+      ),
     ],
     mutation: {
       entityId: result.actionId,
@@ -2283,6 +3057,39 @@ async function contactCommand({
   }
 
   const profile = await getContactProfile(supabase, workspace.id, contact.id);
+  const contactTimeline = profile
+    ? [
+        ...profile.messages.slice(0, 4).map((message) => ({
+          at: message.receivedAt ?? message.sentAt ?? message.createdAt,
+          detail:
+            message.subject ??
+            message.bodyText?.slice(0, 120) ??
+            "Message recorded",
+          href: message.conversationId
+            ? `/inbox/${message.conversationId}`
+            : `/contacts/${contact.id}`,
+          label: `${titleCase(message.direction)} message`,
+          tone:
+            message.direction === "inbound"
+              ? ("cyan" as const)
+              : ("pink" as const),
+        })),
+        ...profile.quoteDrafts.slice(0, 2).map((quote) => ({
+          at: quote.updatedAt,
+          detail: `${titleCase(quote.status)} - ${quote.lineItemCount} line items`,
+          href: `/files/${quote.id}`,
+          label: quote.title,
+          tone: "purple" as const,
+        })),
+      ]
+        .sort((left, right) => {
+          const leftTime = left.at ? Date.parse(left.at) : 0;
+          const rightTime = right.at ? Date.parse(right.at) : 0;
+
+          return rightTime - leftTime;
+        })
+        .slice(0, 5)
+    : [];
 
   return {
     context: {
@@ -2321,6 +3128,32 @@ async function contactCommand({
       ),
     ],
     title: "Contact summary",
+    uiBlocks: [
+      ...summaryCardsBlock("Contact snapshot", [
+        {
+          detail: "Linked messages",
+          href: `/contacts/${contact.id}`,
+          label: "Messages",
+          tone: "cyan",
+          value: String(profile?.counts.messages ?? contact.messageCount),
+        },
+        {
+          detail: "Open or historical leads",
+          href: `/contacts/${contact.id}`,
+          label: "Leads",
+          tone: "purple",
+          value: String(profile?.counts.leads ?? 0),
+        },
+        {
+          detail: "Documents linked to this profile",
+          href: `/contacts/${contact.id}`,
+          label: "Quotes",
+          tone: "pink",
+          value: String(profile?.counts.quoteDrafts ?? 0),
+        },
+      ]),
+      ...timelineBlock("Recent contact timeline", contactTimeline),
+    ],
   };
 }
 
@@ -2494,6 +3327,10 @@ function inquiryStatusSummary(conversation: ConversationListItem) {
     return `The ${customer} inquiry is waiting on the customer. A reply has already been recorded, so the next move is to wait for their response or follow up later.`;
   }
 
+  if (conversation.workflowBucket === "follow_up_due") {
+    return `The ${customer} inquiry is due for an internal follow-up. A reply was recorded earlier and the configured follow-up delay has passed.`;
+  }
+
   if (conversation.workflowBucket === "resolved") {
     return `The ${customer} inquiry is marked resolved. The recorded job is ${job}.`;
   }
@@ -2547,10 +3384,14 @@ async function documentTemplateControlCommand({
     .maybeSingle();
 
   if (beforeError) {
-    throw new Error(`Unable to load document templates: ${beforeError.message}`);
+    throw new Error(
+      `Unable to load document templates: ${beforeError.message}`,
+    );
   }
 
-  const beforeSettings = normalizeDocumentTemplateSettings(beforePolicy?.settings);
+  const beforeSettings = normalizeDocumentTemplateSettings(
+    beforePolicy?.settings,
+  );
 
   if (intent === "update" && beforeSettings.customTemplates.length === 0) {
     return {
@@ -2560,7 +3401,9 @@ async function documentTemplateControlCommand({
       fallbackAnswer:
         "There are no reusable templates to edit yet. Create a template first, then Kyro can revise it from chat or voice.",
       intent: "document_template_update",
-      links: [rowLink("Create template", "/documents/templates/new", "Documents")],
+      links: [
+        rowLink("Create template", "/files/templates/new", "Documents"),
+      ],
       title: "Edit document template",
     };
   }
@@ -2593,7 +3436,7 @@ async function documentTemplateControlCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.template.label,
-          `/documents/templates/${encodeURIComponent(candidate.template.key)}`,
+          `/files/templates/${encodeURIComponent(candidate.template.key)}`,
           candidate.template.description,
         ),
       ),
@@ -2608,9 +3451,9 @@ async function documentTemplateControlCommand({
   const templatePayload = existingTemplate
     ? documentTemplateRevisionPayload(existingTemplate)
     : blankDocumentTemplateRevisionPayload({
-      label: templateLabelFromPrompt(prompt),
-      settings: beforeSettings,
-    });
+        label: templateLabelFromPrompt(prompt),
+        settings: beforeSettings,
+      });
   const revision = await runDocumentTemplateRevision({
     instruction: prompt,
     template: templatePayload,
@@ -2767,12 +3610,12 @@ async function documentTemplateControlCommand({
     links: [
       rowLink(
         template.label,
-        `/documents/templates/${encodeURIComponent(template.key)}`,
+        `/files/templates/${encodeURIComponent(template.key)}`,
         "Review template",
       ),
       rowLink(
         "Create draft",
-        `/documents/new?templateKey=${encodeURIComponent(template.key)}`,
+        `/files/new?templateKey=${encodeURIComponent(template.key)}`,
         "Use this template",
       ),
     ],
@@ -2795,7 +3638,9 @@ async function createQuoteDraftCommand({
     supabase,
     workspace.id,
   );
-  const templates = quoteTemplateCatalog(documentTemplateSettings.customTemplates);
+  const templates = quoteTemplateCatalog(
+    documentTemplateSettings.customTemplates,
+  );
   const templateSelection = selectQuoteTemplateForAssistantPrompt(
     prompt,
     templates,
@@ -2810,7 +3655,7 @@ async function createQuoteDraftCommand({
         "There are no document templates yet. Create a reusable quote template first, then Kyro can start quote drafts from it.",
       intent: "quote_create",
       links: [
-        rowLink("Create template", "/documents/templates/new", "Documents"),
+        rowLink("Create template", "/files/templates/new", "Documents"),
       ],
       title: "Create quote draft",
     };
@@ -2835,7 +3680,7 @@ async function createQuoteDraftCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.template.label,
-          `/documents/new?templateKey=${encodeURIComponent(candidate.template.key)}`,
+          `/files/new?templateKey=${encodeURIComponent(candidate.template.key)}`,
           candidate.template.description,
         ),
       ),
@@ -2930,10 +3775,10 @@ async function createQuoteDraftCommand({
     fallbackAnswer: `${quoteDraft.title} has been created as a draft.`,
     intent: "quote_create",
     links: [
-      rowLink(String(quoteDraft.title), `/documents/${quoteDraft.id}`, "Draft"),
+      rowLink(String(quoteDraft.title), `/files/${quoteDraft.id}`, "Draft"),
       rowLink(
         "Print / PDF",
-        `/documents/${quoteDraft.id}/print`,
+        `/files/${quoteDraft.id}/print`,
         "Customer document",
       ),
     ],
@@ -2946,6 +3791,154 @@ async function createQuoteDraftCommand({
   };
 }
 
+async function imageGenerationCommand({
+  prompt,
+  supabase,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult> {
+  const image = await generateKyroImage({
+    prompt,
+    supabase,
+    user,
+    workspace,
+  });
+  const label = image.editMode
+    ? "Generated image with references"
+    : "Generated image";
+  const meta = `${image.provider} ${image.model} - ${image.size} - ${image.quality}`;
+
+  return {
+    context: {
+      generatedImage: {
+        editMode: image.editMode,
+        fileId: image.fileId,
+        filename: image.filename,
+        model: image.model,
+        provider: image.provider,
+        quality: image.quality,
+        referenceCount: image.referenceFiles.length,
+        size: image.size,
+      },
+    },
+    fallbackAnswer:
+      image.referenceFiles.length > 0
+        ? `I generated a referenced image from the attached file context and saved it to Kyro files.`
+        : `I generated the image and saved it to Kyro files.`,
+    intent: "image_generation",
+    links: [
+      rowLink(label, image.href, meta),
+      rowLink("Download image", image.downloadHref, image.filename),
+    ],
+    mutation: {
+      entityId: image.fileId,
+      entityType: "file",
+      label: "Generated image",
+    },
+    title: "Image generation",
+    uiBlocks: generatedImageBlock("Generated image", [
+      {
+        alt: `Generated image for: ${prompt}`,
+        contentType: image.contentType,
+        downloadHref: image.downloadHref,
+        editMode: image.editMode,
+        fileId: image.fileId,
+        filename: image.filename,
+        href: image.href,
+        meta,
+        model: image.model,
+        prompt,
+        provider: image.provider,
+        quality: image.quality,
+        referenceCount: image.referenceFiles.length,
+        size: image.size,
+      },
+    ]),
+  };
+}
+
+async function usageSummaryCommand({
+  supabase,
+  workspace,
+}: Pick<
+  CommandInput,
+  "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const usage = await getUsageReport(supabase, workspace.id, "30d");
+  const totals = usage.totals;
+  const topTasks = usage.taskBreakdown.slice(0, 4);
+
+  return {
+    context: {
+      generatedAt: usage.generatedAt,
+      taskBreakdown: recordsContext(
+        topTasks.map((task) => ({
+          customerCharge: task.customerCharge,
+          events: task.events,
+          label: task.label,
+          providerCost: task.providerCost,
+          quantity: task.quantity,
+        })),
+      ),
+      totals,
+      window: usage.activeWindow,
+    },
+    fallbackAnswer: `The last 30 days show ${totals.events} metered events, ${assistantMoney(
+      totals.providerCost,
+      totals.currency,
+    )} provider cost, and ${assistantMoney(
+      totals.customerCharge,
+      totals.currency,
+    )} customer charge.`,
+    intent: "usage_summary",
+    links: [
+      rowLink(
+        "Billing and metering",
+        "/settings?section=usage",
+        `${totals.events} events`,
+      ),
+    ],
+    title: "Usage summary",
+    uiBlocks: [
+      ...summaryCardsBlock("Usage summary", [
+        {
+          detail: "Internal provider/API cost",
+          href: "/settings?section=usage",
+          label: "Provider cost",
+          tone: "cyan",
+          value: assistantMoney(totals.providerCost, totals.currency),
+        },
+        {
+          detail: "Customer charge basis",
+          href: "/settings?section=usage",
+          label: "Customer charge",
+          tone: "purple",
+          value: assistantMoney(totals.customerCharge, totals.currency),
+        },
+        {
+          detail: "Before processing/support overhead",
+          href: "/settings?section=usage",
+          label: "Gross margin",
+          tone: totals.grossMargin >= 0 ? "success" : "warning",
+          value: assistantMoney(totals.grossMargin, totals.currency),
+        },
+      ]),
+      ...timelineBlock(
+        "Top metered work",
+        topTasks.map((task) => ({
+          detail: `${task.events} events - ${assistantMoney(
+            task.customerCharge,
+            task.currency,
+          )}`,
+          href: "/settings?section=usage",
+          label: task.label,
+          tone: "neutral" as const,
+        })),
+      ),
+    ],
+  };
+}
+
 async function overviewCommand({
   supabase,
   workspace,
@@ -2953,10 +3946,11 @@ async function overviewCommand({
   CommandInput,
   "supabase" | "workspace"
 >): Promise<AssistantCommandResult> {
-  const [conversations, quotes, contacts] = await Promise.all([
+  const [conversations, quotes, contacts, usage] = await Promise.all([
     getConversationList(supabase, workspace.id),
     getQuoteDraftList(supabase, workspace.id),
     getContactList(supabase, workspace.id),
+    getUsageReport(supabase, workspace.id, "30d"),
   ]);
   const needsReply = conversations.filter(
     (conversation) => conversation.workflowBucket === "needs_reply",
@@ -2969,15 +3963,51 @@ async function overviewCommand({
       needsReply: needsReply.length,
       quoteDrafts: quotes.length,
       readyQuotes: readyQuotes.length,
+      usage: usage.totals,
       workspaceName: workspace.name,
     },
     fallbackAnswer: `${workspace.name} has ${needsReply.length} conversations needing reply and ${readyQuotes.length} quote drafts ready.`,
     intent: "overview",
     links: [
       rowLink("Inbox", "/inbox", `${needsReply.length} need reply`),
-      rowLink("Documents", "/documents", `${readyQuotes.length} ready quotes`),
+      rowLink("Files", "/files", `${readyQuotes.length} ready quotes`),
       rowLink("Contacts", "/contacts", `${contacts.length} contacts`),
     ],
     title: "Workspace overview",
+    uiBlocks: [
+      ...summaryCardsBlock("Workspace snapshot", [
+        {
+          detail: "Conversations needing reply",
+          href: "/inbox?filter=needs_reply",
+          label: "Inbox",
+          tone: needsReply.length > 0 ? "warning" : "success",
+          value: String(needsReply.length),
+        },
+        {
+          detail: "Quote drafts ready",
+          href: "/files",
+          label: "Quotes",
+          tone: "purple",
+          value: String(readyQuotes.length),
+        },
+        {
+          detail: "Profiles indexed",
+          href: "/contacts",
+          label: "Contacts",
+          tone: "cyan",
+          value: String(contacts.length),
+        },
+        {
+          detail: `${usage.totals.events} metered events in 30 days`,
+          href: "/settings?section=usage",
+          label: "Usage",
+          tone: "pink",
+          value: assistantMoney(
+            usage.totals.customerCharge,
+            usage.totals.currency,
+          ),
+        },
+      ]),
+    ],
   };
 }

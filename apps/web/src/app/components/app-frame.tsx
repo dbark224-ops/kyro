@@ -1,5 +1,6 @@
 import { BrandMark } from "./brand-mark";
 import { RoutePreloader } from "./route-preloader";
+import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
 import { signOutAction } from "../auth/actions";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
@@ -12,7 +13,6 @@ import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { usageWindowStart } from "../../lib/usage/queries";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
-import Link from "next/link";
 import { Suspense } from "react";
 import type { ReactNode } from "react";
 
@@ -21,7 +21,7 @@ const navItems = [
   { label: "Voice", href: "/voice" },
   { label: "Inbox", href: "/inbox" },
   { label: "CRM", href: "/contacts" },
-  { label: "Documents", href: "/documents" },
+  { label: "Files", href: "/files" },
   { label: "Log", href: "/" },
   { label: "Developer", href: "/developer" },
   { label: "Settings", href: "/settings" },
@@ -32,6 +32,18 @@ const bottomNavItems = ["Assistant", "Voice", "Inbox", "Settings"]
 const preloadRoutes = navItems
   .filter((item) => item.label !== "Developer")
   .map((item) => item.href);
+const USAGE_COST_CACHE_TTL_MS = 30_000;
+const usageCostCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    value: {
+      currency: string;
+      grossMargin: number;
+      providerCost: number;
+    } | null;
+  }
+>();
 
 async function LlmDevStatusPill() {
   const status = await getLlmDevStatus();
@@ -91,6 +103,13 @@ async function loadUsageInternalCostPillData() {
       return null;
     }
 
+    const cacheKey = `${user.id}:${workspace.id}`;
+    const cached = usageCostCache.get(cacheKey);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
     const start = usageWindowStart("30d");
     let usageQuery = supabase
       .from("usage_events")
@@ -133,11 +152,18 @@ async function loadUsageInternalCostPillData() {
       { grossMargin: 0, providerCost: 0 },
     );
 
-    return {
+    const value = {
       currency: settings.displayCurrency,
       grossMargin: totals.grossMargin,
       providerCost: totals.providerCost,
     };
+
+    usageCostCache.set(cacheKey, {
+      expiresAt: Date.now() + USAGE_COST_CACHE_TTL_MS,
+      value,
+    });
+
+    return value;
   } catch {
     return null;
   }
@@ -196,7 +222,7 @@ export function AppFrame({
 
           <nav className="mobile-drawer-list" aria-label="Mobile navigation">
             {navItems.map((item) => (
-              <Link
+              <SmartPrefetchLink
                 href={item.href}
                 className={[
                   "nav-link",
@@ -206,10 +232,9 @@ export function AppFrame({
                   .filter(Boolean)
                   .join(" ")}
                 key={item.label}
-                prefetch={false}
               >
                 {item.label}
-              </Link>
+              </SmartPrefetchLink>
             ))}
           </nav>
 
@@ -228,7 +253,7 @@ export function AppFrame({
         <nav className="nav-list">
           {navItems.map((item) =>
             item.href ? (
-              <Link
+              <SmartPrefetchLink
                 href={item.href}
                 className={[
                   "nav-link",
@@ -238,10 +263,9 @@ export function AppFrame({
                   .filter(Boolean)
                   .join(" ")}
                 key={item.label}
-                prefetch={false}
               >
                 {item.label}
-              </Link>
+              </SmartPrefetchLink>
             ) : (
               <span className="nav-link disabled" key={item.label}>
                 {item.label}
@@ -273,7 +297,7 @@ export function AppFrame({
 
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">
         {bottomNavItems.map((item) => (
-          <Link
+          <SmartPrefetchLink
             className={[
               "mobile-bottom-link",
               item.label === active ? "active" : null,
@@ -282,10 +306,9 @@ export function AppFrame({
               .join(" ")}
             href={item.href}
             key={item.label}
-            prefetch={false}
           >
             {item.label}
-          </Link>
+          </SmartPrefetchLink>
         ))}
       </nav>
     </main>
