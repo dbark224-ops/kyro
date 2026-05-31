@@ -1,4 +1,5 @@
 import { BrandMark } from "./brand-mark";
+import { GlobalSearch } from "./global-search";
 import { RoutePreloader } from "./route-preloader";
 import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
@@ -284,6 +285,7 @@ export function AppFrame({
 
       <section className="workspace">
         <div className="dev-top-controls">
+          <GlobalSearch />
           {topControls}
           <Suspense fallback={null}>
             <UsageInternalCostPills />
