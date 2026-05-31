@@ -4,6 +4,7 @@ import type {
   QuoteDraftProfile,
 } from "../crm/queries";
 import type { OpenAiTokenUsage } from "../usage/openai";
+import type { VoiceCallPreview } from "../voice/calls";
 
 export type AssistantLink = {
   label: string;
@@ -227,6 +228,12 @@ export type AssistantResourcePreview =
       profile: ContactProfile;
       title: string;
       type: "contact";
+    }
+  | {
+      href: string;
+      profile: VoiceCallPreview;
+      title: string;
+      type: "voice_call";
     };
 
 export type AssistantResourcePreviewResult = {

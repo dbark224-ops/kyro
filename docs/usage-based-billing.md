@@ -25,8 +25,9 @@ priced, limited, and explained.
 
 Kyro currently records append-only `usage_events` for AI triage, Assistant work,
 inbound-email classification, reply drafting, document-template edits, pronunciation
-alias enrichment, realtime web-search tool calls, speech-to-text, text-to-speech,
-and real outbound email sends.
+alias enrichment, Assistant public web-search tool calls, speech-to-text,
+text-to-speech, real outbound email sends, Twilio SMS send/receive events, and
+completed Vapi/Twilio voice calls when duration or provider cost is available.
 The Settings usage/billing view is read-only and customer-facing. It shows:
 
 - total usage charge for the selected period,
@@ -164,6 +165,16 @@ Current OpenAI metering behaviour:
   `OPENAI_REALTIME_*_COST_PER_1M` fallbacks.
 - Kyro markup defaults to `25%` and can be overridden with `OPENAI_LLM_MARKUP_RATE`
   or `USAGE_MARKUP_RATE`.
+- Twilio SMS records `outbound_sms` and `inbound_sms` rows with provider `twilio`
+  and service `sms`. Outbound rows use Twilio-returned message price when available,
+  otherwise `TWILIO_SMS_OUTBOUND_UNIT_COST_USD`; inbound rows use
+  `TWILIO_SMS_INBOUND_UNIT_COST_USD`. `TWILIO_MARKUP_RATE` controls the SMS markup
+  snapshot, falling back to `USAGE_MARKUP_RATE` or `25%`.
+- Phone-number rental has a pricing seam through `TWILIO_NUMBER_MONTHLY_COST_USD`.
+  Vapi/Twilio voice calls record `voice_call` usage rows from completed call
+  events, preferring Vapi/Twilio provider cost when supplied and falling back to
+  `TWILIO_VOICE_UNIT_COST_USD`-style minute pricing. UI number purchase and final
+  voice billing reconciliation remain future hardening.
 - Local Ollama/stub usage is still metered with token counts where available, but
   provider cost and customer charge are `0` because there is no provider invoice.
 

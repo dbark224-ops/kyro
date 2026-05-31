@@ -16,6 +16,7 @@ type WebSearchInput = {
 type WebSearchResult = {
   fallbackReason?: string;
   inputTokens: number;
+  model: string;
   outputTokens: number;
   providerUsageId?: string;
   sources: AssistantLink[];
@@ -173,7 +174,7 @@ export function assistantWebSearchEnabled() {
 
 export function openAiWebSearchTool() {
   return {
-    type: "web_search",
+    type: "web_search_preview",
   };
 }
 
@@ -248,6 +249,7 @@ export async function runAssistantWebSearch({
     return {
       fallbackReason: "OPENAI_API_KEY is not configured for web search.",
       inputTokens: estimateTokens(trimmedPrompt),
+      model,
       outputTokens: 0,
       sources: [],
       text: "Web search is not configured yet.",
@@ -259,6 +261,7 @@ export async function runAssistantWebSearch({
     return {
       fallbackReason: "Assistant web search is disabled.",
       inputTokens: estimateTokens(trimmedPrompt),
+      model,
       outputTokens: 0,
       sources: [],
       text: "Web search is disabled for this assistant.",
@@ -271,7 +274,7 @@ export async function runAssistantWebSearch({
       body: JSON.stringify({
         input: trimmedPrompt,
         instructions:
-          "You are Kyro's web search tool. Search the public web when needed, answer concisely, and rely only on sourced public information. Do not claim access to Kyro CRM data, user accounts, private documents, or actions. Include source-backed wording and avoid unsupported certainty.",
+          "You are Kyro's web search tool. Search the public web when needed, answer concisely, and rely only on sourced public information. Cite the sources you use so the response includes url citation annotations for the app to render as source cards. Do not claim access to Kyro CRM data, user accounts, private documents, or actions. Include source-backed wording and avoid unsupported certainty.",
         max_output_tokens: outputTokenLimit,
         model,
         tools: [openAiWebSearchTool()],
@@ -296,6 +299,7 @@ export async function runAssistantWebSearch({
 
     return {
       ...responseUsage(payload, trimmedPrompt, text),
+      model,
       sources: extractWebSearchSources(payload),
       text,
       webSearchUsed: hasWebSearchCall(payload),
@@ -307,6 +311,7 @@ export async function runAssistantWebSearch({
     return {
       fallbackReason,
       inputTokens: estimateTokens(trimmedPrompt),
+      model,
       outputTokens: estimateTokens(fallbackReason),
       sources: [],
       text: "I could not complete the web search just now.",

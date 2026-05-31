@@ -49,6 +49,10 @@ Current routing is intentionally simple but production-shaped:
   provider-returned image token usage for pricing when OpenAI supplies it. The metadata
   stores text input tokens, image input tokens, output image tokens, cost method, pricing
   source, and token cost breakdown.
+- Vapi/Twilio voice calls are metered through `usage_events.usage_type =
+  voice_call` when a completed Vapi event includes duration or provider cost. Kyro
+  stores the raw Vapi/Twilio cost snapshot on `voice_calls` and the billable
+  minute/markup snapshot in the usage ledger.
 
 Provider-specific logic is kept behind `apps/web/src/lib/ai/triage.ts` for inquiry triage,
 `apps/web/src/lib/assistant/providers.ts` for Assistant narration, and shared usage helpers
@@ -61,11 +65,13 @@ and can trigger timeout fallbacks during development.
 
 Assistant tool use is LLM-first but code-executed. For example, "what happened with the Jamie inquiry?" is first sent to
 the OpenAI planner with compact recent context. The planner can choose the inquiry lookup tool, no tool for normal chat,
-or an image-generation edit when the user says "make it nighttime" after a generated image. Kyro's deterministic code then
-validates and executes the chosen tool against workspace-scoped data, records the decision and usage, and gives the
-result back to the narration model. The older keyword router remains as a degraded-mode fallback when the planner is
-unavailable or the Assistant is running against local Ollama. The LLM should not invent search results or render raw
-links; the frontend renders known CRM cards from the executed tool result.
+an image-generation edit when the user says "make it nighttime" after a generated image, or the public web-search tool
+when the user asks for current internet information. Kyro's deterministic code then validates and executes the chosen
+tool against the right boundary: workspace-scoped tables for CRM tools, OpenAI Images for image work, and OpenAI web
+search for public/current web results. It records the decision and usage, then gives the result back to the narration
+model. The older keyword router remains as a degraded-mode fallback when the planner is unavailable or the Assistant is
+running against local Ollama. The LLM should not invent search results or render raw links; the frontend renders known
+CRM/file/source cards from the executed tool result.
 
 ## Task Classes
 
@@ -167,8 +173,8 @@ Track at minimum:
 - Image generation count, size/quality, and provider-returned text/image token usage where available.
 - Speech-to-text minutes.
 - Text-to-speech characters or seconds.
-- SMS segments.
-- Voice call minutes.
+- SMS delivery and inbound SMS events.
+- Phone-number rental and Vapi/Twilio voice call minutes.
 - Document render count/pages.
 - Storage bytes.
 

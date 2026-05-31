@@ -4,6 +4,17 @@ import {
   type EmailAttachment,
   type EmailSendResult,
 } from "../integrations/mail";
+import {
+  findOrCreateTwilioSmsChannel,
+  getActiveWorkspaceSmsNumber,
+  getTwilioConfig,
+  sendTwilioSmsMessage,
+  telephonyUsageCost,
+  TWILIO_PROVIDER,
+  TWILIO_SMS_SERVICE,
+  TWILIO_STATUS_WEBHOOK_PATH,
+  type TwilioSmsSendResult,
+} from "../integrations/twilio";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { buildQuotePdfArtifactForDraft } from "../documents/pdf";
 import {
@@ -179,7 +190,7 @@ function errorMessage(error: unknown) {
 
 function displayChannelName(channelType: OutboundChannel) {
   if (channelType === "sms") {
-    return "Mock SMS";
+    return "SMS";
   }
 
   if (channelType === "phone") {
@@ -197,6 +208,16 @@ function realChannelDisplayName(result: EmailSendResult) {
   const label = result.provider === "microsoft" ? "Outlook" : "Gmail";
 
   return result.accountEmail ? `${label} - ${result.accountEmail}` : label;
+}
+
+function twilioStatusCallbackUrl() {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
+
+  return appUrl ? `${appUrl}${TWILIO_STATUS_WEBHOOK_PATH}` : null;
+}
+
+function envTwilioSenderNumber() {
+  return getTwilioConfig()?.defaultFromNumber ?? null;
 }
 
 function attachmentSummary(
@@ -901,6 +922,32 @@ async function loadEmailRecipient(
   return textValue(contact?.email);
 }
 
+async function loadPhoneRecipient(
+  supabase: SupabaseClient,
+  {
+    contactId,
+    workspaceId,
+  }: {
+    contactId: string | null;
+    workspaceId: string;
+  },
+) {
+  const { data: contact, error: contactError } = contactId
+    ? await supabase
+        .from("contacts")
+        .select("phone,normalized_phone")
+        .eq("workspace_id", workspaceId)
+        .eq("id", contactId)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (contactError) {
+    throw new Error(`Unable to load SMS recipient: ${contactError.message}`);
+  }
+
+  return textValue(contact?.normalized_phone) ?? textValue(contact?.phone);
+}
+
 async function enqueueOutboundDelivery(
   supabase: SupabaseClient,
   input: {
@@ -1199,6 +1246,39 @@ async function markOutboundProviderAccepted(
     .eq("id", row.id);
 }
 
+async function markOutboundExternalProviderAccepted(
+  supabase: SupabaseClient,
+  row: OutboundQueueRow,
+  input: {
+    channelId: string;
+    connectionId?: string | null;
+    messageId: string | null;
+    metadata: Record<string, unknown>;
+    provider: string;
+    providerRequestId?: string | null;
+    service: string;
+    threadId?: string | null;
+  },
+) {
+  await supabase
+    .from("outbound_messages")
+    .update({
+      channel_id: input.channelId,
+      connection_id: input.connectionId ?? null,
+      provider: input.provider,
+      provider_message_id: input.messageId,
+      provider_request_id: input.providerRequestId ?? null,
+      provider_thread_id: input.threadId ?? null,
+      service: input.service,
+      metadata: {
+        ...objectRecord(row.metadata),
+        ...input.metadata,
+        providerAcceptedAt: nowIso(),
+      },
+    })
+    .eq("id", row.id);
+}
+
 async function markOutboundFailed(
   supabase: SupabaseClient,
   row: OutboundQueueRow,
@@ -1426,6 +1506,8 @@ async function deliverOutboundQueueItem(
   let provider: string | null = null;
   let providerRequestId: string | null = null;
   let sentTo = textValue(activeRow.recipient);
+  let sentFrom: string | null = null;
+  let twilioSmsResult: TwilioSmsSendResult | null = null;
   let providerAccepted = false;
   const attemptCount = numberValue(activeRow.attempt_count);
 
@@ -1478,6 +1560,83 @@ async function deliverOutboundQueueItem(
           sentTo: recipientEmail,
         },
       });
+    } else if (channelType === "sms") {
+      const recipientPhone =
+        sentTo ??
+        (conversation
+          ? await loadPhoneRecipient(supabase, {
+              contactId: conversation.contact_id
+                ? String(conversation.contact_id)
+                : null,
+              workspaceId: activeRow.workspace_id,
+            })
+          : null);
+
+      if (!recipientPhone) {
+        throw new Error(
+          "This contact does not have a phone number, so Kyro cannot send this SMS.",
+        );
+      }
+
+      const workspaceSmsNumber = await getActiveWorkspaceSmsNumber(
+        supabase,
+        activeRow.workspace_id,
+      );
+      const senderNumber =
+        workspaceSmsNumber?.phoneNumber ?? envTwilioSenderNumber();
+
+      if (senderNumber && getTwilioConfig()) {
+        const smsResult = await sendTwilioSmsMessage({
+          body,
+          from: senderNumber,
+          statusCallbackUrl: twilioStatusCallbackUrl(),
+          to: recipientPhone,
+        });
+        twilioSmsResult = smsResult;
+
+        channelId = await findOrCreateTwilioSmsChannel(supabase, {
+          phoneNumber: senderNumber,
+          providerPhoneNumberId:
+            workspaceSmsNumber?.providerPhoneNumberId ?? null,
+          workspaceId: activeRow.workspace_id,
+        });
+        dryRun = false;
+        executor = "twilio_sms_api";
+        externalMessageId = smsResult.messageId;
+        externalService = TWILIO_SMS_SERVICE;
+        provider = TWILIO_PROVIDER;
+        providerRequestId = smsResult.providerRequestId ?? null;
+        sentFrom = senderNumber;
+        sentTo = recipientPhone;
+        providerAccepted = true;
+        await markOutboundExternalProviderAccepted(supabase, activeRow, {
+          channelId,
+          messageId: smsResult.messageId,
+          metadata: {
+            from: senderNumber,
+            sentTo: recipientPhone,
+            twilio: {
+              accountSid: smsResult.accountSid,
+              direction: smsResult.direction,
+              numSegments: smsResult.numSegments,
+              price: smsResult.price,
+              priceUnit: smsResult.priceUnit,
+              status: smsResult.status,
+            },
+            workspacePhoneNumberId: workspaceSmsNumber?.id ?? null,
+          },
+          provider: TWILIO_PROVIDER,
+          providerRequestId: smsResult.providerRequestId,
+          service: TWILIO_SMS_SERVICE,
+        });
+      } else {
+        channelId = await findOrCreateMockOutboundChannel(
+          supabase,
+          activeRow.workspace_id,
+          channelType,
+        );
+        sentTo = recipientPhone;
+      }
     } else {
       channelId = await findOrCreateMockOutboundChannel(
         supabase,
@@ -1713,24 +1872,45 @@ async function deliverOutboundQueueItem(
     }
 
     if (!dryRun) {
+      const telephonyCost =
+        channelType === "sms"
+          ? telephonyUsageCost({
+              direction: "outbound",
+              kind: "sms",
+              providerCurrency: twilioSmsResult?.priceUnit,
+              providerPrice: twilioSmsResult?.price
+                ? Math.abs(twilioSmsResult.price)
+                : null,
+            })
+          : null;
+      const usageType =
+        channelType === "sms" ? "outbound_sms" : "outbound_email";
+      const usageService = channelType === "sms" ? "sms" : (externalService ?? "email");
+      const usageCost = telephonyCost?.cost ?? 0;
+      const usageMarkup = telephonyCost?.markup ?? 0;
+      const usageCustomerCharge = telephonyCost?.customerCharge ?? 0;
+      const usageCurrency = telephonyCost?.currency ?? "USD";
+
       await supabase.from("usage_events").insert({
         workspace_id: activeRow.workspace_id,
         user_id: activeRow.user_id,
         source_type: outboundRecordType,
         source_id: outboundRecordId,
         provider: provider ?? "external",
-        service: externalService ?? "email",
+        service: usageService,
         model: null,
-        usage_type: "outbound_email",
+        usage_type: usageType,
         quantity: "1",
         unit: "message",
-        unit_cost_snapshot: "0",
-        markup_snapshot: "0",
-        currency: "USD",
-        cost_snapshot: "0",
-        customer_charge_snapshot: "0",
+        unit_cost_snapshot: String(usageCost),
+        markup_snapshot: String(usageMarkup),
+        currency: usageCurrency,
+        cost_snapshot: String(usageCost),
+        customer_charge_snapshot: String(usageCustomerCharge),
         provider_usage_id: externalMessageId ?? providerRequestId,
         metadata: {
+          billingTask:
+            channelType === "sms" ? "sms_delivery" : "email_delivery",
           channelType,
           conversationId,
           deliveryMode,
@@ -1741,6 +1921,7 @@ async function deliverOutboundQueueItem(
           outboundRecordType,
           outboundQueueId: activeRow.id,
           source: activeRow.source,
+          sentFrom,
           sentTo,
         },
       });
@@ -1890,11 +2071,24 @@ export async function recordOutboundMessage(
             : null,
           workspaceId: input.workspaceId,
         })
-      : null;
+      : input.channelType === "sms"
+        ? await loadPhoneRecipient(supabase, {
+            contactId: conversation.contact_id
+              ? String(conversation.contact_id)
+              : null,
+            workspaceId: input.workspaceId,
+          })
+        : null;
 
   if (input.channelType === "email" && !sentTo) {
     throw new Error(
       "This contact does not have an email address, so Kyro cannot send this reply.",
+    );
+  }
+
+  if (input.channelType === "sms" && !sentTo) {
+    throw new Error(
+      "This contact does not have a phone number, so Kyro cannot send this SMS.",
     );
   }
 

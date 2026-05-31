@@ -45,6 +45,7 @@ import {
   insertAuditLog,
 } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { getVoiceCallPreview } from "../../lib/voice/calls";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -65,10 +66,21 @@ function textValue(value: unknown) {
 }
 
 function assistantPreviewTarget(href: string) {
-  const [pathname] = href.split("?");
+  let contactIdFromQuery: string | null = null;
+  let pathname = href.split("?")[0] ?? href;
+
+  try {
+    const url = new URL(href, "http://kyro.local");
+    pathname = url.pathname;
+    contactIdFromQuery = textValue(url.searchParams.get("contactId"));
+  } catch {
+    // Fall through to the path-based parser for relative hrefs.
+  }
+
   const inboxMatch = pathname?.match(/^\/inbox\/([^/]+)$/);
   const quoteMatch = pathname?.match(/^\/documents\/([^/]+)$/);
   const contactMatch = pathname?.match(/^\/contacts\/([^/]+)$/);
+  const voiceCallMatch = pathname?.match(/^\/voice\/calls\/([^/]+)$/);
 
   if (inboxMatch?.[1]) {
     return {
@@ -91,6 +103,20 @@ function assistantPreviewTarget(href: string) {
     };
   }
 
+  if (pathname === "/contacts" && contactIdFromQuery) {
+    return {
+      id: contactIdFromQuery,
+      type: "contact" as const,
+    };
+  }
+
+  if (voiceCallMatch?.[1]) {
+    return {
+      id: decodeURIComponent(voiceCallMatch[1]),
+      type: "voice_call" as const,
+    };
+  }
+
   return null;
 }
 
@@ -108,6 +134,16 @@ function previewTitle(
 
   if (preview.type === "quote") {
     return preview.profile.quoteDraft.title;
+  }
+
+  if (preview.type === "voice_call") {
+    return preview.profile.contact?.name
+      ? `Call with ${preview.profile.contact.name}`
+      : preview.profile.call.purpose === "voicemail_overflow"
+        ? "Voicemail overflow"
+        : preview.profile.call.direction === "outbound"
+          ? "Outbound phone call"
+          : "Inbound phone call";
   }
 
   return (
@@ -180,6 +216,39 @@ async function loadAssistantResourcePreview(
       profile,
       title: profile.quoteDraft.title,
       type: "quote" as const,
+    };
+
+    return {
+      preview: {
+        ...preview,
+        title: previewTitle(preview),
+      },
+    };
+  }
+
+  if (target.type === "voice_call") {
+    const profile = await getVoiceCallPreview(
+      supabase,
+      workspace.id,
+      target.id,
+    );
+
+    if (!profile) {
+      return { error: "That phone call could not be found." };
+    }
+
+    const preview = {
+      href,
+      profile,
+      title:
+        profile.contact?.name ??
+        profile.contact?.company ??
+        (profile.call.purpose === "voicemail_overflow"
+          ? "Voicemail overflow"
+          : profile.call.direction === "outbound"
+            ? "Outbound phone call"
+            : "Inbound phone call"),
+      type: "voice_call" as const,
     };
 
     return {

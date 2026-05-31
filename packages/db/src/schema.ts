@@ -358,6 +358,52 @@ export const channels = pgTable("channels", {
   ...timestamps,
 });
 
+export const workspacePhoneNumbers = pgTable(
+  "workspace_phone_numbers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    provider: text("provider").notNull().default("twilio"),
+    service: text("service").notNull().default("programmable_messaging"),
+    phoneNumber: text("phone_number").notNull(),
+    normalizedPhone: text("normalized_phone").notNull(),
+    friendlyName: text("friendly_name"),
+    providerPhoneNumberId: text("provider_phone_number_id"),
+    countryCode: text("country_code"),
+    region: text("region"),
+    capabilities: jsonb("capabilities").notNull().default({}),
+    status: text("status").notNull().default("active"),
+    purchasedAt: timestamp("purchased_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    monthlyCostSnapshot: numeric("monthly_cost_snapshot")
+      .notNull()
+      .default("0"),
+    currency: text("currency").notNull().default("USD"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    workspacePhoneNumbersWorkspaceStatusIdx: index(
+      "workspace_phone_numbers_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.provider),
+    workspacePhoneNumbersNormalizedIdx: index(
+      "workspace_phone_numbers_normalized_idx",
+    ).on(table.normalizedPhone, table.provider, table.status),
+    workspacePhoneNumbersProviderIdIdx: uniqueIndex(
+      "workspace_phone_numbers_provider_id_idx",
+    )
+      .on(table.provider, table.providerPhoneNumberId)
+      .where(sql`${table.providerPhoneNumberId} is not null`),
+    workspacePhoneNumbersWorkspaceNumberIdx: uniqueIndex(
+      "workspace_phone_numbers_workspace_number_idx",
+    )
+      .on(table.workspaceId, table.normalizedPhone)
+      .where(sql`${table.status} <> 'released'`),
+  }),
+);
+
 export const conversations = pgTable("conversations", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id")
@@ -708,6 +754,95 @@ export const outboundMessages = pgTable(
     outboundMessagesIdempotencyIdx: uniqueIndex(
       "outbound_messages_workspace_idempotency_idx",
     ).on(table.workspaceId, table.idempotencyKey),
+  }),
+);
+
+export const voiceCalls = pgTable(
+  "voice_calls",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    conversationId: uuid("conversation_id").references(() => conversations.id),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    leadId: uuid("lead_id").references(() => leads.id),
+    phoneNumberId: uuid("phone_number_id").references(
+      () => workspacePhoneNumbers.id,
+    ),
+    direction: text("direction").notNull(),
+    purpose: text("purpose").notNull().default("inbound_customer"),
+    provider: text("provider").notNull().default("vapi"),
+    carrierProvider: text("carrier_provider").notNull().default("twilio"),
+    providerCallId: text("provider_call_id"),
+    providerAssistantId: text("provider_assistant_id"),
+    providerPhoneNumberId: text("provider_phone_number_id"),
+    fromNumber: text("from_number"),
+    toNumber: text("to_number"),
+    normalizedFromNumber: text("normalized_from_number"),
+    normalizedToNumber: text("normalized_to_number"),
+    customerNumber: text("customer_number"),
+    status: text("status").notNull().default("created"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    durationSeconds: integer("duration_seconds"),
+    recordingUrl: text("recording_url"),
+    transcript: text("transcript"),
+    summary: text("summary"),
+    endedReason: text("ended_reason"),
+    costProviderAmount: numeric("cost_provider_amount")
+      .notNull()
+      .default("0"),
+    costCustomerAmount: numeric("cost_customer_amount")
+      .notNull()
+      .default("0"),
+    currency: text("currency").notNull().default("USD"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    voiceCallsWorkspaceCreatedIdx: index("voice_calls_workspace_created_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+    voiceCallsWorkspaceStatusIdx: index("voice_calls_workspace_status_idx").on(
+      table.workspaceId,
+      table.status,
+      table.createdAt,
+    ),
+    voiceCallsWorkspaceContactIdx: index("voice_calls_workspace_contact_idx")
+      .on(table.workspaceId, table.contactId, table.createdAt)
+      .where(sql`${table.contactId} is not null`),
+    voiceCallsProviderCallIdx: uniqueIndex("voice_calls_provider_call_idx")
+      .on(table.provider, table.providerCallId)
+      .where(sql`${table.providerCallId} is not null`),
+  }),
+);
+
+export const voiceCallEvents = pgTable(
+  "voice_call_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    voiceCallId: uuid("voice_call_id").references(() => voiceCalls.id),
+    provider: text("provider").notNull().default("vapi"),
+    eventType: text("event_type").notNull(),
+    payload: jsonb("payload").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    voiceCallEventsWorkspaceCreatedIdx: index(
+      "voice_call_events_workspace_created_idx",
+    ).on(table.workspaceId, table.createdAt),
+    voiceCallEventsCallCreatedIdx: index("voice_call_events_call_created_idx").on(
+      table.workspaceId,
+      table.voiceCallId,
+      table.createdAt,
+    ),
   }),
 );
 

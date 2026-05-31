@@ -437,6 +437,40 @@ function usageTaskForRow(row: UsageEventRow, aiRun: AiRunRow | null) {
     };
   }
 
+  if (service === "sms" || normalized.includes("sms")) {
+    return {
+      description:
+        "Inbound and outbound SMS messages sent or received through connected telephony providers.",
+      key: "sms_delivery",
+      label: "SMS delivery",
+    };
+  }
+
+  if (
+    service === "voice" ||
+    normalized.includes("voice_call") ||
+    normalized.includes("phone_call")
+  ) {
+    return {
+      description:
+        "Phone-call provider charges, call handling, and future voice minutes.",
+      key: "phone_calls",
+      label: "Phone calls",
+    };
+  }
+
+  if (
+    normalized.includes("number_rental") ||
+    normalized.includes("phone_number")
+  ) {
+    return {
+      description:
+        "Workspace phone-number rental charges passed through from the telephony provider.",
+      key: "phone_number_rental",
+      label: "Phone number rental",
+    };
+  }
+
   if (
     normalized.includes("reply") ||
     normalized.includes("draft_reply") ||

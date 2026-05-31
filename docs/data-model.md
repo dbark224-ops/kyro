@@ -80,6 +80,35 @@ generated document records, inquiry facts, usage/pricing/budget, entitlements, a
 - `created_at`
 - `updated_at`
 
+### `workspace_phone_numbers`
+
+Workspace-owned provider phone numbers for SMS and Vapi/Twilio voice.
+
+- `id`
+- `workspace_id`
+- `provider`
+- `service`
+- `phone_number`
+- `normalized_phone`
+- `friendly_name`
+- `provider_phone_number_id`
+- `country_code`
+- `region`
+- `capabilities`
+- `status`
+- `purchased_at`
+- `released_at`
+- `monthly_cost_snapshot`
+- `currency`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+The current implementation stores Twilio numbers and capability metadata, but does
+not yet expose number search/purchase in the UI. Inbound Twilio SMS is matched by
+the destination number in this table before Kyro creates a workspace-scoped SMS
+channel and CRM conversation.
+
 ## CRM Core
 
 ### `contacts`
@@ -396,6 +425,72 @@ so scheduled retries can rebuild provider attachments without storing base64
 blobs in Postgres. Legacy rows that still contain `contentBase64` are readable
 for compatibility but new rows should not be written that way.
 
+### `voice_calls`
+
+Durable phone-call ledger for Vapi-powered voice interactions. This is separate
+from `messages` because a call can have a recording, transcript, lifecycle
+events, and provider state before it becomes a normal CRM conversation note or
+follow-up action.
+
+- `id`
+- `workspace_id`
+- `conversation_id`
+- `contact_id`
+- `lead_id`
+- `phone_number_id`
+- `direction`
+- `purpose`
+- `provider`
+- `carrier_provider`
+- `provider_call_id`
+- `provider_assistant_id`
+- `provider_phone_number_id`
+- `from_number`
+- `to_number`
+- `normalized_from_number`
+- `normalized_to_number`
+- `customer_number`
+- `status`
+- `started_at`
+- `ended_at`
+- `duration_seconds`
+- `recording_url`
+- `transcript`
+- `summary`
+- `ended_reason`
+- `cost_provider_amount`
+- `cost_customer_amount`
+- `currency`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+Current `purpose` values are `inbound_customer`, `inbound_user`,
+`voicemail_overflow`, `outbound_customer`, and `test`. Current statuses are
+`created`, `queued`, `ringing`, `in_progress`, `completed`, `failed`, `missed`,
+and `cancelled`. Vapi is the AI-call provider and Twilio is the carrier provider.
+The row stores provider ids and the resolved customer number so UI surfaces can
+show the call even if no CRM contact has been matched yet. Completed calls can
+write `usage_events.usage_type = voice_call` rows from Vapi/Twilio provider cost,
+duration, and workspace markup settings.
+
+### `voice_call_events`
+
+Raw event ledger for Vapi webhooks and tool calls.
+
+- `id`
+- `workspace_id`
+- `voice_call_id`
+- `provider`
+- `event_type`
+- `payload`
+- `created_at`
+
+Webhook payloads are stored as JSON so Kyro can inspect provider behaviour during
+early integration testing without losing detail. User-facing screens render only
+the compact call preview; the raw event history remains available for debugging,
+audit, and later workflow automation.
+
 ### `tasks` planned
 
 - `id`
@@ -438,6 +533,12 @@ Image generation `ai_runs.usage` stores the request-level provider cost/customer
 charge snapshot and, when OpenAI returns it, the provider image usage object. The
 matching `usage_events.image_generation` row is the append-only billing ledger
 source and includes the token split/cost breakdown in metadata.
+
+Assistant public web search creates `ai_runs.task_type = web_search` tool rows
+when the Assistant executes an OpenAI web-search request. Token usage is stored as
+normal LLM token rows, and the hosted search call itself is also stored in
+`usage_events.usage_type = web_search_calls` so source-backed internet lookup
+costs remain auditable separately from ordinary chat narration.
 
 ### `model_routes`
 
@@ -1006,6 +1107,9 @@ Recommended `usage_type` values:
 - `text_to_speech_characters`
 - `text_to_speech_seconds`
 - `sms_segments`
+- `inbound_sms`
+- `outbound_sms`
+- `phone_number_rental`
 - `voice_minutes`
 - `document_pages`
 - `storage_bytes`

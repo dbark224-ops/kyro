@@ -146,6 +146,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
         "For quote_send_ready_list, explain which quotes are ready and which common blockers remain without pretending blocked quotes can be sent.",
         "For quote_history, answer from the document history events, quoteVersion, revisionNeeded, customer approval/change-request events, and content-hash freshness. Be explicit about whether the quote was sent, prepared only, generated only, approved, needs revision, or changed since the latest document event.",
         "For general_chat, you can answer normally and casually. Be warm, natural, and a little personable.",
+        "For web_search, answer from commandResult.fallbackAnswer and commandResult.context.sources. Do not run a second web search.",
         "Use threadSummary, recentMessages, longTermContextSnapshots, and relevantMemories only when they help answer the current userPrompt.",
         "longTermContextSnapshots are compacted older assistant context. Prefer them for continuity over pretending the current prompt is isolated. If they are insufficient and the user asks about older discussion, say you can search assistant history.",
         "Do not invent CRM records, dates, prices, or real-world business actions.",
@@ -154,7 +155,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
         "Mention the most useful next click when links are available for CRM intents.",
         "For general_chat, do not mention command results, CRM cards, internal routing, or that you are constrained to CRM data.",
         "If web search is available, use it only for current or public internet information, not for Kyro CRM records or private workspace data.",
-        "If you use web search, answer from the sources and keep the wording source-backed. The UI will show source cards, so do not dump raw URLs.",
+        "If you use web search, answer from the sources and cite them so url citation annotations are available for UI source cards. Do not dump raw URLs.",
         "Do not print raw URLs, UUIDs, hrefs, or markdown links; the UI renders commandResult.links as cards.",
         "For inquiry_lookup with an exact match, explain the reply/status in plain language and point to the card below.",
         "For inquiry_lookup with partial or multiple matches, ask the user to confirm which listed inquiry they mean.",
@@ -206,7 +207,8 @@ async function runOpenAiAssistant(
   }
 
   try {
-    const webSearchEnabled = assistantWebSearchEnabled();
+    const webSearchEnabled =
+      assistantWebSearchEnabled() && input.command.intent !== "web_search";
     const response = await fetch("https://api.openai.com/v1/responses", {
       body: JSON.stringify({
         input: prompt,

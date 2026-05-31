@@ -20,6 +20,7 @@
     "@kyro/jobs": "0.1.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "latest",
+    "@vapi-ai/web": "^2.5.2",
     "libphonenumber-js": "^1.13.3",
     "next": "latest",
     "pdf-lib": "^1.17.1",

@@ -46,6 +46,17 @@ Optional until those integrations are enabled:
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_MESSAGING_SERVICE_SID`
 - `TWILIO_VOICE_NUMBER`
+- optional SMS/voice pricing overrides: `TWILIO_SMS_OUTBOUND_UNIT_COST_USD`,
+  `TWILIO_SMS_INBOUND_UNIT_COST_USD`, `TWILIO_VOICE_UNIT_COST_USD`,
+  `TWILIO_NUMBER_MONTHLY_COST_USD`, and `TWILIO_MARKUP_RATE`
+- `VAPI_API_KEY`
+- `VAPI_WEBHOOK_SECRET`
+- `VAPI_TOOL_SECRET`
+- `NEXT_PUBLIC_VAPI_PUBLIC_KEY`
+- optional Vapi defaults: `VAPI_PHONE_NUMBER_ID`,
+  `VAPI_DEFAULT_ASSISTANT_ID`, `VAPI_INTERNAL_ASSISTANT_ID`,
+  `VAPI_INBOUND_ASSISTANT_ID`, `VAPI_VOICEMAIL_OVERFLOW_ASSISTANT_ID`, and
+  `VAPI_OUTBOUND_ASSISTANT_ID`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
@@ -112,6 +123,63 @@ If address autocomplete/verification is enabled:
 - restrict the key to the deployed app/server environment before production use,
 - test CRM profile address editing, Inbox inquiry-fact address editing, and Developer mock inbound.
 
+## 5b. Twilio SMS Foundation
+
+If Twilio SMS is enabled:
+
+- set `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` server-side,
+- optionally set `TWILIO_MESSAGING_SERVICE_SID` for Messaging Service sends,
+- optionally set `TWILIO_VOICE_NUMBER` as a temporary testing sender,
+- apply migrations so `workspace_phone_numbers` exists,
+- add a workspace phone-number row for the Twilio destination number before
+  testing inbound SMS,
+- configure the Twilio inbound message webhook to
+  `${NEXT_PUBLIC_APP_URL}/api/integrations/twilio/sms`,
+- configure the delivery status callback to
+  `${NEXT_PUBLIC_APP_URL}/api/integrations/twilio/status`,
+- send one inbound SMS and confirm it creates a CRM conversation,
+- send one outbound SMS from an Inbox/Assistant preview and confirm it appears in
+  the outbox, conversation thread, Log, Usage, and Assistant activity pane.
+
+## 5c. Vapi Phone Assistant Foundation
+
+If Vapi phone calls are enabled:
+
+- set `VAPI_API_KEY`, `VAPI_WEBHOOK_SECRET`, and `VAPI_TOOL_SECRET` server-side,
+- set `NEXT_PUBLIC_VAPI_PUBLIC_KEY` only if the browser/mobile Vapi voice runtime
+  is enabled,
+- review the internal Vapi STT defaults, or override them with
+  `VAPI_INTERNAL_TRANSCRIBER_PROVIDER`, `VAPI_INTERNAL_TRANSCRIBER_MODEL`, and
+  `VAPI_INTERNAL_TRANSCRIBER_LANGUAGE`,
+- configure `NEXT_PUBLIC_APP_URL` to a public HTTPS URL reachable by Vapi,
+- apply migrations so `voice_calls` and `voice_call_events` exist,
+- create Vapi assistants for internal Kyro voice testing, inbound customer calls,
+  voicemail overflow, and outbound customer calls,
+- connect a Twilio voice-capable number to Vapi,
+- configure the Vapi webhook/server URL to
+  `${NEXT_PUBLIC_APP_URL}/api/integrations/vapi/webhook`,
+- configure Vapi tools to call
+  `${NEXT_PUBLIC_APP_URL}/api/integrations/vapi/tool`,
+- include the core internal tools: `kyro_context_lookup`, `kyro_lookup_contact`,
+  `kyro_update_contact`, `kyro_web_search`, `kyro_check_recent_email`, and
+  `kyro_record_call_note`,
+- save the Vapi phone-number id and assistant ids in Settings -> Voice,
+- choose the workspace ElevenLabs/Vapi voice in Settings -> Voice; the default
+  is Female - Australian and is passed to the Vapi browser/mobile runtime and
+  outbound Vapi calls as a voice override,
+- set the same voice on inbound and voicemail-overflow assistants in Vapi until
+  Kyro supports dynamic incoming-call assistant overrides,
+- save the internal Vapi assistant id in Settings -> Voice or set
+  `VAPI_INTERNAL_ASSISTANT_ID`,
+- add user/team numbers in Settings -> Voice so owner calls are treated as
+  internal instructions,
+- open `/voice-vapi`, confirm it starts with the Vapi public key, and verify
+  completed turns persist into the main Assistant thread,
+- place one inbound test call and one outbound test call, then confirm each
+  appears in Assistant -> Kyro activity with transcript, recording URL when
+  available, provider events, and usage ledger rows when provider cost/duration
+  is available.
+
 ## 6. OpenAI, Images, And Realtime Voice
 
 Verify production has:
@@ -129,6 +197,7 @@ Run a smoke test for:
 - text assistant answer,
 - text assistant image generation with and without an uploaded reference image,
 - realtime voice session creation,
+- Vapi internal voice session creation, if `NEXT_PUBLIC_VAPI_PUBLIC_KEY` is set,
 - pronunciation preview,
 - reply draft generation,
 - quote approval link creation and the no-login `/quote/approve/[token]` customer page,
@@ -199,7 +268,14 @@ Recommended deploy sequence:
 - Gmail/Outlook push mailbox watches are deferred; production uses 5-minute polling.
 - Inbound email attachments are persisted to private Supabase Storage when provider bytes are available, but richer Drive/job-file organisation is future work.
 - Deep provider history/watch sync is deferred; current thread matching uses provider thread id, RFC references, and same-contact same-subject fallback.
-- SMS/phone providers are not connected yet.
+- Twilio SMS has a first send/receive foundation, but user-facing number purchase,
+  SMS compliance/opt-out hardening, and internal-operator SMS classification are
+  still future work.
+- Vapi/Twilio phone calls have a first backend foundation, but live Vapi prompts,
+  number wiring, recording retention, urgent escalation, and post-call CRM action
+  automation still need production testing. `/voice-vapi` is a separate internal
+  voice-runtime testbed and should not replace the OpenAI `/voice` path until it
+  is tested with the chosen production Vapi assistant.
 - Native iOS shell is future work; current UI is web/iOS-shaped.
 - Billing UI is usage visibility only, not payment collection.
 - Image generation is Assistant/file-storage backed. Rich media gallery/history, multi-turn visual editing, and mobile camera-first flows are future work.

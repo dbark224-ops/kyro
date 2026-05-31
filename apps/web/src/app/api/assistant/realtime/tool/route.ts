@@ -1,4 +1,5 @@
 import { resolveAssistantCommand } from "../../../../../lib/assistant/commands";
+import { updateContactFromAssistantTool } from "../../../../../lib/crm/contact-update-tool";
 import {
   assistantWebSearchEnabled,
   runAssistantWebSearch,
@@ -36,13 +37,18 @@ export async function POST(request: Request) {
 
   if (
     name !== "kyro_context_lookup" &&
+    name !== "kyro_update_contact" &&
     name !== "kyro_web_search" &&
     name !== "kyro_check_recent_email"
   ) {
     return Response.json({ error: "Unsupported realtime tool." }, { status: 400 });
   }
 
-  if (name !== "kyro_check_recent_email" && !prompt) {
+  if (
+    name !== "kyro_check_recent_email" &&
+    name !== "kyro_update_contact" &&
+    !prompt
+  ) {
     return Response.json({ error: "Tool prompt is required." }, { status: 400 });
   }
 
@@ -69,6 +75,23 @@ export async function POST(request: Request) {
     return Response.json({
       data: {
         answer,
+        result,
+      },
+    });
+  }
+
+  if (name === "kyro_update_contact") {
+    const result = await updateContactFromAssistantTool({
+      args: rawArguments,
+      source: "realtime_voice",
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    return Response.json({
+      data: {
+        answer: result.answer,
         result,
       },
     });

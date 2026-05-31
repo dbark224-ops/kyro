@@ -32,7 +32,7 @@ The applied migrations currently create:
 
 - Tenant/auth tables.
 - Workspace policies and entitlements.
-- Contacts, leads, contact lifecycle fields, channels, conversations, messages, conversation tasks/appointments/notes, outbound delivery rows, quote drafts, generated documents, inquiry facts, Assistant memory tables, and files.
+- Contacts, leads, contact lifecycle fields, channels, workspace phone numbers, conversations, messages, conversation tasks/appointments/notes, outbound delivery rows, Vapi/Twilio voice-call ledgers, quote drafts, generated documents, inquiry facts, Assistant memory tables, and files.
 - Events, workflow runs, actions, AI runs, model routes, and audit logs.
 - Usage events, usage rollups, pricing rules, and workspace budgets.
 - Contact profile fields for contact type and address are added by a follow-up migration.
@@ -69,6 +69,8 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260526071536_contact_profile_resolution.sql`: adds profile-resolution status/reason/conflict/merge fields to `contacts`, indexes active review and merged-source lookups, and updates the identity trigger so app-side default-phone-region normalization is preserved.
 - `20260526155526_fixed_arclight.sql`: adds `conversation_tasks`, `conversation_appointments`, and `conversation_notes` with workspace RLS, updated-at triggers, and indexes for conversation/message/status lookups.
 - `20260527024424_structured_addresses.sql`: adds structured Google/manual address fields to `contacts` and `inquiry_facts`, including line/locality/postal/country/coordinate/place-id fields, validation status, raw structured JSON, and workspace indexes for place/postal lookups.
+- `20260529021344_twilio_sms_foundation.sql`: adds `workspace_phone_numbers` for Twilio SMS/voice-capable numbers, workspace RLS, indexes, capability metadata, provider ids, and updated-at trigger support.
+- `20260529043000_vapi_voice_calls.sql`: adds `voice_calls` and `voice_call_events` for Vapi/Twilio inbound calls, voicemail overflow, user-to-Kyro calls, outbound customer calls, transcripts, recordings, provider status, cost snapshots, raw event audit, and workspace RLS.
 
 CRM profile identity now uses normalized email, normalized phone, and normalized company values. App code normalizes bare local phone numbers with the workspace default phone region before falling back through broader international parsing. Explicit country-coded numbers remain country-safe.
 
@@ -91,6 +93,24 @@ Inbox workflow state now has durable rows:
 - `conversation_tasks` stores user-created tasks, automatic `customer_follow_up` reminders, site-visit tasks, and message-resolution markers linked to conversations/messages/actions,
 - `conversation_appointments` stores site-visit/appointment records before any external calendar provider is connected,
 - `conversation_notes` stores internal-only operator notes linked to conversations or individual messages.
+
+Twilio SMS now has a first database foundation:
+
+- `workspace_phone_numbers` stores active/pending/released Twilio numbers per workspace,
+- inbound SMS webhooks match the Twilio destination number against this table,
+- inbound and outbound SMS usage is recorded in `usage_events`,
+- outbound SMS delivery still uses the existing `outbound_messages` queue/ledger.
+
+Vapi/Twilio voice now has a first database foundation:
+
+- `voice_calls` stores call direction, purpose, provider ids, Twilio/Vapi numbers,
+  matched contact/conversation/lead ids, transcript, summary, recording URL,
+  status, duration, provider cost, customer charge, and metadata,
+- `voice_call_events` stores raw Vapi webhook and tool payloads for audit and
+  debugging,
+- completed calls can write `usage_events` rows with `usage_type = voice_call`,
+- Assistant Kyro activity and the mobile app both load call details through
+  `/api/voice/calls/[callId]` rather than querying these tables directly.
 
 Assistant memory/thread behavior does not currently need a new migration.
 `assistant_threads.status` is used for active versus archived threads, and

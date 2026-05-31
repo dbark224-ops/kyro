@@ -55,6 +55,7 @@ import { syncInboundEmail } from "../integrations/inbound-email-sync";
 import { getInboundEmailOperationalSummary } from "../integrations/inbound-email-settings";
 import {
   buildLlmUsageEvents,
+  buildOpenAiWebSearchCallUsageEvent,
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
@@ -89,6 +90,7 @@ import {
   summaryCardsBlock,
   timelineBlock,
 } from "./ui-blocks";
+import { runAssistantWebSearch } from "./web-search";
 
 type WorkspaceInput = {
   id: string;
@@ -803,6 +805,18 @@ function recordsContext<T extends Record<string, unknown>>(items: T[]) {
   return items.slice(0, 8);
 }
 
+function joinHumanList(items: string[]) {
+  if (items.length === 0) {
+    return "";
+  }
+
+  if (items.length === 1) {
+    return items[0];
+  }
+
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
 function looksLikeInquiryLookup(prompt: string) {
   const text = normalized(prompt);
   const searchTerm = inquirySearchTerm(prompt);
@@ -814,6 +828,14 @@ function looksLikeInquiryLookup(prompt: string) {
   if (
     text.includes("needs reply") ||
     text.includes("need reply") ||
+    text.includes("needs a reply") ||
+    text.includes("need a reply") ||
+    text.includes("needs response") ||
+    text.includes("need response") ||
+    text.includes("needs a response") ||
+    text.includes("need a response") ||
+    text.includes("need responding") ||
+    text.includes("needs responding") ||
     text.includes("work queue") ||
     text.includes("what should i do")
   ) {
@@ -829,6 +851,36 @@ function looksLikeInquiryLookup(prompt: string) {
     text.includes("where are we") ||
     text.includes("where is") ||
     text.includes("status")
+  );
+}
+
+function looksLikeWorkQueueRequest(prompt: string) {
+  const text = normalized(prompt);
+  const hasQueueSubject =
+    /\b(leads?|inquiries|enquiries|jobs?|conversations?|messages?|inbox|work queue|queue)\b/.test(
+      text,
+    );
+  const hasAttentionIntent =
+    /\b(needs?|needing|need|responding|respond|response|reply|replies|replied|unanswered|unresponded|unreplied|pending|open|waiting|attention|urgent|action|follow up|follow-up)\b/.test(
+      text,
+    );
+
+  return (
+    text.includes("needs reply") ||
+    text.includes("need reply") ||
+    text.includes("needs a reply") ||
+    text.includes("need a reply") ||
+    text.includes("needs response") ||
+    text.includes("need response") ||
+    text.includes("needs a response") ||
+    text.includes("need a response") ||
+    text.includes("need responding") ||
+    text.includes("needs responding") ||
+    text.includes("work queue") ||
+    text.includes("what should i do") ||
+    text.includes("what needs attention") ||
+    text.includes("anything urgent") ||
+    (hasQueueSubject && hasAttentionIntent)
   );
 }
 
@@ -1073,6 +1125,25 @@ function looksLikeUsageSummaryRequest(prompt: string) {
       text,
     )
   );
+}
+
+export function looksLikeWebSearchRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  const explicitSearch =
+    /\b(search|google|look up|lookup|check|find)\b/.test(text) &&
+    /\b(web|internet|online|public|news|latest|current|today|recent|website|site)\b/.test(
+      text,
+    );
+  const currentPublic =
+    /\b(latest|current|today|recent|news|price|pricing|regulation|rules|standard|law|weather|exchange rate|stock price)\b/.test(
+      text,
+    ) &&
+    !/\b(kyro|workspace|inbox|crm|contact|lead|quote|document|file|setting|usage|billing|email sync|outbox)\b/.test(
+      text,
+    );
+
+  return explicitSearch || currentPublic;
 }
 
 function latestGeneratedImageFromRecentMessages(
@@ -1412,6 +1483,10 @@ async function resolvePlannedAssistantCommand({
 
   switch (toolSelection.name) {
     case "general_chat":
+      if (looksLikeWorkQueueRequest(prompt)) {
+        return workQueueCommand({ supabase, workspace });
+      }
+
       return generalChatCommand({ prompt });
     case "work_queue":
       return workQueueCommand({ supabase, workspace });
@@ -1505,6 +1580,15 @@ async function resolvePlannedAssistantCommand({
       });
     case "usage_summary":
       return usageSummaryCommand({ supabase, workspace });
+    case "web_search":
+      return webSearchCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
     case "app_help":
       return helpCommand({ prompt: plannedPrompt });
     case "email_sync":
@@ -1573,6 +1657,10 @@ export async function resolveAssistantCommand({
     return plannedCommand;
   }
 
+  if (looksLikeWorkQueueRequest(prompt)) {
+    return workQueueCommand({ supabase, workspace });
+  }
+
   const imageFollowUpPrompt =
     imageFollowUpPromptFromRecentMessages(prompt, recentMessages) ??
     (await imageFollowUpPromptFromThread({
@@ -1617,6 +1705,10 @@ export async function resolveAssistantCommand({
       threadId,
       workspace,
     });
+  }
+
+  if (looksLikeWebSearchRequest(prompt)) {
+    return webSearchCommand({ prompt, supabase, user, workspace });
   }
 
   if (toolPlanModelPlanned) {
@@ -1706,16 +1798,6 @@ export async function resolveAssistantCommand({
   }
 
   if (
-    text.includes("lead") ||
-    text.includes("needs reply") ||
-    text.includes("work queue") ||
-    text.includes("what should i do") ||
-    text.includes("inbox")
-  ) {
-    return workQueueCommand({ supabase, workspace });
-  }
-
-  if (
     text.includes("customer") ||
     text.includes("client") ||
     text.includes("contact") ||
@@ -1730,6 +1812,194 @@ export async function resolveAssistantCommand({
   }
 
   return generalChatCommand({ prompt });
+}
+
+async function webSearchCommand({
+  prompt,
+  supabase,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult> {
+  const search = await runAssistantWebSearch({
+    maxOutputTokens: 680,
+    prompt,
+  });
+  const sourceLinks = search.sources;
+
+  if (search.tokenUsage || search.webSearchUsed) {
+    const startedAt = Date.now();
+    const { data: aiRun, error: aiRunError } = await supabase
+      .from("ai_runs")
+      .insert({
+        actual_cost: "0",
+        estimated_cost: "0",
+        input_refs: {
+          prompt,
+          source: "assistant.web_search",
+        },
+        mode: "tool",
+        model: search.model,
+        output: {},
+        provider: "openai",
+        risk_level: "low",
+        status: "running",
+        task_type: "web_search",
+        tool_calls: [
+          {
+            input: {
+              prompt,
+            },
+            name: "web_search",
+            result: {},
+            status: "proposed",
+          },
+        ],
+        usage: {},
+        user_id: user.id,
+        workspace_id: workspace.id,
+      })
+      .select("id")
+      .single();
+
+    if (aiRunError || !aiRun) {
+      throw new Error(
+        `Unable to create web search AI run: ${
+          aiRunError?.message ?? "unknown error"
+        }`,
+      );
+    }
+
+    const aiRunId = String(aiRun.id);
+    const usageEvents = [
+      ...(search.tokenUsage
+        ? buildLlmUsageEvents({
+            context: {
+              aiRunId,
+              metadata: {
+                source: "assistant.web_search",
+                sourceCount: sourceLinks.length,
+                webSearchUsed: search.webSearchUsed,
+              },
+              providerUsageId: search.providerUsageId,
+              sourceId: aiRunId,
+              sourceType: "ai_run",
+              userId: user.id,
+              workspaceId: workspace.id,
+            },
+            model: search.model,
+            provider: "openai",
+            service: "llm",
+            usage: search.tokenUsage,
+          })
+        : []),
+      ...(search.webSearchUsed
+        ? [
+            buildOpenAiWebSearchCallUsageEvent({
+              context: {
+                aiRunId,
+                metadata: {
+                  source: "assistant.web_search",
+                  sourceCount: sourceLinks.length,
+                },
+                providerUsageId: search.providerUsageId,
+                sourceId: aiRunId,
+                sourceType: "ai_run",
+                userId: user.id,
+                workspaceId: workspace.id,
+              },
+              model: search.model,
+            }),
+          ]
+        : []),
+    ];
+    const usageTotals = usageEventTotals(usageEvents);
+
+    if (usageEvents.length > 0) {
+      const { error: usageError } = await supabase
+        .from("usage_events")
+        .insert(toUsageEventRows(usageEvents));
+
+      if (usageError) {
+        throw new Error(`Unable to record web search usage: ${usageError.message}`);
+      }
+    }
+
+    const output = {
+      answer: search.text,
+      fallbackReason: search.fallbackReason ?? null,
+      sources: sourceLinks,
+      webSearchUsed: search.webSearchUsed,
+    };
+    const { error: completeError } = await supabase
+      .from("ai_runs")
+      .update({
+        actual_cost: String(usageTotals.costSnapshot),
+        completed_at: new Date().toISOString(),
+        estimated_cost: String(usageTotals.costSnapshot),
+        latency_ms: Date.now() - startedAt,
+        output,
+        status: search.fallbackReason ? "failed" : "completed",
+        tool_calls: [
+          {
+            input: {
+              prompt,
+            },
+            name: "web_search",
+            result: output,
+            status: search.fallbackReason ? "blocked" : "completed",
+          },
+        ],
+        usage: {
+          customerCharge: usageTotals.customerChargeSnapshot,
+          inputTokens: search.inputTokens,
+          outputTokens: search.outputTokens,
+          providerCost: usageTotals.costSnapshot,
+          sourceCount: sourceLinks.length,
+          webSearchUsed: search.webSearchUsed,
+        },
+      })
+      .eq("id", aiRunId);
+
+    if (completeError) {
+      throw new Error(`Unable to complete web search AI run: ${completeError.message}`);
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: search.fallbackReason
+        ? "assistant_web_search.failed"
+        : "assistant_web_search.completed",
+      actorId: aiRunId,
+      actorType: "ai",
+      after: output,
+      entityId: aiRunId,
+      entityType: "ai_run",
+      metadata: {
+        requestedByUserId: user.id,
+        source: "assistant.web_search",
+      },
+    });
+  }
+
+  return {
+    context: {
+      answer: search.text,
+      fallbackReason: search.fallbackReason ?? null,
+      query: prompt,
+      sources: recordsContext(
+        sourceLinks.map((source) => ({
+          href: source.href,
+          label: source.label,
+          meta: source.meta ?? null,
+        })),
+      ),
+      webSearchUsed: search.webSearchUsed,
+    },
+    fallbackAnswer: search.text,
+    intent: "web_search",
+    links: sourceLinks,
+    title: "Web search",
+  };
 }
 
 async function helpCommand({
@@ -2104,6 +2374,7 @@ async function workQueueCommand({
   const conversations = await getConversationList(supabase, workspace.id);
   const actionable = conversations.filter(isConversationInLiveWorkQueue);
   const top = actionable.slice(0, 5);
+  const summaries = top.map(workQueueVoiceSummary);
   const approvalItems = actionable
     .filter((conversation) => conversation.pendingApprovalCount > 0)
     .slice(0, 5)
@@ -2126,6 +2397,8 @@ async function workQueueCommand({
             conversation.leadServiceType ??
             conversation.leadTitle,
           nextAction: conversation.nextActionLabel,
+          operatorSummary: workQueueVoiceSummary(conversation),
+          missingInfo: conversation.inquiryFacts?.missingInfo ?? [],
           status: conversation.status,
           workflowBucket: conversation.workflowBucket,
         })),
@@ -2133,7 +2406,7 @@ async function workQueueCommand({
     },
     fallbackAnswer:
       top.length > 0
-        ? `${top.length} conversations need attention. The first one is ${top[0].contactName ?? "an unknown contact"}: ${top[0].nextActionLabel}.`
+        ? `${actionable.length} conversation${actionable.length === 1 ? "" : "s"} need attention. ${summaries.join(" ")}`
         : "There are no conversations needing immediate attention in the current work queue.",
     intent: "work_queue",
     links: top.map(conversationToAssistantLink),
@@ -2158,6 +2431,44 @@ async function workQueueCommand({
       ...approvalQueueBlock("Approval queue", approvalItems),
     ],
   };
+}
+
+function workQueueVoiceSummary(conversation: ConversationListItem) {
+  const customer = conversationDisplayName(conversation);
+  const job = conversationJobLabel(conversation);
+  const jobSuffix = job === "General inquiry" ? "" : ` for ${job}`;
+  const missing = conversation.inquiryFacts?.missingInfo ?? [];
+
+  if (conversation.workflowBucket === "missing_info") {
+    const missingText = joinHumanList(missing);
+
+    return `${customer}${jobSuffix}: missing ${missingText || "key details"}. Next step: send a short reply asking for that.`;
+  }
+
+  if (
+    conversation.pendingApprovalCount > 0 ||
+    conversation.status === "reply_drafted"
+  ) {
+    return `${customer}${jobSuffix}: a draft reply is waiting for review. Next step: review and send it.`;
+  }
+
+  if (conversation.workflowBucket === "follow_up_due") {
+    return `${customer}${jobSuffix}: follow-up is due. Next step: check the thread and nudge the customer if still relevant.`;
+  }
+
+  if (conversation.workflowBucket === "ready_to_quote") {
+    return `${customer}${jobSuffix}: ready for quote work. Next step: prepare or review the quote.`;
+  }
+
+  if (conversation.workflowBucket === "site_visit_needed") {
+    return `${customer}${jobSuffix}: likely needs a site visit. Next step: suggest a booking time.`;
+  }
+
+  if (conversation.workflowBucket === "needs_review") {
+    return `${customer}${jobSuffix}: needs review before action. Next step: check the profile and inquiry details.`;
+  }
+
+  return `${customer}${jobSuffix}: ${conversation.nextActionLabel}.`;
 }
 
 async function inquiryLookupCommand({

@@ -63,6 +63,8 @@ All business data is workspace-scoped. The important tables are:
 - `contacts`: CRM profiles.
 - `leads`: sales/service opportunities attached to contacts.
 - `channels`: communication source definitions.
+- `workspace_phone_numbers`: workspace-owned Twilio phone/SMS numbers, capability
+  metadata, provider ids, and pass-through rental cost snapshots.
 - `integration_connections`: connected provider accounts such as Google Workspace,
   with encrypted token payloads and provider account metadata.
 - `integration_oauth_states`: short-lived OAuth state and PKCE verifier records for
@@ -71,6 +73,8 @@ All business data is workspace-scoped. The important tables are:
 - `messages`: inbound/outbound communication records.
 - `files`: private file metadata for uploaded/generated/stored files, including inbound email attachments, assistant uploads, generated images, generated document PDFs, and outbound retry attachments stored in Supabase Storage.
 - `generated_documents`: first-class quote/invoice PDF records linked to contacts, leads, conversations, quote drafts, storage files, outbound messages, and optional Google Drive file ids.
+- `voice_calls`: Vapi/Twilio phone-call ledger rows for inbound customer calls, voicemail overflow, user-to-Kyro calls, and outbound customer calls.
+- `voice_call_events`: raw Vapi webhook/tool-call events linked to the durable call row.
 - `inquiry_facts`: current editable inquiry facts for a conversation, separate from raw AI output.
 - `events`: idempotent ingestion and workflow events.
 - `actions`: proposed or executable work, including AI-proposed replies.
@@ -164,10 +168,11 @@ The app shell currently exposes:
 
 - Assistant: `/assistant`
 - Voice: `/voice`
+- Vapi Voice: `/voice-vapi`
 - Inbox: `/inbox`
 - CRM: `/contacts`
 - Files: `/files`
-- Log: `/`
+- Log: `/dashboard`
 - Developer: `/developer`
 - Settings: `/settings`
 
@@ -210,7 +215,7 @@ workspace and user.
 
 ### Log
 
-File: `apps/web/src/app/page.tsx`
+File: `apps/web/src/app/dashboard/page.tsx`
 
 Purpose:
 
@@ -291,8 +296,11 @@ sorting without adding a separate search service.
 Performance notes:
 
 - the app shell uses `RoutePreloader` to idle-prefetch the main tabs with a short stagger,
-- list pages disable prefetch on long repeated rows so the app does not pre-render
-  dozens of detail pages at once,
+- high-traffic CRM and Inbox rows use `SmartPrefetchLink`, so detail/split-pane
+  payloads warm on hover, keyboard focus, or mobile touch instead of eagerly
+  pre-rendering every row,
+- lower-frequency long lists still disable automatic prefetching so the app does
+  not fetch dozens of detail pages the user is unlikely to open,
 - list/review queries are bounded so mock data growth does not silently make every
   tab click heavier,
 - inbox split-view loads the conversation list, selected preview, and communication
@@ -301,8 +309,8 @@ Performance notes:
   section loads only its own server data, and the full usage ledger is loaded only
   for `?section=usage`,
 - route loading skeletons exist for the log, inbox, inquiry review, CRM, contact
-  profile, leads redirect, documents, quote draft profile, assistant, voice, usage
-  redirect, and settings pages,
+  profile, Files/legacy Documents, quote draft profile, assistant, OpenAI Voice,
+  Vapi Voice, usage redirect, and settings pages,
 - the development LLM status pill caches its local Ollama health check briefly and is
   rendered behind a Suspense boundary so page content is not blocked by a local model probe.
 
@@ -344,9 +352,10 @@ message/request ids, and last error. User-written manual replies are treated as 
 user typed the body and pressed send; email sends immediately through the connected
 email provider when a contact email exists, but the send is still traceable and
 retryable through the outbox ledger. AI-generated/action-queue replies still go
-through the action engine and approval/execution controls. SMS, phone, and manual
-channels are still internal records until their providers are connected. Email
-sends can include local file uploads from the composer and a server-generated PDF
+through the action engine and approval/execution controls. SMS can send through
+Twilio when the workspace has an active SMS-capable number or testing sender
+configured; phone and manual channels remain internal records. Email sends can
+include local file uploads from the composer and a server-generated PDF
 attachment for a selected quote draft. Generated quote PDFs are created on demand
 from structured quote data; before delivery, attachment bytes are uploaded into
 the private Supabase Storage bucket (`KYRO_FILE_STORAGE_BUCKET`, default
@@ -376,7 +385,90 @@ The on-demand inbox reply generator and inbound triage draft path both inject
 these saved settings into the LLM prompt before creating customer-facing email/SMS
 drafts.
 Real Gmail/Outlook sends also write zero-cost `usage_events` rows so the billing endpoint can
-count outbound email volume before paid pricing is decided.
+count outbound email volume before paid pricing is decided. Real Twilio SMS sends
+write `outbound_sms` usage rows with provider cost/customer-charge snapshots based
+on Twilio-returned price when available or the configured local SMS unit-cost
+fallback.
+
+Inbound SMS has a first Twilio webhook foundation. `POST /api/integrations/twilio/sms`
+validates the Twilio signature, matches the destination number against
+`workspace_phone_numbers`, records or reuses a Twilio SMS channel, ingests the SMS
+through the same workspace-scoped contact/lead/conversation/message/AI-triage path
+as manual inbound, and records inbound SMS usage. The status callback route at
+`/api/integrations/twilio/status` updates matching outbox rows with Twilio delivery
+state. Number search/purchase and richer staff/operator SMS-command routing are
+still future hardening items.
+
+Voice calls now have a Vapi/Twilio foundation. Twilio remains the phone-number and
+carrier layer; Vapi runs the live voice assistant. `POST
+/api/integrations/vapi/webhook` accepts call lifecycle events and records or
+updates `voice_calls`; `POST /api/integrations/vapi/tool` accepts approved Vapi
+tool calls such as contact lookup, assistant command/context lookup, web search,
+recent email sync, contact profile updates, and call-note recording; `GET
+/api/assistant/activity` returns the same compact Kyro activity rows used by the
+web assistant pane; `GET /api/voice/calls/[callId]` returns the same preview
+payload used by the web assistant and mobile app; and `POST /api/voice/outbound`
+queues a workspace-scoped outbound customer call through the configured Vapi
+outbound assistant. The
+Assistant's Kyro activity pane now includes phone activity and opens a detail
+preview with call status, purpose, contact/conversation links, transcript,
+summary, recording URL, and raw event history. Settings -> Voice stores Vapi
+assistant ids, the Vapi phone-number id, user/team numbers, the shared
+ElevenLabs/Vapi voice preset, and broad call style preferences that can be passed
+into Vapi assistant prompts.
+
+The voice-call foundation is intentionally backend-first and mobile-ready: the
+web UI consumes normal authenticated JSON routes rather than server-only helpers,
+so the mobile app can call `/api/assistant/activity` and `/api/voice/*` with its
+Supabase bearer token and render the same activity/`VoiceCallPreview` shapes.
+
+The internal Vapi browser/mobile voice experiment is separate from phone-call
+records. `/voice-vapi` uses `@vapi-ai/web` as the voice runtime, but it injects
+the same Kyro Assistant context and persists final user/assistant turns into the
+main `assistant_threads`/`assistant_messages` flow through
+`/api/assistant/realtime/persist` with `inputSource: "vapi_internal_voice"`.
+The shared session endpoint, `GET /api/assistant/vapi/internal/session`, accepts
+web cookies or a mobile Supabase bearer token and returns only Vapi-safe public
+configuration plus bounded thread context. Private Vapi API keys and Kyro tool
+secrets stay server-side.
+The session response also includes a Vapi `voice` override using the workspace's
+saved ElevenLabs voice preset. The default preset is Female - Australian
+(`56bWURjYFHyYyVf490Dp`). Outbound Vapi calls use the same saved preset when
+creating the provider call, so web, mobile, and Kyro-initiated voice paths can
+share one voice choice. Kyro does not send a Vapi voice model override by
+default; the Vapi dashboard text-to-speech model setting wins, which is the
+expected path for ElevenLabs `eleven_v3` testing. Inbound and
+voicemail-overflow Vapi assistants still need the matching voice configured in
+Vapi until Kyro adds dynamic server-side assistant selection for incoming calls.
+
+The same internal Vapi session no longer sends a transcriber override by
+default. The Vapi dashboard transcriber setting wins, which keeps ElevenLabs
+Scribe v2 Realtime testing straightforward. If `VAPI_ENABLE_TRANSCRIBER_OVERRIDE`
+is enabled, Kyro can still force an experimental transcriber payload using
+`VAPI_INTERNAL_TRANSCRIBER_PROVIDER`, `VAPI_INTERNAL_TRANSCRIBER_MODEL`, and
+`VAPI_INTERNAL_TRANSCRIBER_LANGUAGE`. Deepgram and Gladia overrides receive
+Kyro/workspace/pronunciation-vocabulary hints where the provider supports them.
+The Vapi prompt mirrors the OpenAI Realtime Kyro-name guidance, and the web client
+also applies a narrow final-transcript normalization so address forms such as
+`hey Cairo`, `hi Kara`, or `what's up Claire` are stored as Kyro without rewriting
+unrelated mentions of Cairo. The web client de-duplicates overlapping Vapi
+model-output, transcript, and conversation-update events so the same spoken
+assistant turn is not shown twice. The internal Vapi context labels thread
+summaries, memories, and recent-message excerpts as background-only handled
+history so the voice assistant answers the newest live utterance instead of
+replaying old user requests.
+
+The internal Vapi and OpenAI Realtime voice tool routes can update CRM contact
+profiles through the shared `updateContactFromAssistantTool` helper. The helper
+keeps service-role writes server-side, scopes all writes to the current
+workspace, normalizes email/phone/company fields, stores assistant-entered
+addresses through the same Google Places/Address Validation pipeline used by
+the UI when enough locality detail is provided, asks for suburb/city before
+accepting a bare street-only address, appends notes by default, and writes
+`contact.assistant_updated` audit logs. Ambiguous contact matches return cards
+for user selection instead of changing data. The Vapi voice split pane refreshes
+the currently open contact profile when a tool result re-emits that contact, so
+assistant-made updates appear without navigating away.
 
 ### CRM
 
@@ -652,6 +744,7 @@ Files:
 - `apps/web/src/app/assistant/assistant-console.tsx`
 - `apps/web/src/app/assistant/actions.ts`
 - `apps/web/src/app/api/assistant/transcribe/route.ts`
+- `apps/web/src/app/api/assistant/vapi/internal/session/route.ts`
 - `apps/web/src/lib/assistant/attachments.ts`
 - `apps/web/src/lib/assistant/commands.ts`
 - `apps/web/src/lib/assistant/conversation-links.ts`
@@ -662,12 +755,15 @@ Files:
 - `apps/web/src/lib/assistant/transcription.ts`
 - `apps/web/src/lib/assistant/ui-blocks.ts`
 - `apps/web/src/lib/assistant/tool-registry.ts`
+- `apps/web/src/lib/assistant/vapi-internal.ts`
 - `apps/web/src/lib/images/generation.ts`
 
 Purpose:
 
 - provide a chat-style command layer over existing CRM data,
 - persist the main user Assistant thread and messages across page refreshes,
+- show a right-hand Kyro activity pane for inbound/outbound communication events
+  that happen outside the chat while no preview is open,
 - store known UI blocks such as link cards instead of letting the LLM invent UI,
 - store planned and executed tool results as tool-call records,
 - retrieve recent messages, a compact rolling thread summary, relevant approved memories, and ranked long-term context snapshots before each turn,
@@ -727,7 +823,7 @@ attached. For revised quotes it uses the active `quoteRevision` version and revi
 preparation only: the user still reviews or edits the message in the inquiry before sending. Customers approve or request
 changes from the public tokenized approval page, and Assistant can answer quote history/version questions using the
 resulting customer view/approval/change-request events. From an Assistant inquiry preview, the user can also write a
-manual reply; email replies send through connected Gmail and non-email channels are recorded internally. The LLM does not
+manual reply; email replies send through connected Gmail or Outlook, SMS replies can send through Twilio when the workspace has an active SMS number or testing sender configured, phone calls use separate Vapi voice-call records, and manual channels remain internal records. The LLM does not
 autonomously send email/SMS, execute approval-gated actions, alter payments, or perform bookkeeping.
 
 Assistant image generation is deliberately a tool call, not arbitrary model output. Browser-selected files are first
@@ -769,12 +865,15 @@ snapshots for older narrative context, and targeted database/tool lookups for
 facts. This keeps the Assistant feeling like one persistent assistant while
 preventing the prompt from growing every day the product is used.
 
-The LLM does not invent UI. It plans a known tool when app data or side effects are needed, receives
-validated tool results plus optional thread/memory context, then writes short narration.
+The LLM does not invent UI. It plans a known tool when app data, side effects, or
+current public web information are needed, receives validated tool results plus
+optional thread/memory context, then writes short narration.
 The frontend renders known `ui_blocks`, currently link cards, memory notices,
 memory suggestions, summary cards, timelines, approval queues, and generated-image cards. External
-SMS, phone, and calendar tools are present in the registry as provider-needed,
-approval-gated future tools; they are not executable until providers are wired.
+web-search results are rendered as source link cards and metered as both model
+tokens and `web_search_calls`. External SMS now has a Twilio send/receive
+foundation, Vapi phone-call records/routes exist for configured workspaces, and
+calendar tools are still provider-needed, approval-gated future tools.
 
 Assistant voice input uses the browser `MediaRecorder` API only for capture. Audio is posted to
 `/api/assistant/transcribe`, where the server calls OpenAI's audio transcription endpoint with the configured
@@ -978,6 +1077,8 @@ Purpose:
 - give the Assistant a user-facing help/manual source plus architecture snippets for product-aware support answers,
 - allow the Assistant to edit a constrained allowlist of low-risk settings: timezone, display currency, inbound email sync mode, poll frequency, quiet hours, missed-mail lookback, fetch cap, skipped-mail summaries, inbound action rules, explicit sender relevance rules, and pronunciation vocabulary,
 - show Google Workspace and Microsoft Outlook readiness in one Integrations area,
+- show Twilio SMS/phone readiness, webhook URLs, active workspace numbers, and
+  test-sender status in the same Integrations area,
 - launch Google or Microsoft OAuth connect flows from that combined area,
 - disconnect a Google or Microsoft account from Settings by marking the provider
   connection disconnected, clearing its stored token payload, and deactivating its
@@ -1060,9 +1161,10 @@ tax/accounting treatment, and payment collection remain explicit UI or future
 workflow flows.
 
 Settings expose outbound policy inside the combined Connected accounts area for
-Google Workspace and Microsoft Outlook. Gmail and Outlook are the first real
-external send providers and the first inbound email readers. SMS, phone, and
-calendar remain future integrations.
+Google Workspace, Microsoft Outlook, and Twilio. Gmail and Outlook are the first
+real email send/read providers. Twilio is the first SMS send/receive provider.
+Vapi is the first phone-call assistant provider, while calendar remains a future
+integration.
 
 Inbound email settings live in `workspace_policies` with policy type `inbound_email`.
 The default posture is automatic five-minute polling during active hours, paused
@@ -1389,7 +1491,7 @@ Current performance approach:
 
 Do not preload everything. The current reasonable preload set is:
 
-- main app routes: Assistant, Voice, Inbox, CRM, Files, Log, Settings,
+- main app routes: Assistant, Voice, Vapi Voice, Inbox, CRM, Files, Log, Settings,
 - already-open split-view records,
 - compact list summaries and counts for the active screen.
 
@@ -1452,6 +1554,20 @@ Use this map before editing:
   and `apps/web/src/lib/assistant/transcription.ts`
 - New assistant text-to-speech behavior: `apps/web/src/app/api/assistant/speech/route.ts`
   and `apps/web/src/lib/assistant/speech.ts`
+- New Twilio SMS foundation: `apps/web/src/lib/integrations/twilio.ts`,
+  `apps/web/src/app/api/integrations/twilio/sms/route.ts`,
+  `apps/web/src/app/api/integrations/twilio/status/route.ts`, and
+  `supabase/migrations/20260529021344_twilio_sms_foundation.sql`
+- New Vapi/Twilio phone assistant foundation:
+  `apps/web/src/lib/integrations/vapi.ts`,
+  `apps/web/src/lib/voice/calls.ts`,
+  `apps/web/src/lib/workspace/api-context.ts`,
+  `apps/web/src/app/api/assistant/activity/route.ts`,
+  `apps/web/src/app/api/integrations/vapi/webhook/route.ts`,
+  `apps/web/src/app/api/integrations/vapi/tool/route.ts`,
+  `apps/web/src/app/api/voice/outbound/route.ts`,
+  `apps/web/src/app/api/voice/calls/[callId]/route.ts`, and
+  `supabase/migrations/20260529043000_vapi_voice_calls.sql`
 - New assistant voice settings behavior: `apps/web/src/lib/assistant/voice-settings.ts`
   and `apps/web/src/app/settings/page.tsx`
 - New assistant pronunciation behavior: `apps/web/src/lib/assistant/pronunciation.ts`,
@@ -1463,6 +1579,11 @@ Use this map before editing:
   `apps/web/src/app/api/assistant/realtime/call/route.ts`,
   `apps/web/src/app/api/assistant/realtime/tool/route.ts`, and
   `apps/web/src/app/api/assistant/realtime/persist/route.ts`
+- New Vapi internal voice UI/session behavior:
+  `apps/web/src/app/voice-vapi/page.tsx`,
+  `apps/web/src/app/voice-vapi/vapi-voice-console.tsx`,
+  `apps/web/src/lib/assistant/vapi-internal.ts`, and
+  `apps/web/src/app/api/assistant/vapi/internal/session/route.ts`
 - New Google OAuth connection behavior: `apps/web/src/app/integrations/google/start/route.ts`,
   `apps/web/src/app/integrations/google/callback/route.ts`, and `apps/web/src/lib/integrations/google.ts`
 - New Microsoft OAuth connection behavior: `apps/web/src/app/integrations/microsoft/start/route.ts`,
@@ -1493,11 +1614,17 @@ These are not bugs:
 - Gmail and Outlook OAuth plus real outbound email are connected for approved/user-triggered sends.
 - Gmail and Outlook inbound sync have a first poll-based implementation. Push/webhook mailbox watches are intentionally deferred.
 - Gmail/Outlook inbound attachments are stored when provider bytes are available and shown as message attachment chips. Turning those files into first-class job documents is future work.
-- SMS is not connected yet.
+- Twilio SMS has a first send/receive foundation. Number search/purchase and richer
+  sender/operator classification are still future work.
+- Vapi/Twilio phone calls have a first backend foundation for inbound calls,
+  voicemail overflow, user-to-Kyro calls, outbound calls, transcripts,
+  recordings, and activity previews. Live Vapi assistants, phone numbers,
+  webhook secrets, and production prompt tuning still need to be configured.
 - AI triage and Assistant narration can use OpenAI in this local setup; local Ollama remains a development option on machines that support it.
-- Voice mode has a WebRTC/OpenAI Realtime path, but the native mobile shell, deeper barge-in tuning, and user-facing realtime voice controls are still future work.
-- Pronunciation vocabulary supports Settings management, previews, prompt injection, lightweight usage counts, and background suggestions; customer-facing outbound phone calls and pronunciation preflight gates are still future work.
-- Action execution can send real Gmail/Outlook email. Non-email side effects are still dry-run/internal.
+- Voice mode has both a WebRTC/OpenAI Realtime path and a separate Vapi browser runtime testbed. The native mobile shell, deeper barge-in tuning, and final user-facing voice controls are still future work.
+- Pronunciation vocabulary supports Settings management, previews, prompt injection, lightweight usage counts, and background suggestions; pronunciation preflight gates for customer-facing phone calls are still future work.
+- Action execution can send real Gmail/Outlook email and Twilio SMS when configured.
+  Phone calls use the Vapi outbound-call API once configured.
 - Gmail/Outlook can send uploaded local file attachments and server-generated PDF attachments for selected quote drafts.
 - Assistant can generate and store one-off images/renderings through OpenAI Images; richer media galleries, multi-turn
   visual editing, and mobile camera-first flows are still future product work.

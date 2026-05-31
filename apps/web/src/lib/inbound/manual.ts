@@ -22,6 +22,16 @@ export type ManualInboundInput = {
   addressFields?: AddressColumnUpdates;
   serviceType?: string;
   message: string;
+  channel?: {
+    displayName: string;
+    externalId?: string | null;
+    settings?: Record<string, unknown>;
+    type: string;
+  };
+  eventSource?: string;
+  eventType?: string;
+  metadata?: Record<string, unknown>;
+  source?: string;
 };
 
 function nullableText(value?: string | null) {
@@ -209,10 +219,11 @@ async function createContactProfile(
   );
   const normalizedCompany = normalizeCompanyName(input.company);
   const contactType = normalizeContactType(input.contactType);
+  const source = nullableText(input.source) ?? "manual_inbound";
   const tags =
     match.status === "conflict_created"
-      ? ["manual_inbound", "profile_match_conflict"]
-      : ["manual_inbound"];
+      ? [source, "profile_match_conflict"]
+      : [source];
 
   const { data: contact, error } = await supabase
     .from("contacts")
@@ -227,7 +238,7 @@ async function createContactProfile(
       normalized_company: normalizedCompany,
       contact_type: contactType,
       ...(input.addressFields ?? { address: nullableText(input.address) }),
-      source: "manual_inbound",
+      source,
       notes:
         match.status === "conflict_created"
           ? `Potential profile match conflict. Email matched ${match.emailMatchedContactId ?? "none"}; phone matched ${match.phoneMatchedContactId ?? "none"}.`
@@ -260,7 +271,7 @@ async function createContactProfile(
     entityType: "contact",
     entityId: String(contact.id),
     after: {
-      source: "manual_inbound",
+      source,
       email,
       phone,
       normalizedEmail: email,
@@ -467,16 +478,30 @@ async function resolveContactProfile(
   };
 }
 
-async function findOrCreateManualChannel(
+async function findOrCreateInboundChannel(
   supabase: SupabaseClient,
   workspaceId: string,
+  input: ManualInboundInput,
 ) {
-  const { data: existing, error: existingError } = await supabase
+  const channel = input.channel ?? {
+    displayName: "Manual inbound",
+    externalId: null,
+    settings: {
+      createdBy: "manual_enquiry_form",
+    },
+    type: "manual_inbound",
+  };
+  let existingQuery = supabase
     .from("channels")
     .select("id")
     .eq("workspace_id", workspaceId)
-    .eq("type", "manual_inbound")
-    .eq("display_name", "Manual inbound")
+    .eq("type", channel.type);
+
+  existingQuery = channel.externalId
+    ? existingQuery.eq("external_id", channel.externalId)
+    : existingQuery.eq("display_name", channel.displayName);
+
+  const { data: existing, error: existingError } = await existingQuery
     .limit(1)
     .maybeSingle();
 
@@ -490,27 +515,26 @@ async function findOrCreateManualChannel(
     return String(existing.id);
   }
 
-  const { data: channel, error } = await supabase
+  const { data: createdChannel, error } = await supabase
     .from("channels")
     .insert({
       workspace_id: workspaceId,
-      type: "manual_inbound",
-      display_name: "Manual inbound",
+      type: channel.type,
+      display_name: channel.displayName,
+      external_id: channel.externalId ?? null,
       status: "active",
-      settings: {
-        createdBy: "manual_enquiry_form",
-      },
+      settings: channel.settings ?? {},
     })
     .select("id")
     .single();
 
-  if (error || !channel) {
+  if (error || !createdChannel) {
     throw new Error(
       `Unable to create manual channel: ${error?.message ?? "unknown error"}`,
     );
   }
 
-  return String(channel.id);
+  return String(createdChannel.id);
 }
 
 export async function ingestManualInbound(
@@ -519,15 +543,23 @@ export async function ingestManualInbound(
   workspaceId: string,
   input: ManualInboundInput,
 ) {
-  const idempotencyKey = `manual.inbound.${input.submissionKey ?? crypto.randomUUID()}`;
+  const source = nullableText(input.source) ?? "manual_inbound";
+  const eventSource = nullableText(input.eventSource) ?? "web.dashboard";
+  const eventType =
+    nullableText(input.eventType) ?? "inbound.manual_enquiry.received";
+  const extraMetadata = input.metadata ?? {};
+  const idempotencyKey = `${source}.inbound.${
+    input.submissionKey ?? crypto.randomUUID()
+  }`;
   const { data: event, error: eventError } = await supabase
     .from("events")
     .insert({
       workspace_id: workspaceId,
-      type: "inbound.manual_enquiry.received",
-      source: "web.dashboard",
+      type: eventType,
+      source: eventSource,
       idempotency_key: idempotencyKey,
       payload: {
+        ...extraMetadata,
         stage: "received",
         contactName: input.contactName,
         email: nullableText(input.email),
@@ -573,7 +605,11 @@ export async function ingestManualInbound(
     generalSettings.defaultPhoneRegion,
   );
   const contactId = contactResolution.contactId;
-  const channelId = await findOrCreateManualChannel(supabase, workspaceId);
+  const channelId = await findOrCreateInboundChannel(
+    supabase,
+    workspaceId,
+    input,
+  );
   const hasProfileConflict =
     contactResolution.match.status === "conflict_created";
   const leadTitle = input.serviceType?.trim()
@@ -585,7 +621,7 @@ export async function ingestManualInbound(
     .insert({
       workspace_id: workspaceId,
       contact_id: contactId,
-      source: "manual_inbound",
+      source,
       title: leadTitle,
       description: input.message,
       status: "new",
@@ -613,7 +649,7 @@ export async function ingestManualInbound(
     entityId: String(lead.id),
     after: {
       title: lead.title,
-      source: "manual_inbound",
+      source,
       profileMatch: contactResolution.match,
     },
   });
@@ -649,7 +685,8 @@ export async function ingestManualInbound(
       body_text: input.message,
       received_at: new Date().toISOString(),
       metadata: {
-        source: "manual_inbound",
+        ...extraMetadata,
+        source,
         company: nullableText(input.company),
       },
     })
@@ -688,7 +725,10 @@ export async function ingestManualInbound(
     workspaceId,
     actorType: "user",
     actorId: user.id,
-    action: "inbound.manual_enquiry.ingested",
+    action:
+      source === "twilio_sms"
+        ? "inbound.twilio_sms.ingested"
+        : "inbound.manual_enquiry.ingested",
     entityType: "event",
     entityId: String(event.id),
     after: {
@@ -703,7 +743,7 @@ export async function ingestManualInbound(
   });
 
   const aiResult = await runStubAiTriage(supabase, user, workspaceId, {
-    source: "manual_inbound",
+    source,
     sourceEventId: String(event.id),
     contactId,
     leadId: String(lead.id),
@@ -712,7 +752,9 @@ export async function ingestManualInbound(
     leadTitle: String(lead.title),
     serviceType: nullableText(input.serviceType),
     contactAddress: nullableText(input.address),
-    summary: `Manual inbound enquiry from ${input.contactName}: ${input.message.slice(0, 180)}`,
+    summary: `${
+      source === "twilio_sms" ? "Inbound SMS" : "Manual inbound enquiry"
+    } from ${input.contactName}: ${input.message.slice(0, 180)}`,
   });
 
   return {

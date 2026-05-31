@@ -28,6 +28,7 @@ import {
   type LeadListItem,
 } from "../../lib/crm/queries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -386,7 +387,7 @@ function ContactRow({
   const warningLabel = profileResolutionLabel(contact);
 
   return (
-    <Link
+    <SmartPrefetchLink
       className={[
         "crm-row",
         isSelected ? "active" : "",
@@ -400,7 +401,6 @@ function ContactRow({
         search,
         sort,
       })}
-      prefetch={false}
     >
       <div className="crm-row-main">
         <strong>{contactTitle(contact)}</strong>
@@ -423,7 +423,7 @@ function ContactRow({
         </span>
         <span className="pill">{formatContactType(contact.contactType)}</span>
       </div>
-    </Link>
+    </SmartPrefetchLink>
   );
 }
 
@@ -455,7 +455,7 @@ function LeadRow({
       .join(" - ") || lead.source;
 
   return (
-    <Link
+    <SmartPrefetchLink
       className={[
         "crm-row",
         isSelected ? "active" : null,
@@ -464,7 +464,6 @@ function LeadRow({
         .filter(Boolean)
         .join(" ")}
       href={href}
-      prefetch={false}
     >
       <div className="crm-row-main">
         <strong>{lead.title}</strong>
@@ -480,7 +479,7 @@ function LeadRow({
           Lead
         </span>
       </div>
-    </Link>
+    </SmartPrefetchLink>
   );
 }
 

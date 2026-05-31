@@ -27,7 +27,7 @@ export async function bootstrapWorkspaceAction(formData: FormData) {
   const existingWorkspace = await getPrimaryWorkspace(supabase);
 
   if (existingWorkspace) {
-    redirect("/");
+    redirect("/dashboard");
   }
 
   const businessName = formString(formData, "businessName");
@@ -49,5 +49,5 @@ export async function bootstrapWorkspaceAction(formData: FormData) {
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect("/dashboard");
 }

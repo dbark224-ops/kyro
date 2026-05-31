@@ -135,6 +135,20 @@ export const assistantToolRegistry: AssistantToolRegistryItem[] = [
     uiBlocks: ["generated_image", "link_cards"],
   },
   {
+    approval: "workspace_policy",
+    category: "external",
+    id: "web.search",
+    label: "Public web search",
+    notes:
+      "Lets the assistant search public/current internet information through OpenAI web search. CRM data, connected email, files, and workspace records still come from Kyro tools.",
+    permission: "Search public web information and show source cards",
+    provider: "OpenAI Responses web search",
+    risk: "medium",
+    status: "active",
+    surfaces: ["Assistant"],
+    uiBlocks: ["link_cards"],
+  },
+  {
     approval: "user_click",
     category: "memory",
     id: "memory.suggestion",

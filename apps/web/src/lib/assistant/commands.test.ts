@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import {
   documentTemplateControlIntent,
+  looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
   looksLikeInboundEmailAwarenessRequest,
   looksLikeQuoteHistoryRequest,
@@ -15,6 +16,38 @@ import {
 } from "./commands";
 import type { ContactListItem, QuoteDraftListItem } from "../crm/queries";
 import type { AssistantRecentMessage } from "./types";
+
+function emptySupabase() {
+  const query = {
+    eq() {
+      return this;
+    },
+    in() {
+      return this;
+    },
+    limit() {
+      return Promise.resolve({ data: [], error: null });
+    },
+    maybeSingle() {
+      return Promise.resolve({ data: null, error: null });
+    },
+    order() {
+      return this;
+    },
+    select() {
+      return this;
+    },
+    single() {
+      return Promise.resolve({ data: null, error: null });
+    },
+  };
+
+  return {
+    from() {
+      return query;
+    },
+  } as never;
+}
 
 function template(overrides: Partial<QuoteTemplate>): QuoteTemplate {
   return {
@@ -198,6 +231,21 @@ describe("assistant document command helpers", () => {
     );
   });
 
+  it("recognises explicit public web search prompts without treating Kyro app data as web search", () => {
+    assert.equal(
+      looksLikeWebSearchRequest("Search the web for the latest QLD plumbing rule"),
+      true,
+    );
+    assert.equal(
+      looksLikeWebSearchRequest("What is the latest news about Brisbane weather?"),
+      true,
+    );
+    assert.equal(
+      looksLikeWebSearchRequest("What is the latest Kyro inbox status?"),
+      false,
+    );
+  });
+
   it("selects the quote to send by customer, title, or email", () => {
     const quotes = [
       quote({
@@ -340,7 +388,7 @@ describe("assistant LLM-first command routing", () => {
   it("treats a successful no-tool planner decision as general chat", async () => {
     const command = await resolveAssistantCommand({
       prompt: "do you think image generation will matter for trades businesses?",
-      supabase: {} as never,
+      supabase: emptySupabase(),
       toolPlanModelPlanned: true,
       toolSelection: null,
       user: { id: "user-1" } as never,
@@ -348,5 +396,37 @@ describe("assistant LLM-first command routing", () => {
     });
 
     assert.equal(command.intent, "general_chat");
+  });
+
+  it("routes natural lead response requests to the work queue", async () => {
+    const prompts = [
+      "Do I have any open leads that need responding to?",
+      "Show me my pending leads and inquiries that need a response",
+      "What leads do I have that need responding to? Show me any pending or unresponsive leads in my CRM.",
+    ];
+
+    for (const prompt of prompts) {
+      const command = await resolveAssistantCommand({
+        prompt,
+        supabase: emptySupabase(),
+        user: { id: "user-1" } as never,
+        workspace: { id: "workspace-1", name: "WFA Plumbing" },
+      });
+
+      assert.equal(command.intent, "work_queue");
+    }
+  });
+
+  it("lets high-confidence work queue language override an incorrect general planner result", async () => {
+    const command = await resolveAssistantCommand({
+      prompt: "Have I got any leads that need responding to?",
+      supabase: emptySupabase(),
+      toolPlanModelPlanned: true,
+      toolSelection: { name: "general_chat", prompt: "" },
+      user: { id: "user-1" } as never,
+      workspace: { id: "workspace-1", name: "WFA Plumbing" },
+    });
+
+    assert.equal(command.intent, "work_queue");
   });
 });

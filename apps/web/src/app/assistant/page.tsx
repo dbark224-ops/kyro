@@ -1,41 +1,75 @@
 import { AssistantConsole } from "./assistant-console";
 import { AppFrame } from "../components/app-frame";
+import { getAssistantExternalActivity } from "../../lib/assistant/external-activity";
 import { getAssistantPromptSuggestionState } from "../../lib/assistant/prompt-suggestions";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
-import type { AssistantThreadState } from "../../lib/assistant/types";
+import { getContactProfile } from "../../lib/crm/queries";
+import type {
+  AssistantResourcePreview,
+  AssistantThreadState,
+} from "../../lib/assistant/types";
 
 export const dynamic = "force-dynamic";
 
 type AssistantPageProps = {
   searchParams?: Promise<{
+    contactId?: string;
+    engine_error?: string;
+    engine_message?: string;
     threadId?: string;
   }>;
 };
+
+function profileTitle(
+  profile: Extract<AssistantResourcePreview, { type: "contact" }>["profile"],
+) {
+  return (
+    profile.contact.name ??
+    profile.contact.company ??
+    profile.contact.email ??
+    profile.contact.phone ??
+    "Contact"
+  );
+}
 
 export default async function AssistantPage({
   searchParams,
 }: AssistantPageProps) {
   const query = await searchParams;
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  const activityPromise = getAssistantExternalActivity(supabase, workspace.id);
   const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
   const promptSuggestionsPromise = getAssistantPromptSuggestionState({
     supabase,
     userId: user.id,
     workspaceId: workspace.id,
   });
+  const selectedContactId = query?.contactId?.trim() ?? "";
+  const selectedContactProfilePromise = selectedContactId
+    ? getContactProfile(supabase, workspace.id, selectedContactId)
+    : Promise.resolve(null);
   const threadStatePromise = getAssistantThreadState({
     threadId: query?.threadId,
     supabase,
     user,
     workspace,
   });
-  const [metrics, promptSuggestions, threadState] = await Promise.all([
-    metricsPromise,
-    promptSuggestionsPromise,
-    threadStatePromise,
-  ]);
+  const [
+    activityItems,
+    metrics,
+    promptSuggestions,
+    selectedContactProfile,
+    threadState,
+  ] =
+    await Promise.all([
+      activityPromise,
+      metricsPromise,
+      promptSuggestionsPromise,
+      selectedContactProfilePromise,
+      threadStatePromise,
+    ]);
 
   const { contactCount, needsReply, readyQuotes } = metrics;
   const welcomeMessage: AssistantThreadState["messages"][number] = {
@@ -57,6 +91,14 @@ export default async function AssistantPage({
     threadState.messages.length > 0
       ? threadState
       : { ...threadState, messages: [welcomeMessage] };
+  const initialPreview: AssistantResourcePreview | null = selectedContactProfile
+    ? {
+        href: `/contacts/${selectedContactProfile.contact.id}`,
+        profile: selectedContactProfile,
+        title: profileTitle(selectedContactProfile),
+        type: "contact",
+      }
+    : null;
 
   return (
     <AppFrame active="Assistant">
@@ -92,6 +134,10 @@ export default async function AssistantPage({
 
         <section className="assistant-page-grid">
           <AssistantConsole
+            externalActivityItems={activityItems}
+            initialPreviewEngineError={query?.engine_error}
+            initialPreviewEngineMessage={query?.engine_message}
+            initialPreview={initialPreview}
             initialState={initialState}
             promptSuggestions={promptSuggestions.visibleSuggestions}
           />

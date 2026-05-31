@@ -32,6 +32,7 @@ export type AssistantToolName =
   | "quote_send_ready_list"
   | "settings_update"
   | "usage_summary"
+  | "web_search"
   | "work_queue";
 
 export type AssistantToolSelection = {
@@ -127,6 +128,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Summarize API usage, billing, costs, metering, provider cost, customer charge, or margin.",
     name: "usage_summary",
+  },
+  {
+    description:
+      "Search the public web for current or public internet information. Do not use this for Kyro CRM records, private workspace data, connected email, quotes, files, or app help docs.",
+    name: "web_search",
   },
   {
     description:
@@ -429,10 +435,12 @@ export async function planAssistantToolCall({
           "Call exactly one Kyro tool only when tool-backed app state, files, documents, images, settings, email sync, usage, CRM records, or outbound actions are needed.",
           "For normal conversation, jokes, opinions, broad reasoning, or casual chat, do not call a tool.",
           "Use compactedContext for continuity. If the user asks about older assistant chat history, what was discussed before, or where an older generated/saved thing went and recentMessages are insufficient, call kyro_history_search.",
-          "Use recentMessages to understand follow-ups. If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
-          "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
-          "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
-        ].join(" "),
+        "Use recentMessages to understand follow-ups. If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
+        "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
+        "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",
+        "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
+        "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
+      ].join(" "),
         max_output_tokens: 180,
         model: route.model,
         parallel_tool_calls: false,

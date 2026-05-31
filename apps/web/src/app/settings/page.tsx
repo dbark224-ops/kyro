@@ -13,8 +13,14 @@ import {
   upsertInboundEmailSenderRuleSettingsAction,
 } from "./actions";
 import {
+  ELEVENLABS_VOICE_PRESETS,
   OPENAI_VOICE_OPTIONS,
   OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
+  PHONE_AGENT_DEMEANORS,
+  PHONE_AGENT_ESCALATION_MODES,
+  PHONE_AGENT_HUMOUR_LEVELS,
+  PHONE_AGENT_VERBOSITIES,
+  elevenLabsVoicePresetById,
   getVoiceSettings,
 } from "../../lib/assistant/voice-settings";
 import {
@@ -65,6 +71,10 @@ import {
   MICROSOFT_PROVIDER,
   getMicrosoftIntegrationOverview,
 } from "../../lib/integrations/microsoft";
+import {
+  getTwilioTelephonyOverview,
+  type TwilioTelephonyOverview,
+} from "../../lib/integrations/twilio";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
   getWorkspaceGeneralSettings,
@@ -358,6 +368,7 @@ type GoogleIntegrationOverview = Awaited<
 type MicrosoftIntegrationOverview = Awaited<
   ReturnType<typeof getMicrosoftIntegrationOverview>
 >;
+type TwilioIntegrationOverview = TwilioTelephonyOverview;
 type InboundEmailSettings = Awaited<ReturnType<typeof getInboundEmailSettings>>;
 type IntegrationOverview = {
   configured: boolean;
@@ -836,6 +847,148 @@ function MicrosoftIntegrationSettings({
           )
         )}
       </div>
+    </>
+  );
+}
+
+function twilioStatusLabel(overview: TwilioIntegrationOverview) {
+  if (!overview.migrationReady) {
+    return "Migration needed";
+  }
+
+  if (!overview.configured) {
+    return "Keys needed";
+  }
+
+  if (overview.numbers.some((number) => number.capabilities.sms)) {
+    return "Ready";
+  }
+
+  if (overview.defaultFromNumber) {
+    return "Outbound ready";
+  }
+
+  return "Number needed";
+}
+
+function TwilioTelephonySettings({
+  overview,
+}: Readonly<{ overview: TwilioIntegrationOverview }>) {
+  const smsNumber = overview.numbers.find((number) => number.capabilities.sms);
+
+  return (
+    <>
+      <div className="integration-summary-grid">
+        <article className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Kyro-owned numbers receive customer SMS through Twilio webhooks
+                and promote useful messages into the same CRM pipeline as email.
+              </>
+            }
+          >
+            Inbound SMS
+          </SettingCardHeading>
+        </article>
+        <article className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Approved or user-triggered SMS replies send through Twilio when
+                the workspace has an active SMS-capable number or configured
+                sender.
+              </>
+            }
+          >
+            Outbound SMS
+          </SettingCardHeading>
+        </article>
+      </div>
+
+      {!overview.migrationReady ? (
+        <p className="form-alert">
+          Phone-number tables are not in the database yet. Run{" "}
+          <code>npm.cmd run db:migrate</code> before connecting Twilio numbers.
+        </p>
+      ) : null}
+      {!overview.configured ? (
+        <p className="form-alert">
+          Add <code>TWILIO_ACCOUNT_SID</code> and{" "}
+          <code>TWILIO_AUTH_TOKEN</code> before sending or receiving SMS.
+        </p>
+      ) : null}
+      {overview.configured && !overview.inboundSmsWebhookUrl ? (
+        <p className="form-alert">
+          Add <code>NEXT_PUBLIC_APP_URL</code> so Twilio can call the inbound
+          SMS and status callback webhooks.
+        </p>
+      ) : null}
+
+      <div className="usage-ledger compact">
+        <div className="usage-ledger-row">
+          <div className="usage-ledger-main">
+            <strong>Inbound SMS webhook</strong>
+            <span>{overview.inboundSmsWebhookUrl ?? "App URL needed"}</span>
+          </div>
+        </div>
+        <div className="usage-ledger-row">
+          <div className="usage-ledger-main">
+            <strong>Delivery status callback</strong>
+            <span>{overview.statusCallbackUrl ?? "App URL needed"}</span>
+          </div>
+        </div>
+      </div>
+
+      {overview.numbers.length > 0 ? (
+        <div className="usage-ledger compact">
+          {overview.numbers.map((number) => (
+            <div className="usage-ledger-row" key={number.id}>
+              <div className="usage-ledger-main">
+                <strong>{number.friendlyName ?? number.phoneNumber}</strong>
+                <span>
+                  {[
+                    number.capabilities.sms ? "SMS" : null,
+                    number.capabilities.voice ? "Voice" : null,
+                    number.countryCode,
+                    formatLabel(number.status),
+                  ]
+                    .filter(Boolean)
+                    .join(" - ")}
+                </span>
+              </div>
+              <span className="pill">
+                {number.monthlyCostSnapshot > 0
+                  ? formatMoney(number.monthlyCostSnapshot, number.currency)
+                  : "Workspace number"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-copy">
+          No workspace Twilio number is registered yet. Outbound can use the
+          configured sender number for testing, but inbound SMS needs a
+          workspace phone-number record so Kyro knows which account owns the
+          message.
+        </p>
+      )}
+
+      <p className="empty-copy">
+        Number search and purchase will sit here next: Kyro will filter for
+        SMS-and-voice-capable numbers, buy through Twilio, and meter the rental
+        charge into the workspace usage ledger.
+      </p>
+
+      {smsNumber ? (
+        <p className="empty-copy">
+          Active SMS number: <strong>{smsNumber.phoneNumber}</strong>
+        </p>
+      ) : overview.defaultFromNumber ? (
+        <p className="empty-copy">
+          Testing sender: <strong>{overview.defaultFromNumber}</strong>
+        </p>
+      ) : null}
     </>
   );
 }
@@ -2046,6 +2199,7 @@ function WorkspaceIntegrationsSettings({
   microsoftStatus,
   showInboundTrace,
   showSenderRules,
+  twilioOverview,
 }: Readonly<{
   communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
   googleOverview: GoogleIntegrationOverview;
@@ -2056,6 +2210,7 @@ function WorkspaceIntegrationsSettings({
   microsoftStatus: string;
   showInboundTrace: boolean;
   showSenderRules: boolean;
+  twilioOverview: TwilioIntegrationOverview;
 }>) {
   const googleConnection = latestConnectedConnection(
     googleOverview.connections,
@@ -2109,6 +2264,7 @@ function WorkspaceIntegrationsSettings({
   const communicationStatus = communicationSettings.approvalRequired
     ? "Approval required"
     : "Auto outbound";
+  const twilioStatus = twilioStatusLabel(twilioOverview);
 
   return (
     <div className="integration-provider-stack">
@@ -2149,6 +2305,22 @@ function WorkspaceIntegrationsSettings({
         <CommunicationSettingsDetail
           communicationSettings={communicationSettings}
         />
+      </ProviderDetails>
+
+      <ProviderDetails
+        description={
+          twilioOverview.numbers.length > 0
+            ? `${twilioOverview.numbers.length} workspace number${
+                twilioOverview.numbers.length === 1 ? "" : "s"
+              }`
+            : "SMS and future phone calls"
+        }
+        isCurrent={false}
+        label="Kyro phone and SMS"
+        provider="Twilio"
+        status={twilioStatus}
+      >
+        <TwilioTelephonySettings overview={twilioOverview} />
       </ProviderDetails>
 
       <ProviderDetails
@@ -2356,8 +2528,9 @@ function CommunicationSettingsDetail({
 
       <div className="settings-footer">
         <span>
-          Connected email providers can send real email; SMS and phone are
-          internal records.
+          Connected email providers can send real email. SMS can send through
+          Twilio when a workspace sender is ready; phone calls route through
+          Vapi once the voice assistant IDs are configured.
         </span>
         <button className="primary-button compact" type="submit">
           Save settings
@@ -2402,6 +2575,30 @@ function VoiceSettingsDetail({
             <SettingCardHeading
               info={
                 <>
+                  This ElevenLabs voice is passed into Vapi for the internal
+                  Vapi voice tab and Kyro-initiated outbound calls. Use the same
+                  voice when configuring inbound Vapi assistants.
+                </>
+              }
+            >
+              Vapi voice
+            </SettingCardHeading>
+            <select
+              defaultValue={voiceSettings.elevenLabsVoicePresetId}
+              name="elevenLabsVoicePresetId"
+            >
+              {ELEVENLABS_VOICE_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading
+              info={
+                <>
                   Balanced lets Kyro proceed with high-confidence inferred
                   pronunciations, but asks before risky customer-facing voice.
                 </>
@@ -2421,6 +2618,175 @@ function VoiceSettingsDetail({
             </select>
           </label>
         </div>
+
+        <fieldset className="settings-fieldset">
+          <legend>Phone assistant</legend>
+          <div className="settings-grid">
+            <label className="compact-checkbox-row setting-card">
+              <input
+                defaultChecked={voiceSettings.phoneAgentEnabled}
+                name="phoneAgentEnabled"
+                type="checkbox"
+              />
+              <span>Enable Vapi phone assistant infrastructure</span>
+            </label>
+
+            <label className="setting-card">
+              <SettingCardHeading info="This controls the broad feel of the Vapi assistant prompt for inbound, voicemail overflow, and outbound calls.">
+                Call style
+              </SettingCardHeading>
+              <select
+                defaultValue={voiceSettings.phoneAgentDemeanor}
+                name="phoneAgentDemeanor"
+              >
+                {PHONE_AGENT_DEMEANORS.map((demeanor) => (
+                  <option key={demeanor} value={demeanor}>
+                    {formatLabel(demeanor)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="setting-card">
+              <SettingCardHeading info="Concise is best for trades call handling; detailed gives the assistant more room to explain.">
+                Detail level
+              </SettingCardHeading>
+              <select
+                defaultValue={voiceSettings.phoneAgentVerbosity}
+                name="phoneAgentVerbosity"
+              >
+                {PHONE_AGENT_VERBOSITIES.map((verbosity) => (
+                  <option key={verbosity} value={verbosity}>
+                    {formatLabel(verbosity)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="setting-card">
+              <SettingCardHeading info="Light humour keeps calls human without letting the assistant drift into banter when a customer needs help.">
+                Warmth
+              </SettingCardHeading>
+              <select
+                defaultValue={voiceSettings.phoneAgentHumourLevel}
+                name="phoneAgentHumourLevel"
+              >
+                {PHONE_AGENT_HUMOUR_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {formatLabel(level)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="setting-card">
+              <SettingCardHeading info="What Kyro should do when a caller needs the human tradesperson or has an urgent issue.">
+                Escalation behaviour
+              </SettingCardHeading>
+              <select
+                defaultValue={voiceSettings.phoneAgentEscalationMode}
+                name="phoneAgentEscalationMode"
+              >
+                {PHONE_AGENT_ESCALATION_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {formatLabel(mode)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="channel-toggle-grid voice-purpose-toggle-grid">
+            <label className="channel-toggle">
+              <input
+                defaultChecked={voiceSettings.phoneAgentInboundEnabled}
+                name="phoneAgentInboundEnabled"
+                type="checkbox"
+              />
+              <span>Inbound customer calls</span>
+            </label>
+            <label className="channel-toggle">
+              <input
+                defaultChecked={
+                  voiceSettings.phoneAgentVoicemailOverflowEnabled
+                }
+                name="phoneAgentVoicemailOverflowEnabled"
+                type="checkbox"
+              />
+              <span>Voicemail overflow</span>
+            </label>
+            <label className="channel-toggle">
+              <input
+                defaultChecked={voiceSettings.phoneAgentOutboundEnabled}
+                name="phoneAgentOutboundEnabled"
+                type="checkbox"
+              />
+              <span>Outbound calls</span>
+            </label>
+          </div>
+
+          <label className="settings-textarea">
+            User and team phone numbers
+            <textarea
+              defaultValue={voiceSettings.phoneAgentUserNumbers.join("\n")}
+              name="phoneAgentUserNumbers"
+              placeholder={"+61 400 000 000\n+1 555 0100"}
+            />
+          </label>
+
+          <div className="settings-grid">
+            <label className="setting-card">
+              <SettingCardHeading info="Vapi phone number ID. Kyro can also read VAPI_PHONE_NUMBER_ID from env.">
+                Vapi phone number ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiPhoneNumberId ?? ""}
+                name="vapiPhoneNumberId"
+                placeholder="pn_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used by the browser/mobile Vapi voice tab for internal Kyro conversations.">
+                Internal voice assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiInternalAssistantId ?? ""}
+                name="vapiInternalAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used when customers call the Kyro number directly.">
+                Inbound assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiInboundAssistantId ?? ""}
+                name="vapiInboundAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used for missed-call or voicemail overflow forwarding.">
+                Voicemail assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiVoicemailAssistantId ?? ""}
+                name="vapiVoicemailAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used when Kyro initiates an outbound customer call.">
+                Outbound assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiOutboundAssistantId ?? ""}
+                name="vapiOutboundAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+          </div>
+        </fieldset>
 
         <div className="settings-footer align-end">
           <button className="primary-button compact" type="submit">
@@ -2859,6 +3225,7 @@ export default async function SettingsPage({
           getMicrosoftIntegrationOverview(supabase, workspace.id),
           getInboundEmailSettings(supabase, workspace.id),
           getInboundEmailOperationalSummary(supabase, workspace.id),
+          getTwilioTelephonyOverview(supabase, workspace.id),
         ])
       : Promise.resolve(null),
     selectedSection === "voice"
@@ -2875,6 +3242,7 @@ export default async function SettingsPage({
   const microsoftOverview = integrationOverviews?.[1] ?? null;
   const inboundEmailSettings = integrationOverviews?.[2] ?? null;
   const inboundEmailSummary = integrationOverviews?.[3] ?? null;
+  const twilioOverview = integrationOverviews?.[4] ?? null;
   const googleStatus = googleOverview
     ? integrationStatusLabel(googleOverview)
     : "Open";
@@ -2900,8 +3268,10 @@ export default async function SettingsPage({
     },
     {
       detail: voiceSettings
-        ? `${formatLabel(voiceSettings.openAiVoice)} voice`
-        : "Realtime and playback voice controls",
+        ? `${elevenLabsVoicePresetById(voiceSettings.elevenLabsVoicePresetId).label} - ${
+            voiceSettings.phoneAgentEnabled ? "Phone on" : "Phone off"
+          }`
+        : "Realtime, playback, and phone voice controls",
       eyebrow: "Voice",
       href: settingsSectionHref("voice", activeWindow),
       section: "voice",
@@ -2938,7 +3308,8 @@ export default async function SettingsPage({
       googleOverview &&
       microsoftOverview &&
       inboundEmailSettings &&
-      inboundEmailSummary ? (
+      inboundEmailSummary &&
+      twilioOverview ? (
       <SettingsDetailShell eyebrow="Integrations" title="Connected accounts">
         <WorkspaceIntegrationsSettings
           communicationSettings={communicationSettings}
@@ -2950,6 +3321,7 @@ export default async function SettingsPage({
           microsoftStatus={microsoftStatus}
           showInboundTrace={showInboundTrace}
           showSenderRules={showSenderRules}
+          twilioOverview={twilioOverview}
         />
       </SettingsDetailShell>
     ) : selectedSection === "usage" && usageReport && generalSettings ? (

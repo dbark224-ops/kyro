@@ -45,6 +45,7 @@ export function AddressAutocompleteField({
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [shouldSearch, setShouldSearch] = useState(false);
   const sessionTokenRef = useRef(newSessionToken());
   const currentValue = isControlled ? value : localValue;
   const listId = `${id}-address-suggestions`;
@@ -69,9 +70,21 @@ export function AddressAutocompleteField({
   );
 
   useEffect(() => {
+    if (!shouldSearch) {
+      setSuggestions([]);
+      setIsOpen(false);
+      setStatus("idle");
+      return;
+    }
+
     const query = currentValue.trim();
 
     if (query.length < 3 || selectedAddress?.formattedAddress === query) {
+      if (query.length < 3) {
+        setSuggestions([]);
+        setIsOpen(false);
+        setStatus("idle");
+      }
       return;
     }
 
@@ -120,7 +133,7 @@ export function AddressAutocompleteField({
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [currentValue, selectedAddress?.formattedAddress]);
+  }, [currentValue, selectedAddress?.formattedAddress, shouldSearch]);
 
   function updateValue(nextValue: string) {
     if (!isControlled) {
@@ -153,6 +166,7 @@ export function AddressAutocompleteField({
       setSelectedAddress(payload.data);
       updateValue(payload.data.formattedAddress ?? suggestion.description);
       setSuggestions([]);
+      setShouldSearch(false);
       setStatus("idle");
       sessionTokenRef.current = newSessionToken();
     } catch (error) {
@@ -182,6 +196,7 @@ export function AddressAutocompleteField({
           onChange={(event) => {
             const nextValue = event.currentTarget.value;
 
+            setShouldSearch(true);
             setSelectedAddress(null);
             if (nextValue.trim().length < 3) {
               setSuggestions([]);
@@ -190,7 +205,7 @@ export function AddressAutocompleteField({
             }
             updateValue(nextValue);
           }}
-          onFocus={() => setIsOpen(suggestions.length > 0)}
+          onFocus={() => setIsOpen(shouldSearch && suggestions.length > 0)}
           placeholder={placeholder}
           required={required}
           role="combobox"

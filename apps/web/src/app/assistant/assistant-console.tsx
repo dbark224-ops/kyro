@@ -27,9 +27,11 @@ import type {
   AssistantThreadState,
   AssistantUiBlock,
 } from "../../lib/assistant/types";
+import type { AssistantExternalActivityItem } from "../../lib/assistant/external-activity";
 import Image from "next/image";
 import Link from "next/link";
 import { MessageAttachmentList } from "../components/message-attachments";
+import { ContactProfilePanel } from "../components/contact-profile-panel";
 
 const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -87,9 +89,17 @@ type PreviewState =
     };
 
 export function AssistantConsole({
+  externalActivityItems = [],
+  initialPreviewEngineError,
+  initialPreviewEngineMessage,
+  initialPreview,
   initialState,
   promptSuggestions,
 }: {
+  externalActivityItems?: AssistantExternalActivityItem[];
+  initialPreviewEngineError?: string;
+  initialPreviewEngineMessage?: string;
+  initialPreview?: AssistantResourcePreview | null;
   initialState: AssistantThreadState;
   promptSuggestions?: string[];
 }) {
@@ -124,9 +134,16 @@ export function AssistantConsole({
     useState<PendingAssistantActivity>(null);
   const [optimisticMessage, setOptimisticMessage] =
     useState<OptimisticAssistantMessage | null>(null);
-  const [previewState, setPreviewState] = useState<PreviewState>({
-    status: "closed",
-  });
+  const [previewState, setPreviewState] = useState<PreviewState>(
+    initialPreview
+      ? {
+          preview: initialPreview,
+          status: "ready",
+        }
+      : {
+          status: "closed",
+        },
+  );
   const [previewActionId, setPreviewActionId] = useState<string | null>(null);
   const [linkOverrides, setLinkOverrides] = useState<
     Record<string, AssistantLink>
@@ -786,7 +803,9 @@ export function AssistantConsole({
 
   return (
     <section
-      className={`assistant-workspace${isPreviewOpen ? " has-preview" : ""}`}
+      className={`assistant-workspace${
+        isPreviewOpen ? " has-preview" : " has-activity"
+      }`}
     >
       <section className="panel assistant-command-panel">
         <div className="panel-heading">
@@ -956,14 +975,23 @@ export function AssistantConsole({
         <AssistantDevDiagnostics state={state} />
       </section>
 
-      <AssistantPreviewPane
-        actionPendingId={previewActionId}
-        onClose={() => setPreviewState({ status: "closed" })}
-        onRunAction={runPreviewAction}
-        onSaveDraftReply={saveDraftReply}
-        onSendManualReply={sendManualReply}
-        state={previewState}
-      />
+      {isPreviewOpen ? (
+        <AssistantPreviewPane
+          actionPendingId={previewActionId}
+          engineError={initialPreviewEngineError}
+          engineMessage={initialPreviewEngineMessage}
+          onClose={() => setPreviewState({ status: "closed" })}
+          onRunAction={runPreviewAction}
+          onSaveDraftReply={saveDraftReply}
+          onSendManualReply={sendManualReply}
+          state={previewState}
+        />
+      ) : (
+        <AssistantExternalActivityPane
+          items={externalActivityItems}
+          onOpenPreview={openResourcePreview}
+        />
+      )}
       <AssistantImageLightbox
         disabled={isAssistantGenerating}
         image={expandedImage}
@@ -1792,6 +1820,98 @@ function AssistantTypingIndicator({
   );
 }
 
+function AssistantExternalActivityPane({
+  items,
+  onOpenPreview,
+}: {
+  items: AssistantExternalActivityItem[];
+  onOpenPreview: (link: AssistantLink) => void;
+}) {
+  return (
+    <aside className="panel assistant-external-activity">
+      <header className="assistant-activity-header">
+        <div>
+          <h2>Kyro activity</h2>
+        </div>
+        <span className="pill">{items.length} shown</span>
+      </header>
+
+      {items.length > 0 ? (
+        <div className="assistant-activity-list">
+          {items.map((item) => {
+            const content = (
+              <>
+                <span className={`assistant-activity-dot ${item.tone}`} />
+                <div className="assistant-activity-copy">
+                  <div>
+                    <span className="assistant-activity-title-row">
+                      <strong>{item.title}</strong>
+                      <span>{item.meta}</span>
+                    </span>
+                    <time
+                      dateTime={item.at}
+                      title={formatFullMessageTime(item.at)}
+                    >
+                      {formatMessageTime(item.at)}
+                    </time>
+                  </div>
+                  {item.subject ? (
+                    <p className="assistant-activity-subject">
+                      {item.subject}
+                    </p>
+                  ) : null}
+                  <p
+                    className={`assistant-activity-preview${
+                      item.subject ? "" : " no-subject"
+                    }`}
+                  >
+                    {item.preview}
+                  </p>
+                </div>
+              </>
+            );
+
+            return item.href && isPreviewableHref(item.href) ? (
+              <button
+                className="assistant-activity-row"
+                key={item.id}
+                onClick={() =>
+                  onOpenPreview({
+                    href: item.href ?? "",
+                    label: item.title,
+                    meta: item.meta,
+                  })
+                }
+                type="button"
+              >
+                {content}
+              </button>
+            ) : item.href ? (
+              <Link
+                className="assistant-activity-row"
+                href={item.href}
+                key={item.id}
+                prefetch={false}
+              >
+                {content}
+              </Link>
+            ) : (
+              <article className="assistant-activity-row" key={item.id}>
+                {content}
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="empty-copy">
+          External email, SMS, and phone activity will appear here once Kyro
+          starts handling it outside the chat thread.
+        </p>
+      )}
+    </aside>
+  );
+}
+
 function AssistantDevDiagnostics({ state }: { state: AssistantThreadState }) {
   return (
     <details className="assistant-dev-diagnostics">
@@ -2363,6 +2483,8 @@ function shouldRenderAssistantLink(
 
 function AssistantPreviewPane({
   actionPendingId,
+  engineError,
+  engineMessage,
   onClose,
   onRunAction,
   onSaveDraftReply,
@@ -2370,6 +2492,8 @@ function AssistantPreviewPane({
   state,
 }: {
   actionPendingId: string | null;
+  engineError?: string;
+  engineMessage?: string;
   onClose: () => void;
   onRunAction: (
     actionId: string,
@@ -2392,6 +2516,25 @@ function AssistantPreviewPane({
 }) {
   if (state.status === "closed") {
     return null;
+  }
+
+  if (state.status === "ready" && state.preview.type === "contact") {
+    const contactId = state.preview.profile.contact.id;
+    const contactHref = (nextContactId: string) =>
+      `/assistant?contactId=${encodeURIComponent(nextContactId)}`;
+
+    return (
+      <ContactProfilePanel
+        className="assistant-inline-preview assistant-contact-profile-panel"
+        engineError={engineError}
+        engineMessage={engineMessage}
+        onClose={onClose}
+        profile={state.preview.profile}
+        profileHref={contactHref}
+        redirectTo={contactHref(contactId)}
+        successHref={contactHref}
+      />
+    );
   }
 
   const title = state.status === "ready" ? state.preview.title : state.title;
@@ -2491,6 +2634,10 @@ function AssistantPreviewContent({
 
   if (preview.type === "quote") {
     return <QuotePreview profile={preview.profile} />;
+  }
+
+  if (preview.type === "voice_call") {
+    return <VoiceCallPreview profile={preview.profile} />;
   }
 
   return <ContactPreview profile={preview.profile} />;
@@ -3236,6 +3383,99 @@ function ContactPreview({
   );
 }
 
+function VoiceCallPreview({
+  profile,
+}: {
+  profile: Extract<AssistantResourcePreview, { type: "voice_call" }>["profile"];
+}) {
+  const call = profile.call;
+  const otherParty =
+    profile.contact?.name ??
+    profile.contact?.company ??
+    call.customerNumber ??
+    call.fromNumber ??
+    call.toNumber ??
+    "Unknown caller";
+
+  return (
+    <div className="assistant-preview-body voice-call-preview">
+      <div className="assistant-preview-status-row">
+        <span className="pill">{formatLabel(call.status)}</span>
+        <span>{formatLabel(call.purpose)}</span>
+        <span>
+          {call.durationSeconds
+            ? `${call.durationSeconds}s`
+            : "Duration pending"}
+        </span>
+      </div>
+
+      <div className="assistant-preview-grid">
+        <PreviewPanel title="Call">
+          <PreviewFacts
+            facts={[
+              ["Other party", otherParty],
+              ["Direction", formatLabel(call.direction)],
+              ["From", call.fromNumber],
+              ["To", call.toNumber],
+              ["Started", formatDate(call.startedAt ?? call.createdAt)],
+              ["Ended", formatDate(call.endedAt)],
+            ]}
+          />
+        </PreviewPanel>
+        <PreviewPanel title="CRM link">
+          <PreviewFacts
+            facts={[
+              ["Contact", profile.contact?.name ?? profile.contact?.company],
+              ["Email", profile.contact?.email],
+              ["Phone", profile.contact?.phone ?? call.customerNumber],
+              ["Lead", profile.lead?.title],
+              ["Conversation", profile.conversation?.status],
+              ["Provider", call.provider],
+            ]}
+          />
+        </PreviewPanel>
+      </div>
+
+      {call.summary ? (
+        <PreviewPanel title="Summary">
+          <p className="panel-copy">{call.summary}</p>
+        </PreviewPanel>
+      ) : null}
+
+      {call.recordingUrl ? (
+        <PreviewPanel title="Recording">
+          <audio className="voice-call-audio" controls src={call.recordingUrl}>
+            <track kind="captions" />
+          </audio>
+        </PreviewPanel>
+      ) : null}
+
+      <PreviewPanel title="Transcript">
+        <p className="voice-call-transcript">
+          {call.transcript ?? "No transcript has been saved for this call yet."}
+        </p>
+      </PreviewPanel>
+
+      <PreviewPanel title="Events">
+        {profile.events.length > 0 ? (
+          <div className="assistant-preview-list compact">
+            {profile.events.slice(0, 10).map((event) => (
+              <article className="assistant-preview-row" key={event.id}>
+                <div>
+                  <strong>{formatLabel(event.eventType)}</strong>
+                  <span>{formatDate(event.createdAt)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">No Vapi events recorded yet.</p>
+        )}
+      </PreviewPanel>
+    </div>
+  );
+}
+
 function PreviewPanel({
   children,
   title,
@@ -3269,7 +3509,23 @@ function PreviewFacts({
 }
 
 function isPreviewableHref(href: string) {
-  return /^\/(inbox|files|documents|contacts)\/[^/?#]+(?:[?#].*)?$/.test(href);
+  try {
+    const url = new URL(href, "http://kyro.local");
+
+    if (
+      url.pathname === "/contacts" &&
+      Boolean(url.searchParams.get("contactId"))
+    ) {
+      return true;
+    }
+  } catch {
+    // Fall through to the path-based matcher.
+  }
+
+  return (
+    /^\/(inbox|files|documents|contacts)\/[^/?#]+(?:[?#].*)?$/.test(href) ||
+    /^\/voice\/calls\/[^/?#]+(?:[?#].*)?$/.test(href)
+  );
 }
 
 function isAssistantQueueAction(

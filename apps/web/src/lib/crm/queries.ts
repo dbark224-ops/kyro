@@ -2138,6 +2138,18 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function isUnavailableRelationError(error: { code?: string; message?: string }) {
+  const message = error.message?.toLowerCase() ?? "";
+
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("could not find the table") ||
+    message.includes("does not exist")
+  );
+}
+
 function jsonArray(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
@@ -3151,7 +3163,10 @@ export async function getConversationReview(
     throw new Error(`Unable to load internal notes: ${notes.error.message}`);
   }
 
-  if (outboundMessages.error) {
+  if (
+    outboundMessages.error &&
+    !isUnavailableRelationError(outboundMessages.error)
+  ) {
     throw new Error(
       `Unable to load outbound deliveries: ${outboundMessages.error.message}`,
     );

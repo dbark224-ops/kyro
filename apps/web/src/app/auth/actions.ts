@@ -33,7 +33,7 @@ export async function signInAction(formData: FormData) {
   }
 
   revalidatePath("/", "layout");
-  redirect("/sign-in?message=Check your email if confirmation is enabled, then sign in.");
+  redirect("/dashboard");
 }
 
 export async function signUpAction(formData: FormData) {
@@ -64,7 +64,7 @@ export async function signUpAction(formData: FormData) {
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect("/dashboard");
 }
 
 export async function signOutAction() {

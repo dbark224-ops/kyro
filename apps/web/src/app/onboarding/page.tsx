@@ -35,7 +35,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           </div>
           <h1>{workspace.name}</h1>
           <p className="form-copy">This account already has a bootstrapped workspace.</p>
-          <Link className="primary-button link-button" href="/">
+          <Link className="primary-button link-button" href="/dashboard">
             Open dashboard
           </Link>
         </section>

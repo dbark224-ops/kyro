@@ -1,5 +1,32 @@
 import type { AssistantLink, AssistantUiBlock } from "./types";
 
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function normalizeAssistantUiBlocks(value: unknown): AssistantUiBlock[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((block): block is AssistantUiBlock => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+
+    const record = block as Record<string, unknown>;
+    return [
+      "approval_queue",
+      "generated_image",
+      "link_cards",
+      "memory_notice",
+      "memory_suggestion",
+      "summary_cards",
+      "timeline",
+    ].includes(textValue(record.type) ?? "");
+  });
+}
+
 export function linkCardsBlock(
   title: string,
   links: AssistantLink[],

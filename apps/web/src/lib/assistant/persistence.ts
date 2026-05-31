@@ -8,6 +8,7 @@ import {
   linksFromBlocks,
   memoryNoticeBlock,
   memorySuggestionBlock,
+  normalizeAssistantUiBlocks,
 } from "./ui-blocks";
 import type {
   AssistantLink,
@@ -220,14 +221,14 @@ export async function appendUserAssistantMessage({
   user: User;
   workspaceId: string;
 }) {
+  const metadataSource = assistantInputSourceMetadataSource(inputSource);
   const { data, error } = await supabase
     .from("assistant_messages")
     .insert({
       content,
       metadata: {
         inputSource,
-        source:
-          inputSource === "voice" ? "assistant.voice_input" : "assistant.page",
+        source: metadataSource,
       },
       role: "user",
       thread_id: threadId,
@@ -247,10 +248,9 @@ export async function appendUserAssistantMessage({
 
   try {
     await capturePronunciationSignalsFromText({
-      source:
-        inputSource === "realtime_voice"
-          ? "assistant.realtime_voice"
-          : "assistant.message",
+      source: assistantVoiceInputSource(inputSource)
+        ? metadataSource
+        : "assistant.message",
       sourceId: String(data.id),
       supabase,
       text: content,
@@ -321,38 +321,48 @@ export async function appendAssistantTurnMessage({
 
 export async function appendRealtimeAssistantMessage({
   content,
+  intent = "realtime_voice",
   links = [],
   model,
   provider,
+  source = "assistant.realtime_voice",
   supabase,
   threadId,
+  uiBlocks = [],
   user,
   workspaceId,
 }: {
   content: string;
+  intent?: string;
   links?: AssistantLink[];
   model: string;
   provider: string;
+  source?: string;
   supabase: SupabaseClient;
   threadId: string;
+  uiBlocks?: AssistantUiBlock[];
   user: User;
   workspaceId: string;
 }) {
+  const persistedUiBlocks = [
+    ...normalizeAssistantUiBlocks(uiBlocks),
+    ...linkCardsBlock("Web sources", links),
+  ];
   const { data, error } = await supabase
     .from("assistant_messages")
     .insert({
       content,
-      intent: "realtime_voice",
+      intent,
       metadata: {
         linkCount: links.length,
-        source: "assistant.realtime_voice",
+        source,
       },
       model,
       provider,
       role: "assistant",
       thread_id: threadId,
       tool_calls: [],
-      ui_blocks: linkCardsBlock("Web sources", links),
+      ui_blocks: persistedUiBlocks,
       user_id: user.id,
       workspace_id: workspaceId,
     })
@@ -368,6 +378,26 @@ export async function appendRealtimeAssistantMessage({
   await touchThread(supabase, workspaceId, threadId);
 
   return String(data.id);
+}
+
+function assistantVoiceInputSource(inputSource: string) {
+  return ["realtime_voice", "vapi_internal_voice", "voice"].includes(inputSource);
+}
+
+function assistantInputSourceMetadataSource(inputSource: string) {
+  if (inputSource === "realtime_voice") {
+    return "assistant.realtime_voice";
+  }
+
+  if (inputSource === "vapi_internal_voice") {
+    return "assistant.vapi_internal_voice";
+  }
+
+  if (inputSource === "voice") {
+    return "assistant.voice_input";
+  }
+
+  return "assistant.page";
 }
 
 export async function maybeSaveAssistantMemory({
@@ -935,26 +965,7 @@ function conversationHrefFromHref(href: string) {
 }
 
 function normalizeUiBlocks(value: unknown): AssistantUiBlock[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((block): block is AssistantUiBlock => {
-    if (!block || typeof block !== "object") {
-      return false;
-    }
-
-    const record = block as Record<string, unknown>;
-    return [
-      "approval_queue",
-      "generated_image",
-      "link_cards",
-      "memory_notice",
-      "memory_suggestion",
-      "summary_cards",
-      "timeline",
-    ].includes(textValue(record.type) ?? "");
-  });
+  return normalizeAssistantUiBlocks(value);
 }
 
 async function refreshAssistantMemorySuggestionBlocks(

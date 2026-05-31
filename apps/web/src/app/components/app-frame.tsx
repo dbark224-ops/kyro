@@ -19,10 +19,11 @@ import type { ReactNode } from "react";
 const navItems = [
   { label: "Assistant", href: "/assistant", primary: true },
   { label: "Voice", href: "/voice" },
+  { label: "Vapi Voice", href: "/voice-vapi" },
   { label: "Inbox", href: "/inbox" },
   { label: "CRM", href: "/contacts" },
   { label: "Files", href: "/files" },
-  { label: "Log", href: "/" },
+  { label: "Log", href: "/dashboard" },
   { label: "Developer", href: "/developer" },
   { label: "Settings", href: "/settings" },
 ];

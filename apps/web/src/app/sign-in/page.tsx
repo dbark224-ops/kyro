@@ -40,7 +40,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   } = await supabase.auth.getUser();
 
   if (user) {
-    redirect("/");
+    redirect("/dashboard");
   }
 
   return (

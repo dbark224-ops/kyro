@@ -1,0 +1,1290 @@
+import type { SupabaseClient, User } from "@supabase/supabase-js";
+import {
+  elevenLabsVapiVoiceOverride,
+  elevenLabsVoicePresetById,
+  getVoiceSettings,
+} from "../assistant/voice-settings";
+import {
+  createVapiOutboundCall,
+  VAPI_CARRIER_PROVIDER,
+  VAPI_PROVIDER,
+} from "../integrations/vapi";
+import {
+  telephonyUsageCost,
+  TWILIO_PROVIDER,
+} from "../integrations/twilio";
+import { normalizeContactPhoneForRegion } from "../crm/identity";
+
+export type VoiceCallDirection = "inbound" | "outbound";
+export type VoiceCallPurpose =
+  | "inbound_customer"
+  | "inbound_user"
+  | "outbound_customer"
+  | "test"
+  | "voicemail_overflow";
+export type VoiceCallStatus =
+  | "cancelled"
+  | "completed"
+  | "created"
+  | "failed"
+  | "in_progress"
+  | "missed"
+  | "queued"
+  | "ringing";
+
+export type VoiceCallPreview = {
+  call: {
+    carrierProvider: string;
+    costCustomerAmount: number;
+    costProviderAmount: number;
+    createdAt: string;
+    currency: string;
+    customerNumber: string | null;
+    direction: VoiceCallDirection;
+    durationSeconds: number | null;
+    endedAt: string | null;
+    endedReason: string | null;
+    fromNumber: string | null;
+    id: string;
+    provider: string;
+    providerAssistantId: string | null;
+    providerCallId: string | null;
+    providerPhoneNumberId: string | null;
+    purpose: VoiceCallPurpose;
+    recordingUrl: string | null;
+    startedAt: string | null;
+    status: VoiceCallStatus;
+    summary: string | null;
+    toNumber: string | null;
+    transcript: string | null;
+    updatedAt: string;
+  };
+  contact: {
+    address: string | null;
+    company: string | null;
+    contactType: string | null;
+    email: string | null;
+    id: string;
+    name: string | null;
+    phone: string | null;
+  } | null;
+  conversation: {
+    id: string;
+    lastMessageAt: string | null;
+    status: string;
+  } | null;
+  events: Array<{
+    createdAt: string;
+    eventType: string;
+    id: string;
+  }>;
+  lead: {
+    id: string;
+    status: string;
+    title: string;
+  } | null;
+};
+
+type WorkspacePhoneNumberMatch = {
+  id: string;
+  metadata: Record<string, unknown>;
+  normalizedPhone: string;
+  phoneNumber: string;
+  providerPhoneNumberId: string | null;
+  workspaceId: string;
+};
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function arrayRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value
+        .map((item) => objectRecord(item))
+        .filter((item) => Object.keys(item).length > 0)
+    : [];
+}
+
+function jsonRecord(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return objectRecord(value);
+  }
+
+  try {
+    return objectRecord(JSON.parse(value) as unknown);
+  } catch {
+    return {};
+  }
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = textValue(value);
+
+    if (text) {
+      return text;
+    }
+  }
+
+  return null;
+}
+
+function tableMissing(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("voice_calls") ||
+    message.includes("voice_call_events") ||
+    message.includes("does not exist")
+  );
+}
+
+export function isVoiceCallTableMissing(
+  error: { code?: string; message?: string } | null,
+) {
+  return tableMissing(error);
+}
+
+function normalizePhone(value: string | null) {
+  return value ? normalizeContactPhoneForRegion(value, "AU") : null;
+}
+
+function statusFromEvent(value: string | null): VoiceCallStatus {
+  const normalized = value?.toLowerCase().replace(/-/g, "_") ?? "";
+
+  if (
+    normalized.includes("ended") ||
+    normalized.includes("completed") ||
+    normalized.includes("hang")
+  ) {
+    return "completed";
+  }
+
+  if (normalized.includes("failed") || normalized.includes("error")) {
+    return "failed";
+  }
+
+  if (normalized.includes("ring")) {
+    return "ringing";
+  }
+
+  if (
+    normalized.includes("started") ||
+    normalized.includes("speech") ||
+    normalized.includes("transcript") ||
+    normalized.includes("in_progress")
+  ) {
+    return "in_progress";
+  }
+
+  if (normalized.includes("queued") || normalized.includes("created")) {
+    return "queued";
+  }
+
+  if (normalized.includes("missed")) {
+    return "missed";
+  }
+
+  if (normalized.includes("cancel")) {
+    return "cancelled";
+  }
+
+  return "created";
+}
+
+function vapiMessage(payload: Record<string, unknown>) {
+  return objectRecord(payload.message);
+}
+
+function vapiCall(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+
+  return objectRecord(message.call ?? payload.call ?? payload);
+}
+
+function vapiArtifact(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+
+  return objectRecord(message.artifact ?? payload.artifact);
+}
+
+function vapiAnalysis(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+
+  return objectRecord(message.analysis ?? payload.analysis);
+}
+
+function providerCallId(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+  const call = vapiCall(payload);
+
+  return firstText(
+    call.id,
+    message.callId,
+    payload.callId,
+    payload.call_id,
+    payload.id,
+  );
+}
+
+function eventType(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+
+  return (
+    firstText(message.type, payload.type, payload.event, payload.eventType) ??
+    "unknown"
+  );
+}
+
+function callMetadata(payload: Record<string, unknown>) {
+  const call = vapiCall(payload);
+
+  return objectRecord(call.metadata ?? payload.metadata);
+}
+
+function callDirection(payload: Record<string, unknown>): VoiceCallDirection {
+  const metadata = callMetadata(payload);
+  const call = vapiCall(payload);
+  const raw = `${firstText(
+    metadata.direction,
+    call.direction,
+    call.type,
+    payload.direction,
+  ) ?? ""}`.toLowerCase();
+
+  return raw.includes("out") ? "outbound" : "inbound";
+}
+
+function phoneNumbers(
+  payload: Record<string, unknown>,
+  direction: VoiceCallDirection,
+) {
+  const call = vapiCall(payload);
+  const customer = objectRecord(call.customer);
+  const phoneNumber = objectRecord(call.phoneNumber);
+  const providerDetails = objectRecord(
+    call.phoneCallProviderDetails ?? call.providerDetails,
+  );
+  const providerFrom = firstText(
+    providerDetails.from,
+    call.from,
+    call.fromNumber,
+    payload.from,
+    payload.fromNumber,
+  );
+  const providerTo = firstText(
+    providerDetails.to,
+    call.to,
+    call.toNumber,
+    payload.to,
+    payload.toNumber,
+  );
+  const customerNumber = firstText(customer.number);
+  const kyroNumber = firstText(phoneNumber.number);
+  const from =
+    direction === "outbound"
+      ? (providerFrom ?? kyroNumber)
+      : (customerNumber ?? providerFrom);
+  const to =
+    direction === "outbound"
+      ? (customerNumber ?? providerTo)
+      : (kyroNumber ?? providerTo);
+
+  return { from, to };
+}
+
+function callPurpose(
+  payload: Record<string, unknown>,
+  input: {
+    direction: VoiceCallDirection;
+    fromNumber: string | null;
+    matchedWorkspaceNumber?: WorkspacePhoneNumberMatch | null;
+    userNumbers: string[];
+  },
+): VoiceCallPurpose {
+  const metadata = callMetadata(payload);
+  const explicitPurpose = textValue(metadata.purpose ?? payload.purpose);
+
+  if (
+    explicitPurpose === "inbound_customer" ||
+    explicitPurpose === "inbound_user" ||
+    explicitPurpose === "outbound_customer" ||
+    explicitPurpose === "test" ||
+    explicitPurpose === "voicemail_overflow"
+  ) {
+    return explicitPurpose;
+  }
+
+  if (input.direction === "outbound") {
+    return "outbound_customer";
+  }
+
+  const normalizedFrom = normalizePhone(input.fromNumber);
+  const normalizedUserNumbers = input.userNumbers
+    .map((number) => normalizePhone(number))
+    .filter((number): number is string => Boolean(number));
+
+  if (normalizedFrom && normalizedUserNumbers.includes(normalizedFrom)) {
+    return "inbound_user";
+  }
+
+  const numberMetadata = objectRecord(input.matchedWorkspaceNumber?.metadata);
+  const numberPurpose = textValue(
+    numberMetadata.voicePurpose ?? numberMetadata.purpose,
+  );
+
+  if (numberPurpose === "voicemail_overflow") {
+    return "voicemail_overflow";
+  }
+
+  return "inbound_customer";
+}
+
+function callSummary(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+  const analysis = vapiAnalysis(payload);
+
+  return firstText(
+    message.summary,
+    payload.summary,
+    analysis.summary,
+    analysis.callSummary,
+  );
+}
+
+function callTranscript(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+  const artifact = vapiArtifact(payload);
+
+  return firstText(
+    message.transcript,
+    payload.transcript,
+    artifact.transcript,
+  );
+}
+
+function callRecordingUrl(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+  const artifact = vapiArtifact(payload);
+
+  return firstText(
+    message.recordingUrl,
+    payload.recordingUrl,
+    artifact.recordingUrl,
+    artifact.stereoRecordingUrl,
+  );
+}
+
+function providerAssistantId(payload: Record<string, unknown>) {
+  const call = vapiCall(payload);
+  const assistant = objectRecord(call.assistant);
+
+  return firstText(call.assistantId, assistant.id, payload.assistantId);
+}
+
+function providerPhoneNumberId(payload: Record<string, unknown>) {
+  const call = vapiCall(payload);
+  const phoneNumber = objectRecord(call.phoneNumber);
+
+  return firstText(call.phoneNumberId, phoneNumber.id, payload.phoneNumberId);
+}
+
+function timestampValue(...values: unknown[]) {
+  for (const value of values) {
+    const text = textValue(value);
+
+    if (text && !Number.isNaN(new Date(text).getTime())) {
+      return text;
+    }
+  }
+
+  return null;
+}
+
+function callTiming(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+  const call = vapiCall(payload);
+
+  return {
+    endedAt: timestampValue(
+      message.endedAt,
+      message.endTime,
+      call.endedAt,
+      call.ended_at,
+      call.endedAt,
+      payload.endedAt,
+      payload.endTime,
+    ),
+    startedAt: timestampValue(
+      message.startedAt,
+      message.startTime,
+      call.startedAt,
+      call.started_at,
+      call.createdAt,
+      payload.startedAt,
+      payload.startTime,
+    ),
+  };
+}
+
+function durationSeconds(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+  const call = vapiCall(payload);
+  const duration =
+    numberValue(message.durationSeconds) ??
+    numberValue(call.durationSeconds) ??
+    numberValue(payload.durationSeconds) ??
+    numberValue(message.duration) ??
+    numberValue(payload.duration);
+
+  if (duration === null) {
+    return null;
+  }
+
+  return duration > 1000 ? Math.round(duration / 1000) : Math.round(duration);
+}
+
+function callCost(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
+  const call = vapiCall(payload);
+  const cost =
+    numberValue(message.cost) ??
+    numberValue(call.cost) ??
+    numberValue(payload.cost);
+  const usage = telephonyUsageCost({
+    direction: callDirection(payload),
+    kind: "voice_call",
+    providerPrice: cost,
+  });
+
+  return {
+    currency: usage.currency,
+    customerCharge: usage.customerCharge,
+    providerCost: usage.cost,
+  };
+}
+
+async function workspaceOwnerId(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
+  const { data, error } = await supabase
+    .from("workspaces")
+    .select("owner_user_id")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load workspace owner: ${error.message}`);
+  }
+
+  return textValue(data?.owner_user_id);
+}
+
+async function findWorkspaceVoiceNumber(
+  supabase: SupabaseClient,
+  rawNumber: string | null,
+) {
+  const normalized = normalizePhone(rawNumber);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("workspace_phone_numbers")
+    .select(
+      "id,workspace_id,phone_number,normalized_phone,provider_phone_number_id,metadata,capabilities,status",
+    )
+    .eq("provider", TWILIO_PROVIDER)
+    .eq("normalized_phone", normalized)
+    .in("status", ["active", "pending"])
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if (tableMissing(error)) {
+      return null;
+    }
+
+    throw new Error(`Unable to match voice phone number: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const capabilities = objectRecord(data.capabilities);
+
+  if (capabilities.voice === false) {
+    return null;
+  }
+
+  return {
+    id: String(data.id),
+    metadata: objectRecord(data.metadata),
+    normalizedPhone: String(data.normalized_phone),
+    phoneNumber: String(data.phone_number),
+    providerPhoneNumberId: textValue(data.provider_phone_number_id),
+    workspaceId: String(data.workspace_id),
+  } satisfies WorkspacePhoneNumberMatch;
+}
+
+async function findContactByPhone(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  rawNumber: string | null,
+) {
+  const normalized = normalizePhone(rawNumber);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id,name,company,email,phone,address,contact_type")
+    .eq("workspace_id", workspaceId)
+    .eq("normalized_phone", normalized)
+    .is("merged_into_contact_id", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to match voice contact: ${error.message}`);
+  }
+
+  return data
+    ? {
+        address: textValue(data.address),
+        company: textValue(data.company),
+        contactType: textValue(data.contact_type),
+        email: textValue(data.email),
+        id: String(data.id),
+        name: textValue(data.name),
+        phone: textValue(data.phone),
+      }
+    : null;
+}
+
+async function lookupLinkedRows(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: {
+    contactId: string | null;
+    conversationId: string | null;
+    leadId: string | null;
+  },
+) {
+  const [contactResult, conversationResult, leadResult] = await Promise.all([
+    input.contactId
+      ? supabase
+          .from("contacts")
+          .select("id,name,company,email,phone,address,contact_type")
+          .eq("workspace_id", workspaceId)
+          .eq("id", input.contactId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    input.conversationId
+      ? supabase
+          .from("conversations")
+          .select("id,status,last_message_at")
+          .eq("workspace_id", workspaceId)
+          .eq("id", input.conversationId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    input.leadId
+      ? supabase
+          .from("leads")
+          .select("id,title,status")
+          .eq("workspace_id", workspaceId)
+          .eq("id", input.leadId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  if (contactResult.error) {
+    throw new Error(`Unable to load voice contact: ${contactResult.error.message}`);
+  }
+
+  if (conversationResult.error) {
+    throw new Error(
+      `Unable to load voice conversation: ${conversationResult.error.message}`,
+    );
+  }
+
+  if (leadResult.error) {
+    throw new Error(`Unable to load voice lead: ${leadResult.error.message}`);
+  }
+
+  return {
+    contact: contactResult.data
+      ? {
+          address: textValue(contactResult.data.address),
+          company: textValue(contactResult.data.company),
+          contactType: textValue(contactResult.data.contact_type),
+          email: textValue(contactResult.data.email),
+          id: String(contactResult.data.id),
+          name: textValue(contactResult.data.name),
+          phone: textValue(contactResult.data.phone),
+        }
+      : null,
+    conversation: conversationResult.data
+      ? {
+          id: String(conversationResult.data.id),
+          lastMessageAt: textValue(conversationResult.data.last_message_at),
+          status: String(conversationResult.data.status),
+        }
+      : null,
+    lead: leadResult.data
+      ? {
+          id: String(leadResult.data.id),
+          status: String(leadResult.data.status),
+          title: String(leadResult.data.title),
+        }
+      : null,
+  };
+}
+
+function rowToPreviewCall(row: Record<string, unknown>) {
+  return {
+    carrierProvider: textValue(row.carrier_provider) ?? VAPI_CARRIER_PROVIDER,
+    costCustomerAmount: numberValue(row.cost_customer_amount) ?? 0,
+    costProviderAmount: numberValue(row.cost_provider_amount) ?? 0,
+    createdAt: String(row.created_at),
+    currency: textValue(row.currency) ?? "USD",
+    customerNumber: textValue(row.customer_number),
+    direction:
+      row.direction === "outbound" ? "outbound" : ("inbound" as VoiceCallDirection),
+    durationSeconds: numberValue(row.duration_seconds),
+    endedAt: textValue(row.ended_at),
+    endedReason: textValue(row.ended_reason),
+    fromNumber: textValue(row.from_number),
+    id: String(row.id),
+    provider: textValue(row.provider) ?? VAPI_PROVIDER,
+    providerAssistantId: textValue(row.provider_assistant_id),
+    providerCallId: textValue(row.provider_call_id),
+    providerPhoneNumberId: textValue(row.provider_phone_number_id),
+    purpose: (textValue(row.purpose) ?? "inbound_customer") as VoiceCallPurpose,
+    recordingUrl: textValue(row.recording_url),
+    startedAt: textValue(row.started_at),
+    status: (textValue(row.status) ?? "created") as VoiceCallStatus,
+    summary: textValue(row.summary),
+    toNumber: textValue(row.to_number),
+    transcript: textValue(row.transcript),
+    updatedAt: String(row.updated_at),
+  } satisfies VoiceCallPreview["call"];
+}
+
+export async function getVoiceCallPreview(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  callId: string,
+): Promise<VoiceCallPreview | null> {
+  const { data: row, error } = await supabase
+    .from("voice_calls")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("id", callId)
+    .maybeSingle();
+
+  if (error) {
+    if (tableMissing(error)) {
+      return null;
+    }
+
+    throw new Error(`Unable to load voice call: ${error.message}`);
+  }
+
+  if (!row) {
+    return null;
+  }
+
+  const [linkedRows, eventsResult] = await Promise.all([
+    lookupLinkedRows(supabase, workspaceId, {
+      contactId: textValue(row.contact_id),
+      conversationId: textValue(row.conversation_id),
+      leadId: textValue(row.lead_id),
+    }),
+    supabase
+      .from("voice_call_events")
+      .select("id,event_type,created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("voice_call_id", row.id)
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ]);
+
+  if (eventsResult.error && !tableMissing(eventsResult.error)) {
+    throw new Error(
+      `Unable to load voice call events: ${eventsResult.error.message}`,
+    );
+  }
+
+  return {
+    call: rowToPreviewCall(row as Record<string, unknown>),
+    contact: linkedRows.contact,
+    conversation: linkedRows.conversation,
+    events: eventsResult.error
+      ? []
+      : ((eventsResult.data ?? []) as Record<string, unknown>[]).map((event) => ({
+          createdAt: String(event.created_at),
+          eventType: String(event.event_type),
+          id: String(event.id),
+        })),
+    lead: linkedRows.lead,
+  };
+}
+
+export async function getRecentVoiceCallsForActivity(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  limit = 12,
+) {
+  const { data, error } = await supabase
+    .from("voice_calls")
+    .select(
+      "id,direction,purpose,status,from_number,to_number,customer_number,created_at,started_at,ended_at,summary,transcript,ended_reason,contact_id,provider",
+    )
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    if (tableMissing(error)) {
+      return [];
+    }
+
+    throw new Error(`Unable to load recent voice calls: ${error.message}`);
+  }
+
+  return (data ?? []) as Record<string, unknown>[];
+}
+
+async function recordVoiceCallUsageIfNeeded(
+  supabase: SupabaseClient,
+  input: {
+    callId: string;
+    durationSeconds: number | null;
+    providerCallId: string | null;
+    providerCost: number;
+    customerCharge: number;
+    currency: string;
+    workspaceId: string;
+  },
+) {
+  if (!input.providerCallId && input.providerCost <= 0 && !input.durationSeconds) {
+    return;
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("usage_events")
+    .select("id")
+    .eq("workspace_id", input.workspaceId)
+    .eq("source_type", "voice_call")
+    .eq("source_id", input.callId)
+    .eq("usage_type", "voice_call")
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`Unable to check voice call usage: ${existingError.message}`);
+  }
+
+  if (existing) {
+    return;
+  }
+
+  const quantity = Math.max(1, Math.ceil((input.durationSeconds ?? 0) / 60));
+  const unitCost = input.providerCost / quantity;
+  const markup =
+    input.providerCost > 0
+      ? input.customerCharge / Math.max(input.providerCost, 0.000001) - 1
+      : 0;
+
+  await supabase.from("usage_events").insert({
+    workspace_id: input.workspaceId,
+    user_id: null,
+    source_type: "voice_call",
+    source_id: input.callId,
+    provider: VAPI_PROVIDER,
+    service: "voice_call",
+    model: null,
+    usage_type: "voice_call",
+    quantity: String(quantity),
+    unit: "minute",
+    unit_cost_snapshot: String(unitCost),
+    markup_snapshot: String(Math.max(0, markup)),
+    currency: input.currency,
+    cost_snapshot: String(input.providerCost),
+    customer_charge_snapshot: String(input.customerCharge),
+    provider_usage_id: input.providerCallId,
+    metadata: {
+      billingTask: "voice_call",
+      durationSeconds: input.durationSeconds,
+    },
+  });
+}
+
+export async function upsertVoiceCallFromVapiEvent(
+  supabase: SupabaseClient,
+  payload: Record<string, unknown>,
+) {
+  const metadata = callMetadata(payload);
+  const providerId = providerCallId(payload);
+  const event = eventType(payload);
+  const direction = callDirection(payload);
+  const { from, to } = phoneNumbers(payload, direction);
+  const matchedWorkspaceNumber = await findWorkspaceVoiceNumber(
+    supabase,
+    direction === "outbound" ? from : to,
+  );
+  const workspaceId =
+    firstText(metadata.workspaceId, payload.workspaceId) ??
+    matchedWorkspaceNumber?.workspaceId;
+
+  if (!workspaceId) {
+    return {
+      callId: null,
+      ignored: true,
+      reason: "No workspace could be resolved for this Vapi call.",
+    };
+  }
+
+  const settings = await getVoiceSettings(supabase, workspaceId);
+  const purpose = callPurpose(payload, {
+    direction,
+    fromNumber: from,
+    matchedWorkspaceNumber,
+    userNumbers: settings.phoneAgentUserNumbers,
+  });
+  const customerNumber = direction === "outbound" ? to : from;
+  const contact = await findContactByPhone(supabase, workspaceId, customerNumber);
+  const timing = callTiming(payload);
+  const transcript = callTranscript(payload);
+  const summary = callSummary(payload);
+  const recordingUrl = callRecordingUrl(payload);
+  const cost = callCost(payload);
+  const duration = durationSeconds(payload);
+  const status = statusFromEvent(event);
+  const existingByProviderId = providerId
+    ? await supabase
+        .from("voice_calls")
+        .select("id,metadata")
+        .eq("provider", VAPI_PROVIDER)
+        .eq("provider_call_id", providerId)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (existingByProviderId.error) {
+    if (!tableMissing(existingByProviderId.error)) {
+      throw new Error(
+        `Unable to load existing Vapi call: ${existingByProviderId.error.message}`,
+      );
+    }
+  }
+
+  const payloadRow = {
+    workspace_id: workspaceId,
+    conversation_id: textValue(metadata.conversationId),
+    contact_id: contact?.id ?? textValue(metadata.contactId),
+    lead_id: textValue(metadata.leadId),
+    phone_number_id: matchedWorkspaceNumber?.id ?? textValue(metadata.phoneNumberRowId),
+    direction,
+    purpose,
+    provider: VAPI_PROVIDER,
+    carrier_provider: VAPI_CARRIER_PROVIDER,
+    provider_call_id: providerId,
+    provider_assistant_id: providerAssistantId(payload),
+    provider_phone_number_id:
+      providerPhoneNumberId(payload) ?? matchedWorkspaceNumber?.providerPhoneNumberId,
+    from_number: from,
+    to_number: to,
+    normalized_from_number: normalizePhone(from),
+    normalized_to_number: normalizePhone(to),
+    customer_number: customerNumber,
+    status,
+    started_at: timing.startedAt,
+    ended_at: timing.endedAt,
+    duration_seconds: duration,
+    recording_url: recordingUrl,
+    transcript,
+    summary,
+    ended_reason: firstText(
+      vapiMessage(payload).endedReason,
+      vapiCall(payload).endedReason,
+      payload.endedReason,
+    ),
+    cost_provider_amount: String(cost.providerCost),
+    cost_customer_amount: String(cost.customerCharge),
+    currency: cost.currency,
+    metadata: {
+      ...objectRecord(existingByProviderId.data?.metadata),
+      lastEventType: event,
+      lastPayloadReceivedAt: new Date().toISOString(),
+      vapiMetadata: metadata,
+    },
+  };
+  const result = existingByProviderId.data
+    ? await supabase
+        .from("voice_calls")
+        .update(payloadRow)
+        .eq("id", existingByProviderId.data.id)
+        .eq("workspace_id", workspaceId)
+        .select("id")
+        .single()
+    : await supabase.from("voice_calls").insert(payloadRow).select("id").single();
+
+  if (result.error || !result.data) {
+    throw new Error(
+      `Unable to record Vapi call: ${result.error?.message ?? "unknown error"}`,
+    );
+  }
+
+  const callId = String(result.data.id);
+
+  await supabase.from("voice_call_events").insert({
+    workspace_id: workspaceId,
+    voice_call_id: callId,
+    provider: VAPI_PROVIDER,
+    event_type: event,
+    payload,
+  });
+
+  if (status === "completed") {
+    await recordVoiceCallUsageIfNeeded(supabase, {
+      callId,
+      currency: cost.currency,
+      customerCharge: cost.customerCharge,
+      durationSeconds: duration,
+      providerCallId: providerId,
+      providerCost: cost.providerCost,
+      workspaceId,
+    });
+  }
+
+  return { callId, ignored: false, reason: null };
+}
+
+export async function lookupVoiceContactsForTool(input: {
+  phoneNumber?: string | null;
+  query?: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const phone = normalizePhone(input.phoneNumber ?? null);
+  const query = input.query?.trim() ?? "";
+
+  let request = input.supabase
+    .from("contacts")
+    .select("id,name,company,email,phone,address,contact_type")
+    .eq("workspace_id", input.workspaceId)
+    .is("merged_into_contact_id", null)
+    .limit(10);
+
+  if (phone) {
+    request = request.eq("normalized_phone", phone);
+  } else if (query) {
+    request = request.or(
+      `name.ilike.%${query}%,company.ilike.%${query}%,email.ilike.%${query}%`,
+    );
+  }
+
+  const { data, error } = await request;
+
+  if (error) {
+    throw new Error(`Unable to search voice contacts: ${error.message}`);
+  }
+
+  return ((data ?? []) as Record<string, unknown>[]).map((contact) => ({
+    address: textValue(contact.address),
+    company: textValue(contact.company),
+    contactType: textValue(contact.contact_type),
+    email: textValue(contact.email),
+    id: String(contact.id),
+    name: textValue(contact.name),
+    phone: textValue(contact.phone),
+  }));
+}
+
+export async function recordVoiceToolEvent(input: {
+  eventType: string;
+  payload: Record<string, unknown>;
+  providerCallId?: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  let voiceCallId: string | null = null;
+
+  if (input.providerCallId) {
+    const { data, error } = await input.supabase
+      .from("voice_calls")
+      .select("id")
+      .eq("workspace_id", input.workspaceId)
+      .eq("provider", VAPI_PROVIDER)
+      .eq("provider_call_id", input.providerCallId)
+      .maybeSingle();
+
+    if (error && !tableMissing(error)) {
+      throw new Error(`Unable to load voice call: ${error.message}`);
+    }
+
+    voiceCallId = data?.id ? String(data.id) : null;
+  }
+
+  const { error } = await input.supabase.from("voice_call_events").insert({
+    workspace_id: input.workspaceId,
+    voice_call_id: voiceCallId,
+    provider: VAPI_PROVIDER,
+    event_type: input.eventType,
+    payload: input.payload,
+  });
+
+  if (error && !tableMissing(error)) {
+    throw new Error(`Unable to record voice tool event: ${error.message}`);
+  }
+
+  return { voiceCallId };
+}
+
+export async function createOutboundVoiceCall(input: {
+  contactId?: string | null;
+  conversationId?: string | null;
+  instructions?: string | null;
+  leadId?: string | null;
+  phoneNumber: string;
+  supabase: SupabaseClient;
+  user: User;
+  workspaceId: string;
+}) {
+  const settings = await getVoiceSettings(input.supabase, input.workspaceId);
+
+  if (!settings.phoneAgentEnabled || !settings.phoneAgentOutboundEnabled) {
+    throw new Error("Outbound phone calls are disabled in voice settings.");
+  }
+
+  const customerNumber = normalizePhone(input.phoneNumber);
+
+  if (!customerNumber) {
+    throw new Error("Add a valid customer phone number before calling.");
+  }
+
+  const assistantId = settings.vapiOutboundAssistantId;
+  const phoneNumberId = settings.vapiPhoneNumberId;
+  const selectedVoice = elevenLabsVoicePresetById(
+    settings.elevenLabsVoicePresetId,
+  );
+
+  if (!assistantId || !phoneNumberId) {
+    throw new Error(
+      "Vapi outbound assistant ID and phone number ID are required before calling.",
+    );
+  }
+
+  const ownerUserId = await workspaceOwnerId(input.supabase, input.workspaceId);
+  const { data: inserted, error: insertError } = await input.supabase
+    .from("voice_calls")
+    .insert({
+      workspace_id: input.workspaceId,
+      conversation_id: input.conversationId ?? null,
+      contact_id: input.contactId ?? null,
+      lead_id: input.leadId ?? null,
+      direction: "outbound",
+      purpose: "outbound_customer",
+      provider: VAPI_PROVIDER,
+      carrier_provider: VAPI_CARRIER_PROVIDER,
+      provider_assistant_id: assistantId,
+      provider_phone_number_id: phoneNumberId,
+      to_number: customerNumber,
+      normalized_to_number: customerNumber,
+      customer_number: customerNumber,
+      status: "queued",
+      metadata: {
+        createdByUserId: input.user.id,
+        instructions: textValue(input.instructions),
+        ownerUserId,
+        source: "kyro.outbound_voice",
+      },
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !inserted) {
+    throw new Error(
+      `Unable to queue outbound voice call: ${
+        insertError?.message ?? "unknown error"
+      }`,
+    );
+  }
+
+  try {
+    const result = await createVapiOutboundCall({
+      assistantId,
+      assistantOverrides: {
+        voice: elevenLabsVapiVoiceOverride(settings),
+        variableValues: {
+          voice_id: selectedVoice.voiceId,
+          voice_label: selectedVoice.label,
+          voice_demeanor: settings.phoneAgentDemeanor,
+          voice_escalation_mode: settings.phoneAgentEscalationMode,
+          voice_humour_level: settings.phoneAgentHumourLevel,
+          voice_verbosity: settings.phoneAgentVerbosity,
+        },
+      },
+      customerNumber,
+      metadata: {
+        contactId: input.contactId ?? null,
+        conversationId: input.conversationId ?? null,
+        direction: "outbound",
+        instructions: textValue(input.instructions),
+        leadId: input.leadId ?? null,
+        ownerUserId,
+        purpose: "outbound_customer",
+        voiceCallId: inserted.id,
+        workspaceId: input.workspaceId,
+      },
+      phoneNumberId,
+    });
+
+    await input.supabase
+      .from("voice_calls")
+      .update({
+        provider_call_id: result.id,
+        status: result.status ?? "queued",
+        metadata: {
+          createdByUserId: input.user.id,
+          instructions: textValue(input.instructions),
+          ownerUserId,
+          providerResponse: result.raw,
+          source: "kyro.outbound_voice",
+        },
+      })
+      .eq("workspace_id", input.workspaceId)
+      .eq("id", inserted.id);
+
+    return {
+      providerCallId: result.id,
+      status: result.status ?? "queued",
+      voiceCallId: String(inserted.id),
+    };
+  } catch (error) {
+    await input.supabase
+      .from("voice_calls")
+      .update({
+        ended_reason:
+          error instanceof Error ? error.message : "Unable to create Vapi call.",
+        status: "failed",
+      })
+      .eq("workspace_id", input.workspaceId)
+      .eq("id", inserted.id);
+
+    throw error;
+  }
+}
+
+export function vapiToolWorkspaceId(payload: Record<string, unknown>) {
+  const toolCall = firstToolCall(payload);
+  const toolFunction = objectRecord(toolCall.function);
+  const args = jsonRecord(toolFunction.arguments ?? toolCall.arguments);
+  const metadata = callMetadata(payload);
+
+  return firstText(args.workspaceId, metadata.workspaceId, payload.workspaceId);
+}
+
+export function vapiToolUserId(payload: Record<string, unknown>) {
+  const toolCall = firstToolCall(payload);
+  const toolFunction = objectRecord(toolCall.function);
+  const args = jsonRecord(toolFunction.arguments ?? toolCall.arguments);
+  const metadata = callMetadata(payload);
+
+  return firstText(args.userId, metadata.userId, payload.userId);
+}
+
+export function vapiToolThreadId(payload: Record<string, unknown>) {
+  const toolCall = firstToolCall(payload);
+  const toolFunction = objectRecord(toolCall.function);
+  const args = jsonRecord(toolFunction.arguments ?? toolCall.arguments);
+  const metadata = callMetadata(payload);
+
+  return firstText(args.threadId, metadata.threadId, payload.threadId);
+}
+
+function firstToolCall(payload: Record<string, unknown>) {
+  const message = objectRecord(payload.message);
+  const directToolCall = objectRecord(message.toolCall ?? payload.toolCall);
+  const toolCalls = [
+    ...arrayRecords(message.toolCalls),
+    ...arrayRecords(message.toolCallList),
+    ...arrayRecords(payload.toolCalls),
+  ];
+
+  return Object.keys(directToolCall).length > 0
+    ? directToolCall
+    : (toolCalls[0] ?? {});
+}
+
+export function vapiToolCallPayload(payload: Record<string, unknown>) {
+  const toolCall = firstToolCall(payload);
+  const rawArguments = toolCall.function
+    ? jsonRecord(objectRecord(toolCall.function).arguments)
+    : jsonRecord(toolCall.arguments);
+
+  return {
+    arguments: {
+      ...rawArguments,
+      ...objectRecord(payload.arguments),
+    },
+    callId: providerCallId(payload),
+    id: textValue(toolCall.id ?? payload.toolCallId),
+    name: firstText(
+      objectRecord(toolCall.function).name,
+      toolCall.name,
+      payload.name,
+    ),
+  };
+}
+
+export function vapiAssistantGuidance(settings: Awaited<ReturnType<typeof getVoiceSettings>>) {
+  return {
+    escalationMode: settings.phoneAgentEscalationMode,
+    humourLevel: settings.phoneAgentHumourLevel,
+    persona: settings.phoneAgentDemeanor,
+    userNumbers: settings.phoneAgentUserNumbers,
+    verbosity: settings.phoneAgentVerbosity,
+  };
+}
+
+export function compactTranscriptPreview(value: string | null, maxLength = 160) {
+  const clean = value?.replace(/\s+/g, " ").trim();
+
+  if (!clean) {
+    return null;
+  }
+
+  return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}...` : clean;
+}

@@ -63,4 +63,27 @@ describe("assistant LLM tool planner response parsing", () => {
     assert.equal(selection?.name, "history_search");
     assert.equal(selection?.mode, "direct");
   });
+
+  it("extracts public web search tool calls", () => {
+    const selection = parseAssistantToolPlanResponse(
+      {
+        output: [
+          {
+            arguments: JSON.stringify({
+              confidence: 0.93,
+              mode: "direct",
+              prompt: "latest QBCC pool fencing rule",
+              reason: "The user asks for current public regulatory information.",
+            }),
+            name: "kyro_web_search",
+            type: "function_call",
+          },
+        ],
+      },
+      "look up the latest QBCC pool fencing rule",
+    );
+
+    assert.equal(selection?.name, "web_search");
+    assert.equal(selection?.mode, "direct");
+  });
 });

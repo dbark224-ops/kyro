@@ -36,6 +36,7 @@ import {
   approveDashboardAction,
   executeDashboardAction,
 } from "../engine/actions";
+import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import Link from "next/link";
 import { MessageAttachmentList } from "../components/message-attachments";
 import type { ReactNode } from "react";
@@ -1534,7 +1535,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       : "";
 
                 return (
-                  <Link
+                  <SmartPrefetchLink
                     className={[
                       "data-row conversation-row",
                       conversation.leadPriority === "high" ||
@@ -1554,7 +1555,6 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       sort: activeSort,
                     })}
                     key={conversation.id}
-                    prefetch={false}
                   >
                     <div className="data-main">
                       <div className="conversation-row-title">
@@ -1583,7 +1583,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                         {conversation.nextActionLabel}
                       </span>
                     </div>
-                  </Link>
+                  </SmartPrefetchLink>
                 );
               })
             ) : (

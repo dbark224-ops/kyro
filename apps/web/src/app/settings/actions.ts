@@ -11,8 +11,13 @@ import {
   type CommunicationSettings,
 } from "../../lib/communication/settings";
 import {
+  ELEVENLABS_VOICE_PRESETS,
   OPENAI_VOICE_OPTIONS,
   OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
+  PHONE_AGENT_DEMEANORS,
+  PHONE_AGENT_ESCALATION_MODES,
+  PHONE_AGENT_HUMOUR_LEVELS,
+  PHONE_AGENT_VERBOSITIES,
   VOICE_SETTINGS_POLICY_TYPE,
   normalizeVoiceSettings,
   type OpenAiVoice,
@@ -978,6 +983,17 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     formData,
     "outboundVoicePronunciationPolicy",
   ) as OutboundVoicePronunciationPolicy;
+  const phoneAgentDemeanor = formString(formData, "phoneAgentDemeanor");
+  const phoneAgentVerbosity = formString(formData, "phoneAgentVerbosity");
+  const phoneAgentHumourLevel = formString(formData, "phoneAgentHumourLevel");
+  const phoneAgentEscalationMode = formString(
+    formData,
+    "phoneAgentEscalationMode",
+  );
+  const elevenLabsVoicePresetId = formString(
+    formData,
+    "elevenLabsVoicePresetId",
+  );
 
   if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
     redirectWithSectionMessage(
@@ -999,9 +1015,77 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     );
   }
 
+  if (!PHONE_AGENT_DEMEANORS.includes(phoneAgentDemeanor as never)) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Phone assistant style is invalid.",
+    );
+  }
+
+  if (!PHONE_AGENT_VERBOSITIES.includes(phoneAgentVerbosity as never)) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Phone assistant detail level is invalid.",
+    );
+  }
+
+  if (!PHONE_AGENT_HUMOUR_LEVELS.includes(phoneAgentHumourLevel as never)) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Phone assistant warmth setting is invalid.",
+    );
+  }
+
+  if (!PHONE_AGENT_ESCALATION_MODES.includes(phoneAgentEscalationMode as never)) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Phone assistant escalation mode is invalid.",
+    );
+  }
+
+  if (
+    !ELEVENLABS_VOICE_PRESETS.some(
+      (preset) => preset.id === elevenLabsVoicePresetId,
+    )
+  ) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Vapi voice option is invalid.",
+    );
+  }
+
   const settings: VoiceSettings = normalizeVoiceSettings({
+    elevenLabsVoicePresetId,
     openAiVoice,
     outboundVoicePronunciationPolicy,
+    phoneAgentDemeanor,
+    phoneAgentEnabled: formBoolean(formData, "phoneAgentEnabled"),
+    phoneAgentEscalationMode,
+    phoneAgentHumourLevel,
+    phoneAgentInboundEnabled: formBoolean(formData, "phoneAgentInboundEnabled"),
+    phoneAgentOutboundEnabled: formBoolean(
+      formData,
+      "phoneAgentOutboundEnabled",
+    ),
+    phoneAgentUserNumbers: formString(formData, "phoneAgentUserNumbers"),
+    phoneAgentVerbosity,
+    phoneAgentVoicemailOverflowEnabled: formBoolean(
+      formData,
+      "phoneAgentVoicemailOverflowEnabled",
+    ),
+    vapiInternalAssistantId: formString(formData, "vapiInternalAssistantId"),
+    vapiInboundAssistantId: formString(formData, "vapiInboundAssistantId"),
+    vapiOutboundAssistantId: formString(formData, "vapiOutboundAssistantId"),
+    vapiPhoneNumberId: formString(formData, "vapiPhoneNumberId"),
+    vapiVoicemailAssistantId: formString(
+      formData,
+      "vapiVoicemailAssistantId",
+    ),
     provider: "openai",
   });
 
@@ -1053,6 +1137,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   revalidatePath("/settings");
   revalidatePath("/voice");
+  revalidatePath("/voice-vapi");
   redirectWithSectionMessage(
     "voice",
     "engine_message",
