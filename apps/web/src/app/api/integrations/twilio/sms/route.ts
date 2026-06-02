@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { ingestManualInbound } from "../../../../../lib/inbound/manual";
 import {
@@ -47,6 +48,21 @@ function signatureValid(request: Request, params: Record<string, string>) {
     params,
     signature: request.headers.get("x-twilio-signature"),
     url: twilioWebhookCanonicalUrl(request),
+  });
+}
+
+export async function GET() {
+  const config = getTwilioConfig();
+
+  return NextResponse.json({
+    appUrlConfigured: Boolean(config?.appUrl),
+    configured: Boolean(config),
+    defaultFromNumberConfigured: Boolean(config?.defaultFromNumber),
+    endpoint: "inbound_sms",
+    expects: "Twilio form-encoded POST with x-twilio-signature.",
+    messagingServiceSidConfigured: Boolean(config?.messagingServiceSid),
+    ok: true,
+    provider: TWILIO_PROVIDER,
   });
 }
 

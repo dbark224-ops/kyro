@@ -399,6 +399,12 @@ as manual inbound, and records inbound SMS usage. The status callback route at
 state. Number search/purchase and richer staff/operator SMS-command routing are
 still future hardening items.
 
+When the app is hosted at `https://kyroassistant.com`, Twilio should use:
+`https://kyroassistant.com/api/integrations/twilio/sms` for inbound SMS and
+`https://kyroassistant.com/api/integrations/twilio/status` for delivery status
+callbacks. Both routes also expose safe `GET` readiness responses so production
+configuration can be checked without sending a real SMS or exposing secrets.
+
 Voice calls now have a Vapi/Twilio foundation. Twilio remains the phone-number and
 carrier layer; Vapi runs the live voice assistant. `POST
 /api/integrations/vapi/webhook` accepts call lifecycle events and records or
@@ -416,6 +422,14 @@ summary, recording URL, and raw event history. Settings -> Voice stores Vapi
 assistant ids, the Vapi phone-number id, user/team numbers, the shared
 ElevenLabs/Vapi voice preset, and broad call style preferences that can be passed
 into Vapi assistant prompts.
+
+In production, Vapi tools and webhooks must include the shared Kyro header
+`x-kyro-vapi-secret`; Kyro reads this from `VAPI_TOOL_SECRET` and
+`VAPI_WEBHOOK_SECRET`. The production Vapi endpoints are
+`https://kyroassistant.com/api/integrations/vapi/tool` and
+`https://kyroassistant.com/api/integrations/vapi/webhook`. These routes also
+return safe `GET` readiness payloads showing whether the server key and shared
+secret are configured.
 
 The voice-call foundation is intentionally backend-first and mobile-ready: the
 web UI consumes normal authenticated JSON routes rather than server-only helpers,

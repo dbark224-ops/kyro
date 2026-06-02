@@ -1,9 +1,31 @@
 import { NextResponse } from "next/server";
-import { verifyVapiWebhookRequest } from "../../../../../lib/integrations/vapi";
+import {
+  getVapiConfig,
+  VAPI_TOOL_PATH,
+  VAPI_WEBHOOK_PATH,
+  vapiEndpointUrl,
+  verifyVapiWebhookRequest,
+} from "../../../../../lib/integrations/vapi";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import { upsertVoiceCallFromVapiEvent } from "../../../../../lib/voice/calls";
 
 export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const config = getVapiConfig();
+
+  return NextResponse.json({
+    configured: Boolean(config),
+    endpoint: "vapi_webhook",
+    expects: "Vapi JSON POST with x-kyro-vapi-secret or bearer secret.",
+    ok: true,
+    provider: "vapi",
+    toolSecretReady: Boolean(config?.toolSecret),
+    toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
+    webhookSecretReady: Boolean(config?.webhookSecret),
+    webhookUrl: vapiEndpointUrl(VAPI_WEBHOOK_PATH),
+  });
+}
 
 export async function POST(request: Request) {
   if (!verifyVapiWebhookRequest(request)) {

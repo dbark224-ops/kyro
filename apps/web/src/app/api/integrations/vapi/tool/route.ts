@@ -16,7 +16,12 @@ import {
   syncInboundEmail,
   type InboundEmailProvider,
 } from "../../../../../lib/integrations/inbound-email-sync";
-import { verifyVapiToolRequest } from "../../../../../lib/integrations/vapi";
+import {
+  getVapiConfig,
+  VAPI_TOOL_PATH,
+  vapiEndpointUrl,
+  verifyVapiToolRequest,
+} from "../../../../../lib/integrations/vapi";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import {
   buildLlmUsageEvents,
@@ -36,6 +41,20 @@ import {
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
 
 export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const config = getVapiConfig();
+
+  return NextResponse.json({
+    configured: Boolean(config),
+    endpoint: "vapi_tool",
+    expects: "Vapi tool JSON POST with x-kyro-vapi-secret or bearer secret.",
+    ok: true,
+    provider: "vapi",
+    toolSecretReady: Boolean(config?.toolSecret),
+    toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
+  });
+}
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;

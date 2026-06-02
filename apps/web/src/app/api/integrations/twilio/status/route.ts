@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import {
   getTwilioConfig,
   twilioWebhookCanonicalUrl,
@@ -38,6 +39,19 @@ function signatureValid(request: Request, params: Record<string, string>) {
     params,
     signature: request.headers.get("x-twilio-signature"),
     url: twilioWebhookCanonicalUrl(request),
+  });
+}
+
+export async function GET() {
+  const config = getTwilioConfig();
+
+  return NextResponse.json({
+    appUrlConfigured: Boolean(config?.appUrl),
+    configured: Boolean(config),
+    endpoint: "sms_status_callback",
+    expects: "Twilio form-encoded POST with x-twilio-signature.",
+    ok: true,
+    provider: TWILIO_PROVIDER,
   });
 }
 
