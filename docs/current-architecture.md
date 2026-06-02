@@ -64,7 +64,8 @@ All business data is workspace-scoped. The important tables are:
 - `leads`: sales/service opportunities attached to contacts.
 - `channels`: communication source definitions.
 - `workspace_phone_numbers`: workspace-owned Twilio phone/SMS numbers, capability
-  metadata, provider ids, and pass-through rental cost snapshots.
+  metadata, provider ids, per-number Vapi mapping metadata, and pass-through
+  rental cost snapshots.
 - `integration_connections`: connected provider accounts such as Google Workspace,
   with encrypted token payloads and provider account metadata.
 - `integration_oauth_states`: short-lived OAuth state and PKCE verifier records for
@@ -415,11 +416,15 @@ recent email sync, contact profile updates, and call-note recording; `GET
 web assistant pane; `GET /api/voice/calls/[callId]` returns the same preview
 payload used by the web assistant and mobile app; and `POST /api/voice/outbound`
 queues a workspace-scoped outbound customer call through the configured Vapi
-outbound assistant. The
+outbound assistant. Outbound calls can route across multiple workspace-owned
+numbers: Kyro prefers an active voice-capable `workspace_phone_numbers` row whose
+country matches the customer destination number, uses that row's
+`metadata.vapiPhoneNumberId`, falls back to the first active mapped voice number,
+and only then uses the Settings/env fallback Vapi phone-number id. The
 Assistant's Kyro activity pane now includes phone activity and opens a detail
 preview with call status, purpose, contact/conversation links, transcript,
 summary, recording URL, and raw event history. Settings -> Voice stores Vapi
-assistant ids, the Vapi phone-number id, user/team numbers, the shared
+assistant ids, the fallback Vapi phone-number id, user/team numbers, the shared
 ElevenLabs/Vapi voice preset, and broad call style preferences that can be passed
 into Vapi assistant prompts.
 

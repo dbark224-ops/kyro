@@ -24,7 +24,11 @@ Required before real calls:
 - `VAPI_API_KEY`
 - `VAPI_WEBHOOK_SECRET`
 - `VAPI_TOOL_SECRET`
-- `VAPI_PHONE_NUMBER_ID`
+
+Outbound calls also need at least one Vapi phone-number id. The preferred
+production path is to attach a Vapi phone-number id to each active
+`workspace_phone_numbers` row in `metadata.vapiPhoneNumberId`. `VAPI_PHONE_NUMBER_ID`
+is only a fallback when the workspace has not yet mapped individual AU/US numbers.
 
 Required before the browser/mobile Vapi internal voice tab can start:
 
@@ -58,7 +62,8 @@ Settings -> Voice stores:
 - the internal Vapi assistant id used by the `/voice-vapi` browser/mobile test
   surface,
 - which call purposes are enabled: inbound customer, voicemail overflow, outbound,
-- Vapi phone-number id,
+- fallback Vapi phone-number id for workspaces that have not mapped per-number
+  Vapi ids yet,
 - Vapi assistant ids for inbound, voicemail overflow, and outbound,
 - user/team phone numbers that should be treated as internal callers,
 - broad call style settings: call style, detail level, warmth, and escalation
@@ -75,6 +80,14 @@ recording URL, cost snapshots, and metadata.
 `voice_call_events` stores raw Vapi webhook/tool payloads for debugging and audit.
 The UI should show compact summaries, not raw provider JSON, unless it is an
 internal developer surface.
+
+`workspace_phone_numbers` can hold multiple Twilio numbers for one workspace,
+for example one Australian number and one US/North-American number. Twilio ids
+remain in `provider_phone_number_id`; the Vapi connected phone-number id belongs
+in `metadata.vapiPhoneNumberId` (or `metadata.vapi.phoneNumberId`). Outbound
+voice routing chooses the active voice-capable workspace number whose country
+matches the customer's E.164 destination number, then falls back to the first
+active mapped voice number, then finally to the Settings/env fallback id.
 
 ## Backend Routes
 
@@ -147,6 +160,8 @@ internal developer surface.
 ```
 
 - Creates a queued `voice_calls` row before calling Vapi.
+- Selects the outbound Vapi phone number by destination country when workspace
+  phone-number metadata contains per-number Vapi ids.
 - Updates the row with the Vapi provider call id or marks it failed.
 
 ## Vapi Metadata Contract
@@ -166,6 +181,10 @@ Pass these metadata fields from Vapi assistants/calls whenever possible:
 For outbound calls, Kyro sets this metadata when it creates the Vapi call. For
 inbound/voicemail calls, configure the Vapi assistant/phone number so the
 workspace id and purpose are included.
+
+Outbound calls also include a `phoneNumberSelection` metadata object explaining
+which workspace number or fallback id was used. This keeps later audit/billing
+clear when a workspace has both AU and US numbers.
 
 ## UI Behaviour
 
@@ -311,12 +330,17 @@ audited tools rather than free-form provider access.
    - `https://YOUR_APP_URL/api/integrations/vapi/webhook`
 5. Add Vapi tools pointing at:
    - `https://YOUR_APP_URL/api/integrations/vapi/tool`
-6. Save assistant ids and phone-number id in Settings -> Voice.
-7. Add user/team numbers in Settings -> Voice so Kyro can treat those callers as
+6. Save assistant ids in Settings -> Voice, and save a fallback phone-number id
+   only while per-number mappings are not available.
+7. For each Twilio number connected to Vapi, add/update the matching
+   `workspace_phone_numbers` row with `country_code`, `region`, voice/SMS
+   capabilities, Twilio `provider_phone_number_id`, and
+   `metadata.vapiPhoneNumberId`.
+8. Add user/team numbers in Settings -> Voice so Kyro can treat those callers as
    internal instructions.
-8. For `/voice-vapi`, add `NEXT_PUBLIC_VAPI_PUBLIC_KEY` and save the internal
+9. For `/voice-vapi`, add `NEXT_PUBLIC_VAPI_PUBLIC_KEY` and save the internal
    assistant id, then confirm turns persist into the main Assistant thread.
-9. Place a controlled test call, confirm it appears in Kyro activity, then inspect
+10. Place a controlled test call, confirm it appears in Kyro activity, then inspect
    transcript, recording, and events.
 
 ## Known Hardening

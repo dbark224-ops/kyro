@@ -163,7 +163,12 @@ If Vapi phone calls are enabled:
 - include the core internal tools: `kyro_context_lookup`, `kyro_lookup_contact`,
   `kyro_update_contact`, `kyro_web_search`, `kyro_check_recent_email`, and
   `kyro_record_call_note`,
-- save the Vapi phone-number id and assistant ids in Settings -> Voice,
+- save Vapi assistant ids in Settings -> Voice, and use the Settings
+  phone-number id only as a fallback,
+- for production multi-number routing, create one `workspace_phone_numbers` row
+  per Twilio number and store the connected Vapi phone-number id in
+  `metadata.vapiPhoneNumberId`; Kyro will choose an AU/US number by the
+  customer's destination country before falling back,
 - choose the workspace ElevenLabs/Vapi voice in Settings -> Voice; the default
   is Female - Australian and is passed to the Vapi browser/mobile runtime and
   outbound Vapi calls as a voice override,

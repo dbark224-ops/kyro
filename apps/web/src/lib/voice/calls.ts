@@ -86,12 +86,24 @@ export type VoiceCallPreview = {
 };
 
 type WorkspacePhoneNumberMatch = {
+  countryCode: string | null;
   id: string;
   metadata: Record<string, unknown>;
   normalizedPhone: string;
   phoneNumber: string;
   providerPhoneNumberId: string | null;
+  region: string | null;
   workspaceId: string;
+};
+
+type OutboundVoiceNumberSelection = {
+  countryCode: string | null;
+  fromNumber: string | null;
+  normalizedFromNumber: string | null;
+  phoneNumberId: string;
+  reason: string;
+  region: string | null;
+  workspacePhoneNumberId: string | null;
 };
 
 function textValue(value: unknown) {
@@ -518,7 +530,7 @@ async function findWorkspaceVoiceNumber(
   const { data, error } = await supabase
     .from("workspace_phone_numbers")
     .select(
-      "id,workspace_id,phone_number,normalized_phone,provider_phone_number_id,metadata,capabilities,status",
+      "id,workspace_id,phone_number,normalized_phone,provider_phone_number_id,country_code,region,metadata,capabilities,status",
     )
     .eq("provider", TWILIO_PROVIDER)
     .eq("normalized_phone", normalized)
@@ -545,13 +557,182 @@ async function findWorkspaceVoiceNumber(
   }
 
   return {
+    countryCode: textValue(data.country_code),
     id: String(data.id),
     metadata: objectRecord(data.metadata),
     normalizedPhone: String(data.normalized_phone),
     phoneNumber: String(data.phone_number),
     providerPhoneNumberId: textValue(data.provider_phone_number_id),
+    region: textValue(data.region),
     workspaceId: String(data.workspace_id),
   } satisfies WorkspacePhoneNumberMatch;
+}
+
+function countryCodeFromPhoneNumber(normalizedPhone: string | null) {
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  const prefixMap: Array<[string, string]> = [
+    ["+61", "AU"],
+    ["+1", "US"],
+    ["+44", "GB"],
+    ["+64", "NZ"],
+    ["+353", "IE"],
+    ["+65", "SG"],
+    ["+91", "IN"],
+    ["+63", "PH"],
+    ["+27", "ZA"],
+    ["+971", "AE"],
+    ["+86", "CN"],
+    ["+852", "HK"],
+    ["+60", "MY"],
+  ];
+  const match = prefixMap.find(([prefix]) =>
+    normalizedPhone.startsWith(prefix),
+  );
+
+  return match?.[1] ?? null;
+}
+
+function workspaceNumberCountry(row: {
+  countryCode?: string | null;
+  metadata?: Record<string, unknown>;
+  normalizedPhone?: string | null;
+}) {
+  const metadata = objectRecord(row.metadata);
+  const raw =
+    textValue(row.countryCode) ??
+    textValue(metadata.countryCode) ??
+    textValue(metadata.country_code) ??
+    countryCodeFromPhoneNumber(row.normalizedPhone ?? null);
+
+  return raw?.toUpperCase() ?? null;
+}
+
+function workspaceNumberVapiPhoneNumberId(row: {
+  metadata?: Record<string, unknown>;
+}) {
+  const metadata = objectRecord(row.metadata);
+  const vapi = objectRecord(metadata.vapi);
+
+  return firstText(
+    metadata.vapiPhoneNumberId,
+    metadata.vapi_phone_number_id,
+    metadata.vapiNumberId,
+    metadata.vapi_number_id,
+    vapi.phoneNumberId,
+    vapi.phone_number_id,
+    vapi.numberId,
+  );
+}
+
+async function loadWorkspaceOutboundVoiceNumbers(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<Array<Omit<OutboundVoiceNumberSelection, "reason">>> {
+  const { data, error } = await supabase
+    .from("workspace_phone_numbers")
+    .select(
+      "id,workspace_id,phone_number,normalized_phone,provider_phone_number_id,country_code,region,metadata,capabilities,status,created_at",
+    )
+    .eq("workspace_id", workspaceId)
+    .eq("provider", TWILIO_PROVIDER)
+    .in("status", ["active", "pending"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (tableMissing(error)) {
+      return [];
+    }
+
+    throw new Error(`Unable to load workspace voice numbers: ${error.message}`);
+  }
+
+  const numbers: Array<Omit<OutboundVoiceNumberSelection, "reason">> = [];
+
+  for (const row of data ?? []) {
+    const capabilities = objectRecord(row.capabilities);
+
+    if (capabilities.voice === false) {
+      continue;
+    }
+
+    const metadata = objectRecord(row.metadata);
+    const normalizedPhone = textValue(row.normalized_phone);
+    const countryCode = workspaceNumberCountry({
+      countryCode: textValue(row.country_code),
+      metadata,
+      normalizedPhone,
+    });
+    const vapiPhoneNumberId = workspaceNumberVapiPhoneNumberId({ metadata });
+
+    if (!vapiPhoneNumberId) {
+      continue;
+    }
+
+    numbers.push({
+      countryCode,
+      fromNumber: textValue(row.phone_number),
+      normalizedFromNumber: normalizedPhone,
+      phoneNumberId: vapiPhoneNumberId,
+      region: textValue(row.region),
+      workspacePhoneNumberId: String(row.id),
+    });
+  }
+
+  return numbers;
+}
+
+async function selectOutboundVapiPhoneNumber(input: {
+  customerNumber: string;
+  fallbackPhoneNumberId: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}): Promise<OutboundVoiceNumberSelection | null> {
+  const numbers = await loadWorkspaceOutboundVoiceNumbers(
+    input.supabase,
+    input.workspaceId,
+  );
+  const destinationCountry = countryCodeFromPhoneNumber(input.customerNumber);
+
+  if (destinationCountry) {
+    const regionalMatch = numbers.find(
+      (number) => number.countryCode === destinationCountry,
+    );
+
+    if (regionalMatch) {
+      return {
+        ...regionalMatch,
+        reason: `Matched destination country ${destinationCountry}.`,
+      };
+    }
+  }
+
+  const firstWorkspaceNumber = numbers[0];
+
+  if (firstWorkspaceNumber) {
+    return {
+      ...firstWorkspaceNumber,
+      reason: destinationCountry
+        ? `No ${destinationCountry} number found; using first active workspace voice number.`
+        : "No destination country inferred; using first active workspace voice number.",
+    };
+  }
+
+  if (input.fallbackPhoneNumberId) {
+    return {
+      countryCode: null,
+      fromNumber: null,
+      normalizedFromNumber: null,
+      phoneNumberId: input.fallbackPhoneNumberId,
+      reason: "Using voice settings Vapi phone number fallback.",
+      region: null,
+      workspacePhoneNumberId: null,
+    };
+  }
+
+  return null;
 }
 
 async function findContactByPhone(
@@ -1095,18 +1276,42 @@ export async function createOutboundVoiceCall(input: {
   }
 
   const assistantId = settings.vapiOutboundAssistantId;
-  const phoneNumberId = settings.vapiPhoneNumberId;
+  const phoneNumberSelection = await selectOutboundVapiPhoneNumber({
+    customerNumber,
+    fallbackPhoneNumberId: settings.vapiPhoneNumberId,
+    supabase: input.supabase,
+    workspaceId: input.workspaceId,
+  });
   const selectedVoice = elevenLabsVoicePresetById(
     settings.elevenLabsVoicePresetId,
   );
 
-  if (!assistantId || !phoneNumberId) {
+  if (!assistantId) {
+    throw new Error("Vapi outbound assistant ID is required before calling.");
+  }
+
+  if (!phoneNumberSelection) {
     throw new Error(
-      "Vapi outbound assistant ID and phone number ID are required before calling.",
+      "Add a Vapi phone number ID in voice settings or attach one to an active workspace phone number.",
     );
   }
 
   const ownerUserId = await workspaceOwnerId(input.supabase, input.workspaceId);
+  const baseMetadata = {
+    createdByUserId: input.user.id,
+    instructions: textValue(input.instructions),
+    ownerUserId,
+    phoneNumberSelection: {
+      countryCode: phoneNumberSelection.countryCode,
+      fromNumber: phoneNumberSelection.fromNumber,
+      normalizedFromNumber: phoneNumberSelection.normalizedFromNumber,
+      reason: phoneNumberSelection.reason,
+      region: phoneNumberSelection.region,
+      vapiPhoneNumberId: phoneNumberSelection.phoneNumberId,
+      workspacePhoneNumberId: phoneNumberSelection.workspacePhoneNumberId,
+    },
+    source: "kyro.outbound_voice",
+  };
   const { data: inserted, error: insertError } = await input.supabase
     .from("voice_calls")
     .insert({
@@ -1114,22 +1319,20 @@ export async function createOutboundVoiceCall(input: {
       conversation_id: input.conversationId ?? null,
       contact_id: input.contactId ?? null,
       lead_id: input.leadId ?? null,
+      phone_number_id: phoneNumberSelection.workspacePhoneNumberId,
       direction: "outbound",
       purpose: "outbound_customer",
       provider: VAPI_PROVIDER,
       carrier_provider: VAPI_CARRIER_PROVIDER,
       provider_assistant_id: assistantId,
-      provider_phone_number_id: phoneNumberId,
+      provider_phone_number_id: phoneNumberSelection.phoneNumberId,
+      from_number: phoneNumberSelection.fromNumber,
+      normalized_from_number: phoneNumberSelection.normalizedFromNumber,
       to_number: customerNumber,
       normalized_to_number: customerNumber,
       customer_number: customerNumber,
       status: "queued",
-      metadata: {
-        createdByUserId: input.user.id,
-        instructions: textValue(input.instructions),
-        ownerUserId,
-        source: "kyro.outbound_voice",
-      },
+      metadata: baseMetadata,
     })
     .select("id")
     .single();
@@ -1164,11 +1367,12 @@ export async function createOutboundVoiceCall(input: {
         instructions: textValue(input.instructions),
         leadId: input.leadId ?? null,
         ownerUserId,
+        phoneNumberSelection: baseMetadata.phoneNumberSelection,
         purpose: "outbound_customer",
         voiceCallId: inserted.id,
         workspaceId: input.workspaceId,
       },
-      phoneNumberId,
+      phoneNumberId: phoneNumberSelection.phoneNumberId,
     });
 
     await input.supabase
@@ -1177,11 +1381,8 @@ export async function createOutboundVoiceCall(input: {
         provider_call_id: result.id,
         status: result.status ?? "queued",
         metadata: {
-          createdByUserId: input.user.id,
-          instructions: textValue(input.instructions),
-          ownerUserId,
+          ...baseMetadata,
           providerResponse: result.raw,
-          source: "kyro.outbound_voice",
         },
       })
       .eq("workspace_id", input.workspaceId)
