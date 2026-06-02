@@ -1,6 +1,6 @@
+import { signUpAction } from "../auth/actions";
 import { BrandMark } from "../components/brand-mark";
-import { signInAction } from "../auth/actions";
-import { SignInForm } from "./auth-forms";
+import { CreateAccountForm } from "../sign-in/auth-forms";
 import { hasSupabaseEnv } from "../../lib/env";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import Link from "next/link";
@@ -8,14 +8,16 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-type SignInPageProps = {
+type CreateAccountPageProps = {
   searchParams?: Promise<{
     error?: string;
     message?: string;
   }>;
 };
 
-export default async function SignInPage({ searchParams }: SignInPageProps) {
+export default async function CreateAccountPage({
+  searchParams,
+}: CreateAccountPageProps) {
   const params = await searchParams;
 
   if (!hasSupabaseEnv()) {
@@ -54,7 +56,10 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         </div>
 
         <div className="auth-copy centered">
-          <h1>Sign in to your Kyro workspace.</h1>
+          <h1>Create your Kyro account.</h1>
+          <p className="form-copy">
+            Set up the login first. Workspace details come next.
+          </p>
         </div>
 
         {params?.error ? (
@@ -64,10 +69,10 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
           <p className="form-alert">{params.message}</p>
         ) : null}
 
-        <SignInForm action={signInAction} />
+        <CreateAccountForm action={signUpAction} />
 
         <p className="auth-link-row">
-          New to Kyro? <Link href="/create-account">Create account</Link>
+          Already have an account? <Link href="/sign-in">Sign in</Link>
         </p>
       </section>
     </main>

@@ -14,6 +14,14 @@ function redirectWithError(path: string, message: string): never {
   redirect(`${path}?error=${encodeURIComponent(message)}`);
 }
 
+function safeRedirectPath(path: string, fallback: string) {
+  if (!path || !path.startsWith("/") || path.startsWith("//")) {
+    return fallback;
+  }
+
+  return path;
+}
+
 export async function signInAction(formData: FormData) {
   const email = formString(formData, "email");
   const password = formString(formData, "password");
@@ -25,7 +33,7 @@ export async function signInAction(formData: FormData) {
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase.auth.signInWithPassword({
     email,
-    password
+    password,
   });
 
   if (error) {
@@ -40,9 +48,13 @@ export async function signUpAction(formData: FormData) {
   const email = formString(formData, "email");
   const password = formString(formData, "password");
   const name = formString(formData, "name");
+  const failurePath = safeRedirectPath(
+    formString(formData, "failurePath"),
+    "/sign-in",
+  );
 
   if (!email || !password) {
-    redirectWithError("/sign-in", "Email and password are required.");
+    redirectWithError(failurePath, "Email and password are required.");
   }
 
   const requestHeaders = await headers();
@@ -53,14 +65,14 @@ export async function signUpAction(formData: FormData) {
     password,
     options: {
       data: {
-        name
+        name,
       },
-      emailRedirectTo: origin ? `${origin}/auth/callback` : undefined
-    }
+      emailRedirectTo: origin ? `${origin}/auth/callback` : undefined,
+    },
   });
 
   if (error) {
-    redirectWithError("/sign-in", error.message);
+    redirectWithError(failurePath, error.message);
   }
 
   revalidatePath("/", "layout");
