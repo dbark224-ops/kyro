@@ -1596,6 +1596,10 @@ a {
   background: color-mix(in srgb, var(--surface) 58%, transparent);
 }
 
+.auth-loading-submit {
+  margin-top: 4px;
+}
+
 .form-card.single {
   margin-top: 18px;
 }
