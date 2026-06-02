@@ -1841,7 +1841,7 @@ textarea:focus {
 
 .global-search-anchor {
   position: fixed;
-  top: 10px;
+  top: 28px;
   left: calc(244px + (100vw - 244px) / 2);
   z-index: 32;
   width: min(420px, calc(100vw - 720px));
