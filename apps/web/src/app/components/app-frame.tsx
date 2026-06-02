@@ -284,8 +284,10 @@ export function AppFrame({
       </aside>
 
       <section className="workspace">
-        <div className="dev-top-controls">
+        <div className="global-search-anchor">
           <GlobalSearch />
+        </div>
+        <div className="dev-top-controls">
           {topControls}
           <Suspense fallback={null}>
             <UsageInternalCostPills />
