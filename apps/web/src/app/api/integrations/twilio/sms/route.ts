@@ -55,12 +55,18 @@ export async function GET() {
   const config = getTwilioConfig();
 
   return NextResponse.json({
-    appUrlConfigured: Boolean(config?.appUrl),
+    accountSidReady: Boolean(process.env.TWILIO_ACCOUNT_SID?.trim()),
+    appUrlConfigured: Boolean(process.env.NEXT_PUBLIC_APP_URL?.trim()),
+    authTokenReady: Boolean(process.env.TWILIO_AUTH_TOKEN?.trim()),
     configured: Boolean(config),
-    defaultFromNumberConfigured: Boolean(config?.defaultFromNumber),
+    defaultFromNumberConfigured: Boolean(
+      process.env.TWILIO_VOICE_NUMBER?.trim(),
+    ),
     endpoint: "inbound_sms",
     expects: "Twilio form-encoded POST with x-twilio-signature.",
-    messagingServiceSidConfigured: Boolean(config?.messagingServiceSid),
+    messagingServiceSidConfigured: Boolean(
+      process.env.TWILIO_MESSAGING_SERVICE_SID?.trim(),
+    ),
     ok: true,
     provider: TWILIO_PROVIDER,
   });

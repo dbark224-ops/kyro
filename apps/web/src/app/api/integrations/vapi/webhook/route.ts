@@ -20,9 +20,10 @@ export async function GET() {
     expects: "Vapi JSON POST with x-kyro-vapi-secret or bearer secret.",
     ok: true,
     provider: "vapi",
-    toolSecretReady: Boolean(config?.toolSecret),
+    serverApiKeyReady: Boolean(process.env.VAPI_API_KEY?.trim()),
+    toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
     toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
-    webhookSecretReady: Boolean(config?.webhookSecret),
+    webhookSecretReady: Boolean(process.env.VAPI_WEBHOOK_SECRET?.trim()),
     webhookUrl: vapiEndpointUrl(VAPI_WEBHOOK_PATH),
   });
 }
