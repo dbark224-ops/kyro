@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import {
+  buildVapiAssistantRequestResponse,
+  isVapiAssistantRequest,
+} from "../../../../../lib/assistant/vapi-inbound";
+import {
   getVapiConfig,
   VAPI_TOOL_PATH,
   VAPI_WEBHOOK_PATH,
@@ -44,6 +48,13 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createServiceSupabaseClient();
+
+    if (isVapiAssistantRequest(payload)) {
+      const result = await buildVapiAssistantRequestResponse(supabase, payload);
+
+      return NextResponse.json(result);
+    }
+
     const result = await upsertVoiceCallFromVapiEvent(supabase, payload);
 
     return NextResponse.json({ data: result });
