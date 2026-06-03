@@ -464,6 +464,61 @@ export function twilioWebhookCanonicalUrl(request: Request) {
   return request.url;
 }
 
+function withWwwAlias(url: string) {
+  const parsed = new URL(url);
+  const host = parsed.hostname;
+
+  if (host.startsWith("www.")) {
+    parsed.hostname = host.slice(4);
+
+    return parsed.toString();
+  }
+
+  parsed.hostname = `www.${host}`;
+
+  return parsed.toString();
+}
+
+export function twilioWebhookCanonicalUrlCandidates(request: Request) {
+  const requestUrl = new URL(request.url);
+  const configuredAppUrl = appUrl();
+  const candidates = new Set<string>();
+  const addCandidate = (url: string | null) => {
+    if (!url) {
+      return;
+    }
+
+    candidates.add(url);
+
+    try {
+      candidates.add(withWwwAlias(url));
+    } catch {
+      // Ignore malformed aliases. The direct URL remains in the candidate set.
+    }
+  };
+
+  addCandidate(request.url);
+
+  if (configuredAppUrl) {
+    addCandidate(
+      `${configuredAppUrl}${requestUrl.pathname}${requestUrl.search}`,
+    );
+  }
+
+  const forwardedHost = request.headers.get("x-forwarded-host")?.trim();
+  const forwardedProto =
+    request.headers.get("x-forwarded-proto")?.trim() ??
+    requestUrl.protocol.replace(/:$/, "");
+
+  if (forwardedHost) {
+    addCandidate(
+      `${forwardedProto}://${forwardedHost}${requestUrl.pathname}${requestUrl.search}`,
+    );
+  }
+
+  return [...candidates];
+}
+
 export function validateTwilioWebhookSignature(input: {
   authToken?: string | null;
   params: Record<string, string>;

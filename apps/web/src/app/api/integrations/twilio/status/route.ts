@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   getTwilioConfig,
-  twilioWebhookCanonicalUrl,
+  twilioWebhookCanonicalUrlCandidates,
   twilioWebhookResponse,
   validateTwilioWebhookSignature,
   TWILIO_PROVIDER,
@@ -34,12 +34,14 @@ function signatureValid(request: Request, params: Record<string, string>) {
     return false;
   }
 
-  return validateTwilioWebhookSignature({
-    authToken: config.authToken,
-    params,
-    signature: request.headers.get("x-twilio-signature"),
-    url: twilioWebhookCanonicalUrl(request),
-  });
+  return twilioWebhookCanonicalUrlCandidates(request).some((url) =>
+    validateTwilioWebhookSignature({
+      authToken: config.authToken,
+      params,
+      signature: request.headers.get("x-twilio-signature"),
+      url,
+    }),
+  );
 }
 
 export async function GET() {
