@@ -82,7 +82,9 @@ generated document records, inquiry facts, usage/pricing/budget, entitlements, a
 
 ### `workspace_phone_numbers`
 
-Workspace-owned provider phone numbers for SMS and Vapi/Twilio voice.
+Provider phone numbers for SMS and Vapi/Twilio voice. Assigned rows have a
+`workspace_id`; beta pool rows have `workspace_id = null` and `status =
+'available'` until Kyro claims them for a workspace.
 
 - `id`
 - `workspace_id`
@@ -97,6 +99,9 @@ Workspace-owned provider phone numbers for SMS and Vapi/Twilio voice.
 - `capabilities`
 - `status`
 - `purchased_at`
+- `assigned_at`
+- `reserved_at`
+- `assignment_source`
 - `released_at`
 - `monthly_cost_snapshot`
 - `currency`
@@ -104,8 +109,11 @@ Workspace-owned provider phone numbers for SMS and Vapi/Twilio voice.
 - `created_at`
 - `updated_at`
 
-The current implementation stores Twilio numbers and capability metadata, but does
-not yet expose number search/purchase in the UI. Inbound Twilio SMS is matched by
+The current implementation stores Twilio numbers, capability metadata, Twilio
+phone-number SIDs, and optional Vapi phone-number ids in `metadata`. During the
+beta, Kyro assigns pre-purchased pool rows to workspaces when phone/SMS is
+enabled. Later automatic Twilio purchase should create the same row shape with
+`assignment_source = 'twilio_auto_purchase'`. Inbound Twilio SMS is matched by
 the destination number in this table before Kyro creates a workspace-scoped SMS
 channel and CRM conversation.
 

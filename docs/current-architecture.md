@@ -63,9 +63,11 @@ All business data is workspace-scoped. The important tables are:
 - `contacts`: CRM profiles.
 - `leads`: sales/service opportunities attached to contacts.
 - `channels`: communication source definitions.
-- `workspace_phone_numbers`: workspace-owned Twilio phone/SMS numbers, capability
-  metadata, provider ids, per-number Vapi mapping metadata, and pass-through
-  rental cost snapshots.
+- `workspace_phone_numbers`: Twilio phone/SMS numbers, capability metadata,
+  provider ids, per-number Vapi mapping metadata, and pass-through rental cost
+  snapshots. Assigned rows have `workspace_id` and `status = active`; beta pool
+  rows keep `workspace_id = null` and `status = available` until the server-side
+  pool helper assigns one to a workspace.
 - `integration_connections`: connected provider accounts such as Google Workspace,
   with encrypted token payloads and provider account metadata.
 - `integration_oauth_states`: short-lived OAuth state and PKCE verifier records for

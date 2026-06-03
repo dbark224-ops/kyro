@@ -975,9 +975,10 @@ function TwilioTelephonySettings({
       )}
 
       <p className="empty-copy">
-        Number search and purchase will sit here next: Kyro will filter for
-        SMS-and-voice-capable numbers, buy through Twilio, and meter the rental
-        charge into the workspace usage ledger.
+        Beta setup uses Kyro's pre-purchased number pool. When phone/SMS is
+        enabled, Kyro assigns one available voice-and-SMS number for the
+        workspace country. Later, this path can switch to automatic Twilio
+        purchase and Vapi setup without changing the workspace number model.
       </p>
 
       {smsNumber ? (

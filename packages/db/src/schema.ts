@@ -362,9 +362,7 @@ export const workspacePhoneNumbers = pgTable(
   "workspace_phone_numbers",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    workspaceId: uuid("workspace_id")
-      .notNull()
-      .references(() => workspaces.id),
+    workspaceId: uuid("workspace_id").references(() => workspaces.id),
     provider: text("provider").notNull().default("twilio"),
     service: text("service").notNull().default("programmable_messaging"),
     phoneNumber: text("phone_number").notNull(),
@@ -376,6 +374,11 @@ export const workspacePhoneNumbers = pgTable(
     capabilities: jsonb("capabilities").notNull().default({}),
     status: text("status").notNull().default("active"),
     purchasedAt: timestamp("purchased_at", { withTimezone: true }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }),
+    reservedAt: timestamp("reserved_at", { withTimezone: true }),
+    assignmentSource: text("assignment_source")
+      .notNull()
+      .default("manual_pool"),
     releasedAt: timestamp("released_at", { withTimezone: true }),
     monthlyCostSnapshot: numeric("monthly_cost_snapshot")
       .notNull()
@@ -385,6 +388,13 @@ export const workspacePhoneNumbers = pgTable(
     ...timestamps,
   },
   (table) => ({
+    workspacePhoneNumbersPoolAvailableIdx: index(
+      "workspace_phone_numbers_pool_available_idx",
+    )
+      .on(table.provider, table.countryCode, table.status, table.createdAt)
+      .where(
+        sql`${table.workspaceId} is null and ${table.status} in ('available', 'reserved')`,
+      ),
     workspacePhoneNumbersWorkspaceStatusIdx: index(
       "workspace_phone_numbers_workspace_status_idx",
     ).on(table.workspaceId, table.status, table.provider),
@@ -401,6 +411,11 @@ export const workspacePhoneNumbers = pgTable(
     )
       .on(table.workspaceId, table.normalizedPhone)
       .where(sql`${table.status} <> 'released'`),
+    workspacePhoneNumbersPoolProviderNumberIdx: uniqueIndex(
+      "workspace_phone_numbers_pool_provider_number_idx",
+    )
+      .on(table.provider, table.normalizedPhone)
+      .where(sql`${table.workspaceId} is null and ${table.status} <> 'released'`),
   }),
 );
 

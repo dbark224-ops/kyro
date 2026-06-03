@@ -67,9 +67,12 @@ import {
 } from "../../lib/crm/identity";
 import {
   WORKSPACE_GENERAL_POLICY_TYPE,
+  getWorkspaceGeneralSettings,
   normalizeWorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { createServiceSupabaseClient } from "../../lib/supabase/service";
+import { ensureWorkspacePhoneNumberFromPool } from "../../lib/voice/phone-number-pool";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -1090,6 +1093,46 @@ export async function updateVoiceSettingsAction(formData: FormData) {
   });
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  let phoneNumberAssignment: Awaited<
+    ReturnType<typeof ensureWorkspacePhoneNumberFromPool>
+  > | null = null;
+  const needsWorkspacePhoneNumber =
+    settings.phoneAgentEnabled &&
+    (settings.phoneAgentInboundEnabled ||
+      settings.phoneAgentOutboundEnabled ||
+      settings.phoneAgentVoicemailOverflowEnabled);
+
+  if (needsWorkspacePhoneNumber) {
+    try {
+      const generalSettings = await getWorkspaceGeneralSettings(
+        supabase,
+        workspace.id,
+      );
+      phoneNumberAssignment = await ensureWorkspacePhoneNumberFromPool({
+        actorId: user.id,
+        countryCode: generalSettings.defaultPhoneRegion,
+        supabase: createServiceSupabaseClient(),
+        workspaceId: workspace.id,
+      });
+
+      if (
+        !settings.vapiPhoneNumberId &&
+        phoneNumberAssignment.number.vapiPhoneNumberId
+      ) {
+        settings.vapiPhoneNumberId =
+          phoneNumberAssignment.number.vapiPhoneNumberId;
+      }
+    } catch (error) {
+      redirectWithSectionMessage(
+        "voice",
+        "engine_error",
+        error instanceof Error
+          ? error.message
+          : "Unable to assign a workspace phone number.",
+      );
+    }
+  }
+
   const { data: beforePolicy, error: beforeError } = await supabase
     .from("workspace_policies")
     .select("id,settings")
@@ -1133,6 +1176,13 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     before: beforePolicy ? { settings: beforePolicy.settings } : null,
     entityId: String(savedPolicy.id),
     entityType: "workspace_policy",
+    metadata: phoneNumberAssignment
+      ? {
+          phoneNumberAssigned: phoneNumberAssignment.assigned,
+          phoneNumberCountryCode: phoneNumberAssignment.countryCode,
+          workspacePhoneNumberId: phoneNumberAssignment.number.id,
+        }
+      : undefined,
   });
 
   revalidatePath("/settings");

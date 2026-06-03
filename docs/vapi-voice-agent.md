@@ -17,6 +17,16 @@ The intended production shape is: a workspace chooses a voice+SMS-capable Twilio
 number, that number is connected to Vapi, and Vapi calls Kyro webhooks/tools with
 workspace metadata.
 
+For the beta cohort, Kyro uses a pre-purchased number pool instead of live
+Twilio purchase. Pool rows live in `workspace_phone_numbers` with
+`workspace_id = null`, `status = 'available'`, country/capability metadata, the
+Twilio phone-number SID in `provider_phone_number_id`, and the Vapi phone-number
+id in `metadata.vapiPhoneNumberId`. When a workspace enables phone assistant
+infrastructure, `ensureWorkspacePhoneNumberFromPool` claims the oldest available
+voice+SMS number for that workspace's default phone region and creates the SMS
+channel. The later automatic purchase path should insert the same row shape, then
+reuse this assignment helper.
+
 ## Environment
 
 Required before real calls:
@@ -88,6 +98,8 @@ in `metadata.vapiPhoneNumberId` (or `metadata.vapi.phoneNumberId`). Outbound
 voice routing chooses the active voice-capable workspace number whose country
 matches the customer's E.164 destination number, then falls back to the first
 active mapped voice number, then finally to the Settings/env fallback id.
+Unassigned pool rows have no `workspace_id` and are hidden from ordinary
+workspace users by RLS.
 
 ## Backend Routes
 

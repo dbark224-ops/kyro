@@ -33,7 +33,8 @@ This is the parking lot for useful ideas that are still not part of the current 
 
 ## Twilio Number And SMS Hardening
 
-- Add user-facing Twilio number search/selection/purchase so each workspace can choose a voice+SMS-capable number without Kyro pre-buying inventory.
+- Replace the beta pre-purchased number pool with user-facing Twilio number search/selection/purchase once signup volume justifies automatic provisioning.
+- Automate the full Twilio purchase -> webhook/messaging-service setup -> Vapi phone-number mapping flow while preserving the current `workspace_phone_numbers` assignment model.
 - Meter phone-number rental as its own usage/billing category, separate from SMS segments and Vapi/Twilio voice minutes.
 - Add workspace operator/staff number rules so SMS from the business owner, apprentice, family member, or partner can be treated as internal instructions instead of customer inquiries.
 - Harden inbound SMS contact matching, opt-out handling, consent/compliance copy, and delivery-error recovery before public launch.

@@ -53,6 +53,10 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260509053308_initial_core.sql`: base schema.
 - `20260509053320_tenant_rls.sql`: RLS policies, workspace membership helpers, and updated-at triggers.
 - `20260510044752_contact_profile_fields.sql`: adds `contacts.contact_type`, `contacts.address`, and a workspace/type index.
+- `20260603001716_workspace_phone_number_pool.sql`: makes `workspace_phone_numbers`
+  support unassigned beta pool rows, adds assignment timestamps/source, extends
+  number statuses with `available` and `reserved`, and hides unassigned pool rows
+  from ordinary workspace users through scoped RLS policies.
 - `20260510061122_quote_drafts.sql`: adds internal saved quote drafts linked to contacts, leads, conversations, and source actions.
 - `20260510073116_inquiry_facts.sql`: adds editable extracted inquiry facts with one current row per workspace/conversation.
 - `20260512191555_assistant_memory.sql`: adds Assistant threads, messages, explicit memories, RLS policies, and updated-at triggers.
