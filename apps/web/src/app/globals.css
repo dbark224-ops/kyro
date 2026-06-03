@@ -171,7 +171,7 @@
 
 .marketing-nav a,
 .marketing-link {
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 10px 12px;
 }
 
@@ -200,7 +200,7 @@
   justify-content: center;
   min-height: 48px;
   border: 1px solid rgb(81 229 255 / 0.7);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--marketing-cyan);
   color: #041018;
   font-weight: 900;
@@ -438,7 +438,7 @@
   position: absolute;
   inset: 18% -12% auto 10%;
   height: 28%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(
     90deg,
     transparent,
@@ -510,7 +510,7 @@
   width: fit-content;
   max-width: min(100%, 420px);
   border: 1px solid rgb(81 229 255 / 0.34);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: rgb(10 12 18 / 0.48);
   padding: 11px 14px;
 }
@@ -561,7 +561,7 @@
   min-width: 0;
   min-height: 124px;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: rgb(10 12 18 / 0.58);
   color: var(--marketing-muted);
   font-size: 1.05rem;
@@ -617,7 +617,7 @@
   gap: 18px;
   min-height: 360px;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background:
     linear-gradient(135deg, rgb(81 229 255 / 0.12), transparent 36%),
     var(--marketing-panel);
@@ -636,7 +636,7 @@
   gap: 22px;
   min-height: 170px;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background:
     linear-gradient(145deg, rgb(255 255 255 / 0.07), transparent 56%), #0d0f15;
   padding: 18px;
@@ -713,7 +713,7 @@
 .marketing-price-card {
   min-width: 0;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background:
     linear-gradient(145deg, rgb(255 255 255 / 0.06), transparent 55%),
     var(--marketing-panel);
@@ -764,7 +764,7 @@
   align-self: start;
   width: fit-content;
   border: 1px solid rgb(81 229 255 / 0.28);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--marketing-cyan);
   font-size: 0.72rem;
   font-weight: 900;
@@ -838,7 +838,7 @@
 .marketing-audience-list p {
   margin: 0;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: rgb(255 255 255 / 0.045);
   color: var(--marketing-text);
   font-size: 1.2rem;
@@ -856,7 +856,7 @@
 
 .marketing-proof-strip span {
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: rgb(255 255 255 / 0.05);
   color: var(--marketing-muted);
   font-size: 0.88rem;
@@ -870,7 +870,7 @@
   align-content: center;
   justify-items: start;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background:
     linear-gradient(135deg, rgb(81 229 255 / 0.14), transparent 42%),
     linear-gradient(315deg, rgb(236 54 141 / 0.13), transparent 44%),
@@ -923,7 +923,7 @@
   gap: 16px;
   max-width: 720px;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background:
     linear-gradient(145deg, rgb(255 255 255 / 0.06), transparent 55%),
     var(--marketing-panel);
@@ -941,7 +941,7 @@
 .marketing-contact-form input,
 .marketing-contact-form textarea {
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: rgb(7 8 11 / 0.72);
   color: var(--marketing-text);
   font: inherit;
@@ -970,7 +970,7 @@
   max-width: 820px;
   margin-bottom: 72px;
   border: 1px solid var(--marketing-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--marketing-panel);
   padding: 24px;
 }
@@ -1010,7 +1010,7 @@
 }
 
 .marketing-footer a {
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--marketing-muted);
   font-weight: 800;
   padding: 9px 10px;
@@ -1267,7 +1267,7 @@
   gap: 18px;
   align-items: end;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: var(--shadow);
   padding: clamp(18px, 3vw, 30px);
@@ -1293,7 +1293,7 @@
   gap: 4px;
   min-width: 190px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background: var(--background);
   padding: 14px;
 }
@@ -1317,7 +1317,7 @@
 .public-quote-preview {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: #d1d5db;
   box-shadow: var(--shadow);
 }
@@ -1350,7 +1350,7 @@
   display: grid;
   gap: 14px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   box-shadow: var(--shadow);
   padding: 18px;
@@ -1403,6 +1403,11 @@
   --purple: #440381;
   --pink: #ec368d;
   --shadow: 0 24px 80px rgb(17 17 20 / 0.08);
+  --radius-control: 10px;
+  --radius-card: 12px;
+  --radius-panel: 16px;
+  --radius-shell: 22px;
+  --radius-pill: 999px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1539,7 +1544,7 @@ a {
   z-index: 1;
   width: min(100%, 760px);
   border: 1px solid color-mix(in srgb, var(--line) 86%, var(--cyan));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   box-shadow:
     var(--shadow),
@@ -1587,7 +1592,7 @@ a {
   display: grid;
   gap: 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 18px;
 }
 
@@ -1615,7 +1620,7 @@ label {
 input {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--text);
   font: inherit;
@@ -1642,7 +1647,7 @@ input {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -1699,7 +1704,7 @@ input {
 select {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--text);
   font: inherit;
@@ -1719,7 +1724,7 @@ input {
 
 textarea {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--text);
   font: inherit;
@@ -1740,7 +1745,7 @@ textarea:focus {
 
 .form-alert {
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 10%, transparent);
   padding: 12px;
 }
@@ -1764,7 +1769,7 @@ textarea:focus {
   display: block;
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 11px 12px;
 }
 
@@ -1784,7 +1789,7 @@ textarea:focus {
   gap: 7px;
   max-width: min(360px, calc(100vw - 28px));
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: 0 10px 32px rgb(0 0 0 / 0.16);
   color: var(--text);
@@ -1798,7 +1803,7 @@ textarea:focus {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--muted);
 }
 
@@ -1867,7 +1872,7 @@ textarea:focus {
   gap: 8px;
   min-height: 38px;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: 0 12px 34px rgb(0 0 0 / 0.14);
   padding: 0 13px;
@@ -1879,7 +1884,7 @@ textarea:focus {
   height: 18px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 900;
@@ -1910,7 +1915,7 @@ textarea:focus {
   max-height: min(62vh, 620px);
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--cyan) 40%, var(--line));
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 97%, transparent);
   box-shadow: 0 22px 56px rgb(0 0 0 / 0.28);
   padding: 8px;
@@ -1928,7 +1933,7 @@ textarea:focus {
   display: grid;
   gap: 4px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   color: var(--text);
   padding: 10px;
   text-decoration: none;
@@ -1996,7 +2001,7 @@ textarea:focus {
   align-items: center;
   gap: 5px;
   border: 1px solid color-mix(in srgb, var(--pink) 42%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: 0 10px 32px rgb(0 0 0 / 0.14);
   color: var(--text);
@@ -2017,7 +2022,7 @@ textarea:focus {
   align-items: center;
   gap: 5px;
   border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: 0 10px 32px rgb(0 0 0 / 0.16);
   color: var(--text);
@@ -2032,7 +2037,7 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -2120,7 +2125,7 @@ textarea:focus {
 .nav-link {
   display: block;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--muted);
   padding: 10px 12px;
   text-decoration: none;
@@ -2235,7 +2240,7 @@ h2 {
 
 .compact-metrics span {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--background) 44%, var(--surface));
   color: var(--muted);
   padding: 6px 9px;
@@ -2259,7 +2264,7 @@ h2 {
 .secondary-button,
 .assistant-input button {
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-weight: 750;
 }
@@ -2312,7 +2317,7 @@ h2 {
 .metric-card,
 .panel {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -2402,7 +2407,7 @@ h2 {
   height: 12px;
   border: 2px solid color-mix(in srgb, var(--cyan) 24%, transparent);
   border-top-color: var(--cyan);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   transform: translateY(-50%);
   animation: kyro-spin 0.8s linear infinite;
 }
@@ -2416,7 +2421,7 @@ h2 {
   display: grid;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow:
     0 18px 50px color-mix(in srgb, #000 32%, transparent),
@@ -2687,7 +2692,7 @@ h2 {
   max-height: none;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   padding: 12px;
 }
@@ -2726,7 +2731,7 @@ h2 {
 .assistant-workspace:not(.has-preview) .assistant-chat::-webkit-scrollbar-thumb,
 .assistant-workspace.has-preview .assistant-chat::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background-clip: content-box;
   background-color: color-mix(in srgb, var(--muted) 32%, transparent);
 }
@@ -2775,7 +2780,7 @@ h2 {
   width: fit-content;
   max-width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   padding: 12px;
 }
@@ -2796,7 +2801,7 @@ h2 {
 .assistant-workspace:not(.has-preview) .assistant-message.user,
 .assistant-workspace.has-preview .assistant-message.user {
   border-color: transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface-strong) 8%, var(--background));
   padding: 12px 16px;
 }
@@ -2842,7 +2847,7 @@ h2 {
   align-items: center;
   min-height: 18px;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: color-mix(in srgb, var(--cyan) 70%, var(--text));
   background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
   font-size: 0.625rem;
@@ -2878,7 +2883,7 @@ h2 {
   align-items: center;
   gap: 10px;
   border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 72%, var(--background));
   color: var(--text);
   padding: 9px 11px;
@@ -2898,7 +2903,7 @@ h2 {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--cyan);
   background: color-mix(in srgb, var(--cyan) 7%, transparent);
 }
@@ -2957,7 +2962,7 @@ h2 {
 .typing-dots span {
   width: 9px;
   height: 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(135deg, var(--cyan), var(--pink));
   animation: assistant-typing-pulse 1.15s ease-in-out infinite;
 }
@@ -2999,7 +3004,7 @@ h2 {
   gap: 4px;
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: inherit;
   background: color-mix(in srgb, var(--background) 45%, var(--surface));
   cursor: pointer;
@@ -3023,7 +3028,7 @@ h2 {
   display: grid;
   gap: 4px;
   border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
   padding: 10px;
 }
@@ -3081,7 +3086,7 @@ h2 {
   gap: 10px;
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   padding: 10px;
 }
@@ -3093,7 +3098,7 @@ h2 {
   width: 100%;
   height: 230px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--background);
   cursor: zoom-in;
   padding: 0;
@@ -3167,7 +3172,7 @@ h2 {
   max-height: 92vh;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background: var(--surface);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
 }
@@ -3273,7 +3278,7 @@ h2 {
   display: grid;
   gap: 4px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   color: inherit;
   font: inherit;
@@ -3337,7 +3342,7 @@ h2 {
 .assistant-timeline-dot {
   width: 9px;
   height: 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--cyan);
 }
 
@@ -3377,7 +3382,7 @@ h2 {
   gap: 8px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: inherit;
   padding: 6px 10px;
   text-decoration: none;
@@ -3461,7 +3466,7 @@ h2 {
 
 .assistant-dev-diagnostics {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 32%, var(--surface));
   padding: 0;
 }
@@ -3524,7 +3529,7 @@ h2 {
   gap: 10px;
   align-items: start;
   border: 1px solid color-mix(in srgb, var(--surface-strong) 12%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 50%, transparent);
   color: inherit;
   cursor: pointer;
@@ -3551,7 +3556,7 @@ h2 {
   width: 8px;
   height: 8px;
   margin-top: 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--muted);
 }
 
@@ -3682,7 +3687,7 @@ h2 {
   min-width: 0;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 40%, var(--surface));
   padding: 12px;
 }
@@ -3698,7 +3703,7 @@ h2 {
   max-height: calc(100vh - 132px);
   overflow: hidden;
   border-color: color-mix(in srgb, var(--cyan) 22%, var(--line));
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 94%, var(--background));
   padding: 0;
   position: sticky;
@@ -3751,7 +3756,7 @@ h2 {
   min-width: 0;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 12px;
 }
@@ -3888,7 +3893,7 @@ h2 {
   display: grid;
   gap: 8px;
   border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 6%, var(--surface));
   padding: 10px;
 }
@@ -3955,7 +3960,7 @@ h2 {
   max-width: 100%;
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 44%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 8%, transparent);
   color: var(--text);
   font-size: 0.72rem;
@@ -3973,7 +3978,7 @@ h2 {
 
 .assistant-preview-details {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 12px;
 }
 
@@ -3997,7 +4002,7 @@ h2 {
   width: min(100%, 900px);
   justify-self: center;
   border: 1px solid color-mix(in srgb, var(--surface-strong) 12%, var(--line));
-  border-radius: 28px;
+  border-radius: var(--radius-shell);
   background: color-mix(in srgb, var(--surface) 88%, var(--background));
   box-shadow: 0 18px 60px rgb(0 0 0 / 0.18);
   padding: 12px;
@@ -4005,7 +4010,7 @@ h2 {
 
 .assistant-workspace.has-preview .assistant-input-form {
   border: 1px solid color-mix(in srgb, var(--surface-strong) 12%, var(--line));
-  border-radius: 28px;
+  border-radius: var(--radius-shell);
   background: color-mix(in srgb, var(--surface) 88%, var(--background));
   box-shadow: 0 18px 60px rgb(0 0 0 / 0.12);
   padding: 10px;
@@ -4035,7 +4040,7 @@ h2 {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 56%, var(--surface));
   color: var(--muted);
   cursor: pointer;
@@ -4086,7 +4091,7 @@ h2 {
 .assistant-workspace:not(.has-preview) .assistant-input-row .primary-button,
 .assistant-workspace.has-preview .assistant-input-row .primary-button {
   min-height: 42px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 10px 17px;
 }
 
@@ -4110,7 +4115,7 @@ h2 {
   align-items: center;
   gap: 7px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   color: var(--text);
   padding: 5px 8px;
@@ -4166,7 +4171,7 @@ h2 {
   display: block;
   width: 8px;
   min-height: 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(180deg, var(--cyan), var(--pink));
   transition: height 42ms ease-out;
 }
@@ -4230,7 +4235,7 @@ h2 {
 
 .voice-transcript::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background-clip: content-box;
   background-color: color-mix(in srgb, var(--muted) 32%, transparent);
 }
@@ -4248,7 +4253,7 @@ h2 {
 .voice-turn.user {
   justify-self: end;
   max-width: min(620px, 74%);
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 86%, var(--background));
   padding: 12px 16px;
 }
@@ -4292,7 +4297,7 @@ h2 {
   gap: 4px;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--text);
   padding: 11px;
   text-decoration: none;
@@ -4348,7 +4353,7 @@ h2 {
   min-width: 0;
   gap: 4px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 62%, transparent);
   color: var(--text);
   padding: 11px 12px;
@@ -4416,7 +4421,7 @@ button.voice-card {
   display: grid;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   padding: 8px;
 }
 
@@ -4424,7 +4429,7 @@ button.voice-card {
   display: block;
   width: 100%;
   max-height: 132px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   object-fit: cover;
 }
 
@@ -4446,7 +4451,7 @@ button.voice-card {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 22px;
+  border-radius: var(--radius-shell);
   background: color-mix(in srgb, var(--surface) 76%, var(--background));
   box-shadow: 0 18px 50px rgba(15, 23, 42, 0.1);
 }
@@ -4489,7 +4494,7 @@ button.voice-card {
 .voice-preview-actions a,
 .voice-preview-actions button {
   border: 1px solid color-mix(in srgb, var(--pink) 18%, var(--line));
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--pink) 14%, var(--surface));
   color: var(--text);
   cursor: pointer;
@@ -4516,7 +4521,7 @@ button.voice-card {
   gap: 10px;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   padding: 12px;
 }
 
@@ -4599,7 +4604,7 @@ button.voice-card {
   display: grid;
   gap: 4px;
   border: 1px dashed var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   padding: 14px;
 }
 
@@ -4615,7 +4620,7 @@ button.voice-card {
   width: 8px;
   height: 8px;
   animation: assistant-typing-pulse 1s infinite ease-in-out;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(135deg, var(--cyan), var(--pink));
 }
 
@@ -4634,7 +4639,7 @@ button.voice-card {
   gap: 18px;
   justify-self: center;
   border: 1px solid var(--line);
-  border-radius: 28px;
+  border-radius: var(--radius-shell);
   background: color-mix(in srgb, var(--surface) 90%, var(--background));
   padding: 14px;
   position: sticky;
@@ -4649,7 +4654,7 @@ button.voice-card {
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 58%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
   color: var(--cyan);
   cursor: pointer;
@@ -4702,7 +4707,7 @@ button.voice-card {
   width: min(780px, calc(100% - 36px));
   justify-self: center;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
   color: var(--muted);
   font-size: 0.82rem;
@@ -4754,7 +4759,7 @@ button.voice-card {
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 8px;
 }
 
@@ -4771,7 +4776,7 @@ button.voice-card {
 
 .module-list span {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 7px 10px;
   font-size: 0.8125rem;
 }
@@ -4821,7 +4826,7 @@ button.voice-card {
 .log-advanced-search {
   grid-column: 1 / -1;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 38%, transparent);
 }
 
@@ -4863,7 +4868,7 @@ button.voice-card {
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 34%, var(--surface));
   padding: 12px;
 }
@@ -4871,7 +4876,7 @@ button.voice-card {
 .log-marker {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--cyan);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 14%, transparent);
 }
@@ -4932,7 +4937,7 @@ button.voice-card {
 .accent-strip {
   height: 4px;
   margin-top: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .data-list {
@@ -4952,7 +4957,7 @@ button.voice-card {
   align-items: center;
   gap: 7px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -4973,7 +4978,7 @@ button.voice-card {
   height: 22px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--text) 8%, transparent);
   color: var(--text);
   font-size: 0.75rem;
@@ -4996,7 +5001,7 @@ button.voice-card {
 .inbox-work-queue-actions .secondary-button span {
   display: inline-flex;
   min-width: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--text) 8%, transparent);
   color: var(--text);
   font-size: 0.72rem;
@@ -5026,7 +5031,7 @@ button.voice-card {
   max-height: calc(100vh - 96px);
   gap: 12px;
   border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background:
     radial-gradient(
       circle at top left,
@@ -5071,7 +5076,7 @@ button.voice-card {
   gap: 10px;
   align-items: end;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 34%, transparent);
   padding: 10px;
 }
@@ -5107,7 +5112,7 @@ button.voice-card {
   gap: 10px;
   align-items: start;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 76%, var(--background));
   padding: 10px;
 }
@@ -5165,7 +5170,7 @@ button.voice-card {
   min-height: 18px;
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 11%, transparent);
   box-sizing: border-box;
   color: var(--muted);
@@ -5247,7 +5252,7 @@ button.voice-card {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -5343,7 +5348,7 @@ button.voice-card {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--pink) 28%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--pink) 12%, transparent);
   color: var(--text);
   cursor: pointer;
@@ -5372,7 +5377,7 @@ button.voice-card {
   min-height: 30px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.75rem;
   line-height: 1;
   padding: 5px 10px;
@@ -5393,7 +5398,7 @@ button.voice-card {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 92%, var(--background));
   color: var(--muted);
   cursor: pointer;
@@ -5424,7 +5429,7 @@ button.voice-card {
   width: min(340px, 82vw);
   gap: 8px;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: 0 18px 46px color-mix(in srgb, var(--text) 16%, transparent);
   padding: 10px;
@@ -5446,7 +5451,7 @@ button.voice-card {
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 88%, var(--background));
   color: var(--text);
   cursor: pointer;
@@ -5464,7 +5469,7 @@ button.voice-card {
   gap: 10px;
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 91%, var(--background));
   color: var(--text);
   cursor: pointer;
@@ -5510,7 +5515,7 @@ button.voice-card {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--background) 62%, transparent);
   color: var(--muted);
   font-size: 0.62rem;
@@ -5529,7 +5534,7 @@ button.voice-card {
 .skipped-email-rule-feedback {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--pink) 22%, var(--line));
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--pink) 7%, transparent);
   color: var(--muted);
   font-size: 0.7rem;
@@ -5589,7 +5594,7 @@ button.voice-card {
   width: 100%;
   margin-top: 10px;
   border: 1px solid color-mix(in srgb, var(--pink) 24%, var(--line));
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   background:
     linear-gradient(
       135deg,
@@ -5661,7 +5666,7 @@ button.voice-card {
   gap: 8px;
   align-items: end;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 5%, transparent);
   padding: 8px;
 }
@@ -5706,7 +5711,7 @@ button.voice-card {
 .inbox-toolbar select {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 62%, var(--surface));
   color: var(--text);
   padding: 10px 11px;
@@ -5736,7 +5741,7 @@ button.voice-card {
 }
 
 .inbox-work-queue-panel {
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
 }
 
 .inbox-preview-actions {
@@ -5780,7 +5785,7 @@ button.voice-card {
 .crm-advanced-search {
   grid-column: 1 / -1;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 38%, transparent);
 }
 
@@ -5828,7 +5833,7 @@ button.voice-card {
   gap: 18px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   color: inherit;
   padding: 8px 12px 8px 18px;
@@ -6026,7 +6031,7 @@ button.voice-card {
   grid-template-columns: minmax(0, 1fr) minmax(220px, 0.38fr);
   gap: 18px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 46%, var(--surface));
   color: inherit;
   padding: 14px;
@@ -6108,7 +6113,7 @@ button.voice-card {
   width: fit-content;
   max-width: 100%;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--background) 56%, transparent);
   color: var(--muted);
   padding: 5px 8px;
@@ -6208,7 +6213,7 @@ button.voice-card {
   justify-content: center;
   width: fit-content;
   border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 8%, transparent);
   color: var(--text);
   padding: 5px 9px;
@@ -6324,7 +6329,7 @@ button.voice-card {
   align-content: start;
   gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 11px;
 }
@@ -6360,7 +6365,7 @@ button.voice-card {
 
 .missing-info-editor {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 11px;
 }
@@ -6442,7 +6447,7 @@ button:disabled {
   gap: 10px;
   margin-bottom: 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   padding: 12px;
 }
@@ -6457,7 +6462,7 @@ button:disabled {
 
 .message-row {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 44%, var(--surface));
   padding: 14px;
 }
@@ -6488,7 +6493,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 8%, transparent);
   color: var(--text);
   padding: 4px 8px;
@@ -6560,7 +6565,7 @@ button:disabled {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 48%, var(--surface));
   padding: 12px;
 }
@@ -6619,7 +6624,7 @@ button:disabled {
 
 .conversation-workflow-panel.compact {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 12px;
 }
 
@@ -6633,7 +6638,7 @@ button:disabled {
   width: fit-content;
   margin-top: 10px;
   border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 10%, transparent);
   color: var(--text);
   padding: 5px 8px;
@@ -6667,6 +6672,10 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.manual-reply-subject-field {
+  grid-column: 1 / -1;
+}
+
 .attachment-control-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 44px;
@@ -6683,7 +6692,7 @@ button:disabled {
   justify-content: center;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--text);
   cursor: pointer;
@@ -6723,7 +6732,7 @@ button:disabled {
   display: inline-flex;
   width: fit-content;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--muted);
   padding: 5px 8px;
   font-size: 0.75rem;
@@ -6738,7 +6747,7 @@ button:disabled {
   align-self: flex-end;
   gap: 7px;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 7%, transparent);
   padding: 4px 6px 4px 8px;
 }
@@ -6780,7 +6789,7 @@ button:disabled {
 .email-signature-control select {
   width: auto;
   min-height: 26px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 3px 24px 3px 8px;
   font-size: 0.75rem;
   font-weight: 800;
@@ -6814,7 +6823,7 @@ button:disabled {
   width: 100%;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   color: inherit;
   cursor: pointer;
@@ -6926,7 +6935,7 @@ button:disabled {
   gap: 12px;
   align-items: start;
   border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 6%, var(--surface));
   padding: 12px;
 }
@@ -6944,7 +6953,7 @@ button:disabled {
 
 .integration-provider-section {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 30%, var(--surface));
   overflow: hidden;
 }
@@ -7008,7 +7017,7 @@ button:disabled {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 34%, var(--surface));
   padding: 12px;
 }
@@ -7057,7 +7066,7 @@ button:disabled {
   display: grid;
   gap: 3px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 48%, var(--surface));
   padding: 10px;
 }
@@ -7094,7 +7103,7 @@ button:disabled {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 24%, var(--surface));
   padding: 12px;
 }
@@ -7124,7 +7133,7 @@ button:disabled {
   min-height: 30px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--background) 38%, transparent);
   color: var(--muted);
   font-size: 0.78rem;
@@ -7151,7 +7160,7 @@ button:disabled {
   min-width: 0;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   padding: 10px;
 }
@@ -7212,7 +7221,7 @@ button:disabled {
 .email-sync-dot {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--cyan);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 14%, transparent);
 }
@@ -7258,7 +7267,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   padding: 12px;
 }
@@ -7314,7 +7323,7 @@ button:disabled {
   height: 22px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 58%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 12%, transparent);
   color: var(--cyan);
   cursor: help;
@@ -7331,7 +7340,7 @@ button:disabled {
   z-index: 40;
   width: min(320px, calc(100vw - 48px));
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 96%, var(--background));
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
   color: var(--text);
@@ -7398,7 +7407,7 @@ button:disabled {
 
 .settings-fieldset {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   margin: 0;
   padding: 12px;
 }
@@ -7414,7 +7423,7 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   border: 1px solid color-mix(in srgb, var(--cyan) 25%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 6%, transparent);
   padding: 10px;
 }
@@ -7462,7 +7471,7 @@ button:disabled {
 
 .settings-accordion {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 32%, var(--surface));
 }
 
@@ -7518,7 +7527,7 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   background:
     radial-gradient(
       circle at top left,
@@ -7566,7 +7575,7 @@ button:disabled {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background:
     radial-gradient(
       circle at top left,
@@ -7620,7 +7629,7 @@ button:disabled {
   gap: 8px;
   align-items: end;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 7%, transparent);
   padding: 10px;
 }
@@ -7650,7 +7659,7 @@ button:disabled {
   gap: 10px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 84%, var(--background));
   padding: 10px;
 }
@@ -7702,7 +7711,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 10%, transparent);
   color: var(--muted);
   font-size: 0.68rem;
@@ -7750,7 +7759,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 8%, transparent);
   color: var(--text);
   cursor: pointer;
@@ -7772,7 +7781,7 @@ button:disabled {
 .pronunciation-entry-card,
 .pronunciation-entry-form-new {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 28%, var(--surface));
   padding: 12px;
 }
@@ -7873,7 +7882,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--pink) 24%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--pink) 12%, transparent);
   color: var(--text);
   cursor: pointer;
@@ -7905,7 +7914,7 @@ button:disabled {
 }
 
 .pronunciation-play-button {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border-color: color-mix(in srgb, var(--cyan) 34%, var(--line));
   background: color-mix(in srgb, var(--cyan) 10%, transparent);
   color: color-mix(in srgb, var(--cyan) 54%, var(--text));
@@ -8013,7 +8022,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 10px;
 }
 
@@ -8060,7 +8069,7 @@ button:disabled {
 .setting-card input[type="file"]::file-selector-button {
   margin-right: 10px;
   border: 1px solid color-mix(in srgb, var(--cyan) 44%, var(--line));
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 12%, var(--background));
   color: var(--text);
   padding: 8px 10px;
@@ -8079,7 +8088,7 @@ button:disabled {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 35%, var(--surface));
   padding: 12px;
 }
@@ -8095,7 +8104,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--background);
   padding: 12px;
 }
@@ -8129,7 +8138,7 @@ button:disabled {
 .compact-settings-footer {
   background: color-mix(in srgb, var(--cyan) 5%, transparent);
   border: 1px solid color-mix(in srgb, var(--cyan) 24%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 12px;
 }
 
@@ -8154,7 +8163,7 @@ button:disabled {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 12px;
 }
@@ -8197,7 +8206,7 @@ button:disabled {
   display: grid;
   gap: 4px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 10px;
 }
 
@@ -8227,7 +8236,7 @@ button:disabled {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 12px;
 }
@@ -8273,7 +8282,7 @@ button:disabled {
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 50%, var(--surface));
   padding: 12px;
 }
@@ -8285,7 +8294,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
   color: color-mix(in srgb, var(--text) 82%, var(--cyan));
   font-size: 0.6875rem;
@@ -8344,7 +8353,7 @@ button:disabled {
   gap: 9px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--purple);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   box-shadow: 0 14px 42px rgb(0 0 0 / 0.08);
   padding: 10px 14px;
@@ -8373,7 +8382,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--pink) 56%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--pink) 16%, var(--surface));
   color: var(--text);
   cursor: pointer;
@@ -8444,7 +8453,7 @@ button:disabled {
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 34%, var(--surface));
   padding: 12px;
 }
@@ -8536,7 +8545,7 @@ button:disabled {
   gap: 18px;
   align-items: start;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 34%, var(--surface));
   padding: 14px;
 }
@@ -8574,7 +8583,7 @@ button:disabled {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 96%, var(--background));
   box-shadow: 0 28px 84px rgb(0 0 0 / 0.34);
 }
@@ -8786,7 +8795,7 @@ button:disabled {
   gap: 8px;
   align-items: center;
   border: 1px dashed color-mix(in srgb, var(--cyan) 62%, var(--line));
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--cyan) 7%, transparent);
   cursor: pointer;
   padding: 18px;
@@ -8817,14 +8826,14 @@ button:disabled {
 
 .template-reference-list span {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   padding: 7px 10px;
 }
 
 .template-reference-chip {
   border: 1px solid color-mix(in srgb, var(--cyan) 44%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--cyan) 8%, transparent);
   color: var(--text);
   cursor: pointer;
@@ -8856,7 +8865,7 @@ button:disabled {
   position: relative;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: #e5e7eb;
   box-shadow: 0 20px 60px color-mix(in srgb, var(--text) 8%, transparent);
 }
@@ -8886,7 +8895,7 @@ button:disabled {
 
 .template-render-preview-hitbox span {
   border: 1px solid color-mix(in srgb, var(--cyan) 46%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 12%, transparent);
   color: var(--text);
@@ -8934,7 +8943,7 @@ button:disabled {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
-  border-radius: 24px;
+  border-radius: var(--radius-shell);
   background: var(--surface);
   box-shadow: 0 28px 90px color-mix(in srgb, black 24%, transparent);
 }
@@ -8968,7 +8977,7 @@ button:disabled {
   width: min(100%, 920px);
   margin: 0 auto;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 20px 60px color-mix(in srgb, black 16%, transparent);
 }
 
@@ -8982,7 +8991,7 @@ button:disabled {
 .template-preview-document {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: white;
   color: #111827;
   box-shadow: 0 20px 60px color-mix(in srgb, var(--text) 8%, transparent);
@@ -9053,7 +9062,7 @@ button:disabled {
   min-width: 116px;
   gap: 4px;
   border: 1px solid #e5e7eb;
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: #f8fafc;
   padding: 12px;
   text-align: right;
@@ -9075,7 +9084,7 @@ button:disabled {
   display: grid;
   gap: 4px;
   border: 1px solid #e5e7eb;
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   padding: 12px;
 }
 
@@ -9138,7 +9147,7 @@ button:disabled {
   display: grid;
   gap: 4px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   padding: 10px;
 }
@@ -9191,7 +9200,7 @@ button:disabled {
   left: 0;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 44%, var(--line));
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: color-mix(in srgb, var(--surface) 96%, var(--background));
   box-shadow: 0 20px 54px color-mix(in srgb, var(--text) 13%, transparent);
 }
@@ -9283,7 +9292,7 @@ button:disabled {
   gap: 8px;
   align-items: end;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 10px;
 }
@@ -9313,7 +9322,7 @@ button:disabled {
 .document-line-item-total strong {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 70%, var(--background));
   color: var(--text);
   font-size: 0.8125rem;
@@ -9331,7 +9340,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--pink) 34%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--pink) 10%, transparent);
   color: var(--pink);
   cursor: pointer;
@@ -9397,7 +9406,7 @@ button:disabled {
   grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.7fr);
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 52%, var(--surface));
   padding: 14px;
 }
@@ -9425,7 +9434,7 @@ button:disabled {
 
 .tool-registry-meta > span:not(.pill) {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 7px 10px;
   color: var(--muted);
   font-size: 0.75rem;
@@ -9450,7 +9459,7 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 44%, var(--surface));
   padding: 10px 12px;
 }
@@ -9497,7 +9506,7 @@ button:disabled {
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 52%, var(--surface));
   color: var(--text);
   padding: 11px;
@@ -9538,7 +9547,7 @@ button:disabled {
 .developer-status-dot {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--muted);
 }
 
@@ -9643,7 +9652,7 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 46%, var(--surface));
   padding: 12px;
 }
@@ -9742,7 +9751,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   border: 1px solid color-mix(in srgb, var(--pink) 40%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--pink) 8%, transparent);
   padding: 10px;
 }
@@ -9789,7 +9798,7 @@ button:disabled {
   gap: 5px;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 9px;
 }
 
@@ -9845,7 +9854,7 @@ button:disabled {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 38%, var(--surface));
   padding: 12px;
 }
@@ -9985,7 +9994,7 @@ button:disabled {
   width: 10px;
   height: 10px;
   margin-top: 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--muted);
 }
 
@@ -10015,7 +10024,7 @@ button:disabled {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 12px;
 }
@@ -10121,7 +10130,7 @@ button:disabled {
   display: grid;
   gap: 5px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
   padding: 10px;
 }
@@ -10141,7 +10150,7 @@ button:disabled {
   max-height: 420px;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 56%, var(--surface));
   color: var(--muted);
   font-size: 0.75rem;
@@ -10204,7 +10213,7 @@ button:disabled {
   display: block;
   width: 72%;
   height: 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .skeleton-line.medium {
@@ -10220,7 +10229,7 @@ button:disabled {
   width: 56px;
   height: 34px;
   margin: 16px 0 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .skeleton-list,
@@ -10235,7 +10244,7 @@ button:disabled {
   min-height: 78px;
   grid-template-columns: minmax(0, 1fr) minmax(180px, 0.36fr);
   gap: 18px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 14px;
 }
 
@@ -10248,14 +10257,14 @@ button:disabled {
 .skeleton-input {
   display: block;
   height: 42px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .skeleton-pill {
   display: block;
   width: 72px;
   height: 24px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 @keyframes skeleton-pulse {
@@ -10566,7 +10575,7 @@ button:disabled {
 
   .usage-ledger-modal {
     max-height: 86vh;
-    border-radius: 14px;
+    border-radius: var(--radius-card);
   }
 
   .crm-row-main {
@@ -10880,7 +10889,7 @@ button:disabled {
     gap: 8px;
     min-height: 42px;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--surface) 94%, transparent);
     box-shadow: 0 14px 36px rgb(0 0 0 / 0.18);
     color: var(--text);
@@ -10906,7 +10915,7 @@ button:disabled {
   .mobile-drawer-lines span {
     display: block;
     height: 2px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--cyan);
   }
 
@@ -10960,7 +10969,7 @@ button:disabled {
     align-items: center;
     justify-content: center;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius-control);
     color: var(--muted);
     font-size: 0.75rem;
     font-weight: 850;
@@ -11173,7 +11182,7 @@ button:disabled {
     min-height: 86px;
     grid-template-columns: 1fr;
     gap: 8px;
-    border-radius: 14px;
+    border-radius: var(--radius-card);
     padding: 12px;
   }
 
@@ -11216,12 +11225,12 @@ button:disabled {
 
   .settings-menu-row {
     min-height: 72px;
-    border-radius: 14px;
+    border-radius: var(--radius-card);
     padding: 12px;
   }
 
   .settings-list-panel {
-    border-radius: 18px;
+    border-radius: var(--radius-panel);
   }
 
   .settings-menu-list {
@@ -11342,7 +11351,7 @@ button:disabled {
   .voice-transcript {
     min-height: 0;
     border: 1px solid var(--line);
-    border-radius: 22px;
+    border-radius: var(--radius-shell);
     background: color-mix(in srgb, var(--surface) 74%, var(--background));
     padding: 12px 10px 14px;
   }
@@ -11353,7 +11362,7 @@ button:disabled {
 
   .voice-turn.user {
     max-width: 92%;
-    border-radius: 18px;
+    border-radius: var(--radius-panel);
     padding: 10px 12px;
   }
 
@@ -11397,7 +11406,7 @@ button:disabled {
     width: 100%;
     align-items: center;
     flex-wrap: wrap;
-    border-radius: 22px;
+    border-radius: var(--radius-shell);
     box-shadow: 0 14px 42px rgba(15, 23, 42, 0.12);
     padding: 10px;
   }
@@ -11460,7 +11469,7 @@ button:disabled {
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
-    border-radius: 22px 22px 0 0;
+    border-radius: var(--radius-shell) var(--radius-shell) 0 0;
   }
 
   .skipped-email-dialog {

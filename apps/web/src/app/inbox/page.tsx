@@ -27,6 +27,7 @@ import {
 } from "./actions";
 import { ConversationWorkflowPanel } from "./conversation-workflow-panel";
 import { MessageWorkflowControls } from "./message-workflow-controls";
+import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
 import { SkippedEmailReplyDetails } from "./skipped-email-reply-details";
@@ -829,6 +830,10 @@ function InboxManualReplyComposer({
   const defaultChannel = preferredReplyChannel(profile, settings);
   const defaultSubject = defaultReplySubject(profile);
   const submissionKey = crypto.randomUUID();
+  const channelOptions = OUTBOUND_CHANNELS.map((channel) => ({
+    label: formatLabel(channel),
+    value: channel,
+  }));
 
   return (
     <InboxPreviewPanel title="Manual reply">
@@ -845,23 +850,12 @@ function InboxManualReplyComposer({
         <input name="submissionKey" type="hidden" value={submissionKey} />
         <input name="redirectTo" type="hidden" value={redirectTo} />
         <div className="mini-facts-grid">
-          <label>
-            <strong>Channel</strong>
-            <select defaultValue={defaultChannel} name="channelType">
-              {OUTBOUND_CHANNELS.map((channel) => (
-                <option
-                  disabled={!settings.allowedChannels.includes(channel)}
-                  key={channel}
-                  value={channel}
-                >
-                  {formatLabel(channel)}
-                  {settings.allowedChannels.includes(channel)
-                    ? ""
-                    : " disabled"}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ManualReplyChannelFields
+            allowedChannels={settings.allowedChannels}
+            defaultChannel={defaultChannel}
+            defaultSubject={defaultSubject}
+            options={channelOptions}
+          />
           <div className="attachment-field">
             <strong>Attach</strong>
             <div className="attachment-control-row">
@@ -906,10 +900,6 @@ function InboxManualReplyComposer({
             </div>
           </div>
         </div>
-        <label>
-          Subject
-          <input defaultValue={defaultSubject} name="subject" type="text" />
-        </label>
         <label>
           Reply
           <textarea
@@ -1064,7 +1054,7 @@ function InboxSplitPreview({
     <section className="panel assistant-inline-preview inbox-inline-preview">
       <header className="assistant-preview-header">
         <div>
-          <p className="eyebrow">Message preview</p>
+          <p className="eyebrow">Conversation</p>
           <h2>{title}</h2>
         </div>
         <div className="button-row inbox-preview-actions">
