@@ -1067,7 +1067,7 @@ function InboxSplitPreview({
           <p className="eyebrow">Message preview</p>
           <h2>{title}</h2>
         </div>
-        <div className="button-row">
+        <div className="button-row inbox-preview-actions">
           <Link
             className="secondary-button compact"
             href={`/inbox/${profile.conversation.id}`}
@@ -1076,7 +1076,7 @@ function InboxSplitPreview({
             Open full screen
           </Link>
           <Link
-            className="secondary-button compact"
+            className="secondary-button compact inbox-preview-close-button"
             href={closeHref}
             prefetch={false}
           >
@@ -1408,10 +1408,12 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       </header>
 
       {query?.engine_error ? (
-        <p className="form-alert error">{query.engine_error}</p>
+        <p className="form-alert error inbox-page-alert">
+          {query.engine_error}
+        </p>
       ) : null}
       {query?.engine_message ? (
-        <p className="form-alert">{query.engine_message}</p>
+        <p className="form-alert inbox-page-alert">{query.engine_message}</p>
       ) : null}
 
       <section

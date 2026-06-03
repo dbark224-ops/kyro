@@ -14,6 +14,9 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+const FINAL_FAILED_STATUSES = new Set(["failed", "undelivered"]);
+const FINAL_SUCCESS_STATUSES = new Set(["delivered", "sent"]);
+
 async function formParams(request: Request) {
   const form = await request.formData();
   const params: Record<string, string> = {};
@@ -93,33 +96,52 @@ export async function POST(request: Request) {
   }
 
   const now = new Date().toISOString();
-  const failed = ["failed", "undelivered"].includes(
-    messageStatus.toLowerCase(),
-  );
+  const normalizedStatus = messageStatus.toLowerCase();
+  const failed = FINAL_FAILED_STATUSES.has(normalizedStatus);
+  const succeeded = FINAL_SUCCESS_STATUSES.has(normalizedStatus);
+  const errorCode = textValue(params.ErrorCode);
+  const errorMessage = textValue(params.ErrorMessage);
   const metadata =
     outbound.metadata && typeof outbound.metadata === "object"
       ? (outbound.metadata as Record<string, unknown>)
       : {};
 
-  await supabase
-    .from("outbound_messages")
-    .update({
-      last_error: failed
-        ? (textValue(params.ErrorMessage) ?? `Twilio status: ${messageStatus}`)
-        : null,
-      metadata: {
-        ...metadata,
-        twilioStatus: {
-          at: now,
-          errorCode: textValue(params.ErrorCode),
-          errorMessage: textValue(params.ErrorMessage),
-          messageSid,
-          rawStatus: messageStatus,
-          to: textValue(params.To),
-        },
+  const updatePayload: Record<string, unknown> = {
+    metadata: {
+      ...metadata,
+      twilioStatus: {
+        at: now,
+        errorCode,
+        errorMessage,
+        messageSid,
+        rawStatus: messageStatus,
+        to: textValue(params.To),
       },
-    })
+    },
+  };
+
+  if (failed) {
+    updatePayload.status = "failed";
+    updatePayload.failed_at = now;
+    updatePayload.last_error =
+      errorMessage ??
+      `Twilio SMS ${messageStatus}${errorCode ? ` (${errorCode})` : ""}`;
+  } else if (succeeded) {
+    updatePayload.status = "sent";
+    updatePayload.failed_at = null;
+    updatePayload.last_error = null;
+  }
+
+  const { error: updateError } = await supabase
+    .from("outbound_messages")
+    .update(updatePayload)
     .eq("id", outbound.id);
+
+  if (updateError) {
+    throw new Error(
+      `Unable to update Twilio outbox status: ${updateError.message}`,
+    );
+  }
 
   await supabase.from("events").insert({
     workspace_id: outbound.workspace_id,
@@ -127,8 +149,8 @@ export async function POST(request: Request) {
     source: "twilio.webhook",
     idempotency_key: `twilio.sms.status.${messageSid}.${messageStatus}.${now}`,
     payload: {
-      errorCode: textValue(params.ErrorCode),
-      errorMessage: textValue(params.ErrorMessage),
+      errorCode,
+      errorMessage,
       messageSid,
       outboundQueueId: outbound.id,
       status: messageStatus,

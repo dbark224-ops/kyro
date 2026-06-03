@@ -200,7 +200,7 @@ export async function POST(request: Request) {
 
   const contactName =
     (await findExistingContactName(supabase, workspaceNumber.workspaceId, from)) ??
-    `SMS from ${from}`;
+    from;
   const result = await ingestManualInbound(
     supabase,
     scheduledUser(ownerUserId),

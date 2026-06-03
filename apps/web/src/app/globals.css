@@ -1750,6 +1750,10 @@ textarea:focus {
   background: color-mix(in srgb, var(--pink) 10%, transparent);
 }
 
+.inbox-page-alert {
+  margin: 0 0 14px;
+}
+
 .setup-list {
   display: grid;
   gap: 10px;
@@ -5729,6 +5733,20 @@ button.voice-card {
 .inbox-work-queue-panel,
 .inbox-inline-preview {
   min-width: 0;
+}
+
+.inbox-work-queue-panel {
+  border-radius: 16px;
+}
+
+.inbox-preview-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox-preview-close-button {
+  background: color-mix(in srgb, var(--background) 64%, var(--pink) 10%);
 }
 
 .crm-list-panel,

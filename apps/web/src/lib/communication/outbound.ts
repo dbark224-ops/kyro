@@ -1383,32 +1383,66 @@ async function markOutboundSent(
   row: OutboundQueueRow,
   result: RecordOutboundMessageResult,
   actorId: string | null,
-) {
+): Promise<OutboundDeliveryStatus> {
   const sentAt = nowIso();
+  const { data: currentRow, error: currentError } = await supabase
+    .from("outbound_messages")
+    .select("status,failed_at,last_error,metadata")
+    .eq("id", row.id)
+    .maybeSingle();
 
-  await supabase
+  if (currentError) {
+    throw new Error(
+      `Unable to refresh outbound delivery state: ${currentError.message}`,
+    );
+  }
+
+  const currentMetadata = objectRecord(currentRow?.metadata ?? row.metadata);
+  const twilioStatus = objectRecord(currentMetadata.twilioStatus);
+  const providerStatus = textValue(twilioStatus.rawStatus)?.toLowerCase();
+  const providerFailed =
+    currentRow?.status === "failed" ||
+    providerStatus === "failed" ||
+    providerStatus === "undelivered";
+  const finalStatus: OutboundDeliveryStatus = providerFailed
+    ? "failed"
+    : "sent";
+  const finalError =
+    finalStatus === "failed"
+      ? (textValue(currentRow?.last_error) ??
+        `Twilio SMS ${providerStatus ?? "failed"}`)
+      : null;
+
+  const { error: updateError } = await supabase
     .from("outbound_messages")
     .update({
       channel_id: result.channelId,
-      failed_at: null,
-      last_error: null,
+      failed_at: finalStatus === "failed" ? (currentRow?.failed_at ?? sentAt) : null,
+      last_error: finalError,
       next_attempt_at: null,
       provider: result.provider,
       provider_message_id: result.externalMessageId,
       provider_request_id: result.providerRequestId,
       provider_thread_id: result.externalThreadId,
       sent_at: sentAt,
-      status: "sent",
+      status: finalStatus,
       metadata: {
-        ...objectRecord(row.metadata),
+        ...currentMetadata,
         externalSendRecorded: true,
         recordResult: {
           ...result,
+          outboxStatus: finalStatus,
           replayed: false,
         },
       },
     })
     .eq("id", row.id);
+
+  if (updateError) {
+    throw new Error(
+      `Unable to mark outbound delivery complete: ${updateError.message}`,
+    );
+  }
 
   await insertOutboundAuditLog(supabase, {
     workspaceId: row.workspace_id,
@@ -1423,13 +1457,15 @@ async function markOutboundSent(
       externalSend: result.externalSend,
       messageId: result.outboundMessageId,
       provider: result.provider,
-      status: "sent",
+      status: finalStatus,
     },
     metadata: {
       conversationId: result.conversationId,
       source: row.source,
     },
   });
+
+  return finalStatus;
 }
 
 async function deliverOutboundQueueItem(
@@ -1954,9 +1990,17 @@ async function deliverOutboundQueueItem(
       replayed: false,
     };
 
-    await markOutboundSent(supabase, activeRow, result, actorId);
+    const finalStatus = await markOutboundSent(
+      supabase,
+      activeRow,
+      result,
+      actorId,
+    );
 
-    return result;
+    return {
+      ...result,
+      outboxStatus: finalStatus,
+    };
   } catch (error) {
     if (providerAccepted) {
       await markOutboundRecordFailed(supabase, activeRow, error, actorId);
