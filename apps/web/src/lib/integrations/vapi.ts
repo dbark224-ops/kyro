@@ -104,6 +104,20 @@ function safeEquals(left: string, right: string) {
 }
 
 function requestSecret(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const querySecret =
+      url.searchParams.get("secret")?.trim() ??
+      url.searchParams.get("token")?.trim() ??
+      "";
+
+    if (querySecret) {
+      return querySecret;
+    }
+  } catch {
+    // Ignore malformed URLs and fall back to headers.
+  }
+
   const authorization = request.headers.get("authorization") ?? "";
 
   if (authorization.toLowerCase().startsWith("bearer ")) {
