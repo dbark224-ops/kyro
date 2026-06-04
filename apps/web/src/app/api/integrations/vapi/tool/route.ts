@@ -152,6 +152,50 @@ function hasContactPreviewLink(uiBlocks: unknown) {
   });
 }
 
+function fieldLabel(value: string | null, label: string) {
+  return value ? `${label} ${value}.` : null;
+}
+
+function describeMatchedContact(contact: {
+  address?: string | null;
+  company?: string | null;
+  contactType?: string | null;
+  email?: string | null;
+  name?: string | null;
+  phone?: string | null;
+}) {
+  return [
+    contact.name ? `${contact.name}.` : "Matched contact found.",
+    fieldLabel(contact.phone ?? null, "Phone"),
+    fieldLabel(contact.email ?? null, "Email"),
+    fieldLabel(contact.address ?? null, "Address"),
+    fieldLabel(contact.company ?? null, "Company"),
+    fieldLabel(contact.contactType ?? null, "Type"),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+}
+
+function describeContactOptions(
+  contacts: Awaited<ReturnType<typeof lookupVoiceContactsForTool>>,
+) {
+  return contacts
+    .slice(0, 3)
+    .map((contact, index) => {
+      const parts = [
+        `${index + 1}) ${contact.name ?? contact.company ?? "Contact"}`,
+        contact.phone ? `phone ${contact.phone}` : null,
+        contact.email ? `email ${contact.email}` : null,
+        contact.company ? `company ${contact.company}` : null,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(", ");
+
+      return parts;
+    })
+    .join(" ");
+}
+
 async function loadWorkspace(
   supabase: ReturnType<typeof createServiceSupabaseClient>,
   workspaceId: string,
@@ -361,13 +405,11 @@ export async function POST(request: Request) {
         contacts.length === 0
           ? "No matching contacts found."
           : contacts.length === 1
-            ? `Displayed the matching contact card for ${
-                firstContact.name ?? firstContact.company ?? "the contact"
-              }. Do not ask which contact the user means; continue with the useful next step.`
-            : `Displayed ${contacts.length} possible contact cards. Ask the user which one they mean before taking action.`;
+            ? `Displayed the matching contact card. ${describeMatchedContact(firstContact)} If the user asked for one of those details, give it directly. Otherwise continue with the useful next step and avoid reading out unnecessary long details.`
+            : `Displayed ${contacts.length} possible contact cards. Likely matches: ${describeContactOptions(contacts)} Ask the user which one they mean before taking action.`;
 
       return completedToolResponse({
-        answer: `${lookupAnswer} Do not read phone numbers, email addresses, or street addresses aloud unless the user explicitly asks for them.`,
+        answer: lookupAnswer,
         contacts,
         count: contacts.length,
         ok: true,

@@ -169,7 +169,11 @@ export function assistantWebSearchEnabled() {
     envValue("ASSISTANT_WEB_SEARCH_ENABLED") ||
     envValue("OPENAI_WEB_SEARCH_ENABLED");
 
-  return isEnabledValue(value);
+  if (value) {
+    return isEnabledValue(value);
+  }
+
+  return Boolean(envValue("OPENAI_API_KEY"));
 }
 
 export function openAiWebSearchTool() {
