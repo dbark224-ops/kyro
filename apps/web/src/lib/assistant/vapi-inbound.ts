@@ -354,8 +354,8 @@ function assistantIdForPurpose(
 ) {
   if (purpose === "inbound_user") {
     return (
-      settings.vapiInternalAssistantId ??
       settings.vapiInboundAssistantId ??
+      settings.vapiInternalAssistantId ??
       settings.vapiVoicemailAssistantId ??
       settings.vapiOutboundAssistantId
     );
