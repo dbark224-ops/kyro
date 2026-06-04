@@ -81,6 +81,13 @@ Settings -> Voice stores:
 
 These settings are saved in the existing `assistant_voice` workspace policy.
 
+When `phoneAgentUserNumbers` contains one or more trusted caller numbers, Kyro
+uses those numbers to switch inbound calls into internal-user mode. Calls from
+those numbers should use the internal assistant behaviour, broader tool access,
+and the main Assistant-thread context. Calls from all other numbers stay in
+external-caller mode and must not be treated as internal just because the caller
+claims to be the business owner or staff.
+
 ## Database Tables
 
 `voice_calls` is the durable call ledger. It stores workspace/contact/conversation
