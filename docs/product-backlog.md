@@ -27,6 +27,7 @@ This is the parking lot for useful ideas that are still not part of the current 
 
 ## Industry Knowledge And Compliance
 
+- Collect and ingest the Australian legislation, regulator guidance, licensing references, and state-by-state source material listed in `docs/australian-legislation-knowledge-sources.md` so the new knowledge-base foundation has real content to retrieve from.
 - Add curated Markdown resources for Australian building-industry rules, regulations, licensing, safety requirements, state-by-state legislation, and practical trade compliance guidance.
 - Decide how Kyro should cite, version, and refresh those resources so the assistant can answer building-industry questions without pretending to provide legal advice.
 - Add a retrieval layer that can surface the relevant jurisdiction-specific material before Kyro drafts customer replies, quotes, or internal guidance that touches regulated work.

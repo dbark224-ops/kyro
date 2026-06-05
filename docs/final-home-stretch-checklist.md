@@ -21,6 +21,8 @@ This checklist is the short final-build tracker for the web app before the long 
   - Add a reports area for operational summaries, leads, customer activity, usage, and exportable business reports.
 - [ ] Product backlog clearance
   - Reconcile `docs/product-backlog.md`, remove completed items, and leave only items intentionally deferred.
+- [ ] Australian legislation source collection
+  - Go through `docs/australian-legislation-knowledge-sources.md` and gather the real public legislation, regulator guidance, licensing, and jurisdiction resources Kyro still needs ingested.
 - [ ] Mobile/native readiness
   - Keep backend APIs reusable by the mobile app and document any new routes or contracts the mobile chat needs.
 
