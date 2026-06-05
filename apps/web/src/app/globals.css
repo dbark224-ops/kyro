@@ -11701,7 +11701,7 @@ button:disabled {
 
 .dashboard-command-centre {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   margin-top: -52px;
 }
 
@@ -11821,7 +11821,7 @@ button:disabled {
 
 .dashboard-stat-card {
   display: flex;
-  min-height: 96px;
+  min-height: 88px;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
@@ -11836,7 +11836,7 @@ button:disabled {
     var(--surface);
   box-shadow: var(--shadow);
   color: var(--text);
-  padding: 14px 16px;
+  padding: 12px 15px;
   text-decoration: none;
 }
 
@@ -11940,18 +11940,21 @@ button:disabled {
 
 .dashboard-middle-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
 }
 
 .dashboard-bottom-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
 }
 
 .dashboard-widget {
   display: grid;
   min-width: 0;
-  min-height: 312px;
+  min-height: 252px;
+  max-height: 252px;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  gap: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   background: color-mix(in srgb, var(--surface) 98%, transparent);
@@ -11961,7 +11964,8 @@ button:disabled {
 }
 
 .dashboard-bottom-grid .dashboard-widget {
-  min-height: 188px;
+  min-height: 150px;
+  max-height: 150px;
 }
 
 .dashboard-widget.placeholder {
@@ -12042,9 +12046,9 @@ button:disabled {
 
 .dashboard-widget-header span {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   line-height: 1.4;
 }
 
@@ -12059,6 +12063,7 @@ button:disabled {
   align-content: start;
   gap: 8px;
   min-height: 0;
+  overflow: auto;
 }
 
 .dashboard-work-item,
@@ -12075,8 +12080,15 @@ button:disabled {
 }
 
 .dashboard-work-item {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.dashboard-work-item-head {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
+  gap: 10px;
 }
 
 .dashboard-work-item strong,
@@ -12098,8 +12110,9 @@ button:disabled {
 }
 
 .dashboard-work-item-meta {
-  display: grid;
-  justify-items: end;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
   gap: 6px;
 }
 
@@ -12132,6 +12145,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   align-content: start;
+  overflow: auto;
 }
 
 .dashboard-compact-contact-item {
@@ -12211,7 +12225,7 @@ button:disabled {
 
 .dashboard-activity-copy {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -12302,7 +12316,6 @@ button:disabled {
   gap: 8px;
   min-height: 0;
   overflow: auto;
-  max-height: 206px;
   padding-right: 2px;
 }
 
@@ -12344,6 +12357,7 @@ button:disabled {
 .dashboard-mini-assistant-form {
   display: grid;
   gap: 6px;
+  margin-top: auto;
 }
 
 .dashboard-mini-assistant-actions {
@@ -12447,11 +12461,13 @@ button:disabled {
 
   .dashboard-widget {
     min-height: 320px;
+    max-height: none;
     padding: 14px;
   }
 
   .dashboard-bottom-grid .dashboard-widget {
     min-height: 240px;
+    max-height: none;
   }
 
   .dashboard-work-item,

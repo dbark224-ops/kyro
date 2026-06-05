@@ -616,9 +616,9 @@ function renderWidget({
   const timeframeLabel = timeframeLabelMap[timeframe];
 
   if (key === "work_queue") {
-    const items = timeFilteredWorkQueue(data.workQueue, timeframe).filter((item) =>
-      matchesWorkQueueFilter(item, workQueueFilter),
-    );
+    const items = timeFilteredWorkQueue(data.workQueue, timeframe)
+      .filter((item) => matchesWorkQueueFilter(item, workQueueFilter))
+      .slice(0, 4);
 
     return (
       <section className="dashboard-widget dashboard-widget-queue" key={key}>
@@ -643,14 +643,14 @@ function renderWidget({
         <div className="dashboard-work-queue">
           {items.map((item) => (
             <Link className="dashboard-work-item" href={item.href} key={item.id}>
-              <div>
+              <div className="dashboard-work-item-head">
                 <strong>{item.title}</strong>
-                <small>{compactSnippet(item.preview ?? item.nextActionLabel, 88)}</small>
-              </div>
-              <div className="dashboard-work-item-meta">
                 <span className={`pill ${item.workflowBucket}`}>
                   {item.nextActionLabel}
                 </span>
+              </div>
+              <small>{compactSnippet(item.preview ?? item.nextActionLabel, 82)}</small>
+              <div className="dashboard-work-item-meta">
                 <em>{formatDateTime(item.lastMessageAt) ?? "Queued"}</em>
               </div>
             </Link>
@@ -676,9 +676,9 @@ function renderWidget({
   }
 
   if (key === "activity") {
-    const items = timeFilteredActivity(data, timeframe).filter((item) =>
-      matchesActivityFilter(item.tone, activityFilter),
-    );
+    const items = timeFilteredActivity(data, timeframe)
+      .filter((item) => matchesActivityFilter(item.tone, activityFilter))
+      .slice(0, 4);
 
     return (
       <section className="dashboard-widget dashboard-widget-activity" key={key}>
