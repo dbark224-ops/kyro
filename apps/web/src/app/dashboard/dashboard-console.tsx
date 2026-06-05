@@ -18,7 +18,6 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 type DashboardConsoleProps = {
   data: DashboardCommandCenterData;
   initialAssistantState: AssistantThreadState;
-  promptSuggestions: string[];
 };
 
 type DashboardMetricKey =
@@ -334,7 +333,17 @@ function trimAssistantMessages(messages: AssistantThreadMessage[], limit = 6) {
 function assistantSnippet(message: AssistantThreadMessage) {
   const text = message.content.replace(/\s+/g, " ").trim();
 
-  return text.length > 240 ? `${text.slice(0, 239)}...` : text;
+  return text.length > 220 ? `${text.slice(0, 219)}...` : text;
+}
+
+function compactSnippet(value: string | null | undefined, limit = 86) {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
 }
 
 function buildToneClass(tone: MetricDefinition["tone"]) {
@@ -390,6 +399,28 @@ function DashboardListItem({
       <div className="dashboard-list-copy">
         {eyebrow ? <span>{eyebrow}</span> : null}
         <strong>{title}</strong>
+        {subtitle ? <small>{subtitle}</small> : null}
+      </div>
+      {meta ? <em>{meta}</em> : null}
+    </Link>
+  );
+}
+
+function DashboardCompactContactItem({
+  href,
+  label,
+  meta,
+  subtitle,
+}: Readonly<{
+  href: string;
+  label: string;
+  meta?: string | null;
+  subtitle?: string | null;
+}>) {
+  return (
+    <Link className="dashboard-compact-contact-item" href={href}>
+      <div className="dashboard-compact-contact-main">
+        <strong>{label}</strong>
         {subtitle ? <small>{subtitle}</small> : null}
       </div>
       {meta ? <em>{meta}</em> : null}
@@ -493,10 +524,8 @@ function matchesActivityFilter(
 
 function MiniAssistantWidget({
   initialState,
-  promptSuggestions,
 }: Readonly<{
   initialState: AssistantThreadState;
-  promptSuggestions: string[];
 }>) {
   const [assistantState, sendAction, pending] = useActionState(
     sendAssistantMessageAction,
@@ -515,19 +544,18 @@ function MiniAssistantWidget({
   }, [assistantState.messages.length]);
 
   const messages = useMemo(
-    () => trimAssistantMessages(assistantState.messages),
+    () => trimAssistantMessages(assistantState.messages, 4),
     [assistantState.messages],
   );
 
   return (
-    <section className="dashboard-widget assistant">
+    <section className="dashboard-widget assistant dashboard-widget-assistant">
       <DashboardWidgetHeader
         action={
           <Link className="filter-pill" href="/assistant">
             Open full
           </Link>
         }
-        description="Quick asks without leaving the dashboard."
         title="Assistant"
       />
       <div className="dashboard-mini-assistant-feed">
@@ -546,32 +574,19 @@ function MiniAssistantWidget({
           {assistantState.error}
         </div>
       ) : null}
-      <div className="dashboard-mini-suggestions">
-        {promptSuggestions.slice(0, 4).map((suggestion) => (
-          <button
-            className="filter-pill"
-            key={suggestion}
-            onClick={() => setDraft(suggestion)}
-            type="button"
-          >
-            {suggestion}
-          </button>
-        ))}
-      </div>
       <form action={sendAction} className="dashboard-mini-assistant-form" ref={formRef}>
         <input name="threadId" type="hidden" value={assistantState.threadId ?? ""} />
         <input name="inputSource" type="hidden" value="typed" />
-        <textarea
-          name="prompt"
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask Kyro something..."
-          rows={3}
-          value={draft}
-        />
         <div className="dashboard-mini-assistant-actions">
-          <span>{pending ? "Kyro is replying..." : "Saved into the main Assistant thread."}</span>
+          <input
+            name="prompt"
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Ask Kyro something..."
+            type="text"
+            value={draft}
+          />
           <button className="primary-button" disabled={pending || !draft.trim()} type="submit">
-            Send
+            {pending ? "..." : "Send"}
           </button>
         </div>
       </form>
@@ -586,7 +601,6 @@ function renderWidget({
   key,
   onActivityFilterChange,
   onWorkQueueFilterChange,
-  promptSuggestions,
   timeframe,
   workQueueFilter,
 }: {
@@ -596,7 +610,6 @@ function renderWidget({
   key: DashboardWidgetKey;
   onActivityFilterChange: (value: DashboardActivityFilter) => void;
   onWorkQueueFilterChange: (value: DashboardQueueFilter) => void;
-  promptSuggestions: string[];
   timeframe: DashboardTimeframe;
   workQueueFilter: DashboardQueueFilter;
 }) {
@@ -608,7 +621,7 @@ function renderWidget({
     );
 
     return (
-      <section className="dashboard-widget" key={key}>
+      <section className="dashboard-widget dashboard-widget-queue" key={key}>
         <DashboardWidgetHeader
           action={
             <select
@@ -632,7 +645,7 @@ function renderWidget({
             <Link className="dashboard-work-item" href={item.href} key={item.id}>
               <div>
                 <strong>{item.title}</strong>
-                <small>{item.preview ?? item.nextActionLabel}</small>
+                <small>{compactSnippet(item.preview ?? item.nextActionLabel, 88)}</small>
               </div>
               <div className="dashboard-work-item-meta">
                 <span className={`pill ${item.workflowBucket}`}>
@@ -658,7 +671,6 @@ function renderWidget({
       <MiniAssistantWidget
         initialState={initialAssistantState}
         key={key}
-        promptSuggestions={promptSuggestions}
       />
     );
   }
@@ -669,7 +681,7 @@ function renderWidget({
     );
 
     return (
-      <section className="dashboard-widget" key={key}>
+      <section className="dashboard-widget dashboard-widget-activity" key={key}>
         <DashboardWidgetHeader
           action={
             <select
@@ -700,7 +712,7 @@ function renderWidget({
               <div className="dashboard-activity-copy">
                 <strong>{item.title}</strong>
                 {item.subject ? <span>{item.subject}</span> : null}
-                <small>{item.preview}</small>
+                <small>{compactSnippet(item.preview, 92)}</small>
               </div>
               <em>{formatDateTime(item.at) ?? ""}</em>
             </Link>
@@ -720,7 +732,7 @@ function renderWidget({
     const items = timeFilteredDocuments(data, timeframe);
 
     return (
-      <section className="dashboard-widget" key={key}>
+      <section className="dashboard-widget dashboard-widget-documents" key={key}>
         <DashboardWidgetHeader
           action={
             <Link className="filter-pill" href="/files">
@@ -748,7 +760,7 @@ function renderWidget({
 
   if (key === "payments") {
     return (
-      <section className="dashboard-widget" key={key}>
+      <section className="dashboard-widget dashboard-widget-payments" key={key}>
         <DashboardWidgetHeader
           action={
             <span className="filter-pill">{timeframeLabel}</span>
@@ -786,25 +798,22 @@ function renderWidget({
     const items = timeFilteredContacts(data.topContacts, timeframe);
 
     return (
-      <section className="dashboard-widget" key={key}>
+      <section className="dashboard-widget dashboard-widget-contacts" key={key}>
         <DashboardWidgetHeader
           action={<span className="filter-pill">{timeframeLabel}</span>}
           description="Most active people and companies in Kyro."
           title="Top contacts"
         />
-        <div className="dashboard-list-grid">
+        <div className="dashboard-compact-contact-grid">
           {items.map((item) => (
-            <DashboardListItem
-              eyebrow={item.contactType}
-              href={item.href}
-              key={item.id}
-              meta={
-                item.messageCount > 0 ? `${formatCount(item.messageCount)} msgs` : null
-              }
-              subtitle={item.sublabel}
-              title={item.label}
-            />
-          ))}
+              <DashboardCompactContactItem
+                href={item.href}
+                key={item.id}
+                label={item.label}
+                meta={item.messageCount > 0 ? `${formatCount(item.messageCount)} msgs` : null}
+                subtitle={compactSnippet(item.sublabel, 38)}
+              />
+            ))}
         </div>
       </section>
     );
@@ -814,26 +823,21 @@ function renderWidget({
     const items = timeFilteredContacts(data.suppliers, timeframe);
 
     return (
-      <section className="dashboard-widget" key={key}>
+      <section className="dashboard-widget dashboard-widget-suppliers" key={key}>
         <DashboardWidgetHeader
           action={<Link className="filter-pill" href="/contacts">Open CRM</Link>}
           description="Quick access to supplier relationships."
           title="Suppliers"
         />
-        <div className="dashboard-list-grid">
+        <div className="dashboard-compact-contact-grid">
           {items.length > 0 ? (
             items.map((item) => (
-              <DashboardListItem
-                eyebrow="Supplier"
+              <DashboardCompactContactItem
                 href={item.href}
                 key={item.id}
-                meta={
-                  item.messageCount > 0
-                    ? `${formatCount(item.messageCount)} msgs`
-                    : null
-                }
-                subtitle={item.sublabel}
-                title={item.label}
+                label={item.label}
+                meta={item.messageCount > 0 ? `${formatCount(item.messageCount)} msgs` : null}
+                subtitle={compactSnippet(item.sublabel, 38)}
               />
             ))
           ) : (
@@ -886,7 +890,6 @@ function renderWidget({
 export function DashboardConsole({
   data,
   initialAssistantState,
-  promptSuggestions,
 }: DashboardConsoleProps) {
   const [timeframe, setTimeframe] = useState<DashboardTimeframe>("today");
   const [activityFilter, setActivityFilter] =
@@ -908,10 +911,9 @@ export function DashboardConsole({
   return (
     <section className="dashboard-command-centre">
       <header className="dashboard-command-header">
-        <div>
+        <div className="dashboard-command-title">
           <p className="eyebrow">Dashboard</p>
           <h1>Command Centre</h1>
-          <span>Here is what is happening across your workspace right now.</span>
         </div>
         <div className="dashboard-command-actions">
           <button
@@ -1069,7 +1071,6 @@ export function DashboardConsole({
             key: widgetKey,
             onActivityFilterChange: setActivityFilter,
             onWorkQueueFilterChange: setWorkQueueFilter,
-            promptSuggestions,
             timeframe,
             workQueueFilter,
           }),
@@ -1085,7 +1086,6 @@ export function DashboardConsole({
             key: widgetKey,
             onActivityFilterChange: setActivityFilter,
             onWorkQueueFilterChange: setWorkQueueFilter,
-            promptSuggestions,
             timeframe,
             workQueueFilter,
           }),

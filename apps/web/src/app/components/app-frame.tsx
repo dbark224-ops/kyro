@@ -20,8 +20,8 @@ import { cache, Suspense } from "react";
 import type { ReactNode } from "react";
 
 const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: "dashboard", primary: true },
-  { label: "Assistant", href: "/assistant", icon: "assistant" },
+  { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
+  { label: "Assistant", href: "/assistant", icon: "assistant", primary: true },
   { label: "Voice", href: "/voice", icon: "voice" },
   { label: "Vapi Voice", href: "/voice-vapi", icon: "voice" },
   { label: "Inbox", href: "/inbox", icon: "inbox" },

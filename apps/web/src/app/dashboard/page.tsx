@@ -1,6 +1,5 @@
 import { DashboardConsole } from "./dashboard-console";
 import { AppFrame } from "../components/app-frame";
-import { getAssistantPromptSuggestionState } from "../../lib/assistant/prompt-suggestions";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import type { AssistantThreadState } from "../../lib/assistant/types";
 import { getDashboardCommandCenterData } from "../../lib/dashboard/queries";
@@ -29,13 +28,8 @@ function buildWelcomeState(threadState: AssistantThreadState): AssistantThreadSt
 
 export default async function DashboardPage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [data, promptSuggestions, threadState] = await Promise.all([
+  const [data, threadState] = await Promise.all([
     getDashboardCommandCenterData(supabase, workspace),
-    getAssistantPromptSuggestionState({
-      supabase,
-      userId: user.id,
-      workspaceId: workspace.id,
-    }),
     getAssistantThreadState({
       supabase,
       user,
@@ -48,7 +42,6 @@ export default async function DashboardPage() {
       <DashboardConsole
         data={data}
         initialAssistantState={buildWelcomeState(threadState)}
-        promptSuggestions={promptSuggestions.visibleSuggestions}
       />
     </AppFrame>
   );
