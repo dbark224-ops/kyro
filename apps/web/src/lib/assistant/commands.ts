@@ -67,6 +67,10 @@ import {
 import { searchAssistantHistory } from "./context-compaction";
 import { getAssistantKnowledge } from "./knowledge";
 import {
+  looksLikeLegislationKnowledgeRequest,
+  searchLegislationKnowledge,
+} from "../knowledge-base/queries";
+import {
   getPronunciationEntries,
   normalizePronunciationPhrase,
   upsertPronunciationEntry,
@@ -1589,6 +1593,11 @@ async function resolvePlannedAssistantCommand({
         user,
         workspace,
       });
+    case "legislation_lookup":
+      return legislationKnowledgeCommand({
+        prompt: plannedPrompt,
+        workspace,
+      });
     case "app_help":
       return helpCommand({ prompt: plannedPrompt });
     case "email_sync":
@@ -1705,6 +1714,10 @@ export async function resolveAssistantCommand({
       threadId,
       workspace,
     });
+  }
+
+  if (looksLikeLegislationKnowledgeRequest(prompt)) {
+    return legislationKnowledgeCommand({ prompt, workspace });
   }
 
   if (looksLikeWebSearchRequest(prompt)) {
@@ -2020,6 +2033,67 @@ async function helpCommand({
     intent: "app_help",
     links: knowledge.links,
     title: "Kyro help",
+  };
+}
+
+async function legislationKnowledgeCommand({
+  prompt,
+  workspace,
+}: Pick<CommandInput, "prompt" | "workspace">): Promise<AssistantCommandResult> {
+  const result = await searchLegislationKnowledge({
+    prompt,
+    workspaceId: workspace.id,
+  });
+  const links = result.collectionMatches
+    .slice(0, 8)
+    .map((match) =>
+      rowLink(
+        match.title,
+        match.officialUrl,
+        `${match.jurisdictionRegion} - ${match.regulator}`,
+      ),
+    );
+
+  return {
+    context: {
+      collectionTargets: recordsContext(
+        result.collectionMatches.map((match) => ({
+          documentsToCollect: match.documentsToCollect,
+          industries: match.industries,
+          jurisdictionRegion: match.jurisdictionRegion,
+          licensingMode: match.licensingMode,
+          notes: match.notes,
+          officialUrl: match.officialUrl,
+          regulator: match.regulator,
+          sourceType: match.sourceType,
+          title: match.title,
+        })),
+      ),
+      guidance: result.hasStructuredContent
+        ? "Answer only from these legislation/guidance snippets and source links. If the snippets are incomplete or only mention standards references, say so plainly."
+        : "No ingested legislation text was found for this question yet. Use the matched official collection targets to explain which sources should be ingested next, and do not invent legal rules.",
+      query: prompt,
+      snippets: result.snippets,
+    },
+    fallbackAnswer: result.hasStructuredContent
+      ? `I found legislation and regulator guidance snippets that look relevant to that question.`
+      : result.collectionMatches.length > 0
+        ? `I found the official Australian sources we'd use for that topic, but the full legislation text has not been ingested into Kyro yet.`
+        : "I do not have legislation material ingested for that topic yet.",
+    intent: "legislation_lookup",
+    links,
+    title: "Legislation knowledge",
+    uiBlocks: [
+      ...timelineBlock(
+        "Official sources",
+        result.collectionMatches.slice(0, 6).map((match) => ({
+          detail: `${match.regulator} - ${match.licensingMode.replaceAll("_", " ")}`,
+          href: match.officialUrl,
+          label: `${match.jurisdictionRegion}: ${match.title}`,
+          tone: match.licensingMode === "metadata_only" ? "warning" : ("cyan" as const),
+        })),
+      ),
+    ],
   };
 }
 

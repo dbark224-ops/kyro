@@ -149,6 +149,21 @@ export const assistantToolRegistry: AssistantToolRegistryItem[] = [
     uiBlocks: ["link_cards"],
   },
   {
+    approval: "none",
+    category: "external",
+    id: "legislation.lookup",
+    label: "Legislation and guidance lookup",
+    notes:
+      "Searches Kyro's jurisdiction-aware legislation and regulator guidance knowledge base. Public sources can be ingested now; licensed standards stay metadata-only until rights are available.",
+    permission:
+      "Read jurisdiction-specific legislation snippets, regulator guidance, and standards references",
+    provider: "Kyro knowledge base",
+    risk: "medium",
+    status: "active",
+    surfaces: ["Assistant", "Voice"],
+    uiBlocks: ["link_cards", "timeline"],
+  },
+  {
     approval: "user_click",
     category: "memory",
     id: "memory.suggestion",

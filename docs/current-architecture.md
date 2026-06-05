@@ -1575,6 +1575,11 @@ Use this map before editing:
   and `apps/web/src/lib/assistant/transcription.ts`
 - New assistant text-to-speech behavior: `apps/web/src/app/api/assistant/speech/route.ts`
   and `apps/web/src/lib/assistant/speech.ts`
+- New legislation/compliance knowledge-base foundation:
+  `apps/web/src/lib/knowledge-base/catalog.ts`,
+  `apps/web/src/lib/knowledge-base/queries.ts`,
+  `supabase/migrations/20260604173000_knowledge_base_foundation.sql`, and
+  `docs/australian-legislation-knowledge-sources.md`
 - New Twilio SMS foundation: `apps/web/src/lib/integrations/twilio.ts`,
   `apps/web/src/app/api/integrations/twilio/sms/route.ts`,
   `apps/web/src/app/api/integrations/twilio/status/route.ts`, and
@@ -1649,6 +1654,9 @@ These are not bugs:
 - Gmail/Outlook can send uploaded local file attachments and server-generated PDF attachments for selected quote drafts.
 - Assistant can generate and store one-off images/renderings through OpenAI Images; richer media galleries, multi-turn
   visual editing, and mobile camera-first flows are still future product work.
+- Assistant now has a jurisdiction-aware legislation/compliance lookup path, but it only becomes answer-grade once
+  public legislation and guidance documents are ingested into the new knowledge-base tables. Paywalled standards are
+  intentionally metadata-only until licensing exists.
 - Browser print/save-to-PDF quote output, server-generated quote/invoice PDFs, first-class generated document records, private PDF storage, and user-approved Google Drive filing exist. Payment-provider billing, bookkeeping, reconciliation, and fully parsed user-uploaded template assets are not implemented yet.
 - Assistant chat is implemented as a persisted safe command/tool layer, not a free-roaming autonomous agent.
 - Assistant long-term memory saves explicit instructions immediately and can suggest implied durable preferences for user approval. Suggested memories are not active until approved.

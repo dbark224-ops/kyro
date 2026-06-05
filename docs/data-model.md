@@ -1220,3 +1220,76 @@ Recommended `usage_type` values:
 - `after`
 - `metadata`
 - `created_at`
+
+### `knowledge_sources`
+
+- `id`
+- `workspace_id` nullable for global/public sources
+- `title`
+- `citation`
+- `jurisdiction_country`
+- `jurisdiction_region`
+- `industry`
+- `topic_tags`
+- `source_type`
+- `licensing_mode`
+- `publisher`
+- `official_url`
+- `purchase_url`
+- `reference_code`
+- `version_label`
+- `effective_from`
+- `effective_to`
+- `status`
+- `notes`
+- `created_at`
+- `updated_at`
+
+### `knowledge_documents`
+
+- `id`
+- `workspace_id` nullable for global/public docs
+- `source_id`
+- `file_id` nullable for future private uploads/licensed files
+- `storage_path`
+- `title`
+- `version_label`
+- `published_at`
+- `effective_from`
+- `effective_to`
+- `checksum`
+- `raw_text`
+- `summary`
+- `ingest_status`
+- `is_current`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+### `knowledge_chunks`
+
+- `id`
+- `workspace_id` nullable for global/public chunks
+- `document_id`
+- `chunk_index`
+- `heading`
+- `section_label`
+- `clause_ref`
+- `topic_tags`
+- `chunk_text`
+- `chunk_summary`
+- `token_count`
+- `embedding_payload`
+- `created_at`
+
+### `knowledge_change_log`
+
+- `id`
+- `workspace_id` nullable for global/public source history
+- `source_id`
+- `document_id`
+- `change_type`
+- `summary`
+- `details`
+- `detected_at`
+- `created_at`

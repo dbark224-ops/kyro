@@ -22,6 +22,7 @@ export type AssistantToolName =
   | "image_recall"
   | "inbound_email_awareness"
   | "inquiry_lookup"
+  | "legislation_lookup"
   | "memory_save"
   | "overview"
   | "pronunciation_update"
@@ -133,6 +134,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Search the public web for current or public internet information. Do not use this for Kyro CRM records, private workspace data, connected email, quotes, files, or app help docs.",
     name: "web_search",
+  },
+  {
+    description:
+      "Answer legislation, regulation, code, licensing, permit, standards-reference, or compliance questions using Kyro's jurisdiction-aware knowledge base rather than the general web.",
+    name: "legislation_lookup",
   },
   {
     description:
