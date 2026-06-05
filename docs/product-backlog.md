@@ -91,11 +91,12 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 - We have already started clearing, merging, and pruning the old backlog as features ship.
 - Keep this file current and remove items once they are genuinely finished or intentionally deferred.
 
-## Not Properly Attacked Yet
-
 ### Full Operations Dashboard
 
-- Build a proper dashboard tab for daily business health, urgent work, assistant activity, usage, channel health, and action summaries.
+- The command-centre dashboard rebuild is now in progress with configurable KPI cards, swappable middle and bottom widgets, a mini Assistant surface, embedded voice, activity/log surfaces, and sidebar/account chrome improvements.
+- Finish the drag-like customisation polish, data density tuning, and any final operator widgets once the first real version is live and tested.
+
+## Not Properly Attacked Yet
 
 ### Sidebar Finalization
 

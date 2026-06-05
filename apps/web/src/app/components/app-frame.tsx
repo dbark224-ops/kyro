@@ -7,28 +7,31 @@ import { signOutAction } from "../auth/actions";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
 import {
   convertDisplayMoney,
+  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   formatCurrencyAmount,
 } from "../../lib/billing/display-currency";
 import { hasSupabaseEnv } from "../../lib/env";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
+import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
 import { usageWindowStart } from "../../lib/usage/queries";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
-import { Suspense } from "react";
+import { cache, Suspense } from "react";
 import type { ReactNode } from "react";
 
 const navItems = [
-  { label: "Assistant", href: "/assistant", primary: true },
-  { label: "Voice", href: "/voice" },
-  { label: "Vapi Voice", href: "/voice-vapi" },
-  { label: "Inbox", href: "/inbox" },
-  { label: "CRM", href: "/contacts" },
-  { label: "Files", href: "/files" },
-  { label: "Log", href: "/dashboard" },
-  { label: "Developer", href: "/developer" },
-  { label: "Settings", href: "/settings" },
+  { label: "Dashboard", href: "/dashboard", icon: "dashboard", primary: true },
+  { label: "Assistant", href: "/assistant", icon: "assistant" },
+  { label: "Voice", href: "/voice", icon: "voice" },
+  { label: "Vapi Voice", href: "/voice-vapi", icon: "voice" },
+  { label: "Inbox", href: "/inbox", icon: "inbox" },
+  { label: "CRM", href: "/contacts", icon: "crm" },
+  { label: "Files", href: "/files", icon: "files" },
+  { label: "Activity", href: "/activity", icon: "activity" },
+  { label: "Developer", href: "/developer", icon: "developer" },
+  { label: "Settings", href: "/settings", icon: "settings" },
 ];
-const bottomNavItems = ["Assistant", "Voice", "Inbox", "Settings"]
+const bottomNavItems = ["Dashboard", "Assistant", "Inbox", "Settings"]
   .map((label) => navItems.find((item) => item.label === label))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
 const preloadRoutes = navItems
@@ -195,6 +198,207 @@ async function UsageInternalCostPills() {
   );
 }
 
+function initialsFor(value: string) {
+  const words = value
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "KY";
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join("");
+}
+
+const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
+  if (!hasSupabaseEnv()) {
+    return null;
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return null;
+    }
+
+    const workspace = await getPrimaryWorkspace(supabase);
+
+    if (!workspace) {
+      return null;
+    }
+
+    const [settings, usageSummary] = await Promise.all([
+      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+        () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+      ),
+      getBillableUsageSummary(supabase, workspace.id, {
+        period: "monthly",
+      }).catch(() => null),
+    ]);
+
+    const usageTotal = (usageSummary?.totals ?? []).reduce<number>(
+      (total, item) => total + item.customerCharge,
+      0,
+    );
+
+    return {
+      initials: initialsFor(workspace.name),
+      usageAmount: usageTotal ?? 0,
+      usageCurrency:
+        usageSummary?.totals[0]?.currency ?? settings.displayCurrency,
+      userEmail: user.email?.trim() ?? "Signed in",
+      workspaceName: workspace.name,
+    };
+  } catch {
+    return null;
+  }
+});
+
+async function SidebarUsageCard() {
+  const data = await loadWorkspaceChromeData();
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <section className="sidebar-usage-card">
+      <p className="eyebrow">Usage this month</p>
+      <strong>
+        {formatCurrencyAmount(data.usageAmount, data.usageCurrency)}
+      </strong>
+      <span>Metered usage plus Kyro margin.</span>
+      <SmartPrefetchLink className="sidebar-usage-link" href="/settings">
+        View settings and billing
+      </SmartPrefetchLink>
+    </section>
+  );
+}
+
+async function WorkspaceAccountChip() {
+  const data = await loadWorkspaceChromeData();
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <div className="workspace-account-chip" aria-label="Workspace summary">
+      <span className="workspace-account-avatar">{data.initials}</span>
+      <span className="workspace-account-copy">
+        <strong>{data.workspaceName}</strong>
+        <small>{data.userEmail}</small>
+      </span>
+    </div>
+  );
+}
+
+function AppShellIcon({
+  name,
+}: Readonly<{
+  name?: string;
+}>) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeWidth: 1.8,
+  };
+
+  if (name === "assistant") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M5 6.5h10M5 10h7M5 13.5h5" />
+        <path {...common} d="M4 3.5h12a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 13.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 12V5A1.5 1.5 0 0 1 4 3.5Z" />
+      </svg>
+    );
+  }
+
+  if (name === "voice") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M10 13.5a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v4.5a3 3 0 0 0 3 3Z" />
+        <path {...common} d="M5 10.5a5 5 0 0 0 10 0M10 15v2.5M7.5 17.5h5" />
+      </svg>
+    );
+  }
+
+  if (name === "crm") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M10 10.25a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4 15.75a6 6 0 0 1 12 0" />
+      </svg>
+    );
+  }
+
+  if (name === "inbox") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5V14A1.5 1.5 0 0 1 16 15.5H4A1.5 1.5 0 0 1 2.5 14V6A1.5 1.5 0 0 1 4 4.5Z" />
+        <path {...common} d="M3 8.5h4l1.25 2h3.5l1.25-2H17" />
+      </svg>
+    );
+  }
+
+  if (name === "files") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M6 3.5h5l3 3V16A1.5 1.5 0 0 1 12.5 17.5h-7A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z" />
+        <path {...common} d="M11 3.5V7h3.5M7 10.5h6M7 13h4" />
+      </svg>
+    );
+  }
+
+  if (name === "activity") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M3.5 10h3l1.5-3 3 6 1.5-3H16.5" />
+        <path {...common} d="M3.5 4.5h13v11h-13z" />
+      </svg>
+    );
+  }
+
+  if (name === "developer") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="m7 6-3 4 3 4M13 6l3 4-3 4M11 4l-2 12" />
+      </svg>
+    );
+  }
+
+  if (name === "settings") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M10 7.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z" />
+        <path {...common} d="M10 2.75v1.5M10 15.75v1.5M4.88 4.88l1.06 1.06M14.06 14.06l1.06 1.06M2.75 10h1.5M15.75 10h1.5M4.88 15.12l1.06-1.06M14.06 5.94l1.06-1.06" />
+      </svg>
+    );
+  }
+
+  if (name === "dashboard") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M3.5 3.5h5v5h-5zM11.5 3.5h5v8h-5zM3.5 11.5h5v5h-5zM11.5 14.5h5v2h-5z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+      <circle {...common} cx="10" cy="10" r="6" />
+    </svg>
+  );
+}
+
 export function AppFrame({
   active,
   children,
@@ -235,7 +439,10 @@ export function AppFrame({
                   .join(" ")}
                 key={item.label}
               >
-                {item.label}
+                <span className="nav-link-inner">
+                  <AppShellIcon name={item.icon} />
+                  <span>{item.label}</span>
+                </span>
               </SmartPrefetchLink>
             ))}
           </nav>
@@ -266,15 +473,25 @@ export function AppFrame({
                   .join(" ")}
                 key={item.label}
               >
-                {item.label}
+                <span className="nav-link-inner">
+                  <AppShellIcon name={item.icon} />
+                  <span>{item.label}</span>
+                </span>
               </SmartPrefetchLink>
             ) : (
               <span className="nav-link disabled" key={item.label}>
-                {item.label}
+                <span className="nav-link-inner">
+                  <AppShellIcon name={item.icon} />
+                  <span>{item.label}</span>
+                </span>
               </span>
             ),
           )}
         </nav>
+
+        <Suspense fallback={null}>
+          <SidebarUsageCard />
+        </Suspense>
 
         <form action={signOutAction}>
           <button className="secondary-button full-width" type="submit">
@@ -296,6 +513,9 @@ export function AppFrame({
           <Suspense fallback={null}>
             <LlmDevStatusPill />
           </Suspense>
+          <Suspense fallback={null}>
+            <WorkspaceAccountChip />
+          </Suspense>
         </div>
         {children}
       </section>
@@ -312,7 +532,10 @@ export function AppFrame({
             href={item.href}
             key={item.label}
           >
-            {item.label}
+            <span className="mobile-bottom-link-inner">
+              <AppShellIcon name={item.icon} />
+              <span>{item.label}</span>
+            </span>
           </SmartPrefetchLink>
         ))}
       </nav>

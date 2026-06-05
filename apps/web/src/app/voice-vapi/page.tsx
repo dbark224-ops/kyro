@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 type VapiVoicePageProps = {
   searchParams?: Promise<{
     contactId?: string;
+    embed?: string;
     engine_error?: string;
     engine_message?: string;
   }>;
@@ -51,6 +52,27 @@ export default async function VapiVoicePage({ searchParams }: VapiVoicePageProps
       ? threadState
       : { ...threadState, messages: [welcomeMessage] };
 
+  const console = (
+    <VapiVoiceConsole
+      initialPreviewEngineError={query?.engine_error}
+      initialPreviewEngineMessage={query?.engine_message}
+      initialPreviewTarget={
+        query?.contactId
+          ? {
+              href: `/contacts/${query.contactId}`,
+              title: "Contact",
+            }
+          : null
+      }
+      initialState={initialState}
+      session={session}
+    />
+  );
+
+  if (query?.embed === "1") {
+    return <div className="dashboard-vapi-embed-shell">{console}</div>;
+  }
+
   return (
     <AppFrame active="Vapi Voice">
       <div className="voice-page-shell">
@@ -80,20 +102,7 @@ export default async function VapiVoicePage({ searchParams }: VapiVoicePageProps
           </div>
         </header>
 
-        <VapiVoiceConsole
-          initialPreviewEngineError={query?.engine_error}
-          initialPreviewEngineMessage={query?.engine_message}
-          initialPreviewTarget={
-            query?.contactId
-              ? {
-                  href: `/contacts/${query.contactId}`,
-                  title: "Contact",
-                }
-              : null
-          }
-          initialState={initialState}
-          session={session}
-        />
+        {console}
       </div>
     </AppFrame>
   );

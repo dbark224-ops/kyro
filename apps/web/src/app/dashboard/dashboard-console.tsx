@@ -1,0 +1,1096 @@
+"use client";
+
+import { sendAssistantMessageAction } from "../assistant/actions";
+import type {
+  AssistantThreadMessage,
+  AssistantThreadState,
+} from "../../lib/assistant/types";
+import type {
+  DashboardCommandCenterData,
+  DashboardContactSummary,
+  DashboardGeneratedDocumentItem,
+  DashboardWorkQueueItem,
+} from "../../lib/dashboard/queries";
+import Link from "next/link";
+import type { ReactNode } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+
+type DashboardConsoleProps = {
+  data: DashboardCommandCenterData;
+  initialAssistantState: AssistantThreadState;
+  promptSuggestions: string[];
+};
+
+type DashboardMetricKey =
+  | "needsReply"
+  | "readyToQuote"
+  | "quoteApprovedOrBooked"
+  | "followUpDue"
+  | "readyToSend"
+  | "awaitingCustomer"
+  | "missingInfo"
+  | "contactsIndexed";
+
+type DashboardWidgetKey =
+  | "work_queue"
+  | "assistant"
+  | "activity"
+  | "documents"
+  | "vapi_voice"
+  | "calendar"
+  | "payments"
+  | "top_contacts"
+  | "suppliers";
+
+type DashboardTimeframe = "today" | "week" | "month" | "year";
+type DashboardActivityFilter =
+  | "all"
+  | "failed"
+  | "inbound"
+  | "outbound"
+  | "system";
+type DashboardQueueFilter =
+  | "all"
+  | "follow-up"
+  | "needs-reply"
+  | "ready-to-quote";
+
+type DashboardLayoutConfig = {
+  bottom: [DashboardWidgetKey, DashboardWidgetKey, DashboardWidgetKey];
+  middle: [DashboardWidgetKey, DashboardWidgetKey, DashboardWidgetKey];
+  top: [
+    DashboardMetricKey,
+    DashboardMetricKey,
+    DashboardMetricKey,
+    DashboardMetricKey,
+  ];
+};
+
+type MetricDefinition = {
+  description: string;
+  href: string;
+  icon: string;
+  label: string;
+  tone: "amber" | "cyan" | "pink" | "purple" | "success";
+  value: (data: DashboardCommandCenterData) => number;
+};
+
+type WidgetDefinition = {
+  description: string;
+  key: DashboardWidgetKey;
+  title: string;
+};
+
+const DASHBOARD_LAYOUT_STORAGE_KEY = "kyro.dashboard.layout.v1";
+const DEFAULT_LAYOUT: DashboardLayoutConfig = {
+  bottom: ["payments", "top_contacts", "suppliers"],
+  middle: ["work_queue", "assistant", "activity"],
+  top: ["needsReply", "readyToQuote", "quoteApprovedOrBooked", "followUpDue"],
+};
+
+const timeframeLabelMap: Record<DashboardTimeframe, string> = {
+  month: "This month",
+  today: "Today",
+  week: "This week",
+  year: "This year",
+};
+
+const metricDefinitions: Record<DashboardMetricKey, MetricDefinition> = {
+  awaitingCustomer: {
+    description: "Waiting on customer input",
+    href: "/inbox",
+    icon: "clock",
+    label: "Awaiting customer",
+    tone: "purple",
+    value: (data) => data.stats.awaitingCustomer,
+  },
+  contactsIndexed: {
+    description: "Profiles in Kyro CRM",
+    href: "/contacts",
+    icon: "users",
+    label: "Contacts indexed",
+    tone: "purple",
+    value: (data) => data.stats.contactsIndexed,
+  },
+  followUpDue: {
+    description: "Internal reminders ready",
+    href: "/inbox",
+    icon: "followup",
+    label: "Follow-up due",
+    tone: "amber",
+    value: (data) => data.stats.followUpDue,
+  },
+  missingInfo: {
+    description: "Need more customer detail",
+    href: "/inbox",
+    icon: "alert",
+    label: "Missing info",
+    tone: "pink",
+    value: (data) => data.stats.missingInfo,
+  },
+  needsReply: {
+    description: "Conversations need a reply",
+    href: "/inbox",
+    icon: "reply",
+    label: "Needs reply",
+    tone: "pink",
+    value: (data) => data.stats.needsReply,
+  },
+  quoteApprovedOrBooked: {
+    description: "Quotes approved or work booked",
+    href: "/files",
+    icon: "check",
+    label: "Quote approved / booked",
+    tone: "success",
+    value: (data) => data.stats.quoteApprovedOrBooked,
+  },
+  readyToQuote: {
+    description: "Inquiries ready for quoting",
+    href: "/inbox",
+    icon: "quote",
+    label: "Ready to quote",
+    tone: "cyan",
+    value: (data) => data.stats.readyToQuote,
+  },
+  readyToSend: {
+    description: "Draft quotes ready to send",
+    href: "/files",
+    icon: "document",
+    label: "Ready to send",
+    tone: "cyan",
+    value: (data) => data.stats.readyToSend,
+  },
+};
+
+const widgetDefinitions: Record<DashboardWidgetKey, WidgetDefinition> = {
+  activity: {
+    description: "Recent messages, calls, and system actions.",
+    key: "activity",
+    title: "System activity",
+  },
+  assistant: {
+    description: "Mini text assistant with live Kyro context.",
+    key: "assistant",
+    title: "Assistant",
+  },
+  calendar: {
+    description: "Placeholder until the Calendar tab is built.",
+    key: "calendar",
+    title: "Calendar",
+  },
+  documents: {
+    description: "Recent generated files and document outputs.",
+    key: "documents",
+    title: "Document generation",
+  },
+  payments: {
+    description: "Billing placeholder for customer collections and Kyro usage.",
+    key: "payments",
+    title: "Payments",
+  },
+  suppliers: {
+    description: "Frequently used supplier contacts.",
+    key: "suppliers",
+    title: "Suppliers",
+  },
+  top_contacts: {
+    description: "Most active contacts across the workspace.",
+    key: "top_contacts",
+    title: "Top contacts",
+  },
+  vapi_voice: {
+    description: "Live embedded Vapi voice runtime.",
+    key: "vapi_voice",
+    title: "Vapi voice",
+  },
+  work_queue: {
+    description: "Priority conversations and next actions.",
+    key: "work_queue",
+    title: "Work queue",
+  },
+};
+
+function formatCurrency(value: number, currency: string) {
+  return new Intl.NumberFormat(undefined, {
+    currency,
+    maximumFractionDigits: 2,
+    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
+    style: "currency",
+  }).format(value);
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat().format(value);
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+function startOfTimeframe(timeframe: DashboardTimeframe, now: Date) {
+  const start = new Date(now);
+
+  if (timeframe === "today") {
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+
+  if (timeframe === "week") {
+    start.setHours(0, 0, 0, 0);
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1);
+    return start;
+  }
+
+  if (timeframe === "month") {
+    start.setHours(0, 0, 0, 0);
+    start.setDate(1);
+    return start;
+  }
+
+  start.setHours(0, 0, 0, 0);
+  start.setMonth(0, 1);
+  return start;
+}
+
+function isWithinTimeframe(
+  value: string | null,
+  timeframe: DashboardTimeframe,
+  now: Date,
+) {
+  if (!value) {
+    return false;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  return date.getTime() >= startOfTimeframe(timeframe, now).getTime();
+}
+
+function loadSavedLayout() {
+  if (typeof window === "undefined") {
+    return DEFAULT_LAYOUT;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_LAYOUT_STORAGE_KEY);
+
+    if (!raw) {
+      return DEFAULT_LAYOUT;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<DashboardLayoutConfig>;
+
+    return {
+      bottom: Array.isArray(parsed.bottom) && parsed.bottom.length === 3
+        ? (parsed.bottom as DashboardLayoutConfig["bottom"])
+        : DEFAULT_LAYOUT.bottom,
+      middle: Array.isArray(parsed.middle) && parsed.middle.length === 3
+        ? (parsed.middle as DashboardLayoutConfig["middle"])
+        : DEFAULT_LAYOUT.middle,
+      top: Array.isArray(parsed.top) && parsed.top.length === 4
+        ? (parsed.top as DashboardLayoutConfig["top"])
+        : DEFAULT_LAYOUT.top,
+    };
+  } catch {
+    return DEFAULT_LAYOUT;
+  }
+}
+
+function saveLayout(config: DashboardLayoutConfig) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(
+    DASHBOARD_LAYOUT_STORAGE_KEY,
+    JSON.stringify(config),
+  );
+}
+
+function trimAssistantMessages(messages: AssistantThreadMessage[], limit = 6) {
+  return messages.slice(-limit);
+}
+
+function assistantSnippet(message: AssistantThreadMessage) {
+  const text = message.content.replace(/\s+/g, " ").trim();
+
+  return text.length > 240 ? `${text.slice(0, 239)}...` : text;
+}
+
+function buildToneClass(tone: MetricDefinition["tone"]) {
+  return `dashboard-stat-card ${tone}`;
+}
+
+function metricIconLabel(icon: string) {
+  switch (icon) {
+    case "reply":
+      return "Reply";
+    case "quote":
+      return "Quote";
+    case "check":
+      return "Approved";
+    case "followup":
+      return "Follow-up";
+    case "users":
+      return "Contacts";
+    case "clock":
+      return "Waiting";
+    case "alert":
+      return "Missing";
+    case "document":
+      return "Ready";
+    default:
+      return "Metric";
+  }
+}
+
+function DashboardMetricIcon({ icon }: Readonly<{ icon: string }>) {
+  return (
+    <span aria-hidden="true" className={`dashboard-stat-icon ${icon}`}>
+      {metricIconLabel(icon)}
+    </span>
+  );
+}
+
+function DashboardListItem({
+  eyebrow,
+  href,
+  meta,
+  subtitle,
+  title,
+}: Readonly<{
+  eyebrow?: string | null;
+  href: string;
+  meta?: string | null;
+  subtitle?: string | null;
+  title: string;
+}>) {
+  return (
+    <Link className="dashboard-list-item" href={href}>
+      <div className="dashboard-list-copy">
+        {eyebrow ? <span>{eyebrow}</span> : null}
+        <strong>{title}</strong>
+        {subtitle ? <small>{subtitle}</small> : null}
+      </div>
+      {meta ? <em>{meta}</em> : null}
+    </Link>
+  );
+}
+
+function DashboardWidgetHeader({
+  action,
+  description,
+  title,
+}: Readonly<{
+  action?: ReactNode;
+  description?: string;
+  title: string;
+}>) {
+  return (
+    <header className="dashboard-widget-header">
+      <div>
+        <p>{title}</p>
+        {description ? <span>{description}</span> : null}
+      </div>
+      {action ? <div className="dashboard-widget-action">{action}</div> : null}
+    </header>
+  );
+}
+
+function timeFilteredActivity(
+  data: DashboardCommandCenterData,
+  timeframe: DashboardTimeframe,
+) {
+  const now = new Date();
+  const filtered = data.activity.filter((item) =>
+    isWithinTimeframe(item.at, timeframe, now),
+  );
+
+  return filtered.length > 0 ? filtered : data.activity.slice(0, 6);
+}
+
+function timeFilteredDocuments(
+  data: DashboardCommandCenterData,
+  timeframe: DashboardTimeframe,
+) {
+  const now = new Date();
+  const filtered = data.generatedDocuments.filter((item) =>
+    isWithinTimeframe(item.updatedAt, timeframe, now),
+  );
+
+  return filtered.length > 0 ? filtered : data.generatedDocuments.slice(0, 6);
+}
+
+function timeFilteredContacts(
+  contacts: DashboardContactSummary[],
+  timeframe: DashboardTimeframe,
+) {
+  const now = new Date();
+  const filtered = contacts.filter((item) =>
+    isWithinTimeframe(item.lastMessageAt, timeframe, now),
+  );
+
+  return filtered.length > 0 ? filtered : contacts.slice(0, 6);
+}
+
+function timeFilteredWorkQueue(
+  items: DashboardWorkQueueItem[],
+  timeframe: DashboardTimeframe,
+) {
+  const now = new Date();
+  const filtered = items.filter((item) =>
+    isWithinTimeframe(item.lastMessageAt, timeframe, now),
+  );
+
+  return filtered.length > 0 ? filtered : items.slice(0, 8);
+}
+
+function matchesWorkQueueFilter(
+  item: DashboardWorkQueueItem,
+  filter: DashboardQueueFilter,
+) {
+  if (filter === "all") {
+    return true;
+  }
+
+  if (filter === "needs-reply") {
+    return item.workflowBucket === "needs_reply";
+  }
+
+  if (filter === "ready-to-quote") {
+    return item.workflowBucket === "ready_to_quote";
+  }
+
+  return item.workflowBucket === "follow_up_due";
+}
+
+function matchesActivityFilter(
+  tone: DashboardCommandCenterData["activity"][number]["tone"],
+  filter: DashboardActivityFilter,
+) {
+  return filter === "all" ? true : tone === filter;
+}
+
+function MiniAssistantWidget({
+  initialState,
+  promptSuggestions,
+}: Readonly<{
+  initialState: AssistantThreadState;
+  promptSuggestions: string[];
+}>) {
+  const [assistantState, sendAction, pending] = useActionState(
+    sendAssistantMessageAction,
+    initialState,
+  );
+  const [draft, setDraft] = useState("");
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const previousMessageCountRef = useRef(initialState.messages.length);
+
+  useEffect(() => {
+    if (assistantState.messages.length > previousMessageCountRef.current) {
+      previousMessageCountRef.current = assistantState.messages.length;
+      setDraft("");
+      formRef.current?.reset();
+    }
+  }, [assistantState.messages.length]);
+
+  const messages = useMemo(
+    () => trimAssistantMessages(assistantState.messages),
+    [assistantState.messages],
+  );
+
+  return (
+    <section className="dashboard-widget assistant">
+      <DashboardWidgetHeader
+        action={
+          <Link className="filter-pill" href="/assistant">
+            Open full
+          </Link>
+        }
+        description="Quick asks without leaving the dashboard."
+        title="Assistant"
+      />
+      <div className="dashboard-mini-assistant-feed">
+        {messages.map((message) => (
+          <article
+            className={`dashboard-mini-turn ${message.role === "user" ? "user" : "assistant"}`}
+            key={message.id}
+          >
+            <span>{message.role === "user" ? "You" : "Kyro"}</span>
+            <p>{assistantSnippet(message)}</p>
+          </article>
+        ))}
+      </div>
+      {assistantState.error ? (
+        <div className="form-alert error dashboard-assistant-error">
+          {assistantState.error}
+        </div>
+      ) : null}
+      <div className="dashboard-mini-suggestions">
+        {promptSuggestions.slice(0, 4).map((suggestion) => (
+          <button
+            className="filter-pill"
+            key={suggestion}
+            onClick={() => setDraft(suggestion)}
+            type="button"
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+      <form action={sendAction} className="dashboard-mini-assistant-form" ref={formRef}>
+        <input name="threadId" type="hidden" value={assistantState.threadId ?? ""} />
+        <input name="inputSource" type="hidden" value="typed" />
+        <textarea
+          name="prompt"
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Ask Kyro something..."
+          rows={3}
+          value={draft}
+        />
+        <div className="dashboard-mini-assistant-actions">
+          <span>{pending ? "Kyro is replying..." : "Saved into the main Assistant thread."}</span>
+          <button className="primary-button" disabled={pending || !draft.trim()} type="submit">
+            Send
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function renderWidget({
+  activityFilter,
+  data,
+  initialAssistantState,
+  key,
+  onActivityFilterChange,
+  onWorkQueueFilterChange,
+  promptSuggestions,
+  timeframe,
+  workQueueFilter,
+}: {
+  activityFilter: DashboardActivityFilter;
+  data: DashboardCommandCenterData;
+  initialAssistantState: AssistantThreadState;
+  key: DashboardWidgetKey;
+  onActivityFilterChange: (value: DashboardActivityFilter) => void;
+  onWorkQueueFilterChange: (value: DashboardQueueFilter) => void;
+  promptSuggestions: string[];
+  timeframe: DashboardTimeframe;
+  workQueueFilter: DashboardQueueFilter;
+}) {
+  const timeframeLabel = timeframeLabelMap[timeframe];
+
+  if (key === "work_queue") {
+    const items = timeFilteredWorkQueue(data.workQueue, timeframe).filter((item) =>
+      matchesWorkQueueFilter(item, workQueueFilter),
+    );
+
+    return (
+      <section className="dashboard-widget" key={key}>
+        <DashboardWidgetHeader
+          action={
+            <select
+              aria-label="Work queue filter"
+              onChange={(event) =>
+                onWorkQueueFilterChange(event.target.value as DashboardQueueFilter)
+              }
+              value={workQueueFilter}
+            >
+              <option value="all">All</option>
+              <option value="needs-reply">Need reply</option>
+              <option value="ready-to-quote">Ready to quote</option>
+              <option value="follow-up">Follow-up</option>
+            </select>
+          }
+          description={`${timeframeLabel} view of active inquiries.`}
+          title="Work queue"
+        />
+        <div className="dashboard-work-queue">
+          {items.map((item) => (
+            <Link className="dashboard-work-item" href={item.href} key={item.id}>
+              <div>
+                <strong>{item.title}</strong>
+                <small>{item.preview ?? item.nextActionLabel}</small>
+              </div>
+              <div className="dashboard-work-item-meta">
+                <span className={`pill ${item.workflowBucket}`}>
+                  {item.nextActionLabel}
+                </span>
+                <em>{formatDateTime(item.lastMessageAt) ?? "Queued"}</em>
+              </div>
+            </Link>
+          ))}
+          {items.length === 0 ? (
+            <p className="empty-copy">Nothing matches that queue filter yet.</p>
+          ) : null}
+          <Link className="dashboard-widget-footer-link" href="/inbox">
+            View full queue
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  if (key === "assistant") {
+    return (
+      <MiniAssistantWidget
+        initialState={initialAssistantState}
+        key={key}
+        promptSuggestions={promptSuggestions}
+      />
+    );
+  }
+
+  if (key === "activity") {
+    const items = timeFilteredActivity(data, timeframe).filter((item) =>
+      matchesActivityFilter(item.tone, activityFilter),
+    );
+
+    return (
+      <section className="dashboard-widget" key={key}>
+        <DashboardWidgetHeader
+          action={
+            <select
+              aria-label="Activity filter"
+              onChange={(event) =>
+                onActivityFilterChange(event.target.value as DashboardActivityFilter)
+              }
+              value={activityFilter}
+            >
+              <option value="all">All channels</option>
+              <option value="inbound">Inbound</option>
+              <option value="outbound">Outbound</option>
+              <option value="failed">Failed</option>
+              <option value="system">System</option>
+            </select>
+          }
+          description="Calls, messages, and system-side actions."
+          title="System activity"
+        />
+        <div className="dashboard-activity-list">
+          {items.map((item) => (
+            <Link
+              className={`dashboard-activity-item ${item.tone}`}
+              href={item.href ?? "/activity"}
+              key={item.id}
+            >
+              <div className="dashboard-activity-dot" />
+              <div className="dashboard-activity-copy">
+                <strong>{item.title}</strong>
+                {item.subject ? <span>{item.subject}</span> : null}
+                <small>{item.preview}</small>
+              </div>
+              <em>{formatDateTime(item.at) ?? ""}</em>
+            </Link>
+          ))}
+          {items.length === 0 ? (
+            <p className="empty-copy">Nothing matches that activity filter yet.</p>
+          ) : null}
+          <Link className="dashboard-widget-footer-link" href="/activity">
+            View all activity
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  if (key === "documents") {
+    const items = timeFilteredDocuments(data, timeframe);
+
+    return (
+      <section className="dashboard-widget" key={key}>
+        <DashboardWidgetHeader
+          action={
+            <Link className="filter-pill" href="/files">
+              Open files
+            </Link>
+          }
+          description="Recent generated images, drafts, and exports."
+          title="Document generation"
+        />
+        <div className="dashboard-list-grid">
+          {items.map((item) => (
+            <DashboardListItem
+              eyebrow={item.type.replace(/_/g, " ")}
+              href={item.href}
+              key={item.id}
+              meta={formatDateTime(item.updatedAt)}
+              subtitle={item.lifecycleStatus.replace(/_/g, " ")}
+              title={item.title}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (key === "payments") {
+    return (
+      <section className="dashboard-widget" key={key}>
+        <DashboardWidgetHeader
+          action={
+            <span className="filter-pill">{timeframeLabel}</span>
+          }
+          description="Customer collections and usage billing."
+          title="Payments"
+        />
+        <div className="dashboard-payments-card">
+          <div className="dashboard-payment-total">
+            <span>Usage metered</span>
+            <strong>
+              {formatCurrency(
+                data.payments.usageCustomerCharge,
+                data.payments.usageCurrency,
+              )}
+            </strong>
+            <small>{data.payments.note}</small>
+          </div>
+          <div className="dashboard-payment-stats">
+            <article>
+              <span>Ready to send</span>
+              <strong>{formatCount(data.payments.readyToSendCount)}</strong>
+            </article>
+            <article>
+              <span>Approved / booked</span>
+              <strong>{formatCount(data.payments.quoteApprovedOrBookedCount)}</strong>
+            </article>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (key === "top_contacts") {
+    const items = timeFilteredContacts(data.topContacts, timeframe);
+
+    return (
+      <section className="dashboard-widget" key={key}>
+        <DashboardWidgetHeader
+          action={<span className="filter-pill">{timeframeLabel}</span>}
+          description="Most active people and companies in Kyro."
+          title="Top contacts"
+        />
+        <div className="dashboard-list-grid">
+          {items.map((item) => (
+            <DashboardListItem
+              eyebrow={item.contactType}
+              href={item.href}
+              key={item.id}
+              meta={
+                item.messageCount > 0 ? `${formatCount(item.messageCount)} msgs` : null
+              }
+              subtitle={item.sublabel}
+              title={item.label}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (key === "suppliers") {
+    const items = timeFilteredContacts(data.suppliers, timeframe);
+
+    return (
+      <section className="dashboard-widget" key={key}>
+        <DashboardWidgetHeader
+          action={<Link className="filter-pill" href="/contacts">Open CRM</Link>}
+          description="Quick access to supplier relationships."
+          title="Suppliers"
+        />
+        <div className="dashboard-list-grid">
+          {items.length > 0 ? (
+            items.map((item) => (
+              <DashboardListItem
+                eyebrow="Supplier"
+                href={item.href}
+                key={item.id}
+                meta={
+                  item.messageCount > 0
+                    ? `${formatCount(item.messageCount)} msgs`
+                    : null
+                }
+                subtitle={item.sublabel}
+                title={item.label}
+              />
+            ))
+          ) : (
+            <p className="empty-copy">
+              No suppliers have been tagged in the CRM yet.
+            </p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  if (key === "calendar") {
+    return (
+      <section className="dashboard-widget placeholder" key={key}>
+        <DashboardWidgetHeader
+          action={<span className="filter-pill">Placeholder</span>}
+          description="Calendar tab still needs building."
+          title="Calendar"
+        />
+        <div className="dashboard-placeholder">
+          <strong>Calendar surface coming next.</strong>
+          <p>
+            We will wire scheduling, site visits, and due reminders into a dedicated
+            calendar tab, then surface the most useful slice of it here.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="dashboard-widget voice" key={key}>
+      <DashboardWidgetHeader
+        action={
+          <Link className="filter-pill" href="/voice-vapi">
+            Open full voice
+          </Link>
+        }
+        description="Embedded Vapi runtime for quick hands-free use."
+        title="Vapi voice"
+      />
+      <div className="dashboard-vapi-widget">
+        <iframe src="/voice-vapi?embed=1" title="Kyro Vapi voice widget" />
+      </div>
+    </section>
+  );
+}
+
+export function DashboardConsole({
+  data,
+  initialAssistantState,
+  promptSuggestions,
+}: DashboardConsoleProps) {
+  const [timeframe, setTimeframe] = useState<DashboardTimeframe>("today");
+  const [activityFilter, setActivityFilter] =
+    useState<DashboardActivityFilter>("all");
+  const [layout, setLayout] = useState<DashboardLayoutConfig>(DEFAULT_LAYOUT);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [workQueueFilter, setWorkQueueFilter] =
+    useState<DashboardQueueFilter>("all");
+
+  useEffect(() => {
+    setLayout(loadSavedLayout());
+  }, []);
+
+  const updateLayout = (nextLayout: DashboardLayoutConfig) => {
+    setLayout(nextLayout);
+    saveLayout(nextLayout);
+  };
+
+  return (
+    <section className="dashboard-command-centre">
+      <header className="dashboard-command-header">
+        <div>
+          <p className="eyebrow">Dashboard</p>
+          <h1>Command Centre</h1>
+          <span>Here is what is happening across your workspace right now.</span>
+        </div>
+        <div className="dashboard-command-actions">
+          <button
+            className="secondary-button compact"
+            onClick={() => setCustomizeOpen((current) => !current)}
+            type="button"
+          >
+            Customise
+          </button>
+          <label className="dashboard-timeframe-select">
+            <span className="sr-only">Dashboard timeframe</span>
+            <select
+              onChange={(event) =>
+                setTimeframe(event.target.value as DashboardTimeframe)
+              }
+              value={timeframe}
+            >
+              <option value="today">Today</option>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="year">This year</option>
+            </select>
+          </label>
+        </div>
+      </header>
+
+      {customizeOpen ? (
+        <section className="dashboard-customize-panel panel">
+          <div className="dashboard-customize-heading">
+            <div>
+              <p className="eyebrow">Dashboard layout</p>
+              <h2>Choose what appears in each row</h2>
+            </div>
+            <button
+              className="secondary-button compact"
+              onClick={() => {
+                updateLayout(DEFAULT_LAYOUT);
+                setCustomizeOpen(false);
+              }}
+              type="button"
+            >
+              Reset defaults
+            </button>
+          </div>
+
+          <div className="dashboard-customize-grid">
+            <div className="dashboard-customize-row">
+              <strong>Top metrics</strong>
+              {layout.top.map((selected, index) => (
+                <label key={`top-${index}`}>
+                  Top slot {index + 1}
+                  <select
+                    onChange={(event) => {
+                      const nextTop = [...layout.top] as DashboardLayoutConfig["top"];
+                      nextTop[index] = event.target.value as DashboardMetricKey;
+                      updateLayout({ ...layout, top: nextTop });
+                    }}
+                    value={selected}
+                  >
+                    {Object.entries(metricDefinitions).map(([key, definition]) => (
+                      <option key={key} value={key}>
+                        {definition.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+
+            <div className="dashboard-customize-row">
+              <strong>Middle widgets</strong>
+              {layout.middle.map((selected, index) => (
+                <label key={`middle-${index}`}>
+                  Middle slot {index + 1}
+                  <select
+                    onChange={(event) => {
+                      const nextMiddle = [...layout.middle] as DashboardLayoutConfig["middle"];
+                      nextMiddle[index] = event.target.value as DashboardWidgetKey;
+                      updateLayout({ ...layout, middle: nextMiddle });
+                    }}
+                    value={selected}
+                  >
+                    {Object.entries(widgetDefinitions).map(([key, definition]) => (
+                      <option key={key} value={key}>
+                        {definition.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+
+            <div className="dashboard-customize-row">
+              <strong>Bottom widgets</strong>
+              {layout.bottom.map((selected, index) => (
+                <label key={`bottom-${index}`}>
+                  Bottom slot {index + 1}
+                  <select
+                    onChange={(event) => {
+                      const nextBottom = [...layout.bottom] as DashboardLayoutConfig["bottom"];
+                      nextBottom[index] = event.target.value as DashboardWidgetKey;
+                      updateLayout({ ...layout, bottom: nextBottom });
+                    }}
+                    value={selected}
+                  >
+                    {Object.entries(widgetDefinitions).map(([key, definition]) => (
+                      <option key={key} value={key}>
+                        {definition.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="dashboard-customize-options">
+            {Object.values(widgetDefinitions).map((definition) => (
+              <article className="dashboard-option-card" key={definition.key}>
+                <strong>{definition.title}</strong>
+                <p>{definition.description}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="dashboard-stat-grid">
+        {layout.top.map((metricKey) => {
+          const definition = metricDefinitions[metricKey];
+
+          return (
+            <Link
+              className={buildToneClass(definition.tone)}
+              href={definition.href}
+              key={metricKey}
+            >
+              <div className="dashboard-stat-copy">
+                <span>{definition.label}</span>
+                <strong>{formatCount(definition.value(data))}</strong>
+                <small>{definition.description}</small>
+              </div>
+              <DashboardMetricIcon icon={definition.icon} />
+            </Link>
+          );
+        })}
+      </section>
+
+      <section className="dashboard-middle-grid">
+        {layout.middle.map((widgetKey) =>
+          renderWidget({
+            activityFilter,
+            data,
+            initialAssistantState,
+            key: widgetKey,
+            onActivityFilterChange: setActivityFilter,
+            onWorkQueueFilterChange: setWorkQueueFilter,
+            promptSuggestions,
+            timeframe,
+            workQueueFilter,
+          }),
+        )}
+      </section>
+
+      <section className="dashboard-bottom-grid">
+        {layout.bottom.map((widgetKey) =>
+          renderWidget({
+            activityFilter,
+            data,
+            initialAssistantState,
+            key: widgetKey,
+            onActivityFilterChange: setActivityFilter,
+            onWorkQueueFilterChange: setWorkQueueFilter,
+            promptSuggestions,
+            timeframe,
+            workQueueFilter,
+          }),
+        )}
+      </section>
+    </section>
+  );
+}
