@@ -1,60 +1,116 @@
-# Product Backlog
+# Kyro Unified Backlog
 
-This is the parking lot for useful ideas that are still not part of the current Kyro architecture. Items that have now shipped, such as Gmail/Outlook email, the durable outbox, the first Twilio SMS send/receive foundation, the first Vapi/Twilio phone-call ledger foundation, quote draft/send flows, realtime voice, pronunciation settings, inbound sync controls, CRM identity normalization, CRM profile resolution/merge, contact lifecycle review, inbox task/appointment/note workflows, automatic internal follow-up reminders, Assistant memory suggestions, Assistant thread switching/archive, richer Assistant UI blocks, the Assistant tool registry, and outbound reply style prompting have been removed or narrowed here.
+This is now the single source of truth for the remaining Kyro work. It absorbs the old home-stretch checklist and the older parking-lot backlog so we can see, in one place, what we have already attacked and what still has barely been touched.
 
-## Outbound Delivery Operations
+## Status Guide
 
-- Expand the Developer outbox operations page into a future admin/operator console with cross-workspace support, assignment, bulk actions, and richer dead-letter review.
-- When a scheduled retry succeeds for a previously failed action, decide whether to reopen/update the original `actions` row or keep the outbox as the source of truth for delivery recovery.
+- `Started`: we have already built meaningful foundation work and now need hardening, refinement, or completion.
+- `Not Properly Attacked Yet`: we have agreed it matters, but we have not really built it in a serious way yet.
 
-## Billing Integration
+## Started
 
-- Add billing-system integration so workspace usage charges can become real customer invoices or payment-provider charges.
-- Decide billing periods, billing contacts, tax/GST/VAT handling, payment-provider customer ids, invoice status mapping, and operator review rules before public billing is enabled.
-- Keep the current read-only usage export as the source ledger until a payment provider is selected and tested.
-- Add provider-side usage reconciliation jobs before public billing, starting with OpenAI organization usage exports/API totals and later SMS/voice/image providers, so Kyro can compare provider invoices against `usage_events` by period, provider, model, service, and request id where available.
+### Global Workspace Search
 
-## Voice and Vocabulary
+- We have already added the persistent top search bar shell.
+- Finish the actual search depth and quality across contacts, leads, inbox messages, files, generated documents, quote drafts, and call records.
 
-- Keep tuning realtime voice for mobile, especially interruption/barge-in behavior, partial audio UX, and lower-latency model routing.
-- Harden Vapi phone assistants after live testing, including final assistant prompts, voicemail overflow transfer rules, outbound-call preflight checks, recording retention policy, and escalation rules for urgent jobs.
-- Add richer CRM actions from phone-call transcripts, such as automatically creating inquiry facts, follow-up tasks, and conversation messages after a call summary is accepted.
+### Phone and SMS Completion
 
-## Assistant External Tools
+- Inbound SMS is now wired into Kyro and the Twilio/Vapi foundation is in place.
+- Inbound phone, outbound phone, voicemail overflow, and voice-tab Vapi flows have all been attacked and partially tested.
+- Finish live-testing hardening, outbound reliability, assistant routing, activity logging, and operator-facing controls.
 
-- Add approval-gated calendar providers once email/SMS/phone boundaries remain stable in production-like testing.
-- Reuse the Assistant tool registry, action engine, outbox/audit trail, and known UI block model for those external tools instead of giving the LLM direct provider access.
+### Voice and Vocabulary Hardening
 
-## Industry Knowledge And Compliance
+- Realtime voice, Vapi voice, pronunciation handling, and phone-assistant prompts have all been attacked.
+- Keep tuning interruption/barge-in behaviour, partial transcript UX, latency, assistant prompt quality, escalation rules, and CRM actions that should flow from accepted call summaries.
 
-- Collect and ingest the Australian legislation, regulator guidance, licensing references, and state-by-state source material listed in `docs/australian-legislation-knowledge-sources.md` so the new knowledge-base foundation has real content to retrieve from.
-- Add curated Markdown resources for Australian building-industry rules, regulations, licensing, safety requirements, state-by-state legislation, and practical trade compliance guidance.
-- Decide how Kyro should cite, version, and refresh those resources so the assistant can answer building-industry questions without pretending to provide legal advice.
-- Add a retrieval layer that can surface the relevant jurisdiction-specific material before Kyro drafts customer replies, quotes, or internal guidance that touches regulated work.
+### Twilio Number and SMS Hardening
 
-## Twilio Number And SMS Hardening
-
-- Replace the beta pre-purchased number pool with user-facing Twilio number search/selection/purchase once signup volume justifies automatic provisioning.
-- Automate the full Twilio purchase -> webhook/messaging-service setup -> Vapi phone-number mapping flow while preserving the current `workspace_phone_numbers` assignment model.
-- Meter phone-number rental as its own usage/billing category, separate from SMS segments and Vapi/Twilio voice minutes.
-- Add workspace operator/staff number rules so SMS from the business owner, apprentice, family member, or partner can be treated as internal instructions instead of customer inquiries.
+- The beta pre-purchased number pool model exists and is documented in `docs/phone-number-pool.md`.
+- Replace the beta pool with user-facing Twilio number search, selection, and purchase once signup volume justifies it.
+- Automate the full Twilio purchase -> webhook/messaging-service setup -> Vapi phone-number mapping flow while preserving the current `workspace_phone_numbers` model.
+- Meter phone-number rental as its own billing category, separate from SMS segments and voice minutes.
+- Add workspace operator/staff number rules so SMS from the owner, apprentice, family member, or partner can be treated as internal instructions instead of customer inquiries.
 - Harden inbound SMS contact matching, opt-out handling, consent/compliance copy, and delivery-error recovery before public launch.
 
-## Image Generation Hardening
+### Outbound Delivery Operations
 
+- We already have the Developer outbox operations page and the durable outbox foundation.
+- Expand it into a future admin/operator console with cross-workspace support, assignment, bulk actions, and richer dead-letter review.
+- Decide whether successful retries should reopen/update the original `actions` row or leave the outbox as the delivery source of truth.
+
+### Billing and Payments
+
+- Usage metering, margin visibility, and ledger-style groundwork already exist.
+- Add billing-system integration so workspace usage charges can become real customer invoices or payment-provider charges.
+- Decide billing periods, billing contacts, tax/GST/VAT handling, payment-provider customer ids, invoice status mapping, and operator review rules before public billing is enabled.
+- Keep the current usage export/read-only ledger until a payment provider is selected and tested.
+- Add provider-side usage reconciliation jobs, starting with OpenAI totals and later SMS, voice, and image providers, so Kyro can compare provider invoices against `usage_events`.
+- Explore user-to-customer/client billing separately from Kyro's own usage billing.
+
+### Assistant External Tools
+
+- The Assistant tool registry, action engine, outbox, audit trail, and richer UI block model already exist.
+- Add approval-gated calendar providers once email, SMS, and phone boundaries remain stable in production-like testing.
+- Reuse the current tool registry and action engine patterns instead of giving the LLM direct provider access.
+
+### Industry Knowledge and Compliance
+
+- The legislation knowledge-base foundation has been built, including schema, retrieval hooks, and the source-collection guide in `docs/australian-legislation-knowledge-sources.md`.
+- Collect and ingest the actual Australian legislation, regulator guidance, licensing references, and state-by-state source material listed in that source guide.
+- Add curated Markdown resources for Australian building-industry rules, regulations, licensing, safety requirements, state-by-state legislation, and practical trade compliance guidance.
+- Decide how Kyro should cite, version, and refresh those resources so the assistant can answer building-industry questions without pretending to provide legal advice.
+- Keep the structure flexible so licensed/paywalled standards can be layered in later without reworking the knowledge-base model.
+
+### Image Generation Hardening
+
+- Image generation, chat rendering, inline previews, popup preview, edit-with-annotation, and save-to-files workflows have all been attacked.
 - Promote generated images from private file rows into a richer media gallery/history if one-off visuals become common.
-- Add multi-turn image revision controls so users can pick a generated image and ask for a follow-up edit without reattaching context.
+- Add stronger multi-turn image revision controls so users can continue editing a selected image without reattaching everything manually.
 - Design the mobile camera-first workflow for renovation photos, inspiration references, and customer-ready render previews.
 
-## Future Channels
+### Future Channels
 
-- Add per-inquiry follow-up delay overrides if the global workspace follow-up delay proves too blunt in real use.
-- Upgrade Gmail/Outlook inbound sync from bounded polling to provider push/watch delivery once the polling path is stable in production.
+- Follow-up reminders already exist at the workspace-default level, and email sync foundations are already in place.
+- Add per-inquiry follow-up delay overrides if the global workspace delay proves too blunt.
+- Upgrade Gmail/Outlook inbound sync from bounded polling to provider push/watch delivery once polling is stable in production.
 - Promote stored inbound email attachments into richer job-file/document records, including Drive sync and user-facing document organisation.
-- Add deeper forwarded-message parsing and provider history cursors for edge-case email chains that do not preserve provider thread ids or RFC references cleanly.
-- Add social DMs and web chat after provider selection, permission boundaries, and audit trails feel solid.
+- Add deeper forwarded-message parsing and provider history cursors for messy email chains that do not preserve thread ids or RFC references cleanly.
+- Add social DMs and web chat once provider selection, permissions, and audit trails feel solid.
 
-## Mobile And Native Shell
+### Mobile and Native Readiness
 
-- Build the native iOS shell around the web-tested workflows once Assistant, Inbox, CRM, Voice, and Settings have settled enough to avoid rework.
+- The backend is already being shaped so the mobile app can reuse the same APIs and contracts.
+- Keep documenting new routes/contracts the mobile app needs.
+- Build the native shell around the now-web-tested workflows once Assistant, Inbox, CRM, Voice, and Settings stop moving so much.
 - Add mobile-specific offline/error states for field use, especially around voice, inbox triage, and job-site contact details.
+
+### Product Backlog Clearance
+
+- We have already started clearing, merging, and pruning the old backlog as features ship.
+- Keep this file current and remove items once they are genuinely finished or intentionally deferred.
+
+## Not Properly Attacked Yet
+
+### Full Operations Dashboard
+
+- Build a proper dashboard tab for daily business health, urgent work, assistant activity, usage, channel health, and action summaries.
+
+### Sidebar Finalization
+
+- Finalize the real tab list first, then add icons and finish the visual/navigation polish.
+
+### Logo and Branding Lock
+
+- Decide the final logo, favicon, app icon, and overall light/dark presentation.
+
+### Reports
+
+- Add a reports area for operational summaries, leads, customer activity, usage, and exportable business reports.
+
+## Notes
+
+- We have already shipped a lot of the core app architecture, so most remaining work is now hardening, finishing, and making production-safe rather than inventing brand-new systems from scratch.
+- The biggest areas that have clearly been attacked already are Assistant, CRM, Inbox, image generation, voice, Twilio/Vapi comms, and the legislation knowledge-base foundation.
+- The biggest things still sitting in "we know we need it, but have not really built it" territory are the full dashboard, reports, final sidebar polish, and brand lock.
