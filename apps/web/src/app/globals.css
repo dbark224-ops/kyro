@@ -2184,12 +2184,12 @@ textarea:focus {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .page-topbar-tight {
-  margin-top: -14px;
-  margin-bottom: 14px;
+  margin-top: -36px;
+  margin-bottom: 4px;
 }
 
 .page-topbar-tight .topbar-right {
@@ -5748,8 +5748,8 @@ button.voice-card {
   grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
-  min-height: calc(100vh - 198px);
-  max-height: calc(100vh - 198px);
+  min-height: calc(100dvh - 238px);
+  max-height: calc(100dvh - 238px);
   overflow: hidden;
 }
 
@@ -5762,8 +5762,8 @@ button.voice-card {
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
   gap: 14px;
   align-items: stretch;
-  min-height: calc(100vh - 198px);
-  max-height: calc(100vh - 198px);
+  min-height: calc(100dvh - 238px);
+  max-height: calc(100dvh - 238px);
   overflow: hidden;
 }
 
@@ -6471,8 +6471,8 @@ button:disabled {
 }
 
 .activity-workspace {
-  min-height: calc(100vh - 198px);
-  max-height: calc(100vh - 198px);
+  min-height: calc(100dvh - 238px);
+  max-height: calc(100dvh - 238px);
   overflow: hidden;
 }
 
@@ -11664,7 +11664,7 @@ button:disabled {
 }
 
 .workspace {
-  padding: 92px 28px 28px;
+  padding: 76px 28px 24px;
 }
 
 .sidebar {
