@@ -1267,7 +1267,6 @@ export default async function ContactsPage({
     <AppFrame active="CRM">
       <header className="topbar page-topbar-tight">
         <div>
-          <p className="eyebrow">{workspace.name}</p>
           <h1>CRM</h1>
         </div>
         <div className="topbar-right">

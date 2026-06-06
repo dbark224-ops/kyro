@@ -505,7 +505,6 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
     <AppFrame active="Activity">
       <header className="topbar page-topbar-tight">
         <div>
-          <p className="eyebrow">{workspace.name}</p>
           <h1>Activity</h1>
         </div>
         <div className="topbar-right">
