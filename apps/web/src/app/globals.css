@@ -11627,6 +11627,20 @@ button:disabled {
   line-height: 1;
 }
 
+.sidebar-usage-metrics {
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-usage-metrics div {
+  display: grid;
+  gap: 4px;
+}
+
+.sidebar-usage-metrics strong {
+  font-size: 1.25rem;
+}
+
 .sidebar-usage-card span {
   color: var(--muted);
   font-size: 0.8125rem;

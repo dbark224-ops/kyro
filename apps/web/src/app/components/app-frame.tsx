@@ -11,9 +11,9 @@ import {
   formatDisplayMoney,
   formatCurrencyAmount,
 } from "../../lib/billing/display-currency";
+import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
 import { hasSupabaseEnv } from "../../lib/env";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
-import { getUsageReport } from "../../lib/usage/queries";
 import { usageWindowStart } from "../../lib/usage/queries";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
@@ -236,21 +236,39 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       return null;
     }
 
-    const [settings, usageSummary] = await Promise.all([
+    const [settings, weeklyUsageSummary, monthlyUsageSummary] = await Promise.all([
       getWorkspaceGeneralSettings(supabase, workspace.id).catch(
         () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
       ),
-      getUsageReport(supabase, workspace.id, "30d").catch(() => null),
+      getBillableUsageSummary(supabase, workspace.id, {
+        period: "weekly",
+      }).catch(() => null),
+      getBillableUsageSummary(supabase, workspace.id, {
+        period: "monthly",
+      }).catch(() => null),
     ]);
 
-    const usageTotal = usageSummary?.totals.customerCharge ?? 0;
-    const usageCurrency = usageSummary?.totals.currency ?? settings.displayCurrency;
+    const weeklyAmount = (weeklyUsageSummary?.totals ?? []).reduce<number>(
+      (total, item) => total + item.customerCharge,
+      0,
+    );
+    const monthlyAmount = (monthlyUsageSummary?.totals ?? []).reduce<number>(
+      (total, item) => total + item.customerCharge,
+      0,
+    );
+    const weeklyCurrency =
+      weeklyUsageSummary?.totals[0]?.currency ?? settings.displayCurrency;
+    const monthlyCurrency =
+      monthlyUsageSummary?.totals[0]?.currency ?? settings.displayCurrency;
 
     return {
       initials: initialsFor(workspace.name),
-      usageAmount: usageTotal ?? 0,
-      usageAmountLabel: formatDisplayMoney(usageTotal, usageCurrency, settings),
-      usageCurrency,
+      usageMonthLabel: formatDisplayMoney(
+        monthlyAmount,
+        monthlyCurrency,
+        settings,
+      ),
+      usageWeekLabel: formatDisplayMoney(weeklyAmount, weeklyCurrency, settings),
       userEmail: user.email?.trim() ?? "Signed in",
       workspaceName: workspace.name,
     };
@@ -268,8 +286,17 @@ async function SidebarUsageCard() {
 
   return (
     <section className="sidebar-usage-card">
-      <p className="eyebrow">Usage this month</p>
-      <strong>{data.usageAmountLabel}</strong>
+      <p className="eyebrow">Usage</p>
+      <div className="sidebar-usage-metrics">
+        <div>
+          <span>This week</span>
+          <strong>{data.usageWeekLabel}</strong>
+        </div>
+        <div>
+          <span>This month</span>
+          <strong>{data.usageMonthLabel}</strong>
+        </div>
+      </div>
       <SmartPrefetchLink className="sidebar-usage-link" href="/settings">
         View settings and billing
       </SmartPrefetchLink>
