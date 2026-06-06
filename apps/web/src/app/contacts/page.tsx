@@ -8,6 +8,7 @@ import {
 } from "./actions";
 import { AppFrame } from "../components/app-frame";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
+import { AutoSubmitSelect } from "../components/auto-submit-select";
 import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
@@ -1377,19 +1378,14 @@ export default async function ContactsPage({
                 </div>
               </details>
             </div>
-            <label className="crm-sort-field">
-              Sort
-              <select defaultValue={activeSort} name="sort">
-                {CRM_SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="secondary-button compact" type="submit">
-              Apply
-            </button>
+            <AutoSubmitSelect
+              className="crm-sort-field"
+              defaultValue={activeSort}
+              id="crm-sort-select"
+              label="Sort"
+              name="sort"
+              options={CRM_SORT_OPTIONS}
+            />
             {hasSearch ? (
               <Link
                 className="secondary-button compact"

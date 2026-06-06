@@ -5828,7 +5828,7 @@ button.voice-card {
 
 .crm-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.32fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.32fr) auto;
   gap: 8px;
   align-items: end;
   margin: 0 0 12px;
