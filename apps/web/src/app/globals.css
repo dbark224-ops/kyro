@@ -5801,6 +5801,10 @@ button.voice-card {
   min-height: 0;
 }
 
+.inbox-work-queue-panel .data-list {
+  gap: 5px;
+}
+
 .inbox-preview-actions {
   display: inline-flex;
   align-items: center;
