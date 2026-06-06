@@ -330,6 +330,10 @@ function trimAssistantMessages(messages: AssistantThreadMessage[], limit = 6) {
   return messages.slice(-limit);
 }
 
+function lastAssistantMessageId(messages: AssistantThreadMessage[]) {
+  return messages.at(-1)?.id ?? null;
+}
+
 function assistantSnippet(message: AssistantThreadMessage) {
   const text = message.content.replace(/\s+/g, " ").trim();
 
@@ -532,20 +536,46 @@ function MiniAssistantWidget({
     initialState,
   );
   const [draft, setDraft] = useState("");
+  const [optimisticMessage, setOptimisticMessage] =
+    useState<AssistantThreadMessage | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
-  const previousMessageCountRef = useRef(initialState.messages.length);
+  const pendingDraftRef = useRef("");
+  const previousLastMessageIdRef = useRef(
+    lastAssistantMessageId(initialState.messages),
+  );
+  const currentLastMessageId = useMemo(
+    () => lastAssistantMessageId(assistantState.messages),
+    [assistantState.messages],
+  );
 
   useEffect(() => {
-    if (assistantState.messages.length > previousMessageCountRef.current) {
-      previousMessageCountRef.current = assistantState.messages.length;
-      setDraft("");
-      formRef.current?.reset();
+    if (
+      currentLastMessageId &&
+      currentLastMessageId !== previousLastMessageIdRef.current
+    ) {
+      previousLastMessageIdRef.current = currentLastMessageId;
+      pendingDraftRef.current = "";
+      setOptimisticMessage(null);
     }
-  }, [assistantState.messages.length]);
+  }, [currentLastMessageId]);
+
+  useEffect(() => {
+    if (assistantState.error && pendingDraftRef.current) {
+      setDraft(pendingDraftRef.current);
+      setOptimisticMessage(null);
+      pendingDraftRef.current = "";
+    }
+  }, [assistantState.error]);
 
   const messages = useMemo(
-    () => trimAssistantMessages(assistantState.messages, 4),
-    [assistantState.messages],
+    () =>
+      trimAssistantMessages(
+        optimisticMessage
+          ? [...assistantState.messages, optimisticMessage]
+          : assistantState.messages,
+        4,
+      ),
+    [assistantState.messages, optimisticMessage],
   );
 
   return (
@@ -574,7 +604,28 @@ function MiniAssistantWidget({
           {assistantState.error}
         </div>
       ) : null}
-      <form action={sendAction} className="dashboard-mini-assistant-form" ref={formRef}>
+      <form
+        action={sendAction}
+        className="dashboard-mini-assistant-form"
+        onSubmit={() => {
+          const trimmedDraft = draft.trim();
+
+          if (!trimmedDraft) {
+            return;
+          }
+
+          pendingDraftRef.current = draft;
+          setOptimisticMessage({
+            content: draft,
+            createdAt: new Date().toISOString(),
+            id: `optimistic-${Date.now()}`,
+            role: "user",
+          });
+          setDraft("");
+          formRef.current?.reset();
+        }}
+        ref={formRef}
+      >
         <input name="threadId" type="hidden" value={assistantState.threadId ?? ""} />
         <input name="inputSource" type="hidden" value="typed" />
         <div className="dashboard-mini-assistant-actions">
