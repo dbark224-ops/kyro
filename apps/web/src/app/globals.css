@@ -11725,11 +11725,10 @@ button:disabled {
 
 .dashboard-command-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
   min-height: 56px;
-  padding-right: clamp(280px, 23vw, 380px);
 }
 
 .dashboard-command-title {
@@ -11755,6 +11754,7 @@ button:disabled {
   align-items: center;
   gap: 10px;
   margin-left: auto;
+  padding-top: 52px;
   flex-wrap: wrap;
 }
 
