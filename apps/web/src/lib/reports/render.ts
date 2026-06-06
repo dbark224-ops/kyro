@@ -39,7 +39,7 @@ function safeFilename(value: string) {
       .replace(/[\\/:*?"<>|\r\n]/g, "_")
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 96) || "kyro-report"
+      .slice(0, 96) || "report"
   );
 }
 
@@ -288,7 +288,6 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
   <main class="page">
     <header>
       <div>
-        <p class="eyebrow">Kyro report</p>
         <h1>${escapeHtml(report.title)}</h1>
         <p class="subtitle">${escapeHtml(report.subtitle)}</p>
       </div>
@@ -477,14 +476,18 @@ function drawHeader(
   });
   y -= 30;
 
-  page.drawText(report.business.name, {
-    color: cyan,
-    font: fonts.bold,
-    size: 11,
-    x: MARGIN,
-    y,
-  });
-  y -= 30;
+  if (!logo) {
+    page.drawText(report.business.name, {
+      color: cyan,
+      font: fonts.bold,
+      size: 11,
+      x: MARGIN,
+      y,
+    });
+    y -= 30;
+  } else {
+    y -= 10;
+  }
   y = drawTextLines({
     font: fonts.bold,
     lineHeight: 28,

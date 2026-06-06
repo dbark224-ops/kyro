@@ -12625,9 +12625,9 @@ button:disabled {
 
 .reports-workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .reports-control-panel,
@@ -12653,6 +12653,16 @@ button:disabled {
 
 .reports-form {
   display: grid;
+  grid-template-columns:
+    minmax(220px, 1.25fr)
+    minmax(142px, 0.72fr)
+    minmax(140px, 0.7fr)
+    minmax(140px, 0.7fr)
+    minmax(210px, 1.1fr)
+    minmax(132px, 0.68fr)
+    minmax(132px, 0.68fr)
+    auto;
+  align-items: end;
   gap: 12px;
 }
 
@@ -12683,16 +12693,20 @@ button:disabled {
 }
 
 .reports-date-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  display: contents;
 }
 
 .reports-hint {
-  margin: -4px 0 2px;
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.reports-generate-button {
+  min-height: 42px;
+  white-space: nowrap;
 }
 
 .reports-suggestions {
@@ -12809,6 +12823,12 @@ button:disabled {
   background: #f8fbff;
 }
 
+@media (max-width: 1560px) {
+  .reports-form {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1200px) {
   .dashboard-command-centre {
     grid-template-rows: auto auto auto auto;
@@ -12832,6 +12852,14 @@ button:disabled {
 
   .reports-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .reports-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .reports-generate-button {
+    justify-self: start;
   }
 
   .reports-preview-panel {
@@ -12917,6 +12945,14 @@ button:disabled {
   .reports-date-grid,
   .reports-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .reports-form {
+    grid-template-columns: 1fr;
+  }
+
+  .reports-generate-button {
+    justify-self: stretch;
   }
 
   .reports-preview-header,

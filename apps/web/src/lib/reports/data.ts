@@ -895,7 +895,7 @@ async function loadUsageLedgerReport(
       { label: "Provider cost", value: formatMoney(totalCost, primaryCurrency) },
       { label: "Usage charge", value: formatMoney(totalCharge, primaryCurrency) },
     ],
-    subtitle: "Billable provider usage recorded by Kyro.",
+    subtitle: "Billable provider usage recorded for the workspace.",
     title: "Usage Ledger",
     type: "usage_ledger" as const,
   };
@@ -1218,7 +1218,7 @@ export async function buildWorkspaceReport(
       filters.type === "payment_history"
         ? ["Payment reporting is scaffolded but will remain empty until payment processing is connected."]
         : [
-            "This report is generated from current Kyro workspace records.",
+            "This report is generated from current workspace records.",
             "Rows are limited to the most recent 1,000 matching records per source.",
           ],
     period,

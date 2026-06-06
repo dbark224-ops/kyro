@@ -247,8 +247,9 @@ Purpose:
 - generate exportable workspace reports from current Kyro data,
 - support report types for all communications, inbound communications, outbound communications, communications by contact, usage ledger, document activity, work queue summary, and placeholder payment history,
 - filter reports by timeframe, custom date range, contact, direction, and channel where that filter applies,
-- render a browser print preview and a server-generated PDF download using one standard report template,
-- place the workspace logo in report output when a stored PNG/JPEG logo is available, otherwise fall back to the workspace name.
+- keep `/reports` light until the user explicitly clicks Generate report,
+- render the browser print preview and server-generated PDF download only after generation using one standard report template,
+- place the business/workspace logo in report output when a stored PNG/JPEG logo is available, otherwise fall back to the business name without Kyro branding.
 
 Payment history reports intentionally remain empty until customer payment collection
 records exist. Add future report types in `apps/web/src/lib/reports/data.ts`, then reuse
