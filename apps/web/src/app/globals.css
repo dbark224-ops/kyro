@@ -2179,6 +2179,14 @@ textarea:focus {
   padding: 28px;
 }
 
+.workspace-fit-fold {
+  display: flex;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .topbar {
   display: flex;
   align-items: flex-start;
@@ -2194,6 +2202,20 @@ textarea:focus {
 
 .page-topbar-tight .topbar-right {
   padding-top: 18px;
+}
+
+.workspace-fit-fold .topbar {
+  flex: 0 0 auto;
+  margin-bottom: 12px;
+}
+
+.workspace-fit-fold .page-topbar-tight {
+  margin-top: -30px;
+  margin-bottom: 8px;
+}
+
+.workspace-fit-fold .page-topbar-tight .topbar-right {
+  padding-top: 20px;
 }
 
 h1,
@@ -6474,6 +6496,15 @@ button:disabled {
   min-height: calc(100dvh - 256px);
   max-height: calc(100dvh - 256px);
   overflow: hidden;
+}
+
+.workspace-fit-fold .activity-workspace,
+.workspace-fit-fold .crm-workspace,
+.workspace-fit-fold .inbox-workspace {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
 }
 
 .activity-log-panel {
@@ -11665,6 +11696,10 @@ button:disabled {
 
 .workspace {
   padding: 76px 28px 24px;
+}
+
+.workspace-fit-fold {
+  padding: 76px 28px 18px;
 }
 
 .sidebar {

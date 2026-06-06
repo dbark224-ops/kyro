@@ -429,6 +429,13 @@ export function AppFrame({
   topControls?: ReactNode;
 }>) {
   const activeHref = navItems.find((item) => item.label === active)?.href;
+  const fitFoldPages = new Set(["Activity", "CRM", "Inbox"]);
+  const workspaceClassName = [
+    "workspace",
+    fitFoldPages.has(active) ? "workspace-fit-fold" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <main className="app-shell">
@@ -520,7 +527,7 @@ export function AppFrame({
         </form>
       </aside>
 
-      <section className="workspace">
+      <section className={workspaceClassName}>
         <div className="global-search-anchor">
           <GlobalSearch />
         </div>
