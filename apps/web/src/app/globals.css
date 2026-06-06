@@ -12373,6 +12373,37 @@ button:disabled {
   white-space: nowrap;
 }
 
+.dashboard-widget-contacts .dashboard-compact-contact-grid {
+  gap: 5px;
+}
+
+.dashboard-widget-contacts .dashboard-compact-contact-item {
+  gap: 8px;
+  padding: 5px 9px;
+}
+
+.dashboard-widget-contacts .dashboard-compact-contact-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dashboard-widget-contacts .dashboard-compact-contact-main strong {
+  flex: 0 1 auto;
+  max-width: 38%;
+  font-size: 0.82rem;
+}
+
+.dashboard-widget-contacts .dashboard-compact-contact-main small {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.7rem;
+}
+
+.dashboard-widget-contacts .dashboard-compact-contact-item em {
+  font-size: 0.7rem;
+}
+
 .dashboard-activity-item {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
