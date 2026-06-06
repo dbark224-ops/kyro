@@ -65,6 +65,39 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+const RELIABLE_ASSISTANT_FALLBACK_INTENTS = new Set([
+  "app_help",
+  "assistant_history_search",
+  "contact_summary",
+  "document_template_update",
+  "email_sync",
+  "image_generation",
+  "image_generation_recall",
+  "inbound_email_awareness",
+  "inquiry_lookup",
+  "legislation_lookup",
+  "memory_save",
+  "overview",
+  "pronunciation_update",
+  "quote_create",
+  "quote_history",
+  "quote_lookup",
+  "quote_send_prepare",
+  "quote_send_ready_list",
+  "settings_update",
+  "usage_summary",
+  "web_search",
+  "work_queue",
+]);
+
+function primaryAssistantModelRequired(intent: string | undefined) {
+  if (!intent) {
+    return true;
+  }
+
+  return !RELIABLE_ASSISTANT_FALLBACK_INTENTS.has(intent);
+}
+
 function assistantPreviewTarget(href: string) {
   let contactIdFromQuery: string | null = null;
   let pathname = href.split("?")[0] ?? href;
@@ -624,6 +657,26 @@ export async function sendAssistantMessageAction(
       user,
       workspace,
     });
+
+    if (
+      assistantMessage.fallbackReason &&
+      primaryAssistantModelRequired(assistantMessage.intent)
+    ) {
+      revalidatePath("/");
+      revalidatePath("/assistant");
+
+      return {
+        ...(await getAssistantThreadState({
+          supabase,
+          threadId,
+          user,
+          workspace,
+        })),
+        error:
+          "Kyro is having trouble reaching the main assistant model right now. This request needs the full assistant, so I have held off rather than guessing. Please try again shortly.",
+      };
+    }
+
     const memorySaved = await maybeSaveAssistantMemory({
       prompt,
       sourceMessageId: userMessageId,
