@@ -11715,11 +11715,11 @@ button:disabled {
 
 .dashboard-command-centre {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1.22fr) minmax(0, 0.94fr);
+  grid-template-rows: auto auto minmax(0, 1.3fr) minmax(0, 0.86fr);
   gap: 10px;
   margin-top: -52px;
-  min-height: calc(100vh - 126px);
-  height: calc(100vh - 126px);
+  min-height: calc(100vh - 134px);
+  height: calc(100vh - 134px);
   align-content: stretch;
 }
 
