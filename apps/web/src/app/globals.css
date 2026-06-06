@@ -11701,10 +11701,12 @@ button:disabled {
 
 .dashboard-command-centre {
   display: grid;
-  gap: 8px;
+  grid-template-rows: auto auto minmax(0, 1.22fr) minmax(0, 0.94fr);
+  gap: 10px;
   margin-top: -52px;
   min-height: calc(100vh - 126px);
-  align-content: start;
+  height: calc(100vh - 126px);
+  align-content: stretch;
 }
 
 .dashboard-command-header {
@@ -11944,20 +11946,20 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
   min-height: 0;
-  height: clamp(300px, 35vh, 390px);
+  height: auto;
 }
 
 .dashboard-bottom-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
   min-height: 0;
-  height: clamp(170px, 21vh, 240px);
+  height: auto;
 }
 
 .dashboard-widget {
   display: grid;
   min-width: 0;
-  min-height: 100%;
+  min-height: 0;
   max-height: none;
   height: 100%;
   grid-template-rows: auto minmax(0, 1fr);
@@ -11971,7 +11973,7 @@ button:disabled {
 }
 
 .dashboard-bottom-grid .dashboard-widget {
-  min-height: 100%;
+  min-height: 0;
   height: 100%;
 }
 
@@ -12152,6 +12154,7 @@ button:disabled {
   display: grid;
   gap: 8px;
   align-content: start;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -12250,12 +12253,15 @@ button:disabled {
 
 .dashboard-payments-card {
   display: grid;
-  align-content: start;
-  gap: 16px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: 12px;
+  min-height: 0;
 }
 
 .dashboard-payment-total {
   display: grid;
+  align-content: start;
   gap: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
@@ -12410,6 +12416,11 @@ button:disabled {
 }
 
 @media (max-width: 1200px) {
+  .dashboard-command-centre {
+    grid-template-rows: auto auto auto auto;
+    height: auto;
+  }
+
   .dashboard-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -12465,6 +12476,11 @@ button:disabled {
   .dashboard-customize-row,
   .dashboard-payment-stats {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-command-centre {
+    grid-template-rows: auto;
+    height: auto;
   }
 
   .dashboard-widget {

@@ -8,11 +8,12 @@ import { getLlmDevStatus } from "../../lib/ai/dev-status";
 import {
   convertDisplayMoney,
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  formatDisplayMoney,
   formatCurrencyAmount,
 } from "../../lib/billing/display-currency";
 import { hasSupabaseEnv } from "../../lib/env";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
-import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
+import { getUsageReport } from "../../lib/usage/queries";
 import { usageWindowStart } from "../../lib/usage/queries";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
@@ -239,21 +240,17 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       getWorkspaceGeneralSettings(supabase, workspace.id).catch(
         () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
       ),
-      getBillableUsageSummary(supabase, workspace.id, {
-        period: "monthly",
-      }).catch(() => null),
+      getUsageReport(supabase, workspace.id, "30d").catch(() => null),
     ]);
 
-    const usageTotal = (usageSummary?.totals ?? []).reduce<number>(
-      (total, item) => total + item.customerCharge,
-      0,
-    );
+    const usageTotal = usageSummary?.totals.customerCharge ?? 0;
+    const usageCurrency = usageSummary?.totals.currency ?? settings.displayCurrency;
 
     return {
       initials: initialsFor(workspace.name),
       usageAmount: usageTotal ?? 0,
-      usageCurrency:
-        usageSummary?.totals[0]?.currency ?? settings.displayCurrency,
+      usageAmountLabel: formatDisplayMoney(usageTotal, usageCurrency, settings),
+      usageCurrency,
       userEmail: user.email?.trim() ?? "Signed in",
       workspaceName: workspace.name,
     };
@@ -272,10 +269,7 @@ async function SidebarUsageCard() {
   return (
     <section className="sidebar-usage-card">
       <p className="eyebrow">Usage this month</p>
-      <strong>
-        {formatCurrencyAmount(data.usageAmount, data.usageCurrency)}
-      </strong>
-      <span>Metered usage plus Kyro margin.</span>
+      <strong>{data.usageAmountLabel}</strong>
       <SmartPrefetchLink className="sidebar-usage-link" href="/settings">
         View settings and billing
       </SmartPrefetchLink>
