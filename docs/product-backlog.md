@@ -96,6 +96,13 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 - The command-centre dashboard rebuild is now in progress with configurable KPI cards, swappable middle and bottom widgets, a mini Assistant surface, embedded voice, activity/log surfaces, and sidebar/account chrome improvements.
 - Finish the drag-like customisation polish, data density tuning, and any final operator widgets once the first real version is live and tested.
 
+### Reports
+
+- The first Reports tab is now built with a report builder, timeframe/contact/channel/direction filters, browser PDF preview, print, and server-generated PDF download.
+- Current report types cover all communications, inbound communications, outbound communications, communications by contact, usage ledger, document activity, work queue summary, and a scaffolded payment-history report.
+- Keep expanding reports as new durable data exists, especially real payment records, payment status, calendar/appointment history, job outcomes, supplier activity, and richer quote/invoice reporting.
+- Payment reports intentionally stay empty until payment processing and customer-collection records ship.
+
 ## Not Properly Attacked Yet
 
 ### Sidebar Finalization
@@ -106,12 +113,8 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 
 - Decide the final logo, favicon, app icon, and overall light/dark presentation.
 
-### Reports
-
-- Add a reports area for operational summaries, leads, customer activity, usage, and exportable business reports.
-
 ## Notes
 
 - We have already shipped a lot of the core app architecture, so most remaining work is now hardening, finishing, and making production-safe rather than inventing brand-new systems from scratch.
 - The biggest areas that have clearly been attacked already are Assistant, CRM, Inbox, image generation, voice, Twilio/Vapi comms, and the legislation knowledge-base foundation.
-- The biggest things still sitting in "we know we need it, but have not really built it" territory are the full dashboard, reports, final sidebar polish, and brand lock.
+- The biggest things still sitting in "we know we need it, but have not really built it" territory are final sidebar polish, brand lock, and the deeper payment/billing layer.

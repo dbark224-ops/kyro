@@ -169,13 +169,14 @@ a mobile app. Desktop keeps the side-by-side split views.
 
 The app shell currently exposes:
 
+- Dashboard: `/dashboard`
 - Assistant: `/assistant`
-- Voice: `/voice`
 - Vapi Voice: `/voice-vapi`
 - Inbox: `/inbox`
 - CRM: `/contacts`
 - Files: `/files`
-- Log: `/dashboard`
+- Activity: `/activity`
+- Reports: `/reports`
 - Developer: `/developer`
 - Settings: `/settings`
 
@@ -216,21 +217,42 @@ workspace and user.
 
 ## Current Screens
 
-### Log
+### Dashboard
 
 File: `apps/web/src/app/dashboard/page.tsx`
 
 Purpose:
 
-- show a chronological workspace activity timeline,
-- combine recent inbound/outbound messages, actions, events, audit logs, AI runs, model route decisions, and usage events,
-- filter the timeline by all activity, messages, inbound, outbound, actions, events, audit, AI runs, routing, or usage,
-- search the timeline by customer/message/action/model text, type/source/channel/model, detail/body text, and date range,
-- show compact message/action/usage metrics,
-- show a latest-activity summary and event-type breakdown.
+- act as the main command-centre view for daily operations,
+- show configurable KPI cards such as needs reply, ready to quote, approved/booked work, and follow-up due,
+- show swappable middle and bottom widgets such as work queue, mini Assistant, system activity, payments, top contacts, suppliers, document activity, Vapi voice, and calendar placeholder widgets,
+- keep the mini Assistant usable without leaving the dashboard,
+- expose timeframe controls and dashboard customisation without making the layout scroll-heavy.
 
-The old dashboard concept has been collapsed into `Log`. Operational work now happens
-primarily in Assistant, Inbox, CRM, Files, and Settings.
+The old chronological log view has moved to Activity. Dashboard is now the operational
+overview for what the user should look at first.
+
+### Reports
+
+Files:
+
+- `apps/web/src/app/reports/page.tsx`
+- `apps/web/src/app/reports/print/route.ts`
+- `apps/web/src/app/reports/pdf/route.ts`
+- `apps/web/src/lib/reports/data.ts`
+- `apps/web/src/lib/reports/render.ts`
+
+Purpose:
+
+- generate exportable workspace reports from current Kyro data,
+- support report types for all communications, inbound communications, outbound communications, communications by contact, usage ledger, document activity, work queue summary, and placeholder payment history,
+- filter reports by timeframe, custom date range, contact, direction, and channel where that filter applies,
+- render a browser print preview and a server-generated PDF download using one standard report template,
+- place the workspace logo in report output when a stored PNG/JPEG logo is available, otherwise fall back to the workspace name.
+
+Payment history reports intentionally remain empty until customer payment collection
+records exist. Add future report types in `apps/web/src/lib/reports/data.ts`, then reuse
+the existing print/PDF renderer unless the report truly needs a custom format.
 
 ### Developer
 
@@ -1512,7 +1534,7 @@ Current performance approach:
 
 Do not preload everything. The current reasonable preload set is:
 
-- main app routes: Assistant, Voice, Vapi Voice, Inbox, CRM, Files, Log, Settings,
+- main app routes: Dashboard, Assistant, Vapi Voice, Inbox, CRM, Files, Activity, Reports, Settings,
 - already-open split-view records,
 - compact list summaries and counts for the active screen.
 
@@ -1627,6 +1649,9 @@ Use this map before editing:
 - New service-role Supabase server helper: `apps/web/src/lib/supabase/service.ts`
 - New provider token encryption behavior: `apps/web/src/lib/integrations/token-vault.ts`
 - New usage/billing read behavior: `apps/web/src/lib/usage/queries.ts`, surfaced from Settings
+- New report behavior: `apps/web/src/lib/reports/data.ts`, `apps/web/src/lib/reports/render.ts`,
+  `apps/web/src/app/reports/page.tsx`, `apps/web/src/app/reports/print/route.ts`, and
+  `apps/web/src/app/reports/pdf/route.ts`
 - New schema field/table: `packages/db/src/schema.ts`, then generate a migration.
 - New route loading state: add `loading.tsx` beside the route.
 - Shared layout/nav: `apps/web/src/app/components/app-frame.tsx`

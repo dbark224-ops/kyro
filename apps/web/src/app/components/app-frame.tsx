@@ -28,6 +28,7 @@ const navItems = [
   { label: "CRM", href: "/contacts", icon: "crm" },
   { label: "Files", href: "/files", icon: "files" },
   { label: "Activity", href: "/activity", icon: "activity" },
+  { label: "Reports", href: "/reports", icon: "reports" },
   { label: "Developer", href: "/developer", icon: "developer" },
   { label: "Settings", href: "/settings", icon: "settings" },
 ];
@@ -383,6 +384,15 @@ function AppShellIcon({
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
         <path {...common} d="M3.5 10h3l1.5-3 3 6 1.5-3H16.5" />
         <path {...common} d="M3.5 4.5h13v11h-13z" />
+      </svg>
+    );
+  }
+
+  if (name === "reports") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M5 3.5h8l2.5 2.5V16A1.5 1.5 0 0 1 14 17.5H5.5A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z" />
+        <path {...common} d="M13 3.5V6h2.5M7 13.5V10M10 13.5V7.5M13 13.5v-2" />
       </svg>
     );
   }
