@@ -982,7 +982,7 @@ export function DashboardConsole({
             onClick={() => setCustomizeOpen((current) => !current)}
             type="button"
           >
-            Customise
+            {customizeOpen ? "Close" : "Customise"}
           </button>
           <label className="dashboard-timeframe-select">
             <span className="sr-only">Dashboard timeframe</span>
@@ -1102,56 +1102,60 @@ export function DashboardConsole({
         </section>
       ) : null}
 
-      <section className="dashboard-stat-grid">
-        {layout.top.map((metricKey) => {
-          const definition = metricDefinitions[metricKey];
+      {!customizeOpen ? (
+        <>
+          <section className="dashboard-stat-grid">
+            {layout.top.map((metricKey) => {
+              const definition = metricDefinitions[metricKey];
 
-          return (
-            <Link
-              className={buildToneClass(definition.tone)}
-              href={definition.href}
-              key={metricKey}
-            >
-              <div className="dashboard-stat-copy">
-                <span>{definition.label}</span>
-                <strong>{formatCount(definition.value(data))}</strong>
-                <small>{definition.description}</small>
-              </div>
-              <DashboardMetricIcon icon={definition.icon} />
-            </Link>
-          );
-        })}
-      </section>
+              return (
+                <Link
+                  className={buildToneClass(definition.tone)}
+                  href={definition.href}
+                  key={metricKey}
+                >
+                  <div className="dashboard-stat-copy">
+                    <span>{definition.label}</span>
+                    <strong>{formatCount(definition.value(data))}</strong>
+                    <small>{definition.description}</small>
+                  </div>
+                  <DashboardMetricIcon icon={definition.icon} />
+                </Link>
+              );
+            })}
+          </section>
 
-      <section className="dashboard-middle-grid">
-        {layout.middle.map((widgetKey) =>
-          renderWidget({
-            activityFilter,
-            data,
-            initialAssistantState,
-            key: widgetKey,
-            onActivityFilterChange: setActivityFilter,
-            onWorkQueueFilterChange: setWorkQueueFilter,
-            timeframe,
-            workQueueFilter,
-          }),
-        )}
-      </section>
+          <section className="dashboard-middle-grid">
+            {layout.middle.map((widgetKey) =>
+              renderWidget({
+                activityFilter,
+                data,
+                initialAssistantState,
+                key: widgetKey,
+                onActivityFilterChange: setActivityFilter,
+                onWorkQueueFilterChange: setWorkQueueFilter,
+                timeframe,
+                workQueueFilter,
+              }),
+            )}
+          </section>
 
-      <section className="dashboard-bottom-grid">
-        {layout.bottom.map((widgetKey) =>
-          renderWidget({
-            activityFilter,
-            data,
-            initialAssistantState,
-            key: widgetKey,
-            onActivityFilterChange: setActivityFilter,
-            onWorkQueueFilterChange: setWorkQueueFilter,
-            timeframe,
-            workQueueFilter,
-          }),
-        )}
-      </section>
+          <section className="dashboard-bottom-grid">
+            {layout.bottom.map((widgetKey) =>
+              renderWidget({
+                activityFilter,
+                data,
+                initialAssistantState,
+                key: widgetKey,
+                onActivityFilterChange: setActivityFilter,
+                onWorkQueueFilterChange: setWorkQueueFilter,
+                timeframe,
+                workQueueFilter,
+              }),
+            )}
+          </section>
+        </>
+      ) : null}
     </section>
   );
 }
