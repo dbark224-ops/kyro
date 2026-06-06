@@ -1903,6 +1903,12 @@ textarea:focus {
   font-weight: 700;
 }
 
+.global-search input:focus,
+.global-search input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .global-search input::placeholder {
   color: var(--muted);
 }
