@@ -1,5 +1,6 @@
 import { AppFrame } from "../components/app-frame";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
+import { runContactLifecycleReviewAction } from "../contacts/actions";
 import { createManualInboundAction } from "../inbound/actions";
 import Link from "next/link";
 
@@ -169,6 +170,27 @@ export default async function DeveloperPage({
                 <strong>Gmail and Outlook</strong>
               </div>
             </div>
+          </article>
+          <article className="panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">CRM maintenance</p>
+                <h2>Lifecycle review</h2>
+              </div>
+              <span className="pill">Manual scan</span>
+            </div>
+            <p className="empty-copy">
+              Runs Kyro&apos;s CRM lifecycle pass across the workspace. It checks
+              whether contacts look like they should move between lead/client
+              states from quote, booking, work, and communication evidence, then
+              creates review suggestions rather than applying changes silently.
+            </p>
+            <form action={runContactLifecycleReviewAction}>
+              <input name="redirectTo" type="hidden" value="/developer" />
+              <button className="secondary-button compact" type="submit">
+                Review lifecycle
+              </button>
+            </form>
           </article>
         </aside>
       </section>

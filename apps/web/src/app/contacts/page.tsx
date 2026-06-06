@@ -4,7 +4,6 @@ import {
   dismissLifecycleSuggestionAction,
   mergeContactProfilesAction,
   resolveProfileReviewAction,
-  runContactLifecycleReviewAction,
   updateContactProfileAction,
 } from "./actions";
 import { AppFrame } from "../components/app-frame";
@@ -731,13 +730,6 @@ function ProfilePanel({
           <h2>{displayName}</h2>
         </div>
         <div className="action-row">
-          <form action={runContactLifecycleReviewAction}>
-            <input name="contactId" type="hidden" value={profile.contact.id} />
-            <input name="redirectTo" type="hidden" value={redirectTo} />
-            <button className="secondary-button compact" type="submit">
-              Review lifecycle
-            </button>
-          </form>
           <Link
             className="secondary-button compact"
             href={crmHref({ filter: activeFilter, search, sort })}
@@ -1298,22 +1290,6 @@ export default async function ContactsPage({
               <h2>People, companies and leads</h2>
             </div>
             <div className="action-row">
-              <form action={runContactLifecycleReviewAction}>
-                <input
-                  name="redirectTo"
-                  type="hidden"
-                  value={crmHref({
-                    contactId: selectedProfile?.contact.id,
-                    filter: activeFilter,
-                    page: currentPage,
-                    search: searchState,
-                    sort: activeSort,
-                  })}
-                />
-                <button className="secondary-button compact" type="submit">
-                  Review lifecycle
-                </button>
-              </form>
               <span className="pill">
                 {totalItems === 0
                   ? "0 shown"

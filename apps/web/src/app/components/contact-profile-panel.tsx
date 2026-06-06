@@ -7,7 +7,6 @@ import {
   dismissLifecycleSuggestionAction,
   mergeContactProfilesAction,
   resolveProfileReviewAction,
-  runContactLifecycleReviewAction,
   updateContactProfileAction,
 } from "../contacts/actions";
 import { AddressAutocompleteField } from "./address-autocomplete-field";
@@ -68,13 +67,6 @@ export function ContactProfilePanel({
           <h2>{displayName}</h2>
         </div>
         <div className="action-row">
-          <form action={runContactLifecycleReviewAction}>
-            <input name="contactId" type="hidden" value={profile.contact.id} />
-            <input name="redirectTo" type="hidden" value={currentRedirectTo} />
-            <button className="secondary-button compact" type="submit">
-              Review lifecycle
-            </button>
-          </form>
           {onClose ? (
             <button
               className="secondary-button compact"
