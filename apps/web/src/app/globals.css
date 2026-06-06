@@ -2187,6 +2187,15 @@ textarea:focus {
   margin-bottom: 24px;
 }
 
+.page-topbar-tight {
+  margin-top: -14px;
+  margin-bottom: 14px;
+}
+
+.page-topbar-tight .topbar-right {
+  padding-top: 0;
+}
+
 h1,
 h2 {
   margin: 0;
@@ -4791,12 +4800,16 @@ button.voice-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.34fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .log-feed {
   display: grid;
   gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+  padding-right: 2px;
 }
 
 .log-filter-bar {
@@ -4870,7 +4883,7 @@ button.voice-card {
 
 .log-row {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
@@ -4910,27 +4923,30 @@ button.voice-card {
 }
 
 .log-main {
-  display: grid;
+  display: block;
   min-width: 0;
-  gap: 5px;
 }
 
-.log-title-row {
+.log-summary-row {
   display: flex;
-  flex-wrap: wrap;
+  min-width: 0;
   gap: 8px 12px;
   align-items: baseline;
 }
 
-.log-title-row time,
-.log-main p {
-  color: var(--muted);
-  font-size: 0.8125rem;
+.log-summary-row strong,
+.log-summary-row span,
+.log-row time,
+.log-row > .pill {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.log-main p {
-  margin: 0;
-  line-height: 1.45;
+.log-summary-row span,
+.log-row time {
+  color: var(--muted);
+  font-size: 0.8125rem;
 }
 
 .activity-list {
@@ -4949,6 +4965,10 @@ button.voice-card {
 .data-list {
   display: grid;
   gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+  padding-right: 2px;
 }
 
 .filter-bar {
@@ -5727,7 +5747,10 @@ button.voice-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
+  min-height: calc(100vh - 198px);
+  max-height: calc(100vh - 198px);
+  overflow: hidden;
 }
 
 .inbox-workspace.has-preview {
@@ -5738,7 +5761,10 @@ button.voice-card {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
+  min-height: calc(100vh - 198px);
+  max-height: calc(100vh - 198px);
+  overflow: hidden;
 }
 
 .inbox-work-queue-panel,
@@ -5747,7 +5773,10 @@ button.voice-card {
 }
 
 .inbox-work-queue-panel {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   border-radius: var(--radius-panel);
+  min-height: 0;
 }
 
 .inbox-preview-actions {
@@ -5763,6 +5792,12 @@ button.voice-card {
 .crm-list-panel,
 .crm-profile-panel {
   min-width: 0;
+}
+
+.crm-list-panel {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  min-height: 0;
 }
 
 .crm-toolbar {
@@ -5830,6 +5865,10 @@ button.voice-card {
 .crm-list {
   display: grid;
   gap: 6px;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+  padding-right: 2px;
 }
 
 .crm-row {
@@ -5909,18 +5948,18 @@ button.voice-card {
 
 .crm-profile-panel {
   display: grid;
-  max-height: calc(100vh - 132px);
+  max-height: 100%;
   overflow: hidden;
   padding: 0;
-  position: sticky;
-  top: 16px;
+  position: static;
 }
 
 .crm-profile-body {
   display: grid;
   gap: 14px;
   overflow: auto;
-  max-height: calc(100vh - 220px);
+  max-height: none;
+  min-height: 0;
   padding: 18px;
 }
 
@@ -6422,12 +6461,50 @@ button:disabled {
 
 .side-stack {
   display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  min-height: 0;
+}
+
+.side-stack > .panel {
+  min-height: 0;
+}
+
+.activity-workspace {
+  min-height: calc(100vh - 198px);
+  max-height: calc(100vh - 198px);
+  overflow: hidden;
+}
+
+.activity-log-panel {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  min-height: 0;
 }
 
 .detail-list {
   display: grid;
   gap: 12px;
+}
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pagination-label {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.pagination-bar .disabled {
+  pointer-events: none;
+  opacity: 0.48;
 }
 
 .detail-list div {

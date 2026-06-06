@@ -52,6 +52,7 @@ type InboxPageProps = {
   searchParams?: Promise<{
     filter?: string;
     conversationId?: string;
+    page?: string;
     q?: string;
     skippedQ?: string;
     sort?: string;
@@ -80,6 +81,7 @@ const SORT_OPTIONS = [
   { value: "action", label: "Next action" },
   { value: "customer", label: "Customer" },
 ] as const;
+const INBOX_PAGE_SIZE = 10;
 
 const WORKFLOW_RANK: Record<string, number> = {
   needs_reply: 1,
@@ -129,15 +131,23 @@ function isSort(
   return SORT_OPTIONS.some((sort) => sort.value === value);
 }
 
+function normalizePage(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
 function inboxHref({
   conversationId,
   filter,
+  page,
   query,
   showSkippedEmail = false,
   sort,
 }: {
   conversationId?: string | null;
   filter: string;
+  page?: number;
   query: string;
   showSkippedEmail?: boolean;
   sort: string;
@@ -164,6 +174,10 @@ function inboxHref({
     params.set("skipped", "1");
   }
 
+  if (page && page > 1) {
+    params.set("page", String(page));
+  }
+
   const nextQuery = params.toString();
 
   return nextQuery ? `/inbox?${nextQuery}` : "/inbox";
@@ -171,6 +185,7 @@ function inboxHref({
 
 function filterHref(
   filter: string,
+  page: number | undefined,
   query: string,
   sort: string,
   showSkippedEmail: boolean,
@@ -179,6 +194,7 @@ function filterHref(
   return inboxHref({
     conversationId,
     filter,
+    page,
     query,
     showSkippedEmail,
     sort,
@@ -1211,6 +1227,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const { supabase, workspace } = await requireWorkspaceContext();
   const activeFilter = isFilter(query?.filter) ? query.filter : "all";
   const activeSort = isSort(query?.sort) ? query.sort : "recent";
+  const requestedPage = normalizePage(query?.page);
   const searchQuery = query?.q?.trim() ?? "";
   const skippedSearchQuery = query?.skippedQ?.trim() ?? "";
   const selectedConversationId = query?.conversationId?.trim() ?? "";
@@ -1333,6 +1350,16 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
     return dateValue(right.lastMessageAt) - dateValue(left.lastMessageAt);
   });
+  const totalPages = Math.max(
+    1,
+    Math.ceil(sortedConversations.length / INBOX_PAGE_SIZE),
+  );
+  const currentPage = Math.min(requestedPage, totalPages);
+  const pageStart = (currentPage - 1) * INBOX_PAGE_SIZE;
+  const paginatedConversations = sortedConversations.slice(
+    pageStart,
+    pageStart + INBOX_PAGE_SIZE,
+  );
   const filterCounts = new Map<string, number>(
     FILTERS.map((filter) => [
       filter.value,
@@ -1371,7 +1398,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
   return (
     <AppFrame active="Inbox">
-      <header className="topbar inbox-topbar">
+      <header className="topbar inbox-topbar page-topbar-tight">
         <div>
           <p className="eyebrow">{workspace.name}</p>
           <h1>Inbox</h1>
@@ -1420,7 +1447,14 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
               <h2>Work queue</h2>
             </div>
             <div className="inbox-work-queue-actions">
-              <span className="pill">{sortedConversations.length} shown</span>
+              <span className="pill">
+                {sortedConversations.length === 0
+                  ? "0 shown"
+                  : `${pageStart + 1}-${Math.min(
+                      pageStart + INBOX_PAGE_SIZE,
+                      sortedConversations.length,
+                    )} of ${sortedConversations.length}`}
+              </span>
               <Link
                 aria-label={`Filtered-out emails, ${skippedEmailLast24HoursCount} from the last 24 hours`}
                 className={
@@ -1451,6 +1485,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                 }
                 href={filterHref(
                   filter.value,
+                  undefined,
                   searchQuery,
                   activeSort,
                   showSkippedEmail,
@@ -1504,8 +1539,8 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
           </form>
 
           <div className="data-list">
-            {sortedConversations.length > 0 ? (
-              sortedConversations.map((conversation) => {
+            {paginatedConversations.length > 0 ? (
+              paginatedConversations.map((conversation) => {
                 const jobType =
                   conversation.inquiryFacts?.jobType ??
                   conversation.leadServiceType ??
@@ -1542,6 +1577,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     href={inboxHref({
                       conversationId: conversation.id,
                       filter: activeFilter,
+                      page: currentPage,
                       query: searchQuery,
                       showSkippedEmail,
                       sort: activeSort,
@@ -1586,6 +1622,52 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
               </p>
             )}
           </div>
+
+          {totalPages > 1 ? (
+            <nav aria-label="Inbox pagination" className="pagination-bar">
+              <Link
+                aria-disabled={currentPage === 1}
+                className={
+                  currentPage === 1
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={inboxHref({
+                  conversationId: selectedConversationReview?.conversation.id,
+                  filter: activeFilter,
+                  page: currentPage - 1,
+                  query: searchQuery,
+                  showSkippedEmail,
+                  sort: activeSort,
+                })}
+                prefetch={false}
+              >
+                Previous
+              </Link>
+              <span className="pagination-label">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Link
+                aria-disabled={currentPage === totalPages}
+                className={
+                  currentPage === totalPages
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={inboxHref({
+                  conversationId: selectedConversationReview?.conversation.id,
+                  filter: activeFilter,
+                  page: currentPage + 1,
+                  query: searchQuery,
+                  showSkippedEmail,
+                  sort: activeSort,
+                })}
+                prefetch={false}
+              >
+                Next
+              </Link>
+            </nav>
+          ) : null}
         </section>
         {showSkippedEmail ? (
           <SkippedEmailDialog

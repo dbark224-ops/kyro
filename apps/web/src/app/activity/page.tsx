@@ -54,6 +54,7 @@ type LogPageProps = {
     detail?: string;
     filter?: string;
     from?: string;
+    page?: string;
     q?: string;
     source?: string;
     to?: string;
@@ -80,6 +81,7 @@ const LOG_FILTERS: Array<{ label: string; value: LogFilter }> = [
   { label: "Routing", value: "routing" },
   { label: "Usage", value: "usage" },
 ];
+const LOG_PAGE_SIZE = 10;
 
 function SetupRequired() {
   return (
@@ -116,11 +118,19 @@ function normalizeDateInput(value: string | undefined) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
 }
 
+function normalizePage(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
 function logHref({
   filter,
+  page,
   search,
 }: {
   filter: LogFilter;
+  page?: number;
   search?: LogSearchState;
 }) {
   const params = new URLSearchParams();
@@ -147,6 +157,10 @@ function logHref({
 
   if (search?.to) {
     params.set("to", search.to);
+  }
+
+  if (page && page > 1) {
+    params.set("page", String(page));
   }
 
   const query = params.toString();
@@ -417,6 +431,7 @@ function itemMatchesSearch(item: LogItem, search: LogSearchState) {
 export default async function ActivityPage({ searchParams }: LogPageProps) {
   const query = await searchParams;
   const activeFilter = isLogFilter(query?.filter) ? query.filter : "all";
+  const requestedPage = normalizePage(query?.page);
   const searchState: LogSearchState = {
     detail: normalizeSearch(query?.detail),
     from: normalizeDateInput(query?.from),
@@ -474,11 +489,21 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
   const filteredLogItems = searchedLogItems.filter((item) =>
     itemMatchesFilter(item, activeFilter),
   );
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredLogItems.length / LOG_PAGE_SIZE),
+  );
+  const currentPage = Math.min(requestedPage, totalPages);
+  const pageStart = (currentPage - 1) * LOG_PAGE_SIZE;
+  const paginatedLogItems = filteredLogItems.slice(
+    pageStart,
+    pageStart + LOG_PAGE_SIZE,
+  );
   const latestItem = filteredLogItems[0] ?? searchedLogItems[0] ?? logItems[0];
 
   return (
     <AppFrame active="Activity">
-      <header className="topbar">
+      <header className="topbar page-topbar-tight">
         <div>
           <p className="eyebrow">{workspace.name}</p>
           <h1>Activity</h1>
@@ -504,14 +529,21 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
         </div>
       </header>
 
-      <section className="log-layout">
-        <article className="panel page-panel">
+      <section className="log-layout activity-workspace">
+        <article className="panel page-panel activity-log-panel">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Activity</p>
               <h2>Workspace timeline</h2>
             </div>
-            <span className="pill">{filteredLogItems.length} shown</span>
+            <span className="pill">
+              {filteredLogItems.length === 0
+                ? "0 shown"
+                : `${pageStart + 1}-${Math.min(
+                    pageStart + LOG_PAGE_SIZE,
+                    filteredLogItems.length,
+                  )} of ${filteredLogItems.length}`}
+            </span>
           </div>
 
           <nav className="filter-bar log-filter-bar" aria-label="Log filters">
@@ -595,17 +627,17 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
           </form>
 
           <div className="log-feed">
-            {filteredLogItems.length > 0 ? (
-              filteredLogItems.map((item) => (
+            {paginatedLogItems.length > 0 ? (
+              paginatedLogItems.map((item) => (
                 <article className={`log-row ${item.tone}`} key={item.id}>
                   <div className="log-marker" aria-hidden="true" />
                   <div className="log-main">
-                    <div className="log-title-row">
+                    <div className="log-summary-row">
                       <strong>{item.title}</strong>
-                      <time>{formatDate(item.at)}</time>
+                      <span>{item.detail}</span>
                     </div>
-                    <p>{item.detail}</p>
                   </div>
+                  <time>{formatDate(item.at)}</time>
                   <span className="pill">{item.meta}</span>
                 </article>
               ))
@@ -617,8 +649,48 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
                     ? "No log activity matches this search."
                   : "No log activity has been recorded yet."}
               </p>
-            )}
+              )}
           </div>
+
+          {totalPages > 1 ? (
+            <nav aria-label="Activity pagination" className="pagination-bar">
+              <Link
+                aria-disabled={currentPage === 1}
+                className={
+                  currentPage === 1
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={logHref({
+                  filter: activeFilter,
+                  page: currentPage - 1,
+                  search: searchState,
+                })}
+                prefetch={false}
+              >
+                Previous
+              </Link>
+              <span className="pagination-label">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Link
+                aria-disabled={currentPage === totalPages}
+                className={
+                  currentPage === totalPages
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={logHref({
+                  filter: activeFilter,
+                  page: currentPage + 1,
+                  search: searchState,
+                })}
+                prefetch={false}
+              >
+                Next
+              </Link>
+            </nav>
+          ) : null}
         </article>
 
         <aside className="side-stack">

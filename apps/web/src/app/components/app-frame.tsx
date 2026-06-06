@@ -23,7 +23,6 @@ import type { ReactNode } from "react";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
   { label: "Assistant", href: "/assistant", icon: "assistant", primary: true },
-  { label: "Voice", href: "/voice", icon: "voice" },
   { label: "Vapi Voice", href: "/voice-vapi", icon: "voice" },
   { label: "Inbox", href: "/inbox", icon: "inbox" },
   { label: "CRM", href: "/contacts", icon: "crm" },

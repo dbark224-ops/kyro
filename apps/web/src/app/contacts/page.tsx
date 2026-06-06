@@ -41,6 +41,7 @@ type ContactsPageProps = {
     engine_error?: string;
     engine_message?: string;
     filter?: string;
+    page?: string;
     phone?: string;
     q?: string;
     sort?: string;
@@ -68,6 +69,7 @@ const CRM_SORT_OPTIONS = [
 
 type CrmFilter = (typeof CRM_FILTERS)[number]["value"];
 type CrmSort = (typeof CRM_SORT_OPTIONS)[number]["value"];
+const CRM_PAGE_SIZE = 10;
 type CrmSearchState = {
   address: string;
   email: string;
@@ -83,14 +85,22 @@ function isCrmSort(value: string | undefined): value is CrmSort {
   return CRM_SORT_OPTIONS.some((sort) => sort.value === value);
 }
 
+function normalizePage(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
 function crmHref({
   contactId,
   filter,
+  page,
   search,
   sort,
 }: {
   contactId?: string | null;
   filter: CrmFilter;
+  page?: number;
   search?: CrmSearchState;
   sort?: CrmSort;
 }) {
@@ -122,6 +132,10 @@ function crmHref({
 
   if (contactId) {
     params.set("contactId", contactId);
+  }
+
+  if (page && page > 1) {
+    params.set("page", String(page));
   }
 
   const query = params.toString();
@@ -375,12 +389,14 @@ function ContactRow({
   activeFilter,
   contact,
   isSelected,
+  page,
   search,
   sort,
 }: Readonly<{
   activeFilter: CrmFilter;
   contact: ContactListItem;
   isSelected: boolean;
+  page: number;
   search: CrmSearchState;
   sort: CrmSort;
 }>) {
@@ -398,6 +414,7 @@ function ContactRow({
       href={crmHref({
         contactId: contact.id,
         filter: activeFilter,
+        page,
         search,
         sort,
       })}
@@ -431,17 +448,25 @@ function LeadRow({
   activeFilter,
   isSelected,
   lead,
+  page,
   search,
   sort,
 }: Readonly<{
   activeFilter: CrmFilter;
   isSelected: boolean;
   lead: LeadListItem;
+  page: number;
   search: CrmSearchState;
   sort: CrmSort;
 }>) {
   const href = lead.contactId
-    ? crmHref({ contactId: lead.contactId, filter: activeFilter, search, sort })
+    ? crmHref({
+        contactId: lead.contactId,
+        filter: activeFilter,
+        page,
+        search,
+        sort,
+      })
     : lead.conversationId
       ? `/inbox?conversationId=${lead.conversationId}`
       : "/inbox";
@@ -1139,6 +1164,7 @@ export default async function ContactsPage({
   const { supabase, workspace } = await requireWorkspaceContext();
   const activeFilter = isCrmFilter(query?.filter) ? query.filter : "all";
   const activeSort = isCrmSort(query?.sort) ? query.sort : "recent";
+  const requestedPage = normalizePage(query?.page);
   const searchState = {
     address: normalizeSearch(query?.address),
     email: normalizeSearch(query?.email),
@@ -1219,8 +1245,18 @@ export default async function ContactsPage({
     contactsById,
     leadCountsByContact,
   );
-  const shownCount =
+  const totalItems =
     activeFilter === "leads" ? sortedLeads.length : sortedContacts.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / CRM_PAGE_SIZE));
+  const currentPage = Math.min(requestedPage, totalPages);
+  const pageStart = (currentPage - 1) * CRM_PAGE_SIZE;
+  const paginatedContacts = sortedContacts.slice(
+    pageStart,
+    pageStart + CRM_PAGE_SIZE,
+  );
+  const paginatedLeads = sortedLeads.slice(pageStart, pageStart + CRM_PAGE_SIZE);
+  const shownCount =
+    activeFilter === "leads" ? paginatedLeads.length : paginatedContacts.length;
   const selectedLeadContactIds = new Set(
     searchedLeads
       .filter((lead) => lead.contactId)
@@ -1229,7 +1265,7 @@ export default async function ContactsPage({
 
   return (
     <AppFrame active="CRM">
-      <header className="topbar">
+      <header className="topbar page-topbar-tight">
         <div>
           <p className="eyebrow">{workspace.name}</p>
           <h1>CRM</h1>
@@ -1270,6 +1306,7 @@ export default async function ContactsPage({
                   value={crmHref({
                     contactId: selectedProfile?.contact.id,
                     filter: activeFilter,
+                    page: currentPage,
                     search: searchState,
                     sort: activeSort,
                   })}
@@ -1278,7 +1315,14 @@ export default async function ContactsPage({
                   Review lifecycle
                 </button>
               </form>
-              <span className="pill">{shownCount} shown</span>
+              <span className="pill">
+                {totalItems === 0
+                  ? "0 shown"
+                  : `${pageStart + 1}-${Math.min(
+                      pageStart + CRM_PAGE_SIZE,
+                      totalItems,
+                    )} of ${totalItems}`}
+              </span>
             </div>
           </div>
 
@@ -1388,7 +1432,7 @@ export default async function ContactsPage({
           <div className="crm-list">
             {activeFilter === "leads" ? (
               sortedLeads.length > 0 ? (
-                sortedLeads.map((lead) => (
+                paginatedLeads.map((lead) => (
                   <LeadRow
                     activeFilter={activeFilter}
                     isSelected={Boolean(
@@ -1397,6 +1441,7 @@ export default async function ContactsPage({
                     )}
                     key={lead.id}
                     lead={lead}
+                    page={currentPage}
                     search={searchState}
                     sort={activeSort}
                   />
@@ -1405,12 +1450,13 @@ export default async function ContactsPage({
                 <p className="empty-copy">No leads match this view yet.</p>
               )
             ) : sortedContacts.length > 0 ? (
-              sortedContacts.map((contact) => (
+              paginatedContacts.map((contact) => (
                 <ContactRow
                   activeFilter={activeFilter}
                   contact={contact}
                   isSelected={selectedProfile?.contact.id === contact.id}
                   key={contact.id}
+                  page={currentPage}
                   search={searchState}
                   sort={activeSort}
                 />
@@ -1426,6 +1472,50 @@ export default async function ContactsPage({
                 {selectedLeadContactIds.size} contacts have leads
               </span>
             </div>
+          ) : null}
+
+          {totalPages > 1 ? (
+            <nav aria-label="CRM pagination" className="pagination-bar">
+              <Link
+                aria-disabled={currentPage === 1}
+                className={
+                  currentPage === 1
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={crmHref({
+                  contactId: selectedProfile?.contact.id,
+                  filter: activeFilter,
+                  page: currentPage - 1,
+                  search: searchState,
+                  sort: activeSort,
+                })}
+                prefetch={false}
+              >
+                Previous
+              </Link>
+              <span className="pagination-label">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Link
+                aria-disabled={currentPage === totalPages}
+                className={
+                  currentPage === totalPages
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={crmHref({
+                  contactId: selectedProfile?.contact.id,
+                  filter: activeFilter,
+                  page: currentPage + 1,
+                  search: searchState,
+                  sort: activeSort,
+                })}
+                prefetch={false}
+              >
+                Next
+              </Link>
+            </nav>
           ) : null}
         </section>
 
