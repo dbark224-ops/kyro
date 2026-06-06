@@ -2218,6 +2218,10 @@ textarea:focus {
   padding-top: 20px;
 }
 
+.workspace-fit-fold .files-topbar {
+  margin-bottom: 6px;
+}
+
 h1,
 h2 {
   margin: 0;
@@ -6517,11 +6521,29 @@ button:disabled {
 
 .workspace-fit-fold .activity-workspace,
 .workspace-fit-fold .crm-workspace,
+.workspace-fit-fold .document-grid,
 .workspace-fit-fold .inbox-workspace {
   flex: 1 1 auto;
   height: auto;
   min-height: 0;
   max-height: none;
+}
+
+.workspace-fit-fold .document-grid {
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.workspace-fit-fold .document-grid > .page-panel,
+.workspace-fit-fold .document-grid > .side-stack {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.workspace-fit-fold .document-grid > .page-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .activity-log-panel {
@@ -8404,24 +8426,25 @@ button:disabled {
 
 .file-library-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  min-height: 0;
 }
 
 .file-library-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: auto minmax(160px, 1fr) minmax(210px, 0.42fr) auto;
+  gap: 10px;
   align-items: center;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 50%, var(--surface));
-  padding: 12px;
+  padding: 8px 12px;
 }
 
 .file-kind-token {
   display: inline-flex;
-  width: 48px;
-  height: 36px;
+  width: 58px;
+  height: 30px;
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
@@ -8436,17 +8459,16 @@ button:disabled {
 .file-library-main {
   display: grid;
   min-width: 0;
-  gap: 4px;
 }
 
 .file-library-main strong,
-.file-library-main span {
+.file-library-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-library-main span {
+.file-library-meta {
   color: color-mix(in srgb, var(--text) 68%, var(--muted));
   font-size: 0.8125rem;
 }
@@ -10782,6 +10804,10 @@ button:disabled {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
+  .file-library-meta {
+    grid-column: 2 / -1;
+  }
+
   .file-library-actions {
     grid-column: 1 / -1;
     justify-content: stretch;
@@ -11850,11 +11876,11 @@ button:disabled {
 
 .dashboard-command-centre {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1.3fr) minmax(0, 0.86fr);
+  grid-template-rows: auto auto minmax(0, 1.72fr) minmax(0, 0.8fr);
   gap: 10px;
   margin-top: -52px;
-  min-height: calc(100vh - 134px);
-  height: calc(100vh - 134px);
+  min-height: calc(100vh - 118px);
+  height: calc(100vh - 118px);
   align-content: stretch;
 }
 

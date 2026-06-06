@@ -25,6 +25,7 @@ type DocumentsPageProps = {
     engine_error?: string;
     engine_message?: string;
     fileFilter?: string;
+    filePage?: string;
     filter?: string;
   }>;
 };
@@ -49,6 +50,8 @@ const FILE_FILTERS = [
   { value: "document", label: "Documents" },
   { value: "email", label: "Email" },
 ] as const;
+
+const FILE_PAGE_SIZE = 8;
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -108,9 +111,11 @@ function isFileFilter(
 
 function filesHref({
   fileFilter,
+  filePage,
   quoteFilter,
 }: {
   fileFilter?: string;
+  filePage?: number;
   quoteFilter?: string;
 }) {
   const params = new URLSearchParams();
@@ -123,9 +128,23 @@ function filesHref({
     params.set("fileFilter", fileFilter);
   }
 
+  if (filePage && filePage > 1) {
+    params.set("filePage", String(filePage));
+  }
+
   const query = params.toString();
 
   return query ? `/files?${query}` : "/files";
+}
+
+function normalizePage(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return parsed;
 }
 
 function canPreviewInline(file: WorkspaceFileLibraryItem) {
@@ -141,6 +160,22 @@ function isGeneratedFile(file: WorkspaceFileLibraryItem) {
 
 function isUploadedFile(file: WorkspaceFileLibraryItem) {
   return file.kind === "upload" || file.source.includes("upload");
+}
+
+function fileKindLabel(file: WorkspaceFileLibraryItem) {
+  if (isGeneratedFile(file)) {
+    return "GEN";
+  }
+
+  if (isUploadedFile(file)) {
+    return "UPLOAD";
+  }
+
+  if (isImageFile(file)) {
+    return "IMG";
+  }
+
+  return file.kind.toUpperCase();
 }
 
 function isImageFile(file: WorkspaceFileLibraryItem) {
@@ -208,6 +243,22 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
   const filteredFiles = fileLibrary.filter((file) => {
     return matchesFileFilter(file, activeFileFilter);
   });
+  const filePageCount = Math.max(
+    1,
+    Math.ceil(filteredFiles.length / FILE_PAGE_SIZE),
+  );
+  const requestedFilePage = normalizePage(query?.filePage);
+  const currentFilePage = Math.min(requestedFilePage, filePageCount);
+  const fileStartIndex = (currentFilePage - 1) * FILE_PAGE_SIZE;
+  const visibleFiles = filteredFiles.slice(
+    fileStartIndex,
+    fileStartIndex + FILE_PAGE_SIZE,
+  );
+  const fileRangeStart = filteredFiles.length === 0 ? 0 : fileStartIndex + 1;
+  const fileRangeEnd = Math.min(
+    fileStartIndex + FILE_PAGE_SIZE,
+    filteredFiles.length,
+  );
   const filterCounts = new Map(
     DOCUMENT_FILTERS.map((filter) => [
       filter.value,
@@ -240,9 +291,8 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
 
   return (
     <AppFrame active="Files">
-      <header className="topbar">
+      <header className="topbar page-topbar-tight files-topbar">
         <div>
-          <p className="eyebrow">{workspace.name}</p>
           <h1>Files</h1>
         </div>
         <div className="topbar-right">
@@ -276,7 +326,11 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
               <p className="eyebrow">Library</p>
               <h2>Generated and uploaded files</h2>
             </div>
-            <span className="pill">{filteredFiles.length} shown</span>
+            <span className="pill">
+              {filteredFiles.length > 0
+                ? `${fileRangeStart}-${fileRangeEnd} of ${filteredFiles.length}`
+                : "0 shown"}
+            </span>
           </div>
 
           <nav className="filter-bar" aria-label="File filters">
@@ -302,18 +356,18 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
 
           <div className="file-library-list">
             {filteredFiles.length > 0 ? (
-              filteredFiles.map((file) => (
+              visibleFiles.map((file) => (
                 <div className="file-library-row" key={file.id}>
                   <div className="file-kind-token" aria-hidden="true">
-                    {file.kind === "image" ? "IMG" : file.kind.toUpperCase()}
+                    {fileKindLabel(file)}
                   </div>
                   <div className="file-library-main">
-                    <strong>{file.filename}</strong>
-                    <span>
-                      {file.sourceLabel} - {formatFileSize(file.sizeBytes)} -{" "}
-                      {formatDate(file.createdAt)}
-                    </span>
+                    <strong title={file.filename}>{file.filename}</strong>
                   </div>
+                  <span className="file-library-meta">
+                    {file.sourceLabel} - {formatFileSize(file.sizeBytes)} -{" "}
+                    {formatDate(file.createdAt)}
+                  </span>
                   <div className="file-library-actions">
                     {canPreviewInline(file) ? (
                       <Link
@@ -343,6 +397,44 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
               </p>
             )}
           </div>
+
+          {filePageCount > 1 ? (
+            <nav className="pagination-bar" aria-label="Files pagination">
+              <Link
+                className={
+                  currentFilePage === 1
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={filesHref({
+                  fileFilter: activeFileFilter,
+                  filePage: currentFilePage - 1,
+                  quoteFilter: activeFilter,
+                })}
+                prefetch={false}
+              >
+                Previous
+              </Link>
+              <span className="pagination-label">
+                Page {currentFilePage} of {filePageCount}
+              </span>
+              <Link
+                className={
+                  currentFilePage >= filePageCount
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={filesHref({
+                  fileFilter: activeFileFilter,
+                  filePage: currentFilePage + 1,
+                  quoteFilter: activeFilter,
+                })}
+                prefetch={false}
+              >
+                Next
+              </Link>
+            </nav>
+          ) : null}
         </article>
 
         <aside className="side-stack">

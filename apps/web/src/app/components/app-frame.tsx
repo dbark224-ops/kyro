@@ -429,7 +429,7 @@ export function AppFrame({
   topControls?: ReactNode;
 }>) {
   const activeHref = navItems.find((item) => item.label === active)?.href;
-  const fitFoldPages = new Set(["Activity", "CRM", "Inbox"]);
+  const fitFoldPages = new Set(["Activity", "CRM", "Files", "Inbox"]);
   const workspaceClassName = [
     "workspace",
     fitFoldPages.has(active) ? "workspace-fit-fold" : null,
