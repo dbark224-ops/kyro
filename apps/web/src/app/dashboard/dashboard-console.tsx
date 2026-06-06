@@ -974,8 +974,7 @@ export function DashboardConsole({
     <section className="dashboard-command-centre">
       <header className="dashboard-command-header">
         <div className="dashboard-command-title">
-          <p className="eyebrow">Dashboard</p>
-          <h1>Command Centre</h1>
+          <h1>Dashboard</h1>
         </div>
         <div className="dashboard-command-actions">
           <button

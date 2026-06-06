@@ -11728,22 +11728,19 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  min-height: 50px;
+  min-height: 56px;
+  padding-right: clamp(280px, 23vw, 380px);
 }
 
 .dashboard-command-title {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
   flex-wrap: wrap;
 }
 
-.dashboard-command-title .eyebrow {
-  margin: 0;
-}
-
 .dashboard-command-header h1 {
-  font-size: clamp(1.85rem, 3vw, 2.45rem);
+  margin: 0;
+  font-size: clamp(2.2rem, 3.4vw, 3rem);
   line-height: 1;
 }
 
@@ -11758,6 +11755,7 @@ button:disabled {
   align-items: center;
   gap: 10px;
   margin-left: auto;
+  flex-wrap: wrap;
 }
 
 .dashboard-timeframe-select select,
