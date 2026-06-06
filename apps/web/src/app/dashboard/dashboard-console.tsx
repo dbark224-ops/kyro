@@ -538,6 +538,7 @@ function MiniAssistantWidget({
   const [draft, setDraft] = useState("");
   const [optimisticMessage, setOptimisticMessage] =
     useState<AssistantThreadMessage | null>(null);
+  const feedRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const pendingDraftRef = useRef("");
   const previousLastMessageIdRef = useRef(
@@ -578,6 +579,16 @@ function MiniAssistantWidget({
     [assistantState.messages, optimisticMessage],
   );
 
+  useEffect(() => {
+    const feed = feedRef.current;
+
+    if (!feed) {
+      return;
+    }
+
+    feed.scrollTop = feed.scrollHeight;
+  }, [messages]);
+
   return (
     <section className="dashboard-widget assistant dashboard-widget-assistant">
       <DashboardWidgetHeader
@@ -588,7 +599,7 @@ function MiniAssistantWidget({
         }
         title="Assistant"
       />
-      <div className="dashboard-mini-assistant-feed">
+      <div className="dashboard-mini-assistant-feed" ref={feedRef}>
         {messages.map((message) => (
           <article
             className={`dashboard-mini-turn ${message.role === "user" ? "user" : "assistant"}`}
