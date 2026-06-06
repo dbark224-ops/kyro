@@ -4986,7 +4986,7 @@ button.voice-card {
 
 .data-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   min-height: 0;
   overflow: auto;
   align-content: start;
@@ -5895,7 +5895,7 @@ button.voice-card {
 
 .crm-row {
   display: grid;
-  min-height: 46px;
+  min-height: 42px;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px;
   align-items: center;
@@ -5903,7 +5903,7 @@ button.voice-card {
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   color: inherit;
-  padding: 8px 12px 8px 18px;
+  padding: 7px 12px 7px 18px;
   text-decoration: none;
   transition:
     border-color 160ms ease,
@@ -5965,7 +5965,7 @@ button.voice-card {
 .crm-list-note {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .crm-profile-panel {
@@ -6094,14 +6094,14 @@ button.voice-card {
 
 .data-row {
   display: grid;
-  min-height: 88px;
+  min-height: 82px;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 0.38fr);
   gap: 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 46%, var(--surface));
   color: inherit;
-  padding: 14px;
+  padding: 12px;
   text-decoration: none;
   transition:
     border-color 160ms ease,
