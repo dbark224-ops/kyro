@@ -8426,25 +8426,25 @@ button:disabled {
 
 .file-library-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-height: 0;
 }
 
 .file-library-row {
   display: grid;
   grid-template-columns: auto minmax(160px, 1fr) minmax(210px, 0.42fr) auto;
-  gap: 10px;
+  gap: 9px;
   align-items: center;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 50%, var(--surface));
-  padding: 8px 12px;
+  padding: 5px 10px;
 }
 
 .file-kind-token {
   display: inline-flex;
   width: 58px;
-  height: 30px;
+  height: 26px;
   align-items: center;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
@@ -11876,11 +11876,11 @@ button:disabled {
 
 .dashboard-command-centre {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1.72fr) minmax(0, 0.8fr);
+  grid-template-rows: auto auto minmax(0, 2.16fr) minmax(0, 0.82fr);
   gap: 10px;
   margin-top: -52px;
-  min-height: calc(100vh - 118px);
-  height: calc(100vh - 118px);
+  min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
   align-content: stretch;
 }
 

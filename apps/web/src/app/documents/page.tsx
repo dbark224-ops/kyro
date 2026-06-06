@@ -51,7 +51,7 @@ const FILE_FILTERS = [
   { value: "email", label: "Email" },
 ] as const;
 
-const FILE_PAGE_SIZE = 8;
+const FILE_PAGE_SIZE = 10;
 
 function formatDate(value: string | null) {
   if (!value) {
