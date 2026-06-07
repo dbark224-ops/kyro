@@ -742,7 +742,7 @@ function renderWidget({
   if (key === "activity") {
     const items = timeFilteredActivity(data, timeframe)
       .filter((item) => matchesActivityFilter(item.tone, activityFilter))
-      .slice(0, 4);
+      .slice(0, 6);
 
     return (
       <section className="dashboard-widget dashboard-widget-activity" key={key}>
