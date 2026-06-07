@@ -2,6 +2,7 @@
 
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { createWorkspaceBootstrap } from "../../lib/workspace/bootstrap";
+import { isOperatingCountry } from "../../lib/workspace/operating-countries";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -51,7 +52,7 @@ export async function signUpAction(formData: FormData) {
   const name = formString(formData, "name");
   const businessName = formString(formData, "businessName");
   const businessLocation = formString(formData, "businessLocation");
-  const country = formString(formData, "country") || "Australia";
+  const country = formString(formData, "country");
   const industry = formString(formData, "industry");
   const postcode = formString(formData, "postcode");
   const serviceArea = formString(formData, "serviceArea");
@@ -72,6 +73,13 @@ export async function signUpAction(formData: FormData) {
     redirectWithError(
       failurePath,
       "Business name, industry, and location are required.",
+    );
+  }
+
+  if (!isOperatingCountry(country)) {
+    redirectWithError(
+      failurePath,
+      "Choose the country this workspace operates in.",
     );
   }
 

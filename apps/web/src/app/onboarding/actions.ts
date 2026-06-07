@@ -2,6 +2,7 @@
 
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { createWorkspaceBootstrap, getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
+import { isOperatingCountry } from "../../lib/workspace/operating-countries";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -32,13 +33,17 @@ export async function bootstrapWorkspaceAction(formData: FormData) {
 
   const businessName = formString(formData, "businessName");
   const businessLocation = formString(formData, "businessLocation");
-  const country = formString(formData, "country") || "Australia";
+  const country = formString(formData, "country");
   const industry = formString(formData, "industry");
   const postcode = formString(formData, "postcode");
   const serviceArea = formString(formData, "serviceArea");
 
   if (!businessName) {
     redirectWithError("Business name is required.");
+  }
+
+  if (!isOperatingCountry(country)) {
+    redirectWithError("Choose the country this workspace operates in.");
   }
 
   try {

@@ -1,6 +1,7 @@
 import { BrandMark } from "../components/brand-mark";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
+import { OPERATING_COUNTRY_OPTIONS } from "../../lib/workspace/operating-countries";
 import { bootstrapWorkspaceAction } from "./actions";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -72,13 +73,16 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
             <input name="industry" type="text" placeholder="Plumbing, tiling, landscaping..." />
           </label>
           <label>
-            Country
-            <select name="country" required defaultValue="Australia">
-              <option value="Australia">Australia</option>
-              <option value="United States">United States</option>
-              <option value="United Kingdom">United Kingdom</option>
-              <option value="New Zealand">New Zealand</option>
-              <option value="Canada">Canada</option>
+            Operating country
+            <select name="country" required defaultValue="">
+              <option value="" disabled>
+                Select operating country
+              </option>
+              {OPERATING_COUNTRY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>

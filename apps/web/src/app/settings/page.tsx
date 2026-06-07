@@ -82,6 +82,10 @@ import {
   type WorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
 import {
+  OPERATING_COUNTRY_OPTIONS,
+  operatingCountryForPhoneRegion,
+} from "../../lib/workspace/operating-countries";
+import {
   getWorkspaceAssignedPhoneNumbers,
   type WorkspacePhoneNumberPoolRow,
 } from "../../lib/voice/phone-number-pool";
@@ -1941,6 +1945,9 @@ function GeneralSettingsDetail({
   workspaceName: string;
 }>) {
   const profile = settings.businessProfile;
+  const operatingCountry =
+    profile.operatingCountry ||
+    operatingCountryForPhoneRegion(settings.defaultPhoneRegion);
   const defaultPublicPhone =
     profile.publicPhoneNumber ||
     operationalPhoneNumbers.find(
@@ -1987,6 +1994,26 @@ function GeneralSettingsDetail({
             name="businessIndustry"
             placeholder="Plumbing, electrical, building, landscaping..."
           />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="Used as the workspace operating country for phone number assignment, local defaults, and future regional workflows.">
+            Operating country
+          </SettingCardHeading>
+          <select
+            defaultValue={operatingCountry}
+            name="businessOperatingCountry"
+            required
+          >
+            <option value="" disabled>
+              Select operating country
+            </option>
+            {OPERATING_COUNTRY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="setting-card">

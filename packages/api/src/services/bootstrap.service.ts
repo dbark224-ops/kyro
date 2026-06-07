@@ -52,6 +52,13 @@ function countryDefaults(country?: string) {
     };
   }
 
+  if (["usa", "us", "united states", "united states of america"].includes(normalized)) {
+    return {
+      currency: "USD",
+      phoneRegion: "US"
+    };
+  }
+
   return {
     currency: "USD",
     phoneRegion: "US"
@@ -123,6 +130,7 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
             businessName: workspaceName,
             businessAddress: [location, postcode, country].filter(Boolean).join(", "),
             industry: industry ?? "",
+            operatingCountry: country ?? "",
             publicEmail: publicEmail ?? "",
             serviceArea: serviceArea ?? "",
             servicePostcodes: postcode ?? "",

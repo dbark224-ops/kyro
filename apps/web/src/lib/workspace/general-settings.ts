@@ -43,6 +43,7 @@ export type WorkspaceBusinessProfileSettings = {
   logoSizeBytes: number;
   logoUrl: string;
   logoWidthPx: number;
+  operatingCountry: string;
   publicEmail: string;
   publicPhoneNumber: string;
   serviceArea: string;
@@ -76,6 +77,7 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     logoSizeBytes: 0,
     logoUrl: "",
     logoWidthPx: 120,
+    operatingCountry: "",
     publicEmail: "",
     publicPhoneNumber: "",
     serviceArea: "",
@@ -231,6 +233,11 @@ export function normalizeWorkspaceBusinessProfileSettings(
     logoWidthPx: clampLogoWidth(
       settings.logoWidthPx,
       fallback.logoWidthPx ?? defaultSettings.logoWidthPx,
+    ),
+    operatingCountry: cappedTextValue(
+      settings.operatingCountry,
+      fallback.operatingCountry ?? defaultSettings.operatingCountry,
+      80,
     ),
     publicEmail: cappedTextValue(
       settings.publicEmail,

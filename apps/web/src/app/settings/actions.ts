@@ -72,6 +72,7 @@ import {
   normalizeWorkspaceBusinessProfileSettings,
   normalizeWorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
+import { isOperatingCountry } from "../../lib/workspace/operating-countries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import { ensureWorkspacePhoneNumberFromPool } from "../../lib/voice/phone-number-pool";
@@ -442,6 +443,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
   const displayCurrency = normalizeDisplayCurrency(
     formString(formData, "workspaceDisplayCurrency"),
   );
+  const operatingCountry = formString(formData, "businessOperatingCountry");
   const businessLogo = await businessLogoPayload(formData);
   const manualLogo = await signatureLogoPayload(
     formData,
@@ -474,6 +476,14 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       `Choose a supported phone region such as ${DEFAULT_PHONE_REGION}.`,
+    );
+  }
+
+  if (!isOperatingCountry(operatingCountry)) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      "Choose the country this workspace operates in.",
     );
   }
 
@@ -552,6 +562,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       industry: formString(formData, "businessIndustry"),
       logoUrl: formString(formData, "businessProfileLogoUrl"),
       logoWidthPx: formString(formData, "businessProfileLogoWidthPx"),
+      operatingCountry,
       publicEmail: formString(formData, "businessPublicEmail"),
       publicPhoneNumber: formString(formData, "businessPublicPhoneNumber"),
       serviceArea: formString(formData, "businessServiceArea"),

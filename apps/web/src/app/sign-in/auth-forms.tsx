@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { OPERATING_COUNTRY_OPTIONS } from "../../lib/workspace/operating-countries";
 
 const REMEMBERED_EMAIL_KEY = "kyro.rememberedEmail";
 
@@ -162,13 +163,16 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             />
           </label>
           <label>
-            Country
-            <select name="country" required defaultValue="Australia">
-              <option value="Australia">Australia</option>
-              <option value="United States">United States</option>
-              <option value="United Kingdom">United Kingdom</option>
-              <option value="New Zealand">New Zealand</option>
-              <option value="Canada">Canada</option>
+            Operating country
+            <select name="country" required defaultValue="">
+              <option value="" disabled>
+                Select operating country
+              </option>
+              {OPERATING_COUNTRY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
