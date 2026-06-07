@@ -105,6 +105,10 @@ in `metadata.vapiPhoneNumberId` (or `metadata.vapi.phoneNumberId`). Outbound
 voice routing chooses the active voice-capable workspace number whose country
 matches the customer's E.164 destination number, then falls back to the first
 active mapped voice number, then finally to the Settings/env fallback id.
+The outbound assistant id itself must be explicit in Settings or
+`VAPI_OUTBOUND_ASSISTANT_ID`; Kyro does not fall back to the generic default
+assistant for outbound customer calls because the wrong prompt can create a bad
+customer experience.
 Unassigned pool rows have no `workspace_id` and are hidden from ordinary
 workspace users by RLS.
 
@@ -227,19 +231,38 @@ overrides:
 ```json
 {
   "call_instructions": "what the user asked Kyro to say/do",
-  "contact_id": "optional contact uuid",
-  "conversation_id": "optional conversation uuid",
-  "lead_id": "optional lead uuid",
-  "customer_phone": "E.164 or normalized destination number",
+  "outbound_call_context": "compact workspace/contact/lead/conversation/call summary",
+  "kyro_context": "same compact outbound call context",
+  "workspace_name": "workspace display name",
   "workspace_id": "workspace uuid",
   "user_id": "requesting user uuid",
-  "thread_id": "assistant thread uuid when available"
+  "thread_id": "assistant thread uuid when available",
+  "contact_id": "optional contact uuid",
+  "contact_name": "contact name when known",
+  "contact_phone": "contact phone when known",
+  "contact_email": "contact email when known",
+  "contact_address": "contact address when known",
+  "contact_company": "contact company when known",
+  "conversation_id": "optional conversation uuid",
+  "conversation_status": "conversation status when known",
+  "conversation_last_message_at": "last message timestamp when known",
+  "lead_id": "optional lead uuid",
+  "lead_title": "lead title when known",
+  "lead_status": "lead status when known",
+  "customer_phone": "E.164 or normalized destination number",
+  "voice_id": "selected ElevenLabs voice id",
+  "voice_label": "selected voice label",
+  "voice_demeanor": "workspace voice demeanor",
+  "voice_escalation_mode": "workspace escalation mode",
+  "voice_humour_level": "workspace humour level",
+  "voice_verbosity": "workspace verbosity"
 }
 ```
 
 The outbound Vapi assistant should treat `call_instructions` as the call goal,
-confirm it is speaking to the right person, avoid promising price/timing unless
-the instruction says so, and record the outcome with `kyro_record_call_note`.
+use `outbound_call_context` for temporary call context, confirm it is speaking to
+the right person when needed, avoid promising price/timing unless the instruction
+says so, and record the outcome with `kyro_record_call_note`.
 
 ## UI Behaviour
 

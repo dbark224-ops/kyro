@@ -430,8 +430,7 @@ export function normalizeVoiceSettings(value: unknown): VoiceSettings {
       textValue(envValue("VAPI_DEFAULT_ASSISTANT_ID")),
     vapiOutboundAssistantId:
       textValue(settings.vapiOutboundAssistantId) ??
-      textValue(envValue("VAPI_OUTBOUND_ASSISTANT_ID")) ??
-      textValue(envValue("VAPI_DEFAULT_ASSISTANT_ID")),
+      textValue(envValue("VAPI_OUTBOUND_ASSISTANT_ID")),
     vapiPhoneNumberId:
       textValue(settings.vapiPhoneNumberId) ??
       textValue(envValue("VAPI_PHONE_NUMBER_ID")),

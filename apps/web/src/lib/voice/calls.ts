@@ -517,6 +517,23 @@ async function workspaceOwnerId(
   return textValue(data?.owner_user_id);
 }
 
+async function workspaceName(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
+  const { data, error } = await supabase
+    .from("workspaces")
+    .select("name")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load workspace name: ${error.message}`);
+  }
+
+  return textValue(data?.name);
+}
+
 async function findWorkspaceVoiceNumber(
   supabase: SupabaseClient,
   rawNumber: string | null,
@@ -850,6 +867,44 @@ async function lookupLinkedRows(
         }
       : null,
   };
+}
+
+function compactOutboundCallContext(input: {
+  contact: Awaited<ReturnType<typeof lookupLinkedRows>>["contact"];
+  conversation: Awaited<ReturnType<typeof lookupLinkedRows>>["conversation"];
+  customerNumber: string;
+  instructions: string | null;
+  lead: Awaited<ReturnType<typeof lookupLinkedRows>>["lead"];
+  workspaceName: string | null;
+}) {
+  const lines = [
+    input.workspaceName ? `Workspace: ${input.workspaceName}` : null,
+    `Customer phone: ${input.customerNumber}`,
+    input.contact
+      ? `Contact: ${[
+          input.contact.name,
+          input.contact.company,
+          input.contact.email,
+          input.contact.phone,
+          input.contact.address,
+        ]
+          .filter(Boolean)
+          .join(" | ")}`
+      : null,
+    input.lead
+      ? `Lead: ${input.lead.title} | Status: ${input.lead.status}`
+      : null,
+    input.conversation
+      ? `Conversation: ${input.conversation.status}${
+          input.conversation.lastMessageAt
+            ? ` | Last message: ${input.conversation.lastMessageAt}`
+            : ""
+        }`
+      : null,
+    input.instructions ? `User instruction: ${input.instructions}` : null,
+  ].filter((line): line is string => Boolean(line));
+
+  return lines.join("\n");
 }
 
 function rowToPreviewCall(row: Record<string, unknown>) {
@@ -1297,11 +1352,36 @@ export async function createOutboundVoiceCall(input: {
     );
   }
 
-  const ownerUserId = await workspaceOwnerId(input.supabase, input.workspaceId);
+  const [ownerUserId, outboundWorkspaceName, linkedRows] = await Promise.all([
+    workspaceOwnerId(input.supabase, input.workspaceId),
+    workspaceName(input.supabase, input.workspaceId),
+    lookupLinkedRows(input.supabase, input.workspaceId, {
+      contactId: input.contactId ?? null,
+      conversationId: input.conversationId ?? null,
+      leadId: input.leadId ?? null,
+    }),
+  ]);
+  const phoneMatchedContact = linkedRows.contact
+    ? null
+    : await findContactByPhone(input.supabase, input.workspaceId, customerNumber);
+  const outboundContact = linkedRows.contact ?? phoneMatchedContact;
+  const outboundContactId = input.contactId ?? outboundContact?.id ?? null;
+  const outboundConversationId = input.conversationId ?? null;
+  const outboundLeadId = input.leadId ?? null;
+  const callInstructions = textValue(input.instructions);
+  const outboundCallContext = compactOutboundCallContext({
+    contact: outboundContact,
+    conversation: linkedRows.conversation,
+    customerNumber,
+    instructions: callInstructions,
+    lead: linkedRows.lead,
+    workspaceName: outboundWorkspaceName,
+  });
   const baseMetadata = {
     createdByUserId: input.user.id,
-    instructions: textValue(input.instructions),
+    instructions: callInstructions,
     ownerUserId,
+    outboundCallContext,
     phoneNumberSelection: {
       countryCode: phoneNumberSelection.countryCode,
       fromNumber: phoneNumberSelection.fromNumber,
@@ -1318,9 +1398,9 @@ export async function createOutboundVoiceCall(input: {
     .from("voice_calls")
     .insert({
       workspace_id: input.workspaceId,
-      conversation_id: input.conversationId ?? null,
-      contact_id: input.contactId ?? null,
-      lead_id: input.leadId ?? null,
+      conversation_id: outboundConversationId,
+      contact_id: outboundContactId,
+      lead_id: outboundLeadId,
       phone_number_id: phoneNumberSelection.workspacePhoneNumberId,
       direction: "outbound",
       purpose: "outbound_customer",
@@ -1353,11 +1433,23 @@ export async function createOutboundVoiceCall(input: {
       assistantOverrides: {
         voice: elevenLabsVapiVoiceOverride(settings),
         variableValues: {
-          call_instructions: textValue(input.instructions) ?? "",
-          contact_id: input.contactId ?? "",
-          conversation_id: input.conversationId ?? "",
+          call_instructions: callInstructions ?? "",
+          contact_address: outboundContact?.address ?? "",
+          contact_company: outboundContact?.company ?? "",
+          contact_email: outboundContact?.email ?? "",
+          contact_id: outboundContactId ?? "",
+          contact_name: outboundContact?.name ?? "",
+          contact_phone: outboundContact?.phone ?? "",
+          conversation_id: outboundConversationId ?? "",
+          conversation_last_message_at:
+            linkedRows.conversation?.lastMessageAt ?? "",
+          conversation_status: linkedRows.conversation?.status ?? "",
           customer_phone: customerNumber,
-          lead_id: input.leadId ?? "",
+          kyro_context: outboundCallContext,
+          lead_id: outboundLeadId ?? "",
+          lead_status: linkedRows.lead?.status ?? "",
+          lead_title: linkedRows.lead?.title ?? "",
+          outbound_call_context: outboundCallContext,
           thread_id: input.threadId ?? "",
           user_id: input.user.id,
           voice_id: selectedVoice.voiceId,
@@ -1367,16 +1459,18 @@ export async function createOutboundVoiceCall(input: {
           voice_humour_level: settings.phoneAgentHumourLevel,
           voice_verbosity: settings.phoneAgentVerbosity,
           workspace_id: input.workspaceId,
+          workspace_name: outboundWorkspaceName ?? "",
         },
       },
       customerNumber,
       metadata: {
-        contactId: input.contactId ?? null,
-        conversationId: input.conversationId ?? null,
+        contactId: outboundContactId,
+        conversationId: outboundConversationId,
         direction: "outbound",
-        instructions: textValue(input.instructions),
-        leadId: input.leadId ?? null,
+        instructions: callInstructions,
+        leadId: outboundLeadId,
         ownerUserId,
+        outboundCallContext,
         phoneNumberSelection: baseMetadata.phoneNumberSelection,
         purpose: "outbound_customer",
         threadId: input.threadId ?? null,
