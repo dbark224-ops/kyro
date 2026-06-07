@@ -249,7 +249,7 @@ Purpose:
 - filter reports by timeframe, custom date range, contact, direction, and channel where that filter applies,
 - keep `/reports` light until the user explicitly clicks Generate report,
 - render the browser print preview and server-generated PDF download only after generation using one standard report template,
-- place the business/workspace logo in report output when a stored PNG/JPEG logo is available, otherwise fall back to the business name without Kyro branding.
+- place the dedicated business/workspace logo in report output when one exists, otherwise fall back to the business name without Kyro branding. Reports deliberately do not reuse outbound email-signature logos, because those may be Kyro-branded signature assets.
 
 Payment history reports intentionally remain empty until customer payment collection
 records exist. Add future report types in `apps/web/src/lib/reports/data.ts`, then reuse

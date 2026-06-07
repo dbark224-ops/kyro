@@ -99,7 +99,7 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 ### Reports
 
 - The first Reports tab is now built with a horizontal report builder, timeframe/contact/channel/direction filters, explicit generation, browser PDF preview, print, and server-generated PDF download.
-- Report outputs use the business logo where available, falling back to the business name without Kyro branding.
+- Report outputs use the dedicated business logo where available, falling back to the business name without Kyro branding. Add a proper business-logo setting before relying on logos in customer-facing reports; do not reuse email signature logos.
 - Current report types cover all communications, inbound communications, outbound communications, communications by contact, usage ledger, document activity, work queue summary, and a scaffolded payment-history report.
 - Keep expanding reports as new durable data exists, especially real payment records, payment status, calendar/appointment history, job outcomes, supplier activity, and richer quote/invoice reporting.
 - Payment reports intentionally stay empty until payment processing and customer-collection records ship.

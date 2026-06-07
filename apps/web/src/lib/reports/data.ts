@@ -3,7 +3,6 @@ import type { ContactListItem, ConversationListItem } from "../crm/queries";
 import { getContactList, getConversationList } from "../crm/queries";
 import { getGeneratedDocumentsForWorkspace } from "../documents/generated-documents";
 import type { WorkspaceSummary } from "../workspace/bootstrap";
-import { getCommunicationSettings } from "../communication/settings";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const REPORT_TYPES = [
@@ -1060,32 +1059,14 @@ function reportFilterRows(
 }
 
 async function loadReportBusiness(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   workspace: WorkspaceSummary,
 ): Promise<ReportBusiness> {
-  const settings = await getCommunicationSettings(supabase, workspace.id).catch(
-    () => null,
-  );
-  const signature =
-    settings?.useSeparateAiSignature && settings.aiGeneratedSignature.logoContentBase64
-      ? settings.aiGeneratedSignature
-      : settings?.manualSignature.logoContentBase64
-        ? settings.manualSignature
-        : settings?.aiGeneratedSignature.logoContentBase64
-          ? settings.aiGeneratedSignature
-          : null;
-  const logoContentBase64 = textValue(signature?.logoContentBase64);
-  const logoContentType = textValue(signature?.logoContentType);
-  const logoDataUrl =
-    logoContentBase64 && logoContentType
-      ? `data:${logoContentType};base64,${logoContentBase64}`
-      : null;
-
   return {
-    logoContentBase64,
-    logoContentType,
-    logoDataUrl,
-    logoUrl: textValue(settings?.manualSignature.logoUrl) ?? textValue(settings?.aiGeneratedSignature.logoUrl),
+    logoContentBase64: null,
+    logoContentType: null,
+    logoDataUrl: null,
+    logoUrl: null,
     name: workspace.name,
   };
 }

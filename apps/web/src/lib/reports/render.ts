@@ -8,9 +8,9 @@ import {
   type PDFPage,
 } from "pdf-lib";
 
-const PAGE_WIDTH = 595.28;
-const PAGE_HEIGHT = 841.89;
-const MARGIN = 38;
+const PAGE_WIDTH = 841.89;
+const PAGE_HEIGHT = 595.28;
+const MARGIN = 34;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
 function escapeHtml(value: string) {
@@ -430,6 +430,108 @@ function truncatedText(value: string, maxLength = 140) {
     : value;
 }
 
+function roundedRectPath(width: number, height: number, radius: number) {
+  const r = Math.min(radius, width / 2, height / 2);
+
+  return [
+    `M ${r} 0`,
+    `L ${width - r} 0`,
+    `Q ${width} 0 ${width} ${r}`,
+    `L ${width} ${height - r}`,
+    `Q ${width} ${height} ${width - r} ${height}`,
+    `L ${r} ${height}`,
+    `Q 0 ${height} 0 ${height - r}`,
+    `L 0 ${r}`,
+    `Q 0 0 ${r} 0`,
+    "Z",
+  ].join(" ");
+}
+
+function drawRoundedBox({
+  borderColor = rgb(0.86, 0.9, 0.94),
+  borderWidth = 1,
+  color = rgb(0.98, 0.99, 1),
+  height,
+  page,
+  radius = 8,
+  width,
+  x,
+  y,
+}: {
+  borderColor?: ReturnType<typeof rgb>;
+  borderWidth?: number;
+  color?: ReturnType<typeof rgb>;
+  height: number;
+  page: PDFPage;
+  radius?: number;
+  width: number;
+  x: number;
+  y: number;
+}) {
+  page.drawSvgPath(roundedRectPath(width, height, radius), {
+    borderColor,
+    borderWidth,
+    color,
+    x,
+    y,
+  });
+}
+
+function drawReportCard({
+  detail,
+  fonts,
+  label,
+  page,
+  value,
+  width,
+  x,
+  y,
+}: {
+  detail?: string;
+  fonts: { bold: PDFFont; regular: PDFFont };
+  label: string;
+  page: PDFPage;
+  value: string;
+  width: number;
+  x: number;
+  y: number;
+}) {
+  const muted = rgb(0.392, 0.439, 0.522);
+  const ink = rgb(0.067, 0.094, 0.153);
+
+  drawRoundedBox({
+    height: 54,
+    page,
+    width,
+    x,
+    y,
+  });
+  page.drawText(truncatedText(label.toUpperCase(), 22), {
+    color: muted,
+    font: fonts.bold,
+    size: 7,
+    x: x + 10,
+    y: y + 35,
+  });
+  page.drawText(truncatedText(value, 24), {
+    color: ink,
+    font: fonts.bold,
+    size: 15,
+    x: x + 10,
+    y: y + 17,
+  });
+
+  if (detail) {
+    page.drawText(truncatedText(detail, 34), {
+      color: muted,
+      font: fonts.regular,
+      size: 7,
+      x: x + 10,
+      y: y + 7,
+    });
+  }
+}
+
 async function embedReportLogo(
   pdf: PDFDocument,
   report: WorkspaceReport,
@@ -463,9 +565,9 @@ function drawHeader(
   logo: PDFImage | null,
 ) {
   const cyan = rgb(0.208, 0.851, 0.949);
-  const ink = rgb(0.067, 0.094, 0.153);
   const muted = rgb(0.392, 0.439, 0.522);
-  let y = PAGE_HEIGHT - MARGIN;
+  const purple = rgb(0.486, 0.227, 0.929);
+  let y = PAGE_HEIGHT - MARGIN - 4;
 
   page.drawRectangle({
     color: cyan,
@@ -474,25 +576,13 @@ function drawHeader(
     x: MARGIN,
     y,
   });
-  y -= 30;
+  y -= 34;
 
-  if (!logo) {
-    page.drawText(report.business.name, {
-      color: cyan,
-      font: fonts.bold,
-      size: 11,
-      x: MARGIN,
-      y,
-    });
-    y -= 30;
-  } else {
-    y -= 10;
-  }
   y = drawTextLines({
     font: fonts.bold,
     lineHeight: 28,
     maxLines: 2,
-    maxWidth: 360,
+    maxWidth: 520,
     page,
     size: 28,
     text: report.title,
@@ -505,7 +595,7 @@ function drawHeader(
     font: fonts.regular,
     lineHeight: 13,
     maxLines: 3,
-    maxWidth: 400,
+    maxWidth: 520,
     page,
     size: 10,
     text: report.subtitle,
@@ -530,42 +620,48 @@ function drawHeader(
       x: PAGE_WIDTH - MARGIN - width,
       y: PAGE_HEIGHT - MARGIN - height - 16,
     });
+  } else {
+    drawTextLines({
+      color: purple,
+      font: fonts.bold,
+      lineHeight: 20,
+      maxLines: 2,
+      maxWidth: 180,
+      page,
+      size: 18,
+      text: report.business.name,
+      x: PAGE_WIDTH - MARGIN - 180,
+      y: PAGE_HEIGHT - MARGIN - 34,
+    });
   }
 
-  const metaX = PAGE_WIDTH - MARGIN - 160;
-  const metaY = PAGE_HEIGHT - MARGIN - (logo ? 82 : 28);
-  page.drawRectangle({
-    borderColor: rgb(0.86, 0.9, 0.94),
-    borderWidth: 1,
-    color: rgb(0.98, 0.99, 1),
-    height: 88,
-    width: 160,
-    x: metaX,
-    y: metaY - 80,
-  });
-  [
+  y -= 14;
+
+  const metaCards = [
+    ["Workspace", report.business.name],
     ["Generated", formatDateTime(report.generatedAt)],
     ["Period", report.period.label],
-    ["Workspace", report.business.name],
-  ].forEach(([label, value], index) => {
-    const rowY = metaY - index * 25;
-    page.drawText(label, {
-      color: muted,
-      font: fonts.regular,
-      size: 8,
-      x: metaX + 12,
-      y: rowY,
-    });
-    page.drawText(truncatedText(value, 26), {
-      color: ink,
-      font: fonts.bold,
-      size: 8,
-      x: metaX + 64,
-      y: rowY,
+    [
+      report.filters.find((filter) => filter.label === "Channel")?.label ??
+        "Channel",
+      report.filters.find((filter) => filter.label === "Channel")?.value ??
+        "All channels",
+    ],
+  ];
+  const metaWidth = (CONTENT_WIDTH - 24) / 4;
+  metaCards.forEach(([label, value], index) => {
+    drawReportCard({
+      fonts,
+      label,
+      page,
+      value,
+      width: metaWidth,
+      x: MARGIN + index * (metaWidth + 8),
+      y: y - 54,
     });
   });
 
-  return y - 22;
+  return y - 78;
 }
 
 export async function buildReportPdf(report: WorkspaceReport) {
@@ -576,7 +672,6 @@ export async function buildReportPdf(report: WorkspaceReport) {
   const ink = rgb(0.067, 0.094, 0.153);
   const muted = rgb(0.392, 0.439, 0.522);
   const line = rgb(0.86, 0.9, 0.94);
-  const faint = rgb(0.98, 0.99, 1);
   let page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   let y = drawHeader(page, report, { bold, regular }, logo);
 
@@ -593,31 +688,18 @@ export async function buildReportPdf(report: WorkspaceReport) {
   report.summaryCards.slice(0, 4).forEach((card, index) => {
     const x = MARGIN + index * (cardWidth + 8);
 
-    page.drawRectangle({
-      borderColor: line,
-      borderWidth: 1,
-      color: faint,
-      height: 58,
+    drawReportCard({
+      detail: card.detail,
+      fonts: { bold, regular },
+      label: card.label,
+      page,
+      value: card.value,
       width: cardWidth,
       x,
-      y: y - 58,
-    });
-    page.drawText(card.label.toUpperCase(), {
-      color: muted,
-      font: bold,
-      size: 7,
-      x: x + 10,
-      y: y - 18,
-    });
-    page.drawText(truncatedText(card.value, 18), {
-      color: ink,
-      font: bold,
-      size: 17,
-      x: x + 10,
-      y: y - 40,
+      y: y - 54,
     });
   });
-  y -= 82;
+  y -= 76;
 
   for (const section of report.sections) {
     ensureSpace(80);
@@ -712,11 +794,12 @@ export async function buildReportPdf(report: WorkspaceReport) {
   }
 
   ensureSpace(60);
-  page.drawRectangle({
+  drawRoundedBox({
     borderColor: rgb(0.93, 0.75, 0.85),
     borderWidth: 1,
     color: rgb(0.996, 0.969, 0.984),
     height: 48,
+    page,
     width: CONTENT_WIDTH,
     x: MARGIN,
     y: y - 48,

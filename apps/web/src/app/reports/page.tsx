@@ -10,6 +10,7 @@ import {
   reportSearchParams,
 } from "../../lib/reports/data";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { ReportPreviewFrame } from "./report-preview-frame";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -203,8 +204,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               ))}
             </div>
 
-            <iframe
-              className="reports-preview-frame"
+            <ReportPreviewFrame
               src={printHref}
               title={`${report.title} preview`}
             />
