@@ -8816,6 +8816,50 @@ button:disabled {
   margin: 0;
 }
 
+.phone-number-enable-card {
+  margin-top: 12px;
+}
+
+.phone-number-active-panel,
+.phone-number-choice {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.phone-number-active-panel strong,
+.phone-number-choice strong {
+  display: block;
+}
+
+.phone-number-active-panel span,
+.phone-number-choice small {
+  color: var(--muted);
+  display: block;
+  font-size: 0.85rem;
+  margin-top: 3px;
+}
+
+.phone-number-choice-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.phone-number-choice {
+  cursor: pointer;
+  justify-content: flex-start;
+}
+
+.phone-number-choice:has(input:checked) {
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+  border-color: var(--cyan);
+}
+
 .usage-ledger-meta strong {
   color: var(--text);
 }

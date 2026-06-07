@@ -1,6 +1,7 @@
 import { AppFrame } from "../components/app-frame";
 import {
   disconnectIntegrationAction,
+  enableWorkspacePhoneSmsAction,
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
   removeInboundEmailSenderRuleSettingsAction,
@@ -84,11 +85,14 @@ import {
 import {
   OPERATING_COUNTRY_OPTIONS,
   operatingCountryForPhoneRegion,
+  operatingCountryPhoneRegion,
 } from "../../lib/workspace/operating-countries";
 import {
+  getAvailableWorkspacePhoneNumbersFromPool,
   getWorkspaceAssignedPhoneNumbers,
   type WorkspacePhoneNumberPoolRow,
 } from "../../lib/voice/phone-number-pool";
+import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import { PHONE_REGION_OPTIONS } from "../../lib/crm/identity";
 import Link from "next/link";
 import {
@@ -881,9 +885,25 @@ function twilioStatusLabel(overview: TwilioIntegrationOverview) {
 }
 
 function TwilioTelephonySettings({
+  availableNumbers,
+  generalSettings,
   overview,
-}: Readonly<{ overview: TwilioIntegrationOverview }>) {
+}: Readonly<{
+  availableNumbers: WorkspacePhoneNumberPoolRow[];
+  generalSettings: WorkspaceGeneralSettings;
+  overview: TwilioIntegrationOverview;
+}>) {
   const smsNumber = overview.numbers.find((number) => number.capabilities.sms);
+  const activeVoiceSmsNumber = overview.numbers.find(
+    (number) => number.capabilities.sms && number.capabilities.voice,
+  );
+  const operatingCountry =
+    generalSettings.businessProfile.operatingCountry ||
+    operatingCountryForPhoneRegion(generalSettings.defaultPhoneRegion) ||
+    "your selected country";
+  const phoneRegion =
+    operatingCountryPhoneRegion(generalSettings.businessProfile.operatingCountry) ??
+    generalSettings.defaultPhoneRegion;
 
   return (
     <>
@@ -948,6 +968,92 @@ function TwilioTelephonySettings({
           </div>
         </div>
       </div>
+
+      <section className="setting-card phone-number-enable-card">
+        <SettingCardHeading
+          info={
+            <>
+              This assigns one Kyro-owned Twilio number to the workspace. It can
+              receive SMS, send SMS, receive calls, and make assistant calls via
+              Vapi when the matching Vapi number is configured.
+            </>
+          }
+        >
+          Phone and SMS assistant number
+        </SettingCardHeading>
+        {activeVoiceSmsNumber ? (
+          <div className="phone-number-active-panel">
+            <div>
+              <strong>{activeVoiceSmsNumber.phoneNumber}</strong>
+              <span>
+                {[
+                  activeVoiceSmsNumber.friendlyName,
+                  activeVoiceSmsNumber.countryCode,
+                  "SMS + voice enabled",
+                ]
+                  .filter(Boolean)
+                  .join(" - ")}
+              </span>
+            </div>
+            <span className="pill">Enabled</span>
+          </div>
+        ) : (
+          <form action={enableWorkspacePhoneSmsAction} className="settings-form">
+            <p className="empty-copy">
+              Enable inbound and outbound SMS plus inbound and outbound phone
+              calls by choosing an available {operatingCountry} number. A
+              one-time <strong>US$3</strong> setup charge will be added to the
+              usage ledger when the number is assigned.
+            </p>
+            {availableNumbers.length > 0 ? (
+              <div className="phone-number-choice-list">
+                {availableNumbers.map((number, index) => (
+                  <label className="phone-number-choice" key={number.id}>
+                    <input
+                      defaultChecked={index === 0}
+                      name="phoneNumberId"
+                      type="radio"
+                      value={number.id}
+                    />
+                    <span>
+                      <strong>{number.phoneNumber}</strong>
+                      <small>
+                        {[
+                          number.friendlyName,
+                          number.region,
+                          number.countryCode,
+                          number.vapiPhoneNumberId ? "Vapi linked" : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" - ")}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="form-alert">
+                No available {phoneRegion} voice-and-SMS numbers are in the
+                Kyro pool yet. Add one to <code>workspace_phone_numbers</code>{" "}
+                with <code>status = available</code> and no workspace owner.
+              </p>
+            )}
+            <div className="settings-footer compact-settings-footer">
+              <span>
+                Once assigned, the number is reserved to this workspace and will
+                not be offered to another account.
+              </span>
+              <button
+                className="primary-button compact"
+                disabled={availableNumbers.length === 0}
+                type="submit"
+              >
+                Enable phone and SMS
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
 
       {overview.numbers.length > 0 ? (
         <div className="usage-ledger compact">
@@ -2602,7 +2708,9 @@ function ProviderDetails({
 }
 
 function WorkspaceIntegrationsSettings({
+  availablePhoneNumbers,
   communicationSettings,
+  generalSettings,
   googleOverview,
   googleStatus,
   inboundEmailSettings,
@@ -2613,7 +2721,9 @@ function WorkspaceIntegrationsSettings({
   showSenderRules,
   twilioOverview,
 }: Readonly<{
+  availablePhoneNumbers: WorkspacePhoneNumberPoolRow[];
   communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+  generalSettings: WorkspaceGeneralSettings;
   googleOverview: GoogleIntegrationOverview;
   googleStatus: string;
   inboundEmailSettings: InboundEmailSettings;
@@ -2732,7 +2842,11 @@ function WorkspaceIntegrationsSettings({
         provider="Twilio"
         status={twilioStatus}
       >
-        <TwilioTelephonySettings overview={twilioOverview} />
+        <TwilioTelephonySettings
+          availableNumbers={availablePhoneNumbers}
+          generalSettings={generalSettings}
+          overview={twilioOverview}
+        />
       </ProviderDetails>
 
       <ProviderDetails
@@ -3619,6 +3733,7 @@ export default async function SettingsPage({
     selectedSection === "integrations" && query?.senderRules === "1";
   const [
     communicationSettings,
+    availablePhoneNumbers,
     generalSettings,
     integrationOverviews,
     pronunciationEntries,
@@ -3629,7 +3744,21 @@ export default async function SettingsPage({
     selectedSection === "general" || selectedSection === "integrations"
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
-    selectedSection === "general" || selectedSection === "usage"
+    selectedSection === "integrations"
+      ? getWorkspaceGeneralSettings(supabase, workspace.id)
+          .then((settings) =>
+            getAvailableWorkspacePhoneNumbersFromPool(
+              createServiceSupabaseClient(),
+              operatingCountryPhoneRegion(
+                settings.businessProfile.operatingCountry,
+              ) ?? settings.defaultPhoneRegion,
+            ),
+          )
+          .catch(() => [])
+      : Promise.resolve([]),
+    selectedSection === "general" ||
+    selectedSection === "integrations" ||
+    selectedSection === "usage"
       ? getWorkspaceGeneralSettings(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "integrations"
@@ -3733,6 +3862,7 @@ export default async function SettingsPage({
       </SettingsDetailShell>
     ) : selectedSection === "integrations" &&
       communicationSettings &&
+      generalSettings &&
       googleOverview &&
       microsoftOverview &&
       inboundEmailSettings &&
@@ -3749,6 +3879,8 @@ export default async function SettingsPage({
           microsoftStatus={microsoftStatus}
           showInboundTrace={showInboundTrace}
           showSenderRules={showSenderRules}
+          availablePhoneNumbers={availablePhoneNumbers}
+          generalSettings={generalSettings}
           twilioOverview={twilioOverview}
         />
       </SettingsDetailShell>

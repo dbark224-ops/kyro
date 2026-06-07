@@ -487,6 +487,19 @@ In production, Vapi tools and webhooks must include the shared Kyro header
 return safe `GET` readiness payloads showing whether the server key and shared
 secret are configured.
 
+Settings -> Connected accounts now has a beta self-serve phone/SMS enablement
+flow for manually preloaded numbers. Kyro lists available
+`workspace_phone_numbers` rows where `workspace_id` is null, `status` is
+`available`, `provider` is `twilio`, and `capabilities` includes both `sms` and
+`voice`, filtered by the workspace operating-country phone region. The user
+chooses one number, Kyro marks it `active`, assigns it to the workspace,
+creates/updates the Twilio SMS channel, stores the Vapi phone-number id from row
+metadata when present, and records a one-time `usage_events` row with
+`service = telephony`, `usage_type = phone_number_activation`, and a `US$3`
+customer charge. That row is keyed to the assigned phone-number id so retries do
+not double-charge. Later, the same table can be filled by an automated Twilio
+purchase and Vapi setup workflow.
+
 The voice-call foundation is intentionally backend-first and mobile-ready: the
 web UI consumes normal authenticated JSON routes rather than server-only helpers,
 so the mobile app can call `/api/assistant/activity` and `/api/voice/*` with its

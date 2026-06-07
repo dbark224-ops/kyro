@@ -20,6 +20,7 @@ import {
   PHONE_AGENT_HUMOUR_LEVELS,
   PHONE_AGENT_VERBOSITIES,
   VOICE_SETTINGS_POLICY_TYPE,
+  getVoiceSettings,
   normalizeVoiceSettings,
   type OpenAiVoice,
   type OutboundVoicePronunciationPolicy,
@@ -72,10 +73,16 @@ import {
   normalizeWorkspaceBusinessProfileSettings,
   normalizeWorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
-import { isOperatingCountry } from "../../lib/workspace/operating-countries";
+import {
+  isOperatingCountry,
+  operatingCountryPhoneRegion,
+} from "../../lib/workspace/operating-countries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { createServiceSupabaseClient } from "../../lib/supabase/service";
-import { ensureWorkspacePhoneNumberFromPool } from "../../lib/voice/phone-number-pool";
+import {
+  assignWorkspacePhoneNumberFromPool,
+  ensureWorkspacePhoneNumberFromPool,
+} from "../../lib/voice/phone-number-pool";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -1353,6 +1360,132 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     "voice",
     "engine_message",
     "Voice assistant settings saved.",
+  );
+}
+
+export async function enableWorkspacePhoneSmsAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+
+  if (!phoneNumberId) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "Choose an available phone number first.",
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const countryCode =
+    operatingCountryPhoneRegion(generalSettings.businessProfile.operatingCountry) ??
+    generalSettings.defaultPhoneRegion;
+
+  let assignment: Awaited<
+    ReturnType<typeof assignWorkspacePhoneNumberFromPool>
+  >;
+
+  try {
+    assignment = await assignWorkspacePhoneNumberFromPool({
+      actorId: user.id,
+      countryCode,
+      phoneNumberId,
+      recordActivationCharge: true,
+      supabase: serviceSupabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to enable the phone and SMS assistant number.",
+    );
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const voiceSettings = normalizeVoiceSettings({
+    ...existingVoiceSettings,
+    phoneAgentEnabled: true,
+    phoneAgentInboundEnabled: true,
+    phoneAgentOutboundEnabled: true,
+    vapiPhoneNumberId:
+      assignment.number.vapiPhoneNumberId ??
+      existingVoiceSettings.vapiPhoneNumberId,
+  });
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      beforeError.message,
+    );
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings: voiceSettings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      saveError?.message ?? "Unable to enable phone voice settings.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "phone_sms_number.enabled",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      phoneNumber: assignment.number.phoneNumber,
+      phoneNumberId: assignment.number.id,
+      settings: voiceSettings,
+      vapiPhoneNumberId: assignment.number.vapiPhoneNumberId,
+    },
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+    metadata: {
+      activationCharged: assignment.activationCharged,
+      phoneNumberAssigned: assignment.assigned,
+      phoneNumberCountryCode: assignment.countryCode,
+    },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    assignment.activationCharged
+      ? `Phone and SMS enabled on ${assignment.number.phoneNumber}. A one-time US$3 setup charge was added to the usage ledger.`
+      : `Phone and SMS enabled on ${assignment.number.phoneNumber}.`,
   );
 }
 

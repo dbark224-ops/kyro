@@ -195,6 +195,17 @@ SMS replies can send through Twilio when:
 - the user writes or approves the SMS reply,
 - the channel is SMS.
 
+Settings -> Connected accounts includes the beta phone/SMS enablement flow.
+Kyro lists available preloaded Twilio numbers for the workspace operating
+country, the user chooses one, and Kyro assigns that number only to that
+workspace. The action records a one-time US$3 phone-number activation charge in
+\`usage_events\` and enables the workspace's inbound/outbound phone assistant
+flags. Admins preload numbers as \`workspace_phone_numbers\` rows with no
+\`workspace_id\`, \`provider = twilio\`, \`status = available\`, country and
+region metadata, SMS and voice capabilities, the Twilio provider phone-number
+id, and the Vapi phone-number id in metadata when calls should route through
+Vapi.
+
 Inbound SMS to a workspace Kyro/Twilio number follows the same CRM ingestion path
 as manual or email inquiries: Kyro matches the sender by normalized phone where
 possible, creates or reuses the contact/conversation, records the message, and
