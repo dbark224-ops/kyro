@@ -1260,6 +1260,7 @@ export async function createOutboundVoiceCall(input: {
   leadId?: string | null;
   phoneNumber: string;
   supabase: SupabaseClient;
+  threadId?: string | null;
   user: User;
   workspaceId: string;
 }) {
@@ -1311,6 +1312,7 @@ export async function createOutboundVoiceCall(input: {
       workspacePhoneNumberId: phoneNumberSelection.workspacePhoneNumberId,
     },
     source: "kyro.outbound_voice",
+    threadId: input.threadId ?? null,
   };
   const { data: inserted, error: insertError } = await input.supabase
     .from("voice_calls")
@@ -1351,12 +1353,20 @@ export async function createOutboundVoiceCall(input: {
       assistantOverrides: {
         voice: elevenLabsVapiVoiceOverride(settings),
         variableValues: {
+          call_instructions: textValue(input.instructions) ?? "",
+          contact_id: input.contactId ?? "",
+          conversation_id: input.conversationId ?? "",
+          customer_phone: customerNumber,
+          lead_id: input.leadId ?? "",
+          thread_id: input.threadId ?? "",
+          user_id: input.user.id,
           voice_id: selectedVoice.voiceId,
           voice_label: selectedVoice.label,
           voice_demeanor: settings.phoneAgentDemeanor,
           voice_escalation_mode: settings.phoneAgentEscalationMode,
           voice_humour_level: settings.phoneAgentHumourLevel,
           voice_verbosity: settings.phoneAgentVerbosity,
+          workspace_id: input.workspaceId,
         },
       },
       customerNumber,
@@ -1369,6 +1379,8 @@ export async function createOutboundVoiceCall(input: {
         ownerUserId,
         phoneNumberSelection: baseMetadata.phoneNumberSelection,
         purpose: "outbound_customer",
+        threadId: input.threadId ?? null,
+        userId: input.user.id,
         voiceCallId: inserted.id,
         workspaceId: input.workspaceId,
       },
@@ -1415,6 +1427,10 @@ export function vapiToolWorkspaceId(payload: Record<string, unknown>) {
   const metadata = callMetadata(payload);
 
   return firstText(args.workspaceId, metadata.workspaceId, payload.workspaceId);
+}
+
+export function vapiToolCallMetadata(payload: Record<string, unknown>) {
+  return callMetadata(payload);
 }
 
 export function vapiToolUserId(payload: Record<string, unknown>) {

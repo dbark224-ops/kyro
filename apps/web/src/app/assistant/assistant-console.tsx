@@ -16,6 +16,7 @@ import {
   runAssistantResourceActionAction,
   sendAssistantManualReplyAction,
   sendAssistantMessageAction,
+  startAssistantOutboundCallAction,
   updateAssistantMemorySuggestionAction,
   updateAssistantDraftReplyAction,
 } from "./actions";
@@ -61,6 +62,16 @@ type GeneratedImageBlock = Extract<
   { type: "generated_image" }
 >;
 type GeneratedImage = GeneratedImageBlock["images"][number];
+type OutboundCallRequestBlock = Extract<
+  AssistantUiBlock,
+  { type: "outbound_call_request" }
+>;
+type OutboundCallStatus = {
+  message?: string;
+  providerCallId?: string | null;
+  status: "idle" | "starting" | "started" | "failed";
+  voiceCallId?: string;
+};
 type AssistantDisplayAttachment = {
   contentType: string | null;
   href: string | null;
@@ -151,6 +162,9 @@ export function AssistantConsole({
   const [memorySuggestionStatuses, setMemorySuggestionStatuses] = useState<
     Record<string, "active" | "pending_approval" | "rejected">
   >({});
+  const [outboundCallStatuses, setOutboundCallStatuses] = useState<
+    Record<string, OutboundCallStatus>
+  >({});
   const [expandedImage, setExpandedImage] = useState<GeneratedImage | null>(
     null,
   );
@@ -204,6 +218,43 @@ export function AssistantConsole({
           [memoryId]: "pending_approval",
         }));
       }
+    });
+  };
+
+  const startOutboundCall = (request: OutboundCallRequestBlock["request"]) => {
+    const key = outboundCallRequestKey(request);
+
+    setOutboundCallStatuses((current) => ({
+      ...current,
+      [key]: {
+        message: "Starting the outbound phone call...",
+        status: "starting",
+      },
+    }));
+
+    startSubmitTransition(async () => {
+      const result = await startAssistantOutboundCallAction(request);
+
+      if (result.ok) {
+        setOutboundCallStatuses((current) => ({
+          ...current,
+          [key]: {
+            message: "Call started and recorded in Kyro activity.",
+            providerCallId: result.providerCallId ?? null,
+            status: "started",
+            voiceCallId: result.voiceCallId,
+          },
+        }));
+        return;
+      }
+
+      setOutboundCallStatuses((current) => ({
+        ...current,
+        [key]: {
+          message: result.error ?? "Unable to start the call.",
+          status: "failed",
+        },
+      }));
     });
   };
 
@@ -845,7 +896,9 @@ export function AssistantConsole({
                 message={message}
                 onOpenImagePreview={setExpandedImage}
                 onOpenPreview={openResourcePreview}
+                onStartOutboundCall={startOutboundCall}
                 onUpdateMemorySuggestion={updateMemorySuggestion}
+                outboundCallStatuses={outboundCallStatuses}
               />
               <AssistantMessageLinks
                 linkOverrides={linkOverrides}
@@ -3709,13 +3762,26 @@ function formatProviderLabel(value: string) {
   return formatLabel(value);
 }
 
+function outboundCallRequestKey(request: OutboundCallRequestBlock["request"]) {
+  return [
+    request.contactId ?? "",
+    request.conversationId ?? "",
+    request.leadId ?? "",
+    request.phoneNumber,
+    request.instructions,
+    request.threadId ?? "",
+  ].join("|");
+}
+
 function AssistantMessageBlocks({
   linkOverrides,
   memorySuggestionStatuses,
   message,
   onOpenImagePreview,
   onOpenPreview,
+  onStartOutboundCall,
   onUpdateMemorySuggestion,
+  outboundCallStatuses,
 }: {
   linkOverrides: Record<string, AssistantLink>;
   memorySuggestionStatuses: Record<
@@ -3725,10 +3791,12 @@ function AssistantMessageBlocks({
   message: AssistantThreadMessage;
   onOpenImagePreview: (image: GeneratedImage) => void;
   onOpenPreview: (link: AssistantLink) => void;
+  onStartOutboundCall: (request: OutboundCallRequestBlock["request"]) => void;
   onUpdateMemorySuggestion: (
     memoryId: string,
     status: "active" | "rejected",
   ) => void;
+  outboundCallStatuses: Record<string, OutboundCallStatus>;
 }) {
   const blocks = message.uiBlocks?.length
     ? message.uiBlocks
@@ -3865,6 +3933,19 @@ function AssistantMessageBlocks({
           );
         }
 
+        if (block.type === "outbound_call_request") {
+          const key = outboundCallRequestKey(block.request);
+
+          return (
+            <AssistantOutboundCallRequestCard
+              block={block}
+              key={`${message.id}-outbound-call-${index}`}
+              onStartOutboundCall={onStartOutboundCall}
+              status={outboundCallStatuses[key]}
+            />
+          );
+        }
+
         if (block.type === "generated_image") {
           return (
             <div
@@ -3939,6 +4020,64 @@ function AssistantMessageBlocks({
         );
       })}
     </>
+  );
+}
+
+function AssistantOutboundCallRequestCard({
+  block,
+  onStartOutboundCall,
+  status,
+}: {
+  block: OutboundCallRequestBlock;
+  onStartOutboundCall: (request: OutboundCallRequestBlock["request"]) => void;
+  status?: OutboundCallStatus;
+}) {
+  const request = block.request;
+  const started = status?.status === "started";
+  const starting = status?.status === "starting";
+  const failed = status?.status === "failed";
+
+  return (
+    <div className="assistant-known-block outbound-call">
+      <article className="assistant-outbound-call-card">
+        <div>
+          <strong>{block.title}</strong>
+          <dl className="assistant-outbound-call-facts">
+            <div>
+              <dt>Recipient</dt>
+              <dd>{request.contactName ?? request.phoneNumber}</dd>
+            </div>
+            <div>
+              <dt>Phone</dt>
+              <dd>{request.phoneNumber}</dd>
+            </div>
+          </dl>
+        </div>
+        <div className="assistant-outbound-call-instructions">
+          <span>Kyro will say</span>
+          <p>{request.instructions}</p>
+        </div>
+        <div className="assistant-block-actions">
+          <button
+            className="primary-button compact"
+            disabled={starting || started}
+            onClick={() => onStartOutboundCall(request)}
+            type="button"
+          >
+            {starting ? "Starting..." : started ? "Call started" : "Start call"}
+          </button>
+          {status?.message ? (
+            <span
+              className={`assistant-outbound-call-status ${
+                failed ? "failed" : started ? "started" : ""
+              }`}
+            >
+              {status.message}
+            </span>
+          ) : null}
+        </div>
+      </article>
+    </div>
   );
 }
 

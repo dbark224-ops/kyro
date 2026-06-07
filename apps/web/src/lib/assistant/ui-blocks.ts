@@ -21,6 +21,7 @@ export function normalizeAssistantUiBlocks(value: unknown): AssistantUiBlock[] {
       "link_cards",
       "memory_notice",
       "memory_suggestion",
+      "outbound_call_request",
       "summary_cards",
       "timeline",
     ].includes(textValue(record.type) ?? "");
@@ -121,6 +122,21 @@ export function generatedImageBlock(
           images,
           title,
           type: "generated_image",
+        },
+      ]
+    : [];
+}
+
+export function outboundCallRequestBlock(
+  title: string,
+  request: Extract<AssistantUiBlock, { type: "outbound_call_request" }>["request"],
+): AssistantUiBlock[] {
+  return request.phoneNumber && request.instructions
+    ? [
+        {
+          request,
+          title,
+          type: "outbound_call_request",
         },
       ]
     : [];

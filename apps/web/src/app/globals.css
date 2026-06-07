@@ -3144,6 +3144,73 @@ h2 {
   width: min(360px, 100%);
 }
 
+.assistant-known-block.outbound-call,
+.assistant-workspace:not(.has-preview) .assistant-known-block.outbound-call {
+  justify-self: start;
+  width: min(560px, 100%);
+}
+
+.assistant-outbound-call-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--purple) 35%, var(--cyan));
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cyan) 12%, transparent),
+      color-mix(in srgb, var(--pink) 9%, transparent)
+    ),
+    var(--surface);
+  padding: 12px;
+}
+
+.assistant-outbound-call-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.assistant-outbound-call-facts div,
+.assistant-outbound-call-instructions {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface) 78%, var(--background));
+  padding: 8px;
+}
+
+.assistant-outbound-call-facts dt,
+.assistant-outbound-call-instructions span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.assistant-outbound-call-facts dd,
+.assistant-outbound-call-instructions p {
+  overflow-wrap: anywhere;
+  margin: 3px 0 0;
+  font-size: 0.9rem;
+}
+
+.assistant-outbound-call-status {
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.assistant-outbound-call-status.started {
+  color: var(--success);
+}
+
+.assistant-outbound-call-status.failed {
+  color: var(--pink);
+}
+
 .assistant-summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

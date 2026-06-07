@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       leadId: textValue(body.leadId),
       phoneNumber,
       supabase,
+      threadId: textValue(body.threadId),
       user,
       workspaceId: workspace.id,
     });

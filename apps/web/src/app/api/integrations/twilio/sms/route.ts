@@ -12,6 +12,12 @@ import {
 } from "../../../../../lib/integrations/twilio";
 import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
+import { createOutboundVoiceCall } from "../../../../../lib/voice/calls";
+import {
+  looksLikeOutboundCallRequest,
+  resolveOutboundCallRequest,
+} from "../../../../../lib/voice/outbound-call-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +125,41 @@ async function findExistingContactName(
   return textValue(data?.name) ?? textValue(data?.company);
 }
 
+function phoneComparisonKeys(value: string) {
+  const rawDigits = value.replace(/\D/g, "");
+  const normalizedDigits =
+    normalizeContactPhoneForRegion(value, "AU")?.replace(/\D/g, "") ?? null;
+
+  return new Set(
+    [rawDigits, normalizedDigits].filter(
+      (candidate): candidate is string => Boolean(candidate),
+    ),
+  );
+}
+
+function phoneKeySetsOverlap(left: Set<string>, right: Set<string>) {
+  for (const value of left) {
+    if (right.has(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function isInternalSmsSender(
+  supabase: ReturnType<typeof createServiceSupabaseClient>,
+  workspaceId: string,
+  from: string,
+) {
+  const settings = await getVoiceSettings(supabase, workspaceId);
+  const fromKeys = phoneComparisonKeys(from);
+
+  return settings.phoneAgentUserNumbers.some((phoneNumber) =>
+    phoneKeySetsOverlap(fromKeys, phoneComparisonKeys(phoneNumber)),
+  );
+}
+
 async function recordInboundSmsUsage(
   supabase: ReturnType<typeof createServiceSupabaseClient>,
   input: {
@@ -196,6 +237,47 @@ export async function POST(request: Request) {
 
   if (!ownerUserId) {
     throw new Error("Unable to process inbound SMS without a workspace owner.");
+  }
+
+  if (
+    looksLikeOutboundCallRequest(body) &&
+    (await isInternalSmsSender(supabase, workspaceNumber.workspaceId, from))
+  ) {
+    await recordInboundSmsUsage(supabase, {
+      eventId: null,
+      from,
+      messageSid,
+      to,
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    const resolution = await resolveOutboundCallRequest({
+      prompt: body,
+      supabase,
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    if (resolution.status === "ready") {
+      await createOutboundVoiceCall({
+        contactId: resolution.contactId,
+        conversationId: resolution.conversationId,
+        instructions: resolution.instructions,
+        leadId: resolution.leadId,
+        phoneNumber: resolution.phoneNumber,
+        supabase,
+        user: scheduledUser(ownerUserId),
+        workspaceId: workspaceNumber.workspaceId,
+      });
+    } else {
+      console.warn("Internal SMS outbound call request was not ready", {
+        from,
+        messageSid,
+        resolutionStatus: resolution.status,
+        workspaceId: workspaceNumber.workspaceId,
+      });
+    }
+
+    return twilioWebhookResponse();
   }
 
   const contactName =

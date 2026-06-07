@@ -943,7 +943,9 @@ memory suggestions, summary cards, timelines, approval queues, and generated-ima
 web-search results are rendered as source link cards and metered as both model
 tokens and `web_search_calls`. External SMS now has a Twilio send/receive
 foundation, Vapi phone-call records/routes exist for configured workspaces, and
-calendar tools are still provider-needed, approval-gated future tools.
+outbound customer calls can be prepared from Assistant or started from trusted
+internal voice/SMS contexts through the same Vapi call ledger. Calendar tools
+are still provider-needed, approval-gated future tools.
 
 Assistant voice input uses the browser `MediaRecorder` API only for capture. Audio is posted to
 `/api/assistant/transcribe`, where the server calls OpenAI's audio transcription endpoint with the configured
@@ -1097,8 +1099,8 @@ do not substitute the text Kyro speaks aloud.
 
 The outbound customer-voice strictness setting lives inside the `assistant_voice` workspace policy as
 `outboundVoicePronunciationPolicy`. Supported values are `strict`, `balanced`, `flexible`, and `off`; `balanced` is the
-default. The current app does not yet place outbound customer phone calls, so this policy is stored and injected into
-voice context now, then becomes an action preflight gate when customer-facing voice actions exist.
+default. Outbound customer calls now run through the Vapi call ledger and should respect this policy before Kyro speaks
+customer-facing names, places, supplier names, and technical terms.
 
 Kyro also performs a lightweight background pronunciation pass when user assistant messages are saved. It first scans
 the message against existing pronunciation phrases and aliases, incrementing only matched entries and updating

@@ -45,7 +45,10 @@ import {
   insertAuditLog,
 } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
-import { getVoiceCallPreview } from "../../lib/voice/calls";
+import {
+  createOutboundVoiceCall,
+  getVoiceCallPreview,
+} from "../../lib/voice/calls";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -78,6 +81,7 @@ const RELIABLE_ASSISTANT_FALLBACK_INTENTS = new Set([
   "legislation_lookup",
   "memory_save",
   "overview",
+  "outbound_call_prepare",
   "pronunciation_update",
   "quote_create",
   "quote_history",
@@ -590,6 +594,54 @@ export async function sendAssistantManualReplyAction({
         error instanceof Error
           ? error.message
           : "Unable to send this manual reply.",
+    };
+  }
+}
+
+export async function startAssistantOutboundCallAction({
+  contactId,
+  conversationId,
+  instructions,
+  leadId,
+  phoneNumber,
+  threadId,
+}: {
+  contactId?: string | null;
+  conversationId?: string | null;
+  instructions?: string | null;
+  leadId?: string | null;
+  phoneNumber: string;
+  threadId?: string | null;
+}) {
+  try {
+    const { supabase, user, workspace } = await requireWorkspaceContext();
+    const result = await createOutboundVoiceCall({
+      contactId: textValue(contactId),
+      conversationId: textValue(conversationId),
+      instructions: textValue(instructions),
+      leadId: textValue(leadId),
+      phoneNumber,
+      supabase,
+      threadId: textValue(threadId),
+      user,
+      workspaceId: workspace.id,
+    });
+
+    revalidatePath("/");
+    revalidatePath("/activity");
+    revalidatePath("/assistant");
+    revalidatePath("/dashboard");
+    revalidatePath("/voice");
+
+    return {
+      ok: true as const,
+      ...result,
+    };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error ? error.message : "Unable to start the call.",
+      ok: false as const,
     };
   }
 }

@@ -25,6 +25,7 @@ export type AssistantToolName =
   | "legislation_lookup"
   | "memory_save"
   | "overview"
+  | "outbound_call"
   | "pronunciation_update"
   | "quote_create"
   | "quote_history"
@@ -134,6 +135,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Search the public web for current or public internet information. Do not use this for Kyro CRM records, private workspace data, connected email, quotes, files, or app help docs.",
     name: "web_search",
+  },
+  {
+    description:
+      "Prepare an approval-gated outbound phone call to a contact, customer, or phone number with clear instructions for what Kyro should say.",
+    name: "outbound_call",
   },
   {
     description:

@@ -91,10 +91,16 @@ import type {
 import {
   approvalQueueBlock,
   generatedImageBlock,
+  outboundCallRequestBlock,
   summaryCardsBlock,
   timelineBlock,
 } from "./ui-blocks";
 import { runAssistantWebSearch } from "./web-search";
+import {
+  looksLikeOutboundCallRequest,
+  resolveOutboundCallRequest,
+  type OutboundCallRequestResolution,
+} from "../voice/outbound-call-requests";
 
 type WorkspaceInput = {
   id: string;
@@ -378,6 +384,44 @@ export function selectContactForAssistantPrompt(
   const tied = ranked.filter((candidate) => candidate.score === best.score);
 
   return tied.length === 1 ? best.contact : null;
+}
+
+function recentContactIdFromMessages(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+    const links = [
+      ...(message.links ?? []),
+      ...(message.uiBlocks ?? []).flatMap((block) => {
+        if (block.type === "link_cards") {
+          return block.links;
+        }
+
+        if (block.type === "summary_cards") {
+          return block.cards
+            .filter((card) => card.href)
+            .map((card) => ({
+              href: card.href as string,
+              label: card.label,
+              meta: card.detail ?? card.value,
+            }));
+        }
+
+        return [];
+      }),
+    ];
+
+    for (const link of links) {
+      const match = link.href.match(/^\/contacts\/([^/?#]+)/);
+
+      if (match?.[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    }
+  }
+
+  return null;
 }
 
 type QuoteDraftSelection =
@@ -1593,6 +1637,15 @@ async function resolvePlannedAssistantCommand({
         user,
         workspace,
       });
+    case "outbound_call":
+      return outboundCallCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        threadId,
+        user,
+        workspace,
+      });
     case "legislation_lookup":
       return legislationKnowledgeCommand({
         prompt: plannedPrompt,
@@ -1668,6 +1721,17 @@ export async function resolveAssistantCommand({
 
   if (looksLikeWorkQueueRequest(prompt)) {
     return workQueueCommand({ supabase, workspace });
+  }
+
+  if (looksLikeOutboundCallRequest(prompt)) {
+    return outboundCallCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      threadId,
+      user,
+      workspace,
+    });
   }
 
   const imageFollowUpPrompt =
@@ -1825,6 +1889,153 @@ export async function resolveAssistantCommand({
   }
 
   return generalChatCommand({ prompt });
+}
+
+async function outboundCallCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult> {
+  const resolution = await resolveOutboundCallRequest({
+    contactId: recentContactIdFromMessages(recentMessages),
+    prompt,
+    supabase,
+    workspaceId: workspace.id,
+  });
+
+  if (resolution.status === "ambiguous") {
+    const links = resolution.matches.map((contact) => ({
+      href: `/contacts/${contact.id}`,
+      label: contact.name ?? contact.company ?? contact.phone ?? "Contact",
+      meta: contact.email ?? contact.phone ?? undefined,
+    }));
+
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer:
+        "I found a few possible contacts for that call. Pick the right one, then tell me what you want Kyro to say.",
+      intent: "outbound_call_prepare",
+      links,
+      title: "Outbound phone call",
+      uiBlocks: [
+        {
+          links,
+          title: "Possible call recipients",
+          type: "link_cards",
+        },
+      ],
+    };
+  }
+
+  if (resolution.status === "missing_phone") {
+    const links = resolution.contactId
+      ? [
+          {
+            href: `/contacts/${resolution.contactId}`,
+            label: resolution.contactName ?? "Contact",
+            meta: "No phone number",
+          },
+        ]
+      : [];
+
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer:
+        "I found the contact, but there is no phone number saved yet. Add a phone number first, then I can prepare the call.",
+      intent: "outbound_call_prepare",
+      links,
+      title: "Outbound phone call",
+      uiBlocks: links.length
+        ? [
+            {
+              links,
+              title: "Contact needs a phone number",
+              type: "link_cards",
+            },
+          ]
+        : [],
+    };
+  }
+
+  if (resolution.status === "missing_instructions") {
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer:
+        "I have the phone number, but I need to know what you want Kyro to say on the call.",
+      intent: "outbound_call_prepare",
+      links: resolution.contactId
+        ? [
+            {
+              href: `/contacts/${resolution.contactId}`,
+              label: resolution.contactName ?? resolution.phoneNumber ?? "Contact",
+              meta: resolution.phoneNumber ?? undefined,
+            },
+          ]
+        : [],
+      title: "Outbound phone call",
+      uiBlocks: [],
+    };
+  }
+
+  if (resolution.status === "not_found") {
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer:
+        "I couldn't find a matching contact or phone number for that call. Give me the contact name or phone number and what you want Kyro to say.",
+      intent: "outbound_call_prepare",
+      links: [],
+      title: "Outbound phone call",
+      uiBlocks: [],
+    };
+  }
+
+  const readyResolution = resolution as Extract<
+    OutboundCallRequestResolution,
+    { status: "ready" }
+  >;
+  const recipient =
+    readyResolution.contactName ??
+    readyResolution.phoneNumber ??
+    "selected contact";
+  const links = readyResolution.contactId
+    ? [
+        {
+          href: `/contacts/${readyResolution.contactId}`,
+          label: recipient,
+          meta: readyResolution.phoneNumber ?? undefined,
+        },
+      ]
+    : [];
+
+  return {
+    context: { outboundCall: readyResolution },
+    fallbackAnswer: `I found ${recipient} and prepared the outbound call. Review the message, then press Start call when you want Kyro to call.`,
+    intent: "outbound_call_prepare",
+    links,
+    title: "Outbound phone call",
+    uiBlocks: [
+      ...outboundCallRequestBlock("Outbound phone call", {
+        contactId: readyResolution.contactId,
+        contactName: readyResolution.contactName,
+        conversationId: readyResolution.conversationId,
+        instructions: readyResolution.instructions,
+        leadId: readyResolution.leadId,
+        phoneNumber: readyResolution.phoneNumber,
+        threadId,
+      }),
+      ...(links.length
+        ? [
+            {
+              links,
+              title: "Call recipient",
+              type: "link_cards" as const,
+            },
+          ]
+        : []),
+    ],
+  };
 }
 
 async function webSearchCommand({

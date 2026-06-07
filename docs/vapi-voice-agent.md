@@ -131,7 +131,14 @@ workspace users by RLS.
   - `kyro_context_lookup` / `kyro_assistant_command`
   - `kyro_web_search`
   - `kyro_check_recent_email`
+  - `kyro_start_outbound_call`
 - Returns JSON tool results suitable for Vapi to read back into the call.
+
+`kyro_start_outbound_call` is only for trusted internal contexts. The backend
+allows it when Vapi metadata marks the call as `callerRole = internal_user`,
+`purpose = inbound_user`, or `source = kyro.vapi_internal_voice`. Customer-facing
+inbound and voicemail contexts are deliberately blocked so an external caller
+cannot make Kyro place arbitrary outbound calls.
 
 `GET /api/assistant/vapi/internal/session`
 
@@ -183,6 +190,14 @@ workspace users by RLS.
   phone-number metadata contains per-number Vapi ids.
 - Updates the row with the Vapi provider call id or marks it failed.
 
+Text Assistant outbound-call requests use the same backend with an extra
+approval layer: the Assistant resolves the intended contact/phone/instructions,
+renders an `outbound_call_request` card, and only starts the call when the signed
+in user presses Start call. Trusted user-to-Kyro SMS and trusted internal Vapi
+voice can call the same resolver and start the call directly because the request
+already came from a configured internal phone number or authenticated browser
+voice session.
+
 ## Vapi Metadata Contract
 
 Pass these metadata fields from Vapi assistants/calls whenever possible:
@@ -206,6 +221,26 @@ Outbound calls also include a `phoneNumberSelection` metadata object explaining
 which workspace number or fallback id was used. This keeps later audit/billing
 clear when a workspace has both AU and US numbers.
 
+Outbound calls also receive these runtime variables through Vapi assistant
+overrides:
+
+```json
+{
+  "call_instructions": "what the user asked Kyro to say/do",
+  "contact_id": "optional contact uuid",
+  "conversation_id": "optional conversation uuid",
+  "lead_id": "optional lead uuid",
+  "customer_phone": "E.164 or normalized destination number",
+  "workspace_id": "workspace uuid",
+  "user_id": "requesting user uuid",
+  "thread_id": "assistant thread uuid when available"
+}
+```
+
+The outbound Vapi assistant should treat `call_instructions` as the call goal,
+confirm it is speaking to the right person, avoid promising price/timing unless
+the instruction says so, and record the outcome with `kyro_record_call_note`.
+
 ## UI Behaviour
 
 The Assistant page shows non-chat communication in the Kyro activity pane. Phone
@@ -221,7 +256,10 @@ rows open an in-page preview with:
 The mobile app should mirror this as a normal detail screen rather than a desktop
 split pane. It should not implement separate phone logic; it should call
 `GET /api/assistant/activity` for the list, `GET /api/voice/calls/[callId]` for
-details, and `POST /api/voice/outbound` to start an approved outbound call.
+details, and `POST /api/voice/outbound` to start an approved outbound call. If
+mobile implements the text Assistant's approval card, render `ui_blocks` of type
+`outbound_call_request` with a Start call action that posts the card's request
+payload to the same outbound route.
 
 The web app now also has a separate developer-facing Vapi internal voice tab at
 `/voice-vapi`. It intentionally leaves `/voice` intact as the OpenAI Realtime

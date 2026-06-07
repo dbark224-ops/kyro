@@ -88,6 +88,19 @@ export type AssistantUiBlock =
         referenceCount: number;
         size: string;
       }>;
+    }
+  | {
+      type: "outbound_call_request";
+      title: string;
+      request: {
+        contactId?: string | null;
+        contactName?: string | null;
+        conversationId?: string | null;
+        instructions: string;
+        leadId?: string | null;
+        phoneNumber: string;
+        threadId?: string | null;
+      };
     };
 
 export type AssistantCommandResult = {

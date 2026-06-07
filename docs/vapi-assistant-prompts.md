@@ -321,3 +321,37 @@ Vapi metadata:
   "required": ["workspaceId", "userId"]
 }
 ```
+
+`kyro_start_outbound_call`
+
+Use this only on assistants that are allowed to act as an internal Kyro user, such
+as the internal browser/mobile Vapi voice assistant and inbound phone calls from
+configured user/team numbers. Do not rely on this tool for ordinary external
+customer callers; Kyro's backend blocks customer-call contexts from starting
+outbound calls.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "workspaceId": { "type": "string" },
+    "userId": { "type": "string" },
+    "threadId": { "type": "string" },
+    "contactId": { "type": "string" },
+    "contactName": { "type": "string" },
+    "contactQuery": { "type": "string" },
+    "phoneNumber": { "type": "string" },
+    "conversationId": { "type": "string" },
+    "leadId": { "type": "string" },
+    "instructions": {
+      "type": "string",
+      "description": "What Kyro should tell or ask the person during the outbound call."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The user's original request, useful when contact or instructions need resolving."
+    }
+  },
+  "required": ["workspaceId", "userId", "instructions"]
+}
+```

@@ -21,7 +21,8 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 
 - Inbound SMS is now wired into Kyro and the Twilio/Vapi foundation is in place.
 - Inbound phone, outbound phone, voicemail overflow, and voice-tab Vapi flows have all been attacked and partially tested.
-- Finish live-testing hardening, outbound reliability, assistant routing, activity logging, and operator-facing controls.
+- Outbound phone calls can now be prepared from text Assistant review cards and started from trusted internal Vapi voice/SMS instructions.
+- Finish live-testing hardening, assistant routing, provider delivery reliability, activity logging, and operator-facing controls.
 
 ### Voice and Vocabulary Hardening
 

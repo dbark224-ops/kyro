@@ -31,13 +31,16 @@ import {
   usageEventTotals,
 } from "../../../../../lib/usage/openai";
 import {
+  createOutboundVoiceCall,
   lookupVoiceContactsForTool,
   recordVoiceToolEvent,
+  vapiToolCallMetadata,
   vapiToolCallPayload,
   vapiToolThreadId,
   vapiToolUserId,
   vapiToolWorkspaceId,
 } from "../../../../../lib/voice/calls";
+import { resolveOutboundCallRequest } from "../../../../../lib/voice/outbound-call-requests";
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
 
 export const dynamic = "force-dynamic";
@@ -150,6 +153,19 @@ function hasContactPreviewLink(uiBlocks: unknown) {
       return false;
     }
   });
+}
+
+function vapiToolCanStartOutboundCall(payload: Record<string, unknown>) {
+  const metadata = vapiToolCallMetadata(payload);
+  const purpose = textValue(metadata.purpose);
+  const callerRole = textValue(metadata.callerRole);
+  const source = textValue(metadata.source);
+
+  if (callerRole === "internal_user" || purpose === "inbound_user") {
+    return true;
+  }
+
+  return source === "kyro.vapi_internal_voice";
 }
 
 function fieldLabel(value: string | null, label: string) {
@@ -439,6 +455,98 @@ export async function POST(request: Request) {
           result.contacts && result.contacts.length > 0
             ? contactCardsForVoiceTool(result.contacts)
             : [],
+      });
+    }
+
+    if (toolCall.name === "kyro_start_outbound_call") {
+      if (!userId) {
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a user id to start outbound phone calls.",
+        });
+      }
+
+      if (!vapiToolCanStartOutboundCall(payload)) {
+        return completedToolResponse({
+          ok: false,
+          message:
+            "Outbound phone calls can only be started from trusted internal Kyro calls.",
+        });
+      }
+
+      const phoneNumber =
+        textValue(args.phoneNumber) ??
+        textValue(args.customerPhone) ??
+        textValue(args.toNumber) ??
+        textValue(args.to);
+      const instructions =
+        textValue(args.instructions) ??
+        textValue(args.callInstructions) ??
+        textValue(args.message) ??
+        textValue(args.note);
+      const resolutionPrompt = [
+        prompt,
+        textValue(args.contactName),
+        phoneNumber,
+        instructions,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" ");
+      const resolution = await resolveOutboundCallRequest({
+        contactId: textValue(args.contactId),
+        conversationId: textValue(args.conversationId),
+        instructions,
+        leadId: textValue(args.leadId),
+        phoneNumber,
+        prompt: resolutionPrompt || "Outbound phone call",
+        supabase,
+        workspaceId,
+      });
+
+      if (resolution.status !== "ready") {
+        const links = resolution.matches.map((contact) => ({
+          href: `/contacts/${contact.id}`,
+          label: contact.name ?? contact.company ?? contact.phone ?? "Contact",
+          meta: contact.email ?? contact.phone ?? undefined,
+        }));
+
+        return completedToolResponse({
+          answer:
+            resolution.status === "ambiguous"
+              ? "I found more than one possible contact. Ask the user which one they mean before starting the call."
+              : resolution.status === "missing_phone"
+                ? "That contact does not have a phone number saved yet."
+                : resolution.status === "missing_instructions"
+                  ? "Ask the user what Kyro should say on the outbound call."
+                  : "I could not find a matching contact or phone number for that outbound call.",
+          ok: false,
+          resolution,
+          uiBlocks: links.length
+            ? linkCardsBlock("Possible call recipients", links)
+            : [],
+        });
+      }
+
+      const result = await createOutboundVoiceCall({
+        contactId: resolution.contactId,
+        conversationId: resolution.conversationId,
+        instructions: resolution.instructions,
+        leadId: resolution.leadId,
+        phoneNumber: resolution.phoneNumber,
+        supabase,
+        threadId,
+        user: toolUser(userId),
+        workspaceId,
+      });
+
+      return completedToolResponse({
+        answer: `Started the outbound call to ${
+          resolution.contactName ?? resolution.phoneNumber
+        }.`,
+        ok: true,
+        providerCallId: result.providerCallId,
+        status: result.status,
+        voiceCallId: result.voiceCallId,
       });
     }
 
