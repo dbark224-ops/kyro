@@ -52,10 +52,15 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
     ? `<img alt="${escapeHtml(report.business.name)} logo" src="${report.business.logoDataUrl}" />`
     : report.business.logoUrl
       ? `<img alt="${escapeHtml(report.business.name)} logo" src="${escapeHtml(report.business.logoUrl)}" />`
-      : "";
+    : "";
   const brandMarkup = logoMarkup
     ? `<div class="brand-logo">${logoMarkup}</div>`
     : `<div class="brand-name">${escapeHtml(report.business.name)}</div>`;
+  const notesMarkup = report.notes.length
+    ? `<section class="notes">
+      ${report.notes.map((note) => `<p>${escapeHtml(note)}</p>`).join("")}
+    </section>`
+    : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -70,9 +75,13 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
       --line: #dbeafe;
       --cyan: #38d9f2;
       --pink: #ec368d;
-      --purple: #7c3aed;
       --surface: #ffffff;
       font-family: "Manrope", "Inter", Arial, sans-serif;
+    }
+
+    @page {
+      size: A4 landscape;
+      margin: 14mm;
     }
 
     * { box-sizing: border-box; }
@@ -110,22 +119,22 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
     }
 
     .page {
-      width: min(980px, calc(100vw - 32px));
+      width: min(1080px, calc(100vw - 32px));
       margin: 24px auto;
       border: 1px solid #d8e5ee;
-      border-radius: 16px;
+      border-radius: 12px;
       background: var(--surface);
-      box-shadow: 0 24px 70px rgb(15 23 42 / 0.12);
-      padding: 42px;
+      box-shadow: 0 18px 54px rgb(15 23 42 / 0.1);
+      padding: 28px;
     }
 
     header {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: start;
-      gap: 24px;
-      border-bottom: 3px solid var(--cyan);
-      padding-bottom: 24px;
+      gap: 18px;
+      border-bottom: 2px solid var(--cyan);
+      padding-bottom: 14px;
     }
 
     .eyebrow {
@@ -139,23 +148,23 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
 
     h1 {
       margin: 0;
-      font-size: 38px;
+      font-size: 30px;
       letter-spacing: 0;
       line-height: 1.02;
     }
 
     h2 {
-      margin: 0 0 12px;
-      font-size: 18px;
+      margin: 0 0 10px;
+      font-size: 16px;
       letter-spacing: 0;
     }
 
     .subtitle {
       max-width: 640px;
-      margin: 10px 0 0;
+      margin: 7px 0 0;
       color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
+      font-size: 12px;
+      line-height: 1.42;
     }
 
     .brand-logo img {
@@ -166,8 +175,8 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
 
     .brand-name {
       max-width: 230px;
-      color: var(--purple);
-      font-size: 26px;
+      color: var(--ink);
+      font-size: 16px;
       font-weight: 900;
       line-height: 1.05;
       text-align: right;
@@ -177,22 +186,20 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 18px;
+      gap: 8px;
+      margin-top: 12px;
     }
 
     .meta-card,
     .summary-card {
-      border: 1px solid #d8e5ee;
-      border-radius: 12px;
-      background: #f8fbff;
-      padding: 12px;
+      border-left: 1px solid #d8e5ee;
+      padding: 2px 10px 4px;
     }
 
     .summary-card strong {
       display: block;
-      margin: 4px 0;
-      font-size: 24px;
+      margin: 3px 0;
+      font-size: 18px;
       line-height: 1;
     }
 
@@ -200,7 +207,7 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
     .summary-card span {
       display: block;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 9px;
       font-weight: 850;
       text-transform: uppercase;
     }
@@ -209,12 +216,12 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
     .summary-card p {
       margin: 4px 0 0;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 10px;
       line-height: 1.35;
     }
 
     section {
-      margin-top: 26px;
+      margin-top: 18px;
     }
 
     table {
@@ -226,7 +233,7 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
     th,
     td {
       border-bottom: 1px solid #e5eef6;
-      padding: 9px 8px;
+      padding: 6px 7px;
       text-align: left;
       vertical-align: top;
       word-break: break-word;
@@ -234,14 +241,14 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
 
     th {
       color: var(--muted);
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 900;
       text-transform: uppercase;
     }
 
     td {
-      font-size: 12px;
-      line-height: 1.35;
+      font-size: 10px;
+      line-height: 1.3;
     }
 
     .empty {
@@ -256,7 +263,7 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
       gap: 6px;
       border-left: 3px solid var(--pink);
       background: #fdf7fb;
-      padding: 14px 16px;
+      padding: 10px 12px;
     }
 
     .notes p {
@@ -275,7 +282,7 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
         border: 0;
         border-radius: 0;
         box-shadow: none;
-        padding: 26px;
+        padding: 0;
       }
     }
   </style>
@@ -350,9 +357,7 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
     </section>`;
       })
       .join("")}
-    <section class="notes">
-      ${report.notes.map((note) => `<p>${escapeHtml(note)}</p>`).join("")}
-    </section>
+    ${notesMarkup}
   </main>
 </body>
 </html>`;
@@ -430,54 +435,7 @@ function truncatedText(value: string, maxLength = 140) {
     : value;
 }
 
-function roundedRectPath(width: number, height: number, radius: number) {
-  const r = Math.min(radius, width / 2, height / 2);
-
-  return [
-    `M ${r} 0`,
-    `L ${width - r} 0`,
-    `Q ${width} 0 ${width} ${r}`,
-    `L ${width} ${height - r}`,
-    `Q ${width} ${height} ${width - r} ${height}`,
-    `L ${r} ${height}`,
-    `Q 0 ${height} 0 ${height - r}`,
-    `L 0 ${r}`,
-    `Q 0 0 ${r} 0`,
-    "Z",
-  ].join(" ");
-}
-
-function drawRoundedBox({
-  borderColor = rgb(0.86, 0.9, 0.94),
-  borderWidth = 1,
-  color = rgb(0.98, 0.99, 1),
-  height,
-  page,
-  radius = 8,
-  width,
-  x,
-  y,
-}: {
-  borderColor?: ReturnType<typeof rgb>;
-  borderWidth?: number;
-  color?: ReturnType<typeof rgb>;
-  height: number;
-  page: PDFPage;
-  radius?: number;
-  width: number;
-  x: number;
-  y: number;
-}) {
-  page.drawSvgPath(roundedRectPath(width, height, radius), {
-    borderColor,
-    borderWidth,
-    color,
-    x,
-    y,
-  });
-}
-
-function drawReportCard({
+function drawCompactItem({
   detail,
   fonts,
   label,
@@ -499,37 +457,121 @@ function drawReportCard({
   const muted = rgb(0.392, 0.439, 0.522);
   const ink = rgb(0.067, 0.094, 0.153);
 
-  drawRoundedBox({
-    height: 54,
-    page,
-    width,
+  page.drawText(truncatedText(label.toUpperCase(), 24), {
+    color: muted,
+    font: fonts.bold,
+    size: 6.5,
     x,
     y,
   });
-  page.drawText(truncatedText(label.toUpperCase(), 22), {
-    color: muted,
-    font: fonts.bold,
-    size: 7,
-    x: x + 10,
-    y: y + 35,
-  });
-  page.drawText(truncatedText(value, 24), {
+  page.drawText(truncatedText(value, 32), {
     color: ink,
     font: fonts.bold,
-    size: 15,
-    x: x + 10,
-    y: y + 17,
+    size: 10,
+    x,
+    y: y - 13,
   });
 
   if (detail) {
-    page.drawText(truncatedText(detail, 34), {
+    page.drawText(truncatedText(detail, 44), {
       color: muted,
       font: fonts.regular,
-      size: 7,
-      x: x + 10,
-      y: y + 7,
+      size: 6.5,
+      x,
+      y: y - 24,
     });
   }
+
+  if (width > 0) {
+    page.drawLine({
+      color: rgb(0.86, 0.9, 0.94),
+      end: { x: x + width - 8, y: y - 31 },
+      start: { x, y: y - 31 },
+      thickness: 0.7,
+    });
+  }
+}
+
+function drawCompactGrid({
+  fonts,
+  items,
+  page,
+  y,
+}: {
+  fonts: { bold: PDFFont; regular: PDFFont };
+  items: Array<{ detail?: string; label: string; value: string }>;
+  page: PDFPage;
+  y: number;
+}) {
+  const gap = 14;
+  const width = (CONTENT_WIDTH - gap * (items.length - 1)) / items.length;
+
+  items.forEach((item, index) => {
+    drawCompactItem({
+      ...item,
+      fonts,
+      page,
+      width,
+      x: MARGIN + index * (width + gap),
+      y,
+    });
+  });
+
+  return y - 42;
+}
+
+function columnWeight(column: string) {
+  const value = column.toLowerCase();
+
+  if (value.includes("date") || value.includes("updated")) {
+    return 1.1;
+  }
+
+  if (
+    value.includes("direction") ||
+    value.includes("channel") ||
+    value.includes("status") ||
+    value.includes("type") ||
+    value.includes("size")
+  ) {
+    return 0.85;
+  }
+
+  if (
+    value.includes("amount") ||
+    value.includes("charge") ||
+    value.includes("cost") ||
+    value.includes("usage")
+  ) {
+    return 0.9;
+  }
+
+  if (
+    value.includes("preview") ||
+    value.includes("message") ||
+    value.includes("missing") ||
+    value.includes("filename")
+  ) {
+    return 2.2;
+  }
+
+  if (
+    value.includes("contact") ||
+    value.includes("subject") ||
+    value.includes("title") ||
+    value.includes("model")
+  ) {
+    return 1.35;
+  }
+
+  return 1;
+}
+
+function resolveColumnWidths(columns: string[]) {
+  const weights = columns.map(columnWeight);
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+
+  return weights.map((weight) => (CONTENT_WIDTH * weight) / total);
 }
 
 async function embedReportLogo(
@@ -566,46 +608,46 @@ function drawHeader(
 ) {
   const cyan = rgb(0.208, 0.851, 0.949);
   const muted = rgb(0.392, 0.439, 0.522);
-  const purple = rgb(0.486, 0.227, 0.929);
-  let y = PAGE_HEIGHT - MARGIN - 4;
+  const ink = rgb(0.067, 0.094, 0.153);
+  let y = PAGE_HEIGHT - MARGIN;
 
   page.drawRectangle({
     color: cyan,
-    height: 5,
+    height: 3,
     width: CONTENT_WIDTH,
     x: MARGIN,
     y,
   });
-  y -= 34;
+  y -= 24;
 
   y = drawTextLines({
     font: fonts.bold,
-    lineHeight: 28,
+    lineHeight: 22,
     maxLines: 2,
-    maxWidth: 520,
+    maxWidth: 560,
     page,
-    size: 28,
+    size: 22,
     text: report.title,
     x: MARGIN,
     y,
   });
-  y -= 6;
+  y -= 4;
   y = drawTextLines({
     color: muted,
     font: fonts.regular,
-    lineHeight: 13,
-    maxLines: 3,
-    maxWidth: 520,
+    lineHeight: 11,
+    maxLines: 2,
+    maxWidth: 560,
     page,
-    size: 10,
+    size: 8,
     text: report.subtitle,
     x: MARGIN,
     y,
   });
 
   if (logo) {
-    const maxLogoWidth = 138;
-    const maxLogoHeight = 48;
+    const maxLogoWidth = 124;
+    const maxLogoHeight = 42;
     const scale = Math.min(
       maxLogoWidth / logo.width,
       maxLogoHeight / logo.height,
@@ -618,50 +660,81 @@ function drawHeader(
       height,
       width,
       x: PAGE_WIDTH - MARGIN - width,
-      y: PAGE_HEIGHT - MARGIN - height - 16,
+      y: PAGE_HEIGHT - MARGIN - height - 14,
     });
   } else {
     drawTextLines({
-      color: purple,
+      color: ink,
       font: fonts.bold,
-      lineHeight: 20,
+      lineHeight: 13,
       maxLines: 2,
       maxWidth: 180,
       page,
-      size: 18,
+      size: 11,
       text: report.business.name,
       x: PAGE_WIDTH - MARGIN - 180,
-      y: PAGE_HEIGHT - MARGIN - 34,
+      y: PAGE_HEIGHT - MARGIN - 28,
     });
   }
 
-  y -= 14;
+  y -= 10;
 
-  const metaCards = [
-    ["Workspace", report.business.name],
-    ["Generated", formatDateTime(report.generatedAt)],
-    ["Period", report.period.label],
-    [
-      report.filters.find((filter) => filter.label === "Channel")?.label ??
-        "Channel",
-      report.filters.find((filter) => filter.label === "Channel")?.value ??
-        "All channels",
+  return drawCompactGrid({
+    fonts,
+    items: [
+      { label: "Workspace", value: report.business.name },
+      { label: "Generated", value: formatDateTime(report.generatedAt) },
+      { label: "Period", value: report.period.label },
+      {
+        label:
+          report.filters.find((filter) => filter.label === "Channel")?.label ??
+          "Channel",
+        value:
+          report.filters.find((filter) => filter.label === "Channel")?.value ??
+          "All channels",
+      },
     ],
-  ];
-  const metaWidth = (CONTENT_WIDTH - 24) / 4;
-  metaCards.forEach(([label, value], index) => {
-    drawReportCard({
-      fonts,
-      label,
-      page,
-      value,
-      width: metaWidth,
-      x: MARGIN + index * (metaWidth + 8),
-      y: y - 54,
-    });
+    page,
+    y,
+  });
+}
+
+function drawTableHeader({
+  columns,
+  font,
+  page,
+  widths,
+  y,
+}: {
+  columns: string[];
+  font: PDFFont;
+  page: PDFPage;
+  widths: number[];
+  y: number;
+}) {
+  const ink = rgb(0.067, 0.094, 0.153);
+  let x = MARGIN;
+
+  page.drawRectangle({
+    color: ink,
+    height: 18,
+    width: CONTENT_WIDTH,
+    x: MARGIN,
+    y: y - 18,
   });
 
-  return y - 78;
+  columns.forEach((column, index) => {
+    page.drawText(truncatedText(column.toUpperCase(), 20), {
+      color: rgb(1, 1, 1),
+      font,
+      size: 6,
+      x: x + 5,
+      y: y - 12,
+    });
+    x += widths[index] ?? 0;
+  });
+
+  return y - 25;
 }
 
 export async function buildReportPdf(report: WorkspaceReport) {
@@ -669,153 +742,161 @@ export async function buildReportPdf(report: WorkspaceReport) {
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const logo = await embedReportLogo(pdf, report);
+  const fonts = { bold, regular };
   const ink = rgb(0.067, 0.094, 0.153);
   const muted = rgb(0.392, 0.439, 0.522);
   const line = rgb(0.86, 0.9, 0.94);
   let page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-  let y = drawHeader(page, report, { bold, regular }, logo);
+  let y = drawHeader(page, report, fonts, logo);
 
-  function ensureSpace(height: number) {
-    if (y - height > MARGIN) {
-      return;
-    }
-
+  function addPage() {
     page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     y = PAGE_HEIGHT - MARGIN;
   }
 
-  const cardWidth = (CONTENT_WIDTH - 24) / 4;
-  report.summaryCards.slice(0, 4).forEach((card, index) => {
-    const x = MARGIN + index * (cardWidth + 8);
+  function ensureSpace(height: number) {
+    if (y - height > MARGIN) {
+      return false;
+    }
 
-    drawReportCard({
-      detail: card.detail,
-      fonts: { bold, regular },
-      label: card.label,
-      page,
-      value: card.value,
-      width: cardWidth,
-      x,
-      y: y - 54,
-    });
+    addPage();
+    return true;
+  }
+
+  y = drawCompactGrid({
+    fonts,
+    items: report.summaryCards.slice(0, 4),
+    page,
+    y,
   });
-  y -= 76;
+  y -= 6;
 
   for (const section of report.sections) {
-    ensureSpace(80);
+    ensureSpace(64);
     page.drawText(section.title, {
       color: ink,
       font: bold,
-      size: 14,
+      size: 12,
       x: MARGIN,
       y,
     });
-    y -= 22;
+    y -= 17;
+
+    if (section.description) {
+      y = drawTextLines({
+        color: muted,
+        font: regular,
+        lineHeight: 10,
+        maxLines: 2,
+        maxWidth: CONTENT_WIDTH,
+        page,
+        size: 8,
+        text: section.description,
+        x: MARGIN,
+        y,
+      });
+      y -= 5;
+    }
 
     if (section.rows.length === 0) {
       y = drawTextLines({
         color: muted,
         font: regular,
-        lineHeight: 13,
+        lineHeight: 12,
         maxLines: 4,
         maxWidth: CONTENT_WIDTH,
         page,
-        size: 10,
+        size: 9,
         text: section.emptyText ?? "No rows for this report.",
         x: MARGIN,
         y,
       });
-      y -= 14;
+      y -= 16;
       continue;
     }
 
-    const columnCount = Math.max(1, section.columns.length);
-    const columnWidth = CONTENT_WIDTH / columnCount;
-
-    ensureSpace(32);
-    page.drawRectangle({
-      color: ink,
-      height: 24,
-      width: CONTENT_WIDTH,
-      x: MARGIN,
-      y: y - 24,
+    const widths = resolveColumnWidths(section.columns);
+    y = drawTableHeader({
+      columns: section.columns,
+      font: bold,
+      page,
+      widths,
+      y,
     });
-    section.columns.forEach((column, index) => {
-      page.drawText(truncatedText(column.toUpperCase(), 18), {
-        color: rgb(1, 1, 1),
-        font: bold,
-        size: 7,
-        x: MARGIN + index * columnWidth + 6,
-        y: y - 16,
+
+    for (const row of section.rows) {
+      const cellLines = section.columns.map((_, index) =>
+        wrapText(
+          truncatedText(row[index] ?? "-", 180),
+          regular,
+          7,
+          Math.max(32, (widths[index] ?? 0) - 10),
+        ).slice(0, 2),
+      );
+      const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length));
+      const rowHeight = Math.max(21, maxLines * 8 + 10);
+
+      if (ensureSpace(rowHeight + 26)) {
+        page.drawText(`${section.title} continued`, {
+          color: muted,
+          font: bold,
+          size: 8,
+          x: MARGIN,
+          y,
+        });
+        y -= 14;
+        y = drawTableHeader({
+          columns: section.columns,
+          font: bold,
+          page,
+          widths,
+          y,
+        });
+      }
+
+      const rowTop = y;
+      let x = MARGIN;
+
+      cellLines.forEach((lines, index) => {
+        lines.forEach((lineText, lineIndex) => {
+          page.drawText(lineText, {
+            color: ink,
+            font: regular,
+            size: 7,
+            x: x + 5,
+            y: rowTop - 10 - lineIndex * 8,
+          });
+        });
+        x += widths[index] ?? 0;
       });
-    });
-    y -= 34;
-
-    for (const row of section.rows.slice(0, 220)) {
-      ensureSpace(32);
-      const rowTop = y + 10;
 
       page.drawLine({
         color: line,
-        end: { x: MARGIN + CONTENT_WIDTH, y: rowTop - 26 },
-        start: { x: MARGIN, y: rowTop - 26 },
-        thickness: 1,
+        end: { x: MARGIN + CONTENT_WIDTH, y: rowTop - rowHeight },
+        start: { x: MARGIN, y: rowTop - rowHeight },
+        thickness: 0.8,
       });
-      section.columns.forEach((_, index) => {
-        drawTextLines({
-          color: ink,
-          font: regular,
-          lineHeight: 10,
-          maxLines: 2,
-          maxWidth: Math.max(32, columnWidth - 10),
-          page,
-          size: 8,
-          text: row[index] ?? "-",
-          x: MARGIN + index * columnWidth + 6,
-          y,
-        });
-      });
-      y -= 30;
-    }
-
-    if (section.rows.length > 220) {
-      ensureSpace(24);
-      page.drawText(`${section.rows.length - 220} additional rows omitted from PDF output.`, {
-        color: muted,
-        font: regular,
-        size: 9,
-        x: MARGIN,
-        y,
-      });
-      y -= 22;
+      y -= rowHeight;
     }
 
     y -= 16;
   }
 
-  ensureSpace(60);
-  drawRoundedBox({
-    borderColor: rgb(0.93, 0.75, 0.85),
-    borderWidth: 1,
-    color: rgb(0.996, 0.969, 0.984),
-    height: 48,
-    page,
-    width: CONTENT_WIDTH,
-    x: MARGIN,
-    y: y - 48,
-  });
-  drawTextLines({
-    color: muted,
-    font: regular,
-    lineHeight: 12,
-    maxLines: 3,
-    maxWidth: CONTENT_WIDTH - 20,
-    page,
-    size: 9,
-    text: report.notes.join("\n"),
-    x: MARGIN + 10,
-    y: y - 16,
-  });
+  if (report.notes.length > 0) {
+    ensureSpace(42);
+    drawTextLines({
+      color: muted,
+      font: regular,
+      lineHeight: 11,
+      maxLines: 3,
+      maxWidth: CONTENT_WIDTH,
+      page,
+      size: 8,
+      text: report.notes.join("\n"),
+      x: MARGIN,
+      y,
+    });
+  }
 
   return pdf.save();
 }

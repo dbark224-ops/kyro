@@ -248,8 +248,10 @@ Purpose:
 - support report types for all communications, inbound communications, outbound communications, communications by contact, usage ledger, document activity, work queue summary, and placeholder payment history,
 - filter reports by timeframe, custom date range, contact, direction, and channel where that filter applies,
 - keep `/reports` light until the user explicitly clicks Generate report,
-- render the browser print preview and server-generated PDF download only after generation using one standard report template,
-- place the dedicated business/workspace logo in report output when one exists, otherwise fall back to the business name without Kyro branding. Reports deliberately do not reuse outbound email-signature logos, because those may be Kyro-branded signature assets.
+- render the browser print preview and server-generated PDF download only after generation using one compact standard report template,
+- keep report output space-efficient with a slim header, compact metadata/stat rows, and consistent table columns rather than large decorative card blocks,
+- place the dedicated business/workspace logo in report output when one exists, otherwise fall back to the business name in black without Kyro branding. Reports deliberately do not reuse outbound email-signature logos, because those may be Kyro-branded signature assets.
+- avoid printing internal row-limit/disclaimer copy in the report output; if report limits need to be explained, keep that guidance in the Reports UI.
 
 Payment history reports intentionally remain empty until customer payment collection
 records exist. Add future report types in `apps/web/src/lib/reports/data.ts`, then reuse

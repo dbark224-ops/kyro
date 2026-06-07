@@ -1198,10 +1198,7 @@ export async function buildWorkspaceReport(
     notes:
       filters.type === "payment_history"
         ? ["Payment reporting is scaffolded but will remain empty until payment processing is connected."]
-        : [
-            "This report is generated from current workspace records.",
-            "Rows are limited to the most recent 1,000 matching records per source.",
-          ],
+        : [],
     period,
     sections: reportCore.sections,
     summaryCards: reportCore.summaryCards,
