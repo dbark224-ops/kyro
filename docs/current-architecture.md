@@ -105,6 +105,11 @@ All business data is workspace-scoped. The important tables are:
 - `ai_runs`: AI workflow records.
 - `model_route_decisions`: model selection audit trail.
 - `usage_events`: metered provider/API usage.
+- `workspace_policies`: JSON policy store for workspace-level settings such as
+  `workspace_general`, communication/outbound preferences, inbound email,
+  voice, document templates, and budgets. `workspace_general` now includes the
+  editable business profile used by Settings, reports, assistant context, and
+  future customer-facing documents.
 - `audit_logs`: append-only history of meaningful changes.
 
 Schema source: `packages/db/src/schema.ts`.
@@ -1114,7 +1119,16 @@ Purpose:
 - save a default email signature and optional assistant signature,
 - choose the Voice Assistant OpenAI voice,
 - choose the outbound voice pronunciation policy and manage pronunciation vocabulary,
-- manage general workspace defaults such as timezone, preferred display currency, and default phone region in a dedicated General settings section,
+- manage the workspace business profile in General settings, including business
+  name, industry, public email/phone, address, service area, service
+  suburbs/postcodes, travel radius, staff count, working/contact hours,
+  emergency-work notes, logo, brand colours, and brand style notes,
+- keep the displayed public phone number independent from operational
+  Twilio/Vapi numbers while showing assigned SMS/voice numbers as selectable
+  connected options,
+- manage general workspace defaults such as timezone, preferred display currency, and default phone region in the same General settings section,
+- surface the default manual email signature in General while leaving advanced
+  outbound approval, AI signature, and provider settings in Connected accounts,
 - configure inbound email sync cadence, quiet-hours polling, and action-filtering rules,
 - show inbound email sync health in Settings, including reconnect-needed state,
   missing inbox-read scopes, last successful sync, last check attempt, next

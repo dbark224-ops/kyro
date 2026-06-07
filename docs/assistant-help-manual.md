@@ -454,7 +454,7 @@ Use Developer -> Smoke Test Checklist as the builder runbook after larger change
 
 Settings is split into these sections:
 
-- General: workspace-wide defaults such as timezone and display currency.
+- General: business profile, public contact details, service area, branding, default signature, timezone, display currency, and phone-region defaults.
 - Integrations: connected email accounts, outbound reply/channel rules, signatures, inbound email sync, quiet hours, and sync limits.
 - Voice: assistant voice, outbound pronunciation policy, and pronunciation vocabulary.
 - Usage: customer-facing usage charge visibility, task/model breakdowns, and metered usage ledger.
@@ -463,7 +463,15 @@ Settings sections are URL-addressable so a link or assistant card can open the c
 
 ## General Settings
 
-General settings currently hold workspace-wide defaults.
+General settings hold the workspace's business profile and workspace-wide defaults.
+
+The business profile includes the business name, industry, public email, displayed public phone number, business address, service area, suburbs/postcodes served, travel radius, staff count, working/contact hours, emergency job availability, emergency-rate notes, logo, brand colours, and brand style notes.
+
+The public phone number is deliberately separate from the operational Twilio/Vapi number. If a workspace has an assigned SMS/voice number, General shows it as an available connected number, but the user can still type or choose a different public number for documents and business-facing material.
+
+Business logo and branding live in General. Reports and future business-facing documents can use the business logo when it exists, falling back to the business name when no logo is saved. The logo upload is intentionally small for now.
+
+The default email signature is also surfaced in General so the business profile has one obvious place for everyday business identity. Advanced outbound writing controls and optional separate AI signatures still live under Connected accounts.
 
 Timezone lives in General because it affects multiple features. Kyro uses timezone for local-time behaviour such as quiet-hours email polling.
 

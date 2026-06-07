@@ -29,4 +29,35 @@ describe("workspace general settings", () => {
     assert.equal(settings.displayCurrency, "NZD");
     assert.equal(settings.timeZone, "Pacific/Auckland");
   });
+
+  it("normalizes business profile values", () => {
+    const settings = normalizeWorkspaceGeneralSettings(
+      {
+        businessProfile: {
+          brandAccentColor: "not-a-color",
+          brandPrimaryColor: "#123abc",
+          businessName: "  WFA Plumbing  ",
+          emergencyJobsEnabled: true,
+          logoWidthPx: "999",
+          publicPhoneNumber: "  +61 7 4517 4330  ",
+          staffCount: "4",
+          travelRadiusKm: "32.4",
+        },
+      },
+      {
+        businessProfile: {
+          brandAccentColor: "#ffffff",
+        },
+      },
+    );
+
+    assert.equal(settings.businessProfile.businessName, "WFA Plumbing");
+    assert.equal(settings.businessProfile.brandAccentColor, "#ffffff");
+    assert.equal(settings.businessProfile.brandPrimaryColor, "#123abc");
+    assert.equal(settings.businessProfile.emergencyJobsEnabled, true);
+    assert.equal(settings.businessProfile.logoWidthPx, 320);
+    assert.equal(settings.businessProfile.publicPhoneNumber, "+61 7 4517 4330");
+    assert.equal(settings.businessProfile.staffCount, 4);
+    assert.equal(settings.businessProfile.travelRadiusKm, 32);
+  });
 });

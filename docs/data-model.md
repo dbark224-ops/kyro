@@ -1058,6 +1058,15 @@ Recommended `policy_type` values:
 - `inbound_email`
 - `assistant_voice`
 - `usage_budget`
+
+`workspace_general` stores the current editable business profile used by
+Settings, reports, assistant context, and future customer-facing documents. The
+profile includes business name, industry, public email/phone, business address,
+service area, served suburbs/postcodes, travel radius, staff count,
+working/contact hours, emergency job availability and notes, logo payload/URL,
+brand colours, and brand style notes. The public phone number is only the
+displayed business number; operational SMS/voice numbers stay in
+`workspace_phone_numbers` and provider-specific voice settings.
 - `quiet_hours`
 - `blocked_recipients`
 

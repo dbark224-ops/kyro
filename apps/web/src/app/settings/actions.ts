@@ -5,6 +5,7 @@ import {
   DEFAULT_COMMUNICATION_SETTINGS,
   OUTBOUND_CHANNELS,
   isOutboundChannel,
+  normalizeCommunicationSettings,
   normalizeEmailSignatureSettings,
   normalizeFollowUpDelayDays,
   normalizeReplyWritingSettings,
@@ -68,6 +69,7 @@ import {
 import {
   WORKSPACE_GENERAL_POLICY_TYPE,
   getWorkspaceGeneralSettings,
+  normalizeWorkspaceBusinessProfileSettings,
   normalizeWorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
@@ -119,24 +121,28 @@ function isUploadFile(value: FormDataEntryValue): value is File {
   );
 }
 
-async function signatureLogoPayload(
+async function imagePayload(
   formData: FormData,
-  prefix: "manualSignature" | "aiGeneratedSignature",
+  prefix: string,
+  section: "general" | "integrations" | "voice",
+  label: string,
 ) {
   const upload = formData.get(`${prefix}LogoFile`);
 
   if (upload && isUploadFile(upload) && upload.name.trim() && upload.size > 0) {
     if (!upload.type.startsWith("image/")) {
-      redirectWithSettingsMessage(
+      redirectWithSectionMessage(
+        section,
         "engine_error",
-        "Signature logos must be image files.",
+        `${label} must be image files.`,
       );
     }
 
     if (upload.size > MAX_SIGNATURE_LOGO_BYTES) {
-      redirectWithSettingsMessage(
+      redirectWithSectionMessage(
+        section,
         "engine_error",
-        "Signature logos are limited to 512 KB for now.",
+        `${label} are limited to 512 KB for now.`,
       );
     }
 
@@ -156,6 +162,18 @@ async function signatureLogoPayload(
     logoFilename: formString(formData, `${prefix}LogoFilename`),
     logoSizeBytes: formString(formData, `${prefix}LogoSizeBytes`),
   };
+}
+
+async function signatureLogoPayload(
+  formData: FormData,
+  prefix: "manualSignature" | "aiGeneratedSignature",
+  section: "general" | "integrations" = "integrations",
+) {
+  return imagePayload(formData, prefix, section, "Signature logos");
+}
+
+async function businessLogoPayload(formData: FormData) {
+  return imagePayload(formData, "businessProfile", "general", "Business logos");
 }
 
 function redirectWithSectionMessage(
@@ -424,6 +442,12 @@ export async function updateGeneralSettingsAction(formData: FormData) {
   const displayCurrency = normalizeDisplayCurrency(
     formString(formData, "workspaceDisplayCurrency"),
   );
+  const businessLogo = await businessLogoPayload(formData);
+  const manualLogo = await signatureLogoPayload(
+    formData,
+    "manualSignature",
+    "general",
+  );
 
   if (!timeZone) {
     redirectWithSectionMessage(
@@ -454,7 +478,11 @@ export async function updateGeneralSettingsAction(formData: FormData) {
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [beforeGeneralResult, beforeInboundResult] = await Promise.all([
+  const [
+    beforeGeneralResult,
+    beforeInboundResult,
+    beforeCommunicationResult,
+  ] = await Promise.all([
     supabase
       .from("workspace_policies")
       .select("id,settings")
@@ -466,6 +494,12 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       .select("id,settings")
       .eq("workspace_id", workspace.id)
       .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+      .maybeSingle(),
+    supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", COMMUNICATION_POLICY_TYPE)
       .maybeSingle(),
   ]);
 
@@ -485,6 +519,14 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     );
   }
 
+  if (beforeCommunicationResult.error) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      beforeCommunicationResult.error.message,
+    );
+  }
+
   const beforeInboundSettings = normalizeInboundEmailSettings(
     beforeInboundResult.data?.settings,
   );
@@ -492,8 +534,55 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     beforeGeneralResult.data?.settings,
     { timeZone: beforeInboundSettings.timeZone },
   );
+  const beforeCommunicationSettings = normalizeCommunicationSettings(
+    beforeCommunicationResult.data?.settings,
+  );
+  const businessProfile = normalizeWorkspaceBusinessProfileSettings(
+    {
+      ...beforeGeneralSettings.businessProfile,
+      ...businessLogo,
+      brandAccentColor: formString(formData, "businessBrandAccentColor"),
+      brandPrimaryColor: formString(formData, "businessBrandPrimaryColor"),
+      brandStyle: formString(formData, "businessBrandStyle"),
+      businessAddress: formString(formData, "businessAddress"),
+      businessName: formString(formData, "businessName"),
+      contactHours: formString(formData, "businessContactHours"),
+      emergencyJobsEnabled: formBoolean(formData, "businessEmergencyJobsEnabled"),
+      emergencyRateNotes: formString(formData, "businessEmergencyRateNotes"),
+      industry: formString(formData, "businessIndustry"),
+      logoUrl: formString(formData, "businessProfileLogoUrl"),
+      logoWidthPx: formString(formData, "businessProfileLogoWidthPx"),
+      publicEmail: formString(formData, "businessPublicEmail"),
+      publicPhoneNumber: formString(formData, "businessPublicPhoneNumber"),
+      serviceArea: formString(formData, "businessServiceArea"),
+      servicePostcodes: formString(formData, "businessServicePostcodes"),
+      serviceSuburbs: formString(formData, "businessServiceSuburbs"),
+      staffCount: formString(formData, "businessStaffCount"),
+      travelRadiusKm: formString(formData, "businessTravelRadiusKm"),
+      workingHours: formString(formData, "businessWorkingHours"),
+    },
+    {
+      businessName: workspace.name,
+      publicEmail: user.email ?? "",
+    },
+  );
+  const manualSignature = normalizeEmailSignatureSettings(
+    {
+      ...manualLogo,
+      logoUrl: formString(formData, "manualSignatureLogoUrl"),
+      logoWidthPx: formString(formData, "manualSignatureLogoWidthPx"),
+      text: formString(formData, "manualSignatureText"),
+    },
+    beforeCommunicationSettings.manualSignature,
+  );
+  const communicationSettings = normalizeCommunicationSettings({
+    ...beforeCommunicationSettings,
+    businessSignature: manualSignature.text,
+    manualSignature,
+  });
   const generalSettings = normalizeWorkspaceGeneralSettings({
     ...beforeGeneralSettings,
+    businessProfile,
     defaultPhoneRegion,
     displayCurrency,
     timeZone,
@@ -547,6 +636,48 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     );
   }
 
+  const { data: savedCommunicationPolicy, error: saveCommunicationError } =
+    await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          workspace_id: workspace.id,
+          policy_type: COMMUNICATION_POLICY_TYPE,
+          settings: communicationSettings,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+  if (saveCommunicationError || !savedCommunicationPolicy) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      saveCommunicationError?.message ?? "Unable to save email signature.",
+    );
+  }
+
+  if (businessProfile.businessName && businessProfile.businessName !== workspace.name) {
+    const { error: workspaceNameError } = await supabase
+      .from("workspaces")
+      .update({
+        name: businessProfile.businessName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", workspace.id);
+
+    if (workspaceNameError) {
+      redirectWithSectionMessage(
+        "general",
+        "engine_error",
+        workspaceNameError.message,
+      );
+    }
+  }
+
   await insertAuditLog(supabase, {
     workspaceId: workspace.id,
     actorType: "user",
@@ -563,11 +694,30 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     },
   });
 
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "workspace_business_profile.updated",
+    entityType: "workspace_policy",
+    entityId: String(savedGeneralPolicy.id),
+    before: {
+      businessProfile: beforeGeneralSettings.businessProfile,
+      manualSignature: beforeCommunicationSettings.manualSignature,
+    },
+    after: {
+      businessProfile: generalSettings.businessProfile,
+      manualSignature: communicationSettings.manualSignature,
+    },
+  });
+
   revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  revalidatePath("/reports");
   redirectWithSectionMessage(
     "general",
     "engine_message",
-    "Workspace defaults saved.",
+    "Business profile saved.",
   );
 }
 

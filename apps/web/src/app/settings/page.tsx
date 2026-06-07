@@ -36,6 +36,7 @@ import {
   OUTBOUND_CHANNELS,
   REPLY_MESSAGE_LENGTH_OPTIONS,
   getCommunicationSettings,
+  type CommunicationSettings,
   type EmailSignatureSettings,
 } from "../../lib/communication/settings";
 import {
@@ -80,6 +81,10 @@ import {
   getWorkspaceGeneralSettings,
   type WorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
+import {
+  getWorkspaceAssignedPhoneNumbers,
+  type WorkspacePhoneNumberPoolRow,
+} from "../../lib/voice/phone-number-pool";
 import { PHONE_REGION_OPTIONS } from "../../lib/crm/identity";
 import Link from "next/link";
 import {
@@ -1813,25 +1818,404 @@ function SenderRulesSettings({
   );
 }
 
-function GeneralSettingsDetail({
-  settings,
+function phoneCapabilitiesLabel(number: WorkspacePhoneNumberPoolRow) {
+  const capabilities = [
+    number.capabilities.sms ? "SMS" : null,
+    number.capabilities.voice ? "Voice" : null,
+    number.capabilities.mms ? "MMS" : null,
+  ].filter(Boolean);
+
+  return capabilities.length ? capabilities.join(" + ") : "Phone number";
+}
+
+function BusinessLogoEditor({
+  profile,
 }: Readonly<{
-  settings: WorkspaceGeneralSettings;
+  profile: WorkspaceGeneralSettings["businessProfile"];
 }>) {
+  const previewLogoSrc = profile.logoContentBase64
+    ? `data:${profile.logoContentType};base64,${profile.logoContentBase64}`
+    : profile.logoUrl;
+
   return (
-    <form action={updateGeneralSettingsAction} className="settings-form">
+    <section className="signature-editor">
+      <input
+        name="businessProfileLogoContentBase64"
+        type="hidden"
+        value={profile.logoContentBase64}
+      />
+      <input
+        name="businessProfileLogoContentType"
+        type="hidden"
+        value={profile.logoContentType}
+      />
+      <input
+        name="businessProfileLogoFilename"
+        type="hidden"
+        value={profile.logoFilename}
+      />
+      <input
+        name="businessProfileLogoSizeBytes"
+        type="hidden"
+        value={profile.logoSizeBytes}
+      />
+      <div>
+        <p className="eyebrow">Business logo</p>
+        <p>
+          Used for business-facing documents, reports, and signatures when a
+          logo is available.
+        </p>
+      </div>
+
+      <div className="settings-grid">
+        <label className="setting-card">
+          <SettingCardHeading info="Upload a compact logo, up to 512 KB. If no logo is saved, Kyro falls back to the business name.">
+            Logo file
+          </SettingCardHeading>
+          <input
+            accept="image/*"
+            name="businessProfileLogoFile"
+            type="file"
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="Optional fallback if the logo is hosted somewhere public.">
+            Logo URL fallback
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.logoUrl}
+            name="businessProfileLogoUrl"
+            placeholder="https://example.com/logo.png"
+            type="url"
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="Width in pixels. Kyro keeps it between 32 and 320.">
+            Logo size
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.logoWidthPx}
+            max={320}
+            min={32}
+            name="businessProfileLogoWidthPx"
+            step={4}
+            type="number"
+          />
+        </label>
+      </div>
+
+      <div className="signature-preview-card">
+        <strong>Preview</strong>
+        <div className="signature-preview">
+          {previewLogoSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt="Business logo preview"
+              src={previewLogoSrc}
+              style={{ width: profile.logoWidthPx }}
+            />
+          ) : (
+            <p className="muted-copy">
+              No logo saved. Business name will be used instead.
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function GeneralSettingsDetail({
+  communicationSettings,
+  operationalPhoneNumbers,
+  settings,
+  userEmail,
+  workspaceName,
+}: Readonly<{
+  communicationSettings: CommunicationSettings;
+  operationalPhoneNumbers: WorkspacePhoneNumberPoolRow[];
+  settings: WorkspaceGeneralSettings;
+  userEmail: string;
+  workspaceName: string;
+}>) {
+  const profile = settings.businessProfile;
+  const defaultPublicPhone =
+    profile.publicPhoneNumber ||
+    operationalPhoneNumbers.find(
+      (number) => number.capabilities.sms && number.capabilities.voice,
+    )?.phoneNumber ||
+    "";
+
+  return (
+    <form
+      action={updateGeneralSettingsAction}
+      className="settings-form"
+      encType="multipart/form-data"
+    >
       <section className="integration-choice-panel">
         <div>
-          <p className="eyebrow">Workspace defaults</p>
-          <h3>System-wide settings</h3>
+          <p className="eyebrow">Business profile</p>
+          <h3>{profile.businessName || workspaceName}</h3>
           <p>
-            Shared defaults live here instead of being buried inside individual
-            features. We can add business hours, locale, and regional defaults
-            here as Kyro grows.
+            Core facts Kyro can use across reports, assistant context,
+            documents, customer replies, and future onboarding.
           </p>
         </div>
-        <span className="pill">General</span>
+        <span className="pill">Workspace facts</span>
       </section>
+
+      <div className="settings-grid">
+        <label className="setting-card">
+          <SettingCardHeading info="Shown internally and used as the default business name in generated documents and reports.">
+            Business name
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.businessName || workspaceName}
+            name="businessName"
+            placeholder="WFA Plumbing"
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="The trade or service category Kyro should assume for tone, context, and future workflows.">
+            Industry
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.industry}
+            name="businessIndustry"
+            placeholder="Plumbing, electrical, building, landscaping..."
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="The public email address shown on reports, documents, and business-facing material.">
+            Public email
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.publicEmail || userEmail}
+            name="businessPublicEmail"
+            placeholder="hello@example.com"
+            type="email"
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                This is the displayed public phone number. It can be different
+                from the operational Twilio/Vapi number used for inbound and
+                outbound automation.
+              </>
+            }
+          >
+            Public phone number
+          </SettingCardHeading>
+          <input
+            defaultValue={defaultPublicPhone}
+            list="business-public-phone-options"
+            name="businessPublicPhoneNumber"
+            placeholder="+61 7 4517 4330"
+          />
+          <datalist id="business-public-phone-options">
+            {operationalPhoneNumbers.map((number) => (
+              <option
+                key={number.id}
+                label={`${number.friendlyName ?? "Workspace number"} - ${phoneCapabilitiesLabel(
+                  number,
+                )} connected`}
+                value={number.phoneNumber}
+              />
+            ))}
+          </datalist>
+        </label>
+
+        <label className="setting-card settings-textarea">
+          <SettingCardHeading info="The business base address. Customer job addresses are still stored separately on contacts and leads.">
+            Business address
+          </SettingCardHeading>
+          <textarea
+            defaultValue={profile.businessAddress}
+            name="businessAddress"
+            placeholder="Street address, suburb, state, postcode"
+          />
+        </label>
+
+        <label className="setting-card settings-textarea">
+          <SettingCardHeading info="Plain-English operating area Kyro can reference when qualifying jobs.">
+            Service area
+          </SettingCardHeading>
+          <textarea
+            defaultValue={profile.serviceArea}
+            name="businessServiceArea"
+            placeholder="Brisbane southside, Logan, Ipswich, northern Gold Coast..."
+          />
+        </label>
+
+        <label className="setting-card settings-textarea">
+          <SettingCardHeading info="Useful for matching and explaining whether a job is likely inside the normal service area.">
+            Suburbs serviced
+          </SettingCardHeading>
+          <textarea
+            defaultValue={profile.serviceSuburbs}
+            name="businessServiceSuburbs"
+            placeholder="Holland Park West, Mount Gravatt, Coorparoo..."
+          />
+        </label>
+
+        <label className="setting-card settings-textarea">
+          <SettingCardHeading info="Optional postcode list. Keep it loose if the business works by suburb instead.">
+            Postcodes serviced
+          </SettingCardHeading>
+          <textarea
+            defaultValue={profile.servicePostcodes}
+            name="businessServicePostcodes"
+            placeholder="4121, 4122, 4101..."
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="Approximate normal travel radius for jobs. Leave blank if the business uses suburb/postcode rules instead.">
+            Travel radius
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.travelRadiusKm ?? ""}
+            min={0}
+            name="businessTravelRadiusKm"
+            placeholder="30"
+            type="number"
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="A lightweight staffing number Kyro can use for workload and capability context.">
+            Staff count
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.staffCount ?? ""}
+            min={0}
+            name="businessStaffCount"
+            placeholder="3"
+            type="number"
+          />
+        </label>
+
+        <label className="setting-card settings-textarea">
+          <SettingCardHeading info="Normal operating hours for work and job scheduling context.">
+            Working hours
+          </SettingCardHeading>
+          <textarea
+            defaultValue={profile.workingHours}
+            name="businessWorkingHours"
+            placeholder="Monday to Friday, 7:00 AM to 4:00 PM"
+          />
+        </label>
+
+        <label className="setting-card settings-textarea">
+          <SettingCardHeading info="Hours customers can expect the business or Kyro to respond.">
+            Contact hours
+          </SettingCardHeading>
+          <textarea
+            defaultValue={profile.contactHours}
+            name="businessContactHours"
+            placeholder="Weekdays 7:00 AM to 5:30 PM; urgent calls after hours"
+          />
+        </label>
+      </div>
+
+      <fieldset className="settings-fieldset compact-checkbox-fieldset">
+        <legend>Emergency work</legend>
+        <label className="compact-checkbox-row">
+          <input
+            defaultChecked={profile.emergencyJobsEnabled}
+            name="businessEmergencyJobsEnabled"
+            type="checkbox"
+          />
+          <span>Offers 24-hour or urgent emergency jobs</span>
+        </label>
+        <label className="settings-textarea">
+          Emergency rate and handling notes
+          <textarea
+            defaultValue={profile.emergencyRateNotes}
+            name="businessEmergencyRateNotes"
+            placeholder="Emergency call-outs are charged at an after-hours rate. Ask for safety details first."
+          />
+        </label>
+      </fieldset>
+
+      <section className="signature-editor">
+        <div>
+          <p className="eyebrow">Operational phone numbers</p>
+          <p>
+            These are the numbers already assigned for Twilio/Vapi. The public
+            number above can use one of these or any other displayed number.
+          </p>
+        </div>
+        {operationalPhoneNumbers.length ? (
+          <div className="detail-list compact-detail-list">
+            {operationalPhoneNumbers.map((number) => (
+              <div key={number.id}>
+                <strong>{number.phoneNumber}</strong>
+                <span>
+                  {number.friendlyName ?? "Workspace number"} -{" "}
+                  {phoneCapabilitiesLabel(number)} - {formatLabel(number.status)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">
+            No operational phone number is assigned yet. Configure phone and SMS
+            in Connected accounts when the workspace is ready.
+          </p>
+        )}
+      </section>
+
+      <BusinessLogoEditor profile={profile} />
+
+      <div className="settings-grid">
+        <label className="setting-card">
+          <SettingCardHeading info="Primary brand colour for documents, previews, and future generated assets.">
+            Primary colour
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.brandPrimaryColor}
+            name="businessBrandPrimaryColor"
+            type="color"
+          />
+        </label>
+
+        <label className="setting-card">
+          <SettingCardHeading info="Accent colour for highlights and secondary visual marks.">
+            Accent colour
+          </SettingCardHeading>
+          <input
+            defaultValue={profile.brandAccentColor}
+            name="businessBrandAccentColor"
+            type="color"
+          />
+        </label>
+
+        <label className="setting-card settings-textarea">
+          <SettingCardHeading info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect.">
+            Brand style notes
+          </SettingCardHeading>
+          <textarea
+            defaultValue={profile.brandStyle}
+            name="businessBrandStyle"
+            placeholder="Clean, practical, friendly, no corporate fluff..."
+          />
+        </label>
+      </div>
+
+      <EmailSignatureEditor
+        description="Used for manual replies and business-facing email defaults. Advanced AI signature controls still live in Connected accounts."
+        namePrefix="manualSignature"
+        signature={communicationSettings.manualSignature}
+        title="Default email signature"
+      />
 
       <div className="settings-grid">
         <label className="setting-card">
@@ -1903,13 +2287,13 @@ function GeneralSettingsDetail({
 
       <div className="settings-footer">
         <span>
-          Timezone powers quiet hours and scheduling. Phone region only applies
-          to bare local numbers. Display currency currently uses{" "}
+          Business facts are saved into the workspace profile. Timezone powers
+          quiet hours and scheduling. Display currency currently uses{" "}
           {displayCurrencySourceLabel(settings)} until the billing provider is
           connected.
         </span>
         <button className="primary-button compact" type="submit">
-          Save workspace defaults
+          Save business profile
         </button>
       </div>
     </form>
@@ -3196,7 +3580,7 @@ function UsageSettingsDetail({
 export default async function SettingsPage({
   searchParams,
 }: SettingsPageProps) {
-  const [query, { supabase, workspace }] = await Promise.all([
+  const [query, { supabase, user, workspace }] = await Promise.all([
     searchParams,
     requireWorkspaceContext(),
   ]);
@@ -3211,10 +3595,11 @@ export default async function SettingsPage({
     generalSettings,
     integrationOverviews,
     pronunciationEntries,
+    assignedPhoneNumbers,
     usageReport,
     voiceSettings,
   ] = await Promise.all([
-    selectedSection === "integrations"
+    selectedSection === "general" || selectedSection === "integrations"
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "general" || selectedSection === "usage"
@@ -3231,6 +3616,9 @@ export default async function SettingsPage({
       : Promise.resolve(null),
     selectedSection === "voice"
       ? getPronunciationEntries(supabase, workspace.id)
+      : Promise.resolve([]),
+    selectedSection === "general"
+      ? getWorkspaceAssignedPhoneNumbers(supabase, workspace.id)
       : Promise.resolve([]),
     selectedSection === "usage"
       ? getUsageReport(supabase, workspace.id, activeWindow)
@@ -3253,12 +3641,16 @@ export default async function SettingsPage({
   const settingsItems: SettingsMenuItem[] = [
     {
       detail: generalSettings
-        ? `${generalSettings.timeZone} - ${generalSettings.displayCurrency} - ${generalSettings.defaultPhoneRegion}`
-        : "Timezone, currency, and workspace defaults",
-      eyebrow: "General",
+        ? [
+            generalSettings.businessProfile.industry || "Business details",
+            generalSettings.businessProfile.publicPhoneNumber ||
+              "Public phone unset",
+          ].join(" - ")
+        : "Business, brand, service area, and defaults",
+      eyebrow: "Profile",
       href: settingsSectionHref("general", activeWindow),
       section: "general",
-      title: "System defaults",
+      title: "Business profile",
     },
     {
       detail: "Accounts, outbound rules, and inbound sync",
@@ -3300,9 +3692,17 @@ export default async function SettingsPage({
     },
   ];
   const selectedDetail =
-    selectedSection === "general" && generalSettings ? (
-      <SettingsDetailShell eyebrow="General" title="System defaults">
-        <GeneralSettingsDetail settings={generalSettings} />
+    selectedSection === "general" &&
+    generalSettings &&
+    communicationSettings ? (
+      <SettingsDetailShell eyebrow="Profile" title="Business profile">
+        <GeneralSettingsDetail
+          communicationSettings={communicationSettings}
+          operationalPhoneNumbers={assignedPhoneNumbers}
+          settings={generalSettings}
+          userEmail={user.email ?? ""}
+          workspaceName={workspace.name}
+        />
       </SettingsDetailShell>
     ) : selectedSection === "integrations" &&
       communicationSettings &&
