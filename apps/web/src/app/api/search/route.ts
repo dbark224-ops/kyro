@@ -5,12 +5,18 @@ import { getApiWorkspaceContext } from "../../../lib/workspace/api-context";
 export const dynamic = "force-dynamic";
 
 type SearchResultType =
+  | "activity"
+  | "appointment"
+  | "assistant"
   | "contact"
   | "document"
   | "file"
   | "lead"
   | "message"
+  | "note"
+  | "outbound"
   | "quote"
+  | "task"
   | "voice";
 
 type SearchResult = {
@@ -35,6 +41,23 @@ type SearchResponse = {
 
 const MAX_QUERY_LENGTH = 120;
 const RESULT_LIMIT_PER_GROUP = 6;
+const RESULT_LIMIT_TOTAL = 24;
+
+const TYPE_PRIORITY: Record<SearchResultType, number> = {
+  contact: 72,
+  lead: 68,
+  message: 58,
+  task: 56,
+  appointment: 54,
+  outbound: 52,
+  note: 48,
+  assistant: 44,
+  quote: 42,
+  document: 40,
+  file: 38,
+  voice: 34,
+  activity: 24,
+};
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -56,6 +79,101 @@ function searchPattern(query: string) {
   }
 
   return `%${cleaned.split(" ").slice(0, 5).join("%")}%`;
+}
+
+function queryTerms(query: string) {
+  return cleanQuery(query)
+    .toLowerCase()
+    .split(" ")
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2)
+    .slice(0, 6);
+}
+
+function normalizeForRank(value: string | null | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9@+.\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function digitsOnly(value: string | null | undefined) {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function fieldScore(
+  value: string | null | undefined,
+  terms: string[],
+  wholeQuery: string,
+  weights: {
+    exact: number;
+    includes: number;
+    starts: number;
+    term: number;
+  },
+) {
+  const normalized = normalizeForRank(value);
+
+  if (!normalized) {
+    return 0;
+  }
+
+  let score = 0;
+
+  if (normalized === wholeQuery) {
+    score += weights.exact;
+  } else if (normalized.startsWith(wholeQuery)) {
+    score += weights.starts;
+  } else if (wholeQuery && normalized.includes(wholeQuery)) {
+    score += weights.includes;
+  }
+
+  for (const term of terms) {
+    if (normalized.startsWith(term)) {
+      score += weights.term * 1.4;
+    } else if (normalized.includes(term)) {
+      score += weights.term;
+    }
+  }
+
+  return score;
+}
+
+function rankResult(result: SearchResult, rawQuery: string) {
+  const wholeQuery = normalizeForRank(cleanQuery(rawQuery));
+  const terms = queryTerms(rawQuery);
+  const queryDigits = digitsOnly(rawQuery);
+  const resultDigits = digitsOnly(
+    [result.label, result.meta, result.description].filter(Boolean).join(" "),
+  );
+
+  let score = TYPE_PRIORITY[result.type];
+
+  score += fieldScore(result.label, terms, wholeQuery, {
+    exact: 900,
+    starts: 520,
+    includes: 300,
+    term: 56,
+  });
+  score += fieldScore(result.meta, terms, wholeQuery, {
+    exact: 300,
+    starts: 180,
+    includes: 110,
+    term: 24,
+  });
+  score += fieldScore(result.description, terms, wholeQuery, {
+    exact: 180,
+    starts: 100,
+    includes: 72,
+    term: 14,
+  });
+
+  if (queryDigits.length >= 4 && resultDigits.includes(queryDigits)) {
+    score += queryDigits.length >= 8 ? 260 : 120;
+  }
+
+  return score;
 }
 
 function ilikeAny(fields: string[], pattern: string) {
@@ -254,6 +372,187 @@ function voiceCallResult(row: Record<string, unknown>): SearchResult {
   };
 }
 
+function taskResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+  const conversationId = textValue(row.conversation_id);
+  const contactId = textValue(row.contact_id);
+
+  return {
+    description: compact(
+      textValue(row.description),
+      titleCase(textValue(row.task_type), "Task"),
+    ),
+    href: conversationId
+      ? `/inbox?conversationId=${encodeURIComponent(conversationId)}`
+      : contactId
+        ? `/contacts?contactId=${encodeURIComponent(contactId)}`
+        : "/inbox",
+    id: `task:${id}`,
+    label: textValue(row.title) ?? "Task",
+    meta: joinMeta([
+      "Task",
+      titleCase(textValue(row.status), "Open"),
+      titleCase(textValue(row.priority), "Normal"),
+    ]),
+    timestamp: textValue(row.updated_at) ?? textValue(row.created_at),
+    type: "task",
+  };
+}
+
+function appointmentResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+  const conversationId = textValue(row.conversation_id);
+  const contactId = textValue(row.contact_id);
+
+  return {
+    description: compact(
+      textValue(row.description) ?? textValue(row.location),
+      titleCase(textValue(row.appointment_type), "Appointment"),
+    ),
+    href: conversationId
+      ? `/inbox?conversationId=${encodeURIComponent(conversationId)}`
+      : contactId
+        ? `/contacts?contactId=${encodeURIComponent(contactId)}`
+        : "/inbox",
+    id: `appointment:${id}`,
+    label: textValue(row.title) ?? "Appointment",
+    meta: joinMeta([
+      "Appointment",
+      titleCase(textValue(row.status), "Suggested"),
+      textValue(row.location),
+    ]),
+    timestamp:
+      textValue(row.starts_at) ?? textValue(row.updated_at) ?? textValue(row.created_at),
+    type: "appointment",
+  };
+}
+
+function noteResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+  const conversationId = textValue(row.conversation_id);
+  const contactId = textValue(row.contact_id);
+  const body = textValue(row.body);
+
+  return {
+    description: compact(body, "Internal note"),
+    href: conversationId
+      ? `/inbox?conversationId=${encodeURIComponent(conversationId)}`
+      : contactId
+        ? `/contacts?contactId=${encodeURIComponent(contactId)}`
+        : "/inbox",
+    id: `note:${id}`,
+    label: compact(body, "Internal note", 70),
+    meta: joinMeta(["Note", titleCase(textValue(row.visibility), "Internal")]),
+    timestamp: textValue(row.updated_at) ?? textValue(row.created_at),
+    type: "note",
+  };
+}
+
+function outboundMessageResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+  const conversationId = textValue(row.conversation_id);
+  const subject = textValue(row.subject);
+  const channel = titleCase(textValue(row.channel_type), "Message");
+
+  return {
+    description: compact(
+      textValue(row.body_text) ?? textValue(row.last_error),
+      textValue(row.status) ?? "Outbound message",
+    ),
+    href: conversationId
+      ? `/inbox?conversationId=${encodeURIComponent(conversationId)}`
+      : "/developer/outbox",
+    id: `outbound:${id}`,
+    label: subject ?? `${channel} outbound`,
+    meta: joinMeta([
+      "Outbound",
+      channel,
+      titleCase(textValue(row.status), "Queued"),
+      textValue(row.recipient),
+    ]),
+    timestamp:
+      textValue(row.sent_at) ??
+      textValue(row.queued_at) ??
+      textValue(row.updated_at) ??
+      textValue(row.created_at),
+    type: "outbound",
+  };
+}
+
+function assistantMessageResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+  const role = textValue(row.role);
+
+  return {
+    description: compact(textValue(row.content), "Assistant message"),
+    href: "/assistant",
+    id: `assistant:${id}`,
+    label: role === "user" ? "User message" : "Kyro message",
+    meta: joinMeta([
+      "Assistant",
+      titleCase(role, "Message"),
+      textValue(row.provider),
+      textValue(row.model),
+    ]),
+    timestamp: textValue(row.created_at),
+    type: "assistant",
+  };
+}
+
+function activityEventResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+
+  return {
+    description: joinMeta([
+      titleCase(textValue(row.source), "Event"),
+      titleCase(textValue(row.status), "Pending"),
+    ]),
+    href: `/activity?filter=events&q=${encodeURIComponent(textValue(row.type) ?? "")}`,
+    id: `event:${id}`,
+    label: titleCase(textValue(row.type), "Event"),
+    meta: joinMeta(["Event", textValue(row.source), titleCase(textValue(row.status), "")]),
+    timestamp: textValue(row.processed_at) ?? textValue(row.created_at),
+    type: "activity",
+  };
+}
+
+function auditLogResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+  const action = textValue(row.action);
+
+  return {
+    description: joinMeta([
+      titleCase(textValue(row.entity_type), "Record"),
+      textValue(row.actor_type),
+    ]),
+    href: `/activity?filter=audit&q=${encodeURIComponent(action ?? "")}`,
+    id: `audit:${id}`,
+    label: titleCase(action, "Audit log"),
+    meta: joinMeta(["Audit", titleCase(textValue(row.entity_type), ""), textValue(row.actor_id)]),
+    timestamp: textValue(row.created_at),
+    type: "activity",
+  };
+}
+
+function aiRunResult(row: Record<string, unknown>): SearchResult {
+  const id = String(row.id);
+
+  return {
+    description: compact(textValue(row.error), textValue(row.model) ?? "AI run"),
+    href: `/activity?filter=ai&q=${encodeURIComponent(textValue(row.task_type) ?? "")}`,
+    id: `ai-run:${id}`,
+    label: titleCase(textValue(row.task_type), "AI run"),
+    meta: joinMeta([
+      "AI",
+      textValue(row.provider),
+      textValue(row.model),
+      titleCase(textValue(row.status), ""),
+    ]),
+    timestamp: textValue(row.completed_at) ?? textValue(row.created_at),
+    type: "activity",
+  };
+}
+
 function searchQueries(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -380,6 +679,126 @@ function searchQueries(
         .limit(RESULT_LIMIT_PER_GROUP),
       voiceCallResult,
     ),
+    collectResults(
+      "conversation_tasks",
+      supabase
+        .from("conversation_tasks")
+        .select(
+          "id,conversation_id,contact_id,lead_id,task_type,title,description,status,priority,due_at,created_at,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .or(
+          ilikeAny(
+            ["task_type", "title", "description", "status", "priority"],
+            pattern,
+          ),
+        )
+        .order("updated_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      taskResult,
+    ),
+    collectResults(
+      "conversation_appointments",
+      supabase
+        .from("conversation_appointments")
+        .select(
+          "id,conversation_id,contact_id,lead_id,appointment_type,title,description,status,starts_at,ends_at,location,created_at,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .or(
+          ilikeAny(
+            ["appointment_type", "title", "description", "status", "location"],
+            pattern,
+          ),
+        )
+        .order("updated_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      appointmentResult,
+    ),
+    collectResults(
+      "conversation_notes",
+      supabase
+        .from("conversation_notes")
+        .select(
+          "id,conversation_id,contact_id,lead_id,body,visibility,created_at,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .or(ilikeAny(["body", "visibility"], pattern))
+        .order("updated_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      noteResult,
+    ),
+    collectResults(
+      "outbound_messages",
+      supabase
+        .from("outbound_messages")
+        .select(
+          "id,conversation_id,channel_type,recipient,subject,body_text,status,source,queued_at,sent_at,last_error,created_at,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .or(
+          ilikeAny(
+            [
+              "channel_type",
+              "recipient",
+              "subject",
+              "body_text",
+              "status",
+              "source",
+              "last_error",
+              "provider_message_id",
+            ],
+            pattern,
+          ),
+        )
+        .order("updated_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      outboundMessageResult,
+    ),
+    collectResults(
+      "assistant_messages",
+      supabase
+        .from("assistant_messages")
+        .select("id,thread_id,role,content,intent,provider,model,created_at")
+        .eq("workspace_id", workspaceId)
+        .or(ilikeAny(["role", "content", "intent", "provider", "model"], pattern))
+        .order("created_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      assistantMessageResult,
+    ),
+    collectResults(
+      "events",
+      supabase
+        .from("events")
+        .select("id,type,source,status,processed_at,created_at")
+        .eq("workspace_id", workspaceId)
+        .or(ilikeAny(["type", "source", "status"], pattern))
+        .order("created_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      activityEventResult,
+    ),
+    collectResults(
+      "audit_logs",
+      supabase
+        .from("audit_logs")
+        .select("id,actor_type,actor_id,action,entity_type,entity_id,created_at")
+        .eq("workspace_id", workspaceId)
+        .or(ilikeAny(["actor_type", "actor_id", "action", "entity_type"], pattern))
+        .order("created_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      auditLogResult,
+    ),
+    collectResults(
+      "ai_runs",
+      supabase
+        .from("ai_runs")
+        .select("id,mode,task_type,provider,model,status,error,created_at,completed_at")
+        .eq("workspace_id", workspaceId)
+        .or(ilikeAny(["mode", "task_type", "provider", "model", "status", "error"], pattern))
+        .order("created_at", { ascending: false })
+        .limit(RESULT_LIMIT_PER_GROUP),
+      aiRunResult,
+    ),
   ];
 }
 
@@ -404,12 +823,19 @@ export async function GET(request: NextRequest) {
     const data = groups
       .flat()
       .sort((left, right) => {
+        const leftScore = rankResult(left, q);
+        const rightScore = rankResult(right, q);
+
+        if (leftScore !== rightScore) {
+          return rightScore - leftScore;
+        }
+
         const leftTime = left.timestamp ? Date.parse(left.timestamp) : 0;
         const rightTime = right.timestamp ? Date.parse(right.timestamp) : 0;
 
         return rightTime - leftTime;
       })
-      .slice(0, 24);
+      .slice(0, RESULT_LIMIT_TOTAL);
 
     return NextResponse.json({ data });
   } catch (error) {

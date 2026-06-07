@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type GlobalSearchResult = {
   description: string | null;
@@ -15,6 +15,23 @@ type GlobalSearchResult = {
 };
 
 const SEARCH_CACHE = new Map<string, GlobalSearchResult[]>();
+const SEARCH_CACHE_LIMIT = 30;
+
+function pruneSearchCache() {
+  while (SEARCH_CACHE.size > SEARCH_CACHE_LIMIT) {
+    const oldestKey = SEARCH_CACHE.keys().next().value as string | undefined;
+
+    if (!oldestKey) {
+      return;
+    }
+
+    SEARCH_CACHE.delete(oldestKey);
+  }
+}
+
+function resultDomId(id: string) {
+  return `global-search-result-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
 
 function formatType(value: string) {
   return value
@@ -50,17 +67,33 @@ export function GlobalSearch() {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const trimmedQuery = query.trim();
   const canSearch = trimmedQuery.length >= 2;
   const displayedResults = canSearch ? results : [];
   const displayedError = canSearch ? error : null;
   const displayedIsLoading = canSearch && isLoading;
-  const firstHref = displayedResults[0]?.href;
+  const selectedResult =
+    selectedIndex >= 0 ? displayedResults[selectedIndex] : displayedResults[0];
+
+  const navigateToResult = useCallback(
+    (result: GlobalSearchResult | undefined) => {
+      if (!result) {
+        return;
+      }
+
+      setIsOpen(false);
+      router.push(result.href);
+    },
+    [router],
+  );
 
   useEffect(() => {
     if (!canSearch) {
       abortRef.current?.abort();
+      setSelectedIndex(-1);
       return;
     }
 
@@ -100,6 +133,7 @@ export function GlobalSearch() {
           })
           .then((nextResults) => {
             SEARCH_CACHE.set(cacheKey, nextResults);
+            pruneSearchCache();
             setResults(nextResults);
             setIsOpen(true);
           })
@@ -126,6 +160,51 @@ export function GlobalSearch() {
     };
   }, [canSearch, trimmedQuery]);
 
+  useEffect(() => {
+    if (!canSearch || displayedResults.length === 0) {
+      setSelectedIndex(-1);
+      return;
+    }
+
+    setSelectedIndex(0);
+  }, [canSearch, displayedResults.length, trimmedQuery]);
+
+  useEffect(() => {
+    function handleGlobalShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName.toLowerCase();
+      const isTyping =
+        target?.isContentEditable ||
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select";
+      const isCommandK =
+        (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
+      const isSlashFocus = event.key === "/" && !isTyping;
+
+      if (!isCommandK && !isSlashFocus) {
+        return;
+      }
+
+      event.preventDefault();
+      inputRef.current?.focus();
+
+      if (canSearch) {
+        setIsOpen(true);
+      }
+    }
+
+    window.addEventListener("keydown", handleGlobalShortcut);
+
+    return () => {
+      window.removeEventListener("keydown", handleGlobalShortcut);
+    };
+  }, [canSearch]);
+
   const statusText = useMemo(() => {
     if (!canSearch) {
       return "Type at least 2 characters.";
@@ -151,11 +230,7 @@ export function GlobalSearch() {
       className="global-search"
       onSubmit={(event) => {
         event.preventDefault();
-
-        if (firstHref) {
-          setIsOpen(false);
-          router.push(firstHref);
-        }
+        navigateToResult(selectedResult);
       }}
       role="search"
     >
@@ -168,6 +243,11 @@ export function GlobalSearch() {
         </span>
         <input
           autoComplete="off"
+          aria-activedescendant={
+            isOpen && selectedResult ? resultDomId(selectedResult.id) : undefined
+          }
+          aria-controls="global-search-results"
+          aria-expanded={isOpen && canSearch}
           id="global-workspace-search"
           onBlur={() => {
             window.setTimeout(() => setIsOpen(false), 120);
@@ -184,28 +264,72 @@ export function GlobalSearch() {
             }
           }}
           onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+
+              if (!isOpen) {
+                setIsOpen(true);
+              }
+
+              setSelectedIndex((current) =>
+                displayedResults.length > 0
+                  ? (current + 1 + displayedResults.length) %
+                    displayedResults.length
+                  : -1,
+              );
+              return;
+            }
+
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+
+              if (!isOpen) {
+                setIsOpen(true);
+              }
+
+              setSelectedIndex((current) =>
+                displayedResults.length > 0
+                  ? (current - 1 + displayedResults.length) %
+                    displayedResults.length
+                  : -1,
+              );
+              return;
+            }
+
+            if (event.key === "Enter" && isOpen && selectedResult) {
+              event.preventDefault();
+              navigateToResult(selectedResult);
+              return;
+            }
+
             if (event.key === "Escape") {
               setIsOpen(false);
               event.currentTarget.blur();
             }
           }}
           placeholder="Search Kyro..."
+          ref={inputRef}
           value={query}
         />
       </div>
 
       {isOpen && canSearch ? (
-        <div className="global-search-results">
+        <div className="global-search-results" id="global-search-results" role="listbox">
           <div className="global-search-status">{statusText}</div>
-          {displayedResults.map((result) => {
+          {displayedResults.map((result, index) => {
             const timestamp = formatTimestamp(result.timestamp);
+            const isSelected = index === selectedIndex;
 
             return (
               <Link
-                className="global-search-result"
+                aria-selected={isSelected}
+                className={`global-search-result${isSelected ? " active" : ""}`}
                 href={result.href}
+                id={resultDomId(result.id)}
                 key={result.id}
                 onClick={() => setIsOpen(false)}
+                onMouseEnter={() => setSelectedIndex(index)}
+                role="option"
               >
                 <span className="global-search-result-type">
                   {formatType(result.type)}

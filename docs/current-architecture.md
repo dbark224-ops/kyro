@@ -340,6 +340,7 @@ sorting without adding a separate search service.
 Performance notes:
 
 - the app shell uses `RoutePreloader` to idle-prefetch the main tabs with a short stagger,
+- the persistent global search bar calls `/api/search`, which fans out across the main workspace tables, ranks exact/contact-like matches ahead of lower-value logs, and keeps a small bounded client cache so repeat searches feel immediate,
 - high-traffic CRM and Inbox rows use `SmartPrefetchLink`, so detail/split-pane
   payloads warm on hover, keyboard focus, or mobile touch instead of eagerly
   pre-rendering every row,

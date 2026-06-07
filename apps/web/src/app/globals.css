@@ -1979,7 +1979,8 @@ textarea:focus {
 }
 
 .global-search-result:hover,
-.global-search-result:focus-visible {
+.global-search-result:focus-visible,
+.global-search-result.active {
   border-color: color-mix(in srgb, var(--cyan) 42%, var(--line));
   background: color-mix(in srgb, var(--cyan) 8%, transparent);
   outline: 0;

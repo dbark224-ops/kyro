@@ -11,8 +11,11 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 
 ### Global Workspace Search
 
-- We have already added the persistent top search bar shell.
-- Finish the actual search depth and quality across contacts, leads, inbox messages, files, generated documents, quote drafts, and call records.
+- The persistent top search bar is built and hardened for production-beta use.
+- `/api/search` now searches contacts, leads, inbox messages, files, generated documents, quote drafts, call records, tasks, appointments, internal notes, outbound messages, Assistant history, events, audit logs, and AI run records.
+- Search results now use lightweight relevance ranking instead of pure recency, with exact/name/contact matches naturally surfacing above lower-value operational logs.
+- The search UI supports keyboard-focused use with `/` or `Ctrl/Cmd+K`, arrow-key result selection, Enter navigation, bounded client caching, and graceful empty/error states.
+- Future scale option: add a dedicated Postgres full-text/vector search index if workspace datasets become large enough that the current fan-out search stops feeling instant.
 
 ### Phone and SMS Completion
 
