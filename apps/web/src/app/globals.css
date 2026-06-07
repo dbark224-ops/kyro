@@ -12303,8 +12303,23 @@ button:disabled {
 .dashboard-work-item-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
   gap: 10px;
+}
+
+.dashboard-work-item-title {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dashboard-work-item-title time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 760;
+  white-space: nowrap;
 }
 
 .dashboard-work-item strong,
@@ -12312,6 +12327,13 @@ button:disabled {
 .dashboard-activity-copy strong {
   display: block;
   font-size: 0.92rem;
+}
+
+.dashboard-work-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-work-item small,
@@ -12325,14 +12347,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.dashboard-work-item-meta {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
-}
-
-.dashboard-work-item-meta em,
 .dashboard-list-item em,
 .dashboard-activity-item em {
   color: var(--muted);
@@ -12990,7 +13004,6 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-work-item-meta,
   .dashboard-activity-item em,
   .dashboard-list-item em {
     justify-items: start;

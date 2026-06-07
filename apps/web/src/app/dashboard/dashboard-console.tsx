@@ -706,15 +706,17 @@ function renderWidget({
           {items.map((item) => (
             <Link className="dashboard-work-item" href={item.href} key={item.id}>
               <div className="dashboard-work-item-head">
-                <strong>{item.title}</strong>
+                <div className="dashboard-work-item-title">
+                  <time dateTime={item.lastMessageAt ?? undefined}>
+                    {formatDateTime(item.lastMessageAt) ?? "Queued"}
+                  </time>
+                  <strong>{item.title}</strong>
+                </div>
                 <span className={`pill ${item.workflowBucket}`}>
                   {item.nextActionLabel}
                 </span>
               </div>
               <small>{compactSnippet(item.preview ?? item.nextActionLabel, 82)}</small>
-              <div className="dashboard-work-item-meta">
-                <em>{formatDateTime(item.lastMessageAt) ?? "Queued"}</em>
-              </div>
             </Link>
           ))}
           {items.length === 0 ? (
