@@ -120,14 +120,25 @@ Applied migrations: `supabase/migrations`.
 Auth screens live in:
 
 - `apps/web/src/app/sign-in/page.tsx`
+- `apps/web/src/app/create-account/page.tsx`
 - `apps/web/src/app/auth/actions.ts`
 - `apps/web/src/app/auth/callback/route.ts`
 
 Workspace creation lives in:
 
+- `apps/web/src/app/create-account/page.tsx`
 - `apps/web/src/app/onboarding/page.tsx`
 - `apps/web/src/app/onboarding/actions.ts`
 - `apps/web/src/lib/workspace/bootstrap.ts`
+
+Create-account now collects the minimum login and business setup details in one
+flow: owner name, email/password, business name, industry, country, operating
+location, postcode/ZIP, and optional service area. If Supabase returns an active
+session immediately, Kyro creates the workspace in the signup action. If email
+confirmation is required, those setup values are saved in Supabase user metadata
+and `auth/callback` creates the workspace after the session is exchanged. The
+older onboarding page remains as a fallback for signed-in users with no
+workspace.
 
 On account/workspace bootstrap, Kyro creates:
 

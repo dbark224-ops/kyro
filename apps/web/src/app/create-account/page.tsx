@@ -50,7 +50,7 @@ export default async function CreateAccountPage({
 
   return (
     <main className="auth-shell">
-      <section className="auth-panel auth-centered">
+      <section className="auth-panel wide auth-create-panel">
         <div className="brand-lockup centered">
           <BrandMark />
         </div>
@@ -58,7 +58,9 @@ export default async function CreateAccountPage({
         <div className="auth-copy centered">
           <h1>Create your Kyro account.</h1>
           <p className="form-copy">
-            Set up the login first. Workspace details come next.
+            Add the essentials now so Kyro can create a working business
+            workspace straight away. You can refine branding, phones, service
+            areas, and signatures later in Settings.
           </p>
         </div>
 

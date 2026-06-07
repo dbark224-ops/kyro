@@ -2,13 +2,74 @@ import { createWorkspaceSlug } from "./workspace.service";
 
 export type WorkspaceBootstrapInput = {
   businessName: string;
+  businessLocation?: string;
+  country?: string;
   industry?: string;
+  postcode?: string;
+  publicEmail?: string;
   serviceArea?: string;
 };
+
+function textValue(value?: string) {
+  return value?.trim() || null;
+}
+
+function countryDefaults(country?: string) {
+  const normalized = country?.trim().toLowerCase();
+
+  if (!normalized) {
+    return {
+      currency: "USD",
+      phoneRegion: "US"
+    };
+  }
+
+  if (["australia", "au", "aus"].includes(normalized)) {
+    return {
+      currency: "AUD",
+      phoneRegion: "AU"
+    };
+  }
+
+  if (["united kingdom", "uk", "gb", "great britain", "england"].includes(normalized)) {
+    return {
+      currency: "GBP",
+      phoneRegion: "GB"
+    };
+  }
+
+  if (["new zealand", "nz"].includes(normalized)) {
+    return {
+      currency: "NZD",
+      phoneRegion: "NZ"
+    };
+  }
+
+  if (["canada", "ca"].includes(normalized)) {
+    return {
+      currency: "CAD",
+      phoneRegion: "CA"
+    };
+  }
+
+  return {
+    currency: "USD",
+    phoneRegion: "US"
+  };
+}
 
 export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput) {
   const workspaceName = input.businessName.trim();
   const slugBase = createWorkspaceSlug(workspaceName);
+  const country = textValue(input.country);
+  const industry = textValue(input.industry);
+  const location = textValue(input.businessLocation);
+  const postcode = textValue(input.postcode);
+  const publicEmail = textValue(input.publicEmail);
+  const fallbackServiceArea =
+    [location, postcode, country].filter(Boolean).join(", ") || null;
+  const serviceArea = textValue(input.serviceArea) ?? fallbackServiceArea;
+  const defaults = countryDefaults(country ?? undefined);
 
   return {
     workspace: {
@@ -17,9 +78,9 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
     },
     businessProfile: {
       businessName: workspaceName,
-      industry: input.industry?.trim() || null,
+      industry,
       description: null,
-      serviceArea: input.serviceArea?.trim() || null,
+      serviceArea,
       toneOfVoice: "Clear, helpful, and professional.",
       defaultReplyInstructions:
         "Be concise, capture lead details, and avoid committing to pricing or dates without business owner confirmation."
@@ -58,7 +119,18 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
       {
         policyType: "workspace_general",
         settings: {
-          displayCurrency: "USD",
+          businessProfile: {
+            businessName: workspaceName,
+            businessAddress: [location, postcode, country].filter(Boolean).join(", "),
+            industry: industry ?? "",
+            publicEmail: publicEmail ?? "",
+            serviceArea: serviceArea ?? "",
+            servicePostcodes: postcode ?? "",
+            serviceSuburbs: location ?? "",
+            brandStyle: "Clear, helpful, and professional."
+          },
+          defaultPhoneRegion: defaults.phoneRegion,
+          displayCurrency: defaults.currency,
           exchangeRateProvider: "placeholder_static",
           exchangeRateUpdatedAt: null,
           timeZone: "UTC"

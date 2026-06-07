@@ -118,19 +118,86 @@ export function SignInForm({ action }: { action: ServerAction }) {
 
 export function CreateAccountForm({ action }: { action: ServerAction }) {
   return (
-    <form className="form-card auth-form-card" action={action}>
+    <form className="form-card auth-form-card auth-create-form" action={action}>
       <input name="failurePath" type="hidden" value="/create-account" />
-      <label>
-        Name
-        <input name="name" type="text" autoComplete="name" />
-      </label>
-      <label>
-        Email
-        <input name="email" type="email" autoComplete="email" required />
-      </label>
-      <PasswordField autoComplete="new-password" minLength={8} />
+
+      <div className="auth-form-section">
+        <p className="eyebrow">Your login</p>
+        <div className="auth-form-grid">
+          <label>
+            Your name
+            <input name="name" type="text" autoComplete="name" required />
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" autoComplete="email" required />
+          </label>
+          <PasswordField autoComplete="new-password" minLength={8} />
+        </div>
+      </div>
+
+      <div className="auth-form-section">
+        <p className="eyebrow">Business basics</p>
+        <div className="auth-form-grid">
+          <label>
+            Business name
+            <input
+              name="businessName"
+              type="text"
+              autoComplete="organization"
+              required
+            />
+          </label>
+          <label>
+            Trade / industry
+            <input
+              name="industry"
+              type="text"
+              placeholder="Plumbing, electrical, landscaping..."
+              required
+            />
+          </label>
+          <label>
+            Country
+            <select name="country" required defaultValue="Australia">
+              <option value="Australia">Australia</option>
+              <option value="United States">United States</option>
+              <option value="United Kingdom">United Kingdom</option>
+              <option value="New Zealand">New Zealand</option>
+              <option value="Canada">Canada</option>
+            </select>
+          </label>
+          <label>
+            Location
+            <input
+              name="businessLocation"
+              type="text"
+              placeholder="Suburb, city, or operating region"
+              required
+            />
+          </label>
+          <label>
+            Postcode / ZIP
+            <input
+              name="postcode"
+              type="text"
+              autoComplete="postal-code"
+              required
+            />
+          </label>
+          <label>
+            Service area
+            <input
+              name="serviceArea"
+              type="text"
+              placeholder="Optional: Brisbane southside, Metro Phoenix..."
+            />
+          </label>
+        </div>
+      </div>
+
       <button className="primary-button" type="submit">
-        Create account
+        Create account and workspace
       </button>
     </form>
   );

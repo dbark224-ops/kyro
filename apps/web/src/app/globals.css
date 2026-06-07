@@ -1588,6 +1588,39 @@ a {
   gap: 14px;
 }
 
+.auth-create-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.auth-create-panel .form-copy {
+  margin-inline: auto;
+}
+
+.auth-create-form {
+  gap: 18px;
+  padding: 20px;
+}
+
+.auth-form-section {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-form-section .eyebrow {
+  margin: 0;
+}
+
+.auth-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.auth-form-grid label {
+  min-width: 0;
+}
+
 .form-card {
   display: grid;
   gap: 14px;
@@ -10769,7 +10802,8 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
-  .auth-grid {
+  .auth-grid,
+  .auth-form-grid {
     grid-template-columns: 1fr;
   }
 

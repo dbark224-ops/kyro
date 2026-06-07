@@ -31,7 +31,10 @@ export async function bootstrapWorkspaceAction(formData: FormData) {
   }
 
   const businessName = formString(formData, "businessName");
+  const businessLocation = formString(formData, "businessLocation");
+  const country = formString(formData, "country") || "Australia";
   const industry = formString(formData, "industry");
+  const postcode = formString(formData, "postcode");
   const serviceArea = formString(formData, "serviceArea");
 
   if (!businessName) {
@@ -40,8 +43,12 @@ export async function bootstrapWorkspaceAction(formData: FormData) {
 
   try {
     await createWorkspaceBootstrap(supabase, user, {
+      businessLocation,
       businessName,
+      country,
       industry,
+      postcode,
+      publicEmail: user.email ?? undefined,
       serviceArea
     });
   } catch (error) {
