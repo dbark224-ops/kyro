@@ -870,11 +870,13 @@ async function lookupLinkedRows(
 }
 
 function compactOutboundCallContext(input: {
+  assistantContextSummary?: string | null;
   contact: Awaited<ReturnType<typeof lookupLinkedRows>>["contact"];
   conversation: Awaited<ReturnType<typeof lookupLinkedRows>>["conversation"];
   customerNumber: string;
   instructions: string | null;
   lead: Awaited<ReturnType<typeof lookupLinkedRows>>["lead"];
+  recentOutboundCallContext?: string | null;
   workspaceName: string | null;
 }) {
   const lines = [
@@ -901,10 +903,86 @@ function compactOutboundCallContext(input: {
             : ""
         }`
       : null,
+    input.assistantContextSummary
+      ? `Recent Assistant context:\n${input.assistantContextSummary}`
+      : null,
+    input.recentOutboundCallContext
+      ? `Recent outbound call context:\n${input.recentOutboundCallContext}`
+      : null,
     input.instructions ? `User instruction: ${input.instructions}` : null,
   ].filter((line): line is string => Boolean(line));
 
   return lines.join("\n");
+}
+
+function compactCallContextValue(value: unknown, maxLength = 900) {
+  const clean = textValue(value)?.replace(/\s+/g, " ").trim();
+
+  if (!clean) {
+    return null;
+  }
+
+  return clean.length > maxLength
+    ? `${clean.slice(0, maxLength - 1)}...`
+    : clean;
+}
+
+async function recentOutboundCallContextForCustomer(input: {
+  contactId?: string | null;
+  customerNumber: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const query = input.contactId
+    ? input.supabase
+        .from("voice_calls")
+        .select("created_at,status,summary,metadata")
+        .eq("workspace_id", input.workspaceId)
+        .eq("direction", "outbound")
+        .eq("contact_id", input.contactId)
+        .order("created_at", { ascending: false })
+        .limit(3)
+    : input.supabase
+        .from("voice_calls")
+        .select("created_at,status,summary,metadata")
+        .eq("workspace_id", input.workspaceId)
+        .eq("direction", "outbound")
+        .eq("normalized_to_number", input.customerNumber)
+        .order("created_at", { ascending: false })
+        .limit(3);
+  const { data, error } = await query;
+
+  if (error) {
+    if (tableMissing(error)) {
+      return null;
+    }
+
+    throw new Error(`Unable to load recent outbound call context: ${error.message}`);
+  }
+
+  const lines = ((data ?? []) as Record<string, unknown>[])
+    .map((row, index) => {
+      const metadata = objectRecord(row.metadata);
+      const pieces = [
+        `Previous outbound call ${index + 1}`,
+        textValue(row.created_at) ? `created ${String(row.created_at)}` : null,
+        textValue(row.status) ? `status ${String(row.status)}` : null,
+        compactCallContextValue(metadata.instructions)
+          ? `instruction: ${compactCallContextValue(metadata.instructions)}`
+          : null,
+        compactCallContextValue(row.summary)
+          ? `summary: ${compactCallContextValue(row.summary)}`
+          : null,
+        compactCallContextValue(metadata.outboundCallContext, 700)
+          ? `context: ${compactCallContextValue(metadata.outboundCallContext, 700)}`
+          : null,
+      ].filter((value): value is string => Boolean(value));
+
+      return pieces.join(" | ");
+    })
+    .filter((line) => line.trim());
+
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 function rowToPreviewCall(row: Record<string, unknown>) {
@@ -1310,6 +1388,7 @@ export async function recordVoiceToolEvent(input: {
 
 export async function createOutboundVoiceCall(input: {
   contactId?: string | null;
+  contextSummary?: string | null;
   conversationId?: string | null;
   instructions?: string | null;
   leadId?: string | null;
@@ -1369,15 +1448,25 @@ export async function createOutboundVoiceCall(input: {
   const outboundConversationId = input.conversationId ?? null;
   const outboundLeadId = input.leadId ?? null;
   const callInstructions = textValue(input.instructions);
+  const assistantContextSummary = textValue(input.contextSummary);
+  const recentOutboundCallContext = await recentOutboundCallContextForCustomer({
+    contactId: outboundContactId,
+    customerNumber,
+    supabase: input.supabase,
+    workspaceId: input.workspaceId,
+  });
   const outboundCallContext = compactOutboundCallContext({
+    assistantContextSummary,
     contact: outboundContact,
     conversation: linkedRows.conversation,
     customerNumber,
     instructions: callInstructions,
     lead: linkedRows.lead,
+    recentOutboundCallContext,
     workspaceName: outboundWorkspaceName,
   });
   const baseMetadata = {
+    assistantContextSummary,
     createdByUserId: input.user.id,
     instructions: callInstructions,
     ownerUserId,
@@ -1433,6 +1522,7 @@ export async function createOutboundVoiceCall(input: {
       assistantOverrides: {
         voice: elevenLabsVapiVoiceOverride(settings),
         variableValues: {
+          assistant_context_summary: assistantContextSummary ?? "",
           call_instructions: callInstructions ?? "",
           contact_address: outboundContact?.address ?? "",
           contact_company: outboundContact?.company ?? "",
@@ -1450,6 +1540,8 @@ export async function createOutboundVoiceCall(input: {
           lead_status: linkedRows.lead?.status ?? "",
           lead_title: linkedRows.lead?.title ?? "",
           outbound_call_context: outboundCallContext,
+          recent_chat_context: assistantContextSummary ?? "",
+          recent_outbound_call_context: recentOutboundCallContext ?? "",
           thread_id: input.threadId ?? "",
           user_id: input.user.id,
           voice_id: selectedVoice.voiceId,
@@ -1471,6 +1563,8 @@ export async function createOutboundVoiceCall(input: {
         leadId: outboundLeadId,
         ownerUserId,
         outboundCallContext,
+        assistantContextSummary,
+        recentOutboundCallContext,
         phoneNumberSelection: baseMetadata.phoneNumberSelection,
         purpose: "outbound_customer",
         threadId: input.threadId ?? null,

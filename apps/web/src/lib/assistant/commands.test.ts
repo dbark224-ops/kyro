@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
+import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
   documentTemplateControlIntent,
   looksLikeWebSearchRequest,
@@ -380,6 +381,17 @@ describe("assistant generated image follow-up helpers", () => {
     assert.equal(
       looksLikeImageFollowUpRequest("where is it", recentImageMessages),
       false,
+    );
+  });
+});
+
+describe("outbound call request parsing", () => {
+  it("strips the leading say verb from follow-up call instructions", () => {
+    assert.equal(
+      outboundCallInstructionsFromPrompt(
+        "alright can you call david again and say we've actually moved it to monday 10:30 am",
+      ),
+      "we've actually moved it to monday 10:30 am",
     );
   });
 });

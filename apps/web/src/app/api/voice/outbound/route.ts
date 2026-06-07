@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
 
     const result = await createOutboundVoiceCall({
       contactId: textValue(body.contactId),
+      contextSummary: textValue(body.contextSummary),
       conversationId: textValue(body.conversationId),
       instructions: textValue(body.instructions),
       leadId: textValue(body.leadId),

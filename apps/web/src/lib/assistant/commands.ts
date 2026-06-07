@@ -424,6 +424,71 @@ function recentContactIdFromMessages(
   return null;
 }
 
+function compactOutboundContextText(value: string, maxLength = 280) {
+  const clean = value.replace(/\s+/g, " ").trim();
+
+  if (!clean) {
+    return null;
+  }
+
+  return clean.length > maxLength
+    ? `${clean.slice(0, maxLength - 1)}...`
+    : clean;
+}
+
+function outboundCallContextFromRecentMessages({
+  prompt,
+  recentMessages = [],
+}: {
+  prompt: string;
+  recentMessages?: readonly AssistantRecentMessage[];
+}) {
+  const lines: string[] = [];
+
+  for (const message of recentMessages.slice(-10)) {
+    const content = compactOutboundContextText(message.content);
+
+    if (content) {
+      lines.push(`${message.role === "user" ? "User" : "Kyro"}: ${content}`);
+    }
+
+    for (const block of message.uiBlocks ?? []) {
+      if (block.type !== "outbound_call_request") {
+        continue;
+      }
+
+      const request = block.request;
+      const callDetails = [
+        request.contactName ? `recipient ${request.contactName}` : null,
+        request.phoneNumber ? `phone ${request.phoneNumber}` : null,
+        `instructions ${request.instructions}`,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join("; ");
+
+      lines.push(`Kyro prepared an outbound call: ${callDetails}`);
+    }
+  }
+
+  const currentPrompt = compactOutboundContextText(prompt, 360);
+
+  if (currentPrompt) {
+    lines.push(`Current user request: ${currentPrompt}`);
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const summary = lines.join("\n").trim();
+
+  return summary.length > 1800
+    ? `Recent Assistant context before this outbound call request:\n${summary.slice(
+        summary.length - 1800,
+      )}`
+    : `Recent Assistant context before this outbound call request:\n${summary}`;
+}
+
 type QuoteDraftSelection =
   | {
       candidates: Array<{
@@ -1900,6 +1965,10 @@ async function outboundCallCommand({
 }: CommandInput): Promise<AssistantCommandResult> {
   const resolution = await resolveOutboundCallRequest({
     contactId: recentContactIdFromMessages(recentMessages),
+    contextSummary: outboundCallContextFromRecentMessages({
+      prompt,
+      recentMessages,
+    }),
     prompt,
     supabase,
     workspaceId: workspace.id,
@@ -2009,6 +2078,7 @@ async function outboundCallCommand({
       ...outboundCallRequestBlock("Outbound phone call", {
         contactId: readyResolution.contactId,
         contactName: readyResolution.contactName,
+        contextSummary: readyResolution.contextSummary,
         conversationId: readyResolution.conversationId,
         instructions: readyResolution.instructions,
         leadId: readyResolution.leadId,

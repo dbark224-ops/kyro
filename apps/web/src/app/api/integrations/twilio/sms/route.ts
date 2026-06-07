@@ -252,6 +252,7 @@ export async function POST(request: Request) {
     });
 
     const resolution = await resolveOutboundCallRequest({
+      contextSummary: `Internal SMS request from ${from}: ${body}`,
       prompt: body,
       supabase,
       workspaceId: workspaceNumber.workspaceId,
@@ -260,6 +261,7 @@ export async function POST(request: Request) {
     if (resolution.status === "ready") {
       await createOutboundVoiceCall({
         contactId: resolution.contactId,
+        contextSummary: resolution.contextSummary,
         conversationId: resolution.conversationId,
         instructions: resolution.instructions,
         leadId: resolution.leadId,

@@ -113,7 +113,7 @@ Build in this order unless the user redirects:
    - Voice controls later, reusing the same assistant/backend architecture.
    - Support UI cards for work queue, contact previews, quote/document cards, approval queues, outbound-call request cards, generated-image cards, and account/status cards.
    - Do not let the model invent arbitrary UI. Use known block types.
-   - When Assistant returns an `outbound_call_request` block, render a compact review card with recipient, phone number, call instructions, and a Confirm action that posts the same payload to `POST /api/voice/outbound`.
+   - When Assistant returns an `outbound_call_request` block, render a compact review card with recipient, phone number, call instructions, and a Confirm action that posts the same payload to `POST /api/voice/outbound`. Preserve the optional hidden `contextSummary` field so outbound Vapi calls know the recent Assistant situation and previous-call context.
 
 4. Inbox
    - Work queue list.

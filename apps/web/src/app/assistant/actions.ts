@@ -600,6 +600,7 @@ export async function sendAssistantManualReplyAction({
 
 export async function startAssistantOutboundCallAction({
   contactId,
+  contextSummary,
   conversationId,
   instructions,
   leadId,
@@ -607,6 +608,7 @@ export async function startAssistantOutboundCallAction({
   threadId,
 }: {
   contactId?: string | null;
+  contextSummary?: string | null;
   conversationId?: string | null;
   instructions?: string | null;
   leadId?: string | null;
@@ -617,6 +619,7 @@ export async function startAssistantOutboundCallAction({
     const { supabase, user, workspace } = await requireWorkspaceContext();
     const result = await createOutboundVoiceCall({
       contactId: textValue(contactId),
+      contextSummary: textValue(contextSummary),
       conversationId: textValue(conversationId),
       instructions: textValue(instructions),
       leadId: textValue(leadId),

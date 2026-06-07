@@ -95,6 +95,7 @@ export type AssistantUiBlock =
       request: {
         contactId?: string | null;
         contactName?: string | null;
+        contextSummary?: string | null;
         conversationId?: string | null;
         instructions: string;
         leadId?: string | null;

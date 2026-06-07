@@ -5,6 +5,7 @@ export type OutboundCallRequestResolution =
   | {
       contactId: string | null;
       contactName: string | null;
+      contextSummary: string | null;
       conversationId: string | null;
       instructions: string;
       leadId: string | null;
@@ -66,6 +67,7 @@ export function looksLikeOutboundCallRequest(prompt: string) {
 export function outboundCallInstructionsFromPrompt(prompt: string) {
   const clean = prompt.replace(/\s+/g, " ").trim();
   const patterns = [
+    /\bsay\s+(?:that\s+)?(.+)$/i,
     /\b(?:tell|say to|let)\b(?:\s+(?:him|her|them|the customer|the client|the contact|that person|this guy|this person|[A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?))?(?:\s+(?:know|that|to))?\s+(.+)$/i,
     /\bask\b(?:\s+(?:him|her|them|the customer|the client|the contact|that person|this guy|this person|[A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?))?(?:\s+(?:if|whether|to|about))?\s+(.+)$/i,
     /\b(?:confirm|remind|notify)\b(?:\s+(?:him|her|them|the customer|the client|the contact|that person|this guy|this person|[A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?))?(?:\s+(?:that|about|to))?\s+(.+)$/i,
@@ -85,7 +87,13 @@ export function outboundCallInstructionsFromPrompt(prompt: string) {
   )?.[1];
 
   if (afterCall && afterCall.trim().length >= 8) {
-    return afterCall.trim();
+    return afterCall
+      .trim()
+      .replace(
+        /^(?:and\s+)?(?:say|tell|let\s+(?:him|her|them|the customer|the client|the contact)\s+know)\s+/i,
+        "",
+      )
+      .trim();
   }
 
   return null;
@@ -149,6 +157,7 @@ function rankedContacts(prompt: string, contacts: readonly ContactListItem[]) {
 export async function resolveOutboundCallRequest({
   contactId,
   contacts,
+  contextSummary = null,
   conversationId = null,
   instructions,
   leadId = null,
@@ -159,6 +168,7 @@ export async function resolveOutboundCallRequest({
 }: {
   contactId?: string | null;
   contacts?: readonly ContactListItem[];
+  contextSummary?: string | null;
   conversationId?: string | null;
   instructions?: string | null;
   leadId?: string | null;
@@ -236,6 +246,7 @@ export async function resolveOutboundCallRequest({
   return {
     contactId: selectedContact?.id ?? contactId ?? null,
     contactName: selectedContact?.name ?? selectedContact?.company ?? null,
+    contextSummary: textValue(contextSummary),
     conversationId,
     instructions: requestedInstructions,
     leadId,

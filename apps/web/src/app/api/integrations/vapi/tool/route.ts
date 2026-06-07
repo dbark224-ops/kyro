@@ -484,6 +484,11 @@ export async function POST(request: Request) {
         textValue(args.callInstructions) ??
         textValue(args.message) ??
         textValue(args.note);
+      const contextSummary =
+        textValue(args.contextSummary) ??
+        textValue(args.recentChatContext) ??
+        textValue(args.callContext) ??
+        textValue(args.outboundCallContext);
       const resolutionPrompt = [
         prompt,
         textValue(args.contactName),
@@ -494,6 +499,7 @@ export async function POST(request: Request) {
         .join(" ");
       const resolution = await resolveOutboundCallRequest({
         contactId: textValue(args.contactId),
+        contextSummary,
         conversationId: textValue(args.conversationId),
         instructions,
         leadId: textValue(args.leadId),
@@ -529,6 +535,7 @@ export async function POST(request: Request) {
 
       const result = await createOutboundVoiceCall({
         contactId: resolution.contactId,
+        contextSummary: resolution.contextSummary,
         conversationId: resolution.conversationId,
         instructions: resolution.instructions,
         leadId: resolution.leadId,

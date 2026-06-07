@@ -231,7 +231,10 @@ overrides:
 ```json
 {
   "call_instructions": "what the user asked Kyro to say/do",
-  "outbound_call_context": "compact workspace/contact/lead/conversation/call summary",
+  "outbound_call_context": "compact workspace/contact/lead/conversation/call summary plus recent chat and previous-call context when available",
+  "assistant_context_summary": "recent Assistant thread context supplied by the web or mobile Assistant",
+  "recent_chat_context": "same recent Assistant thread context, named for Vapi prompt readability",
+  "recent_outbound_call_context": "recent outbound calls to the same contact or phone number",
   "kyro_context": "same compact outbound call context",
   "workspace_name": "workspace display name",
   "workspace_id": "workspace uuid",
