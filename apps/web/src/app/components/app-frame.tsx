@@ -1,9 +1,12 @@
 import { BrandMark } from "./brand-mark";
+import { FloatingAssistantWidget } from "./floating-assistant-widget";
 import { GlobalSearch } from "./global-search";
 import { RoutePreloader } from "./route-preloader";
 import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
 import { signOutAction } from "../auth/actions";
+import { getAssistantThreadState } from "../../lib/assistant/persistence";
+import type { AssistantThreadState } from "../../lib/assistant/types";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
 import {
   convertDisplayMoney,
@@ -39,6 +42,7 @@ const preloadRoutes = navItems
   .filter((item) => item.label !== "Developer")
   .map((item) => item.href);
 const USAGE_COST_CACHE_TTL_MS = 30_000;
+const FLOATING_ASSISTANT_MESSAGE_LIMIT = 4;
 const usageCostCache = new Map<
   string,
   {
@@ -322,6 +326,83 @@ async function WorkspaceAccountChip() {
   );
 }
 
+function buildFloatingAssistantState(
+  threadState: AssistantThreadState,
+): AssistantThreadState {
+  if (threadState.messages.length > 0) {
+    return {
+      ...threadState,
+      messages: threadState.messages.slice(
+        Math.max(threadState.messages.length - FLOATING_ASSISTANT_MESSAGE_LIMIT, 0),
+      ),
+    };
+  }
+
+  return {
+    ...threadState,
+    messages: [
+      {
+        content:
+          "I’m here. Ask me anything, or open the full Assistant when you want the bigger workspace.",
+        createdAt: new Date().toISOString(),
+        id: "floating-assistant-welcome",
+        role: "assistant",
+      },
+    ],
+  };
+}
+
+const loadFloatingAssistantData = cache(async function loadFloatingAssistantData() {
+  if (!hasSupabaseEnv()) {
+    return null;
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return null;
+    }
+
+    const workspace = await getPrimaryWorkspace(supabase);
+
+    if (!workspace) {
+      return null;
+    }
+
+    const threadState = await getAssistantThreadState({
+      supabase,
+      user,
+      workspace,
+    });
+
+    return {
+      initialState: buildFloatingAssistantState(threadState),
+      workspaceName: workspace.name,
+    };
+  } catch {
+    return null;
+  }
+});
+
+async function FloatingAssistantBridge() {
+  const data = await loadFloatingAssistantData();
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <FloatingAssistantWidget
+      initialState={data.initialState}
+      workspaceName={data.workspaceName}
+    />
+  );
+}
+
 function AppShellIcon({
   name,
 }: Readonly<{
@@ -556,6 +637,10 @@ export function AppFrame({
         </div>
         {children}
       </section>
+
+      <Suspense fallback={null}>
+        <FloatingAssistantBridge />
+      </Suspense>
 
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">
         {bottomNavItems.map((item) => (
