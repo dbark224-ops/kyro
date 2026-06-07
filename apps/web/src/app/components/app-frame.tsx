@@ -527,6 +527,7 @@ export function AppFrame({
   ]
     .filter(Boolean)
     .join(" ");
+  const showFloatingAssistant = active !== "Assistant";
 
   return (
     <main className="app-shell">
@@ -638,9 +639,11 @@ export function AppFrame({
         {children}
       </section>
 
-      <Suspense fallback={null}>
-        <FloatingAssistantBridge />
-      </Suspense>
+      {showFloatingAssistant ? (
+        <Suspense fallback={null}>
+          <FloatingAssistantBridge />
+        </Suspense>
+      ) : null}
 
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">
         {bottomNavItems.map((item) => (

@@ -119,6 +119,11 @@ export function FloatingAssistantWidget({
     feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }, [isOpen, messages]);
 
+  const closeForFullScreen = () => {
+    setIsOpen(false);
+    writeStoredOpenState(false);
+  };
+
   return (
     <aside
       aria-label="Floating Kyro assistant"
@@ -132,7 +137,11 @@ export function FloatingAssistantWidget({
               <strong>{workspaceName}</strong>
             </div>
             <div className="floating-assistant-header-actions">
-              <Link className="filter-pill" href="/assistant">
+              <Link
+                className="filter-pill"
+                href="/assistant"
+                onClick={closeForFullScreen}
+              >
                 Full screen
               </Link>
               <button
