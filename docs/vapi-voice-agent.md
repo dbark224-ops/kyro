@@ -197,7 +197,7 @@ cannot make Kyro place arbitrary outbound calls.
 Text Assistant outbound-call requests use the same backend with an extra
 approval layer: the Assistant resolves the intended contact/phone/instructions,
 renders an `outbound_call_request` card, and only starts the call when the signed
-in user presses Start call. Trusted user-to-Kyro SMS and trusted internal Vapi
+in user presses Confirm. Trusted user-to-Kyro SMS and trusted internal Vapi
 voice can call the same resolver and start the call directly because the request
 already came from a configured internal phone number or authenticated browser
 voice session.
@@ -281,7 +281,7 @@ split pane. It should not implement separate phone logic; it should call
 `GET /api/assistant/activity` for the list, `GET /api/voice/calls/[callId]` for
 details, and `POST /api/voice/outbound` to start an approved outbound call. If
 mobile implements the text Assistant's approval card, render `ui_blocks` of type
-`outbound_call_request` with a Start call action that posts the card's request
+`outbound_call_request` with a Confirm action that posts the card's request
 payload to the same outbound route.
 
 The web app now also has a separate developer-facing Vapi internal voice tab at

@@ -4064,7 +4064,7 @@ function AssistantOutboundCallRequestCard({
             onClick={() => onStartOutboundCall(request)}
             type="button"
           >
-            {starting ? "Starting..." : started ? "Call started" : "Start call"}
+            {starting ? "Confirming..." : started ? "Call started" : "Confirm"}
           </button>
           {status?.message ? (
             <span

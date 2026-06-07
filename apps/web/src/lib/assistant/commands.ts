@@ -1999,21 +1999,11 @@ async function outboundCallCommand({
     readyResolution.contactName ??
     readyResolution.phoneNumber ??
     "selected contact";
-  const links = readyResolution.contactId
-    ? [
-        {
-          href: `/contacts/${readyResolution.contactId}`,
-          label: recipient,
-          meta: readyResolution.phoneNumber ?? undefined,
-        },
-      ]
-    : [];
-
   return {
     context: { outboundCall: readyResolution },
-    fallbackAnswer: `I found ${recipient} and prepared the outbound call. Review the message, then press Start call when you want Kyro to call.`,
+    fallbackAnswer: `I found ${recipient} and prepared the outbound call. Review the message, then press Confirm when you want Kyro to call.`,
     intent: "outbound_call_prepare",
-    links,
+    links: [],
     title: "Outbound phone call",
     uiBlocks: [
       ...outboundCallRequestBlock("Outbound phone call", {
@@ -2025,15 +2015,6 @@ async function outboundCallCommand({
         phoneNumber: readyResolution.phoneNumber,
         threadId,
       }),
-      ...(links.length
-        ? [
-            {
-              links,
-              title: "Call recipient",
-              type: "link_cards" as const,
-            },
-          ]
-        : []),
     ],
   };
 }
