@@ -3,7 +3,6 @@
 import Vapi from "@vapi-ai/web";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  AssistantLink,
   AssistantThreadMessage,
   AssistantThreadState,
   AssistantUiBlock,
@@ -220,7 +219,7 @@ export function VapiVoiceConsole({
   const [previewTarget, setPreviewTarget] = useState<VoicePreviewTarget | null>(
     initialPreviewTarget ?? null,
   );
-  const [startTrace, setStartTrace] = useState<StartTraceEntry[]>([]);
+  const [, setStartTrace] = useState<StartTraceEntry[]>([]);
   const [voiceLevel, setVoiceLevel] = useState(0);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const vapiRef = useRef<Vapi | null>(null);
@@ -1021,7 +1020,6 @@ export function VapiVoiceConsole({
       applyToolUiBlocks,
       captureAssistantDraft,
       fetchPendingToolUiBlocks,
-      finalizeAssistantTurn,
       handleFinalTranscript,
       scheduleAssistantFinalize,
     ],
@@ -1580,6 +1578,8 @@ function VoiceMessageBlocks({
                 {block.images.map((image) => (
                   <article className="voice-generated-image-card" key={image.fileId}>
                     <a href={image.href} rel="noreferrer" target="_blank">
+                      {/* Generated file thumbnails are scoped API images, not LCP media. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img alt={image.alt} src={image.href} />
                     </a>
                     <div className="voice-generated-image-actions">
@@ -1679,10 +1679,13 @@ function VoicePreviewPanel({
 
   useEffect(() => {
     let isCancelled = false;
-
-    setData(null);
-    setError(null);
-    setIsLoading(true);
+    const resetTimeout = window.setTimeout(() => {
+      if (!isCancelled) {
+        setData(null);
+        setError(null);
+        setIsLoading(true);
+      }
+    }, 0);
 
     fetch(`/api/assistant/vapi/preview?href=${encodeURIComponent(target.href)}`, {
       cache: "no-store",
@@ -1714,6 +1717,7 @@ function VoicePreviewPanel({
 
     return () => {
       isCancelled = true;
+      window.clearTimeout(resetTimeout);
     };
   }, [target.href, target.refreshKey]);
 
@@ -1765,6 +1769,8 @@ function VoicePreviewPanel({
   );
 }
 
+// Kept as a compact fallback preview while the primary path uses ContactProfilePanel.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ContactVoicePreview({ data }: { data: Extract<VoicePreviewData, { type: "contact" }> }) {
   const contact = data.profile.contact;
 
@@ -2301,7 +2307,8 @@ function hasVoiceOverride(value: unknown) {
 }
 
 function withoutVoiceOverride(value: Record<string, unknown>) {
-  const { voice: _voice, ...rest } = value;
+  const rest = { ...value };
+  delete rest.voice;
 
   return rest;
 }

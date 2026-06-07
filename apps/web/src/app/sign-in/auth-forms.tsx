@@ -62,12 +62,16 @@ export function SignInForm({ action }: { action: ServerAction }) {
   const [rememberEmail, setRememberEmail] = useState(false);
 
   useEffect(() => {
-    const rememberedEmail = window.localStorage.getItem(REMEMBERED_EMAIL_KEY);
+    const loadTimeout = window.setTimeout(() => {
+      const rememberedEmail = window.localStorage.getItem(REMEMBERED_EMAIL_KEY);
 
-    if (rememberedEmail) {
-      setEmail(rememberedEmail);
-      setRememberEmail(true);
-    }
+      if (rememberedEmail) {
+        setEmail(rememberedEmail);
+        setRememberEmail(true);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(loadTimeout);
   }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {

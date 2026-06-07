@@ -5,7 +5,6 @@ import { RoutePreloader } from "./route-preloader";
 import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
 import { signOutAction } from "../auth/actions";
-import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import type { AssistantThreadState } from "../../lib/assistant/types";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
 import {
@@ -39,10 +38,13 @@ const bottomNavItems = ["Dashboard", "Assistant", "Inbox", "Settings"]
   .map((label) => navItems.find((item) => item.label === label))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
 const preloadRoutes = navItems
-  .filter((item) => item.label !== "Developer")
+  .filter((item) =>
+    ["Dashboard", "Assistant", "Inbox", "CRM", "Files", "Activity"].includes(
+      item.label,
+    ),
+  )
   .map((item) => item.href);
 const USAGE_COST_CACHE_TTL_MS = 30_000;
-const FLOATING_ASSISTANT_MESSAGE_LIMIT = 4;
 const usageCostCache = new Map<
   string,
   {
@@ -326,20 +328,8 @@ async function WorkspaceAccountChip() {
   );
 }
 
-function buildFloatingAssistantState(
-  threadState: AssistantThreadState,
-): AssistantThreadState {
-  if (threadState.messages.length > 0) {
-    return {
-      ...threadState,
-      messages: threadState.messages.slice(
-        Math.max(threadState.messages.length - FLOATING_ASSISTANT_MESSAGE_LIMIT, 0),
-      ),
-    };
-  }
-
+function buildFloatingAssistantShellState(): AssistantThreadState {
   return {
-    ...threadState,
     messages: [
       {
         content:
@@ -349,47 +339,14 @@ function buildFloatingAssistantState(
         role: "assistant",
       },
     ],
+    summary: null,
+    threadId: null,
+    threads: [],
   };
 }
 
-const loadFloatingAssistantData = cache(async function loadFloatingAssistantData() {
-  if (!hasSupabaseEnv()) {
-    return null;
-  }
-
-  try {
-    const supabase = await createServerSupabaseClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return null;
-    }
-
-    const workspace = await getPrimaryWorkspace(supabase);
-
-    if (!workspace) {
-      return null;
-    }
-
-    const threadState = await getAssistantThreadState({
-      supabase,
-      user,
-      workspace,
-    });
-
-    return {
-      initialState: buildFloatingAssistantState(threadState),
-      workspaceName: workspace.name,
-    };
-  } catch {
-    return null;
-  }
-});
-
 async function FloatingAssistantBridge() {
-  const data = await loadFloatingAssistantData();
+  const data = await loadWorkspaceChromeData();
 
   if (!data) {
     return null;
@@ -397,7 +354,7 @@ async function FloatingAssistantBridge() {
 
   return (
     <FloatingAssistantWidget
-      initialState={data.initialState}
+      initialState={buildFloatingAssistantShellState()}
       workspaceName={data.workspaceName}
     />
   );

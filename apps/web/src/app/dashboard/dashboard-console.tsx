@@ -8,7 +8,6 @@ import type {
 import type {
   DashboardCommandCenterData,
   DashboardContactSummary,
-  DashboardGeneratedDocumentItem,
   DashboardWorkQueueItem,
 } from "../../lib/dashboard/queries";
 import Link from "next/link";
@@ -964,7 +963,11 @@ export function DashboardConsole({
     useState<DashboardQueueFilter>("all");
 
   useEffect(() => {
-    setLayout(loadSavedLayout());
+    const loadTimeout = window.setTimeout(() => {
+      setLayout(loadSavedLayout());
+    }, 0);
+
+    return () => window.clearTimeout(loadTimeout);
   }, []);
 
   const updateLayout = (nextLayout: DashboardLayoutConfig) => {

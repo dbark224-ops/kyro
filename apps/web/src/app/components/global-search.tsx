@@ -93,8 +93,9 @@ export function GlobalSearch() {
   useEffect(() => {
     if (!canSearch) {
       abortRef.current?.abort();
-      setSelectedIndex(-1);
-      return;
+      const resetTimeout = window.setTimeout(() => setSelectedIndex(-1), 0);
+
+      return () => window.clearTimeout(resetTimeout);
     }
 
     const cacheKey = trimmedQuery.toLowerCase();
@@ -161,12 +162,14 @@ export function GlobalSearch() {
   }, [canSearch, trimmedQuery]);
 
   useEffect(() => {
-    if (!canSearch || displayedResults.length === 0) {
-      setSelectedIndex(-1);
-      return;
-    }
+    const nextSelectedIndex =
+      !canSearch || displayedResults.length === 0 ? -1 : 0;
+    const resetTimeout = window.setTimeout(
+      () => setSelectedIndex(nextSelectedIndex),
+      0,
+    );
 
-    setSelectedIndex(0);
+    return () => window.clearTimeout(resetTimeout);
   }, [canSearch, displayedResults.length, trimmedQuery]);
 
   useEffect(() => {
@@ -243,12 +246,14 @@ export function GlobalSearch() {
         </span>
         <input
           autoComplete="off"
+          aria-autocomplete="list"
           aria-activedescendant={
             isOpen && selectedResult ? resultDomId(selectedResult.id) : undefined
           }
           aria-controls="global-search-results"
           aria-expanded={isOpen && canSearch}
           id="global-workspace-search"
+          role="combobox"
           onBlur={() => {
             window.setTimeout(() => setIsOpen(false), 120);
           }}

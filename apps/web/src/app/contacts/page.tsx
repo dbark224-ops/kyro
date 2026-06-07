@@ -1248,8 +1248,6 @@ export default async function ContactsPage({
     pageStart + CRM_PAGE_SIZE,
   );
   const paginatedLeads = sortedLeads.slice(pageStart, pageStart + CRM_PAGE_SIZE);
-  const shownCount =
-    activeFilter === "leads" ? paginatedLeads.length : paginatedContacts.length;
   const selectedLeadContactIds = new Set(
     searchedLeads
       .filter((lead) => lead.contactId)

@@ -71,19 +71,26 @@ export function AddressAutocompleteField({
 
   useEffect(() => {
     if (!shouldSearch) {
-      setSuggestions([]);
-      setIsOpen(false);
-      setStatus("idle");
-      return;
+      const resetTimeout = window.setTimeout(() => {
+        setSuggestions([]);
+        setIsOpen(false);
+        setStatus("idle");
+      }, 0);
+
+      return () => window.clearTimeout(resetTimeout);
     }
 
     const query = currentValue.trim();
 
     if (query.length < 3 || selectedAddress?.formattedAddress === query) {
       if (query.length < 3) {
-        setSuggestions([]);
-        setIsOpen(false);
-        setStatus("idle");
+        const resetTimeout = window.setTimeout(() => {
+          setSuggestions([]);
+          setIsOpen(false);
+          setStatus("idle");
+        }, 0);
+
+        return () => window.clearTimeout(resetTimeout);
       }
       return;
     }

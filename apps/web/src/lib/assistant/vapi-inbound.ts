@@ -103,10 +103,6 @@ function vapiCall(payload: Record<string, unknown>) {
   return objectRecord(message.call ?? payload.call ?? payload);
 }
 
-function callMetadata(payload: Record<string, unknown>) {
-  return objectRecord(vapiCall(payload).metadata ?? payload.metadata);
-}
-
 function eventType(payload: Record<string, unknown>) {
   const message = vapiMessage(payload);
 

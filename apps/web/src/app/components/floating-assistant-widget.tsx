@@ -60,7 +60,7 @@ export function FloatingAssistantWidget({
     initialState,
   );
   const [draft, setDraft] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(readStoredOpenState);
   const [optimisticMessage, setOptimisticMessage] =
     useState<AssistantThreadMessage | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -73,10 +73,6 @@ export function FloatingAssistantWidget({
     () => lastAssistantMessageId(assistantState.messages),
     [assistantState.messages],
   );
-
-  useEffect(() => {
-    setIsOpen(readStoredOpenState());
-  }, []);
 
   useEffect(() => {
     writeStoredOpenState(isOpen);

@@ -56,7 +56,7 @@ export default function PricingPage() {
       <section className="marketing-section marketing-split-band">
         <div>
           <p className="marketing-eyebrow">Billing posture</p>
-          <h2>Your assistant's usage should be visible before it becomes an invoice.</h2>
+          <h2>Your assistant&apos;s usage should be visible before it becomes an invoice.</h2>
         </div>
         <p>
           Kyro treats provider cost, customer-facing charge, model routing, and

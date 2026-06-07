@@ -18,6 +18,7 @@ type IdleWindow = typeof window & {
 };
 
 const PREFETCH_STAGGER_MS = 140;
+const MAX_IDLE_PREFETCH_ROUTES = 6;
 const prefetchedRoutes = new Set<string>();
 
 function shouldSkipPrefetch(idleWindow: IdleWindow) {
@@ -43,9 +44,9 @@ export function RoutePreloader({
     let cancelled = false;
     const timeouts: number[] = [];
     const idleWindow = window as IdleWindow;
-    const routesToPrefetch = routes.filter(
-      (route) => route !== activeHref && !prefetchedRoutes.has(route),
-    );
+    const routesToPrefetch = Array.from(new Set(routes))
+      .filter((route) => route !== activeHref && !prefetchedRoutes.has(route))
+      .slice(0, MAX_IDLE_PREFETCH_ROUTES);
 
     if (routesToPrefetch.length === 0 || shouldSkipPrefetch(idleWindow)) {
       return;
@@ -56,7 +57,11 @@ export function RoutePreloader({
         const timeout = window.setTimeout(() => {
           if (!cancelled) {
             prefetchedRoutes.add(route);
-            router.prefetch(route);
+            try {
+              router.prefetch(route);
+            } catch {
+              prefetchedRoutes.delete(route);
+            }
           }
         }, index * PREFETCH_STAGGER_MS);
 

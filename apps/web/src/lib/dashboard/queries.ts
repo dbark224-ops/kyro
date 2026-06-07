@@ -81,10 +81,6 @@ export type DashboardWorkQueueItem = {
   workflowBucket: string;
 };
 
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function currencyValue(
   summary: Awaited<ReturnType<typeof getBillableUsageSummary>>,
 ) {

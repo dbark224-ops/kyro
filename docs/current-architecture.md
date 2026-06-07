@@ -165,11 +165,18 @@ Shared visual helpers:
 - `apps/web/src/app/components/smart-prefetch-link.tsx`
 
 The shell also mounts a small client-side route preloader. After the browser is idle,
-it staggers prefetches for the main logged-in routes so the high-traffic tabs feel
-warmer without preloading every row/detail page. Nav links still leave automatic
-Next prefetching off, but `SmartPrefetchLink` prefetches on user intent
-(`hover`, keyboard focus, or mobile touch) so deliberate navigation feels
-immediate without loading the whole app up front.
+it staggers prefetches for the day-to-day operational routes only, so Dashboard,
+Assistant, Inbox, CRM, Files, and Activity feel warmer without preloading every
+heavy or low-frequency surface. Nav links still leave automatic Next prefetching
+off, but `SmartPrefetchLink` prefetches on user intent (`hover`, keyboard focus,
+or mobile touch) so deliberate navigation to Settings, Reports, Developer tools,
+voice, or detail pages still feels immediate without loading the whole app up front.
+
+The floating Assistant launcher is intentionally lightweight in the shared shell.
+It renders a small welcome state and only creates/loads the real persisted Assistant
+thread when the user sends a message or opens the full Assistant tab. This avoids
+making every logged-in route pay for assistant-thread history queries just because
+the launcher is visible.
 
 On narrow mobile viewports, the shell hides the desktop sidebar, exposes the full
 navigation through a drawer menu, and pins a bottom quick-nav for Assistant, Voice,
@@ -1543,7 +1550,8 @@ Current performance approach:
 - `RoutePreloader` idle-prefetches core logged-in tabs with a stagger so navigation
   is warm without hammering every detail route;
   it dedupes routes already prefetched in the browser session and skips background
-  prefetching on data-saver or slow network connections,
+  prefetching on data-saver or slow network connections; the idle preloader is
+  capped to the hot operational route set rather than every sidebar destination,
 - `SmartPrefetchLink` warms a route on hover, focus, or touch intent for the
   sidebar, mobile drawer, and mobile bottom-nav links while keeping automatic
   Next.js link prefetch disabled,
@@ -1553,6 +1561,9 @@ Current performance approach:
   request dedupe so Ollama/OpenAI status checks do not stall normal navigation,
 - long repeated list rows intentionally keep `prefetch={false}`,
 - list/detail pages have skeleton loading states,
+- the floating Assistant launcher avoids loading persisted thread history from the
+  shared app shell; the real thread is loaded/created only when the user interacts
+  with Assistant,
 - CRM filter/search/sort state is URL-backed and rendered server-side so the split profile panel can preserve context across clicks and saves,
 - inbox split-view fetches the list, selected preview, and communication settings in parallel after workspace resolution,
 - Settings fetches only the selected section's data so Usage/task/ledger data is not loaded for general, voice, or integrations changes; the integrations section intentionally fetches communication policy, provider overviews, and inbound email settings together because those now share one Connected accounts surface,
@@ -1563,7 +1574,8 @@ Current performance approach:
 
 Do not preload everything. The current reasonable preload set is:
 
-- main app routes: Dashboard, Assistant, Vapi Voice, Inbox, CRM, Files, Activity, Reports, Settings,
+- hot app routes: Dashboard, Assistant, Inbox, CRM, Files, Activity,
+- intent-prefetched routes: Vapi Voice, Reports, Settings, Developer, and detail pages,
 - already-open split-view records,
 - compact list summaries and counts for the active screen.
 
