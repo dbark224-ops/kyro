@@ -45,7 +45,7 @@ async function enrichInboxSearchContext(
       .in("id", conversationIds),
     supabase
       .from("messages")
-      .select("conversation_id,subject,body_text,direction,channel_type,created_at")
+      .select("conversation_id,subject,body_text,direction,created_at")
       .eq("workspace_id", workspaceId)
       .in("conversation_id", conversationIds)
       .order("created_at", { ascending: false })
@@ -155,7 +155,6 @@ async function enrichInboxSearchContext(
       message.subject,
       message.body_text,
       message.direction,
-      message.channel_type,
     ]);
   }
 
