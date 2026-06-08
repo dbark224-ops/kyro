@@ -105,6 +105,7 @@ import { InfoBubble } from "./info-bubble";
 import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
 import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
 import { UsageLedgerModal } from "./usage-ledger-modal";
+import { TeamPhoneNumberEditor } from "./team-phone-number-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -3078,6 +3079,15 @@ function VoiceSettingsDetail({
   pronunciationEntries: AssistantPronunciationEntry[];
   voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
 }>) {
+  const teamPhoneRows =
+    voiceSettings.phoneAgentUserNumberDetails.length > 0
+      ? voiceSettings.phoneAgentUserNumberDetails
+      : voiceSettings.phoneAgentUserNumbers.map((phoneNumber) => ({
+          name: null,
+          phoneNumber,
+          role: null,
+        }));
+
   return (
     <>
       <form action={updateVoiceSettingsAction} className="settings-form">
@@ -3115,33 +3125,40 @@ function VoiceSettingsDetail({
 
         <fieldset className="settings-fieldset">
           <legend>Phone assistant</legend>
-          <div className="settings-grid">
-            <label className="compact-checkbox-row setting-card">
+          <div className="phone-assistant-compact-panel">
+            <label className="settings-switch-row phone-assistant-master-toggle">
+              <span>
+                <strong>Enable phone assistant infrastructure</strong>
+                <small>
+                  Turns on Kyro&apos;s phone-call runtime for configured numbers.
+                </small>
+              </span>
               <input
                 defaultChecked={voiceSettings.phoneAgentEnabled}
                 name="phoneAgentEnabled"
                 type="checkbox"
               />
-              <span>Enable Vapi phone assistant infrastructure</span>
+              <span aria-hidden="true" className="settings-switch" />
             </label>
 
-            <label className="setting-card">
-              <SettingCardHeading info="This controls the broad feel of the Vapi assistant prompt for inbound, voicemail overflow, and outbound calls.">
-                Call style
-              </SettingCardHeading>
-              <select
-                defaultValue={voiceSettings.phoneAgentDemeanor}
-                name="phoneAgentDemeanor"
-              >
-                {PHONE_AGENT_DEMEANORS.map((demeanor) => (
-                  <option key={demeanor} value={demeanor}>
-                    {formatLabel(demeanor)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="settings-grid phone-assistant-style-grid">
+              <label className="setting-card compact-setting-card">
+                <SettingCardHeading info="This controls the broad feel of Kyro's assistant prompt for inbound, voicemail overflow, and outbound calls.">
+                  Call style
+                </SettingCardHeading>
+                <select
+                  defaultValue={voiceSettings.phoneAgentDemeanor}
+                  name="phoneAgentDemeanor"
+                >
+                  {PHONE_AGENT_DEMEANORS.map((demeanor) => (
+                    <option key={demeanor} value={demeanor}>
+                      {formatLabel(demeanor)}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="setting-card">
+            <label className="setting-card compact-setting-card">
               <SettingCardHeading info="Concise is best for trades call handling; detailed gives the assistant more room to explain.">
                 Detail level
               </SettingCardHeading>
@@ -3157,7 +3174,7 @@ function VoiceSettingsDetail({
               </select>
             </label>
 
-            <label className="setting-card">
+            <label className="setting-card compact-setting-card">
               <SettingCardHeading info="Light humour keeps calls human without letting the assistant drift into banter when a customer needs help.">
                 Warmth
               </SettingCardHeading>
@@ -3173,7 +3190,7 @@ function VoiceSettingsDetail({
               </select>
             </label>
 
-            <label className="setting-card">
+            <label className="setting-card compact-setting-card">
               <SettingCardHeading info="What Kyro should do when a caller needs the human tradesperson or has an urgent issue.">
                 Escalation behaviour
               </SettingCardHeading>
@@ -3188,50 +3205,52 @@ function VoiceSettingsDetail({
                 ))}
               </select>
             </label>
+            </div>
+
+            <div className="phone-assistant-toggle-row">
+              <label className="settings-switch-row compact">
+                <span>Inbound customer calls</span>
+                <input
+                  defaultChecked={voiceSettings.phoneAgentInboundEnabled}
+                  name="phoneAgentInboundEnabled"
+                  type="checkbox"
+                />
+                <span aria-hidden="true" className="settings-switch" />
+              </label>
+              <label className="settings-switch-row compact">
+                <span>Voicemail overflow</span>
+                <input
+                  defaultChecked={
+                    voiceSettings.phoneAgentVoicemailOverflowEnabled
+                  }
+                  name="phoneAgentVoicemailOverflowEnabled"
+                  type="checkbox"
+                />
+                <span aria-hidden="true" className="settings-switch" />
+              </label>
+              <label className="settings-switch-row compact">
+                <span>Outbound calls</span>
+                <input
+                  defaultChecked={voiceSettings.phoneAgentOutboundEnabled}
+                  name="phoneAgentOutboundEnabled"
+                  type="checkbox"
+                />
+                <span aria-hidden="true" className="settings-switch" />
+              </label>
+            </div>
           </div>
 
-          <div className="channel-toggle-grid voice-purpose-toggle-grid">
-            <label className="channel-toggle">
-              <input
-                defaultChecked={voiceSettings.phoneAgentInboundEnabled}
-                name="phoneAgentInboundEnabled"
-                type="checkbox"
-              />
-              <span>Inbound customer calls</span>
-            </label>
-            <label className="channel-toggle">
-              <input
-                defaultChecked={
-                  voiceSettings.phoneAgentVoicemailOverflowEnabled
-                }
-                name="phoneAgentVoicemailOverflowEnabled"
-                type="checkbox"
-              />
-              <span>Voicemail overflow</span>
-            </label>
-            <label className="channel-toggle">
-              <input
-                defaultChecked={voiceSettings.phoneAgentOutboundEnabled}
-                name="phoneAgentOutboundEnabled"
-                type="checkbox"
-              />
-              <span>Outbound calls</span>
-            </label>
-          </div>
-
-          <label className="settings-textarea">
-            User and team phone numbers
-            <textarea
-              defaultValue={voiceSettings.phoneAgentUserNumbers.join("\n")}
-              name="phoneAgentUserNumbers"
-              placeholder={"+61 400 000 000\n+1 555 0100"}
-            />
-          </label>
+          <input
+            name="phoneAgentUserNumbers"
+            type="hidden"
+            value={voiceSettings.phoneAgentUserNumbers.join("\n")}
+          />
+          <TeamPhoneNumberEditor initialRows={teamPhoneRows} />
 
           <div className="settings-grid">
             <label className="setting-card">
-              <SettingCardHeading info="Vapi phone number ID. Kyro can also read VAPI_PHONE_NUMBER_ID from env.">
-                Vapi phone number ID
+              <SettingCardHeading info="Provider phone number ID for the workspace voice/SMS number. Kyro can also read the configured environment value.">
+                Phone number ID
               </SettingCardHeading>
               <input
                 defaultValue={voiceSettings.vapiPhoneNumberId ?? ""}
@@ -3240,7 +3259,7 @@ function VoiceSettingsDetail({
               />
             </label>
             <label className="setting-card">
-              <SettingCardHeading info="Assistant used by the browser/mobile Vapi voice tab for internal Kyro conversations.">
+              <SettingCardHeading info="Assistant used by the browser and mobile voice tab for internal Kyro conversations.">
                 Internal voice assistant ID
               </SettingCardHeading>
               <input
@@ -3379,6 +3398,25 @@ function DeveloperSettingsDetail({
           type="hidden"
           value={voiceSettings.phoneAgentUserNumbers.join("\n")}
         />
+        {voiceSettings.phoneAgentUserNumberDetails.map((row) => (
+          <span key={`${row.phoneNumber}-${row.name ?? ""}-${row.role ?? ""}`}>
+            <input
+              name="phoneAgentTeamPhone"
+              type="hidden"
+              value={row.phoneNumber}
+            />
+            <input
+              name="phoneAgentTeamName"
+              type="hidden"
+              value={row.name ?? ""}
+            />
+            <input
+              name="phoneAgentTeamRole"
+              type="hidden"
+              value={row.role ?? ""}
+            />
+          </span>
+        ))}
         <input
           name="vapiPhoneNumberId"
           type="hidden"

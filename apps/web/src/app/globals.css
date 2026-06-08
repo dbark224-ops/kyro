@@ -7172,6 +7172,163 @@ button:disabled {
   grid-template-columns: 1fr;
 }
 
+.compact-setting-card {
+  gap: 8px;
+  padding: 10px;
+}
+
+.phone-assistant-compact-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 24%, var(--surface));
+  padding: 10px;
+}
+
+.phone-assistant-style-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.phone-assistant-toggle-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-switch-row {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 38%, transparent);
+  color: var(--text);
+  padding: 10px;
+}
+
+.settings-switch-row.compact {
+  min-height: 42px;
+  padding: 8px 10px;
+}
+
+.settings-switch-row > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  font-weight: 850;
+}
+
+.settings-switch-row small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.settings-switch-row input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.settings-switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--muted) 38%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted) 14%, var(--background));
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.settings-switch::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 82%, var(--surface));
+  box-shadow: 0 5px 12px rgb(0 0 0 / 16%);
+  content: "";
+  transition: transform 150ms ease;
+}
+
+.settings-switch-row input[type="checkbox"]:checked + .settings-switch {
+  border-color: color-mix(in srgb, var(--cyan) 62%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 34%, var(--background));
+}
+
+.settings-switch-row input[type="checkbox"]:checked + .settings-switch::after {
+  transform: translateX(18px);
+}
+
+.settings-switch-row:has(input[type="checkbox"]:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--cyan) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.team-phone-editor {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 22%, var(--surface));
+  padding: 10px;
+}
+
+.team-phone-editor-heading,
+.team-phone-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.team-phone-editor-heading span {
+  display: block;
+  color: var(--text);
+  font-weight: 850;
+}
+
+.team-phone-editor-heading small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.team-phone-editor-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.team-phone-editor-row {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) auto;
+  padding: 0;
+}
+
+.team-phone-editor-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
 .integration-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

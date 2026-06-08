@@ -182,6 +182,7 @@ export type VoiceSettings = {
   phoneAgentHumourLevel: PhoneAgentHumourLevel;
   phoneAgentInboundEnabled: boolean;
   phoneAgentOutboundEnabled: boolean;
+  phoneAgentUserNumberDetails: PhoneAgentUserNumberDetail[];
   phoneAgentUserNumbers: string[];
   phoneAgentVerbosity: PhoneAgentVerbosity;
   phoneAgentVoicemailOverflowEnabled: boolean;
@@ -191,6 +192,12 @@ export type VoiceSettings = {
   vapiPhoneNumberId: string | null;
   vapiVoicemailAssistantId: string | null;
   provider: VoiceTtsProvider;
+};
+
+export type PhoneAgentUserNumberDetail = {
+  name: string | null;
+  phoneNumber: string;
+  role: string | null;
 };
 
 function envValue(key: string) {
@@ -293,6 +300,29 @@ function stringArrayValue(value: unknown) {
   return [];
 }
 
+function phoneAgentUserNumberDetailsValue(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const row = objectRecord(entry);
+      const phoneNumber = textValue(row.phoneNumber ?? row.phone_number);
+
+      if (!phoneNumber) {
+        return null;
+      }
+
+      return {
+        name: textValue(row.name),
+        phoneNumber,
+        role: textValue(row.role),
+      };
+    })
+    .filter((entry): entry is PhoneAgentUserNumberDetail => Boolean(entry));
+}
+
 function findElevenLabsVoicePresetById(value: string | null | undefined) {
   return ELEVENLABS_VOICE_PRESETS.find((preset) => preset.id === value);
 }
@@ -353,6 +383,16 @@ export function normalizeVoiceSettings(value: unknown): VoiceSettings {
     elevenLabsVoicePresetByVoiceId(textValue(settings.elevenLabsVoiceId)) ??
     defaultPreset;
 
+  const phoneAgentUserNumberDetails = phoneAgentUserNumberDetailsValue(
+    settings.phoneAgentUserNumberDetails,
+  );
+  const phoneAgentUserNumbers = Array.from(
+    new Set([
+      ...stringArrayValue(settings.phoneAgentUserNumbers),
+      ...phoneAgentUserNumberDetails.map((entry) => entry.phoneNumber),
+    ]),
+  );
+
   return {
     elevenLabsModel:
       textValue(envValue("ELEVENLABS_TTS_MODEL")) ?? DEFAULT_ELEVENLABS_MODEL,
@@ -410,7 +450,8 @@ export function normalizeVoiceSettings(value: unknown): VoiceSettings {
       settings.phoneAgentOutboundEnabled,
       true,
     ),
-    phoneAgentUserNumbers: stringArrayValue(settings.phoneAgentUserNumbers),
+    phoneAgentUserNumberDetails,
+    phoneAgentUserNumbers,
     phoneAgentVerbosity: enumValue(
       PHONE_AGENT_VERBOSITIES,
       settings.phoneAgentVerbosity,

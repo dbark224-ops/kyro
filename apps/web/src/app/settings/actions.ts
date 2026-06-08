@@ -104,6 +104,26 @@ function formBoolean(formData: FormData, key: string) {
   return formData.get(key) === "on";
 }
 
+function formStringList(formData: FormData, key: string) {
+  return formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""));
+}
+
+function phoneAgentUserNumberDetailsFromForm(formData: FormData) {
+  const phones = formStringList(formData, "phoneAgentTeamPhone");
+  const names = formStringList(formData, "phoneAgentTeamName");
+  const roles = formStringList(formData, "phoneAgentTeamRole");
+
+  return phones
+    .map((phoneNumber, index) => ({
+      name: names[index] || null,
+      phoneNumber,
+      role: roles[index] || null,
+    }))
+    .filter((row) => row.phoneNumber);
+}
+
 function formInteger(formData: FormData, key: string) {
   const parsed = Number(formString(formData, key));
 
@@ -1169,6 +1189,8 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     formData,
     "elevenLabsVoicePresetId",
   );
+  const phoneAgentUserNumberDetails =
+    phoneAgentUserNumberDetailsFromForm(formData);
 
   if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
     redirectWithSectionMessage(
@@ -1247,7 +1269,11 @@ export async function updateVoiceSettingsAction(formData: FormData) {
       formData,
       "phoneAgentOutboundEnabled",
     ),
-    phoneAgentUserNumbers: formString(formData, "phoneAgentUserNumbers"),
+    phoneAgentUserNumberDetails,
+    phoneAgentUserNumbers:
+      phoneAgentUserNumberDetails.length > 0
+        ? phoneAgentUserNumberDetails.map((row) => row.phoneNumber)
+        : formString(formData, "phoneAgentUserNumbers"),
     phoneAgentVerbosity,
     phoneAgentVoicemailOverflowEnabled: formBoolean(
       formData,

@@ -1694,6 +1694,7 @@ export function vapiAssistantGuidance(settings: Awaited<ReturnType<typeof getVoi
     escalationMode: settings.phoneAgentEscalationMode,
     humourLevel: settings.phoneAgentHumourLevel,
     persona: settings.phoneAgentDemeanor,
+    userNumberDetails: settings.phoneAgentUserNumberDetails,
     userNumbers: settings.phoneAgentUserNumbers,
     verbosity: settings.phoneAgentVerbosity,
   };

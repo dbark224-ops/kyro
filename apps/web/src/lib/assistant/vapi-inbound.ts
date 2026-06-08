@@ -385,6 +385,22 @@ function clipped(value: string, maxLength = 800) {
     : `${clean.slice(0, maxLength - 1).trim()}...`;
 }
 
+function teamNumberContext(
+  details: Awaited<ReturnType<typeof getVoiceSettings>>["phoneAgentUserNumberDetails"],
+) {
+  const rows = details
+    .map((entry) => {
+      const label = [entry.name, entry.role].filter(Boolean).join(" - ");
+
+      return label ? `${entry.phoneNumber} (${label})` : entry.phoneNumber;
+    })
+    .filter(Boolean);
+
+  return rows.length > 0
+    ? `Configured internal caller numbers: ${rows.join("; ")}.`
+    : null;
+}
+
 function customerContextMessage(input: {
   callerNumber: string | null;
   currentTimePromptLine: string;
@@ -423,6 +439,7 @@ function internalCallerContextMessage(input: {
   currentTimePromptLine: string;
   kyroNumber: string | null;
   pronunciationGuide: string | null;
+  teamNumberContext: string | null;
   workspaceName: string;
 }) {
   return [
@@ -444,6 +461,7 @@ function internalCallerContextMessage(input: {
     input.pronunciationGuide
       ? `Workspace pronunciation vocabulary: ${input.pronunciationGuide}`
       : null,
+    input.teamNumberContext,
     `Caller number, if available: ${input.callerNumber ?? "unknown"}.`,
     `Kyro number called, if available: ${input.kyroNumber ?? "unknown"}.`,
   ]
@@ -516,6 +534,9 @@ export async function buildVapiAssistantRequestResponse(
           currentTimePromptLine: currentTime.promptLine,
           kyroNumber: to,
           pronunciationGuide,
+          teamNumberContext: teamNumberContext(
+            settings.phoneAgentUserNumberDetails,
+          ),
           workspaceName: workspace.name,
         })
       : customerContextMessage({
