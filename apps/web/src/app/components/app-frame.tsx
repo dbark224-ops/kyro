@@ -7,6 +7,7 @@ import { TextScaleControl } from "./text-scale-control";
 import { signOutAction } from "../auth/actions";
 import type { AssistantThreadState } from "../../lib/assistant/types";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
   convertDisplayMoney,
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
@@ -268,6 +269,7 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       monthlyUsageSummary?.totals[0]?.currency ?? settings.displayCurrency;
 
     return {
+      isDeveloper: developerAccessEnabled(user),
       initials: initialsFor(workspace.name),
       usageMonthLabel: formatDisplayMoney(
         monthlyAmount,
@@ -307,6 +309,48 @@ async function SidebarUsageCard() {
         View settings and billing
       </SmartPrefetchLink>
     </section>
+  );
+}
+
+async function AppNavLinks({
+  active,
+  items = navItems,
+  isMobile = false,
+}: Readonly<{
+  active: string;
+  items?: typeof navItems;
+  isMobile?: boolean;
+}>) {
+  const data = await loadWorkspaceChromeData();
+  const visibleNavItems = items.filter(
+    (item) => item.label !== "Developer" || data?.isDeveloper,
+  );
+
+  return (
+    <>
+      {visibleNavItems.map((item) => (
+        <SmartPrefetchLink
+          href={item.href}
+          className={[
+            isMobile ? "mobile-bottom-link" : "nav-link",
+            item.primary ? "primary" : null,
+            item.label === active ? "active" : null,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          key={item.label}
+        >
+          <span
+            className={
+              isMobile ? "mobile-bottom-link-inner" : "nav-link-inner"
+            }
+          >
+            <AppShellIcon name={item.icon} />
+            <span>{item.label}</span>
+          </span>
+        </SmartPrefetchLink>
+      ))}
+    </>
   );
 }
 
@@ -503,24 +547,9 @@ export function AppFrame({
           </div>
 
           <nav className="mobile-drawer-list" aria-label="Mobile navigation">
-            {navItems.map((item) => (
-              <SmartPrefetchLink
-                href={item.href}
-                className={[
-                  "nav-link",
-                  item.primary ? "primary" : null,
-                  item.label === active ? "active" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                key={item.label}
-              >
-                <span className="nav-link-inner">
-                  <AppShellIcon name={item.icon} />
-                  <span>{item.label}</span>
-                </span>
-              </SmartPrefetchLink>
-            ))}
+            <Suspense fallback={null}>
+              <AppNavLinks active={active} />
+            </Suspense>
           </nav>
 
           <form action={signOutAction}>
@@ -536,33 +565,9 @@ export function AppFrame({
         </div>
 
         <nav className="nav-list">
-          {navItems.map((item) =>
-            item.href ? (
-              <SmartPrefetchLink
-                href={item.href}
-                className={[
-                  "nav-link",
-                  item.primary ? "primary" : null,
-                  item.label === active ? "active" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                key={item.label}
-              >
-                <span className="nav-link-inner">
-                  <AppShellIcon name={item.icon} />
-                  <span>{item.label}</span>
-                </span>
-              </SmartPrefetchLink>
-            ) : (
-              <span className="nav-link disabled" key={item.label}>
-                <span className="nav-link-inner">
-                  <AppShellIcon name={item.icon} />
-                  <span>{item.label}</span>
-                </span>
-              </span>
-            ),
-          )}
+          <Suspense fallback={null}>
+            <AppNavLinks active={active} />
+          </Suspense>
         </nav>
 
         <Suspense fallback={null}>
@@ -603,23 +608,9 @@ export function AppFrame({
       ) : null}
 
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">
-        {bottomNavItems.map((item) => (
-          <SmartPrefetchLink
-            className={[
-              "mobile-bottom-link",
-              item.label === active ? "active" : null,
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            href={item.href}
-            key={item.label}
-          >
-            <span className="mobile-bottom-link-inner">
-              <AppShellIcon name={item.icon} />
-              <span>{item.label}</span>
-            </span>
-          </SmartPrefetchLink>
-        ))}
+        <Suspense fallback={null}>
+          <AppNavLinks active={active} isMobile items={bottomNavItems} />
+        </Suspense>
       </nav>
     </main>
   );

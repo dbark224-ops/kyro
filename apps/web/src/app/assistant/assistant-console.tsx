@@ -117,6 +117,7 @@ export function AssistantConsole({
   initialPreviewEngineMessage,
   initialPreview,
   initialState,
+  isDeveloperAccount = false,
   promptSuggestions,
 }: {
   externalActivityItems?: AssistantExternalActivityItem[];
@@ -124,6 +125,7 @@ export function AssistantConsole({
   initialPreviewEngineMessage?: string;
   initialPreview?: AssistantResourcePreview | null;
   initialState: AssistantThreadState;
+  isDeveloperAccount?: boolean;
   promptSuggestions?: string[];
 }) {
   const [state, formAction, pending] = useActionState(
@@ -887,7 +889,7 @@ export function AssistantConsole({
               <article className={`assistant-message ${message.role}`}>
                 <div className="assistant-message-meta">
                   <strong>
-                    {message.role === "assistant" ? "Kyro" : "You"}
+                    {assistantMessageAuthorLabel(message)}
                   </strong>
                   {message.createdAt ? (
                     <time
@@ -897,7 +899,10 @@ export function AssistantConsole({
                       {formatMessageTime(message.createdAt)}
                     </time>
                   ) : null}
-                  <AssistantProviderPill message={message} />
+                  <AssistantProviderPill
+                    isDeveloperAccount={isDeveloperAccount}
+                    message={message}
+                  />
                 </div>
                 <AssistantMessageBody
                   linkOverrides={linkOverrides}
@@ -1828,11 +1833,21 @@ function StopIcon() {
 }
 
 function AssistantProviderPill({
+  isDeveloperAccount,
   message,
 }: {
+  isDeveloperAccount: boolean;
   message: AssistantThreadMessage;
 }) {
   if (message.role !== "assistant") {
+    return null;
+  }
+
+  if (isVoiceAssistantMessage(message)) {
+    return null;
+  }
+
+  if (!isDeveloperAccount) {
     return null;
   }
 
@@ -3776,6 +3791,20 @@ function formatProviderLabel(value: string) {
   }
 
   return formatLabel(value);
+}
+
+function assistantMessageAuthorLabel(message: AssistantThreadMessage) {
+  if (message.role !== "assistant") {
+    return "You";
+  }
+
+  return isVoiceAssistantMessage(message) ? "Kyro - Voice Assistant" : "Kyro";
+}
+
+function isVoiceAssistantMessage(message: AssistantThreadMessage) {
+  const provider = message.provider?.toLowerCase();
+
+  return provider === "vapi" || provider === "vapi_internal_voice";
 }
 
 function outboundCallRequestKey(request: OutboundCallRequestBlock["request"]) {

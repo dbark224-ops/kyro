@@ -6,6 +6,7 @@ import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getContactProfile } from "../../lib/crm/queries";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import type {
   AssistantResourcePreview,
   AssistantThreadState,
@@ -139,6 +140,7 @@ export default async function AssistantPage({
             initialPreviewEngineMessage={query?.engine_message}
             initialPreview={initialPreview}
             initialState={initialState}
+            isDeveloperAccount={developerAccessEnabled(user)}
             promptSuggestions={promptSuggestions.visibleSuggestions}
           />
         </section>
