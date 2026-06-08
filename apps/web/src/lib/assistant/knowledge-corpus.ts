@@ -198,7 +198,7 @@ SMS replies can send through Twilio when:
 Settings -> Connected accounts includes the beta phone/SMS enablement flow.
 Kyro lists available preloaded Twilio numbers for the workspace operating
 country, the user chooses one, and Kyro assigns that number only to that
-workspace. The action records a one-time US$3 phone-number activation charge in
+workspace. The action records a one-time US$6 phone-number activation charge in
 \`usage_events\` and enables the workspace's inbound/outbound phone assistant
 flags. Admins preload numbers as \`workspace_phone_numbers\` rows with no
 \`workspace_id\`, \`provider = twilio\`, \`status = available\`, country and

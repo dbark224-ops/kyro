@@ -39,7 +39,7 @@ export type WorkspacePhoneNumberPoolRow = {
 };
 
 const ASSIGNMENT_SOURCE = "manual_pool";
-const PHONE_NUMBER_ACTIVATION_CHARGE_USD = 3;
+const PHONE_NUMBER_ACTIVATION_CHARGE_USD = 6;
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;

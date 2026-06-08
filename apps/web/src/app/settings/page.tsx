@@ -1002,7 +1002,7 @@ function TwilioTelephonySettings({
             <p className="empty-copy">
               Enable inbound and outbound SMS plus inbound and outbound phone
               calls by choosing an available {operatingCountry} number. A
-              one-time <strong>US$3</strong> setup charge will be added to the
+              one-time <strong>US$6</strong> setup charge will be added to the
               usage ledger when the number is assigned.
             </p>
             {availableNumbers.length > 0 ? (

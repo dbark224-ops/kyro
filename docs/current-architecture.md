@@ -495,7 +495,7 @@ flow for manually preloaded numbers. Kyro lists available
 chooses one number, Kyro marks it `active`, assigns it to the workspace,
 creates/updates the Twilio SMS channel, stores the Vapi phone-number id from row
 metadata when present, and records a one-time `usage_events` row with
-`service = telephony`, `usage_type = phone_number_activation`, and a `US$3`
+`service = telephony`, `usage_type = phone_number_activation`, and a `US$6`
 customer charge. That row is keyed to the assigned phone-number id so retries do
 not double-charge. Later, the same table can be filled by an automated Twilio
 purchase and Vapi setup workflow.

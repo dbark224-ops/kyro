@@ -218,7 +218,7 @@ In Settings -> Connected accounts, users can enable the combined phone and SMS
 assistant number during the beta pool flow. Kyro shows available preloaded
 Twilio numbers for the workspace operating country, the user chooses one, and
 Kyro assigns that number only to that workspace. The action records a one-time
-US$3 phone-number activation charge in the usage ledger and enables the
+US$6 phone-number activation charge in the usage ledger and enables the
 workspace's inbound/outbound phone assistant flags. To preload more numbers,
 insert `workspace_phone_numbers` rows with no `workspace_id`, `provider =
 twilio`, `status = available`, country/region metadata, `capabilities.sms =

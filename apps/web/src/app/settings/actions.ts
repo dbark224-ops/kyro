@@ -1484,7 +1484,7 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
     "integrations",
     "engine_message",
     assignment.activationCharged
-      ? `Phone and SMS enabled on ${assignment.number.phoneNumber}. A one-time US$3 setup charge was added to the usage ledger.`
+      ? `Phone and SMS enabled on ${assignment.number.phoneNumber}. A one-time US$6 setup charge was added to the usage ledger.`
       : `Phone and SMS enabled on ${assignment.number.phoneNumber}.`,
   );
 }
