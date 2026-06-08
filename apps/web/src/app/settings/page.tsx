@@ -53,6 +53,7 @@ import {
   usageWindows,
   type UsageBreakdownRow,
 } from "../../lib/usage/queries";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
   GOOGLE_PROVIDER,
   GOOGLE_GMAIL_READ_SCOPE,
@@ -129,6 +130,10 @@ function normalizeSettingsSection(value: string | undefined) {
   }
 
   if (value === "general" || value === "usage" || value === "voice") {
+    return value satisfies SettingsSection;
+  }
+
+  if (value === "developer") {
     return value satisfies SettingsSection;
   }
 
@@ -3076,38 +3081,24 @@ function VoiceSettingsDetail({
   return (
     <>
       <form action={updateVoiceSettingsAction} className="settings-form">
+        <input name="openAiVoice" type="hidden" value={voiceSettings.openAiVoice} />
+        <input
+          name="outboundVoicePronunciationPolicy"
+          type="hidden"
+          value={voiceSettings.outboundVoicePronunciationPolicy}
+        />
         <div className="settings-grid">
           <label className="setting-card">
             <SettingCardHeading
               info={
                 <>
-                  This OpenAI voice is used for realtime voice and generated
-                  voice playback so Kyro sounds consistent across the app.
+                  This voice is used across Kyro&apos;s internal voice
+                  assistant, inbound phone assistant, voicemail overflow, and
+                  outbound phone calls.
                 </>
               }
             >
-              Assistant voice
-            </SettingCardHeading>
-            <select defaultValue={voiceSettings.openAiVoice} name="openAiVoice">
-              {OPENAI_VOICE_OPTIONS.map((voice) => (
-                <option key={voice} value={voice}>
-                  {formatLabel(voice)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="setting-card">
-            <SettingCardHeading
-              info={
-                <>
-                  This ElevenLabs voice is passed into Vapi for the internal
-                  Vapi voice tab and Kyro-initiated outbound calls. Use the same
-                  voice when configuring inbound Vapi assistants.
-                </>
-              }
-            >
-              Vapi voice
+              Voice assistant
             </SettingCardHeading>
             <select
               defaultValue={voiceSettings.elevenLabsVoicePresetId}
@@ -3116,29 +3107,6 @@ function VoiceSettingsDetail({
               {ELEVENLABS_VOICE_PRESETS.map((preset) => (
                 <option key={preset.id} value={preset.id}>
                   {preset.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="setting-card">
-            <SettingCardHeading
-              info={
-                <>
-                  Balanced lets Kyro proceed with high-confidence inferred
-                  pronunciations, but asks before risky customer-facing voice.
-                </>
-              }
-            >
-              Outbound voice pronunciation
-            </SettingCardHeading>
-            <select
-              defaultValue={voiceSettings.outboundVoicePronunciationPolicy}
-              name="outboundVoicePronunciationPolicy"
-            >
-              {OUTBOUND_VOICE_PRONUNCIATION_POLICIES.map((policy) => (
-                <option key={policy} value={policy}>
-                  {policyLabel(policy)}
                 </option>
               ))}
             </select>
@@ -3323,6 +3291,182 @@ function VoiceSettingsDetail({
 
       <PronunciationVocabularySettings entries={pronunciationEntries} />
     </>
+  );
+}
+
+function DeveloperSettingsDetail({
+  voiceSettings,
+}: Readonly<{
+  voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
+}>) {
+  return (
+    <div className="settings-form">
+      <article className="panel embedded-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Developer tools</p>
+            <h2>Internal surfaces</h2>
+          </div>
+          <span className="pill">Developer only</span>
+        </div>
+        <p className="empty-copy">
+          These screens are operational and diagnostic tools. They stay hidden
+          from normal workspaces so user-facing settings stay simple.
+        </p>
+        <div className="detail-list">
+          <div>
+            <span>Mock inbound</span>
+            <strong>
+              <Link href="/developer">Manual inquiry ingestion</Link>
+            </strong>
+          </div>
+          <div>
+            <span>Outbound</span>
+            <strong>
+              <Link href="/developer/outbox">Outbox operations</Link>
+            </strong>
+          </div>
+          <div>
+            <span>Health</span>
+            <strong>
+              <Link href="/developer/system-health">System health</Link>
+            </strong>
+          </div>
+          <div>
+            <span>Smoke tests</span>
+            <strong>
+              <Link href="/developer/smoke-tests">Smoke checklist</Link>
+            </strong>
+          </div>
+          <div>
+            <span>Assistant</span>
+            <strong>
+              <Link href="/developer/assistant-tools">Tool registry</Link>
+            </strong>
+          </div>
+        </div>
+      </article>
+
+      <form action={updateVoiceSettingsAction} className="settings-form">
+        <input name="redirectSection" type="hidden" value="developer" />
+        <input
+          name="elevenLabsVoicePresetId"
+          type="hidden"
+          value={voiceSettings.elevenLabsVoicePresetId}
+        />
+        <input
+          name="phoneAgentDemeanor"
+          type="hidden"
+          value={voiceSettings.phoneAgentDemeanor}
+        />
+        <input
+          name="phoneAgentVerbosity"
+          type="hidden"
+          value={voiceSettings.phoneAgentVerbosity}
+        />
+        <input
+          name="phoneAgentHumourLevel"
+          type="hidden"
+          value={voiceSettings.phoneAgentHumourLevel}
+        />
+        <input
+          name="phoneAgentEscalationMode"
+          type="hidden"
+          value={voiceSettings.phoneAgentEscalationMode}
+        />
+        <input
+          name="phoneAgentUserNumbers"
+          type="hidden"
+          value={voiceSettings.phoneAgentUserNumbers.join("\n")}
+        />
+        <input
+          name="vapiPhoneNumberId"
+          type="hidden"
+          value={voiceSettings.vapiPhoneNumberId ?? ""}
+        />
+        <input
+          name="vapiInternalAssistantId"
+          type="hidden"
+          value={voiceSettings.vapiInternalAssistantId ?? ""}
+        />
+        <input
+          name="vapiInboundAssistantId"
+          type="hidden"
+          value={voiceSettings.vapiInboundAssistantId ?? ""}
+        />
+        <input
+          name="vapiVoicemailAssistantId"
+          type="hidden"
+          value={voiceSettings.vapiVoicemailAssistantId ?? ""}
+        />
+        <input
+          name="vapiOutboundAssistantId"
+          type="hidden"
+          value={voiceSettings.vapiOutboundAssistantId ?? ""}
+        />
+        {voiceSettings.phoneAgentEnabled ? (
+          <input name="phoneAgentEnabled" type="hidden" value="on" />
+        ) : null}
+        {voiceSettings.phoneAgentInboundEnabled ? (
+          <input name="phoneAgentInboundEnabled" type="hidden" value="on" />
+        ) : null}
+        {voiceSettings.phoneAgentVoicemailOverflowEnabled ? (
+          <input
+            name="phoneAgentVoicemailOverflowEnabled"
+            type="hidden"
+            value="on"
+          />
+        ) : null}
+        {voiceSettings.phoneAgentOutboundEnabled ? (
+          <input name="phoneAgentOutboundEnabled" type="hidden" value="on" />
+        ) : null}
+
+        <article className="panel embedded-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Legacy voice controls</p>
+              <h2>OpenAI voice internals</h2>
+            </div>
+            <span className="pill">Hidden from users</span>
+          </div>
+          <div className="settings-grid">
+            <label className="setting-card">
+              <SettingCardHeading info="Legacy browser voice and generated-playback voice. Hidden while the Vapi voice assistant is the user-facing voice runtime.">
+                OpenAI assistant voice
+              </SettingCardHeading>
+              <select defaultValue={voiceSettings.openAiVoice} name="openAiVoice">
+                {OPENAI_VOICE_OPTIONS.map((voice) => (
+                  <option key={voice} value={voice}>
+                    {formatLabel(voice)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="setting-card">
+              <SettingCardHeading info="Legacy customer-facing pronunciation preflight policy retained for development and testing. The shared pronunciation list remains user-facing because Vapi uses it too.">
+                Outbound voice pronunciation
+              </SettingCardHeading>
+              <select
+                defaultValue={voiceSettings.outboundVoicePronunciationPolicy}
+                name="outboundVoicePronunciationPolicy"
+              >
+                {OUTBOUND_VOICE_PRONUNCIATION_POLICIES.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {policyLabel(policy)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="settings-footer align-end">
+            <button className="primary-button compact" type="submit">
+              Save developer voice settings
+            </button>
+          </div>
+        </article>
+      </form>
+    </div>
   );
 }
 
@@ -3726,7 +3870,12 @@ export default async function SettingsPage({
     requireWorkspaceContext(),
   ]);
   const activeWindow = normalizeUsageWindow(query?.window);
-  const selectedSection = normalizeSettingsSection(query?.section);
+  const isDeveloperAccount = developerAccessEnabled(user);
+  const normalizedSection = normalizeSettingsSection(query?.section);
+  const selectedSection =
+    normalizedSection === "developer" && !isDeveloperAccount
+      ? null
+      : normalizedSection;
   const showInboundTrace =
     selectedSection === "integrations" && query?.inboundTrace === "1";
   const showSenderRules =
@@ -3779,7 +3928,7 @@ export default async function SettingsPage({
     selectedSection === "usage"
       ? getUsageReport(supabase, workspace.id, activeWindow)
       : Promise.resolve(null),
-    selectedSection === "voice"
+    selectedSection === "voice" || selectedSection === "developer"
       ? getVoiceSettings(supabase, workspace.id)
       : Promise.resolve(null),
   ]);
@@ -3846,6 +3995,17 @@ export default async function SettingsPage({
       section: "usage",
       title: "Usage and billing",
     },
+    ...(isDeveloperAccount
+      ? [
+          {
+            detail: "Internal tools, diagnostics, and hidden voice controls",
+            eyebrow: "Developer",
+            href: settingsSectionHref("developer", activeWindow),
+            section: "developer" as const,
+            title: "Developer settings",
+          },
+        ]
+      : []),
   ];
   const selectedDetail =
     selectedSection === "general" &&
@@ -3898,6 +4058,12 @@ export default async function SettingsPage({
           pronunciationEntries={pronunciationEntries}
           voiceSettings={voiceSettings}
         />
+      </SettingsDetailShell>
+    ) : selectedSection === "developer" &&
+      isDeveloperAccount &&
+      voiceSettings ? (
+      <SettingsDetailShell eyebrow="Developer" title="Developer settings">
+        <DeveloperSettingsDetail voiceSettings={voiceSettings} />
       </SettingsDetailShell>
     ) : null;
 

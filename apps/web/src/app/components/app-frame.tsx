@@ -32,7 +32,6 @@ const navItems = [
   { label: "Files", href: "/files", icon: "files" },
   { label: "Activity", href: "/activity", icon: "activity" },
   { label: "Reports", href: "/reports", icon: "reports" },
-  { label: "Developer", href: "/developer", icon: "developer" },
   { label: "Settings", href: "/settings", icon: "settings" },
 ];
 const bottomNavItems = ["Dashboard", "Assistant", "Inbox", "Settings"]

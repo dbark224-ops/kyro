@@ -5,7 +5,8 @@ export type SettingsSection =
   | "general"
   | "integrations"
   | "usage"
-  | "voice";
+  | "voice"
+  | "developer";
 
 export type SettingsMenuItem = {
   detail: string;

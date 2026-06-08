@@ -185,7 +185,7 @@ async function businessLogoPayload(formData: FormData) {
 }
 
 function redirectWithSectionMessage(
-  section: "general" | "integrations" | "voice",
+  section: "general" | "integrations" | "voice" | "developer",
   key: "engine_error" | "engine_message",
   message: string,
   options: { senderRules?: boolean } = {},
@@ -1149,6 +1149,10 @@ export async function syncInboundEmailNowAction() {
 }
 
 export async function updateVoiceSettingsAction(formData: FormData) {
+  const redirectSection =
+    formString(formData, "redirectSection") === "developer"
+      ? "developer"
+      : "voice";
   const openAiVoice = formString(formData, "openAiVoice") as OpenAiVoice;
   const outboundVoicePronunciationPolicy = formString(
     formData,
@@ -1168,7 +1172,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       "OpenAI voice is invalid.",
     );
@@ -1180,7 +1184,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     )
   ) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       "Outbound pronunciation policy is invalid.",
     );
@@ -1188,7 +1192,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   if (!PHONE_AGENT_DEMEANORS.includes(phoneAgentDemeanor as never)) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       "Phone assistant style is invalid.",
     );
@@ -1196,7 +1200,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   if (!PHONE_AGENT_VERBOSITIES.includes(phoneAgentVerbosity as never)) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       "Phone assistant detail level is invalid.",
     );
@@ -1204,7 +1208,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   if (!PHONE_AGENT_HUMOUR_LEVELS.includes(phoneAgentHumourLevel as never)) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       "Phone assistant warmth setting is invalid.",
     );
@@ -1212,7 +1216,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   if (!PHONE_AGENT_ESCALATION_MODES.includes(phoneAgentEscalationMode as never)) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       "Phone assistant escalation mode is invalid.",
     );
@@ -1224,7 +1228,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     )
   ) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       "Vapi voice option is invalid.",
     );
@@ -1292,7 +1296,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
       }
     } catch (error) {
       redirectWithSectionMessage(
-        "voice",
+        redirectSection,
         "engine_error",
         error instanceof Error
           ? error.message
@@ -1309,7 +1313,11 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectWithSectionMessage("voice", "engine_error", beforeError.message);
+    redirectWithSectionMessage(
+      redirectSection,
+      "engine_error",
+      beforeError.message,
+    );
   }
 
   const { data: savedPolicy, error: saveError } = await supabase
@@ -1329,7 +1337,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   if (saveError || !savedPolicy) {
     redirectWithSectionMessage(
-      "voice",
+      redirectSection,
       "engine_error",
       saveError?.message ?? "Unable to save voice assistant settings.",
     );
@@ -1357,7 +1365,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
   revalidatePath("/voice");
   revalidatePath("/voice-vapi");
   redirectWithSectionMessage(
-    "voice",
+    redirectSection,
     "engine_message",
     "Voice assistant settings saved.",
   );
