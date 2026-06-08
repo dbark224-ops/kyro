@@ -40,6 +40,8 @@ const FALLBACK_QUICK_PROMPTS = [
   "Create a bathroom quote draft",
   "Summarise my busiest customer",
 ];
+const MAX_VISIBLE_QUICK_PROMPTS = 3;
+const MAX_QUICK_PROMPT_LABEL_CHARS = 34;
 const MAX_ATTACHMENT_TEXT_BYTES = 48 * 1024;
 type VoiceCompletionMode = "draft" | "send";
 type PendingAssistantActivity = "image_generation" | null;
@@ -78,6 +80,16 @@ type AssistantDisplayAttachment = {
   name: string;
   sizeLabel: string | null;
 };
+
+function quickPromptLabel(prompt: string) {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+
+  if (normalized.length <= MAX_QUICK_PROMPT_LABEL_CHARS) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, MAX_QUICK_PROMPT_LABEL_CHARS - 1).trimEnd()}...`;
+}
 
 type PreviewState =
   | {
@@ -185,10 +197,11 @@ export function AssistantConsole({
   );
   const isAssistantGenerating = pending || Boolean(visibleOptimisticMessage);
   const isVoiceBusy = isListening || isTranscribing;
-  const quickPrompts =
+  const quickPrompts = (
     promptSuggestions && promptSuggestions.length > 0
       ? promptSuggestions
-      : FALLBACK_QUICK_PROMPTS;
+      : FALLBACK_QUICK_PROMPTS
+  ).slice(0, MAX_VISIBLE_QUICK_PROMPTS);
 
   const updateMemorySuggestion = (
     memoryId: string,
@@ -920,9 +933,10 @@ export function AssistantConsole({
               className="filter-pill"
               key={prompt}
               onClick={() => appendQuickPrompt(prompt)}
+              title={prompt}
               type="button"
             >
-              {prompt}
+              {quickPromptLabel(prompt)}
             </button>
           ))}
         </div>

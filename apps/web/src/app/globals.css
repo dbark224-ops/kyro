@@ -3554,14 +3554,14 @@ h2 {
 .assistant-workspace:not(.has-preview) .assistant-suggestions {
   display: grid;
   width: min(100%, 900px);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-self: center;
   gap: 8px;
 }
 
 .assistant-workspace.has-preview .assistant-suggestions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -3580,6 +3580,7 @@ h2 {
 .assistant-workspace:not(.has-preview) .assistant-suggestions .filter-pill,
 .assistant-workspace.has-preview .assistant-suggestions .filter-pill {
   min-width: 0;
+  max-width: 100%;
   justify-content: center;
   overflow: hidden;
   padding: 8px 10px;
