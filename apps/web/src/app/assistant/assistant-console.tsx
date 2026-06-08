@@ -295,13 +295,6 @@ export function AssistantConsole({
     }
   };
 
-  const appendQuickPrompt = (prompt: string) => {
-    const trimmedDraft = readComposerDraft().trim();
-    const nextDraft = trimmedDraft ? `${trimmedDraft}, ${prompt}` : prompt;
-
-    setComposerDraft(nextDraft, { focus: true });
-  };
-
   const submitAssistantPrompt = (
     rawPrompt: string,
     options: {
@@ -351,6 +344,14 @@ export function AssistantConsole({
     startSubmitTransition(() => {
       formAction(formData);
     });
+  };
+
+  const sendQuickPrompt = (prompt: string) => {
+    if (isListening || isTranscribing) {
+      return;
+    }
+
+    submitAssistantPrompt(prompt);
   };
 
   const submitMessage = (event: FormEvent<HTMLFormElement>) => {
@@ -931,8 +932,9 @@ export function AssistantConsole({
           {quickPrompts.map((prompt) => (
             <button
               className="filter-pill"
+              disabled={isAssistantGenerating || isTranscribing || isListening}
               key={prompt}
-              onClick={() => appendQuickPrompt(prompt)}
+              onClick={() => sendQuickPrompt(prompt)}
               title={prompt}
               type="button"
             >
