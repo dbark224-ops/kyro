@@ -49,11 +49,17 @@ function envValue(key: string) {
 }
 
 function assistantProviderMode() {
-  return (
-    envValue("ASSISTANT_PROVIDER") ||
-    envValue("AI_PROVIDER") ||
-    "ollama"
-  ).toLowerCase();
+  const configuredProvider = envValue("ASSISTANT_PROVIDER") || envValue("AI_PROVIDER");
+
+  if (configuredProvider) {
+    return configuredProvider.toLowerCase();
+  }
+
+  if (envValue("OPENAI_API_KEY") || envValue("VERCEL")) {
+    return "openai";
+  }
+
+  return "ollama";
 }
 
 function assistantModel() {
