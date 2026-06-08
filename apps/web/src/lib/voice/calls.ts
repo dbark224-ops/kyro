@@ -4,6 +4,7 @@ import {
   elevenLabsVoicePresetById,
   getVoiceSettings,
 } from "../assistant/voice-settings";
+import { buildVapiCurrentTimeContext } from "../assistant/vapi-time";
 import {
   createVapiOutboundCall,
   VAPI_CARRIER_PROVIDER,
@@ -14,6 +15,10 @@ import {
   TWILIO_PROVIDER,
 } from "../integrations/twilio";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
+import {
+  DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+  getWorkspaceGeneralSettings,
+} from "../workspace/general-settings";
 
 export type VoiceCallDirection = "inbound" | "outbound";
 export type VoiceCallPurpose =
@@ -1431,15 +1436,20 @@ export async function createOutboundVoiceCall(input: {
     );
   }
 
-  const [ownerUserId, outboundWorkspaceName, linkedRows] = await Promise.all([
-    workspaceOwnerId(input.supabase, input.workspaceId),
-    workspaceName(input.supabase, input.workspaceId),
-    lookupLinkedRows(input.supabase, input.workspaceId, {
-      contactId: input.contactId ?? null,
-      conversationId: input.conversationId ?? null,
-      leadId: input.leadId ?? null,
-    }),
-  ]);
+  const [ownerUserId, outboundWorkspaceName, linkedRows, generalSettings] =
+    await Promise.all([
+      workspaceOwnerId(input.supabase, input.workspaceId),
+      workspaceName(input.supabase, input.workspaceId),
+      lookupLinkedRows(input.supabase, input.workspaceId, {
+        contactId: input.contactId ?? null,
+        conversationId: input.conversationId ?? null,
+        leadId: input.leadId ?? null,
+      }),
+      getWorkspaceGeneralSettings(input.supabase, input.workspaceId).catch(
+        () => DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+      ),
+    ]);
+  const currentTime = buildVapiCurrentTimeContext(generalSettings.timeZone);
   const phoneMatchedContact = linkedRows.contact
     ? null
     : await findContactByPhone(input.supabase, input.workspaceId, customerNumber);
@@ -1465,12 +1475,16 @@ export async function createOutboundVoiceCall(input: {
     recentOutboundCallContext,
     workspaceName: outboundWorkspaceName,
   });
+  const outboundCallContextWithTime = [
+    currentTime.promptLine,
+    outboundCallContext,
+  ].join("\n\n");
   const baseMetadata = {
     assistantContextSummary,
     createdByUserId: input.user.id,
     instructions: callInstructions,
     ownerUserId,
-    outboundCallContext,
+    outboundCallContext: outboundCallContextWithTime,
     phoneNumberSelection: {
       countryCode: phoneNumberSelection.countryCode,
       fromNumber: phoneNumberSelection.fromNumber,
@@ -1535,11 +1549,12 @@ export async function createOutboundVoiceCall(input: {
             linkedRows.conversation?.lastMessageAt ?? "",
           conversation_status: linkedRows.conversation?.status ?? "",
           customer_phone: customerNumber,
-          kyro_context: outboundCallContext,
+          ...currentTime.variableValues,
+          kyro_context: outboundCallContextWithTime,
           lead_id: outboundLeadId ?? "",
           lead_status: linkedRows.lead?.status ?? "",
           lead_title: linkedRows.lead?.title ?? "",
-          outbound_call_context: outboundCallContext,
+          outbound_call_context: outboundCallContextWithTime,
           recent_chat_context: assistantContextSummary ?? "",
           recent_outbound_call_context: recentOutboundCallContext ?? "",
           thread_id: input.threadId ?? "",
@@ -1562,7 +1577,7 @@ export async function createOutboundVoiceCall(input: {
         instructions: callInstructions,
         leadId: outboundLeadId,
         ownerUserId,
-        outboundCallContext,
+        outboundCallContext: outboundCallContextWithTime,
         assistantContextSummary,
         recentOutboundCallContext,
         phoneNumberSelection: baseMetadata.phoneNumberSelection,

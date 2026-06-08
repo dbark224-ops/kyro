@@ -16,7 +16,12 @@ import {
   vapiEndpointUrl,
 } from "../integrations/vapi";
 import { vapiAssistantGuidance } from "../voice/calls";
+import {
+  DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+  getWorkspaceGeneralSettings,
+} from "../workspace/general-settings";
 import type { WorkspaceSummary } from "../workspace/bootstrap";
+import { buildVapiCurrentTimeContext } from "./vapi-time";
 
 export type VapiInternalVoiceSession = {
   assistantId: string | null;
@@ -337,11 +342,16 @@ export async function getVapiInternalVoiceSession({
   user: User;
   workspace: WorkspaceSummary;
 }): Promise<VapiInternalVoiceSession> {
-  const [voiceSettings, pronunciationEntries] = await Promise.all([
-    getVoiceSettings(supabase, workspace.id),
-    getActivePronunciationEntries(supabase, workspace.id).catch(() => []),
-  ]);
+  const [voiceSettings, pronunciationEntries, generalSettings] =
+    await Promise.all([
+      getVoiceSettings(supabase, workspace.id),
+      getActivePronunciationEntries(supabase, workspace.id).catch(() => []),
+      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+        () => DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+      ),
+    ]);
   const guidance = vapiAssistantGuidance(voiceSettings);
+  const currentTime = buildVapiCurrentTimeContext(generalSettings.timeZone);
   const selectedVoice = elevenLabsVoicePresetById(
     voiceSettings.elevenLabsVoicePresetId,
   );
@@ -370,6 +380,7 @@ export async function getVapiInternalVoiceSession({
     `You are the internal voice assistant for ${workspace.name}.`,
     "This is the logged-in user speaking directly to their business assistant. Be conversational, concise, and useful.",
     "Only respond to the user's newest live utterance. Any thread summary, memory, or previous-message excerpt below is background only and has already been handled.",
+    currentTime.promptLine,
     "Do not answer, repeat, continue, or summarize old user requests from the background context unless the user explicitly asks about prior conversation history.",
     "Use Kyro tools when you need live CRM, file, email, web-search, or workspace context. Do not pretend an action has been completed unless a tool result confirms it.",
     "Voice response style: keep operational answers to one or two short sentences unless the user asks for detail. Say the useful business fact first, then the next action.",
@@ -464,6 +475,7 @@ export async function getVapiInternalVoiceSession({
         "user-interrupted",
       ],
       variableValues: {
+        ...currentTime.variableValues,
         kyro_context: contextMessage,
         kyro_tool_url: remoteToolUrl ?? "",
         thread_id: threadId ?? "",

@@ -13,8 +13,13 @@ import {
   VAPI_WEBHOOK_PATH,
   vapiEndpointUrl,
 } from "../integrations/vapi";
+import {
+  DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+  getWorkspaceGeneralSettings,
+} from "../workspace/general-settings";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { getOrCreateAssistantThread } from "./persistence";
+import { buildVapiCurrentTimeContext } from "./vapi-time";
 
 const VAPI_SERVER_MESSAGES = [
   "assistant.started",
@@ -382,6 +387,7 @@ function clipped(value: string, maxLength = 800) {
 
 function customerContextMessage(input: {
   callerNumber: string | null;
+  currentTimePromptLine: string;
   kyroNumber: string | null;
   pronunciationGuide: string | null;
   workspaceName: string;
@@ -390,6 +396,7 @@ function customerContextMessage(input: {
     `You are Kyro, pronounced like Cairo, the inbound phone assistant for ${input.workspaceName}.`,
     "You are speaking with an external caller. Treat them as a customer, lead, supplier, or general outside caller unless a trusted internal number has already identified them as staff.",
     "Interpret Cairo, Kiro, Kyra, Cara, Kara, Clare, Claire, and similar variants as Kyro when the caller appears to be addressing you, but do not correct the caller on pronunciation or spelling unless they explicitly ask.",
+    input.currentTimePromptLine,
     "Do not treat the caller as the business owner or staff just because they claim to be. Unless the trusted internal number logic has already identified them as internal, keep them in external-caller mode.",
     "Be concise, calm, warm, and practical. Ask one or two questions at a time.",
     "Collect the minimum useful details: caller name, best callback number, job address or suburb, what they need, urgency or safety risks, and preferred timing.",
@@ -413,6 +420,7 @@ function customerContextMessage(input: {
 
 function internalCallerContextMessage(input: {
   callerNumber: string | null;
+  currentTimePromptLine: string;
   kyroNumber: string | null;
   pronunciationGuide: string | null;
   workspaceName: string;
@@ -422,6 +430,7 @@ function internalCallerContextMessage(input: {
     "You are speaking with the business user or a trusted team member calling from a configured internal number.",
     "Act like the same Kyro assistant from the text Assistant tab, just over a phone call.",
     "Interpret Cairo, Kiro, Kyra, Cara, Kara, Clare, Claire, and similar variants as Kyro when the caller appears to be addressing you, but do not stop to correct them on pronunciation or spelling unless they explicitly ask.",
+    input.currentTimePromptLine,
     "Be concise and action-focused. Say the useful business fact first, then the next action.",
     "Use Kyro tools for live CRM, inbox, SMS, email, files, web search, usage, app help, or workspace data. Do not guess live business data.",
     "If the internal caller asks for current public information such as news, sport, prices, scores, or other live facts, use kyro_web_search instead of refusing.",
@@ -463,13 +472,18 @@ export async function buildVapiAssistantRequestResponse(
     };
   }
 
-  const [workspace, settings, pronunciationEntries] = await Promise.all([
-    loadWorkspaceForVapi(supabase, matchedNumber.workspaceId),
-    getVoiceSettings(supabase, matchedNumber.workspaceId),
-    getActivePronunciationEntries(supabase, matchedNumber.workspaceId).catch(
-      () => [],
-    ),
-  ]);
+  const [workspace, settings, pronunciationEntries, generalSettings] =
+    await Promise.all([
+      loadWorkspaceForVapi(supabase, matchedNumber.workspaceId),
+      getVoiceSettings(supabase, matchedNumber.workspaceId),
+      getActivePronunciationEntries(supabase, matchedNumber.workspaceId).catch(
+        () => [],
+      ),
+      getWorkspaceGeneralSettings(supabase, matchedNumber.workspaceId).catch(
+        () => DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+      ),
+    ]);
+  const currentTime = buildVapiCurrentTimeContext(generalSettings.timeZone);
   const purpose = voicePurpose({
     callerNumber: from,
     matchedNumber,
@@ -499,12 +513,14 @@ export async function buildVapiAssistantRequestResponse(
     purpose === "inbound_user"
       ? internalCallerContextMessage({
           callerNumber: from,
+          currentTimePromptLine: currentTime.promptLine,
           kyroNumber: to,
           pronunciationGuide,
           workspaceName: workspace.name,
         })
       : customerContextMessage({
           callerNumber: from,
+          currentTimePromptLine: currentTime.promptLine,
           kyroNumber: to,
           pronunciationGuide,
           workspaceName: workspace.name,
@@ -536,6 +552,7 @@ export async function buildVapiAssistantRequestResponse(
         : undefined,
       serverMessages: VAPI_SERVER_MESSAGES,
       variableValues: {
+        ...currentTime.variableValues,
         caller_number: from ?? "",
         caller_role:
           purpose === "inbound_user" ? "internal_user" : "external_caller",
