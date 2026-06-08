@@ -704,9 +704,10 @@ means render/edit costs can include prompt text tokens, reference-image input to
 generated-image output tokens. If the provider does not return usage, Kyro falls back to a
 per-image price snapshot and marks the row as estimated.
 Twilio SMS rows store provider \`twilio\`, service \`sms\`, and \`inbound_sms\` or
-\`outbound_sms\` usage types. Provider cost uses Twilio-returned price when available
-or configured SMS unit-cost fallbacks; customer charge is snapshotted with the
-current markup so later billing can audit the exact amount.
+\`outbound_sms\` usage types. Kyro stores internal cost snapshots from Twilio-returned
+prices or configured SMS unit-cost fallbacks, then stores the final user-facing
+usage charge separately so billing can audit the exact amount without exposing
+the internal margin.
 
 The read-only billing export endpoint is \`/api/billing/usage\`. It returns stored
 customer-charge snapshots for a monthly, weekly, or custom range so a future Stripe,
@@ -1314,9 +1315,9 @@ these saved settings into the LLM prompt before creating customer-facing email/S
 drafts.
 Real Gmail/Outlook sends also write zero-cost \`usage_events\` rows so the billing endpoint can
 count outbound email volume before paid pricing is decided. Real Twilio SMS sends
-write \`outbound_sms\` usage rows with provider cost/customer-charge snapshots based
-on Twilio-returned price when available or the configured local SMS unit-cost
-fallback.
+write \`outbound_sms\` usage rows with internal cost and final user-facing charge
+snapshots based on Twilio-returned price when available or the configured local
+SMS unit-cost fallback.
 
 Inbound SMS has a first Twilio webhook foundation. \`POST /api/integrations/twilio/sms\`
 validates the Twilio signature, matches the destination number against
@@ -1939,7 +1940,7 @@ Purpose:
   connection disconnected, clearing its stored token payload, and deactivating its
   email channel; reconnecting uses the normal OAuth connect flow again,
 - audit communication-setting changes,
-- show customer-facing usage charge from the \`usage_events\` ledger while keeping provider/API cost and gross margin available as internal snapshots,
+- show customer-facing usage charge from the \`usage_events\` ledger; provider/API cost and gross margin stay internal and should not be disclosed in customer-facing assistant responses,
 - display user-facing money through the workspace display currency preference while keeping stored usage and provider-cost snapshots in their original ledger currency,
 - normalize OpenAI token usage from provider responses into production ledger rows for
   uncached input, cached input, visible output, and reasoning tokens,
@@ -2293,7 +2294,7 @@ Ollama \`/api/chat\` endpoint and asks for compact JSON containing inquiry facts
 and a reply draft. If Ollama is unavailable, malformed, or mid-upgrade, Kyro
 falls back to the deterministic stub and records the fallback reason in the
 AI run output. Local Ollama usage is metered with estimated/token counts and
-zero provider cost while testing.
+zero internal cost while testing.
 
 Relevant environment variables:
 

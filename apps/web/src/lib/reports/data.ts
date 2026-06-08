@@ -866,12 +866,10 @@ async function loadUsageLedgerReport(
     (total, item) => total + item.customerCharge,
     0,
   );
-  const totalCost = summary.totals.reduce((total, item) => total + item.providerCost, 0);
-
   return {
     sections: [
       {
-        columns: ["Date", "Provider", "Service", "Model", "Usage", "Cost", "Charge"],
+        columns: ["Date", "Provider", "Service", "Model", "Usage", "Charge"],
         emptyText: "No usage events match this period.",
         rows: rows.map((row) => [
           formatDateTime(row.created_at),
@@ -879,7 +877,6 @@ async function loadUsageLedgerReport(
           textValue(row.service) ?? textValue(row.usage_type) ?? "-",
           textValue(row.model) ?? "-",
           `${numberValue(row.quantity)} ${textValue(row.unit) ?? ""}`.trim(),
-          formatMoney(numberValue(row.cost_snapshot), textValue(row.currency) ?? primaryCurrency),
           formatMoney(
             numberValue(row.customer_charge_snapshot),
             textValue(row.currency) ?? primaryCurrency,
@@ -891,7 +888,6 @@ async function loadUsageLedgerReport(
     summaryCards: [
       { label: "Events", value: String(summary.eventCount) },
       { label: "Quantity", value: String(Math.round(summary.quantity * 100) / 100) },
-      { label: "Provider cost", value: formatMoney(totalCost, primaryCurrency) },
       { label: "Usage charge", value: formatMoney(totalCharge, primaryCurrency) },
     ],
     subtitle: "Billable provider usage recorded for the workspace.",

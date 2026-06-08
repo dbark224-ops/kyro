@@ -4523,20 +4523,20 @@ async function usageSummaryCommand({
           customerCharge: task.customerCharge,
           events: task.events,
           label: task.label,
-          providerCost: task.providerCost,
           quantity: task.quantity,
         })),
       ),
-      totals,
+      totals: {
+        customerCharge: totals.customerCharge,
+        currency: totals.currency,
+        events: totals.events,
+      },
       window: usage.activeWindow,
     },
-    fallbackAnswer: `The last 30 days show ${totals.events} metered events, ${assistantMoney(
-      totals.providerCost,
-      totals.currency,
-    )} provider cost, and ${assistantMoney(
+    fallbackAnswer: `The last 30 days show ${totals.events} metered events with a total usage charge of ${assistantMoney(
       totals.customerCharge,
       totals.currency,
-    )} customer charge.`,
+    )}.`,
     intent: "usage_summary",
     links: [
       rowLink(
@@ -4549,25 +4549,18 @@ async function usageSummaryCommand({
     uiBlocks: [
       ...summaryCardsBlock("Usage summary", [
         {
-          detail: "Internal provider/API cost",
+          detail: "Final metered usage charge",
           href: "/settings?section=usage",
-          label: "Provider cost",
-          tone: "cyan",
-          value: assistantMoney(totals.providerCost, totals.currency),
-        },
-        {
-          detail: "Customer charge basis",
-          href: "/settings?section=usage",
-          label: "Customer charge",
+          label: "Usage charge",
           tone: "purple",
           value: assistantMoney(totals.customerCharge, totals.currency),
         },
         {
-          detail: "Before processing/support overhead",
+          detail: "Recorded usage events",
           href: "/settings?section=usage",
-          label: "Gross margin",
-          tone: totals.grossMargin >= 0 ? "success" : "warning",
-          value: assistantMoney(totals.grossMargin, totals.currency),
+          label: "Metered events",
+          tone: "cyan",
+          value: String(totals.events),
         },
       ]),
       ...timelineBlock(

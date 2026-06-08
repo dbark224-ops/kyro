@@ -59,9 +59,9 @@ export default function PricingPage() {
           <h2>Your assistant&apos;s usage should be visible before it becomes an invoice.</h2>
         </div>
         <p>
-          Kyro treats provider cost, customer-facing charge, model routing, and
-          usage events as first-class records, so the business owner can see
-          what the assistant is doing and what it costs.
+          Kyro treats customer-facing usage charges, model routing, and usage
+          events as first-class records, so the business owner can see what the
+          assistant is doing and what it costs.
         </p>
       </section>
 

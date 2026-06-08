@@ -128,7 +128,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     description:
-      "Summarize API usage, billing, costs, metering, provider cost, customer charge, or margin.",
+      "Summarize user-facing usage, billing, costs, metering, and final usage charges.",
     name: "usage_summary",
   },
   {
