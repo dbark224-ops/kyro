@@ -12818,16 +12818,15 @@ button:disabled {
 
 .dashboard-payments-card {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  align-content: stretch;
-  gap: 12px;
+  grid-template-rows: auto auto;
+  gap: 8px;
   min-height: 0;
 }
 
 .dashboard-payment-total {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background:
@@ -12837,7 +12836,8 @@ button:disabled {
         transparent 52%
       ),
     color-mix(in srgb, var(--background) 32%, var(--surface));
-  padding: 16px;
+  min-height: 0;
+  padding: 10px 12px;
 }
 
 .dashboard-payment-total span,
@@ -12846,23 +12846,30 @@ button:disabled {
 }
 
 .dashboard-payment-total strong {
-  font-size: 2rem;
-  line-height: 0.95;
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.dashboard-payment-total small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-payment-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .dashboard-payment-stats article {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background: color-mix(in srgb, var(--background) 36%, var(--surface));
-  padding: 14px;
+  min-height: 0;
+  padding: 10px 12px;
 }
 
 .dashboard-payment-stats span {
