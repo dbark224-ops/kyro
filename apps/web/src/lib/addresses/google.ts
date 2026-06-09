@@ -4,6 +4,10 @@ import type { PhoneRegion } from "../crm/identity";
 const PLACES_AUTOCOMPLETE_URL =
   "https://places.googleapis.com/v1/places:autocomplete";
 const PLACES_DETAILS_URL = "https://places.googleapis.com/v1/places";
+const LEGACY_PLACES_AUTOCOMPLETE_URL =
+  "https://maps.googleapis.com/maps/api/place/autocomplete/json";
+const LEGACY_PLACES_DETAILS_URL =
+  "https://maps.googleapis.com/maps/api/place/details/json";
 const ADDRESS_VALIDATION_URL =
   "https://addressvalidation.googleapis.com/v1:validateAddress";
 
@@ -41,6 +45,42 @@ type GoogleLocationBias = {
     };
     radius: number;
   };
+};
+
+type LegacyAutocompletePayload = {
+  error_message?: string;
+  predictions?: Array<{
+    description?: string;
+    place_id?: string;
+    structured_formatting?: {
+      main_text?: string;
+      secondary_text?: string;
+    };
+  }>;
+  status?: string;
+};
+
+type LegacyAddressComponent = {
+  long_name?: string;
+  short_name?: string;
+  types?: string[];
+};
+
+type LegacyPlaceDetailsPayload = {
+  error_message?: string;
+  result?: {
+    address_components?: LegacyAddressComponent[];
+    formatted_address?: string;
+    geometry?: {
+      location?: {
+        lat?: number;
+        lng?: number;
+      };
+    };
+    place_id?: string;
+    types?: string[];
+  };
+  status?: string;
 };
 
 function mapsApiKey() {
@@ -124,6 +164,38 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+async function googleErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as {
+      error?: {
+        message?: string;
+        status?: string;
+      };
+      error_message?: string;
+      status?: string;
+    };
+    const explicitMessage =
+      textValue(payload.error_message) ?? textValue(payload.error?.message);
+    const status = textValue(payload.status) ?? textValue(payload.error?.status);
+
+    if (explicitMessage) {
+      if (explicitMessage.toLowerCase().includes("enable billing")) {
+        return "Google Maps billing is not enabled for this API key's project.";
+      }
+
+      return explicitMessage;
+    }
+
+    if (status === "PERMISSION_DENIED" || status === "REQUEST_DENIED") {
+      return "Google Maps rejected this address request. Check that billing is enabled and Places API access is allowed for the configured key.";
+    }
+  } catch {
+    // Keep the fallback if Google returns a non-JSON error page.
+  }
+
+  return fallback;
+}
+
 function componentText(
   components: GoogleAddressComponent[],
   type: string,
@@ -132,6 +204,16 @@ function componentText(
   const component = components.find((entry) => entry.types?.includes(type));
 
   return textValue(mode === "short" ? component?.shortText : component?.longText);
+}
+
+function normalizeLegacyAddressComponents(
+  components: LegacyAddressComponent[] | undefined,
+): GoogleAddressComponent[] {
+  return (components ?? []).map((component) => ({
+    longText: component.long_name,
+    shortText: component.short_name,
+    types: component.types,
+  }));
 }
 
 function buildLine1(components: GoogleAddressComponent[], details: GooglePlaceDetails) {
@@ -279,7 +361,20 @@ export async function autocompleteAddresses({
   });
 
   if (!response.ok) {
-    throw new Error(`Google address autocomplete failed (${response.status}).`);
+    const primaryError = await googleErrorMessage(
+      response,
+      `Google address autocomplete failed (${response.status}).`,
+    );
+
+    try {
+      return await autocompleteAddressesLegacy({
+        input: trimmed,
+        region,
+        sessionToken,
+      });
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : primaryError);
+    }
   }
 
   const payload = (await response.json()) as {
@@ -309,6 +404,79 @@ export async function autocompleteAddresses({
       placeId: prediction.placeId ?? "",
       secondaryText:
         textValue(prediction.structuredFormat?.secondaryText?.text) ?? null,
+    }));
+}
+
+async function autocompleteAddressesLegacy({
+  input,
+  region,
+  sessionToken,
+}: {
+  input: string;
+  region?: PhoneRegion | string | null;
+  sessionToken?: string | null;
+}): Promise<AddressSuggestion[]> {
+  const apiKey = mapsApiKey();
+  const includedRegionCode = googleIncludedRegionCode(region);
+  const url = new URL(LEGACY_PLACES_AUTOCOMPLETE_URL);
+
+  url.searchParams.set("input", input);
+  url.searchParams.set("key", apiKey);
+  url.searchParams.set("types", "address");
+
+  if (includedRegionCode) {
+    url.searchParams.set("components", `country:${includedRegionCode}`);
+  }
+
+  if (sessionToken) {
+    url.searchParams.set("sessiontoken", sessionToken);
+  }
+
+  const bias = googleLocationBias();
+
+  if (bias) {
+    url.searchParams.set(
+      "location",
+      `${bias.circle.center.latitude},${bias.circle.center.longitude}`,
+    );
+    url.searchParams.set("radius", String(Math.round(bias.circle.radius)));
+  }
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(
+      await googleErrorMessage(
+        response,
+        `Google address autocomplete failed (${response.status}).`,
+      ),
+    );
+  }
+
+  const payload = (await response.json()) as LegacyAutocompletePayload;
+
+  if (payload.status && !["OK", "ZERO_RESULTS"].includes(payload.status)) {
+    throw new Error(
+      await googleErrorMessage(
+        new Response(JSON.stringify(payload), { status: 400 }),
+        "Google address autocomplete is unavailable.",
+      ),
+    );
+  }
+
+  return (payload.predictions ?? [])
+    .filter((prediction) =>
+      Boolean(prediction.place_id && prediction.description),
+    )
+    .map((prediction) => ({
+      description: prediction.description ?? "",
+      mainText:
+        textValue(prediction.structured_formatting?.main_text) ??
+        prediction.description ??
+        "",
+      placeId: prediction.place_id ?? "",
+      secondaryText:
+        textValue(prediction.structured_formatting?.secondary_text) ?? null,
     }));
 }
 
@@ -388,10 +556,89 @@ export async function getAddressPlaceDetails({
   });
 
   if (!response.ok) {
-    throw new Error(`Google place details failed (${response.status}).`);
+    const primaryError = await googleErrorMessage(
+      response,
+      `Google place details failed (${response.status}).`,
+    );
+
+    try {
+      return await getAddressPlaceDetailsLegacy({
+        placeId: normalizedPlaceId,
+        sessionToken,
+        validate,
+      });
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : primaryError);
+    }
   }
 
   const place = (await response.json()) as GooglePlaceDetails;
+  const initialAddress = normalizePlaceDetails(place);
+  const validation = validate
+    ? await validateGoogleAddress(initialAddress)
+    : null;
+
+  return normalizePlaceDetails(place, validation);
+}
+
+async function getAddressPlaceDetailsLegacy({
+  placeId,
+  sessionToken,
+  validate = true,
+}: {
+  placeId: string;
+  sessionToken?: string | null;
+  validate?: boolean;
+}): Promise<StructuredAddress> {
+  const apiKey = mapsApiKey();
+  const url = new URL(LEGACY_PLACES_DETAILS_URL);
+
+  url.searchParams.set("key", apiKey);
+  url.searchParams.set("place_id", placeId);
+  url.searchParams.set(
+    "fields",
+    "place_id,formatted_address,address_components,geometry,type",
+  );
+
+  if (sessionToken) {
+    url.searchParams.set("sessiontoken", sessionToken);
+  }
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(
+      await googleErrorMessage(
+        response,
+        `Google place details failed (${response.status}).`,
+      ),
+    );
+  }
+
+  const payload = (await response.json()) as LegacyPlaceDetailsPayload;
+
+  if (payload.status && payload.status !== "OK") {
+    throw new Error(
+      await googleErrorMessage(
+        new Response(JSON.stringify(payload), { status: 400 }),
+        "Google place details are unavailable.",
+      ),
+    );
+  }
+
+  const result = payload.result ?? {};
+  const place: GooglePlaceDetails = {
+    addressComponents: normalizeLegacyAddressComponents(
+      result.address_components,
+    ),
+    formattedAddress: result.formatted_address,
+    id: result.place_id ?? placeId,
+    location: {
+      latitude: result.geometry?.location?.lat,
+      longitude: result.geometry?.location?.lng,
+    },
+    types: result.types,
+  };
   const initialAddress = normalizePlaceDetails(place);
   const validation = validate
     ? await validateGoogleAddress(initialAddress)
