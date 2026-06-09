@@ -9055,9 +9055,69 @@ button:disabled {
 
 .usage-ledger-modal-list {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   overflow-y: auto;
-  padding: 14px;
+  padding: 10px 14px;
+}
+
+.usage-ledger-modal-row {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+}
+
+.usage-ledger-modal-row .usage-ledger-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-ledger-modal-row .usage-ledger-main strong,
+.usage-ledger-modal-row .usage-ledger-main a {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-ledger-modal-row .usage-ledger-main span,
+.usage-ledger-modal-row .usage-ledger-main p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-ledger-modal-row .usage-ledger-main span::before,
+.usage-ledger-modal-row .usage-ledger-main p::before,
+.usage-ledger-modal-row .usage-ledger-meta span + span::before,
+.usage-ledger-modal-row .usage-ledger-meta strong::before,
+.usage-ledger-modal-row .usage-ledger-meta time::before {
+  content: "·";
+  margin-right: 8px;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  font-weight: 800;
+}
+
+.usage-ledger-modal-row .usage-ledger-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+  text-align: right;
+}
+
+.usage-ledger-modal-row .usage-ledger-meta span,
+.usage-ledger-modal-row .usage-ledger-meta time {
+  white-space: nowrap;
+}
+
+.usage-ledger-modal-row .usage-ledger-meta strong {
+  white-space: nowrap;
 }
 
 .integration-disconnect-form {
