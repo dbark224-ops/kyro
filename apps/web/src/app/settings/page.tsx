@@ -3245,60 +3245,32 @@ function VoiceSettingsDetail({
             type="hidden"
             value={voiceSettings.phoneAgentUserNumbers.join("\n")}
           />
+          <input
+            name="vapiPhoneNumberId"
+            type="hidden"
+            value={voiceSettings.vapiPhoneNumberId ?? ""}
+          />
+          <input
+            name="vapiInternalAssistantId"
+            type="hidden"
+            value={voiceSettings.vapiInternalAssistantId ?? ""}
+          />
+          <input
+            name="vapiInboundAssistantId"
+            type="hidden"
+            value={voiceSettings.vapiInboundAssistantId ?? ""}
+          />
+          <input
+            name="vapiVoicemailAssistantId"
+            type="hidden"
+            value={voiceSettings.vapiVoicemailAssistantId ?? ""}
+          />
+          <input
+            name="vapiOutboundAssistantId"
+            type="hidden"
+            value={voiceSettings.vapiOutboundAssistantId ?? ""}
+          />
           <TeamPhoneNumberEditor initialRows={teamPhoneRows} />
-
-          <div className="settings-grid">
-            <label className="setting-card">
-              <SettingCardHeading info="Provider phone number ID for the workspace voice/SMS number. Kyro can also read the configured environment value.">
-                Phone number ID
-              </SettingCardHeading>
-              <input
-                defaultValue={voiceSettings.vapiPhoneNumberId ?? ""}
-                name="vapiPhoneNumberId"
-                placeholder="pn_..."
-              />
-            </label>
-            <label className="setting-card">
-              <SettingCardHeading info="Assistant used by the browser and mobile voice tab for internal Kyro conversations.">
-                Internal voice assistant ID
-              </SettingCardHeading>
-              <input
-                defaultValue={voiceSettings.vapiInternalAssistantId ?? ""}
-                name="vapiInternalAssistantId"
-                placeholder="asst_..."
-              />
-            </label>
-            <label className="setting-card">
-              <SettingCardHeading info="Assistant used when customers call the Kyro number directly.">
-                Inbound assistant ID
-              </SettingCardHeading>
-              <input
-                defaultValue={voiceSettings.vapiInboundAssistantId ?? ""}
-                name="vapiInboundAssistantId"
-                placeholder="asst_..."
-              />
-            </label>
-            <label className="setting-card">
-              <SettingCardHeading info="Assistant used for missed-call or voicemail overflow forwarding.">
-                Voicemail assistant ID
-              </SettingCardHeading>
-              <input
-                defaultValue={voiceSettings.vapiVoicemailAssistantId ?? ""}
-                name="vapiVoicemailAssistantId"
-                placeholder="asst_..."
-              />
-            </label>
-            <label className="setting-card">
-              <SettingCardHeading info="Assistant used when Kyro initiates an outbound customer call.">
-                Outbound assistant ID
-              </SettingCardHeading>
-              <input
-                defaultValue={voiceSettings.vapiOutboundAssistantId ?? ""}
-                name="vapiOutboundAssistantId"
-                placeholder="asst_..."
-              />
-            </label>
-          </div>
         </fieldset>
 
         <div className="settings-footer align-end">
@@ -3417,31 +3389,6 @@ function DeveloperSettingsDetail({
             />
           </span>
         ))}
-        <input
-          name="vapiPhoneNumberId"
-          type="hidden"
-          value={voiceSettings.vapiPhoneNumberId ?? ""}
-        />
-        <input
-          name="vapiInternalAssistantId"
-          type="hidden"
-          value={voiceSettings.vapiInternalAssistantId ?? ""}
-        />
-        <input
-          name="vapiInboundAssistantId"
-          type="hidden"
-          value={voiceSettings.vapiInboundAssistantId ?? ""}
-        />
-        <input
-          name="vapiVoicemailAssistantId"
-          type="hidden"
-          value={voiceSettings.vapiVoicemailAssistantId ?? ""}
-        />
-        <input
-          name="vapiOutboundAssistantId"
-          type="hidden"
-          value={voiceSettings.vapiOutboundAssistantId ?? ""}
-        />
         {voiceSettings.phoneAgentEnabled ? (
           <input name="phoneAgentEnabled" type="hidden" value="on" />
         ) : null}
@@ -3500,6 +3447,78 @@ function DeveloperSettingsDetail({
           <div className="settings-footer align-end">
             <button className="primary-button compact" type="submit">
               Save developer voice settings
+            </button>
+          </div>
+        </article>
+
+        <article className="panel embedded-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Provider IDs</p>
+              <h2>Phone assistant routing</h2>
+            </div>
+            <span className="pill">Developer only</span>
+          </div>
+          <p className="empty-copy">
+            These IDs wire Kyro&apos;s configured phone number and voice
+            assistants to the external voice runtime. Keep them hidden from
+            normal users.
+          </p>
+          <div className="settings-grid">
+            <label className="setting-card">
+              <SettingCardHeading info="Provider phone number ID for the workspace voice/SMS number. Kyro can also read the configured environment value.">
+                Phone number ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiPhoneNumberId ?? ""}
+                name="vapiPhoneNumberId"
+                placeholder="pn_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used by the browser and mobile voice tab for internal Kyro conversations.">
+                Internal voice assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiInternalAssistantId ?? ""}
+                name="vapiInternalAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used when customers call the Kyro number directly.">
+                Inbound assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiInboundAssistantId ?? ""}
+                name="vapiInboundAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used for missed-call or voicemail overflow forwarding.">
+                Voicemail assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiVoicemailAssistantId ?? ""}
+                name="vapiVoicemailAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+            <label className="setting-card">
+              <SettingCardHeading info="Assistant used when Kyro initiates an outbound customer call.">
+                Outbound assistant ID
+              </SettingCardHeading>
+              <input
+                defaultValue={voiceSettings.vapiOutboundAssistantId ?? ""}
+                name="vapiOutboundAssistantId"
+                placeholder="asst_..."
+              />
+            </label>
+          </div>
+          <div className="settings-footer align-end">
+            <button className="primary-button compact" type="submit">
+              Save provider IDs
             </button>
           </div>
         </article>
