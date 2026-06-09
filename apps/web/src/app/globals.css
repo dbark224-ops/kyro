@@ -1780,7 +1780,8 @@ textarea:focus {
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 10%, transparent);
-  padding: 12px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
 }
 
 .form-alert.error {
