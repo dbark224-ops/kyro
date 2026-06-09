@@ -12932,6 +12932,7 @@ button:disabled {
 
 .dashboard-mini-typing {
   gap: 6px;
+  margin-bottom: 8px;
 }
 
 .dashboard-mini-typing .typing-dots {
