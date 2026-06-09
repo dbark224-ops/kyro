@@ -12926,6 +12926,16 @@ button:disabled {
 .dashboard-mini-turn p {
   margin: 0;
   line-height: 1.42;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dashboard-mini-typing {
+  gap: 6px;
+}
+
+.dashboard-mini-typing .typing-dots {
+  padding-block: 2px;
 }
 
 .dashboard-assistant-error {

@@ -333,12 +333,6 @@ function lastAssistantMessageId(messages: AssistantThreadMessage[]) {
   return messages.at(-1)?.id ?? null;
 }
 
-function assistantSnippet(message: AssistantThreadMessage) {
-  const text = message.content.replace(/\s+/g, " ").trim();
-
-  return text.length > 220 ? `${text.slice(0, 219)}...` : text;
-}
-
 function compactSnippet(value: string | null | undefined, limit = 86) {
   const text = (value ?? "").replace(/\s+/g, " ").trim();
 
@@ -586,7 +580,7 @@ function MiniAssistantWidget({
     }
 
     feed.scrollTop = feed.scrollHeight;
-  }, [messages]);
+  }, [messages, pending]);
 
   return (
     <section className="dashboard-widget assistant dashboard-widget-assistant">
@@ -605,9 +599,22 @@ function MiniAssistantWidget({
             key={message.id}
           >
             <span>{message.role === "user" ? "You" : "Kyro"}</span>
-            <p>{assistantSnippet(message)}</p>
+            <p>{message.content}</p>
           </article>
         ))}
+        {pending ? (
+          <article
+            aria-label="Kyro is typing"
+            className="dashboard-mini-turn assistant dashboard-mini-typing"
+          >
+            <span>Kyro</span>
+            <p aria-hidden="true" className="typing-dots">
+              <span />
+              <span />
+              <span />
+            </p>
+          </article>
+        ) : null}
       </div>
       {assistantState.error ? (
         <div className="form-alert error dashboard-assistant-error">
