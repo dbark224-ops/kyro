@@ -8761,10 +8761,23 @@ button:disabled {
 
 .usage-summary-strip {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  justify-content: space-between;
   gap: 8px;
   align-items: center;
   margin-bottom: 14px;
+}
+
+.usage-window-filter {
+  margin: 0;
+}
+
+.usage-summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
 }
 
 .usage-charge-summary {

@@ -3746,38 +3746,39 @@ function UsageSettingsDetail({
   return (
     <>
       <section className="usage-summary-strip" aria-label="Usage metrics">
-        <div className="usage-charge-summary">
-          <span>Usage charge</span>
-          <strong>
-            {formatDisplayMoney(
-              usageReport.totals.customerCharge,
-              usageReport.totals.currency,
-              displayCurrencySettings,
-            )}
-          </strong>
+        <nav className="filter-bar usage-window-filter" aria-label="Usage date range">
+          {usageWindows.map((window) => (
+            <Link
+              className={
+                activeWindow === window.value
+                  ? "filter-pill active"
+                  : "filter-pill"
+              }
+              href={usageWindowHref(window.value)}
+              key={window.value}
+              prefetch={false}
+            >
+              {window.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="usage-summary-actions">
+          <div className="usage-charge-summary">
+            <span>Usage charge</span>
+            <strong>
+              {formatDisplayMoney(
+                usageReport.totals.customerCharge,
+                usageReport.totals.currency,
+                displayCurrencySettings,
+              )}
+            </strong>
+          </div>
+          <UsageLedgerModal
+            displayCurrencySettings={displayCurrencySettings}
+            rows={usageReport.ledger}
+          />
         </div>
-        <UsageLedgerModal
-          displayCurrencySettings={displayCurrencySettings}
-          rows={usageReport.ledger}
-        />
       </section>
-
-      <nav className="filter-bar" aria-label="Usage date range">
-        {usageWindows.map((window) => (
-          <Link
-            className={
-              activeWindow === window.value
-                ? "filter-pill active"
-                : "filter-pill"
-            }
-            href={usageWindowHref(window.value)}
-            key={window.value}
-            prefetch={false}
-          >
-            {window.label}
-          </Link>
-        ))}
-      </nav>
 
       <div className="usage-grid compact">
         <article className="panel embedded-panel">
