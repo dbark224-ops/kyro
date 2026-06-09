@@ -7198,6 +7198,14 @@ button:disabled {
   grid-template-columns: 1fr;
 }
 
+.business-profile-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.business-profile-grid .settings-textarea {
+  grid-column: span 1;
+}
+
 .compact-setting-card {
   gap: 8px;
   padding: 10px;

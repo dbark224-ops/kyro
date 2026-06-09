@@ -1979,7 +1979,7 @@ function BusinessLogoEditor({
         </p>
       </div>
 
-      <div className="settings-grid">
+      <div className="settings-grid business-profile-grid">
         <label className="setting-card">
           <SettingCardHeading info="Upload a compact logo, up to 512 KB. If no logo is saved, Kyro falls back to the business name.">
             Logo file
@@ -2081,7 +2081,7 @@ function GeneralSettingsDetail({
         <span className="pill">Workspace facts</span>
       </section>
 
-      <div className="settings-grid">
+      <div className="settings-grid business-profile-grid">
         <label className="setting-card">
           <SettingCardHeading info="Shown internally and used as the default business name in generated documents and reports.">
             Business name
