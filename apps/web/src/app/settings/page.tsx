@@ -2,6 +2,7 @@ import { AppFrame } from "../components/app-frame";
 import {
   disconnectIntegrationAction,
   enableWorkspacePhoneSmsAction,
+  connectStripePaymentsAction,
   autosavePronunciationEntryAction,
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
@@ -80,6 +81,10 @@ import {
   getTwilioTelephonyOverview,
   type TwilioTelephonyOverview,
 } from "../../lib/integrations/twilio";
+import {
+  getWorkspaceStripePaymentOverview,
+  type WorkspaceStripePaymentOverview,
+} from "../../lib/payments/accounts";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
   getWorkspaceGeneralSettings,
@@ -384,6 +389,7 @@ type MicrosoftIntegrationOverview = Awaited<
   ReturnType<typeof getMicrosoftIntegrationOverview>
 >;
 type TwilioIntegrationOverview = TwilioTelephonyOverview;
+type StripePaymentOverview = WorkspaceStripePaymentOverview;
 type InboundEmailSettings = Awaited<ReturnType<typeof getInboundEmailSettings>>;
 type IntegrationOverview = {
   configured: boolean;
@@ -1107,6 +1113,147 @@ function TwilioTelephonySettings({
           Testing sender: <strong>{overview.defaultFromNumber}</strong>
         </p>
       ) : null}
+    </>
+  );
+}
+
+function stripePaymentsStatusLabel(overview: StripePaymentOverview) {
+  if (!overview.migrationReady) {
+    return "Migration needed";
+  }
+
+  if (!overview.configured || !overview.webhookConfigured) {
+    return "Keys needed";
+  }
+
+  if (overview.account?.status === "active") {
+    return "Ready";
+  }
+
+  if (overview.account?.provider_account_id) {
+    return "Setup needed";
+  }
+
+  return "Not connected";
+}
+
+function StripePaymentsSettings({
+  overview,
+}: Readonly<{ overview: StripePaymentOverview }>) {
+  const account = overview.account;
+  const ready = account?.status === "active";
+
+  return (
+    <>
+      <div className="integration-summary-grid">
+        <article className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Kyro creates Stripe-hosted payment links for customer payments
+                and stores the payment status against the workspace.
+              </>
+            }
+          >
+            Payment links
+          </SettingCardHeading>
+        </article>
+        <article className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Stripe sends signed webhook events back to Kyro so paid, failed,
+                and onboarding states stay synced.
+              </>
+            }
+          >
+            Status tracking
+          </SettingCardHeading>
+        </article>
+      </div>
+
+      {!overview.migrationReady ? (
+        <p className="form-alert">
+          Payment tables are not in the database yet. Run the latest Supabase
+          migration before connecting Stripe payments.
+        </p>
+      ) : null}
+      {!overview.configured ? (
+        <p className="form-alert">
+          Add <code>STRIPE_SECRET_KEY</code> before creating payment links.
+        </p>
+      ) : null}
+      {!overview.webhookConfigured ? (
+        <p className="form-alert">
+          Add <code>STRIPE_WEBHOOK_SECRET</code> so Kyro can verify Stripe
+          payment updates.
+        </p>
+      ) : null}
+
+      <div className="usage-ledger compact">
+        <div className="usage-ledger-row">
+          <div className="usage-ledger-main">
+            <strong>Stripe webhook</strong>
+            <span>{overview.webhookUrl ?? "App URL needed"}</span>
+          </div>
+          <span className="pill">
+            {overview.webhookConfigured ? "Verified endpoint" : "Secret needed"}
+          </span>
+        </div>
+        <div className="usage-ledger-row">
+          <div className="usage-ledger-main">
+            <strong>Payment account</strong>
+            <span>
+              {account?.provider_account_id
+                ? [
+                    account.provider_account_id,
+                    account.country_code,
+                    account.default_currency,
+                  ]
+                    .filter(Boolean)
+                    .join(" - ")
+                : "No Stripe account connected yet."}
+            </span>
+          </div>
+          <span className="pill">{ready ? "Ready" : "Needs setup"}</span>
+        </div>
+      </div>
+
+      <section className="setting-card phone-number-enable-card">
+        <SettingCardHeading
+          info={
+            <>
+              This uses Stripe Connect so customer payments can settle to the
+              workspace&apos;s payout account while Kyro records links and
+              payment status.
+            </>
+          }
+        >
+          Customer payment setup
+        </SettingCardHeading>
+        <form action={connectStripePaymentsAction} className="settings-form">
+          <p className="empty-copy">
+            Connect Stripe to let Kyro generate customer payment links and track
+            whether invoices, quotes, and follow-ups have been paid.
+          </p>
+          <div className="settings-footer compact-settings-footer">
+            <span>
+              {ready
+                ? "Stripe is ready for customer payment links."
+                : "Stripe may ask for business and payout details."}
+            </span>
+            <button
+              className="primary-button compact"
+              disabled={!overview.migrationReady || !overview.configured}
+              type="submit"
+            >
+              {account?.provider_account_id
+                ? "Continue Stripe setup"
+                : "Connect Stripe payments"}
+            </button>
+          </div>
+        </form>
+      </section>
     </>
   );
 }
@@ -2721,6 +2868,7 @@ function WorkspaceIntegrationsSettings({
   microsoftStatus,
   showInboundTrace,
   showSenderRules,
+  stripeOverview,
   twilioOverview,
 }: Readonly<{
   availablePhoneNumbers: WorkspacePhoneNumberPoolRow[];
@@ -2734,6 +2882,7 @@ function WorkspaceIntegrationsSettings({
   microsoftStatus: string;
   showInboundTrace: boolean;
   showSenderRules: boolean;
+  stripeOverview: StripePaymentOverview;
   twilioOverview: TwilioIntegrationOverview;
 }>) {
   const googleConnection = latestConnectedConnection(
@@ -2789,6 +2938,7 @@ function WorkspaceIntegrationsSettings({
     ? "Approval required"
     : "Auto outbound";
   const twilioStatus = twilioStatusLabel(twilioOverview);
+  const stripeStatus = stripePaymentsStatusLabel(stripeOverview);
 
   return (
     <div className="integration-provider-stack">
@@ -2849,6 +2999,20 @@ function WorkspaceIntegrationsSettings({
           generalSettings={generalSettings}
           overview={twilioOverview}
         />
+      </ProviderDetails>
+
+      <ProviderDetails
+        description={
+          stripeOverview.account?.status === "active"
+            ? "Payment links and status tracking"
+            : "Customer payment links"
+        }
+        isCurrent={false}
+        label="Customer payments"
+        provider="Stripe"
+        status={stripeStatus}
+      >
+        <StripePaymentsSettings overview={stripeOverview} />
       </ProviderDetails>
 
       <ProviderDetails
@@ -3961,6 +4125,7 @@ export default async function SettingsPage({
           getInboundEmailSettings(supabase, workspace.id),
           getInboundEmailOperationalSummary(supabase, workspace.id),
           getTwilioTelephonyOverview(supabase, workspace.id),
+          getWorkspaceStripePaymentOverview(supabase, workspace.id),
         ])
       : Promise.resolve(null),
     selectedSection === "voice"
@@ -3981,6 +4146,7 @@ export default async function SettingsPage({
   const inboundEmailSettings = integrationOverviews?.[2] ?? null;
   const inboundEmailSummary = integrationOverviews?.[3] ?? null;
   const twilioOverview = integrationOverviews?.[4] ?? null;
+  const stripeOverview = integrationOverviews?.[5] ?? null;
   const googleStatus = googleOverview
     ? integrationStatusLabel(googleOverview)
     : "Open";
@@ -4071,7 +4237,8 @@ export default async function SettingsPage({
       microsoftOverview &&
       inboundEmailSettings &&
       inboundEmailSummary &&
-      twilioOverview ? (
+      twilioOverview &&
+      stripeOverview ? (
       <SettingsDetailShell eyebrow="Integrations" title="Connected accounts">
         <WorkspaceIntegrationsSettings
           communicationSettings={communicationSettings}
@@ -4085,6 +4252,7 @@ export default async function SettingsPage({
           showSenderRules={showSenderRules}
           availablePhoneNumbers={availablePhoneNumbers}
           generalSettings={generalSettings}
+          stripeOverview={stripeOverview}
           twilioOverview={twilioOverview}
         />
       </SettingsDetailShell>

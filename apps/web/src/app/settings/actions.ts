@@ -77,6 +77,7 @@ import {
   isOperatingCountry,
   operatingCountryPhoneRegion,
 } from "../../lib/workspace/operating-countries";
+import { createStripeConnectOnboardingLink } from "../../lib/payments/accounts";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import {
@@ -1521,6 +1522,46 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
       ? `Phone and SMS enabled on ${assignment.number.phoneNumber}. A one-time US$6 setup charge was added to the usage ledger.`
       : `Phone and SMS enabled on ${assignment.number.phoneNumber}.`,
   );
+}
+
+export async function connectStripePaymentsAction() {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let onboardingUrl = "";
+
+  try {
+    const generalSettings = await getWorkspaceGeneralSettings(
+      supabase,
+      workspace.id,
+    );
+    const businessName =
+      generalSettings.businessProfile.businessName || workspace.name;
+    const email = user.email ?? generalSettings.businessProfile.publicEmail;
+
+    if (!email) {
+      throw new Error("Add an account email before connecting Stripe payments.");
+    }
+
+    onboardingUrl = await createStripeConnectOnboardingLink({
+      businessName,
+      email,
+      generalSettings,
+      supabase: serviceSupabase,
+      workspaceId: workspace.id,
+    });
+
+    redirect(onboardingUrl);
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to start Stripe payments setup.",
+    );
+  }
+
+  redirect(onboardingUrl);
 }
 
 export async function createPronunciationEntryAction(formData: FormData) {
