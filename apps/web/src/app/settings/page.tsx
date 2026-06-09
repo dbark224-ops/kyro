@@ -2,6 +2,7 @@ import { AppFrame } from "../components/app-frame";
 import {
   disconnectIntegrationAction,
   enableWorkspacePhoneSmsAction,
+  autosavePronunciationEntryAction,
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
   removeInboundEmailSenderRuleSettingsAction,
@@ -9,10 +10,11 @@ import {
   updateCommunicationSettingsAction,
   updateGeneralSettingsAction,
   updateInboundEmailSettingsAction,
-  updatePronunciationEntryAction,
   updateVoiceSettingsAction,
   upsertInboundEmailSenderRuleSettingsAction,
 } from "./actions";
+import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
+import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
 import {
   ELEVENLABS_VOICE_PRESETS,
   OPENAI_VOICE_OPTIONS,
@@ -232,12 +234,6 @@ function pronunciationEntrySourceLabel(entry: AssistantPronunciationEntry) {
     : entry.source === "assistant"
       ? "Assistant updated"
       : "Auto-added";
-}
-
-function pronunciationEntryPill(entry: AssistantPronunciationEntry) {
-  return entry.source === "manual" || entry.source === "assistant"
-    ? "Custom pronunciation"
-    : "Auto pronunciation";
 }
 
 function pronunciationHintValue(entry: AssistantPronunciationEntry) {
@@ -3599,17 +3595,11 @@ function PronunciationVocabularySettings({
               <PronunciationEntryCard entry={entry} key={entry.id} />
             ))}
             {collapsedEntries.length > 0 ? (
-              <details className="pronunciation-entry-expander">
-                <summary>
-                  <span>Show {collapsedEntries.length} more</span>
-                  <span className="pronunciation-collapse-label">Collapse</span>
-                </summary>
-                <div className="pronunciation-entry-list nested">
-                  {collapsedEntries.map((entry) => (
-                    <PronunciationEntryCard entry={entry} key={entry.id} />
-                  ))}
-                </div>
-              </details>
+              <PronunciationEntryExpander count={collapsedEntries.length}>
+                {collapsedEntries.map((entry) => (
+                  <PronunciationEntryCard entry={entry} key={entry.id} />
+                ))}
+              </PronunciationEntryExpander>
             ) : null}
           </>
         ) : (
@@ -3631,8 +3621,8 @@ function PronunciationEntryCard({
   return (
     <article className="pronunciation-entry-card">
       <div className="pronunciation-entry-row">
-        <form
-          action={updatePronunciationEntryAction}
+        <PronunciationAutosaveForm
+          action={autosavePronunciationEntryAction}
           className="pronunciation-entry-inline-form"
         >
           <input name="entryId" type="hidden" value={entry.id} />
@@ -3670,15 +3660,11 @@ function PronunciationEntryCard({
               {pronunciationUsageLabel(entry)}
             </small>
           </div>
-          <span className="pill subtle">{pronunciationEntryPill(entry)}</span>
           <PronunciationPreviewPlayer
             entryId={entry.id}
             fallbackSrc={`/api/assistant/pronunciation/preview?entryId=${entry.id}`}
           />
-          <button className="secondary-button compact" type="submit">
-            Save
-          </button>
-        </form>
+        </PronunciationAutosaveForm>
 
         <form
           action={ignorePronunciationEntryAction}

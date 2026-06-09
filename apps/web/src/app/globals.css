@@ -8157,16 +8157,12 @@ button:disabled {
 }
 
 .pronunciation-entry-list.nested {
-  margin-top: 10px;
+  margin-top: 0;
 }
 
-.pronunciation-entry-expander {
-  display: grid;
-  gap: 10px;
-}
-
-.pronunciation-entry-expander summary {
+.pronunciation-entry-expander-button {
   display: flex;
+  width: 100%;
   min-height: 38px;
   align-items: center;
   justify-content: center;
@@ -8177,17 +8173,11 @@ button:disabled {
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 850;
-  list-style: none;
   padding: 8px 14px;
 }
 
-.pronunciation-entry-expander summary::-webkit-details-marker {
-  display: none;
-}
-
-.pronunciation-entry-expander[open] summary span:first-child,
-.pronunciation-entry-expander:not([open]) .pronunciation-collapse-label {
-  display: none;
+.pronunciation-entry-expander-button:hover {
+  background: color-mix(in srgb, var(--cyan) 14%, transparent);
 }
 
 .pronunciation-entry-card,
@@ -8215,7 +8205,7 @@ button:disabled {
   display: grid;
   grid-template-columns:
     minmax(110px, 0.46fr) minmax(140px, 0.58fr) minmax(100px, 0.34fr)
-    minmax(130px, 0.5fr) minmax(160px, 0.58fr) 138px 34px 46px;
+    minmax(130px, 0.5fr) minmax(180px, 0.72fr) 34px;
   gap: 8px;
   align-items: center;
 }
@@ -8267,18 +8257,11 @@ button:disabled {
   white-space: nowrap;
 }
 
-.pronunciation-entry-inline-form > .pill,
 .pronunciation-entry-inline-form > .pronunciation-preview-player,
 .pronunciation-entry-inline-form > button,
 .pronunciation-entry-remove-form {
   align-self: center;
   margin-bottom: 0;
-}
-
-.pronunciation-entry-inline-form > .pill {
-  width: 138px;
-  min-height: 34px;
-  white-space: nowrap;
 }
 
 .pronunciation-entry-remove-form {

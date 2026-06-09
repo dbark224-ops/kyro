@@ -1600,6 +1600,37 @@ export async function createPronunciationEntryAction(formData: FormData) {
 }
 
 export async function updatePronunciationEntryAction(formData: FormData) {
+  const entry = await savePronunciationEntryUpdate(formData);
+
+  if (!entry) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Pronunciation entry is incomplete.",
+    );
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/voice");
+  redirectWithSectionMessage(
+    "voice",
+    "engine_message",
+    "Pronunciation entry updated.",
+  );
+}
+
+export async function autosavePronunciationEntryAction(formData: FormData) {
+  const entry = await savePronunciationEntryUpdate(formData);
+
+  if (!entry) {
+    throw new Error("Pronunciation entry is incomplete.");
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/voice");
+}
+
+async function savePronunciationEntryUpdate(formData: FormData) {
   const entryId = formString(formData, "entryId");
   const phrase = formString(formData, "phrase");
   const pronunciationHint =
@@ -1614,11 +1645,7 @@ export async function updatePronunciationEntryAction(formData: FormData) {
   const aliases = splitPronunciationAliases(formString(formData, "aliases"));
 
   if (!entryId || !phrase) {
-    redirectWithSectionMessage(
-      "voice",
-      "engine_error",
-      "Pronunciation entry is incomplete.",
-    );
+    return null;
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -1645,23 +1672,15 @@ export async function updatePronunciationEntryAction(formData: FormData) {
       entityId: entry.id,
       entityType: "assistant_pronunciation",
     });
+
+    return entry;
   } catch (error) {
-    redirectWithSectionMessage(
-      "voice",
-      "engine_error",
+    throw new Error(
       error instanceof Error
         ? error.message
         : "Unable to update pronunciation entry.",
     );
   }
-
-  revalidatePath("/settings");
-  revalidatePath("/voice");
-  redirectWithSectionMessage(
-    "voice",
-    "engine_message",
-    "Pronunciation entry updated.",
-  );
 }
 
 export async function ignorePronunciationEntryAction(formData: FormData) {
