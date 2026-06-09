@@ -121,9 +121,9 @@ export default async function ContactProfilePage({
           <p className="eyebrow">{workspace.name}</p>
           <h1>{displayName}</h1>
         </div>
-        <div className="topbar-actions">
+        <div className="topbar-actions contact-profile-actions">
           <Link
-            className="secondary-button link-button"
+            className="secondary-button compact contact-profile-action contact-profile-action-back link-button"
             href="/contacts"
             prefetch
           >
@@ -136,7 +136,10 @@ export default async function ContactProfilePage({
               type="hidden"
               value={`/contacts/${profile.contact.id}`}
             />
-            <button className="secondary-button compact" type="submit">
+            <button
+              className="secondary-button compact contact-profile-action contact-profile-action-review"
+              type="submit"
+            >
               Review lifecycle
             </button>
           </form>
@@ -149,24 +152,6 @@ export default async function ContactProfilePage({
       {query?.engine_message ? (
         <p className="form-alert">{query.engine_message}</p>
       ) : null}
-
-      <section className="metric-grid" aria-label="Contact profile metrics">
-        <article className="metric-card cyan">
-          <p>Messages</p>
-          <strong>{profile.counts.messages}</strong>
-          <span>Linked communications</span>
-        </article>
-        <article className="metric-card purple">
-          <p>Leads</p>
-          <strong>{profile.counts.leads}</strong>
-          <span>Attached opportunities</span>
-        </article>
-        <article className="metric-card pink">
-          <p>Documents</p>
-          <strong>{profile.counts.quoteDrafts}</strong>
-          <span>Saved quote drafts</span>
-        </article>
-      </section>
 
       <section className="review-grid large-left">
         <article className="panel">

@@ -2279,6 +2279,31 @@ h2 {
   gap: 10px;
 }
 
+.contact-profile-actions {
+  align-items: center;
+}
+
+.contact-profile-actions form {
+  margin: 0;
+}
+
+.contact-profile-action {
+  min-height: 38px;
+  min-width: 138px;
+  justify-content: center;
+  padding: 9px 14px;
+}
+
+.contact-profile-action-back {
+  border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
+  background: color-mix(in srgb, var(--surface) 90%, var(--cyan));
+}
+
+.contact-profile-action-review {
+  border: 1px solid color-mix(in srgb, var(--pink) 36%, var(--line));
+  background: color-mix(in srgb, var(--pink) 16%, var(--surface));
+}
+
 .topbar-right {
   display: flex;
   min-width: min(820px, 64%);
