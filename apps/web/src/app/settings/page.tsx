@@ -1209,15 +1209,6 @@ function StripePaymentsSettings({
       <div className="usage-ledger compact">
         <div className="usage-ledger-row">
           <div className="usage-ledger-main">
-            <strong>Stripe webhook</strong>
-            <span>{overview.webhookUrl ?? "App URL needed"}</span>
-          </div>
-          <span className="pill">
-            {overview.webhookConfigured ? "Verified endpoint" : "Secret needed"}
-          </span>
-        </div>
-        <div className="usage-ledger-row">
-          <div className="usage-ledger-main">
             <strong>Payment account</strong>
             <span>
               {account?.provider_account_id
