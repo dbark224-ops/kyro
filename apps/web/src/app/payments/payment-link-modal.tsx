@@ -138,7 +138,11 @@ export function PaymentLinkModal({
 
   return (
     <>
-      <button className="primary-action-button" onClick={() => setIsOpen(true)} type="button">
+      <button
+        className="primary-action-button payments-link-trigger"
+        onClick={() => setIsOpen(true)}
+        type="button"
+      >
         Create payment link
       </button>
       {isOpen ? (

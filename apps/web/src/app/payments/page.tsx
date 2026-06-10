@@ -1,6 +1,10 @@
 import { AppFrame } from "../components/app-frame";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
+import { CreateInvoiceModal } from "./create-invoice-modal";
+import { DefaultInvoiceTemplateForm } from "./default-invoice-template-form";
 import { PaymentLinkModal } from "./payment-link-modal";
+import { getDocumentTemplateSettings } from "../../lib/documents/settings";
+import { quoteTemplateCatalog } from "../../lib/documents/templates";
 import { getPaymentsOverviewData } from "../../lib/payments/queries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 
@@ -46,9 +50,20 @@ function statusTone(status: string) {
 
 export default async function PaymentsPage() {
   const { supabase, workspace } = await requireWorkspaceContext();
-  const data = await getPaymentsOverviewData(supabase, workspace.id);
+  const [data, documentTemplateSettings] = await Promise.all([
+    getPaymentsOverviewData(supabase, workspace.id),
+    getDocumentTemplateSettings(supabase, workspace.id),
+  ]);
   const currency = data.stats.currency || data.account?.defaultCurrency || "AUD";
   const recentPayments = data.paymentRequests.slice(0, 12);
+  const documentTemplates = quoteTemplateCatalog(
+    documentTemplateSettings.customTemplates,
+  );
+  const defaultInvoiceTemplateKey =
+    documentTemplateSettings.defaultInvoiceTemplateKey ??
+    documentTemplates.find((template) => /invoice/i.test(template.label))?.key ??
+    documentTemplates[0]?.key ??
+    null;
 
   return (
     <AppFrame active="Payments">
@@ -58,10 +73,18 @@ export default async function PaymentsPage() {
             <h1>Payments</h1>
           </div>
           <div className="payments-heading-actions">
-            <PaymentLinkModal contacts={data.contacts} currency={currency} />
-            <SmartPrefetchLink className="secondary-button" href="/files/new">
-              Create invoice
+            <DefaultInvoiceTemplateForm
+              selectedTemplateKey={defaultInvoiceTemplateKey}
+              templates={documentTemplates}
+            />
+            <SmartPrefetchLink className="secondary-button" href="/settings?section=integrations">
+              Payment settings
             </SmartPrefetchLink>
+            <CreateInvoiceModal
+              defaultTemplateKey={defaultInvoiceTemplateKey}
+              templates={documentTemplates}
+            />
+            <PaymentLinkModal contacts={data.contacts} currency={currency} />
           </div>
         </header>
 
@@ -153,23 +176,8 @@ export default async function PaymentsPage() {
               <strong>{data.account?.status ?? "Not connected"}</strong>
             </div>
             <div className="payments-service-status">
-              <span>Charges</span>
-              <strong>{data.account?.chargesEnabled ? "Enabled" : "Pending"}</strong>
-            </div>
-            <div className="payments-service-status">
               <span>Payouts</span>
               <strong>{data.account?.payoutsEnabled ? "Enabled" : "Pending"}</strong>
-            </div>
-            <SmartPrefetchLink className="secondary-button full-width" href="/settings">
-              Payment settings
-            </SmartPrefetchLink>
-
-            <div className="payments-side-note">
-              <p className="eyebrow">Invoice flow</p>
-              <p>
-                Generate an invoice from Files, then create a payment link from this tab
-                when the customer is ready to pay.
-              </p>
             </div>
           </aside>
         </section>

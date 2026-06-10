@@ -1436,3 +1436,89 @@ export async function updateDocumentTemplateSettingsAction(formData: FormData) {
     "Document template direction saved.",
   );
 }
+
+export async function updateDefaultInvoiceTemplateAction(formData: FormData) {
+  const templateKey = nullableText(formString(formData, "defaultInvoiceTemplateKey"));
+  const returnTo = formString(formData, "returnTo");
+  const redirectPath =
+    returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/payments";
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", DOCUMENT_TEMPLATE_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirect(
+      `${redirectPath}?engine_error=${encodeURIComponent(beforeError.message)}`,
+    );
+  }
+
+  const beforeSettings = normalizeDocumentTemplateSettings(beforePolicy?.settings);
+  const template = templateKey
+    ? getQuoteTemplate(templateKey, beforeSettings.customTemplates)
+    : null;
+
+  if (templateKey && !template) {
+    redirect(
+      `${redirectPath}?engine_error=${encodeURIComponent(
+        "Choose an existing document template for invoices.",
+      )}`,
+    );
+  }
+
+  const settings = normalizeDocumentTemplateSettings({
+    ...beforeSettings,
+    defaultInvoiceTemplateKey: template?.key ?? null,
+  });
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: DOCUMENT_TEMPLATE_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirect(
+      `${redirectPath}?engine_error=${encodeURIComponent(
+        saveError?.message ?? "Unable to save the default invoice template.",
+      )}`,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "document_template.default_invoice_updated",
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    after: {
+      defaultInvoiceTemplateKey: settings.defaultInvoiceTemplateKey,
+      defaultInvoiceTemplateLabel: template?.label ?? null,
+    },
+    metadata: {
+      policyType: DOCUMENT_TEMPLATE_POLICY_TYPE,
+    },
+  });
+
+  revalidateFilesHome();
+  revalidatePath("/payments");
+  revalidatePath("/settings");
+  redirect(
+    `${redirectPath}?engine_message=${encodeURIComponent(
+      template ? "Default invoice template saved." : "Default invoice template cleared.",
+    )}`,
+  );
+}

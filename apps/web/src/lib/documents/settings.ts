@@ -50,6 +50,7 @@ export type CustomDocumentTemplate = {
 
 export type DocumentTemplateSettings = DocumentTemplateDesignSettings & {
   customTemplates: CustomDocumentTemplate[];
+  defaultInvoiceTemplateKey: string | null;
 };
 
 export const DEFAULT_DOCUMENT_TEMPLATE_DESIGN_SETTINGS: DocumentTemplateDesignSettings = {
@@ -68,6 +69,7 @@ export const DEFAULT_DOCUMENT_TEMPLATE_DESIGN_SETTINGS: DocumentTemplateDesignSe
 export const DEFAULT_DOCUMENT_TEMPLATE_SETTINGS: DocumentTemplateSettings = {
   ...DEFAULT_DOCUMENT_TEMPLATE_DESIGN_SETTINGS,
   customTemplates: [],
+  defaultInvoiceTemplateKey: null,
 };
 
 function objectRecord(value: unknown) {
@@ -233,6 +235,10 @@ export function normalizeDocumentTemplateSettings(
   return {
     ...normalizeDocumentTemplateDesignSettings(settings),
     customTemplates: normalizeCustomDocumentTemplates(settings.customTemplates),
+    defaultInvoiceTemplateKey: nullableBoundedText(
+      settings.defaultInvoiceTemplateKey,
+      120,
+    ),
   };
 }
 
