@@ -1552,11 +1552,18 @@ export async function connectStripePaymentsAction() {
 
     redirect(onboardingUrl);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const connectSignupNeeded =
+      message.includes("signed up for Connect") ||
+      message.includes("dashboard.stripe.com/connect");
+
     redirectWithSectionMessage(
       "integrations",
       "engine_error",
-      error instanceof Error
-        ? error.message
+      connectSignupNeeded
+        ? "Stripe Connect is not enabled on the Kyro platform account yet. Enable Connect in Stripe first, then workspace users can onboard through this Kyro link even if they have never used Stripe before."
+        : error instanceof Error
+          ? error.message
         : "Unable to start Stripe payments setup.",
     );
   }
