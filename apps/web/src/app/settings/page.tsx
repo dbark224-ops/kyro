@@ -114,6 +114,7 @@ import Link from "next/link";
 import {
   SettingsShell,
   type SettingsMenuItem,
+  type SettingsNestedItem,
   type SettingsSection,
 } from "./settings-shell";
 import { InfoBubble } from "./info-bubble";
@@ -130,6 +131,7 @@ type SettingsPageProps = {
     engine_error?: string;
     engine_message?: string;
     inboundTrace?: string;
+    panel?: string;
     section?: string;
     senderRules?: string;
     window?: string;
@@ -165,6 +167,56 @@ function settingsSectionHref(section: SettingsSection, activeWindow = "30d") {
   }
 
   return `/settings?${params.toString()}`;
+}
+
+function settingsPanelHref(
+  section: SettingsSection,
+  panel: string,
+  activeWindow = "30d",
+  extra?: Record<string, string>,
+) {
+  const params = new URLSearchParams({ section, panel });
+
+  if (section === "usage" && activeWindow !== "30d") {
+    params.set("window", activeWindow);
+  }
+
+  Object.entries(extra ?? {}).forEach(([key, value]) => {
+    params.set(key, value);
+  });
+
+  return `/settings?${params.toString()}`;
+}
+
+function defaultSettingsPanel(section: SettingsSection | null) {
+  switch (section) {
+    case "general":
+      return "business";
+    case "integrations":
+      return "inbound-email";
+    case "usage":
+      return "usage-summary";
+    case "voice":
+      return "voice-assistant";
+    case "developer":
+      return "developer-tools";
+    default:
+      return null;
+  }
+}
+
+function normalizeIntegrationPanel(value: string | null): IntegrationSettingsPanel {
+  if (
+    value === "outbound" ||
+    value === "phone-sms" ||
+    value === "stripe" ||
+    value === "google" ||
+    value === "microsoft"
+  ) {
+    return value;
+  }
+
+  return "inbound-email";
 }
 
 function usageWindowHref(window: string) {
@@ -2880,7 +2932,16 @@ function ProviderDetails({
   );
 }
 
+type IntegrationSettingsPanel =
+  | "inbound-email"
+  | "outbound"
+  | "phone-sms"
+  | "stripe"
+  | "google"
+  | "microsoft";
+
 function WorkspaceIntegrationsSettings({
+  activePanel,
   availablePhoneNumbers,
   communicationSettings,
   defaultInvoiceTemplateKey,
@@ -2897,6 +2958,7 @@ function WorkspaceIntegrationsSettings({
   stripeOverview,
   twilioOverview,
 }: Readonly<{
+  activePanel: IntegrationSettingsPanel;
   availablePhoneNumbers: WorkspacePhoneNumberPoolRow[];
   communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
   defaultInvoiceTemplateKey: string | null;
@@ -2970,124 +3032,141 @@ function WorkspaceIntegrationsSettings({
 
   return (
     <div className="integration-provider-stack">
-      <InboundEmailSyncSettings
-        connections={emailConnections}
-        operationalSummary={inboundEmailSummary}
-        settings={inboundEmailSettings}
-        showInboundTrace={showInboundTrace}
-        showSenderRules={showSenderRules}
-      />
-
-      <section className="integration-choice-panel">
-        <div>
-          <p className="eyebrow">Email provider</p>
-          <h3>
-            {currentProviderName
-              ? `${currentProviderName} is connected`
-              : "Connect Gmail or Outlook"}
-          </h3>
-          <p>
-            Kyro only needs one outbound email provider. Connect Gmail or
-            Outlook; if both are connected during testing, Kyro uses the most
-            recently connected account until we add a default sender setting.
-          </p>
-        </div>
-        <span className="pill">
-          {anyConnected ? "Ready to send" : "Setup required"}
-        </span>
-      </section>
-
-      <ProviderDetails
-        description={`${communicationSettings.allowedChannels.length} channels and email signatures`}
-        isCurrent={false}
-        label="Outbound communication"
-        provider="Rules"
-        status={communicationStatus}
-      >
-        <CommunicationSettingsDetail
-          communicationSettings={communicationSettings}
+      {activePanel === "inbound-email" ? (
+        <InboundEmailSyncSettings
+          connections={emailConnections}
+          operationalSummary={inboundEmailSummary}
+          settings={inboundEmailSettings}
+          showInboundTrace={showInboundTrace}
+          showSenderRules={showSenderRules}
         />
-      </ProviderDetails>
+      ) : null}
 
-      <ProviderDetails
-        description={
-          twilioOverview.numbers.length > 0
-            ? `${twilioOverview.numbers.length} workspace number${
-                twilioOverview.numbers.length === 1 ? "" : "s"
-              }`
-            : "SMS and future phone calls"
-        }
-        isCurrent={false}
-        label="Kyro phone and SMS"
-        provider="Twilio"
-        status={twilioStatus}
-      >
-        <TwilioTelephonySettings
-          availableNumbers={availablePhoneNumbers}
-          generalSettings={generalSettings}
-          overview={twilioOverview}
-        />
-      </ProviderDetails>
+      {activePanel === "outbound" ? (
+        <ProviderDetails
+          description={`${communicationSettings.allowedChannels.length} channels and email signatures`}
+          forceOpen
+          isCurrent={false}
+          label="Outbound communication"
+          provider="Rules"
+          status={communicationStatus}
+        >
+          <CommunicationSettingsDetail
+            communicationSettings={communicationSettings}
+          />
+        </ProviderDetails>
+      ) : null}
 
-      <ProviderDetails
-        description={
-          stripeOverview.account?.status === "active"
-            ? "Payment links and status tracking"
-            : "Customer payment links"
-        }
-        isCurrent={false}
-        label="Customer payments"
-        provider="Stripe"
-        status={stripeStatus}
-      >
-        <StripePaymentsSettings
-          defaultInvoiceTemplateKey={defaultInvoiceTemplateKey}
-          documentTemplates={documentTemplates}
-          overview={stripeOverview}
-        />
-      </ProviderDetails>
+      {activePanel === "phone-sms" ? (
+        <ProviderDetails
+          description={
+            twilioOverview.numbers.length > 0
+              ? `${twilioOverview.numbers.length} workspace number${
+                  twilioOverview.numbers.length === 1 ? "" : "s"
+                }`
+              : "SMS and future phone calls"
+          }
+          forceOpen
+          isCurrent={false}
+          label="Kyro phone and SMS"
+          provider="Twilio"
+          status={twilioStatus}
+        >
+          <TwilioTelephonySettings
+            availableNumbers={availablePhoneNumbers}
+            generalSettings={generalSettings}
+            overview={twilioOverview}
+          />
+        </ProviderDetails>
+      ) : null}
 
-      <ProviderDetails
-        description={
-          googleConnection
-            ? connectionName(googleConnection, "Google account")
-            : "Gmail outbound and Drive document access"
-        }
-        isCurrent={currentProvider === "google"}
-        forceOpen={googleNeedsReconnect}
-        label="Google Workspace"
-        provider="Google"
-        status={providerChoiceStatus({
-          anyConnected,
-          connected: googleConnected,
-          needsReconnect: googleNeedsReconnect,
-          status: googleStatus,
-        })}
-      >
-        <GoogleIntegrationSettings overview={googleOverview} />
-      </ProviderDetails>
+      {activePanel === "stripe" ? (
+        <ProviderDetails
+          description={
+            stripeOverview.account?.status === "active"
+              ? "Payment links and status tracking"
+              : "Customer payment links"
+          }
+          forceOpen
+          isCurrent={false}
+          label="Customer payments"
+          provider="Stripe"
+          status={stripeStatus}
+        >
+          <StripePaymentsSettings
+            defaultInvoiceTemplateKey={defaultInvoiceTemplateKey}
+            documentTemplates={documentTemplates}
+            overview={stripeOverview}
+          />
+        </ProviderDetails>
+      ) : null}
 
-      <ProviderDetails
-        description={
-          microsoftConnection
-            ? connectionName(microsoftConnection, "Outlook account")
-            : anyConnected
-              ? "Optional if you want to switch from Gmail to Outlook"
-              : "Outlook and Microsoft 365 email sending"
-        }
-        isCurrent={currentProvider === "microsoft"}
-        forceOpen={microsoftNeedsReconnect}
-        label="Microsoft Outlook"
-        provider="Microsoft"
-        status={providerChoiceStatus({
-          anyConnected,
-          connected: microsoftConnected,
-          needsReconnect: microsoftNeedsReconnect,
-          status: microsoftStatus,
-        })}
-      >
-        <MicrosoftIntegrationSettings overview={microsoftOverview} />
-      </ProviderDetails>
+      {activePanel === "google" ? (
+        <>
+          <section className="integration-choice-panel">
+            <div>
+              <p className="eyebrow">Email provider</p>
+              <h3>
+                {currentProviderName
+                  ? `${currentProviderName} is connected`
+                  : "Connect Gmail or Outlook"}
+              </h3>
+              <p>
+                Kyro only needs one outbound email provider. Connect Gmail or
+                Outlook; if both are connected during testing, Kyro uses the
+                most recently connected account until we add a default sender
+                setting.
+              </p>
+            </div>
+            <span className="pill">
+              {anyConnected ? "Ready to send" : "Setup required"}
+            </span>
+          </section>
+          <ProviderDetails
+            description={
+              googleConnection
+                ? connectionName(googleConnection, "Google account")
+                : "Gmail outbound and Drive document access"
+            }
+            forceOpen
+            isCurrent={currentProvider === "google"}
+            label="Google Workspace"
+            provider="Google"
+            status={providerChoiceStatus({
+              anyConnected,
+              connected: googleConnected,
+              needsReconnect: googleNeedsReconnect,
+              status: googleStatus,
+            })}
+          >
+            <GoogleIntegrationSettings overview={googleOverview} />
+          </ProviderDetails>
+        </>
+      ) : null}
+
+      {activePanel === "microsoft" ? (
+        <ProviderDetails
+          description={
+            microsoftConnection
+              ? connectionName(microsoftConnection, "Outlook account")
+              : anyConnected
+                ? "Optional if you want to switch from Gmail to Outlook"
+                : "Outlook and Microsoft 365 email sending"
+          }
+          forceOpen
+          isCurrent={currentProvider === "microsoft"}
+          label="Microsoft Outlook"
+          provider="Microsoft"
+          status={providerChoiceStatus({
+            anyConnected,
+            connected: microsoftConnected,
+            needsReconnect: microsoftNeedsReconnect,
+            status: microsoftStatus,
+          })}
+        >
+          <MicrosoftIntegrationSettings overview={microsoftOverview} />
+        </ProviderDetails>
+      ) : null}
     </div>
   );
 }
@@ -4116,6 +4195,11 @@ export default async function SettingsPage({
     normalizedSection === "developer" && !isDeveloperAccount
       ? null
       : normalizedSection;
+  const selectedPanel =
+    query?.panel ?? defaultSettingsPanel(selectedSection) ?? "";
+  const activeIntegrationPanel = normalizeIntegrationPanel(
+    selectedSection === "integrations" ? selectedPanel : null,
+  );
   const showInboundTrace =
     selectedSection === "integrations" && query?.inboundTrace === "1";
   const showSenderRules =
@@ -4261,11 +4345,172 @@ export default async function SettingsPage({
         ]
       : []),
   ];
+  const nestedItems: SettingsNestedItem[] =
+    selectedSection === "general"
+      ? [
+          {
+            detail: "Name, industry, logo, colour, and defaults",
+            href: settingsPanelHref("general", "business", activeWindow),
+            key: "business",
+            selected: selectedPanel === "business",
+            title: "Business profile",
+          },
+          {
+            detail: "Public email, phone, website, and address",
+            href: settingsPanelHref("general", "public-details", activeWindow),
+            key: "public-details",
+            selected: selectedPanel === "public-details",
+            title: "Public details",
+          },
+          {
+            detail: "Suburbs, postcodes, travel range, and country",
+            href: settingsPanelHref("general", "service-area", activeWindow),
+            key: "service-area",
+            selected: selectedPanel === "service-area",
+            title: "Service area",
+          },
+          {
+            detail: "Working hours, emergency jobs, and availability",
+            href: settingsPanelHref("general", "availability", activeWindow),
+            key: "availability",
+            selected: selectedPanel === "availability",
+            title: "Availability",
+          },
+        ]
+      : selectedSection === "integrations"
+        ? [
+            {
+              detail: "Inbound sync, health, sender rules, and logs",
+              href: settingsPanelHref(
+                "integrations",
+                "inbound-email",
+                activeWindow,
+              ),
+              key: "inbound-email",
+              selected: activeIntegrationPanel === "inbound-email",
+              title: "Inbound email",
+            },
+            {
+              detail: "Approval rules, reply style, signatures, follow-ups",
+              href: settingsPanelHref("integrations", "outbound", activeWindow),
+              key: "outbound",
+              selected: activeIntegrationPanel === "outbound",
+              title: "Outbound communication",
+            },
+            {
+              detail: "Workspace phone number, SMS, and call setup",
+              href: settingsPanelHref(
+                "integrations",
+                "phone-sms",
+                activeWindow,
+              ),
+              key: "phone-sms",
+              selected: activeIntegrationPanel === "phone-sms",
+              title: "Phone and SMS",
+            },
+            {
+              detail: "Customer payment links and default invoice template",
+              href: settingsPanelHref("integrations", "stripe", activeWindow),
+              key: "stripe",
+              selected: activeIntegrationPanel === "stripe",
+              title: "Stripe payments",
+            },
+            {
+              detail: "Gmail, Google account, and Drive access",
+              href: settingsPanelHref("integrations", "google", activeWindow),
+              key: "google",
+              selected: activeIntegrationPanel === "google",
+              title: "Google Workspace",
+            },
+            {
+              detail: "Outlook and Microsoft 365 email",
+              href: settingsPanelHref(
+                "integrations",
+                "microsoft",
+                activeWindow,
+              ),
+              key: "microsoft",
+              selected: activeIntegrationPanel === "microsoft",
+              title: "Microsoft Outlook",
+            },
+          ]
+        : selectedSection === "voice"
+          ? [
+              {
+                detail: "Shared assistant voice and phone style",
+                href: settingsPanelHref("voice", "voice-assistant", activeWindow),
+                key: "voice-assistant",
+                selected: selectedPanel === "voice-assistant",
+                title: "Voice assistant",
+              },
+              {
+                detail: "Inbound, outbound, overflow, and team numbers",
+                href: settingsPanelHref("voice", "phone-assistant", activeWindow),
+                key: "phone-assistant",
+                selected: selectedPanel === "phone-assistant",
+                title: "Phone assistant",
+              },
+              {
+                detail: "Names, places, acronyms, and spoken hints",
+                href: settingsPanelHref("voice", "pronunciation", activeWindow),
+                key: "pronunciation",
+                selected: selectedPanel === "pronunciation",
+                title: "Pronunciation",
+              },
+            ]
+          : selectedSection === "usage"
+            ? [
+                {
+                  detail: "Task breakdown, timeframe, and display currency",
+                  href: settingsPanelHref("usage", "usage-summary", activeWindow),
+                  key: "usage-summary",
+                  selected: selectedPanel === "usage-summary",
+                  title: "Usage summary",
+                },
+                {
+                  detail: "Detailed exportable event log",
+                  href: settingsPanelHref("usage", "ledger", activeWindow),
+                  key: "ledger",
+                  selected: selectedPanel === "ledger",
+                  title: "Usage ledger",
+                },
+              ]
+            : selectedSection === "developer"
+              ? [
+                  {
+                    detail: "Internal tools and operational links",
+                    href: settingsPanelHref(
+                      "developer",
+                      "developer-tools",
+                      activeWindow,
+                    ),
+                    key: "developer-tools",
+                    selected: selectedPanel === "developer-tools",
+                    title: "Developer tools",
+                  },
+                  {
+                    detail: "Legacy voice controls and provider IDs",
+                    href: settingsPanelHref(
+                      "developer",
+                      "provider-ids",
+                      activeWindow,
+                    ),
+                    key: "provider-ids",
+                    selected: selectedPanel === "provider-ids",
+                    title: "Provider internals",
+                  },
+                ]
+              : [];
+  const selectedNestedTitle =
+    nestedItems.find((item) => item.selected)?.title ?? null;
   const selectedDetail =
     selectedSection === "general" &&
     generalSettings &&
     communicationSettings ? (
-      <SettingsDetailShell eyebrow="Profile" title="Business profile">
+      <SettingsDetailShell
+        eyebrow="Profile"
+        title={selectedNestedTitle ?? "Business profile"}
+      >
         <GeneralSettingsDetail
           communicationSettings={communicationSettings}
           operationalPhoneNumbers={assignedPhoneNumbers}
@@ -4284,8 +4529,12 @@ export default async function SettingsPage({
       twilioOverview &&
       stripeOverview &&
       documentTemplateSettings ? (
-      <SettingsDetailShell eyebrow="Integrations" title="Connected accounts">
+      <SettingsDetailShell
+        eyebrow="Integrations"
+        title={selectedNestedTitle ?? "Connected accounts"}
+      >
         <WorkspaceIntegrationsSettings
+          activePanel={activeIntegrationPanel}
           communicationSettings={communicationSettings}
           defaultInvoiceTemplateKey={defaultInvoiceTemplateKey}
           documentTemplates={documentTemplates}
@@ -4304,7 +4553,10 @@ export default async function SettingsPage({
         />
       </SettingsDetailShell>
     ) : selectedSection === "usage" && usageReport && generalSettings ? (
-      <SettingsDetailShell eyebrow="Usage" title="Usage and billing">
+      <SettingsDetailShell
+        eyebrow="Usage"
+        title={selectedNestedTitle ?? "Usage and billing"}
+      >
         <UsageSettingsDetail
           activeWindow={activeWindow}
           displayCurrencySettings={generalSettings}
@@ -4312,7 +4564,10 @@ export default async function SettingsPage({
         />
       </SettingsDetailShell>
     ) : selectedSection === "voice" && voiceSettings ? (
-      <SettingsDetailShell eyebrow="Voice" title="Voice assistant">
+      <SettingsDetailShell
+        eyebrow="Voice"
+        title={selectedNestedTitle ?? "Voice assistant"}
+      >
         <VoiceSettingsDetail
           pronunciationEntries={pronunciationEntries}
           voiceSettings={voiceSettings}
@@ -4321,7 +4576,10 @@ export default async function SettingsPage({
     ) : selectedSection === "developer" &&
       isDeveloperAccount &&
       voiceSettings ? (
-      <SettingsDetailShell eyebrow="Developer" title="Developer settings">
+      <SettingsDetailShell
+        eyebrow="Developer"
+        title={selectedNestedTitle ?? "Developer settings"}
+      >
         <DeveloperSettingsDetail voiceSettings={voiceSettings} />
       </SettingsDetailShell>
     ) : null;
@@ -4346,6 +4604,7 @@ export default async function SettingsPage({
         detail={selectedDetail}
         empty={<EmptySettingsDetail />}
         items={settingsItems}
+        nestedItems={nestedItems}
         selectedSection={selectedSection}
       />
     </AppFrame>

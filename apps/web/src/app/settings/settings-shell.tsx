@@ -16,15 +16,25 @@ export type SettingsMenuItem = {
   title: string;
 };
 
+export type SettingsNestedItem = {
+  detail: string;
+  href: string;
+  key: string;
+  selected: boolean;
+  title: string;
+};
+
 export function SettingsShell({
   detail,
   empty,
   items,
+  nestedItems,
   selectedSection,
 }: Readonly<{
   detail: ReactNode | null;
   empty: ReactNode;
   items: SettingsMenuItem[];
+  nestedItems: SettingsNestedItem[];
   selectedSection: SettingsSection | null;
 }>) {
   const hasDetail = Boolean(selectedSection && detail);
@@ -35,7 +45,7 @@ export function SettingsShell({
         hasDetail ? "settings-workspace has-detail" : "settings-workspace"
       }
     >
-      <section className="panel settings-list-panel">
+      <section className="panel settings-list-panel settings-primary-panel">
         <div className="panel-heading">
           <div>
             <p className="eyebrow">Settings</p>
@@ -65,6 +75,42 @@ export function SettingsShell({
                 </div>
               </Link>
           ))}
+        </div>
+      </section>
+
+      <section className="panel settings-list-panel settings-nested-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Section</p>
+            <h2>Choose a setting</h2>
+          </div>
+        </div>
+
+        <div className="settings-menu-list settings-nested-list">
+          {nestedItems.length > 0 ? (
+            nestedItems.map((item) => (
+              <Link
+                aria-current={item.selected ? "page" : undefined}
+                className={
+                  item.selected
+                    ? "settings-menu-row settings-nested-row active"
+                    : "settings-menu-row settings-nested-row"
+                }
+                href={item.href}
+                key={item.key}
+                prefetch={false}
+              >
+                <div className="settings-menu-main">
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+              </Link>
+            ))
+          ) : (
+            <p className="empty-copy">
+              Pick a settings area to see its controls.
+            </p>
+          )}
         </div>
       </section>
 

@@ -7082,7 +7082,7 @@ button:disabled {
 
 .settings-workspace {
   display: grid;
-  grid-template-columns: minmax(340px, 410px) minmax(620px, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(230px, 300px) minmax(620px, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -7115,6 +7115,24 @@ button:disabled {
   transition:
     border-color 160ms ease,
     background 160ms ease;
+}
+
+.settings-primary-panel .settings-menu-row {
+  min-height: 58px;
+}
+
+.settings-nested-panel {
+  position: sticky;
+  top: 16px;
+}
+
+.settings-nested-row {
+  min-height: 54px;
+  padding: 11px 12px;
+}
+
+.settings-nested-row .settings-menu-main {
+  gap: 3px;
 }
 
 .settings-menu-row:hover,
