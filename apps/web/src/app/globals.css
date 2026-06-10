@@ -13503,7 +13503,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   padding: 0 14px;
-  border-radius: var(--radius-button);
+  border-radius: var(--radius-control);
   font-weight: 850;
   text-align: center;
 }
@@ -13517,17 +13517,17 @@ button:disabled {
 .payments-settings-icon-button {
   display: inline-flex;
   width: 42px;
-  min-height: 42px;
+  height: 42px;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-button);
+  border-radius: var(--radius-control);
   color: var(--text);
   text-decoration: none;
 }
 
 .payments-settings-icon-button svg {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
 }
 
 .payments-settings-icon-button:hover,

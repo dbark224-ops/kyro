@@ -83,22 +83,22 @@ export default async function PaymentsPage() {
               href="/settings?section=integrations"
               title="Payment settings"
             >
-              <svg aria-hidden="true" viewBox="0 0 20 20">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path
-                  d="M10 7.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z"
+                  d="M12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z"
                   fill="none"
                   stroke="currentColor"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="1.5"
+                  strokeWidth="1.8"
                 />
                 <path
-                  d="M10 2.75v1.5M10 15.75v1.5M4.88 4.88l1.06 1.06M14.06 14.06l1.06 1.06M2.75 10h1.5M15.75 10h1.5M4.88 15.12l1.06-1.06M14.06 5.94l1.06-1.06"
+                  d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.02-1.58a.5.5 0 0 0 .12-.64l-1.91-3.31a.5.5 0 0 0-.61-.22l-2.38.96a7.6 7.6 0 0 0-1.7-.98l-.36-2.53a.5.5 0 0 0-.5-.43h-3.82a.5.5 0 0 0-.5.43l-.36 2.53a7.6 7.6 0 0 0-1.7.98l-2.38-.96a.5.5 0 0 0-.61.22L2.83 8.8a.5.5 0 0 0 .12.64l2.02 1.58c-.04.32-.07.65-.07.98s.02.66.07.98l-2.02 1.58a.5.5 0 0 0-.12.64l1.91 3.31a.5.5 0 0 0 .61.22l2.38-.96c.52.4 1.09.73 1.7.98l.36 2.53a.5.5 0 0 0 .5.43h3.82a.5.5 0 0 0 .5-.43l.36-2.53c.61-.25 1.18-.58 1.7-.98l2.38.96a.5.5 0 0 0 .61-.22l1.91-3.31a.5.5 0 0 0-.12-.64l-2.02-1.58Z"
                   fill="none"
                   stroke="currentColor"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="1.5"
+                  strokeWidth="1.8"
                 />
               </svg>
             </SmartPrefetchLink>
