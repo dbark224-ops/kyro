@@ -1,7 +1,6 @@
 import { AppFrame } from "../components/app-frame";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { CreateInvoiceModal } from "./create-invoice-modal";
-import { DefaultInvoiceTemplateForm } from "./default-invoice-template-form";
 import { PaymentLinkModal } from "./payment-link-modal";
 import { getDocumentTemplateSettings } from "../../lib/documents/settings";
 import { quoteTemplateCatalog } from "../../lib/documents/templates";
@@ -73,18 +72,36 @@ export default async function PaymentsPage() {
             <h1>Payments</h1>
           </div>
           <div className="payments-heading-actions">
-            <DefaultInvoiceTemplateForm
-              selectedTemplateKey={defaultInvoiceTemplateKey}
-              templates={documentTemplates}
-            />
-            <SmartPrefetchLink className="secondary-button" href="/settings?section=integrations">
-              Payment settings
-            </SmartPrefetchLink>
+            <PaymentLinkModal contacts={data.contacts} currency={currency} />
             <CreateInvoiceModal
               defaultTemplateKey={defaultInvoiceTemplateKey}
               templates={documentTemplates}
             />
-            <PaymentLinkModal contacts={data.contacts} currency={currency} />
+            <SmartPrefetchLink
+              aria-label="Payment settings"
+              className="payments-settings-icon-button"
+              href="/settings?section=integrations"
+              title="Payment settings"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20">
+                <path
+                  d="M10 7.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M10 2.75v1.5M10 15.75v1.5M4.88 4.88l1.06 1.06M14.06 14.06l1.06 1.06M2.75 10h1.5M15.75 10h1.5M4.88 15.12l1.06-1.06M14.06 5.94l1.06-1.06"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.5"
+                />
+              </svg>
+            </SmartPrefetchLink>
           </div>
         </header>
 

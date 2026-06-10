@@ -85,6 +85,14 @@ import {
   getWorkspaceStripePaymentOverview,
   type WorkspaceStripePaymentOverview,
 } from "../../lib/payments/accounts";
+import {
+  getDocumentTemplateSettings,
+  type DocumentTemplateSettings,
+} from "../../lib/documents/settings";
+import {
+  quoteTemplateCatalog,
+  type QuoteTemplate,
+} from "../../lib/documents/templates";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
   getWorkspaceGeneralSettings,
@@ -113,6 +121,7 @@ import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
 import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
 import { UsageLedgerModal } from "./usage-ledger-modal";
 import { TeamPhoneNumberEditor } from "./team-phone-number-editor";
+import { DefaultInvoiceTemplateForm } from "../payments/default-invoice-template-form";
 
 export const dynamic = "force-dynamic";
 
@@ -390,6 +399,7 @@ type MicrosoftIntegrationOverview = Awaited<
 >;
 type TwilioIntegrationOverview = TwilioTelephonyOverview;
 type StripePaymentOverview = WorkspaceStripePaymentOverview;
+type DocumentTemplateSettingsOverview = DocumentTemplateSettings;
 type InboundEmailSettings = Awaited<ReturnType<typeof getInboundEmailSettings>>;
 type IntegrationOverview = {
   configured: boolean;
@@ -1138,8 +1148,14 @@ function stripePaymentsStatusLabel(overview: StripePaymentOverview) {
 }
 
 function StripePaymentsSettings({
+  defaultInvoiceTemplateKey,
+  documentTemplates,
   overview,
-}: Readonly<{ overview: StripePaymentOverview }>) {
+}: Readonly<{
+  defaultInvoiceTemplateKey: string | null;
+  documentTemplates: QuoteTemplate[];
+  overview: StripePaymentOverview;
+}>) {
   const account = overview.account;
   const ready = account?.status === "active";
 
@@ -1218,6 +1234,23 @@ function StripePaymentsSettings({
           <span className="pill">{ready ? "Ready" : "Needs setup"}</span>
         </div>
       </div>
+
+      <section className="setting-card">
+        <SettingCardHeading info="Kyro uses this document template when the Payments tab creates an invoice draft.">
+          Default invoice template
+        </SettingCardHeading>
+        <DefaultInvoiceTemplateForm
+          className="settings-inline-template-form"
+          returnTo="/settings?section=integrations"
+          selectedTemplateKey={defaultInvoiceTemplateKey}
+          templates={documentTemplates}
+        />
+        {documentTemplates.length === 0 ? (
+          <p className="empty-copy">
+            Create an invoice template in Files before setting a default.
+          </p>
+        ) : null}
+      </section>
 
       <section className="setting-card phone-number-enable-card">
         <SettingCardHeading
@@ -2859,6 +2892,8 @@ function ProviderDetails({
 function WorkspaceIntegrationsSettings({
   availablePhoneNumbers,
   communicationSettings,
+  defaultInvoiceTemplateKey,
+  documentTemplates,
   generalSettings,
   googleOverview,
   googleStatus,
@@ -2873,6 +2908,8 @@ function WorkspaceIntegrationsSettings({
 }: Readonly<{
   availablePhoneNumbers: WorkspacePhoneNumberPoolRow[];
   communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+  defaultInvoiceTemplateKey: string | null;
+  documentTemplates: QuoteTemplate[];
   generalSettings: WorkspaceGeneralSettings;
   googleOverview: GoogleIntegrationOverview;
   googleStatus: string;
@@ -3012,7 +3049,11 @@ function WorkspaceIntegrationsSettings({
         provider="Stripe"
         status={stripeStatus}
       >
-        <StripePaymentsSettings overview={stripeOverview} />
+        <StripePaymentsSettings
+          defaultInvoiceTemplateKey={defaultInvoiceTemplateKey}
+          documentTemplates={documentTemplates}
+          overview={stripeOverview}
+        />
       </ProviderDetails>
 
       <ProviderDetails
@@ -4126,6 +4167,7 @@ export default async function SettingsPage({
           getInboundEmailOperationalSummary(supabase, workspace.id),
           getTwilioTelephonyOverview(supabase, workspace.id),
           getWorkspaceStripePaymentOverview(supabase, workspace.id),
+          getDocumentTemplateSettings(supabase, workspace.id),
         ])
       : Promise.resolve(null),
     selectedSection === "voice"
@@ -4147,6 +4189,17 @@ export default async function SettingsPage({
   const inboundEmailSummary = integrationOverviews?.[3] ?? null;
   const twilioOverview = integrationOverviews?.[4] ?? null;
   const stripeOverview = integrationOverviews?.[5] ?? null;
+  const documentTemplateSettings =
+    (integrationOverviews?.[6] as DocumentTemplateSettingsOverview | undefined) ??
+    null;
+  const documentTemplates = documentTemplateSettings
+    ? quoteTemplateCatalog(documentTemplateSettings.customTemplates)
+    : [];
+  const defaultInvoiceTemplateKey =
+    documentTemplateSettings?.defaultInvoiceTemplateKey ??
+    documentTemplates.find((template) => /invoice/i.test(template.label))?.key ??
+    documentTemplates[0]?.key ??
+    null;
   const googleStatus = googleOverview
     ? integrationStatusLabel(googleOverview)
     : "Open";
@@ -4238,10 +4291,13 @@ export default async function SettingsPage({
       inboundEmailSettings &&
       inboundEmailSummary &&
       twilioOverview &&
-      stripeOverview ? (
+      stripeOverview &&
+      documentTemplateSettings ? (
       <SettingsDetailShell eyebrow="Integrations" title="Connected accounts">
         <WorkspaceIntegrationsSettings
           communicationSettings={communicationSettings}
+          defaultInvoiceTemplateKey={defaultInvoiceTemplateKey}
+          documentTemplates={documentTemplates}
           googleOverview={googleOverview}
           googleStatus={googleStatus}
           inboundEmailSettings={inboundEmailSettings}

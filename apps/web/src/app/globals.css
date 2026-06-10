@@ -13492,15 +13492,77 @@ button:disabled {
 
 .payments-link-trigger {
   border: 1px solid var(--cyan);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--cyan) 20%, transparent), transparent),
-    color-mix(in srgb, var(--surface) 92%, transparent);
+  background: transparent;
   color: var(--text);
 }
 
+.payments-link-trigger,
 .payments-invoice-trigger {
-  border-color: var(--pink);
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border-radius: var(--radius-button);
+  font-weight: 850;
+  text-align: center;
+}
+
+.payments-invoice-trigger,
+.payments-settings-icon-button {
+  border: 1px solid var(--pink);
   background: color-mix(in srgb, var(--pink) 12%, transparent);
+}
+
+.payments-settings-icon-button {
+  display: inline-flex;
+  width: 42px;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-button);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.payments-settings-icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.payments-settings-icon-button:hover,
+.payments-link-trigger:hover,
+.payments-invoice-trigger:hover {
+  transform: translateY(-1px);
+}
+
+.settings-inline-template-form {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-inline-template-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.settings-inline-template-form select {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  background: color-mix(in srgb, var(--background) 58%, transparent);
+  color: var(--text);
+  padding: 9px 12px;
+  font: inherit;
+  text-transform: none;
+}
+
+.settings-inline-template-form .secondary-button {
+  justify-self: start;
 }
 
 .payments-metric-grid {

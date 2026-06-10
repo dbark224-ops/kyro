@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
+  AnchorHTMLAttributes,
   FocusEvent,
   MouseEvent,
   ReactNode,
@@ -19,11 +20,14 @@ export function SmartPrefetchLink({
   children,
   className,
   href,
-}: Readonly<{
+  ...props
+}: Readonly<
+  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "onFocus" | "onMouseEnter" | "onTouchStart"> & {
   children: ReactNode;
   className?: string;
   href: string;
-}>) {
+  }
+>) {
   const router = useRouter();
 
   const prefetchOnIntent = () => {
@@ -60,6 +64,7 @@ export function SmartPrefetchLink({
       onMouseEnter={handleMouseEnter}
       onTouchStart={handleTouchStart}
       prefetch={false}
+      {...props}
     >
       {children}
     </Link>
