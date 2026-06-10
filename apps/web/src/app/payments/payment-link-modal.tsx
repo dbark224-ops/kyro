@@ -36,6 +36,8 @@ export function PaymentLinkModal({
 }>) {
   const [isOpen, setIsOpen] = useState(false);
   const [contactId, setContactId] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
+  const [isEnteringNewContact, setIsEnteringNewContact] = useState(false);
   const [description, setDescription] = useState("");
   const [taxIncluded, setTaxIncluded] = useState(true);
   const [notifyEmail, setNotifyEmail] = useState(true);
@@ -54,6 +56,21 @@ export function PaymentLinkModal({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const selectedContact = contacts.find((contact) => contact.id === contactId) ?? null;
+  const filteredContacts = useMemo(() => {
+    const search = contactSearch.trim().toLowerCase();
+
+    if (!search) {
+      return contacts.slice(0, 6);
+    }
+
+    return contacts
+      .filter((contact) =>
+        [contact.label, contact.email, contact.phone]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(search)),
+      )
+      .slice(0, 8);
+  }, [contactSearch, contacts]);
   const totalCents = useMemo(
     () =>
       lines.reduce((total, line) => {
@@ -72,6 +89,18 @@ export function PaymentLinkModal({
     );
   }
 
+  function selectContact(contact: PaymentsContactOption) {
+    setContactId(contact.id);
+    setContactSearch(contact.label);
+    setIsEnteringNewContact(false);
+  }
+
+  function enterNewContact() {
+    setContactId("");
+    setContactSearch("");
+    setIsEnteringNewContact(true);
+  }
+
   async function submitPaymentLink() {
     setCreated(null);
     setError(null);
@@ -88,7 +117,7 @@ export function PaymentLinkModal({
             description: line.description,
             quantity: Math.max(1, Math.round(Number(line.quantity) || 1)),
           })),
-          newContact: contactId
+          newContact: contactId || !isEnteringNewContact
             ? null
             : {
                 company: newContactCompany,
@@ -167,18 +196,76 @@ export function PaymentLinkModal({
             </header>
 
             <div className="payments-modal-grid">
-              <label>
-                <span>Customer</span>
-                <select value={contactId} onChange={(event) => setContactId(event.target.value)}>
-                  <option value="">Create or enter manually</option>
-                  {contacts.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                      {contact.label}
-                      {contact.email ? ` - ${contact.email}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="payments-contact-picker">
+                <div className="payments-contact-picker-heading">
+                  <span>Customer</span>
+                  <button className="subtle-button" onClick={enterNewContact} type="button">
+                    Enter new
+                  </button>
+                </div>
+                {!isEnteringNewContact ? (
+                  <>
+                    <input
+                      aria-label="Search contacts"
+                      placeholder="Search CRM contacts..."
+                      value={contactSearch}
+                      onChange={(event) => {
+                        setContactSearch(event.target.value);
+                        setContactId("");
+                      }}
+                    />
+                    <div className="payments-contact-results">
+                      {selectedContact ? (
+                        <button
+                          className="payments-contact-result selected"
+                          onClick={() => {
+                            setContactId("");
+                            setContactSearch("");
+                          }}
+                          type="button"
+                        >
+                          <strong>{selectedContact.label}</strong>
+                          <span>
+                            {[selectedContact.email, selectedContact.phone]
+                              .filter(Boolean)
+                              .join(" - ") || "Selected contact"}
+                          </span>
+                        </button>
+                      ) : filteredContacts.length > 0 ? (
+                        filteredContacts.map((contact) => (
+                          <button
+                            className="payments-contact-result"
+                            key={contact.id}
+                            onClick={() => selectContact(contact)}
+                            type="button"
+                          >
+                            <strong>{contact.label}</strong>
+                            <span>
+                              {[contact.email, contact.phone].filter(Boolean).join(" - ") ||
+                                "CRM contact"}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="payments-contact-empty">
+                          No matching contacts. Use Enter new to add one for this payment.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="payments-new-contact-banner">
+                    <span>Entering a new customer for this payment.</span>
+                    <button
+                      className="subtle-button"
+                      onClick={() => setIsEnteringNewContact(false)}
+                      type="button"
+                    >
+                      Search contacts
+                    </button>
+                  </div>
+                )}
+              </div>
               <label>
                 <span>Invoice description</span>
                 <input
@@ -187,7 +274,7 @@ export function PaymentLinkModal({
                   onChange={(event) => setDescription(event.target.value)}
                 />
               </label>
-              {!contactId ? (
+              {isEnteringNewContact ? (
                 <>
                   <label>
                     <span>Name</span>
