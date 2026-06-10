@@ -6,6 +6,7 @@ import {
   getStripeConfig,
   stripeWebhookUrl,
   STRIPE_PROVIDER,
+  type StripeCheckoutLineItem,
 } from "./stripe";
 import { operatingCountryPhoneRegion } from "../workspace/operating-countries";
 import type { WorkspaceGeneralSettings } from "../workspace/general-settings";
@@ -202,7 +203,9 @@ export async function createPaymentRequestCheckoutLink({
   currency,
   description,
   dueAt,
+  lineItems,
   metadata,
+  paymentMethodTypes,
   quoteDraftId,
   successUrl,
   supabase,
@@ -216,7 +219,9 @@ export async function createPaymentRequestCheckoutLink({
   currency?: string | null;
   description: string;
   dueAt?: string | null;
+  lineItems?: StripeCheckoutLineItem[];
   metadata?: Record<string, string>;
+  paymentMethodTypes?: string[];
   quoteDraftId?: string | null;
   successUrl: string;
   supabase: SupabaseClient;
@@ -271,11 +276,13 @@ export async function createPaymentRequestCheckoutLink({
     cancelUrl,
     currency: normalizedCurrency,
     description,
+    lineItems,
     metadata: {
       ...(metadata ?? {}),
       paymentRequestId: requestRow.id,
       workspaceId,
     },
+    paymentMethodTypes,
     platformFeeBps: config.platformFeeBps,
     successUrl,
   });

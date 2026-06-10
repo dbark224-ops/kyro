@@ -30,6 +30,7 @@ const navItems = [
   { label: "Inbox", href: "/inbox", icon: "inbox" },
   { label: "CRM", href: "/contacts", icon: "crm" },
   { label: "Files", href: "/files", icon: "files" },
+  { label: "Payments", href: "/payments", icon: "payments" },
   { label: "Activity", href: "/activity", icon: "activity" },
   { label: "Reports", href: "/reports", icon: "reports" },
   { label: "Settings", href: "/settings", icon: "settings" },
@@ -39,7 +40,7 @@ const bottomNavItems = ["Dashboard", "Assistant", "Inbox", "Settings"]
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
 const preloadRoutes = navItems
   .filter((item) =>
-    ["Dashboard", "Assistant", "Inbox", "CRM", "Files", "Activity"].includes(
+    ["Dashboard", "Assistant", "Inbox", "CRM", "Files", "Payments", "Activity"].includes(
       item.label,
     ),
   )
@@ -469,6 +470,15 @@ function AppShellIcon({
     );
   }
 
+  if (name === "payments") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M3.5 5.5h13v9h-13zM3.5 8h13" />
+        <path {...common} d="M6 12h3M12 12h2" />
+      </svg>
+    );
+  }
+
   if (name === "reports") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
@@ -520,7 +530,7 @@ export function AppFrame({
   topControls?: ReactNode;
 }>) {
   const activeHref = navItems.find((item) => item.label === active)?.href;
-  const fitFoldPages = new Set(["Activity", "CRM", "Files", "Inbox"]);
+  const fitFoldPages = new Set(["Activity", "CRM", "Files", "Inbox", "Payments"]);
   const workspaceClassName = [
     "workspace",
     fitFoldPages.has(active) ? "workspace-fit-fold" : null,

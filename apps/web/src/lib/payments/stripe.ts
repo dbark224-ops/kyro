@@ -33,6 +33,12 @@ export type StripeCheckoutSession = {
   url: string | null;
 };
 
+export type StripeCheckoutLineItem = {
+  amountCents: number;
+  description: string;
+  quantity: number;
+};
+
 function envString(name: string) {
   const value = process.env[name]?.trim();
 
@@ -235,7 +241,9 @@ export async function createStripeCheckoutSession({
   cancelUrl,
   currency,
   description,
+  lineItems,
   metadata,
+  paymentMethodTypes,
   platformFeeBps,
   successUrl,
 }: {
@@ -244,31 +252,39 @@ export async function createStripeCheckoutSession({
   cancelUrl: string;
   currency: string;
   description: string;
+  lineItems?: StripeCheckoutLineItem[];
   metadata: Record<string, string>;
+  paymentMethodTypes?: string[];
   platformFeeBps: number;
   successUrl: string;
 }) {
   const applicationFeeAmount =
     platformFeeBps > 0 ? Math.round((amountCents * platformFeeBps) / 10_000) : 0;
+  const checkoutLineItems =
+    lineItems && lineItems.length > 0
+      ? lineItems
+      : [{ amountCents, description, quantity: 1 }];
 
   return stripeApiRequest<StripeCheckoutSession>(
     "/v1/checkout/sessions",
     {
       cancel_url: cancelUrl,
-      line_items: [
-        {
+      line_items: checkoutLineItems.map((lineItem) => ({
           price_data: {
             currency: currency.toLowerCase(),
             product_data: {
-              name: description.slice(0, 120),
+              name: lineItem.description.slice(0, 120),
             },
-            unit_amount: amountCents,
+            unit_amount: lineItem.amountCents,
           },
-          quantity: 1,
-        },
-      ],
+          quantity: lineItem.quantity,
+      })),
       metadata,
       mode: "payment",
+      payment_method_types:
+        paymentMethodTypes && paymentMethodTypes.length > 0
+          ? paymentMethodTypes
+          : ["card"],
       payment_intent_data: {
         application_fee_amount: applicationFeeAmount || undefined,
         metadata,
