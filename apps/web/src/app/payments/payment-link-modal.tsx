@@ -30,9 +30,13 @@ function amountFromCents(cents: number, currency: string) {
 export function PaymentLinkModal({
   contacts,
   currency,
+  paymentLinkDisabledReason,
+  paymentLinksReady,
 }: Readonly<{
   contacts: PaymentsContactOption[];
   currency: string;
+  paymentLinkDisabledReason: string | null;
+  paymentLinksReady: boolean;
 }>) {
   const [isOpen, setIsOpen] = useState(false);
   const [contactId, setContactId] = useState("");
@@ -80,6 +84,13 @@ export function PaymentLinkModal({
       }, 0),
     [lines],
   );
+  const amountTooLow = totalCents < 50;
+  const disabledReason = !paymentLinksReady
+    ? paymentLinkDisabledReason ??
+      "Connect Stripe payments in Settings before creating customer payment links."
+    : amountTooLow
+      ? `Add at least ${amountFromCents(50, currency)} in line items before creating a payment link.`
+      : null;
 
   function updateLine(index: number, patch: Partial<PaymentLine>) {
     setLines((current) =>
@@ -402,10 +413,15 @@ export function PaymentLinkModal({
             </label>
 
             <footer className="payments-modal-footer">
-              <strong>{amountFromCents(totalCents, currency)}</strong>
+              <div className="payments-modal-footer-status">
+                <strong>{amountFromCents(totalCents, currency)}</strong>
+                {disabledReason ? (
+                  <span>{disabledReason}</span>
+                ) : null}
+              </div>
               <button
                 className="primary-action-button"
-                disabled={isSubmitting || totalCents < 50}
+                disabled={isSubmitting || Boolean(disabledReason)}
                 onClick={submitPaymentLink}
                 type="button"
               >

@@ -63,6 +63,21 @@ export default async function PaymentsPage() {
     documentTemplates.find((template) => /invoice/i.test(template.label))?.key ??
     documentTemplates[0]?.key ??
     null;
+  const paymentLinksReady = Boolean(
+    data.migrationReady &&
+      data.configured &&
+      data.account?.providerAccountId &&
+      data.account.status === "active",
+  );
+  const paymentLinkDisabledReason = !data.migrationReady
+    ? "Payment tables need to be migrated before customer payment links can be created."
+    : !data.configured
+      ? "Stripe keys need to be configured before customer payment links can be created."
+      : !data.account?.providerAccountId
+        ? "Connect Stripe payments in Settings before creating customer payment links."
+        : data.account.status !== "active"
+          ? "Finish Stripe onboarding in Settings before creating customer payment links."
+          : null;
 
   return (
     <AppFrame active="Payments">
@@ -72,7 +87,12 @@ export default async function PaymentsPage() {
             <h1>Payments</h1>
           </div>
           <div className="payments-heading-actions">
-            <PaymentLinkModal contacts={data.contacts} currency={currency} />
+            <PaymentLinkModal
+              contacts={data.contacts}
+              currency={currency}
+              paymentLinkDisabledReason={paymentLinkDisabledReason}
+              paymentLinksReady={paymentLinksReady}
+            />
             <CreateInvoiceModal
               defaultTemplateKey={defaultInvoiceTemplateKey}
               templates={documentTemplates}

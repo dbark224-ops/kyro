@@ -14018,6 +14018,19 @@ button:disabled {
   font-size: 1.45rem;
 }
 
+.payments-modal-footer-status {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.payments-modal-footer-status span {
+  max-width: 580px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
 .payments-created-link {
   display: flex;
   align-items: center;
