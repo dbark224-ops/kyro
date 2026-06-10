@@ -143,7 +143,6 @@ export function PaymentLinkModal({
           notifyEmail: selectedContact?.email ?? newContactEmail,
           notifyPhone: selectedContact?.phone ?? newContactPhone,
           paymentInstructions,
-          paymentMethods: ["card"],
           recipientBusinessName,
           recipientTaxId,
           taxIncluded,
@@ -407,7 +406,10 @@ export function PaymentLinkModal({
                   Email
                 </label>
               </fieldset>
-              <span className="payments-method-pill">Card checkout</span>
+              <span className="payments-method-pill">Stripe Checkout</span>
+              <span className="payments-method-note">
+                Available payment methods are managed in Stripe.
+              </span>
             </div>
 
             <label className="payments-instructions-field">

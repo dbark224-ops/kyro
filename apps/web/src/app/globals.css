@@ -14072,6 +14072,11 @@ button:disabled {
   font-weight: 850;
 }
 
+.payments-method-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .payments-instructions-field textarea {
   min-height: 82px;
   resize: vertical;

@@ -37,12 +37,6 @@ function boolValue(value: unknown) {
   return value === true || value === "true" || value === "on";
 }
 
-function stripePaymentMethod(value: unknown) {
-  const method = textValue(value)?.toLowerCase();
-
-  return method === "card" ? method : null;
-}
-
 async function createContactIfNeeded({
   body,
   supabase,
@@ -143,11 +137,6 @@ export async function POST(request: Request) {
       supabase,
       workspaceId: workspace.id,
     });
-    const requestedPaymentMethodTypes = [
-      ...new Set(arrayValue(body.paymentMethods).map(stripePaymentMethod)),
-    ].filter((item): item is "card" => item === "card");
-    const paymentMethodTypes =
-      requestedPaymentMethodTypes.length > 0 ? requestedPaymentMethodTypes : ["card"];
     const result = await createPaymentRequestCheckoutLink({
       amountCents,
       cancelUrl: `${appUrl}/payments?engine_message=Payment%20link%20draft%20cancelled.`,
@@ -162,13 +151,12 @@ export async function POST(request: Request) {
         notifyEmail: textValue(body.notifyEmail) ?? "",
         notifyPhone: textValue(body.notifyPhone) ?? "",
         paymentInstructions: textValue(body.paymentInstructions) ?? "",
-        paymentMethods: JSON.stringify(arrayValue(body.paymentMethods)),
+        paymentMethods: "stripe_dashboard",
         recipientBusinessName: textValue(body.recipientBusinessName) ?? "",
         recipientTaxId: textValue(body.recipientTaxId) ?? "",
         source: "kyro_payments_page",
         taxIncluded: String(boolValue(body.taxIncluded)),
       },
-      paymentMethodTypes,
       quoteDraftId: textValue(body.quoteDraftId),
       successUrl: `${appUrl}/payments?engine_message=Payment%20received.`,
       supabase,

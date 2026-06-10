@@ -281,10 +281,9 @@ export async function createStripeCheckoutSession({
       })),
       metadata,
       mode: "payment",
-      payment_method_types:
-        paymentMethodTypes && paymentMethodTypes.length > 0
-          ? paymentMethodTypes
-          : ["card"],
+      ...(paymentMethodTypes && paymentMethodTypes.length > 0
+        ? { payment_method_types: paymentMethodTypes }
+        : {}),
       payment_intent_data: {
         application_fee_amount: applicationFeeAmount || undefined,
         metadata,
