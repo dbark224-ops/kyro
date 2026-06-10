@@ -1549,8 +1549,6 @@ export async function connectStripePaymentsAction() {
       supabase: serviceSupabase,
       workspaceId: workspace.id,
     });
-
-    redirect(onboardingUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     const connectSignupNeeded =
