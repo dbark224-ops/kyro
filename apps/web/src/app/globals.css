@@ -13907,6 +13907,23 @@ button:disabled {
   white-space: nowrap;
 }
 
+.payments-enter-new-button {
+  border: 0;
+  background: transparent;
+  color: var(--cyan);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.payments-enter-new-button:hover {
+  color: var(--pink);
+}
+
 .payments-contact-results {
   display: grid;
   gap: 6px;
@@ -13971,6 +13988,11 @@ button:disabled {
   gap: 8px;
 }
 
+.payments-line-items-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px auto;
+}
+
 .payments-line-item-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 84px 130px auto;
@@ -13995,7 +14017,48 @@ button:disabled {
   text-transform: none;
 }
 
+.payments-tax-toggle {
+  justify-self: stretch;
+  min-height: 38px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
 .payments-modal-options input {
+  width: auto;
+  padding: 0;
+}
+
+.payments-notify-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.payments-notify-pill legend {
+  float: left;
+  margin-right: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.payments-notify-pill label {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.payments-notify-pill input {
   width: auto;
   padding: 0;
 }

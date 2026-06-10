@@ -210,7 +210,11 @@ export function PaymentLinkModal({
               <div className="payments-contact-picker">
                 <div className="payments-contact-picker-heading">
                   <span>Customer</span>
-                  <button className="subtle-button" onClick={enterNewContact} type="button">
+                  <button
+                    className="payments-enter-new-button"
+                    onClick={enterNewContact}
+                    type="button"
+                  >
                     Enter new
                   </button>
                 </div>
@@ -280,7 +284,7 @@ export function PaymentLinkModal({
               <label>
                 <span>Invoice description</span>
                 <input
-                  placeholder="Bathroom rough-in deposit"
+                  placeholder="What is this payment for?"
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                 />
@@ -326,6 +330,14 @@ export function PaymentLinkModal({
             <div className="payments-line-items">
               <div className="payments-line-items-header">
                 <p className="eyebrow">Items</p>
+                <label className="inline-toggle payments-tax-toggle">
+                  <input
+                    checked={taxIncluded}
+                    onChange={(event) => setTaxIncluded(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Tax included
+                </label>
                 <button
                   className="subtle-button"
                   onClick={() =>
@@ -376,30 +388,25 @@ export function PaymentLinkModal({
             </div>
 
             <div className="payments-modal-options">
-              <label className="inline-toggle">
-                <input
-                  checked={taxIncluded}
-                  onChange={(event) => setTaxIncluded(event.target.checked)}
-                  type="checkbox"
-                />
-                Tax included
-              </label>
-              <label className="inline-toggle">
-                <input
-                  checked={notifyEmail}
-                  onChange={(event) => setNotifyEmail(event.target.checked)}
-                  type="checkbox"
-                />
-                Notify by email
-              </label>
-              <label className="inline-toggle">
-                <input
-                  checked={notifySms}
-                  onChange={(event) => setNotifySms(event.target.checked)}
-                  type="checkbox"
-                />
-                Notify by SMS
-              </label>
+              <fieldset className="payments-notify-pill">
+                <legend>Notify</legend>
+                <label>
+                  <input
+                    checked={notifySms}
+                    onChange={(event) => setNotifySms(event.target.checked)}
+                    type="checkbox"
+                  />
+                  SMS
+                </label>
+                <label>
+                  <input
+                    checked={notifyEmail}
+                    onChange={(event) => setNotifyEmail(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Email
+                </label>
+              </fieldset>
               <span className="payments-method-pill">Card checkout</span>
             </div>
 
