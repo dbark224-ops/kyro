@@ -11,7 +11,9 @@ import {
   assistantWebSearchEnabled,
   runAssistantWebSearch,
 } from "../../../../../lib/assistant/web-search";
+import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
 import { updateContactFromAssistantTool } from "../../../../../lib/crm/contact-update-tool";
+import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
 import {
   approveAction,
   executeAction,
@@ -184,8 +186,92 @@ function vapiToolCanStartOutboundCall(payload: Record<string, unknown>) {
   return source === "kyro.vapi_internal_voice";
 }
 
-function vapiToolCanSendOutboundSms(payload: Record<string, unknown>) {
-  return vapiToolCanStartOutboundCall(payload);
+function vapiCall(payload: Record<string, unknown>) {
+  const message = objectRecord(payload.message);
+
+  return objectRecord(message.call ?? payload.call ?? payload);
+}
+
+function phoneComparisonKeys(value: string | null) {
+  if (!value) {
+    return new Set<string>();
+  }
+
+  const rawDigits = value.replace(/\D/g, "");
+  const normalizedDigits =
+    normalizeContactPhoneForRegion(value, "AU")?.replace(/\D/g, "") ?? null;
+
+  return new Set(
+    [rawDigits, normalizedDigits].filter(
+      (candidate): candidate is string => Boolean(candidate),
+    ),
+  );
+}
+
+function phoneKeySetsOverlap(left: Set<string>, right: Set<string>) {
+  for (const value of left) {
+    if (right.has(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function vapiToolCallerNumber(
+  payload: Record<string, unknown>,
+  args: Record<string, unknown>,
+) {
+  const metadata = vapiToolCallMetadata(payload);
+  const call = vapiCall(payload);
+  const customer = objectRecord(call.customer);
+  const providerDetails = objectRecord(
+    call.phoneCallProviderDetails ?? call.providerDetails,
+  );
+
+  return (
+    textValue(metadata.callerNumber) ??
+    textValue(metadata.fromNumber) ??
+    textValue(metadata.from) ??
+    textValue(args.callerNumber) ??
+    textValue(args.fromNumber) ??
+    textValue(args.from) ??
+    textValue(customer.number) ??
+    textValue(providerDetails.from) ??
+    textValue(call.from) ??
+    textValue(call.fromNumber) ??
+    textValue(payload.from) ??
+    textValue(payload.fromNumber)
+  );
+}
+
+async function vapiToolCanSendOutboundSms({
+  args,
+  payload,
+  supabase,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  if (vapiToolCanStartOutboundCall(payload)) {
+    return true;
+  }
+
+  const callerNumber = vapiToolCallerNumber(payload, args);
+  const callerKeys = phoneComparisonKeys(callerNumber);
+
+  if (callerKeys.size === 0) {
+    return false;
+  }
+
+  const settings = await getVoiceSettings(supabase, workspaceId);
+
+  return settings.phoneAgentUserNumbers.some((phoneNumber) =>
+    phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(phoneNumber)),
+  );
 }
 
 function objectRecord(value: unknown) {
@@ -995,11 +1081,18 @@ export async function POST(request: Request) {
         });
       }
 
-      if (!vapiToolCanSendOutboundSms(payload)) {
+      if (
+        !(await vapiToolCanSendOutboundSms({
+          args,
+          payload,
+          supabase,
+          workspaceId,
+        }))
+      ) {
         return completedToolResponse({
           ok: false,
           message:
-            "Drafted SMS replies can only be sent from trusted internal Kyro calls.",
+            "Drafted SMS replies can only be sent from trusted internal Kyro calls. Do not tell the caller the SMS was sent.",
         });
       }
 
@@ -1096,11 +1189,18 @@ export async function POST(request: Request) {
         });
       }
 
-      if (!vapiToolCanSendOutboundSms(payload)) {
+      if (
+        !(await vapiToolCanSendOutboundSms({
+          args,
+          payload,
+          supabase,
+          workspaceId,
+        }))
+      ) {
         return completedToolResponse({
           ok: false,
           message:
-            "SMS messages can only be sent from trusted internal Kyro calls.",
+            "SMS messages can only be sent from trusted internal Kyro calls. Do not tell the caller the SMS was sent.",
         });
       }
 
