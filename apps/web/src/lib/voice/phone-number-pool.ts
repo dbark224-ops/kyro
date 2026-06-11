@@ -18,6 +18,11 @@ export type WorkspacePhoneNumberPoolAssignment = {
   number: WorkspacePhoneNumberPoolRow;
 };
 
+export type WorkspacePhoneNumberPoolRelease = {
+  channelDeactivated: boolean;
+  number: WorkspacePhoneNumberPoolRow;
+};
+
 export type WorkspacePhoneNumberPoolRow = {
   capabilities: {
     mms?: boolean;
@@ -337,7 +342,7 @@ export async function assignWorkspacePhoneNumberFromPool(input: {
   }
 
   const assignedAt = new Date().toISOString();
-  const metadata = {
+  const metadata: Record<string, unknown> = {
     ...candidate.metadata,
     assignedFromPoolAt: assignedAt,
     assignedToWorkspaceId: input.workspaceId,
@@ -415,6 +420,135 @@ export async function assignWorkspacePhoneNumberFromPool(input: {
     countryCode,
     number: assignedNumber,
   } satisfies WorkspacePhoneNumberPoolAssignment;
+}
+
+export async function releaseWorkspacePhoneNumberToPool(input: {
+  actorId?: string | null;
+  phoneNumberId: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data: candidateRow, error: candidateError } = await input.supabase
+    .from("workspace_phone_numbers")
+    .select(selectColumns())
+    .eq("id", input.phoneNumberId)
+    .eq("workspace_id", input.workspaceId)
+    .eq("provider", TWILIO_PROVIDER)
+    .in("status", ["active", "pending"])
+    .maybeSingle();
+
+  if (candidateError) {
+    if (tableMissing(candidateError)) {
+      throw new Error(
+        "Phone-number tables are not ready yet. Run the workspace phone-number pool migration first.",
+      );
+    }
+
+    throw new Error(
+      `Unable to load assigned phone number: ${candidateError.message}`,
+    );
+  }
+
+  if (!candidateRow) {
+    throw new Error("That phone number is not assigned to this workspace.");
+  }
+
+  const candidate = toPoolRow(
+    candidateRow as unknown as Record<string, unknown>,
+  );
+  const releasedAt = new Date().toISOString();
+  const metadata: Record<string, unknown> = {
+    ...candidate.metadata,
+    previousAssignmentSource:
+      textValue(candidate.metadata.assignmentSource) ?? ASSIGNMENT_SOURCE,
+    releasedAt,
+    releasedByUserId: input.actorId ?? null,
+    releasedFromWorkspaceId: input.workspaceId,
+  };
+
+  delete metadata.assignedFromPoolAt;
+  delete metadata.assignedToWorkspaceId;
+  delete metadata.assignmentSource;
+
+  const { data: releasedRow, error: releaseError } = await input.supabase
+    .from("workspace_phone_numbers")
+    .update({
+      assigned_at: null,
+      metadata,
+      reserved_at: null,
+      status: "available",
+      workspace_id: null,
+    })
+    .eq("id", candidate.id)
+    .eq("workspace_id", input.workspaceId)
+    .select(selectColumns())
+    .maybeSingle();
+
+  if (releaseError) {
+    throw new Error(`Unable to disconnect phone number: ${releaseError.message}`);
+  }
+
+  if (!releasedRow) {
+    throw new Error(
+      "That phone number changed while you were disconnecting it. Refresh and try again.",
+    );
+  }
+
+  const releasedNumber = toPoolRow(
+    releasedRow as unknown as Record<string, unknown>,
+  );
+  const channelExternalId = `twilio:sms:${
+    candidate.providerPhoneNumberId ?? candidate.normalizedPhone
+  }`;
+  const { data: deactivatedChannels, error: channelError } = await input.supabase
+    .from("channels")
+    .update({ status: "inactive" })
+    .eq("workspace_id", input.workspaceId)
+    .eq("provider", TWILIO_PROVIDER)
+    .eq("external_id", channelExternalId)
+    .select("id");
+
+  if (channelError) {
+    throw new Error(
+      `Phone number was released, but Kyro could not deactivate its SMS channel: ${channelError.message}`,
+    );
+  }
+
+  const channelDeactivated = (deactivatedChannels ?? []).length > 0;
+
+  await insertAuditLog(input.supabase, {
+    workspaceId: input.workspaceId,
+    action: "phone_number_pool.released",
+    actorId: input.actorId ?? undefined,
+    actorType: input.actorId ? "user" : "system",
+    after: {
+      channelDeactivated,
+      phoneNumberId: releasedNumber.id,
+      provider: TWILIO_PROVIDER,
+      status: releasedNumber.status,
+      workspaceId: null,
+    },
+    before: {
+      phoneNumber: candidate.phoneNumber,
+      phoneNumberId: candidate.id,
+      provider: TWILIO_PROVIDER,
+      providerPhoneNumberId: candidate.providerPhoneNumberId,
+      status: candidate.status,
+      workspaceId: input.workspaceId,
+    },
+    entityId: releasedNumber.id,
+    entityType: "workspace_phone_number",
+    metadata: {
+      assignmentSource: ASSIGNMENT_SOURCE,
+      channelExternalId,
+      vapiPhoneNumberId: candidate.vapiPhoneNumberId,
+    },
+  });
+
+  return {
+    channelDeactivated,
+    number: releasedNumber,
+  } satisfies WorkspacePhoneNumberPoolRelease;
 }
 
 export async function ensureWorkspacePhoneNumberFromPool(input: {

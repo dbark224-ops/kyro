@@ -9086,6 +9086,33 @@ button:disabled {
   margin-top: 3px;
 }
 
+.phone-number-active-actions,
+.phone-number-row-actions,
+.operational-phone-number-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.phone-number-disconnect-form {
+  margin: 0;
+}
+
+.phone-number-row-actions,
+.operational-phone-number-row {
+  min-width: 0;
+}
+
+.operational-phone-number-row {
+  justify-content: space-between;
+}
+
+.operational-phone-number-row > div {
+  min-width: 0;
+}
+
 .phone-number-choice-list {
   display: grid;
   gap: 8px;

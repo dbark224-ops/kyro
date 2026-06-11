@@ -83,6 +83,8 @@ import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import {
   assignWorkspacePhoneNumberFromPool,
   ensureWorkspacePhoneNumberFromPool,
+  getWorkspaceAssignedPhoneNumbers,
+  releaseWorkspacePhoneNumberToPool,
 } from "../../lib/voice/phone-number-pool";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -1521,6 +1523,165 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
     assignment.activationCharged
       ? `Phone and SMS enabled on ${assignment.number.phoneNumber}. A one-time US$6 setup charge was added to the usage ledger.`
       : `Phone and SMS enabled on ${assignment.number.phoneNumber}.`,
+  );
+}
+
+export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+
+  if (!phoneNumberId) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "Choose a phone number to disconnect.",
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let release: Awaited<ReturnType<typeof releaseWorkspacePhoneNumberToPool>>;
+
+  try {
+    release = await releaseWorkspacePhoneNumberToPool({
+      actorId: user.id,
+      phoneNumberId,
+      supabase: serviceSupabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to disconnect that phone number.",
+    );
+  }
+
+  let remainingNumbers: Awaited<
+    ReturnType<typeof getWorkspaceAssignedPhoneNumbers>
+  > = [];
+
+  try {
+    remainingNumbers = await getWorkspaceAssignedPhoneNumbers(
+      serviceSupabase,
+      workspace.id,
+    );
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Phone number disconnected, but Kyro could not refresh the remaining phone-number list.",
+    );
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const replacementVapiPhoneNumberId =
+    remainingNumbers.find((number) => number.vapiPhoneNumberId)
+      ?.vapiPhoneNumberId ?? null;
+  const disconnectedActiveVapiNumber =
+    release.number.vapiPhoneNumberId &&
+    existingVoiceSettings.vapiPhoneNumberId === release.number.vapiPhoneNumberId;
+  const shouldUpdateVoiceSettings =
+    remainingNumbers.length === 0 || disconnectedActiveVapiNumber;
+
+  if (shouldUpdateVoiceSettings) {
+    const { data: beforePolicy, error: beforeError } = await supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+      .maybeSingle();
+
+    if (beforeError) {
+      redirectWithSectionMessage(
+        "integrations",
+        "engine_error",
+        beforeError.message,
+      );
+    }
+
+    const voiceSettings = normalizeVoiceSettings({
+      ...existingVoiceSettings,
+      phoneAgentEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentEnabled
+          : false,
+      phoneAgentInboundEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentInboundEnabled
+          : false,
+      phoneAgentOutboundEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentOutboundEnabled
+          : false,
+      phoneAgentVoicemailOverflowEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentVoicemailOverflowEnabled
+          : false,
+      vapiPhoneNumberId:
+        replacementVapiPhoneNumberId ?? existingVoiceSettings.vapiPhoneNumberId,
+    });
+
+    if (replacementVapiPhoneNumberId) {
+      voiceSettings.vapiPhoneNumberId = replacementVapiPhoneNumberId;
+    }
+
+    if (remainingNumbers.length === 0) {
+      voiceSettings.vapiPhoneNumberId = null;
+    }
+
+    const { data: savedPolicy, error: saveError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          policy_type: VOICE_SETTINGS_POLICY_TYPE,
+          settings: voiceSettings,
+          workspace_id: workspace.id,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+    if (saveError || !savedPolicy) {
+      redirectWithSectionMessage(
+        "integrations",
+        "engine_error",
+        saveError?.message ?? "Unable to update phone voice settings.",
+      );
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: "assistant_voice_settings.phone_number_disconnected",
+      actorId: user.id,
+      actorType: "user",
+      after: { settings: voiceSettings },
+      before: beforePolicy ? { settings: beforePolicy.settings } : null,
+      entityId: String(savedPolicy.id),
+      entityType: "workspace_policy",
+      metadata: {
+        disconnectedPhoneNumberId: release.number.id,
+        remainingPhoneNumberCount: remainingNumbers.length,
+        replacementVapiPhoneNumberId,
+      },
+    });
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    remainingNumbers.length > 0
+      ? `${release.number.phoneNumber} disconnected and returned to the available number pool.`
+      : `${release.number.phoneNumber} disconnected. Phone and SMS automation is disabled until another number is assigned.`,
   );
 }
 

@@ -1,6 +1,7 @@
 import { AppFrame } from "../components/app-frame";
 import {
   disconnectIntegrationAction,
+  disconnectWorkspacePhoneSmsAction,
   enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
   autosavePronunciationEntryAction,
@@ -1065,7 +1066,22 @@ function TwilioTelephonySettings({
                   .join(" - ")}
               </span>
             </div>
-            <span className="pill">Enabled</span>
+            <div className="phone-number-active-actions">
+              <span className="pill">Enabled</span>
+              <form
+                action={disconnectWorkspacePhoneSmsAction}
+                className="phone-number-disconnect-form"
+              >
+                <input
+                  name="phoneNumberId"
+                  type="hidden"
+                  value={activeVoiceSmsNumber.id}
+                />
+                <button className="text-button danger" type="submit">
+                  Disconnect
+                </button>
+              </form>
+            </div>
           </div>
         ) : (
           <form action={enableWorkspacePhoneSmsAction} className="settings-form">
@@ -1142,11 +1158,22 @@ function TwilioTelephonySettings({
                     .join(" - ")}
                 </span>
               </div>
-              <span className="pill">
-                {number.monthlyCostSnapshot > 0
-                  ? formatMoney(number.monthlyCostSnapshot, number.currency)
-                  : "Workspace number"}
-              </span>
+              <div className="phone-number-row-actions">
+                <span className="pill">
+                  {number.monthlyCostSnapshot > 0
+                    ? formatMoney(number.monthlyCostSnapshot, number.currency)
+                    : "Workspace number"}
+                </span>
+                <form
+                  action={disconnectWorkspacePhoneSmsAction}
+                  className="phone-number-disconnect-form"
+                >
+                  <input name="phoneNumberId" type="hidden" value={number.id} />
+                  <button className="text-button danger" type="submit">
+                    Disconnect
+                  </button>
+                </form>
+              </div>
             </div>
           ))}
         </div>
@@ -2514,12 +2541,24 @@ function GeneralSettingsDetail({
         {operationalPhoneNumbers.length ? (
           <div className="detail-list compact-detail-list">
             {operationalPhoneNumbers.map((number) => (
-              <div key={number.id}>
-                <strong>{number.phoneNumber}</strong>
-                <span>
-                  {number.friendlyName ?? "Workspace number"} -{" "}
-                  {phoneCapabilitiesLabel(number)} - {formatLabel(number.status)}
-                </span>
+              <div className="operational-phone-number-row" key={number.id}>
+                <div>
+                  <strong>{number.phoneNumber}</strong>
+                  <span>
+                    {number.friendlyName ?? "Workspace number"} -{" "}
+                    {phoneCapabilitiesLabel(number)} -{" "}
+                    {formatLabel(number.status)}
+                  </span>
+                </div>
+                <button
+                  className="text-button danger"
+                  formAction={disconnectWorkspacePhoneSmsAction}
+                  name="phoneNumberId"
+                  type="submit"
+                  value={number.id}
+                >
+                  Disconnect
+                </button>
               </div>
             ))}
           </div>
