@@ -136,6 +136,7 @@ workspace users by RLS.
   - `kyro_web_search`
   - `kyro_check_recent_email`
   - `kyro_start_outbound_call`
+  - `kyro_send_drafted_sms`
 - Returns JSON tool results suitable for Vapi to read back into the call.
 
 `kyro_start_outbound_call` is only for trusted internal contexts. The backend
@@ -143,6 +144,11 @@ allows it when Vapi metadata marks the call as `callerRole = internal_user`,
 `purpose = inbound_user`, or `source = kyro.vapi_internal_voice`. Customer-facing
 inbound and voicemail contexts are deliberately blocked so an external caller
 cannot make Kyro place arbitrary outbound calls.
+
+`kyro_send_drafted_sms` follows the same trusted-internal guard. It resolves the
+contact/conversation/action, finds the newest pending SMS draft, then runs the
+same approve-and-execute path used by the Inbox UI so Twilio sending, message
+thread recording, audit logs, follow-up state, and idempotency stay consistent.
 
 `GET /api/assistant/vapi/internal/session`
 
@@ -391,6 +397,25 @@ Recommended Vapi tool definitions:
   - `workspaceId` string
   - `userId` string
   - `provider` string, optional: `google` or `microsoft`
+
+`kyro_send_drafted_sms`
+
+- Purpose: send an already drafted SMS reply for a contact or conversation after
+  the internal user explicitly asks Kyro to send it.
+- Arguments:
+  - `workspaceId` string
+  - `userId` string
+  - `threadId` string, optional
+  - `contactId` string, optional
+  - `conversationId` string, optional
+  - `actionId` string, optional, if Kyro already knows the exact draft action
+  - `contactName` string, optional
+  - `phoneNumber` string, optional
+  - `query` string, optional natural-language resolution text
+- Behaviour: only trusted internal Vapi contexts can use this tool. If more than
+  one contact matches, Kyro returns contact cards and asks the user to choose
+  before sending. If no pending SMS draft exists, it says so rather than sending
+  a fresh improvised message.
 
 For the internal Vapi voice assistant, configure its system prompt to include
 `{{kyro_context}}` and instruct it to use the Kyro tool endpoint for work-related

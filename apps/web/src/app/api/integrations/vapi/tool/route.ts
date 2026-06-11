@@ -13,6 +13,10 @@ import {
 } from "../../../../../lib/assistant/web-search";
 import { updateContactFromAssistantTool } from "../../../../../lib/crm/contact-update-tool";
 import {
+  approveAction,
+  executeAction,
+} from "../../../../../lib/engine/event-action-audit";
+import {
   syncInboundEmail,
   type InboundEmailProvider,
 } from "../../../../../lib/integrations/inbound-email-sync";
@@ -44,6 +48,17 @@ import { resolveOutboundCallRequest } from "../../../../../lib/voice/outbound-ca
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
 
 export const dynamic = "force-dynamic";
+
+type VoiceContactMatch = Awaited<ReturnType<typeof lookupVoiceContactsForTool>>[number];
+
+type DraftSmsActionRow = {
+  id: string;
+  input: unknown;
+  status: string;
+  target_id: string | null;
+  target_type: string | null;
+  type: string;
+};
 
 export async function GET() {
   const config = getVapiConfig();
@@ -166,6 +181,203 @@ function vapiToolCanStartOutboundCall(payload: Record<string, unknown>) {
   }
 
   return source === "kyro.vapi_internal_voice";
+}
+
+function vapiToolCanSendOutboundSms(payload: Record<string, unknown>) {
+  return vapiToolCanStartOutboundCall(payload);
+}
+
+function objectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function actionBody(action: DraftSmsActionRow) {
+  const input = objectRecord(action.input);
+  return (
+    textValue(input.body) ??
+    textValue(input.message) ??
+    textValue(input.replyBody) ??
+    textValue(input.text)
+  );
+}
+
+function actionChannel(action: DraftSmsActionRow) {
+  const input = objectRecord(action.input);
+  return (
+    textValue(input.channelType) ??
+    textValue(input.channel) ??
+    textValue(input.deliveryChannel)
+  )?.toLowerCase();
+}
+
+function isSmsDraftAction(action: DraftSmsActionRow) {
+  if (!["draft_reply", "send_outbound_message"].includes(action.type)) {
+    return false;
+  }
+
+  const channel = actionChannel(action);
+  return channel === "sms" && Boolean(actionBody(action));
+}
+
+async function loadContactById({
+  contactId,
+  supabase,
+  workspaceId,
+}: {
+  contactId: string;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id,name,email,phone,address,company,contact_type")
+    .eq("workspace_id", workspaceId)
+    .eq("id", contactId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load contact: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    address: textValue(data.address),
+    company: textValue(data.company),
+    contactType: textValue(data.contact_type),
+    email: textValue(data.email),
+    id: String(data.id),
+    name: textValue(data.name),
+    phone: textValue(data.phone),
+  } satisfies VoiceContactMatch;
+}
+
+async function loadDraftSmsActionById({
+  actionId,
+  supabase,
+  workspaceId,
+}: {
+  actionId: string;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const { data, error } = await supabase
+    .from("actions")
+    .select("id,type,status,input,target_id,target_type")
+    .eq("workspace_id", workspaceId)
+    .eq("id", actionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load drafted SMS action: ${error.message}`);
+  }
+
+  return data as DraftSmsActionRow | null;
+}
+
+async function findLatestDraftSmsForContact({
+  contactId,
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  contactId: string;
+  conversationId: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  let conversationIds: string[] = [];
+
+  if (conversationId) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("contact_id", contactId)
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Unable to verify SMS conversation: ${error.message}`);
+    }
+
+    if (data?.id) {
+      conversationIds = [String(data.id)];
+    }
+  } else {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("contact_id", contactId)
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    if (error) {
+      throw new Error(`Unable to load contact conversations: ${error.message}`);
+    }
+
+    conversationIds = (data ?? []).map((row) => String(row.id)).filter(Boolean);
+  }
+
+  if (conversationIds.length === 0) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("actions")
+    .select("id,type,status,input,target_id,target_type")
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "conversation")
+    .in("target_id", conversationIds)
+    .in("type", ["draft_reply", "send_outbound_message"])
+    .in("status", ["pending_approval", "approved"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(`Unable to load drafted SMS actions: ${error.message}`);
+  }
+
+  return ((data ?? []) as DraftSmsActionRow[]).find(isSmsDraftAction) ?? null;
+}
+
+async function resolveDraftSmsContact({
+  args,
+  prompt,
+  supabase,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  prompt: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const contactId = textValue(args.contactId);
+
+  if (contactId) {
+    const contact = await loadContactById({ contactId, supabase, workspaceId });
+    return contact ? [contact] : [];
+  }
+
+  return lookupVoiceContactsForTool({
+    phoneNumber:
+      textValue(args.phoneNumber) ??
+      textValue(args.customerPhone) ??
+      textValue(args.toNumber),
+    query:
+      textValue(args.contactName) ??
+      textValue(args.customerName) ??
+      textValue(args.query) ??
+      prompt,
+    supabase,
+    workspaceId,
+  });
 }
 
 function fieldLabel(value: string | null, label: string) {
@@ -554,6 +766,107 @@ export async function POST(request: Request) {
         providerCallId: result.providerCallId,
         status: result.status,
         voiceCallId: result.voiceCallId,
+      });
+    }
+
+    if (toolCall.name === "kyro_send_drafted_sms") {
+      if (!userId) {
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a user id to send drafted SMS replies.",
+        });
+      }
+
+      if (!vapiToolCanSendOutboundSms(payload)) {
+        return completedToolResponse({
+          ok: false,
+          message:
+            "Drafted SMS replies can only be sent from trusted internal Kyro calls.",
+        });
+      }
+
+      const explicitActionId = textValue(args.actionId);
+      let draftAction = explicitActionId
+        ? await loadDraftSmsActionById({
+            actionId: explicitActionId,
+            supabase,
+            workspaceId,
+          })
+        : null;
+
+      const contacts = explicitActionId
+        ? []
+        : await resolveDraftSmsContact({
+            args,
+            prompt,
+            supabase,
+            workspaceId,
+          });
+
+      if (!draftAction) {
+        if (contacts.length === 0) {
+          return completedToolResponse({
+            answer:
+              "I could not find a matching contact with a drafted SMS ready to send.",
+            ok: false,
+            uiBlocks: [],
+          });
+        }
+
+        if (contacts.length > 1) {
+          return completedToolResponse({
+            answer:
+              "I found more than one possible contact. Ask the user which one they mean before sending the drafted SMS.",
+            contacts,
+            ok: false,
+            uiBlocks: contactCardsForVoiceTool(contacts),
+          });
+        }
+
+        const contact = contacts[0];
+        draftAction = await findLatestDraftSmsForContact({
+          contactId: contact.id,
+          conversationId: textValue(args.conversationId),
+          supabase,
+          workspaceId,
+        });
+      }
+
+      if (!draftAction) {
+        return completedToolResponse({
+          answer:
+            "I found the contact, but there is no pending drafted SMS ready to send.",
+          contacts,
+          ok: false,
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
+      if (!isSmsDraftAction(draftAction)) {
+        return completedToolResponse({
+          answer:
+            "I found that draft action, but it is not a pending SMS draft.",
+          ok: false,
+        });
+      }
+
+      if (draftAction.status === "pending_approval") {
+        await approveAction(supabase, toolUser(userId), draftAction.id);
+      }
+
+      await executeAction(supabase, toolUser(userId), draftAction.id);
+
+      const sentTo =
+        contacts[0]?.name ??
+        contacts[0]?.company ??
+        contacts[0]?.phone ??
+        "the contact";
+
+      return completedToolResponse({
+        answer: `Sent the drafted SMS to ${sentTo}.`,
+        actionId: draftAction.id,
+        ok: true,
+        uiBlocks: contacts.length ? contactCardsForVoiceTool(contacts) : [],
       });
     }
 
