@@ -217,6 +217,10 @@ function formatCurrency(value: number, currency: string) {
   }).format(value);
 }
 
+function formatCents(value: number, currency: string) {
+  return formatCurrency(value / 100, currency);
+}
+
 function formatCount(value: number) {
   return new Intl.NumberFormat().format(value);
 }
@@ -829,36 +833,46 @@ function renderWidget({
   }
 
   if (key === "payments") {
+    const paymentTiles = [
+      {
+        detail: "Settled this week",
+        label: "Paid this week",
+        value: formatCents(data.payments.paidThisWeekCents, data.payments.currency),
+      },
+      {
+        detail: "Settled this month",
+        label: "Paid this month",
+        value: formatCents(data.payments.paidThisMonthCents, data.payments.currency),
+      },
+      {
+        detail: `${formatCount(data.payments.outstandingCount)} open`,
+        label: "Outstanding",
+        value: formatCents(data.payments.outstandingAmountCents, data.payments.currency),
+      },
+      {
+        detail: `${formatCount(data.payments.overdueCount)} past due`,
+        label: "Overdue",
+        value: formatCents(data.payments.overdueAmountCents, data.payments.currency),
+      },
+    ];
+
     return (
       <section className="dashboard-widget dashboard-widget-payments" key={key}>
         <DashboardWidgetHeader
           action={
             <span className="filter-pill">{timeframeLabel}</span>
           }
-          description="Customer collections and usage billing."
+          description="Customer collections and payment requests."
           title="Payments"
         />
         <div className="dashboard-payments-card">
-          <div className="dashboard-payment-total">
-            <span>Usage metered</span>
-            <strong>
-              {formatCurrency(
-                data.payments.usageCustomerCharge,
-                data.payments.usageCurrency,
-              )}
-            </strong>
-            <small>{data.payments.note}</small>
-          </div>
-          <div className="dashboard-payment-stats">
-            <article>
-              <span>Ready to send</span>
-              <strong>{formatCount(data.payments.readyToSendCount)}</strong>
+          {paymentTiles.map((tile) => (
+            <article key={tile.label}>
+              <span>{tile.label}</span>
+              <strong>{tile.value}</strong>
+              <small>{tile.detail}</small>
             </article>
-            <article>
-              <span>Approved / booked</span>
-              <strong>{formatCount(data.payments.quoteApprovedOrBookedCount)}</strong>
-            </article>
-          </div>
+          ))}
         </div>
       </section>
     );

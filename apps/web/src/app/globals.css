@@ -12883,15 +12883,15 @@ button:disabled {
 
 .dashboard-payments-card {
   display: grid;
-  grid-template-rows: auto auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   min-height: 0;
 }
 
-.dashboard-payment-total {
+.dashboard-payments-card article {
   display: grid;
   align-content: start;
-  gap: 4px;
+  gap: 3px;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background:
@@ -12902,49 +12902,60 @@ button:disabled {
       ),
     color-mix(in srgb, var(--background) 32%, var(--surface));
   min-height: 0;
-  padding: 10px 12px;
+  padding: 9px 10px;
 }
 
-.dashboard-payment-total span,
-.dashboard-payment-total small {
+.dashboard-payments-card article:nth-child(2) {
+  background:
+    linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--green) 8%, transparent),
+        transparent 52%
+      ),
+    color-mix(in srgb, var(--background) 32%, var(--surface));
+}
+
+.dashboard-payments-card article:nth-child(3) {
+  background:
+    linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--pink) 8%, transparent),
+        transparent 52%
+      ),
+    color-mix(in srgb, var(--background) 32%, var(--surface));
+}
+
+.dashboard-payments-card article:nth-child(4) {
+  background:
+    linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--amber) 9%, transparent),
+        transparent 52%
+      ),
+    color-mix(in srgb, var(--background) 32%, var(--surface));
+}
+
+.dashboard-payments-card span,
+.dashboard-payments-card small {
   color: var(--muted);
 }
 
-.dashboard-payment-total strong {
-  font-size: 1.45rem;
-  line-height: 1;
-}
-
-.dashboard-payment-total small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dashboard-payment-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.dashboard-payment-stats article {
-  display: grid;
-  gap: 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--background) 36%, var(--surface));
-  min-height: 0;
-  padding: 10px 12px;
-}
-
-.dashboard-payment-stats span {
-  color: var(--muted);
-  font-size: 0.75rem;
+.dashboard-payments-card span {
+  font-size: 0.68rem;
+  font-weight: 850;
   text-transform: uppercase;
 }
 
-.dashboard-payment-stats strong {
-  font-size: 1.25rem;
+.dashboard-payments-card strong {
+  font-size: 1.18rem;
+  line-height: 1;
+}
+
+.dashboard-payments-card small {
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-placeholder {

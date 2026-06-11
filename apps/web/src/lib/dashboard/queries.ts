@@ -1,7 +1,6 @@
 import type { AssistantExternalActivityItem } from "../assistant/external-activity";
 import { getAssistantExternalActivity } from "../assistant/external-activity";
 import { getAssistantRouteMetrics } from "../assistant/route-metrics";
-import { getBillableUsageSummary } from "../billing/usage-summary";
 import type { ContactListItem, ConversationListItem } from "../crm/queries";
 import {
   getContactList,
@@ -12,6 +11,7 @@ import {
   getGeneratedDocumentsForWorkspace,
   type GeneratedDocumentRecord,
 } from "../documents/generated-documents";
+import { getPaymentsOverviewData } from "../payments/queries";
 import type { WorkspaceSummary } from "../workspace/bootstrap";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -36,12 +36,13 @@ export type DashboardGeneratedDocumentItem = {
 };
 
 export type DashboardPaymentsSummary = {
-  isPlaceholder: boolean;
-  note: string;
-  quoteApprovedOrBookedCount: number;
-  readyToSendCount: number;
-  usageCustomerCharge: number;
-  usageCurrency: string;
+  currency: string;
+  outstandingAmountCents: number;
+  outstandingCount: number;
+  overdueAmountCents: number;
+  overdueCount: number;
+  paidThisMonthCents: number;
+  paidThisWeekCents: number;
 };
 
 export type DashboardStats = {
@@ -80,18 +81,6 @@ export type DashboardWorkQueueItem = {
   title: string;
   workflowBucket: string;
 };
-
-function currencyValue(
-  summary: Awaited<ReturnType<typeof getBillableUsageSummary>>,
-) {
-  return summary.totals[0]?.currency ?? "USD";
-}
-
-function customerChargeValue(
-  summary: Awaited<ReturnType<typeof getBillableUsageSummary>>,
-) {
-  return summary.totals.reduce((total, item) => total + item.customerCharge, 0);
-}
 
 function contactLabel(contact: ContactListItem) {
   return (
@@ -178,7 +167,7 @@ export async function getDashboardCommandCenterData(
     conversations,
     contacts,
     generatedDocuments,
-    usageSummary,
+    paymentsOverview,
   ] = await Promise.all([
     getAssistantExternalActivity(supabase, workspace.id, 18),
     getAssistantRouteMetrics(supabase, workspace.id),
@@ -186,9 +175,7 @@ export async function getDashboardCommandCenterData(
     getConversationList(supabase, workspace.id, { limit: 36 }),
     getContactList(supabase, workspace.id),
     getGeneratedDocumentsForWorkspace(supabase, workspace.id, 12),
-    getBillableUsageSummary(supabase, workspace.id, {
-      period: "monthly",
-    }).catch(() => null),
+    getPaymentsOverviewData(supabase, workspace.id).catch(() => null),
   ]);
 
   const topContacts = contacts
@@ -265,12 +252,13 @@ export async function getDashboardCommandCenterData(
       updatedAt: document.updatedAt,
     })),
     payments: {
-      isPlaceholder: true,
-      note: "Customer payments will populate here once billing and collections are integrated.",
-      quoteApprovedOrBookedCount: quoteApprovedOrBooked,
-      readyToSendCount: routeMetrics.readyQuotes,
-      usageCustomerCharge: usageSummary ? customerChargeValue(usageSummary) : 0,
-      usageCurrency: usageSummary ? currencyValue(usageSummary) : "USD",
+      currency: paymentsOverview?.stats.currency ?? "AUD",
+      outstandingAmountCents: paymentsOverview?.stats.outstandingAmountCents ?? 0,
+      outstandingCount: paymentsOverview?.stats.outstandingCount ?? 0,
+      overdueAmountCents: paymentsOverview?.stats.overdueAmountCents ?? 0,
+      overdueCount: paymentsOverview?.stats.overdueCount ?? 0,
+      paidThisMonthCents: paymentsOverview?.stats.paidThisMonthCents ?? 0,
+      paidThisWeekCents: paymentsOverview?.stats.paidThisWeekCents ?? 0,
     },
     stats: {
       awaitingCustomer: workflowCounts.awaitingCustomer,
