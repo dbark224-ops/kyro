@@ -16,6 +16,7 @@ import {
   approveAction,
   executeAction,
 } from "../../../../../lib/engine/event-action-audit";
+import { recordOutboundMessage } from "../../../../../lib/communication/outbound";
 import {
   syncInboundEmail,
   type InboundEmailProvider,
@@ -378,6 +379,223 @@ async function resolveDraftSmsContact({
     supabase,
     workspaceId,
   });
+}
+
+async function executeDraftSmsActionForTool({
+  action,
+  supabase,
+  userId,
+}: {
+  action: DraftSmsActionRow;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  userId: string;
+}) {
+  if (!isSmsDraftAction(action)) {
+    throw new Error("The matched action is not a pending SMS draft.");
+  }
+
+  if (action.status === "pending_approval") {
+    await approveAction(supabase, toolUser(userId), action.id);
+  }
+
+  await executeAction(supabase, toolUser(userId), action.id);
+}
+
+async function findOrCreateVapiSmsConversation({
+  contactId,
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  contactId: string;
+  conversationId: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  if (conversationId) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("contact_id", contactId)
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Unable to verify SMS conversation: ${error.message}`);
+    }
+
+    if (data?.id) {
+      return String(data.id);
+    }
+  }
+
+  const { data: latestConversation, error: latestError } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("contact_id", contactId)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestError) {
+    throw new Error(`Unable to load SMS conversation: ${latestError.message}`);
+  }
+
+  if (latestConversation?.id) {
+    return String(latestConversation.id);
+  }
+
+  const externalId = "vapi_tool:sms";
+  const { data: existingChannel, error: existingChannelError } = await supabase
+    .from("channels")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("type", "sms")
+    .eq("external_id", externalId)
+    .maybeSingle();
+
+  if (existingChannelError) {
+    throw new Error(`Unable to load SMS channel: ${existingChannelError.message}`);
+  }
+
+  let channelId = existingChannel?.id ? String(existingChannel.id) : null;
+
+  if (!channelId) {
+    const { data: channel, error: channelError } = await supabase
+      .from("channels")
+      .insert({
+        workspace_id: workspaceId,
+        type: "sms",
+        display_name: "Kyro SMS",
+        external_id: externalId,
+        status: "active",
+        settings: {
+          createdBy: "vapi_send_sms_tool",
+          source: "vapi_tool",
+        },
+      })
+      .select("id")
+      .single();
+
+    if (channelError || !channel) {
+      throw new Error(
+        `Unable to create SMS channel: ${channelError?.message ?? "unknown error"}`,
+      );
+    }
+
+    channelId = String(channel.id);
+  }
+
+  const now = new Date().toISOString();
+  const { data: conversation, error: conversationError } = await supabase
+    .from("conversations")
+    .insert({
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      contact_id: contactId,
+      lead_id: null,
+      status: "open",
+      last_message_at: now,
+    })
+    .select("id")
+    .single();
+
+  if (conversationError || !conversation) {
+    throw new Error(
+      `Unable to create SMS conversation: ${conversationError?.message ?? "unknown error"}`,
+    );
+  }
+
+  return String(conversation.id);
+}
+
+function explicitSmsBody(args: Record<string, unknown>) {
+  return (
+    textValue(args.body) ??
+    textValue(args.message) ??
+    textValue(args.smsBody) ??
+    textValue(args.text) ??
+    textValue(args.replyBody)
+  );
+}
+
+async function sendExplicitSmsForTool({
+  args,
+  body,
+  contacts,
+  idempotencyKey,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  body: string;
+  contacts: VoiceContactMatch[];
+  idempotencyKey: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  userId: string;
+  workspaceId: string;
+}) {
+  const contact = contacts[0];
+
+  if (!contact.phone && !textValue(args.phoneNumber) && !textValue(args.toNumber)) {
+    return {
+      answer: "I found that contact, but they do not have a phone number saved yet.",
+      contacts,
+      ok: false,
+      uiBlocks: contactCardsForVoiceTool(contacts),
+    };
+  }
+
+  const conversationId = await findOrCreateVapiSmsConversation({
+    contactId: contact.id,
+    conversationId: textValue(args.conversationId),
+    supabase,
+    workspaceId,
+  });
+
+  const result = await recordOutboundMessage(supabase, {
+    body,
+    channelType: "sms",
+    conversationId,
+    idempotencyKey:
+      textValue(args.idempotencyKey) ??
+      (idempotencyKey
+        ? `vapi_send_sms:${workspaceId}:${idempotencyKey}`
+        : `vapi_send_sms:${workspaceId}:${contact.id}:${body}`),
+    settingsSnapshot: {
+      source: "vapi_send_sms_tool",
+      requestedPhoneNumber:
+        textValue(args.phoneNumber) ??
+        textValue(args.customerPhone) ??
+        textValue(args.toNumber) ??
+        textValue(args.to) ??
+        null,
+    },
+    source: "vapi_send_sms_tool",
+    subject: null,
+    userId,
+    workspaceId,
+  });
+
+  const sentTo = contact.name ?? contact.company ?? contact.phone ?? "the contact";
+
+  return {
+    answer: result.externalSend
+      ? `Sent the SMS to ${sentTo}.`
+      : `Recorded the SMS for ${sentTo}, but external SMS sending is not active for this workspace.`,
+    contactId: contact.id,
+    conversationId,
+    dryRun: result.dryRun,
+    externalSend: result.externalSend,
+    ok: true,
+    outboundMessageId: result.outboundMessageId,
+    uiBlocks: contactCardsForVoiceTool(contacts),
+  };
 }
 
 function fieldLabel(value: string | null, label: string) {
@@ -850,11 +1068,11 @@ export async function POST(request: Request) {
         });
       }
 
-      if (draftAction.status === "pending_approval") {
-        await approveAction(supabase, toolUser(userId), draftAction.id);
-      }
-
-      await executeAction(supabase, toolUser(userId), draftAction.id);
+      await executeDraftSmsActionForTool({
+        action: draftAction,
+        supabase,
+        userId,
+      });
 
       const sentTo =
         contacts[0]?.name ??
@@ -868,6 +1086,129 @@ export async function POST(request: Request) {
         ok: true,
         uiBlocks: contacts.length ? contactCardsForVoiceTool(contacts) : [],
       });
+    }
+
+    if (toolCall.name === "kyro_send_sms") {
+      if (!userId) {
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a user id to send SMS messages.",
+        });
+      }
+
+      if (!vapiToolCanSendOutboundSms(payload)) {
+        return completedToolResponse({
+          ok: false,
+          message:
+            "SMS messages can only be sent from trusted internal Kyro calls.",
+        });
+      }
+
+      const body = explicitSmsBody(args);
+      const explicitActionId = textValue(args.actionId);
+
+      if (explicitActionId && !body) {
+        const draftAction = await loadDraftSmsActionById({
+          actionId: explicitActionId,
+          supabase,
+          workspaceId,
+        });
+
+        if (!draftAction || !isSmsDraftAction(draftAction)) {
+          return completedToolResponse({
+            answer: "I could not find a pending drafted SMS for that action.",
+            ok: false,
+          });
+        }
+
+        await executeDraftSmsActionForTool({
+          action: draftAction,
+          supabase,
+          userId,
+        });
+
+        return completedToolResponse({
+          actionId: draftAction.id,
+          answer: "Sent the drafted SMS.",
+          ok: true,
+        });
+      }
+
+      const contacts = await resolveDraftSmsContact({
+        args,
+        prompt,
+        supabase,
+        workspaceId,
+      });
+
+      if (contacts.length === 0) {
+        return completedToolResponse({
+          answer:
+            "I could not find a matching contact to send that SMS to.",
+          ok: false,
+          uiBlocks: [],
+        });
+      }
+
+      if (contacts.length > 1) {
+        return completedToolResponse({
+          answer:
+            "I found more than one possible contact. Ask the user which one they mean before sending the SMS.",
+          contacts,
+          ok: false,
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
+      if (!body) {
+        const draftAction = await findLatestDraftSmsForContact({
+          contactId: contacts[0].id,
+          conversationId: textValue(args.conversationId),
+          supabase,
+          workspaceId,
+        });
+
+        if (!draftAction) {
+          return completedToolResponse({
+            answer:
+              "I found the contact, but there is no drafted SMS ready to send. Ask the user what message they want sent.",
+            contacts,
+            ok: false,
+            uiBlocks: contactCardsForVoiceTool(contacts),
+          });
+        }
+
+        await executeDraftSmsActionForTool({
+          action: draftAction,
+          supabase,
+          userId,
+        });
+
+        const sentTo =
+          contacts[0].name ??
+          contacts[0].company ??
+          contacts[0].phone ??
+          "the contact";
+
+        return completedToolResponse({
+          actionId: draftAction.id,
+          answer: `Sent the drafted SMS to ${sentTo}.`,
+          ok: true,
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
+      return completedToolResponse(
+        await sendExplicitSmsForTool({
+          args,
+          body,
+          contacts,
+          idempotencyKey: toolCall.id,
+          supabase,
+          userId,
+          workspaceId,
+        }),
+      );
     }
 
     if (

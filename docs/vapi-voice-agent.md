@@ -136,6 +136,7 @@ workspace users by RLS.
   - `kyro_web_search`
   - `kyro_check_recent_email`
   - `kyro_start_outbound_call`
+  - `kyro_send_sms`
   - `kyro_send_drafted_sms`
 - Returns JSON tool results suitable for Vapi to read back into the call.
 
@@ -145,10 +146,19 @@ allows it when Vapi metadata marks the call as `callerRole = internal_user`,
 inbound and voicemail contexts are deliberately blocked so an external caller
 cannot make Kyro place arbitrary outbound calls.
 
-`kyro_send_drafted_sms` follows the same trusted-internal guard. It resolves the
-contact/conversation/action, finds the newest pending SMS draft, then runs the
-same approve-and-execute path used by the Inbox UI so Twilio sending, message
-thread recording, audit logs, follow-up state, and idempotency stay consistent.
+`kyro_send_sms` follows the same trusted-internal guard. It is the preferred
+general SMS tool: if Vapi supplies explicit SMS text, Kyro sends that exact
+message through the normal outbound message path; if Vapi supplies an action id
+or no message body, Kyro resolves the contact and sends the newest pending SMS
+draft when one exists. This lets internal phone calls send either user-dictated
+messages or already drafted replies without exposing SMS sending to external
+customer callers.
+
+`kyro_send_drafted_sms` remains as a narrower compatibility shortcut. It
+resolves the contact/conversation/action, finds the newest pending SMS draft,
+then runs the same approve-and-execute path used by the Inbox UI so Twilio
+sending, message thread recording, audit logs, follow-up state, and idempotency
+stay consistent.
 
 `GET /api/assistant/vapi/internal/session`
 
@@ -398,6 +408,30 @@ Recommended Vapi tool definitions:
   - `userId` string
   - `provider` string, optional: `google` or `microsoft`
 
+`kyro_send_sms`
+
+- Purpose: send an SMS from Kyro after a trusted internal user explicitly asks.
+  Prefer this broad tool over narrower SMS tools because it can send direct
+  dictated text or send the latest drafted SMS for a matched contact.
+- Arguments:
+  - `workspaceId` string
+  - `userId` string
+  - `threadId` string, optional
+  - `contactId` string, optional
+  - `conversationId` string, optional
+  - `actionId` string, optional, for an existing drafted SMS action
+  - `contactName` string, optional
+  - `phoneNumber` string, optional
+  - `message` string, optional, exact SMS body to send
+  - `body` string, optional, exact SMS body to send
+  - `query` string, optional natural-language resolution text
+- Behaviour: only trusted internal Vapi contexts can use this tool. If `message`
+  or `body` is provided, Kyro sends that exact text through the same outbound SMS
+  path used by Inbox. If no message body is provided, Kyro looks for the newest
+  pending drafted SMS for the matched contact and sends that. If more than one
+  contact matches, Kyro returns contact cards and asks the user to choose before
+  sending.
+
 `kyro_send_drafted_sms`
 
 - Purpose: send an already drafted SMS reply for a contact or conversation after
@@ -423,7 +457,7 @@ requests instead of answering from memory. Kyro passes `workspace_id`, `user_id`
 `thread_id`, `kyro_context`, and `kyro_tool_url` as Vapi variable values.
 
 More tools can be added later for creating tasks, booking appointments, sending
-SMS/email follow-ups, or escalating urgent work. Those should remain explicit,
+email follow-ups, or escalating urgent work. Those should remain explicit,
 audited tools rather than free-form provider access.
 
 ## Live Setup Checklist
