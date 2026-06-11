@@ -859,9 +859,6 @@ function renderWidget({
     return (
       <section className="dashboard-widget dashboard-widget-payments" key={key}>
         <DashboardWidgetHeader
-          action={
-            <span className="filter-pill">{timeframeLabel}</span>
-          }
           description="Customer collections and payment requests."
           title="Payments"
         />
