@@ -95,6 +95,67 @@ function toContactCandidate(contact: {
   };
 }
 
+function contactReferenceLabel(contact: ContactCandidate) {
+  const title =
+    contact.name?.trim() ||
+    contact.company?.trim() ||
+    contact.email?.trim() ||
+    contact.phone?.trim() ||
+    "Unnamed contact";
+  const details = [contact.phone, contact.email].filter(Boolean).join(" - ");
+
+  return details ? `${title} - ${details}` : title;
+}
+
+async function profileConflictNote(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  match: ContactMatchResult["match"],
+) {
+  if (match.status !== "conflict_created") {
+    return null;
+  }
+
+  const contactIds = Array.from(
+    new Set(
+      [match.emailMatchedContactId, match.phoneMatchedContactId].filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      ),
+    ),
+  );
+
+  if (contactIds.length === 0) {
+    return "Potential profile match conflict. Email matched none; phone matched none.";
+  }
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .select(
+      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,address",
+    )
+    .eq("workspace_id", workspaceId)
+    .in("id", contactIds);
+
+  if (error) {
+    throw new Error(`Unable to describe profile conflict: ${error.message}`);
+  }
+
+  const contactsById = new Map(
+    (data ?? []).map((contact) => [
+      String(contact.id),
+      contactReferenceLabel(toContactCandidate(contact)),
+    ]),
+  );
+  const emailMatch = match.emailMatchedContactId
+    ? contactsById.get(match.emailMatchedContactId) ?? "Unknown contact"
+    : "none";
+  const phoneMatch = match.phoneMatchedContactId
+    ? contactsById.get(match.phoneMatchedContactId) ?? "Unknown contact"
+    : "none";
+
+  return `Potential profile match conflict. Email matched ${emailMatch}; phone matched ${phoneMatch}.`;
+}
+
 async function loadContactCandidatesByIdentity(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -224,6 +285,7 @@ async function createContactProfile(
     match.status === "conflict_created"
       ? [source, "profile_match_conflict"]
       : [source];
+  const conflictNote = await profileConflictNote(supabase, workspaceId, match);
 
   const { data: contact, error } = await supabase
     .from("contacts")
@@ -239,10 +301,7 @@ async function createContactProfile(
       contact_type: contactType,
       ...(input.addressFields ?? { address: nullableText(input.address) }),
       source,
-      notes:
-        match.status === "conflict_created"
-          ? `Potential profile match conflict. Email matched ${match.emailMatchedContactId ?? "none"}; phone matched ${match.phoneMatchedContactId ?? "none"}.`
-          : null,
+      notes: conflictNote,
       profile_resolution_status:
         match.status === "conflict_created" ? "needs_review" : "clear",
       profile_resolution_reason:

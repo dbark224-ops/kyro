@@ -499,6 +499,10 @@ function ProfileResolutionPanel({
   const hasConflict =
     profile.contact.profileResolutionStatus === "needs_review";
   const hasMerged = profile.contact.profileResolutionStatus === "merged";
+  const hasDuplicateReview =
+    hasWarnings || profile.resolutionCandidates.length > 0;
+  const shouldCollapseResolvedDuplicates =
+    !hasConflict && !hasMerged && hasDuplicateReview;
   const needsPanel =
     hasConflict ||
     hasWarnings ||
@@ -513,6 +517,57 @@ function ProfileResolutionPanel({
     return null;
   }
 
+  if (shouldCollapseResolvedDuplicates) {
+    return (
+      <details className="profile-resolution-disclosure">
+        <summary>Resolve duplicates</summary>
+        <ProfileResolutionPanelBody
+          hasConflict={hasConflict}
+          hasMerged={hasMerged}
+          hasWarnings={hasWarnings}
+          profile={profile}
+          redirectTo={redirectTo}
+          shouldShowReviewAction={shouldShowReviewAction}
+          showReviewWithCandidate={showReviewWithCandidate}
+          successHref={successHref}
+        />
+      </details>
+    );
+  }
+
+  return (
+    <ProfileResolutionPanelBody
+      hasConflict={hasConflict}
+      hasMerged={hasMerged}
+      hasWarnings={hasWarnings}
+      profile={profile}
+      redirectTo={redirectTo}
+      shouldShowReviewAction={shouldShowReviewAction}
+      showReviewWithCandidate={showReviewWithCandidate}
+      successHref={successHref}
+    />
+  );
+}
+
+function ProfileResolutionPanelBody({
+  hasConflict,
+  hasMerged,
+  hasWarnings,
+  profile,
+  redirectTo,
+  shouldShowReviewAction,
+  showReviewWithCandidate,
+  successHref,
+}: Readonly<{
+  hasConflict: boolean;
+  hasMerged: boolean;
+  hasWarnings: boolean;
+  profile: ContactProfile;
+  redirectTo: string;
+  shouldShowReviewAction: boolean;
+  showReviewWithCandidate: boolean;
+  successHref: (contactId: string) => string;
+}>) {
   return (
     <section className="assistant-preview-panel profile-warning-panel profile-resolution-panel">
       {hasWarnings ? (

@@ -536,6 +536,10 @@ function ProfileResolutionPanel({
   const hasConflict =
     profile.contact.profileResolutionStatus === "needs_review";
   const hasMerged = profile.contact.profileResolutionStatus === "merged";
+  const hasDuplicateReview =
+    hasWarnings || profile.resolutionCandidates.length > 0;
+  const shouldCollapseResolvedDuplicates =
+    !hasConflict && !hasMerged && hasDuplicateReview;
   const needsPanel =
     hasConflict ||
     hasWarnings ||
@@ -547,8 +551,60 @@ function ProfileResolutionPanel({
     return null;
   }
 
+  if (shouldCollapseResolvedDuplicates) {
+    return (
+      <details className="profile-resolution-disclosure">
+        <summary>Resolve duplicates</summary>
+        <ProfileResolutionPanelBody
+          hasConflict={hasConflict}
+          hasMerged={hasMerged}
+          hasWarnings={hasWarnings}
+          profile={profile}
+          redirectTo={redirectTo}
+          successHref={successHref}
+        />
+      </details>
+    );
+  }
+
   return (
-    <section className="assistant-preview-panel profile-warning-panel">
+    <ProfileResolutionPanelBody
+      hasConflict={hasConflict}
+      hasMerged={hasMerged}
+      hasWarnings={hasWarnings}
+      profile={profile}
+      redirectTo={redirectTo}
+      successHref={successHref}
+    />
+  );
+}
+
+function ProfileResolutionPanelBody({
+  hasConflict,
+  hasMerged,
+  hasWarnings,
+  profile,
+  redirectTo,
+  successHref,
+}: Readonly<{
+  hasConflict: boolean;
+  hasMerged: boolean;
+  hasWarnings: boolean;
+  profile: ContactProfile;
+  redirectTo: string;
+  successHref: (contactId: string) => string;
+}>) {
+  const shouldShowReviewAction = hasConflict || hasWarnings;
+  const showReviewWithCandidate =
+    shouldShowReviewAction && profile.resolutionCandidates.length === 1;
+
+  return (
+    <section className="assistant-preview-panel profile-warning-panel profile-resolution-panel">
+      {hasWarnings ? (
+        <span className="pill warning profile-resolution-duplicate-pill">
+          Duplicate
+        </span>
+      ) : null}
       <div className="panel-heading tight">
         <div>
           <h3>Profile resolution</h3>
@@ -571,16 +627,15 @@ function ProfileResolutionPanel({
         <div className="assistant-preview-list compact">
           {profile.identityWarnings.map((warning) => (
             <article
-              className="assistant-preview-row"
+              className="profile-resolution-warning-row"
               key={`${warning.field}-${warning.value}`}
             >
-              <div>
+              <div className="profile-resolution-copy">
                 <strong>
                   Same {warning.field} appears on {warning.count} profiles
                 </strong>
                 <span>{warning.value}</span>
               </div>
-              <span className="pill warning">Duplicate</span>
             </article>
           ))}
         </div>
@@ -590,10 +645,10 @@ function ProfileResolutionPanel({
         <div className="assistant-preview-list compact">
           {profile.resolutionCandidates.map((candidate) => (
             <article
-              className="assistant-preview-row profile-resolution-row"
+              className="profile-resolution-candidate-row"
               key={candidate.id}
             >
-              <div>
+              <div className="profile-resolution-copy">
                 <strong>{contactTitle(candidate)}</strong>
                 <span>
                   {[candidate.company, candidate.email, candidate.phone]
@@ -604,7 +659,7 @@ function ProfileResolutionPanel({
                   {formatResolutionMatchFields(candidate.matchFields)}
                 </span>
               </div>
-              <div className="action-row">
+              <div className="profile-resolution-actions">
                 <form action={mergeContactProfilesAction}>
                   <input
                     name="sourceContactId"
@@ -627,36 +682,19 @@ function ProfileResolutionPanel({
                     type="hidden"
                     value="Merged current profile into selected existing profile."
                   />
-                  <button className="primary-button compact" type="submit">
-                    Merge into this
+                  <button
+                    className="primary-button compact profile-resolution-button"
+                    type="submit"
+                  >
+                    Merge into this profile
                   </button>
                 </form>
-                <form action={mergeContactProfilesAction}>
-                  <input
-                    name="sourceContactId"
-                    type="hidden"
-                    value={candidate.id}
+                {showReviewWithCandidate ? (
+                  <ProfileResolutionReviewForm
+                    contactId={profile.contact.id}
+                    redirectTo={redirectTo}
                   />
-                  <input
-                    name="targetContactId"
-                    type="hidden"
-                    value={profile.contact.id}
-                  />
-                  <input name="redirectTo" type="hidden" value={redirectTo} />
-                  <input
-                    name="successRedirectTo"
-                    type="hidden"
-                    value={redirectTo}
-                  />
-                  <input
-                    name="reason"
-                    type="hidden"
-                    value="Merged selected duplicate profile into current profile."
-                  />
-                  <button className="secondary-button compact" type="submit">
-                    Keep this one
-                  </button>
-                </form>
+                ) : null}
               </div>
             </article>
           ))}
@@ -681,21 +719,44 @@ function ProfileResolutionPanel({
         </div>
       ) : null}
 
-      {hasConflict || hasWarnings ? (
-        <form action={resolveProfileReviewAction} className="action-row">
-          <input name="contactId" type="hidden" value={profile.contact.id} />
-          <input name="redirectTo" type="hidden" value={redirectTo} />
-          <input
-            name="reason"
-            type="hidden"
-            value="Reviewed from CRM and kept as a separate profile."
+      {shouldShowReviewAction && !showReviewWithCandidate ? (
+        <div className="profile-resolution-actions stand-alone">
+          <ProfileResolutionReviewForm
+            contactId={profile.contact.id}
+            redirectTo={redirectTo}
           />
-          <button className="secondary-button compact" type="submit">
-            Mark reviewed, keep separate
-          </button>
-        </form>
+        </div>
       ) : null}
     </section>
+  );
+}
+
+function ProfileResolutionReviewForm({
+  contactId,
+  redirectTo,
+}: Readonly<{
+  contactId: string;
+  redirectTo: string;
+}>) {
+  return (
+    <form
+      action={resolveProfileReviewAction}
+      className="profile-resolution-review-form"
+    >
+      <input name="contactId" type="hidden" value={contactId} />
+      <input name="redirectTo" type="hidden" value={redirectTo} />
+      <input
+        name="reason"
+        type="hidden"
+        value="Reviewed from CRM and kept as a separate profile."
+      />
+      <button
+        className="secondary-button compact profile-resolution-button"
+        type="submit"
+      >
+        Mark reviewed, keep separate
+      </button>
+    </form>
   );
 }
 
