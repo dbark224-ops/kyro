@@ -218,6 +218,20 @@ function phoneKeySetsOverlap(left: Set<string>, right: Set<string>) {
   return false;
 }
 
+function vapiContactMatchesCallerNumber(
+  contact: VoiceContactMatch,
+  payload: Record<string, unknown>,
+  args: Record<string, unknown>,
+) {
+  const callerKeys = phoneComparisonKeys(vapiToolCallerNumber(payload, args));
+
+  if (callerKeys.size === 0) {
+    return false;
+  }
+
+  return phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(contact.phone));
+}
+
 function vapiToolCallerNumber(
   payload: Record<string, unknown>,
   args: Record<string, unknown>,
@@ -633,31 +647,6 @@ function smsRecipientName(args: Record<string, unknown>, prompt: string | null) 
   );
 }
 
-function looksLikeSelfSmsRecipient(
-  args: Record<string, unknown>,
-  prompt: string | null,
-) {
-  const candidate = singleLine(
-    [
-      textValue(args.contactName),
-      textValue(args.customerName),
-      textValue(args.recipientName),
-      textValue(args.query),
-      prompt,
-    ]
-      .filter((value): value is string => Boolean(value))
-      .join(" "),
-  ).toLowerCase();
-
-  if (!candidate) {
-    return false;
-  }
-
-  return /\b(me|myself|my phone|my number|this number|the number i'?m calling from|caller)\b/.test(
-    candidate,
-  );
-}
-
 async function findOrCreateSmsContactByPhone({
   name,
   phoneNumber,
@@ -700,10 +689,7 @@ async function findOrCreateSmsContactByPhone({
     } satisfies VoiceContactMatch;
   }
 
-  const displayName =
-    name && !looksLikeSelfSmsRecipient({ contactName: name }, null)
-      ? name
-      : normalizedPhone;
+  const displayName = name ?? normalizedPhone;
   const { data: inserted, error: insertError } = await supabase
     .from("contacts")
     .insert({
@@ -742,33 +728,15 @@ async function findOrCreateSmsContactByPhone({
 
 async function resolveExplicitSmsContacts({
   args,
-  payload,
   prompt,
   supabase,
   workspaceId,
 }: {
   args: Record<string, unknown>;
-  payload: Record<string, unknown>;
   prompt: string | null;
   supabase: ReturnType<typeof createServiceSupabaseClient>;
   workspaceId: string;
 }) {
-  if (looksLikeSelfSmsRecipient(args, prompt)) {
-    const callerNumber = vapiToolCallerNumber(payload, args);
-
-    if (callerNumber) {
-      return [
-        await findOrCreateSmsContactByPhone({
-          name: "Me",
-          phoneNumber: callerNumber,
-          source: "vapi_internal_sms_recipient",
-          supabase,
-          workspaceId,
-        }),
-      ];
-    }
-  }
-
   const contacts = await resolveDraftSmsContact({
     args,
     prompt,
@@ -1290,6 +1258,8 @@ export async function POST(request: Request) {
         }))
       ) {
         return completedToolResponse({
+          answer:
+            "I could not send that drafted SMS because this call is not trusted for outbound SMS. Tell the caller it was not sent.",
           ok: false,
           message:
             "Drafted SMS replies can only be sent from trusted internal Kyro calls. Do not tell the caller the SMS was sent.",
@@ -1384,30 +1354,32 @@ export async function POST(request: Request) {
     if (isExplicitSmsTool) {
       if (!userId) {
         return completedToolResponse({
+          answer: "I could not send that SMS because Kyro could not identify the user.",
           ok: false,
           message: "Kyro needs a user id to send SMS messages.",
         });
       }
 
-      if (
-        !(await vapiToolCanSendOutboundSms({
-          args,
-          payload,
-          supabase,
-          workspaceId,
-        }))
-      ) {
-        return completedToolResponse({
-          ok: false,
-          message:
-            "SMS messages can only be sent from trusted internal Kyro calls. Do not tell the caller the SMS was sent.",
-        });
-      }
-
       const body = explicitSmsBody(args);
       const explicitActionId = textValue(args.actionId);
+      const canSendAnySms = await vapiToolCanSendOutboundSms({
+        args,
+        payload,
+        supabase,
+        workspaceId,
+      });
 
       if (explicitActionId && !body) {
+        if (!canSendAnySms) {
+          return completedToolResponse({
+            answer:
+              "I could not send that drafted SMS because this call is not trusted for outbound SMS. Tell the caller it was not sent.",
+            ok: false,
+            message:
+              "Drafted SMS replies can only be sent from trusted internal Kyro calls. Do not tell the caller the SMS was sent.",
+          });
+        }
+
         const draftAction = await loadDraftSmsActionById({
           actionId: explicitActionId,
           supabase,
@@ -1436,7 +1408,6 @@ export async function POST(request: Request) {
 
       const contacts = await resolveExplicitSmsContacts({
         args,
-        payload,
         prompt,
         supabase,
         workspaceId,
@@ -1461,7 +1432,34 @@ export async function POST(request: Request) {
         });
       }
 
+      if (
+        !canSendAnySms &&
+        !vapiContactMatchesCallerNumber(contacts[0], payload, args)
+      ) {
+        return completedToolResponse({
+          answer:
+            "I could not send that SMS. External inbound calls can only send SMS messages to the same phone number or contact that is calling.",
+          contacts,
+          ok: false,
+          message:
+            "SMS messages from external inbound calls are limited to the caller's own matched contact. Do not tell the caller the SMS was sent.",
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
       if (!body) {
+        if (!canSendAnySms) {
+          return completedToolResponse({
+            answer:
+              "I could not send a drafted SMS from this call. Ask for the exact SMS wording instead.",
+            contacts,
+            ok: false,
+            message:
+              "Drafted SMS sends are only available from trusted internal calls. Do not tell the caller the SMS was sent.",
+            uiBlocks: contactCardsForVoiceTool(contacts),
+          });
+        }
+
         const draftAction = await findLatestDraftSmsForContact({
           contactId: contacts[0].id,
           conversationId: textValue(args.conversationId),
