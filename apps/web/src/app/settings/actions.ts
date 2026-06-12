@@ -211,9 +211,13 @@ function redirectWithSectionMessage(
   section: "general" | "integrations" | "voice" | "developer",
   key: "engine_error" | "engine_message",
   message: string,
-  options: { senderRules?: boolean } = {},
+  options: { panel?: string; senderRules?: boolean } = {},
 ): never {
   const params = new URLSearchParams({ section, [key]: message });
+
+  if (options.panel) {
+    params.set("panel", options.panel);
+  }
 
   if (options.senderRules) {
     params.set("senderRules", "1");
@@ -1408,6 +1412,7 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
       "integrations",
       "engine_error",
       "Choose an available phone number first.",
+      { panel: "phone-sms" },
     );
   }
 
@@ -1441,6 +1446,7 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
       error instanceof Error
         ? error.message
         : "Unable to enable the phone and SMS assistant number.",
+      { panel: "phone-sms" },
     );
   }
 
@@ -1467,6 +1473,7 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
       "integrations",
       "engine_error",
       beforeError.message,
+      { panel: "phone-sms" },
     );
   }
 
@@ -1490,6 +1497,7 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
       "integrations",
       "engine_error",
       saveError?.message ?? "Unable to enable phone voice settings.",
+      { panel: "phone-sms" },
     );
   }
 
@@ -1523,6 +1531,7 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
     assignment.activationCharged
       ? `Phone and SMS enabled on ${assignment.number.phoneNumber}. A one-time US$6 setup charge was added to the usage ledger.`
       : `Phone and SMS enabled on ${assignment.number.phoneNumber}.`,
+    { panel: "phone-sms" },
   );
 }
 
@@ -1534,6 +1543,7 @@ export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
       "integrations",
       "engine_error",
       "Choose a phone number to disconnect.",
+      { panel: "phone-sms" },
     );
   }
 
@@ -1555,6 +1565,7 @@ export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
       error instanceof Error
         ? error.message
         : "Unable to disconnect that phone number.",
+      { panel: "phone-sms" },
     );
   }
 
@@ -1574,6 +1585,7 @@ export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
       error instanceof Error
         ? error.message
         : "Phone number disconnected, but Kyro could not refresh the remaining phone-number list.",
+      { panel: "phone-sms" },
     );
   }
 
@@ -1600,6 +1612,7 @@ export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
         "integrations",
         "engine_error",
         beforeError.message,
+        { panel: "phone-sms" },
       );
     }
 
@@ -1653,6 +1666,7 @@ export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
         "integrations",
         "engine_error",
         saveError?.message ?? "Unable to update phone voice settings.",
+        { panel: "phone-sms" },
       );
     }
 
@@ -1682,6 +1696,7 @@ export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
     remainingNumbers.length > 0
       ? `${release.number.phoneNumber} disconnected and returned to the available number pool.`
       : `${release.number.phoneNumber} disconnected. Phone and SMS automation is disabled until another number is assigned.`,
+    { panel: "phone-sms" },
   );
 }
 

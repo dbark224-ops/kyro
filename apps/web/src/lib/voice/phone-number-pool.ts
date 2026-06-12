@@ -504,17 +504,12 @@ export async function releaseWorkspacePhoneNumberToPool(input: {
     .from("channels")
     .update({ status: "inactive" })
     .eq("workspace_id", input.workspaceId)
-    .eq("provider", TWILIO_PROVIDER)
     .eq("external_id", channelExternalId)
     .select("id");
 
-  if (channelError) {
-    throw new Error(
-      `Phone number was released, but Kyro could not deactivate its SMS channel: ${channelError.message}`,
-    );
-  }
-
-  const channelDeactivated = (deactivatedChannels ?? []).length > 0;
+  const channelDeactivated = channelError
+    ? false
+    : (deactivatedChannels ?? []).length > 0;
 
   await insertAuditLog(input.supabase, {
     workspaceId: input.workspaceId,
@@ -540,6 +535,7 @@ export async function releaseWorkspacePhoneNumberToPool(input: {
     entityType: "workspace_phone_number",
     metadata: {
       assignmentSource: ASSIGNMENT_SOURCE,
+      channelDeactivationError: channelError?.message ?? null,
       channelExternalId,
       vapiPhoneNumberId: candidate.vapiPhoneNumberId,
     },
