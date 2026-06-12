@@ -609,6 +609,194 @@ function explicitSmsBody(args: Record<string, unknown>) {
   );
 }
 
+function isVapiToolNamed(name: string | null | undefined, aliases: string[]) {
+  return Boolean(name && aliases.includes(name));
+}
+
+function smsRecipientPhone(args: Record<string, unknown>) {
+  return (
+    textValue(args.phoneNumber) ??
+    textValue(args.customerPhone) ??
+    textValue(args.recipientPhone) ??
+    textValue(args.toNumber) ??
+    textValue(args.to)
+  );
+}
+
+function smsRecipientName(args: Record<string, unknown>, prompt: string | null) {
+  return (
+    textValue(args.contactName) ??
+    textValue(args.customerName) ??
+    textValue(args.recipientName) ??
+    textValue(args.query) ??
+    prompt
+  );
+}
+
+function looksLikeSelfSmsRecipient(
+  args: Record<string, unknown>,
+  prompt: string | null,
+) {
+  const candidate = singleLine(
+    [
+      textValue(args.contactName),
+      textValue(args.customerName),
+      textValue(args.recipientName),
+      textValue(args.query),
+      prompt,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(" "),
+  ).toLowerCase();
+
+  if (!candidate) {
+    return false;
+  }
+
+  return /\b(me|myself|my phone|my number|this number|the number i'?m calling from|caller)\b/.test(
+    candidate,
+  );
+}
+
+async function findOrCreateSmsContactByPhone({
+  name,
+  phoneNumber,
+  source,
+  supabase,
+  workspaceId,
+}: {
+  name: string | null;
+  phoneNumber: string;
+  source: string;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const normalizedPhone =
+    normalizeContactPhoneForRegion(phoneNumber, "AU") ?? phoneNumber;
+
+  const { data: existing, error: existingError } = await supabase
+    .from("contacts")
+    .select("id,name,email,phone,address,company,contact_type")
+    .eq("workspace_id", workspaceId)
+    .eq("normalized_phone", normalizedPhone)
+    .is("merged_into_contact_id", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`Unable to load SMS recipient contact: ${existingError.message}`);
+  }
+
+  if (existing) {
+    return {
+      address: textValue(existing.address),
+      company: textValue(existing.company),
+      contactType: textValue(existing.contact_type),
+      email: textValue(existing.email),
+      id: String(existing.id),
+      name: textValue(existing.name),
+      phone: textValue(existing.phone) ?? normalizedPhone,
+    } satisfies VoiceContactMatch;
+  }
+
+  const displayName =
+    name && !looksLikeSelfSmsRecipient({ contactName: name }, null)
+      ? name
+      : normalizedPhone;
+  const { data: inserted, error: insertError } = await supabase
+    .from("contacts")
+    .insert({
+      contact_type: "other",
+      name: displayName,
+      normalized_phone: normalizedPhone,
+      phone: normalizedPhone,
+      source,
+      tags: [
+        {
+          importedAt: new Date().toISOString(),
+          kind: source,
+        },
+      ],
+      workspace_id: workspaceId,
+    })
+    .select("id,name,email,phone,address,company,contact_type")
+    .single();
+
+  if (insertError || !inserted) {
+    throw new Error(
+      `Unable to create SMS recipient contact: ${insertError?.message ?? "unknown error"}`,
+    );
+  }
+
+  return {
+    address: textValue(inserted.address),
+    company: textValue(inserted.company),
+    contactType: textValue(inserted.contact_type),
+    email: textValue(inserted.email),
+    id: String(inserted.id),
+    name: textValue(inserted.name),
+    phone: textValue(inserted.phone),
+  } satisfies VoiceContactMatch;
+}
+
+async function resolveExplicitSmsContacts({
+  args,
+  payload,
+  prompt,
+  supabase,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  prompt: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  if (looksLikeSelfSmsRecipient(args, prompt)) {
+    const callerNumber = vapiToolCallerNumber(payload, args);
+
+    if (callerNumber) {
+      return [
+        await findOrCreateSmsContactByPhone({
+          name: "Me",
+          phoneNumber: callerNumber,
+          source: "vapi_internal_sms_recipient",
+          supabase,
+          workspaceId,
+        }),
+      ];
+    }
+  }
+
+  const contacts = await resolveDraftSmsContact({
+    args,
+    prompt,
+    supabase,
+    workspaceId,
+  });
+
+  if (contacts.length > 0) {
+    return contacts;
+  }
+
+  const phoneNumber = smsRecipientPhone(args);
+
+  if (!phoneNumber) {
+    return contacts;
+  }
+
+  return [
+    await findOrCreateSmsContactByPhone({
+      name: smsRecipientName(args, prompt),
+      phoneNumber,
+      source: "vapi_sms_recipient",
+      supabase,
+      workspaceId,
+    }),
+  ];
+}
+
 async function sendExplicitSmsForTool({
   args,
   body,
@@ -669,16 +857,17 @@ async function sendExplicitSmsForTool({
   });
 
   const sentTo = contact.name ?? contact.company ?? contact.phone ?? "the contact";
+  const externallySent = Boolean(result.externalSend && !result.dryRun);
 
   return {
-    answer: result.externalSend
+    answer: externallySent
       ? `Sent the SMS to ${sentTo}.`
-      : `Recorded the SMS for ${sentTo}, but external SMS sending is not active for this workspace.`,
+      : `Kyro recorded the SMS for ${sentTo}, but it was not sent through Twilio. Tell the caller it could not be sent yet.`,
     contactId: contact.id,
     conversationId,
     dryRun: result.dryRun,
     externalSend: result.externalSend,
-    ok: true,
+    ok: externallySent,
     outboundMessageId: result.outboundMessageId,
     uiBlocks: contactCardsForVoiceTool(contacts),
   };
@@ -895,6 +1084,17 @@ export async function POST(request: Request) {
       textValue(args.query) ??
       textValue(args.request) ??
       textValue(args.message);
+    const isDraftedSmsTool = isVapiToolNamed(toolCall.name, [
+      "kyro_send_drafted_sms",
+      "kyro_send_draft_sms",
+      "kyro_send_sms_draft",
+    ]);
+    const isExplicitSmsTool = isVapiToolNamed(toolCall.name, [
+      "kyro_send_sms",
+      "kyro_send_text",
+      "kyro_send_message",
+      "kyro_send_contact_sms",
+    ]);
 
     await recordVoiceToolEvent({
       eventType: `tool.${toolCall.name ?? "unknown"}.requested`,
@@ -1073,7 +1273,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (toolCall.name === "kyro_send_drafted_sms") {
+    if (isDraftedSmsTool) {
       if (!userId) {
         return completedToolResponse({
           ok: false,
@@ -1181,7 +1381,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (toolCall.name === "kyro_send_sms") {
+    if (isExplicitSmsTool) {
       if (!userId) {
         return completedToolResponse({
           ok: false,
@@ -1234,8 +1434,9 @@ export async function POST(request: Request) {
         });
       }
 
-      const contacts = await resolveDraftSmsContact({
+      const contacts = await resolveExplicitSmsContacts({
         args,
+        payload,
         prompt,
         supabase,
         workspaceId,
