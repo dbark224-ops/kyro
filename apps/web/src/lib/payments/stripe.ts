@@ -28,9 +28,20 @@ export type StripeAccountLink = {
 };
 
 export type StripeCheckoutSession = {
+  customer?: string | null;
   id: string;
   payment_intent?: string | null;
+  setup_intent?: string | null;
   url: string | null;
+};
+
+export type StripeCustomer = {
+  id: string;
+};
+
+export type StripeBillingPortalSession = {
+  id: string;
+  url: string;
 };
 
 export type StripeCheckoutLineItem = {
@@ -233,6 +244,62 @@ export async function createStripeAccountLink({
     return_url: returnUrl,
     type: "account_onboarding",
   });
+}
+
+export async function createStripeCustomer({
+  email,
+  metadata,
+  name,
+}: {
+  email: string;
+  metadata?: Record<string, string>;
+  name?: string | null;
+}) {
+  return stripeApiRequest<StripeCustomer>("/v1/customers", {
+    email,
+    metadata,
+    name,
+  });
+}
+
+export async function createStripeSetupCheckoutSession({
+  cancelUrl,
+  customerId,
+  metadata,
+  successUrl,
+}: {
+  cancelUrl: string;
+  customerId: string;
+  metadata: Record<string, string>;
+  successUrl: string;
+}) {
+  return stripeApiRequest<StripeCheckoutSession>("/v1/checkout/sessions", {
+    cancel_url: cancelUrl,
+    customer: customerId,
+    metadata,
+    mode: "setup",
+    payment_method_types: ["card"],
+    setup_intent_data: {
+      metadata,
+    },
+    success_url: successUrl,
+  });
+}
+
+export async function createStripeBillingPortalSession({
+  customerId,
+  returnUrl,
+}: {
+  customerId: string;
+  returnUrl: string;
+}) {
+  return stripeApiRequest<StripeBillingPortalSession>(
+    "/v1/billing_portal/sessions",
+    {
+      customer: customerId,
+      return_url: returnUrl,
+    },
+  );
 }
 
 export async function createStripeCheckoutSession({

@@ -78,6 +78,10 @@ import {
   operatingCountryPhoneRegion,
 } from "../../lib/workspace/operating-countries";
 import { createStripeConnectOnboardingLink } from "../../lib/payments/accounts";
+import {
+  createKyroUserBillingPortalUrl,
+  createKyroUserBillingSetupUrl,
+} from "../../lib/billing/kyro-user-billing";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import {
@@ -1743,6 +1747,57 @@ export async function connectStripePaymentsAction() {
   }
 
   redirect(onboardingUrl);
+}
+
+export async function startKyroBillingSetupAction() {
+  const { user, workspace } = await requireWorkspaceContext();
+  const supabase = createServiceSupabaseClient();
+  let setupUrl = "";
+
+  try {
+    setupUrl = await createKyroUserBillingSetupUrl({
+      supabase,
+      user,
+      workspace,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to start Kyro billing setup.";
+    redirect(
+      `/settings?section=usage&panel=usage-summary&engine_error=${encodeURIComponent(
+        message,
+      )}`,
+    );
+  }
+
+  redirect(setupUrl);
+}
+
+export async function openKyroBillingPortalAction() {
+  const { workspace } = await requireWorkspaceContext();
+  const supabase = createServiceSupabaseClient();
+  let portalUrl = "";
+
+  try {
+    portalUrl = await createKyroUserBillingPortalUrl({
+      supabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to open Kyro billing portal.";
+    redirect(
+      `/settings?section=usage&panel=usage-summary&engine_error=${encodeURIComponent(
+        message,
+      )}`,
+    );
+  }
+
+  redirect(portalUrl);
 }
 
 export async function createPronunciationEntryAction(formData: FormData) {

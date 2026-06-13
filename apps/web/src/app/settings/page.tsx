@@ -4,6 +4,8 @@ import {
   disconnectWorkspacePhoneSmsAction,
   enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
+  openKyroBillingPortalAction,
+  startKyroBillingSetupAction,
   autosavePronunciationEntryAction,
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
@@ -86,6 +88,10 @@ import {
   getWorkspaceStripePaymentOverview,
   type WorkspaceStripePaymentOverview,
 } from "../../lib/payments/accounts";
+import {
+  getKyroUserBillingOverview,
+  type KyroUserBillingOverview,
+} from "../../lib/billing/kyro-user-billing";
 import {
   getDocumentTemplateSettings,
   type DocumentTemplateSettings,
@@ -4050,13 +4056,19 @@ function modelUsageDescription(row: UsageBreakdownRow) {
 
 function UsageSettingsDetail({
   activeWindow,
+  billingOverview,
   displayCurrencySettings,
   usageReport,
 }: Readonly<{
   activeWindow: string;
+  billingOverview: KyroUserBillingOverview;
   displayCurrencySettings: DisplayCurrencySettings;
   usageReport: UsageReportData;
 }>) {
+  const billingReady = billingOverview.setupReady;
+  const billingBlocked =
+    !billingOverview.configured || !billingOverview.appUrlConfigured;
+
   return (
     <>
       <section className="usage-summary-strip" aria-label="Usage metrics">
@@ -4092,6 +4104,53 @@ function UsageSettingsDetail({
             rows={usageReport.ledger}
           />
         </div>
+      </section>
+
+      <section className="panel embedded-panel kyro-billing-card">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Billing method</p>
+            <h2>{billingReady ? "Payment method ready" : "Set up Kyro billing"}</h2>
+          </div>
+          <span className={billingReady ? "status-pill ready" : "status-pill"}>
+            {billingReady ? "Ready" : "Setup needed"}
+          </span>
+        </div>
+        <p className="kyro-billing-copy">
+          Your first two weeks are free. After that, Kyro bills metered usage to
+          the saved payment method.
+        </p>
+        {!billingOverview.configured ? (
+          <p className="form-alert error compact-alert">
+            Stripe is not configured for Kyro billing yet.
+          </p>
+        ) : null}
+        {!billingOverview.webhookConfigured ? (
+          <p className="form-alert error compact-alert">
+            Stripe webhook confirmation is not configured yet.
+          </p>
+        ) : null}
+        {!billingOverview.appUrlConfigured ? (
+          <p className="form-alert error compact-alert">
+            NEXT_PUBLIC_APP_URL is needed before starting billing setup.
+          </p>
+        ) : null}
+        <form
+          action={
+            billingReady
+              ? openKyroBillingPortalAction
+              : startKyroBillingSetupAction
+          }
+          className="kyro-billing-actions"
+        >
+          <button
+            className="usage-ledger-open-button"
+            disabled={billingBlocked}
+            type="submit"
+          >
+            {billingReady ? "Manage billing" : "Set up payment method"}
+          </button>
+        </form>
       </section>
 
       <div className="usage-grid compact">
@@ -4252,6 +4311,7 @@ export default async function SettingsPage({
     assignedPhoneNumbers,
     usageReport,
     voiceSettings,
+    kyroBillingOverview,
   ] = await Promise.all([
     selectedSection === "general" || selectedSection === "integrations"
       ? getCommunicationSettings(supabase, workspace.id)
@@ -4295,6 +4355,9 @@ export default async function SettingsPage({
       : Promise.resolve(null),
     selectedSection === "voice" || selectedSection === "developer"
       ? getVoiceSettings(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "usage"
+      ? getKyroUserBillingOverview(createServiceSupabaseClient(), workspace.id)
       : Promise.resolve(null),
   ]);
   const googleOverview = integrationOverviews?.[0] ?? null;
@@ -4591,13 +4654,17 @@ export default async function SettingsPage({
           twilioOverview={twilioOverview}
         />
       </SettingsDetailShell>
-    ) : selectedSection === "usage" && usageReport && generalSettings ? (
+    ) : selectedSection === "usage" &&
+      usageReport &&
+      generalSettings &&
+      kyroBillingOverview ? (
       <SettingsDetailShell
         eyebrow="Usage"
         title={selectedNestedTitle ?? "Usage and billing"}
       >
         <UsageSettingsDetail
           activeWindow={activeWindow}
+          billingOverview={kyroBillingOverview}
           displayCurrencySettings={generalSettings}
           usageReport={usageReport}
         />

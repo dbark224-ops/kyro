@@ -5,6 +5,10 @@ import {
   verifyStripeWebhookSignature,
   STRIPE_PROVIDER,
 } from "../../../../../lib/payments/stripe";
+import {
+  KYRO_BILLING_SETUP_FLOW,
+  markKyroUserBillingSetupComplete,
+} from "../../../../../lib/billing/kyro-user-billing";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -131,6 +135,45 @@ async function handleCheckoutSessionCompleted(
   }
 
   const supabase = createServiceSupabaseClient();
+  const metadata =
+    session.metadata && typeof session.metadata === "object"
+      ? (session.metadata as Record<string, unknown>)
+      : {};
+
+  if (textValue(metadata.flow) === KYRO_BILLING_SETUP_FLOW) {
+    const workspaceId = textValue(metadata.workspaceId);
+
+    if (!workspaceId) {
+      return;
+    }
+
+    await markKyroUserBillingSetupComplete({
+      checkoutSessionId: sessionId,
+      customerId: textValue(session.customer),
+      eventId: event.id,
+      setupIntentId: textValue(session.setup_intent),
+      supabase,
+      workspaceId,
+    });
+
+    await supabase.from("events").insert({
+      idempotency_key: `stripe.${event.id}`,
+      payload: {
+        flow: KYRO_BILLING_SETUP_FLOW,
+        providerCheckoutSessionId: sessionId,
+        stripeCustomerId: textValue(session.customer),
+        stripeSetupIntentId: textValue(session.setup_intent),
+      },
+      processed_at: new Date().toISOString(),
+      source: "stripe.webhook",
+      status: "processed",
+      type: "billing.setup.completed",
+      workspace_id: workspaceId,
+    });
+
+    return;
+  }
+
   const { data: requestRow, error } = await supabase
     .from("payment_requests")
     .select("id,workspace_id,status")

@@ -9008,6 +9008,27 @@ button:disabled {
   line-height: 1;
 }
 
+.kyro-billing-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.kyro-billing-copy {
+  color: var(--muted);
+  margin: 0;
+}
+
+.kyro-billing-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.compact-alert {
+  margin: 0;
+  padding: 10px 12px;
+}
+
 .usage-ledger-open-button,
 .usage-ledger-export-button,
 .settings-close-button {
