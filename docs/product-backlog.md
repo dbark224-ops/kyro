@@ -109,6 +109,14 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 - Keep expanding reports as new durable data exists, especially real payment records, payment status, calendar/appointment history, job outcomes, supplier activity, and richer quote/invoice reporting.
 - Payment reports intentionally stay empty until payment processing and customer-collection records ship.
 
+### Onboarding and Guided Setup
+
+- The first signup flow now captures account identity, confirmed email, mobile number, business basics, operating country, service area, and two-week trial acknowledgement without overwhelming the user.
+- Add mobile number verification with an SMS code before public launch.
+- Add an in-app "finish setup" flow after first login for logo, brand colours, business preferences, public contact details, email signatures, phone/SMS setup, payment setup, service-area detail, team phone numbers, and assistant behaviour.
+- Add contextual info/help buttons for business basics fields such as trade/industry, operating location, service area, postcodes, emergency availability, travel distance, and working hours.
+- Build the lightweight tutorial/help framework at the same time as those info buttons so onboarding guidance is reusable across Settings, Inbox, CRM, Payments, Voice, and Reports.
+
 ## Not Properly Attacked Yet
 
 ### Sidebar Finalization

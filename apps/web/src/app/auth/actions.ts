@@ -48,6 +48,7 @@ export async function signInAction(formData: FormData) {
 
 export async function signUpAction(formData: FormData) {
   const email = formString(formData, "email");
+  const confirmEmail = formString(formData, "confirmEmail");
   const password = formString(formData, "password");
   const confirmPassword = formString(formData, "confirmPassword");
   const name = formString(formData, "name");
@@ -64,8 +65,12 @@ export async function signUpAction(formData: FormData) {
     "/sign-in",
   );
 
-  if (!email || !password) {
+  if (!email || !confirmEmail || !password) {
     redirectWithError(failurePath, "Email and password are required.");
+  }
+
+  if (email.toLowerCase() !== confirmEmail.toLowerCase()) {
+    redirectWithError(failurePath, "Email addresses must match.");
   }
 
   if (password !== confirmPassword) {

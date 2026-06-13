@@ -131,7 +131,14 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
       eyebrow: "Step 1",
       title: "Create your login",
       copy: "This is the person who owns the first Kyro workspace.",
-      fields: ["name", "email", "password", "confirmPassword", "mobileNumber"],
+      fields: [
+        "name",
+        "email",
+        "confirmEmail",
+        "password",
+        "confirmPassword",
+        "mobileNumber",
+      ],
     },
     {
       eyebrow: "Step 2",
@@ -165,11 +172,24 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
   function validateCurrentStep(form: HTMLFormElement) {
     const password = fieldElement(form, "password");
     const confirmPassword = fieldElement(form, "confirmPassword");
+    const email = fieldElement(form, "email");
+    const confirmEmail = fieldElement(form, "confirmEmail");
 
     if (password && confirmPassword) {
       confirmPassword.setCustomValidity(
         password.value && confirmPassword.value && password.value !== confirmPassword.value
           ? "Passwords must match."
+          : "",
+      );
+    }
+
+    if (email && confirmEmail) {
+      confirmEmail.setCustomValidity(
+        email.value &&
+          confirmEmail.value &&
+          email.value.trim().toLowerCase() !==
+            confirmEmail.value.trim().toLowerCase()
+          ? "Email addresses must match."
           : "",
       );
     }
@@ -241,12 +261,21 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
       <section className="auth-form-section" hidden={step !== 0}>
         <div className="auth-form-grid">
           <label>
-            Your name
+            Your first and last name
             <input name="name" type="text" autoComplete="name" required />
           </label>
           <label>
             Email
             <input name="email" type="email" autoComplete="email" required />
+          </label>
+          <label>
+            Confirm email
+            <input
+              name="confirmEmail"
+              type="email"
+              autoComplete="email"
+              required
+            />
           </label>
           <PasswordField autoComplete="new-password" minLength={8} />
           <PasswordField
