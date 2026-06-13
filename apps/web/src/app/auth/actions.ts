@@ -49,13 +49,16 @@ export async function signInAction(formData: FormData) {
 export async function signUpAction(formData: FormData) {
   const email = formString(formData, "email");
   const password = formString(formData, "password");
+  const confirmPassword = formString(formData, "confirmPassword");
   const name = formString(formData, "name");
+  const mobileNumber = formString(formData, "mobileNumber");
   const businessName = formString(formData, "businessName");
   const businessLocation = formString(formData, "businessLocation");
   const country = formString(formData, "country");
   const industry = formString(formData, "industry");
   const postcode = formString(formData, "postcode");
   const serviceArea = formString(formData, "serviceArea");
+  const trialAcknowledged = formString(formData, "trialAcknowledged");
   const failurePath = safeRedirectPath(
     formString(formData, "failurePath"),
     "/sign-in",
@@ -65,14 +68,29 @@ export async function signUpAction(formData: FormData) {
     redirectWithError(failurePath, "Email and password are required.");
   }
 
+  if (password !== confirmPassword) {
+    redirectWithError(failurePath, "Passwords must match.");
+  }
+
   if (!name) {
     redirectWithError(failurePath, "Your name is required.");
+  }
+
+  if (!mobileNumber) {
+    redirectWithError(failurePath, "Mobile number is required.");
   }
 
   if (!businessName || !industry || !businessLocation) {
     redirectWithError(
       failurePath,
       "Business name, industry, and location are required.",
+    );
+  }
+
+  if (trialAcknowledged !== "yes") {
+    redirectWithError(
+      failurePath,
+      "Confirm the two-week trial and billing acknowledgement to continue.",
     );
   }
 
@@ -96,8 +114,11 @@ export async function signUpAction(formData: FormData) {
         kyroBusinessName: businessName,
         kyroBusinessPostcode: postcode,
         kyroBusinessServiceArea: serviceArea,
+        kyroMobileNumber: mobileNumber,
         kyroIndustry: industry,
+        kyroTrialAcknowledgedAt: new Date().toISOString(),
         name,
+        phone: mobileNumber,
       },
       emailRedirectTo: origin ? `${origin}/auth/callback` : undefined,
     },
@@ -116,6 +137,7 @@ export async function signUpAction(formData: FormData) {
         industry,
         postcode,
         publicEmail: email,
+        publicPhoneNumber: mobileNumber,
         serviceArea,
       });
     } catch (bootstrapError) {

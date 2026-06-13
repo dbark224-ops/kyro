@@ -7,6 +7,7 @@ export type WorkspaceBootstrapInput = {
   industry?: string;
   postcode?: string;
   publicEmail?: string;
+  publicPhoneNumber?: string;
   serviceArea?: string;
 };
 
@@ -73,6 +74,7 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
   const location = textValue(input.businessLocation);
   const postcode = textValue(input.postcode);
   const publicEmail = textValue(input.publicEmail);
+  const publicPhoneNumber = textValue(input.publicPhoneNumber);
   const fallbackServiceArea =
     [location, postcode, country].filter(Boolean).join(", ") || null;
   const serviceArea = textValue(input.serviceArea) ?? fallbackServiceArea;
@@ -132,6 +134,7 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
             industry: industry ?? "",
             operatingCountry: country ?? "",
             publicEmail: publicEmail ?? "",
+            publicPhoneNumber: publicPhoneNumber ?? "",
             serviceArea: serviceArea ?? "",
             servicePostcodes: postcode ?? "",
             serviceSuburbs: location ?? "",

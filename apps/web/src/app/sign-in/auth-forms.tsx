@@ -9,12 +9,14 @@ type ServerAction = (formData: FormData) => void | Promise<void>;
 
 type PasswordFieldProps = {
   autoComplete: string;
+  label?: string;
   minLength?: number;
   name?: string;
 };
 
 function PasswordField({
   autoComplete,
+  label = "Password",
   minLength,
   name = "password",
 }: PasswordFieldProps) {
@@ -22,7 +24,7 @@ function PasswordField({
 
   return (
     <label>
-      Password
+      {label}
       <span className="auth-password-wrap">
         <input
           name={name}
@@ -122,12 +124,121 @@ export function SignInForm({ action }: { action: ServerAction }) {
 }
 
 export function CreateAccountForm({ action }: { action: ServerAction }) {
+  const [step, setStep] = useState(0);
+
+  const steps = [
+    {
+      eyebrow: "Step 1",
+      title: "Create your login",
+      copy: "This is the person who owns the first Kyro workspace.",
+      fields: ["name", "email", "password", "confirmPassword", "mobileNumber"],
+    },
+    {
+      eyebrow: "Step 2",
+      title: "Business basics",
+      copy: "Kyro uses this to set the right country, currency, phone defaults, and workspace context.",
+      fields: [
+        "businessName",
+        "industry",
+        "country",
+        "businessLocation",
+        "postcode",
+      ],
+    },
+    {
+      eyebrow: "Step 3",
+      title: "Start your trial",
+      copy: "Your first two weeks are free. Usage during the trial is not billed.",
+      fields: ["trialAcknowledged"],
+    },
+  ];
+
+  function fieldElement(form: HTMLFormElement, name: string) {
+    const field = form.elements.namedItem(name);
+    return field instanceof HTMLInputElement ||
+      field instanceof HTMLSelectElement ||
+      field instanceof HTMLTextAreaElement
+      ? field
+      : null;
+  }
+
+  function validateCurrentStep(form: HTMLFormElement) {
+    const password = fieldElement(form, "password");
+    const confirmPassword = fieldElement(form, "confirmPassword");
+
+    if (password && confirmPassword) {
+      confirmPassword.setCustomValidity(
+        password.value && confirmPassword.value && password.value !== confirmPassword.value
+          ? "Passwords must match."
+          : "",
+      );
+    }
+
+    for (const fieldName of steps[step].fields) {
+      const field = fieldElement(form, fieldName);
+
+      if (field && !field.reportValidity()) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function goToNextStep(event: FormEvent<HTMLButtonElement>) {
+    const form = event.currentTarget.form;
+
+    if (!form || !validateCurrentStep(form)) {
+      return;
+    }
+
+    setStep((current) => Math.min(current + 1, steps.length - 1));
+  }
+
+  function goToStep(index: number, form: HTMLFormElement | null) {
+    if (index <= step) {
+      setStep(index);
+      return;
+    }
+
+    if (index > step + 1) {
+      return;
+    }
+
+    if (!form || !validateCurrentStep(form)) {
+      return;
+    }
+
+    setStep(index);
+  }
+
   return (
     <form className="form-card auth-form-card auth-create-form" action={action}>
       <input name="failurePath" type="hidden" value="/create-account" />
 
-      <div className="auth-form-section">
-        <p className="eyebrow">Your login</p>
+      <div className="auth-stepper" aria-label="Create account progress">
+        {steps.map((item, index) => (
+          <button
+            key={item.title}
+            className={`auth-step ${index === step ? "active" : ""} ${
+              index < step ? "complete" : ""
+            }`}
+            type="button"
+            onClick={(event) => goToStep(index, event.currentTarget.form)}
+          >
+            <span className="auth-step-index">{index + 1}</span>
+            <span>{item.title}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="auth-onboarding-heading">
+        <p className="eyebrow">{steps[step].eyebrow}</p>
+        <h2>{steps[step].title}</h2>
+        <p>{steps[step].copy}</p>
+      </div>
+
+      <section className="auth-form-section" hidden={step !== 0}>
         <div className="auth-form-grid">
           <label>
             Your name
@@ -138,11 +249,20 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             <input name="email" type="email" autoComplete="email" required />
           </label>
           <PasswordField autoComplete="new-password" minLength={8} />
+          <PasswordField
+            autoComplete="new-password"
+            label="Confirm password"
+            minLength={8}
+            name="confirmPassword"
+          />
+          <label className="auth-span-2">
+            Mobile number
+            <input name="mobileNumber" type="tel" autoComplete="tel" required />
+          </label>
         </div>
-      </div>
+      </section>
 
-      <div className="auth-form-section">
-        <p className="eyebrow">Business basics</p>
+      <section className="auth-form-section" hidden={step !== 1}>
         <div className="auth-form-grid">
           <label>
             Business name
@@ -202,11 +322,60 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             />
           </label>
         </div>
-      </div>
+      </section>
 
-      <button className="primary-button" type="submit">
-        Create account and workspace
-      </button>
+      <section className="auth-form-section" hidden={step !== 2}>
+        <div className="auth-trial-grid">
+          <div className="auth-trial-card">
+            <p className="eyebrow">Two-week trial</p>
+            <h3>Start without being billed today.</h3>
+            <p>
+              Kyro will meter usage during your first 14 days, but that trial
+              usage will not be charged. Billing starts after the trial ends.
+            </p>
+          </div>
+          <div className="auth-secure-payment-card">
+            <p className="eyebrow">Payment method</p>
+            <h3>Card setup is handled securely by Stripe.</h3>
+            <p>
+              Kyro will not store raw card details. Once billing setup is
+              enabled, this step will open Stripe-hosted payment method setup.
+            </p>
+          </div>
+        </div>
+
+        <label className="auth-payment-check">
+          <input name="trialAcknowledged" type="checkbox" required value="yes" />
+          <span>
+            I understand the first two weeks are free, and usage after the trial
+            is billed to the saved payment method once billing is connected.
+          </span>
+        </label>
+      </section>
+
+      <div className="auth-step-actions">
+        {step > 0 ? (
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setStep((current) => Math.max(current - 1, 0))}
+          >
+            Back
+          </button>
+        ) : (
+          <span />
+        )}
+
+        {step < steps.length - 1 ? (
+          <button className="primary-button" type="button" onClick={goToNextStep}>
+            Continue
+          </button>
+        ) : (
+          <button className="primary-button" type="submit">
+            Create account and start trial
+          </button>
+        )}
+      </div>
     </form>
   );
 }

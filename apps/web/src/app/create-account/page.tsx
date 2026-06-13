@@ -58,9 +58,9 @@ export default async function CreateAccountPage({
         <div className="auth-copy centered">
           <h1>Create your Kyro account.</h1>
           <p className="form-copy">
-            Add the essentials now so Kyro can create a working business
-            workspace straight away. You can refine branding, phones, service
-            areas, and signatures later in Settings.
+            Set up your login, business basics, and two-week trial. Kyro will
+            create a working workspace now, and you can refine branding, phones,
+            service areas, and signatures later in Settings.
           </p>
         </div>
 
