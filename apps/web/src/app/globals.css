@@ -1787,6 +1787,81 @@ label {
   font-weight: 700;
 }
 
+.auth-label-line {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+}
+
+.auth-field-help {
+  position: relative;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 74%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+  color: var(--cyan);
+  cursor: help;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.auth-field-help:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cyan) 72%, var(--pink));
+  outline-offset: 2px;
+}
+
+.auth-field-help-text {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  width: min(260px, 72vw);
+  border: 1px solid color-mix(in srgb, var(--cyan) 60%, var(--pink));
+  border-radius: var(--radius-control);
+  background:
+    radial-gradient(circle at 8% 20%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface) 96%, #000);
+  box-shadow: var(--shadow-soft);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.35;
+  opacity: 0;
+  padding: 9px 10px;
+  pointer-events: none;
+  text-align: left;
+  transform: translateX(-50%) translateY(4px);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+}
+
+.auth-field-help-text::after {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  border-right: 1px solid color-mix(in srgb, var(--cyan) 60%, var(--pink));
+  border-bottom: 1px solid color-mix(in srgb, var(--cyan) 60%, var(--pink));
+  background: color-mix(in srgb, var(--surface) 96%, #000);
+  content: "";
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.auth-field-help:hover .auth-field-help-text,
+.auth-field-help:focus .auth-field-help-text,
+.auth-field-help:focus-visible .auth-field-help-text {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 input {
   width: 100%;
   border: 1px solid var(--line);

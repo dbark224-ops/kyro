@@ -16,6 +16,15 @@ type PasswordFieldProps = {
   onValueChange?: () => void;
 };
 
+function FieldHelp({ text }: { text: string }) {
+  return (
+    <span className="auth-field-help" tabIndex={0}>
+      i
+      <span className="auth-field-help-text">{text}</span>
+    </span>
+  );
+}
+
 function PasswordField({
   autoComplete,
   error,
@@ -477,7 +486,10 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             ) : null}
           </label>
           <label>
-            Trade / industry
+            <span className="auth-label-line">
+              Trade / industry
+              <FieldHelp text="Use the plain trade or service category customers would recognise, such as plumbing, electrical, landscaping, cleaning, or contracting." />
+            </span>
             <input
               name="industry"
               type="text"
@@ -519,7 +531,10 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             ) : null}
           </label>
           <label>
-            Location
+            <span className="auth-label-line">
+              Location
+              <FieldHelp text="Enter the main suburb, city, or region the business operates from. Kyro uses this to understand local context and nearby work." />
+            </span>
             <input
               name="businessLocation"
               type="text"
@@ -557,7 +572,10 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             ) : null}
           </label>
           <label>
-            Service area
+            <span className="auth-label-line">
+              Service area
+              <FieldHelp text="Optional. Add the suburbs, regions, postcodes, or travel radius you normally service so Kyro can understand which enquiries are practical." />
+            </span>
             <input
               name="serviceArea"
               type="text"
