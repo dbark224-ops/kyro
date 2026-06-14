@@ -1,7 +1,12 @@
 "use server";
 
 import { createServerSupabaseClient } from "../../lib/supabase/server";
+import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import { createKyroUserBillingSetupUrl } from "../../lib/billing/kyro-user-billing";
+import {
+  normalizeContactEmail,
+  normalizeContactPhoneForRegion,
+} from "../../lib/crm/identity";
 import { createWorkspaceBootstrap } from "../../lib/workspace/bootstrap";
 import { isOperatingCountry } from "../../lib/workspace/operating-countries";
 import { revalidatePath } from "next/cache";
@@ -23,6 +28,108 @@ function safeRedirectPath(path: string, fallback: string) {
   }
 
   return path;
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function signupPhoneCandidates(user: {
+  phone?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+}) {
+  return [
+    user.phone ?? "",
+    metadataString(user.user_metadata, "kyroMobileNumber"),
+    metadataString(user.user_metadata, "phone"),
+    metadataString(user.user_metadata, "mobileNumber"),
+    metadataString(user.user_metadata, "mobile"),
+    metadataString(user.user_metadata, "publicPhoneNumber"),
+  ].filter(Boolean);
+}
+
+async function verifySignupIdentityAvailable(input: {
+  country: string;
+  email: string;
+  failurePath: string;
+  mobileNumber: string;
+}) {
+  const normalizedEmail = normalizeContactEmail(input.email);
+  const normalizedPhone = normalizeContactPhoneForRegion(
+    input.mobileNumber,
+    input.country,
+  );
+
+  if (!normalizedEmail) {
+    redirectWithError(input.failurePath, "Enter a valid email address.");
+  }
+
+  if (!normalizedPhone) {
+    redirectWithError(input.failurePath, "Enter a valid mobile number.");
+  }
+
+  let serviceSupabase;
+
+  try {
+    serviceSupabase = createServiceSupabaseClient();
+  } catch {
+    redirectWithError(
+      input.failurePath,
+      "Kyro could not verify account details right now. Please try again shortly.",
+    );
+  }
+
+  const perPage = 1000;
+
+  for (let page = 1; page <= 50; page += 1) {
+    const { data, error } = await serviceSupabase.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      redirectWithError(
+        input.failurePath,
+        "Kyro could not verify account details right now. Please try again shortly.",
+      );
+    }
+
+    const users = data.users ?? [];
+
+    for (const user of users) {
+      const existingEmail = normalizeContactEmail(user.email);
+
+      if (existingEmail && existingEmail === normalizedEmail) {
+        redirectWithError(
+          input.failurePath,
+          "That email is already attached to a Kyro account. Sign in instead, or use a different email.",
+        );
+      }
+
+      const phoneMatch = signupPhoneCandidates(user).some((candidate) => {
+        const normalizedCandidate = normalizeContactPhoneForRegion(
+          candidate,
+          input.country,
+        );
+        return normalizedCandidate === normalizedPhone;
+      });
+
+      if (phoneMatch) {
+        redirectWithError(
+          input.failurePath,
+          "That mobile number is already attached to a Kyro account. Use a different number, or contact support if this is your account.",
+        );
+      }
+    }
+
+    if (users.length < perPage) {
+      break;
+    }
+  }
 }
 
 export async function signInAction(formData: FormData) {
@@ -106,6 +213,13 @@ export async function signUpAction(formData: FormData) {
       "Choose the country this workspace operates in.",
     );
   }
+
+  await verifySignupIdentityAvailable({
+    country,
+    email,
+    failurePath,
+    mobileNumber,
+  });
 
   const requestHeaders = await headers();
   const origin = requestHeaders.get("origin");
