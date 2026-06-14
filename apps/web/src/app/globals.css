@@ -1480,8 +1480,8 @@ a {
 }
 
 .auth-shell:has(.auth-create-panel) {
-  align-items: start;
-  padding-block: 16px;
+  align-items: center;
+  padding-block: 24px;
 }
 
 .auth-shell::before,
@@ -1591,8 +1591,8 @@ a {
 .auth-create-header h1 {
   max-width: 680px;
   margin: 0;
-  font-size: clamp(2.35rem, 5vw, 4rem);
-  line-height: 0.98;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1;
   text-align: center;
 }
 
