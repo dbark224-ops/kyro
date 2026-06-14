@@ -9,18 +9,23 @@ type ServerAction = (formData: FormData) => void | Promise<void>;
 
 type PasswordFieldProps = {
   autoComplete: string;
+  error?: string;
   label?: string;
   minLength?: number;
   name?: string;
+  onValueChange?: () => void;
 };
 
 function PasswordField({
   autoComplete,
+  error,
   label = "Password",
   minLength,
   name = "password",
+  onValueChange,
 }: PasswordFieldProps) {
   const [showPassword, setShowPassword] = useState(false);
+  const errorId = `${name}-error`;
 
   return (
     <label>
@@ -32,6 +37,9 @@ function PasswordField({
           autoComplete={autoComplete}
           required
           minLength={minLength}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? errorId : undefined}
+          onChange={onValueChange}
         />
         <button
           aria-label={showPassword ? "Hide password" : "Show password"}
@@ -56,6 +64,11 @@ function PasswordField({
           </svg>
         </button>
       </span>
+      {error ? (
+        <span className="auth-field-error" id={errorId}>
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -125,6 +138,7 @@ export function SignInForm({ action }: { action: ServerAction }) {
 
 export function CreateAccountForm({ action }: { action: ServerAction }) {
   const [step, setStep] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const steps = [
     {
@@ -169,40 +183,121 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
       : null;
   }
 
-  function validateCurrentStep(form: HTMLFormElement) {
-    const password = fieldElement(form, "password");
-    const confirmPassword = fieldElement(form, "confirmPassword");
-    const email = fieldElement(form, "email");
-    const confirmEmail = fieldElement(form, "confirmEmail");
+  const fieldLabels: Record<string, string> = {
+    businessLocation: "Location",
+    businessName: "Business name",
+    confirmEmail: "Confirm email",
+    confirmPassword: "Confirm password",
+    country: "Operating country",
+    email: "Email",
+    industry: "Trade / industry",
+    mobileNumber: "Mobile number",
+    name: "Your first and last name",
+    password: "Password",
+    postcode: "Postcode / ZIP",
+    trialAcknowledged: "Trial acknowledgement",
+  };
 
-    if (password && confirmPassword) {
-      confirmPassword.setCustomValidity(
-        password.value && confirmPassword.value && password.value !== confirmPassword.value
-          ? "Passwords must match."
-          : "",
-      );
-    }
+  function clearFieldError(name: string) {
+    setFieldErrors((current) => {
+      if (!current[name]) {
+        return current;
+      }
 
-    if (email && confirmEmail) {
-      confirmEmail.setCustomValidity(
-        email.value &&
-          confirmEmail.value &&
-          email.value.trim().toLowerCase() !==
-            confirmEmail.value.trim().toLowerCase()
-          ? "Email addresses must match."
-          : "",
-      );
-    }
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+  }
 
-    for (const fieldName of steps[step].fields) {
+  function fieldValue(form: HTMLFormElement, name: string) {
+    const field = fieldElement(form, name);
+    return field ? field.value.trim() : "";
+  }
+
+  function validateFields(form: HTMLFormElement, fieldNames: string[]) {
+    const nextErrors: Record<string, string> = {};
+    const email = fieldValue(form, "email");
+    const confirmEmail = fieldValue(form, "confirmEmail");
+    const password = fieldValue(form, "password");
+    const confirmPassword = fieldValue(form, "confirmPassword");
+
+    for (const fieldName of fieldNames) {
       const field = fieldElement(form, fieldName);
 
-      if (field && !field.reportValidity()) {
-        return false;
+      if (!field) {
+        continue;
+      }
+
+      if (field instanceof HTMLInputElement && field.type === "checkbox") {
+        if (!field.checked) {
+          nextErrors[fieldName] = "Confirm this before continuing.";
+        }
+        continue;
+      }
+
+      if (!field.value.trim()) {
+        nextErrors[fieldName] = `${fieldLabels[fieldName] ?? "This field"} is required.`;
+        continue;
+      }
+
+      if (
+        field instanceof HTMLInputElement &&
+        field.type === "email" &&
+        !field.checkValidity()
+      ) {
+        nextErrors[fieldName] = "Enter a valid email address.";
       }
     }
 
+    if (
+      fieldNames.includes("confirmEmail") &&
+      email &&
+      confirmEmail &&
+      email.toLowerCase() !== confirmEmail.toLowerCase()
+    ) {
+      nextErrors.confirmEmail = "Email addresses must match.";
+    }
+
+    if (fieldNames.includes("password") && password && password.length < 8) {
+      nextErrors.password = "Password must be at least 8 characters.";
+    }
+
+    if (
+      fieldNames.includes("confirmPassword") &&
+      password &&
+      confirmPassword &&
+      password !== confirmPassword
+    ) {
+      nextErrors.confirmPassword = "Passwords must match.";
+    }
+
+    setFieldErrors((current) => {
+      const cleared = { ...current };
+      for (const fieldName of fieldNames) {
+        delete cleared[fieldName];
+      }
+      return { ...cleared, ...nextErrors };
+    });
+
+    if (Object.keys(nextErrors).length > 0) {
+      const firstInvalid = fieldElement(form, Object.keys(nextErrors)[0]);
+      firstInvalid?.focus();
+      return false;
+    }
+
     return true;
+  }
+
+  function validateCurrentStep(form: HTMLFormElement) {
+    return validateFields(form, steps[step].fields);
+  }
+
+  function validateAllSteps(form: HTMLFormElement) {
+    return validateFields(
+      form,
+      steps.flatMap((item) => item.fields),
+    );
   }
 
   function goToNextStep(event: FormEvent<HTMLButtonElement>) {
@@ -232,8 +327,19 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
     setStep(index);
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    if (!validateAllSteps(event.currentTarget)) {
+      event.preventDefault();
+    }
+  }
+
   return (
-    <form className="form-card auth-form-card auth-create-form" action={action}>
+    <form
+      className="form-card auth-form-card auth-create-form"
+      action={action}
+      noValidate
+      onSubmit={handleSubmit}
+    >
       <input name="failurePath" type="hidden" value="/create-account" />
 
       <div className="auth-stepper" aria-label="Create account progress">
@@ -262,11 +368,37 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
         <div className="auth-form-grid">
           <label>
             Your first and last name
-            <input name="name" type="text" autoComplete="name" required />
+            <input
+              name="name"
+              type="text"
+              autoComplete="name"
+              required
+              aria-invalid={Boolean(fieldErrors.name)}
+              aria-describedby={fieldErrors.name ? "name-error" : undefined}
+              onChange={() => clearFieldError("name")}
+            />
+            {fieldErrors.name ? (
+              <span className="auth-field-error" id="name-error">
+                {fieldErrors.name}
+              </span>
+            ) : null}
           </label>
           <label>
             Email
-            <input name="email" type="email" autoComplete="email" required />
+            <input
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              aria-invalid={Boolean(fieldErrors.email)}
+              aria-describedby={fieldErrors.email ? "email-error" : undefined}
+              onChange={() => clearFieldError("email")}
+            />
+            {fieldErrors.email ? (
+              <span className="auth-field-error" id="email-error">
+                {fieldErrors.email}
+              </span>
+            ) : null}
           </label>
           <label>
             Confirm email
@@ -275,18 +407,50 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
               type="email"
               autoComplete="email"
               required
+              aria-invalid={Boolean(fieldErrors.confirmEmail)}
+              aria-describedby={
+                fieldErrors.confirmEmail ? "confirmEmail-error" : undefined
+              }
+              onChange={() => clearFieldError("confirmEmail")}
             />
+            {fieldErrors.confirmEmail ? (
+              <span className="auth-field-error" id="confirmEmail-error">
+                {fieldErrors.confirmEmail}
+              </span>
+            ) : null}
           </label>
-          <PasswordField autoComplete="new-password" minLength={8} />
           <PasswordField
             autoComplete="new-password"
+            error={fieldErrors.password}
+            minLength={8}
+            onValueChange={() => clearFieldError("password")}
+          />
+          <PasswordField
+            autoComplete="new-password"
+            error={fieldErrors.confirmPassword}
             label="Confirm password"
             minLength={8}
             name="confirmPassword"
+            onValueChange={() => clearFieldError("confirmPassword")}
           />
           <label className="auth-span-2">
             Mobile number
-            <input name="mobileNumber" type="tel" autoComplete="tel" required />
+            <input
+              name="mobileNumber"
+              type="tel"
+              autoComplete="tel"
+              required
+              aria-invalid={Boolean(fieldErrors.mobileNumber)}
+              aria-describedby={
+                fieldErrors.mobileNumber ? "mobileNumber-error" : undefined
+              }
+              onChange={() => clearFieldError("mobileNumber")}
+            />
+            {fieldErrors.mobileNumber ? (
+              <span className="auth-field-error" id="mobileNumber-error">
+                {fieldErrors.mobileNumber}
+              </span>
+            ) : null}
           </label>
         </div>
       </section>
@@ -300,7 +464,17 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
               type="text"
               autoComplete="organization"
               required
+              aria-invalid={Boolean(fieldErrors.businessName)}
+              aria-describedby={
+                fieldErrors.businessName ? "businessName-error" : undefined
+              }
+              onChange={() => clearFieldError("businessName")}
             />
+            {fieldErrors.businessName ? (
+              <span className="auth-field-error" id="businessName-error">
+                {fieldErrors.businessName}
+              </span>
+            ) : null}
           </label>
           <label>
             Trade / industry
@@ -309,11 +483,26 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
               type="text"
               placeholder="Plumbing, electrical, landscaping..."
               required
+              aria-invalid={Boolean(fieldErrors.industry)}
+              aria-describedby={fieldErrors.industry ? "industry-error" : undefined}
+              onChange={() => clearFieldError("industry")}
             />
+            {fieldErrors.industry ? (
+              <span className="auth-field-error" id="industry-error">
+                {fieldErrors.industry}
+              </span>
+            ) : null}
           </label>
           <label>
             Operating country
-            <select name="country" required defaultValue="">
+            <select
+              name="country"
+              required
+              defaultValue=""
+              aria-invalid={Boolean(fieldErrors.country)}
+              aria-describedby={fieldErrors.country ? "country-error" : undefined}
+              onChange={() => clearFieldError("country")}
+            >
               <option value="" disabled>
                 Select operating country
               </option>
@@ -323,6 +512,11 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
                 </option>
               ))}
             </select>
+            {fieldErrors.country ? (
+              <span className="auth-field-error" id="country-error">
+                {fieldErrors.country}
+              </span>
+            ) : null}
           </label>
           <label>
             Location
@@ -331,7 +525,19 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
               type="text"
               placeholder="Suburb, city, or operating region"
               required
+              aria-invalid={Boolean(fieldErrors.businessLocation)}
+              aria-describedby={
+                fieldErrors.businessLocation
+                  ? "businessLocation-error"
+                  : undefined
+              }
+              onChange={() => clearFieldError("businessLocation")}
             />
+            {fieldErrors.businessLocation ? (
+              <span className="auth-field-error" id="businessLocation-error">
+                {fieldErrors.businessLocation}
+              </span>
+            ) : null}
           </label>
           <label>
             Postcode / ZIP
@@ -340,7 +546,15 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
               type="text"
               autoComplete="postal-code"
               required
+              aria-invalid={Boolean(fieldErrors.postcode)}
+              aria-describedby={fieldErrors.postcode ? "postcode-error" : undefined}
+              onChange={() => clearFieldError("postcode")}
             />
+            {fieldErrors.postcode ? (
+              <span className="auth-field-error" id="postcode-error">
+                {fieldErrors.postcode}
+              </span>
+            ) : null}
           </label>
           <label>
             Service area
@@ -374,12 +588,27 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
         </div>
 
         <label className="auth-payment-check">
-          <input name="trialAcknowledged" type="checkbox" required value="yes" />
+          <input
+            name="trialAcknowledged"
+            type="checkbox"
+            required
+            value="yes"
+            aria-invalid={Boolean(fieldErrors.trialAcknowledged)}
+            aria-describedby={
+              fieldErrors.trialAcknowledged ? "trialAcknowledged-error" : undefined
+            }
+            onChange={() => clearFieldError("trialAcknowledged")}
+          />
           <span>
             I understand the first two weeks are free, and usage after the trial
             is billed to the saved payment method once billing is connected.
           </span>
         </label>
+        {fieldErrors.trialAcknowledged ? (
+          <span className="auth-field-error auth-check-error" id="trialAcknowledged-error">
+            {fieldErrors.trialAcknowledged}
+          </span>
+        ) : null}
       </section>
 
       <div className="auth-step-actions">

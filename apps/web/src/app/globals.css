@@ -1798,6 +1798,46 @@ input {
   outline: none;
 }
 
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: color-mix(in srgb, var(--pink) 72%, var(--cyan));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pink) 13%, transparent);
+}
+
+.auth-field-error {
+  width: fit-content;
+  border: 1px solid color-mix(in srgb, var(--pink) 64%, var(--cyan));
+  border-radius: var(--radius-pill);
+  background:
+    radial-gradient(circle at 9% 20%, color-mix(in srgb, var(--pink) 18%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.25;
+  padding: 6px 10px;
+}
+
+.auth-field-error::before {
+  content: "!";
+  display: inline-flex;
+  width: 17px;
+  height: 17px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pink) 78%, var(--cyan));
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.auth-check-error {
+  margin-top: -4px;
+}
+
 .auth-password-wrap {
   position: relative;
   display: block;
