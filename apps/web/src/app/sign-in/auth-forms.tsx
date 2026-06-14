@@ -299,7 +299,7 @@ export function CreateAccountForm() {
       eyebrow: "Step 3",
       title: "Add your payment method",
       copy: billingSetup
-        ? "Start your two-week free trial. You will not be billed today."
+        ? ""
         : "Creating your workspace and loading the secure card form.",
       fields: [],
     },
