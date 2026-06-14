@@ -1686,6 +1686,34 @@ a {
   grid-column: 1 / -1;
 }
 
+.auth-field-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+  margin-bottom: 7px;
+}
+
+.auth-phone-field {
+  min-width: 0;
+}
+
+.auth-phone-row {
+  display: grid;
+  grid-template-columns: minmax(104px, 0.34fr) minmax(180px, 0.66fr);
+  gap: 8px;
+  max-width: 540px;
+}
+
+.auth-phone-row label {
+  display: block;
+}
+
+.auth-phone-row select,
+.auth-phone-row input {
+  width: 100%;
+}
+
 .auth-trial-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1760,6 +1788,20 @@ a {
 .auth-inline-payment .primary-button {
   justify-self: end;
   min-width: 180px;
+}
+
+.auth-payment-placeholder {
+  display: grid;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+  color: var(--muted);
+  padding: 12px 14px;
+}
+
+.auth-payment-placeholder p {
+  margin: 0;
 }
 
 .auth-step-actions {
@@ -11561,7 +11603,8 @@ button:disabled {
   .auth-stepper,
   .auth-grid,
   .auth-form-grid,
-  .auth-trial-grid {
+  .auth-trial-grid,
+  .auth-phone-row {
     grid-template-columns: 1fr;
   }
 

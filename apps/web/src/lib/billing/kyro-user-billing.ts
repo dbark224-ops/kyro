@@ -223,7 +223,9 @@ export async function createKyroUserBillingSetupIntent({
   }
 
   if (!config.publishableKey) {
-    throw new Error("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not configured.");
+    throw new Error(
+      "Stripe publishable key is not configured, so Kyro cannot load the card form yet.",
+    );
   }
 
   if (!user.email) {

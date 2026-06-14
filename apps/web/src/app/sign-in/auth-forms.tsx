@@ -10,6 +10,14 @@ import { loadStripe } from "@stripe/stripe-js";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { OPERATING_COUNTRY_OPTIONS } from "../../lib/workspace/operating-countries";
 
+const PHONE_COUNTRY_OPTIONS = [
+  { label: "AU", dialCode: "+61", country: "Australia" },
+  { label: "NZ", dialCode: "+64", country: "New Zealand" },
+  { label: "UK", dialCode: "+44", country: "United Kingdom" },
+  { label: "US", dialCode: "+1", country: "USA" },
+  { label: "CA", dialCode: "+1", country: "Canada" },
+] as const;
+
 const REMEMBERED_EMAIL_KEY = "kyro.rememberedEmail";
 
 type ServerAction = (formData: FormData) => void | Promise<void>;
@@ -260,6 +268,7 @@ export function CreateAccountForm() {
         "confirmEmail",
         "password",
         "confirmPassword",
+        "mobileCountry",
         "mobileNumber",
       ],
     },
@@ -277,10 +286,10 @@ export function CreateAccountForm() {
     },
     {
       eyebrow: "Step 3",
-      title: "Secure card setup",
+      title: "Add your payment method",
       copy: billingSetup
-        ? "Enter your card securely below. Stripe handles the card fields directly, and Kyro never sees or stores the raw card number."
-        : "Create the workspace, then add a card securely with Stripe. Your first two weeks are free and Kyro never stores raw card details.",
+        ? "Enter your card below. Stripe handles the card fields directly, and Kyro never sees or stores the raw card number."
+        : "Save a card to activate the two-week trial. You will not be billed today.",
       fields: ["trialAcknowledged"],
     },
   ];
@@ -302,6 +311,7 @@ export function CreateAccountForm() {
     country: "Operating country",
     email: "Email",
     industry: "Trade / industry",
+    mobileCountry: "Phone country",
     mobileNumber: "Mobile number",
     name: "Your first and last name",
     password: "Password",
@@ -450,6 +460,7 @@ export function CreateAccountForm() {
         "country",
         "email",
         "industry",
+        "mobileCountry",
         "mobileNumber",
         "name",
         "password",
@@ -609,25 +620,54 @@ export function CreateAccountForm() {
             name="confirmPassword"
             onValueChange={() => clearFieldError("confirmPassword")}
           />
-          <label className="auth-span-2">
-            Mobile number
-            <input
-              name="mobileNumber"
-              type="tel"
-              autoComplete="tel"
-              required
-              aria-invalid={Boolean(fieldErrors.mobileNumber)}
-              aria-describedby={
-                fieldErrors.mobileNumber ? "mobileNumber-error" : undefined
-              }
-              onChange={() => clearFieldError("mobileNumber")}
-            />
+          <div className="auth-phone-field">
+            <span className="auth-field-label">Mobile number</span>
+            <div className="auth-phone-row">
+              <label className="auth-phone-country">
+                <span className="sr-only">Phone country</span>
+                <select
+                  name="mobileCountry"
+                  required
+                  defaultValue="Australia"
+                  aria-invalid={Boolean(fieldErrors.mobileCountry)}
+                  aria-describedby={
+                    fieldErrors.mobileCountry ? "mobileCountry-error" : undefined
+                  }
+                  onChange={() => clearFieldError("mobileCountry")}
+                >
+                  {PHONE_COUNTRY_OPTIONS.map((option) => (
+                    <option key={option.country} value={option.country}>
+                      {option.label} {option.dialCode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="auth-phone-number">
+                <span className="sr-only">Mobile number</span>
+                <input
+                  name="mobileNumber"
+                  type="tel"
+                  autoComplete="tel"
+                  required
+                  aria-invalid={Boolean(fieldErrors.mobileNumber)}
+                  aria-describedby={
+                    fieldErrors.mobileNumber ? "mobileNumber-error" : undefined
+                  }
+                  onChange={() => clearFieldError("mobileNumber")}
+                />
+              </label>
+            </div>
+            {fieldErrors.mobileCountry ? (
+              <span className="auth-field-error" id="mobileCountry-error">
+                {fieldErrors.mobileCountry}
+              </span>
+            ) : null}
             {fieldErrors.mobileNumber ? (
               <span className="auth-field-error" id="mobileNumber-error">
                 {fieldErrors.mobileNumber}
               </span>
             ) : null}
-          </label>
+          </div>
         </div>
       </section>
 
@@ -753,43 +793,27 @@ export function CreateAccountForm() {
       </section>
 
       <section className="auth-form-section" hidden={step !== 2}>
-        <div className="auth-trial-grid">
-          <div className="auth-trial-card">
-            <p className="eyebrow">Two-week trial</p>
-            <h3>Start without being billed today.</h3>
-            <p>
-              Kyro will meter usage during your first 14 days, but that trial
-              usage will not be charged. Billing starts after the trial ends.
-            </p>
-          </div>
-          <div className="auth-secure-payment-card">
-            <p className="eyebrow">Payment method</p>
-            <h3>Card details stay with Stripe.</h3>
-            <p>
-              The card form below is provided by Stripe. Kyro stores only the
-              Stripe customer and setup references needed to bill after the
-              free trial.
-            </p>
-          </div>
-        </div>
-
-        <label className="auth-payment-check">
-          <input
-            name="trialAcknowledged"
-            type="checkbox"
-            required
-            value="yes"
-            aria-invalid={Boolean(fieldErrors.trialAcknowledged)}
-            aria-describedby={
-              fieldErrors.trialAcknowledged ? "trialAcknowledged-error" : undefined
-            }
-            onChange={() => clearFieldError("trialAcknowledged")}
-          />
-          <span>
-            I understand the first two weeks are free, and usage after the trial
-            is billed to the saved payment method once billing is connected.
-          </span>
-        </label>
+        {!billingSetup ? (
+          <label className="auth-payment-check">
+            <input
+              name="trialAcknowledged"
+              type="checkbox"
+              required
+              value="yes"
+              aria-invalid={Boolean(fieldErrors.trialAcknowledged)}
+              aria-describedby={
+                fieldErrors.trialAcknowledged
+                  ? "trialAcknowledged-error"
+                  : undefined
+              }
+              onChange={() => clearFieldError("trialAcknowledged")}
+            />
+            <span>
+              I understand the first two weeks are free and usage after the trial
+              will be billed to the saved card.
+            </span>
+          </label>
+        ) : null}
         {fieldErrors.trialAcknowledged ? (
           <span className="auth-field-error auth-check-error" id="trialAcknowledged-error">
             {fieldErrors.trialAcknowledged}
@@ -814,6 +838,14 @@ export function CreateAccountForm() {
           >
             <InlineCardSetup setup={billingSetup} onError={setFormError} />
           </Elements>
+        ) : step === 2 ? (
+          <div className="auth-payment-placeholder">
+            <p className="eyebrow">Secure payment setup</p>
+            <p>
+              Press the button below to create the workspace and load the Stripe
+              card form on this screen.
+            </p>
+          </div>
         ) : null}
       </section>
 
@@ -841,10 +873,10 @@ export function CreateAccountForm() {
             disabled={isSubmitting || Boolean(billingSetup)}
           >
             {billingSetup
-              ? "Card setup ready"
+              ? "Card setup loaded"
               : isSubmitting
                 ? "Creating workspace..."
-                : "Create workspace and continue to card"}
+                : "Create workspace and load card form"}
           </button>
         )}
       </div>

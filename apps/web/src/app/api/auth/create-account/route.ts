@@ -10,7 +10,10 @@ import {
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 import { createWorkspaceBootstrap } from "../../../../lib/workspace/bootstrap";
-import { isOperatingCountry } from "../../../../lib/workspace/operating-countries";
+import {
+  isOperatingCountry,
+  operatingCountryPhoneRegion,
+} from "../../../../lib/workspace/operating-countries";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +25,7 @@ type CreateAccountPayload = {
   country?: string;
   email?: string;
   industry?: string;
+  mobileCountry?: string;
   mobileNumber?: string;
   name?: string;
   password?: string;
@@ -39,7 +43,9 @@ type ValidatedCreateAccountPayload =
         country: string;
         email: string;
         industry: string;
+        mobileCountry: string;
         mobileNumber: string;
+        normalizedMobileNumber: string;
         name: string;
         password: string;
         postcode: string;
@@ -96,14 +102,15 @@ function errorResponse(message: string, status = 400) {
 }
 
 async function verifySignupIdentityAvailable(input: {
-  country: string;
   email: string;
+  mobileCountry: string;
   mobileNumber: string;
 }) {
   const normalizedEmail = normalizeContactEmail(input.email);
+  const phoneRegion = operatingCountryPhoneRegion(input.mobileCountry);
   const normalizedPhone = normalizeContactPhoneForRegion(
     input.mobileNumber,
-    input.country,
+    phoneRegion,
   );
 
   if (!normalizedEmail) {
@@ -139,7 +146,7 @@ async function verifySignupIdentityAvailable(input: {
       const phoneMatch = signupPhoneCandidates(user).some((candidate) => {
         const normalizedCandidate = normalizeContactPhoneForRegion(
           candidate,
-          input.country,
+          phoneRegion,
         );
         return normalizedCandidate === normalizedPhone;
       });
@@ -170,6 +177,7 @@ function validatePayload(
   const businessLocation = textValue(payload.businessLocation);
   const country = textValue(payload.country);
   const industry = textValue(payload.industry);
+  const mobileCountry = textValue(payload.mobileCountry);
   const postcode = textValue(payload.postcode);
   const serviceArea = textValue(payload.serviceArea);
   const trialAcknowledged = textValue(payload.trialAcknowledged);
@@ -198,6 +206,19 @@ function validatePayload(
     return { error: "Mobile number is required." };
   }
 
+  if (!isOperatingCountry(mobileCountry)) {
+    return { error: "Choose the mobile number country." };
+  }
+
+  const normalizedMobileNumber = normalizeContactPhoneForRegion(
+    mobileNumber,
+    operatingCountryPhoneRegion(mobileCountry),
+  );
+
+  if (!normalizedMobileNumber) {
+    return { error: "Enter a valid mobile number." };
+  }
+
   if (!businessName || !industry || !businessLocation) {
     return { error: "Business name, industry, and location are required." };
   }
@@ -219,7 +240,9 @@ function validatePayload(
       country,
       email,
       industry,
+      mobileCountry,
       mobileNumber,
+      normalizedMobileNumber,
       name,
       password,
       postcode,
@@ -245,8 +268,8 @@ export async function POST(request: Request) {
 
   const input = validated.input;
   const duplicateError = await verifySignupIdentityAvailable({
-    country: input.country,
     email: input.email,
+    mobileCountry: input.mobileCountry,
     mobileNumber: input.mobileNumber,
   });
 
@@ -266,11 +289,12 @@ export async function POST(request: Request) {
         kyroBusinessName: input.businessName,
         kyroBusinessPostcode: input.postcode,
         kyroBusinessServiceArea: input.serviceArea,
-        kyroMobileNumber: input.mobileNumber,
+        kyroMobileCountry: input.mobileCountry,
+        kyroMobileNumber: input.normalizedMobileNumber,
         kyroIndustry: input.industry,
         kyroTrialAcknowledgedAt: new Date().toISOString(),
         name: input.name,
-        phone: input.mobileNumber,
+        phone: input.normalizedMobileNumber,
       },
       emailRedirectTo: origin ? `${origin}/auth/callback` : undefined,
     },
@@ -305,7 +329,7 @@ export async function POST(request: Request) {
         industry: input.industry,
         postcode: input.postcode,
         publicEmail: input.email,
-        publicPhoneNumber: input.mobileNumber,
+        publicPhoneNumber: input.normalizedMobileNumber,
         serviceArea: input.serviceArea,
       },
     );
