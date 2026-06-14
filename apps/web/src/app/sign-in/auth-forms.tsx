@@ -289,8 +289,8 @@ export function CreateAccountForm() {
       title: "Add your payment method",
       copy: billingSetup
         ? "Enter your card below. Stripe handles the card fields directly, and Kyro never sees or stores the raw card number."
-        : "Save a card to activate the two-week trial. You will not be billed today.",
-      fields: ["trialAcknowledged"],
+        : "Loading Stripe's secure card form. You will not be billed today.",
+      fields: [],
     },
   ];
 
@@ -414,24 +414,66 @@ export function CreateAccountForm() {
     return validateFields(form, steps[step].fields);
   }
 
-  function validateAllSteps(form: HTMLFormElement) {
-    return validateFields(
-      form,
-      steps.flatMap((item) => item.fields),
-    );
+  async function createWorkspaceAndLoadBilling(form: HTMLFormElement) {
+    if (
+      !validateFields(form, [...steps[0].fields, ...steps[1].fields]) ||
+      isSubmitting
+    ) {
+      return false;
+    }
+
+    setIsSubmitting(true);
+    setFormError("");
+    setFormMessage("");
+
+    const response = await fetch("/api/auth/create-account", {
+      body: JSON.stringify(formPayload(form)),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | (BillingSetupState & { error?: string; ok?: boolean })
+      | null;
+
+    if (!response.ok || !payload?.clientSecret || !payload.publishableKey) {
+      setIsSubmitting(false);
+      setFormError(payload?.error ?? "Kyro could not create the account.");
+      return false;
+    }
+
+    setBillingSetup({
+      clientSecret: payload.clientSecret,
+      publishableKey: payload.publishableKey,
+      redirectAfterSetup: payload.redirectAfterSetup,
+      requiresEmailVerification: payload.requiresEmailVerification,
+      setupIntentId: payload.setupIntentId,
+      trialEndsAt: payload.trialEndsAt,
+      workspaceId: payload.workspaceId,
+    });
+    setIsSubmitting(false);
+    setFormMessage("");
+    return true;
   }
 
-  function goToNextStep(event: FormEvent<HTMLButtonElement>) {
+  async function goToNextStep(event: FormEvent<HTMLButtonElement>) {
     const form = event.currentTarget.form;
 
     if (!form || !validateCurrentStep(form)) {
       return;
     }
 
+    if (step === 1 && !billingSetup) {
+      const ready = await createWorkspaceAndLoadBilling(form);
+
+      if (!ready) {
+        return;
+      }
+    }
+
     setStep((current) => Math.min(current + 1, steps.length - 1));
   }
 
-  function goToStep(index: number, form: HTMLFormElement | null) {
+  async function goToStep(index: number, form: HTMLFormElement | null) {
     if (index <= step) {
       setStep(index);
       return;
@@ -445,79 +487,41 @@ export function CreateAccountForm() {
       return;
     }
 
+    if (index === 2 && !billingSetup) {
+      const ready = await createWorkspaceAndLoadBilling(form);
+
+      if (!ready) {
+        return;
+      }
+    }
+
     setStep(index);
   }
 
   function formPayload(form: HTMLFormElement) {
     const formData = new FormData(form);
 
-    return Object.fromEntries(
-      [
-        "businessLocation",
-        "businessName",
-        "confirmEmail",
-        "confirmPassword",
-        "country",
-        "email",
-        "industry",
-        "mobileCountry",
-        "mobileNumber",
-        "name",
-        "password",
-        "postcode",
-        "serviceArea",
-        "trialAcknowledged",
-      ].map((key) => [key, String(formData.get(key) ?? "").trim()]),
-    );
+    const entries = [
+      "businessLocation",
+      "businessName",
+      "confirmEmail",
+      "confirmPassword",
+      "country",
+      "email",
+      "industry",
+      "mobileCountry",
+      "mobileNumber",
+      "name",
+      "password",
+      "postcode",
+      "serviceArea",
+    ].map((key) => [key, String(formData.get(key) ?? "").trim()]);
+
+    return Object.fromEntries([...entries, ["trialAcknowledged", "yes"]]);
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (billingSetup) {
-      return;
-    }
-
-    if (!validateAllSteps(event.currentTarget)) {
-      return;
-    }
-
-    if (isSubmitting) {
-      return;
-    }
-
-    setIsSubmitting(true);
-    setFormError("");
-    setFormMessage("");
-
-    const response = await fetch("/api/auth/create-account", {
-      body: JSON.stringify(formPayload(event.currentTarget)),
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | (BillingSetupState & { error?: string; ok?: boolean })
-      | null;
-
-    if (!response.ok || !payload?.clientSecret || !payload.publishableKey) {
-      setIsSubmitting(false);
-      setFormError(payload?.error ?? "Kyro could not create the account.");
-      return;
-    }
-
-    setBillingSetup({
-      clientSecret: payload.clientSecret,
-      publishableKey: payload.publishableKey,
-      redirectAfterSetup: payload.redirectAfterSetup,
-      requiresEmailVerification: payload.requiresEmailVerification,
-      setupIntentId: payload.setupIntentId,
-      trialEndsAt: payload.trialEndsAt,
-      workspaceId: payload.workspaceId,
-    });
-    setIsSubmitting(false);
-    setFormMessage(
-      "Workspace created. Add your card below to activate the two-week trial.",
-    );
   }
 
   return (
@@ -793,33 +797,6 @@ export function CreateAccountForm() {
       </section>
 
       <section className="auth-form-section" hidden={step !== 2}>
-        {!billingSetup ? (
-          <label className="auth-payment-check">
-            <input
-              name="trialAcknowledged"
-              type="checkbox"
-              required
-              value="yes"
-              aria-invalid={Boolean(fieldErrors.trialAcknowledged)}
-              aria-describedby={
-                fieldErrors.trialAcknowledged
-                  ? "trialAcknowledged-error"
-                  : undefined
-              }
-              onChange={() => clearFieldError("trialAcknowledged")}
-            />
-            <span>
-              I understand the first two weeks are free and usage after the trial
-              will be billed to the saved card.
-            </span>
-          </label>
-        ) : null}
-        {fieldErrors.trialAcknowledged ? (
-          <span className="auth-field-error auth-check-error" id="trialAcknowledged-error">
-            {fieldErrors.trialAcknowledged}
-          </span>
-        ) : null}
-
         {billingSetup && stripePromise ? (
           <Elements
             stripe={stripePromise}
@@ -842,8 +819,9 @@ export function CreateAccountForm() {
           <div className="auth-payment-placeholder">
             <p className="eyebrow">Secure payment setup</p>
             <p>
-              Press the button below to create the workspace and load the Stripe
-              card form on this screen.
+              {isSubmitting
+                ? "Creating your workspace and loading the card form..."
+                : "Kyro is ready to load the card form. Go back and continue again if it does not appear."}
             </p>
           </div>
         ) : null}
@@ -863,21 +841,20 @@ export function CreateAccountForm() {
         )}
 
         {step < steps.length - 1 ? (
-          <button className="primary-button" type="button" onClick={goToNextStep}>
-            Continue
-          </button>
-        ) : (
           <button
             className="primary-button"
-            type="submit"
-            disabled={isSubmitting || Boolean(billingSetup)}
+            disabled={isSubmitting}
+            type="button"
+            onClick={goToNextStep}
           >
-            {billingSetup
-              ? "Card setup loaded"
-              : isSubmitting
-                ? "Creating workspace..."
-                : "Create workspace and load card form"}
+            {isSubmitting
+              ? "Loading card form..."
+              : step === 1
+                ? "Continue to card setup"
+                : "Continue"}
           </button>
+        ) : (
+          <span />
         )}
       </div>
     </form>
