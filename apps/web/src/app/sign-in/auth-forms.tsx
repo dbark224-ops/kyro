@@ -227,6 +227,13 @@ function InlineCardSetup({
 
   return (
     <div className="auth-inline-payment">
+      <div className="auth-trial-summary">
+        <p className="eyebrow">Two-week trial</p>
+        <p>
+          Your first two weeks are free. Kyro will not bill any usage from the
+          trial period, and you can cancel any time before billing starts.
+        </p>
+      </div>
       <PaymentElement />
       <button
         className="primary-button"
@@ -794,6 +801,16 @@ export function CreateAccountForm() {
             />
           </label>
         </div>
+        {isSubmitting ? (
+          <div className="auth-payment-loading" role="status" aria-live="polite">
+            <span className="typing-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span>Creating your workspace and loading the secure card form</span>
+          </div>
+        ) : null}
       </section>
 
       <section className="auth-form-section" hidden={step !== 2}>
