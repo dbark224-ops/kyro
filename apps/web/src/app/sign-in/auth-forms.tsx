@@ -228,12 +228,16 @@ function InlineCardSetup({
   return (
     <div className="auth-inline-payment">
       <div className="auth-trial-summary">
-        <p className="eyebrow">Two-week trial</p>
+        <p className="eyebrow">Two-week free trial</p>
+        <h3>No charge today.</h3>
         <p>
-          Your first two weeks are free. Kyro will not bill any usage from the
-          trial period, and you can cancel any time before billing starts.
+          Your first 14 days are free. Trial usage is not billed, usage is
+          post-charged after the trial, and you can cancel any time before
+          billing starts. Kyro will send a reminder and call before your trial
+          finishes.
         </p>
       </div>
+      <p className="auth-stripe-note">Powered by Stripe</p>
       <PaymentElement />
       <button
         className="primary-button"
@@ -295,8 +299,8 @@ export function CreateAccountForm() {
       eyebrow: "Step 3",
       title: "Add your payment method",
       copy: billingSetup
-        ? "Enter your card below. Stripe handles the card fields directly, and Kyro never sees or stores the raw card number."
-        : "Loading Stripe's secure card form. You will not be billed today.",
+        ? "Start your two-week free trial. You will not be billed today."
+        : "Creating your workspace and loading the secure card form.",
       fields: [],
     },
   ];

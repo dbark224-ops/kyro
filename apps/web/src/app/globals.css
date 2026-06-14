@@ -1479,6 +1479,11 @@ a {
   padding: 24px;
 }
 
+.auth-shell:has(.auth-create-panel) {
+  align-items: start;
+  padding-block: 16px;
+}
+
 .auth-shell::before,
 .auth-shell::after {
   position: absolute;
@@ -1562,6 +1567,35 @@ a {
   width: min(100%, 980px);
 }
 
+.auth-create-panel {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.auth-create-header {
+  position: relative;
+  display: grid;
+  min-height: 70px;
+  align-items: center;
+  justify-items: center;
+}
+
+.auth-create-header .brand-mark {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 132px;
+}
+
+.auth-create-header h1 {
+  max-width: 680px;
+  margin: 0;
+  font-size: clamp(2.35rem, 5vw, 4rem);
+  line-height: 0.98;
+  text-align: center;
+}
+
 .auth-copy {
   margin: 28px 0 20px;
 }
@@ -1588,18 +1622,13 @@ a {
   gap: 14px;
 }
 
-.auth-create-panel {
-  display: grid;
-  gap: 18px;
-}
-
 .auth-create-panel .form-copy {
   margin-inline: auto;
 }
 
 .auth-create-form {
-  gap: 18px;
-  padding: 20px;
+  gap: 12px;
+  padding: 18px;
 }
 
 .auth-stepper {
@@ -1650,7 +1679,7 @@ a {
 
 .auth-onboarding-heading {
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .auth-onboarding-heading .eyebrow,
@@ -1661,6 +1690,10 @@ a {
 
 .auth-onboarding-heading p {
   color: var(--muted);
+}
+
+.auth-onboarding-heading h2 {
+  margin: 0;
 }
 
 .auth-form-section {
@@ -1776,30 +1809,48 @@ a {
 
 .auth-inline-payment {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   border: 1px solid color-mix(in srgb, var(--cyan) 50%, var(--line));
   border-radius: var(--radius-card);
   background:
     radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 36%),
     color-mix(in srgb, var(--surface) 82%, transparent);
-  padding: 16px;
+  padding: 12px;
 }
 
 .auth-trial-summary {
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, transparent);
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--cyan) 7%, transparent);
-  padding: 12px 14px;
+  background:
+    radial-gradient(circle at 94% 20%, color-mix(in srgb, var(--cyan) 20%, transparent), transparent 42%),
+    color-mix(in srgb, var(--cyan) 8%, transparent);
+  padding: 10px 12px;
 }
 
-.auth-trial-summary p {
+.auth-trial-summary p,
+.auth-trial-summary h3 {
   margin: 0;
+}
+
+.auth-trial-summary h3 {
+  font-size: clamp(1.1rem, 2vw, 1.35rem);
+  line-height: 1.1;
 }
 
 .auth-trial-summary p:not(.eyebrow) {
   color: var(--muted);
-  font-size: 0.96rem;
-  line-height: 1.45;
+  font-size: 0.9rem;
+  line-height: 1.32;
+  max-width: 760px;
+}
+
+.auth-stripe-note {
+  justify-self: end;
+  margin: -2px 2px -4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
 }
 
 .auth-inline-payment .primary-button {

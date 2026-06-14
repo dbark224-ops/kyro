@@ -50,17 +50,9 @@ export default async function CreateAccountPage({
   return (
     <main className="auth-shell">
       <section className="auth-panel wide auth-create-panel">
-        <div className="brand-lockup centered">
+        <div className="auth-create-header">
           <BrandMark />
-        </div>
-
-        <div className="auth-copy centered">
           <h1>Create your Kyro account.</h1>
-          <p className="form-copy">
-            Set up your login, business basics, and two-week trial. Card details
-            are collected securely by Stripe inside this flow, and you can refine
-            branding, phones, service areas, and signatures later in Settings.
-          </p>
         </div>
 
         {params?.error ? (
