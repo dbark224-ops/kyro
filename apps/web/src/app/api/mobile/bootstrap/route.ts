@@ -1,5 +1,4 @@
 import { getAssistantRouteMetrics } from "../../../../lib/assistant/route-metrics";
-import { getBillableUsageSummary } from "../../../../lib/billing/usage-summary";
 import { getConversationList } from "../../../../lib/crm/queries";
 import {
   getContactList,
@@ -9,6 +8,7 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
+import { getPaymentsOverviewData } from "../../../../lib/payments/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -80,20 +80,6 @@ function quoteApprovedOrBookedCount(
   }).length;
 }
 
-function usageCurrency(
-  summary: Awaited<ReturnType<typeof getBillableUsageSummary>> | null,
-) {
-  return summary?.totals[0]?.currency ?? "USD";
-}
-
-function usageCustomerCharge(
-  summary: Awaited<ReturnType<typeof getBillableUsageSummary>> | null,
-) {
-  return (
-    summary?.totals.reduce((total, item) => total + item.customerCharge, 0) ?? 0
-  );
-}
-
 async function getMobileActivity(supabase: unknown, workspaceId: string) {
   const client = supabase as {
     from: (table: string) => {
@@ -147,18 +133,26 @@ export async function GET(request: Request) {
       conversations,
       contacts,
       activity,
-      usageSummary,
+      paymentsOverview,
     ] = await Promise.all([
       getAssistantRouteMetrics(supabase, workspace.id),
       getConversationWorkflowCounts(supabase, workspace.id),
       getConversationList(supabase, workspace.id, { limit: 36 }),
       getContactList(supabase, workspace.id),
       getMobileActivity(supabase, workspace.id).catch(() => []),
-      getBillableUsageSummary(supabase, workspace.id, {
-        period: "monthly",
-      }).catch(() => null),
+      getPaymentsOverviewData(supabase, workspace.id).catch(() => null),
     ]);
     const quoteApprovedOrBooked = quoteApprovedOrBookedCount(conversations);
+    const paymentStats = paymentsOverview?.stats ?? {
+      currency: "AUD",
+      overdueAmountCents: 0,
+      overdueCount: 0,
+      outstandingAmountCents: 0,
+      outstandingCount: 0,
+      paidThisMonthCents: 0,
+      paidThisWeekCents: 0,
+      totalPaidCents: 0,
+    };
     const topContacts = contacts
       .filter((contact) => contact.contactType !== "supplier")
       .sort((left, right) => {
@@ -223,14 +217,13 @@ export async function GET(request: Request) {
         activity,
         generatedDocuments: [],
         payments: {
-          isPlaceholder: true,
-          note: usageSummary
-            ? "Usage metering is live; customer collections are coming next."
-            : "Usage metering unavailable right now.",
-          quoteApprovedOrBookedCount: quoteApprovedOrBooked,
-          readyToSendCount: metrics.readyQuotes,
-          usageCurrency: usageCurrency(usageSummary),
-          usageCustomerCharge: usageCustomerCharge(usageSummary),
+          currency: paymentStats.currency,
+          overdueAmountCents: paymentStats.overdueAmountCents,
+          overdueCount: paymentStats.overdueCount,
+          outstandingAmountCents: paymentStats.outstandingAmountCents,
+          outstandingCount: paymentStats.outstandingCount,
+          paidThisMonthCents: paymentStats.paidThisMonthCents,
+          paidThisWeekCents: paymentStats.paidThisWeekCents,
         },
         stats: {
           awaitingCustomer: workflowCounts.awaitingCustomer,

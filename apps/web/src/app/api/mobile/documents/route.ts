@@ -103,6 +103,7 @@ function documentsPayload({
     settings: {
       accentTheme: documentTemplateSettings.accentTheme,
       currency: documentTemplateSettings.currency,
+      defaultInvoiceTemplateKey: documentTemplateSettings.defaultInvoiceTemplateKey,
       footerText: documentTemplateSettings.footerText,
       paymentTerms: documentTemplateSettings.paymentTerms,
       quoteStyleDirection: documentTemplateSettings.quoteStyleDirection,
@@ -195,6 +196,7 @@ export async function POST(request: Request) {
             ? template.settings
             : documentTemplateSettings,
         ),
+        documentKind: textValue(body.documentKind) === "invoice" ? "invoice" : "quote",
         dryRun: true,
         jobAddress: textValue(body.jobAddress),
         jobType: textValue(body.jobType) ?? template?.label ?? null,
@@ -402,6 +404,75 @@ export async function POST(request: Request) {
         metadata: { policyType: DOCUMENT_TEMPLATE_POLICY_TYPE, source: "mobile.documents" },
       });
       message = "Document settings saved.";
+    } else if (operation === "save_default_invoice_template") {
+      const { data: beforePolicy, error: beforeError } = await supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", DOCUMENT_TEMPLATE_POLICY_TYPE)
+        .maybeSingle();
+
+      if (beforeError) {
+        return Response.json({ error: beforeError.message }, { status: 400 });
+      }
+
+      const beforeSettings = normalizeDocumentTemplateSettings(beforePolicy?.settings);
+      const templateKey = textValue(body.defaultInvoiceTemplateKey);
+      const template = templateKey
+        ? getQuoteTemplate(templateKey, beforeSettings.customTemplates)
+        : null;
+
+      if (templateKey && !template) {
+        return Response.json(
+          { error: "Choose an existing document template for invoices." },
+          { status: 400 },
+        );
+      }
+
+      const settings = normalizeDocumentTemplateSettings({
+        ...beforeSettings,
+        defaultInvoiceTemplateKey: template?.key ?? null,
+      });
+      const { data: savedPolicy, error: saveError } = await supabase
+        .from("workspace_policies")
+        .upsert(
+          {
+            policy_type: DOCUMENT_TEMPLATE_POLICY_TYPE,
+            settings,
+            workspace_id: workspace.id,
+          },
+          { onConflict: "workspace_id,policy_type" },
+        )
+        .select("id")
+        .single();
+
+      if (saveError || !savedPolicy) {
+        return Response.json(
+          { error: saveError?.message ?? "Unable to save default invoice template." },
+          { status: 400 },
+        );
+      }
+
+      await insertAuditLog(supabase, {
+        workspaceId: workspace.id,
+        actorType: "user",
+        actorId: user.id,
+        action: "document_template.default_invoice_updated",
+        entityType: "workspace_policy",
+        entityId: String(savedPolicy.id),
+        before: beforePolicy ? { settings: beforePolicy.settings } : null,
+        after: {
+          defaultInvoiceTemplateKey: settings.defaultInvoiceTemplateKey,
+          defaultInvoiceTemplateLabel: template?.label ?? null,
+        },
+        metadata: {
+          policyType: DOCUMENT_TEMPLATE_POLICY_TYPE,
+          source: "mobile.payments",
+        },
+      });
+      message = template
+        ? "Default invoice template saved."
+        : "Default invoice template cleared.";
     } else {
       return Response.json({ error: "Unsupported document operation." }, { status: 400 });
     }

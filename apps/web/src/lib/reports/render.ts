@@ -43,8 +43,24 @@ function safeFilename(value: string) {
   );
 }
 
+function filenameTimestamp(value: string) {
+  const date = new Date(value);
+  const source = Number.isNaN(date.getTime()) ? new Date() : date;
+  const pad = (part: number) => String(part).padStart(2, "0");
+
+  return `${[
+    source.getFullYear(),
+    pad(source.getMonth() + 1),
+    pad(source.getDate()),
+  ].join("-")}-${pad(source.getHours())}${pad(
+    source.getMinutes(),
+  )}${pad(source.getSeconds())}`;
+}
+
 export function reportFilename(report: WorkspaceReport) {
-  return `${safeFilename(`${report.business.name} ${report.title}`)}.pdf`;
+  return `${safeFilename(
+    `${report.business.name} ${report.title} ${filenameTimestamp(report.generatedAt)}`,
+  )}.pdf`;
 }
 
 export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") {
