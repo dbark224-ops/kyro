@@ -18,6 +18,8 @@
     "@kyro/core": "0.1.0",
     "@kyro/db": "0.1.0",
     "@kyro/jobs": "0.1.0",
+    "@stripe/react-stripe-js": "^6.6.0",
+    "@stripe/stripe-js": "^9.8.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "latest",
     "@vapi-ai/web": "^2.5.2",

@@ -4,6 +4,7 @@ import {
   createStripeBillingPortalSession,
   createStripeCustomer,
   createStripeSetupCheckoutSession,
+  createStripeSetupIntent,
   getStripeConfig,
 } from "../payments/stripe";
 
@@ -22,6 +23,7 @@ export type KyroUserBillingSettings = {
   setupCompletedAt: string | null;
   setupStatus: "not_started" | "pending" | "ready";
   stripeCustomerId: string | null;
+  stripePaymentMethodId: string | null;
   stripeSetupIntentId: string | null;
   trialEndsAt: string | null;
   trialStartedAt: string | null;
@@ -30,9 +32,18 @@ export type KyroUserBillingSettings = {
 export type KyroUserBillingOverview = {
   appUrlConfigured: boolean;
   configured: boolean;
+  publishableKeyConfigured: boolean;
   settings: KyroUserBillingSettings;
   setupReady: boolean;
   webhookConfigured: boolean;
+};
+
+export type KyroUserBillingSetupIntent = {
+  clientSecret: string;
+  publishableKey: string;
+  setupIntentId: string;
+  stripeCustomerId: string;
+  trialEndsAt: string;
 };
 
 function textValue(value: unknown) {
@@ -54,6 +65,7 @@ function normalizeSettings(settings: Record<string, unknown> | null): KyroUserBi
     setupStatus:
       setupStatus === "pending" || setupStatus === "ready" ? setupStatus : "not_started",
     stripeCustomerId: textValue(settings?.stripeCustomerId),
+    stripePaymentMethodId: textValue(settings?.stripePaymentMethodId),
     stripeSetupIntentId: textValue(settings?.stripeSetupIntentId),
     trialEndsAt: textValue(settings?.trialEndsAt),
     trialStartedAt: textValue(settings?.trialStartedAt),
@@ -109,6 +121,7 @@ export async function getKyroUserBillingOverview(
   return {
     appUrlConfigured: Boolean(config.appUrl),
     configured: config.configured,
+    publishableKeyConfigured: Boolean(config.publishableKey),
     settings,
     setupReady: Boolean(settings.stripeCustomerId && settings.defaultPaymentMethodReady),
     webhookConfigured: config.webhookConfigured,
@@ -194,6 +207,80 @@ export async function createKyroUserBillingSetupUrl({
   return session.url;
 }
 
+export async function createKyroUserBillingSetupIntent({
+  supabase,
+  user,
+  workspace,
+}: {
+  supabase: SupabaseClient;
+  user: User;
+  workspace: WorkspaceSummary;
+}): Promise<KyroUserBillingSetupIntent> {
+  const config = getStripeConfig();
+
+  if (!config.secretKey) {
+    throw new Error("STRIPE_SECRET_KEY is not configured.");
+  }
+
+  if (!config.publishableKey) {
+    throw new Error("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not configured.");
+  }
+
+  if (!user.email) {
+    throw new Error("Your account needs an email address before billing can be set up.");
+  }
+
+  const existing = await getKyroUserBillingOverview(supabase, workspace.id);
+  const metadata = {
+    flow: KYRO_BILLING_SETUP_FLOW,
+    userId: user.id,
+    workspaceId: workspace.id,
+  };
+  const stripeCustomerId =
+    existing.settings.stripeCustomerId ??
+    (
+      await createStripeCustomer({
+        email: user.email,
+        metadata,
+        name: workspace.name,
+      })
+    ).id;
+  const now = new Date();
+  const trialStartedAt = existing.settings.trialStartedAt ?? now.toISOString();
+  const trialEndsAt =
+    existing.settings.trialEndsAt ??
+    new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const setupIntent = await createStripeSetupIntent({
+    customerId: stripeCustomerId,
+    metadata,
+  });
+
+  if (!setupIntent.client_secret) {
+    throw new Error("Stripe did not return a card setup client secret.");
+  }
+
+  await upsertBillingSettings({
+    settings: {
+      ...existing.settings,
+      setupStatus: "pending",
+      stripeCustomerId,
+      stripeSetupIntentId: setupIntent.id,
+      trialEndsAt,
+      trialStartedAt,
+    },
+    supabase,
+    workspaceId: workspace.id,
+  });
+
+  return {
+    clientSecret: setupIntent.client_secret,
+    publishableKey: config.publishableKey,
+    setupIntentId: setupIntent.id,
+    stripeCustomerId,
+    trialEndsAt,
+  };
+}
+
 export async function createKyroUserBillingPortalUrl({
   supabase,
   workspaceId,
@@ -247,6 +334,36 @@ export async function markKyroUserBillingSetupComplete({
       setupStatus: "ready",
       stripeCustomerId: customerId ?? existing.settings.stripeCustomerId,
       stripeSetupIntentId: setupIntentId,
+    },
+    supabase,
+    workspaceId,
+  });
+}
+
+export async function markKyroUserBillingSetupIntentComplete({
+  customerId,
+  paymentMethodId,
+  setupIntentId,
+  supabase,
+  workspaceId,
+}: {
+  customerId: string | null;
+  paymentMethodId: string | null;
+  setupIntentId: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const existing = await getKyroUserBillingOverview(supabase, workspaceId);
+
+  await upsertBillingSettings({
+    settings: {
+      ...existing.settings,
+      defaultPaymentMethodReady: true,
+      setupCompletedAt: new Date().toISOString(),
+      setupStatus: "ready",
+      stripeCustomerId: customerId ?? existing.settings.stripeCustomerId,
+      stripeSetupIntentId: setupIntentId,
+      ...(paymentMethodId ? { stripePaymentMethodId: paymentMethodId } : {}),
     },
     supabase,
     workspaceId,

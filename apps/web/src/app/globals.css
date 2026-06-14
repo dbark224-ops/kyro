@@ -1746,6 +1746,22 @@ a {
   accent-color: var(--cyan);
 }
 
+.auth-inline-payment {
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 50%, var(--line));
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface) 82%, transparent);
+  padding: 16px;
+}
+
+.auth-inline-payment .primary-button {
+  justify-self: end;
+  min-width: 180px;
+}
+
 .auth-step-actions {
   display: flex;
   align-items: center;
@@ -2039,6 +2055,11 @@ textarea:focus {
 .form-alert.error {
   border-color: color-mix(in srgb, var(--pink) 45%, var(--line));
   background: color-mix(in srgb, var(--pink) 10%, transparent);
+}
+
+.form-alert.compact {
+  margin-bottom: 2px;
+  padding: 8px 10px;
 }
 
 .inbox-page-alert {

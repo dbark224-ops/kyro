@@ -1,11 +1,28 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  Elements,
+  PaymentElement,
+  useElements,
+  useStripe,
+} from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { OPERATING_COUNTRY_OPTIONS } from "../../lib/workspace/operating-countries";
 
 const REMEMBERED_EMAIL_KEY = "kyro.rememberedEmail";
 
 type ServerAction = (formData: FormData) => void | Promise<void>;
+
+type BillingSetupState = {
+  clientSecret: string;
+  publishableKey: string;
+  redirectAfterSetup: string;
+  requiresEmailVerification: boolean;
+  setupIntentId: string;
+  trialEndsAt: string;
+  workspaceId: string;
+};
 
 type PasswordFieldProps = {
   autoComplete: string;
@@ -145,10 +162,92 @@ export function SignInForm({ action }: { action: ServerAction }) {
   );
 }
 
-export function CreateAccountForm({ action }: { action: ServerAction }) {
+function InlineCardSetup({
+  setup,
+  onError,
+}: {
+  onError: (message: string) => void;
+  setup: BillingSetupState;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSaveCard() {
+    if (!stripe || !elements || isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+    onError("");
+
+    const result = await stripe.confirmSetup({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}${setup.redirectAfterSetup}`,
+      },
+      redirect: "if_required",
+    });
+
+    if (result.error) {
+      setIsSaving(false);
+      onError(result.error.message ?? "Stripe could not save that card.");
+      return;
+    }
+
+    const setupIntentId = result.setupIntent?.id ?? setup.setupIntentId;
+    const response = await fetch("/api/auth/create-account/complete-card", {
+      body: JSON.stringify({
+        setupIntentId,
+        workspaceId: setup.workspaceId,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+
+    if (!response.ok) {
+      setIsSaving(false);
+      onError(payload?.error ?? "Kyro could not finish card setup.");
+      return;
+    }
+
+    window.location.assign(setup.redirectAfterSetup);
+  }
+
+  return (
+    <div className="auth-inline-payment">
+      <PaymentElement />
+      <button
+        className="primary-button"
+        disabled={!stripe || !elements || isSaving}
+        type="button"
+        onClick={handleSaveCard}
+      >
+        {isSaving ? "Saving card..." : "Save card and finish"}
+      </button>
+    </div>
+  );
+}
+
+export function CreateAccountForm() {
   const [step, setStep] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState("");
+  const [formMessage, setFormMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [billingSetup, setBillingSetup] = useState<BillingSetupState | null>(
+    null,
+  );
+  const stripePromise = useMemo(
+    () =>
+      billingSetup?.publishableKey
+        ? loadStripe(billingSetup.publishableKey)
+        : null,
+    [billingSetup?.publishableKey],
+  );
 
   const steps = [
     {
@@ -179,7 +278,9 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
     {
       eyebrow: "Step 3",
       title: "Secure card setup",
-      copy: "Create the workspace, then Kyro opens Stripe's secure card setup. Your first two weeks are free and Kyro never stores raw card details.",
+      copy: billingSetup
+        ? "Enter your card securely below. Stripe handles the card fields directly, and Kyro never sees or stores the raw card number."
+        : "Create the workspace, then add a card securely with Stripe. Your first two weeks are free and Kyro never stores raw card details.",
       fields: ["trialAcknowledged"],
     },
   ];
@@ -337,29 +438,83 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
     setStep(index);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function formPayload(form: HTMLFormElement) {
+    const formData = new FormData(form);
+
+    return Object.fromEntries(
+      [
+        "businessLocation",
+        "businessName",
+        "confirmEmail",
+        "confirmPassword",
+        "country",
+        "email",
+        "industry",
+        "mobileNumber",
+        "name",
+        "password",
+        "postcode",
+        "serviceArea",
+        "trialAcknowledged",
+      ].map((key) => [key, String(formData.get(key) ?? "").trim()]),
+    );
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (billingSetup) {
+      return;
+    }
+
     if (!validateAllSteps(event.currentTarget)) {
-      event.preventDefault();
       return;
     }
 
     if (isSubmitting) {
-      event.preventDefault();
       return;
     }
 
     setIsSubmitting(true);
+    setFormError("");
+    setFormMessage("");
+
+    const response = await fetch("/api/auth/create-account", {
+      body: JSON.stringify(formPayload(event.currentTarget)),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | (BillingSetupState & { error?: string; ok?: boolean })
+      | null;
+
+    if (!response.ok || !payload?.clientSecret || !payload.publishableKey) {
+      setIsSubmitting(false);
+      setFormError(payload?.error ?? "Kyro could not create the account.");
+      return;
+    }
+
+    setBillingSetup({
+      clientSecret: payload.clientSecret,
+      publishableKey: payload.publishableKey,
+      redirectAfterSetup: payload.redirectAfterSetup,
+      requiresEmailVerification: payload.requiresEmailVerification,
+      setupIntentId: payload.setupIntentId,
+      trialEndsAt: payload.trialEndsAt,
+      workspaceId: payload.workspaceId,
+    });
+    setIsSubmitting(false);
+    setFormMessage(
+      "Workspace created. Add your card below to activate the two-week trial.",
+    );
   }
 
   return (
     <form
       className="form-card auth-form-card auth-create-form"
-      action={action}
       noValidate
       onSubmit={handleSubmit}
     >
-      <input name="failurePath" type="hidden" value="/create-account" />
-
       <div className="auth-stepper" aria-label="Create account progress">
         {steps.map((item, index) => (
           <button
@@ -381,6 +536,9 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
         <h2>{steps[step].title}</h2>
         <p>{steps[step].copy}</p>
       </div>
+
+      {formError ? <p className="form-alert error compact">{formError}</p> : null}
+      {formMessage ? <p className="form-alert compact">{formMessage}</p> : null}
 
       <section className="auth-form-section" hidden={step !== 0}>
         <div className="auth-form-grid">
@@ -606,11 +764,11 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
           </div>
           <div className="auth-secure-payment-card">
             <p className="eyebrow">Payment method</p>
-            <h3>Stripe opens immediately after signup.</h3>
+            <h3>Card details stay with Stripe.</h3>
             <p>
-              You will enter card details on Stripe's secure page, not inside
-              this form. If email verification is required, the Stripe page
-              opens after you verify your email.
+              The card form below is provided by Stripe. Kyro stores only the
+              Stripe customer and setup references needed to bill after the
+              free trial.
             </p>
           </div>
         </div>
@@ -637,6 +795,26 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             {fieldErrors.trialAcknowledged}
           </span>
         ) : null}
+
+        {billingSetup && stripePromise ? (
+          <Elements
+            stripe={stripePromise}
+            options={{
+              appearance: {
+                theme: "night",
+                variables: {
+                  borderRadius: "8px",
+                  colorDanger: "#ff5aa8",
+                  colorPrimary: "#57dffc",
+                  colorText: "#f8fbff",
+                },
+              },
+              clientSecret: billingSetup.clientSecret,
+            }}
+          >
+            <InlineCardSetup setup={billingSetup} onError={setFormError} />
+          </Elements>
+        ) : null}
       </section>
 
       <div className="auth-step-actions">
@@ -657,8 +835,16 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             Continue
           </button>
         ) : (
-          <button className="primary-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Creating account..." : "Create account and open Stripe"}
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isSubmitting || Boolean(billingSetup)}
+          >
+            {billingSetup
+              ? "Card setup ready"
+              : isSubmitting
+                ? "Creating workspace..."
+                : "Create workspace and continue to card"}
           </button>
         )}
       </div>

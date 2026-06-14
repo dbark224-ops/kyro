@@ -1,4 +1,3 @@
-import { signUpAction } from "../auth/actions";
 import { BrandMark } from "../components/brand-mark";
 import { CreateAccountForm } from "../sign-in/auth-forms";
 import { hasSupabaseEnv } from "../../lib/env";
@@ -59,9 +58,8 @@ export default async function CreateAccountPage({
           <h1>Create your Kyro account.</h1>
           <p className="form-copy">
             Set up your login, business basics, and two-week trial. Card details
-            are collected by Stripe after the workspace is created, and you can
-            refine branding, phones, service areas, and signatures later in
-            Settings.
+            are collected securely by Stripe inside this flow, and you can refine
+            branding, phones, service areas, and signatures later in Settings.
           </p>
         </div>
 
@@ -72,7 +70,7 @@ export default async function CreateAccountPage({
           <p className="form-alert">{params.message}</p>
         ) : null}
 
-        <CreateAccountForm action={signUpAction} />
+        <CreateAccountForm />
 
         <p className="auth-link-row">
           Already have an account? <Link href="/sign-in">Sign in</Link>

@@ -10,6 +10,7 @@ export type StripeConfig = {
   appUrl: string | null;
   configured: boolean;
   platformFeeBps: number;
+  publishableKey: string | null;
   secretKey: string | null;
   webhookConfigured: boolean;
   webhookSecret: string | null;
@@ -39,6 +40,15 @@ export type StripeCustomer = {
   id: string;
 };
 
+export type StripeSetupIntent = {
+  client_secret?: string | null;
+  customer?: string | null;
+  id: string;
+  metadata?: Record<string, unknown> | null;
+  payment_method?: string | null;
+  status?: string | null;
+};
+
 export type StripeBillingPortalSession = {
   id: string;
   url: string;
@@ -58,6 +68,9 @@ function envString(name: string) {
 
 export function getStripeConfig(): StripeConfig {
   const secretKey = envString("STRIPE_SECRET_KEY");
+  const publishableKey =
+    envString("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY") ??
+    envString("STRIPE_PUBLISHABLE_KEY");
   const webhookSecret = envString("STRIPE_WEBHOOK_SECRET");
   const feeValue = Number(envString("STRIPE_PLATFORM_FEE_BPS"));
 
@@ -68,6 +81,7 @@ export function getStripeConfig(): StripeConfig {
       Number.isFinite(feeValue) && feeValue >= 0
         ? Math.round(feeValue)
         : DEFAULT_PLATFORM_FEE_BPS,
+    publishableKey,
     secretKey,
     webhookConfigured: Boolean(webhookSecret),
     webhookSecret,
@@ -284,6 +298,27 @@ export async function createStripeSetupCheckoutSession({
     },
     success_url: successUrl,
   });
+}
+
+export async function createStripeSetupIntent({
+  customerId,
+  metadata,
+}: {
+  customerId: string;
+  metadata: Record<string, string>;
+}) {
+  return stripeApiRequest<StripeSetupIntent>("/v1/setup_intents", {
+    customer: customerId,
+    metadata,
+    payment_method_types: ["card"],
+    usage: "off_session",
+  });
+}
+
+export async function retrieveStripeSetupIntent(setupIntentId: string) {
+  return stripeApiRequest<StripeSetupIntent>(
+    `/v1/setup_intents/${encodeURIComponent(setupIntentId)}`,
+  );
 }
 
 export async function createStripeBillingPortalSession({

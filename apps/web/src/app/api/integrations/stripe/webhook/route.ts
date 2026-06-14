@@ -8,6 +8,7 @@ import {
 import {
   KYRO_BILLING_SETUP_FLOW,
   markKyroUserBillingSetupComplete,
+  markKyroUserBillingSetupIntentComplete,
 } from "../../../../../lib/billing/kyro-user-billing";
 
 export const dynamic = "force-dynamic";
@@ -265,6 +266,54 @@ async function handlePaymentIntentStatus(
   });
 }
 
+async function handleSetupIntentSucceeded(
+  event: Required<Pick<StripeWebhookEvent, "id" | "type">> & StripeWebhookEvent,
+) {
+  const setupIntent = event.data?.object ?? {};
+  const setupIntentId = textValue(setupIntent.id);
+  const metadata =
+    setupIntent.metadata && typeof setupIntent.metadata === "object"
+      ? (setupIntent.metadata as Record<string, unknown>)
+      : {};
+
+  if (!setupIntentId || textValue(metadata.flow) !== KYRO_BILLING_SETUP_FLOW) {
+    return;
+  }
+
+  const workspaceId = textValue(metadata.workspaceId);
+
+  if (!workspaceId) {
+    return;
+  }
+
+  const supabase = createServiceSupabaseClient();
+
+  await markKyroUserBillingSetupIntentComplete({
+    customerId: textValue(setupIntent.customer),
+    paymentMethodId: textValue(setupIntent.payment_method),
+    setupIntentId,
+    supabase,
+    workspaceId,
+  });
+
+  await supabase.from("events").upsert(
+    {
+      idempotency_key: `stripe.${event.id}`,
+      payload: {
+        flow: KYRO_BILLING_SETUP_FLOW,
+        stripeCustomerId: textValue(setupIntent.customer),
+        stripeSetupIntentId: setupIntentId,
+      },
+      processed_at: new Date().toISOString(),
+      source: "stripe.webhook",
+      status: "processed",
+      type: "billing.setup.completed",
+      workspace_id: workspaceId,
+    },
+    { ignoreDuplicates: true, onConflict: "idempotency_key" },
+  );
+}
+
 async function handleStripeEvent(event: StripeWebhookEvent) {
   if (!event.id || !event.type) {
     return;
@@ -282,6 +331,8 @@ async function handleStripeEvent(event: StripeWebhookEvent) {
     typedEvent.type === "payment_intent.payment_failed"
   ) {
     await handlePaymentIntentStatus(typedEvent);
+  } else if (typedEvent.type === "setup_intent.succeeded") {
+    await handleSetupIntentSucceeded(typedEvent);
   }
 }
 
