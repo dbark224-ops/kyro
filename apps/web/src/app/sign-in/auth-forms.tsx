@@ -154,8 +154,8 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
     },
     {
       eyebrow: "Step 3",
-      title: "Start your trial",
-      copy: "Your first two weeks are free. Usage during the trial is not billed.",
+      title: "Add card for free trial",
+      copy: "Your first two weeks are free. Stripe will securely save your card so billing can start only after the trial.",
       fields: ["trialAcknowledged"],
     },
   ];
@@ -365,10 +365,10 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
           </div>
           <div className="auth-secure-payment-card">
             <p className="eyebrow">Payment method</p>
-            <h3>Card setup is handled securely by Stripe.</h3>
+            <h3>Add a credit or debit card after this step.</h3>
             <p>
-              Kyro will not store raw card details. Once billing setup is
-              enabled, this step will open Stripe-hosted payment method setup.
+              Kyro will open a Stripe-hosted card setup screen. Kyro never
+              stores raw card details.
             </p>
           </div>
         </div>
@@ -401,7 +401,7 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
           </button>
         ) : (
           <button className="primary-button" type="submit">
-            Create account and start trial
+            Continue to card setup
           </button>
         )}
       </div>

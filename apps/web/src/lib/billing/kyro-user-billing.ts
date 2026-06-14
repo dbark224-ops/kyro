@@ -116,11 +116,15 @@ export async function getKyroUserBillingOverview(
 }
 
 export async function createKyroUserBillingSetupUrl({
+  cancelPath,
+  successPath,
   supabase,
   user,
   workspace,
 }: {
+  cancelPath?: string;
   supabase: SupabaseClient;
+  successPath?: string;
   user: User;
   workspace: WorkspaceSummary;
 }) {
@@ -153,15 +157,21 @@ export async function createKyroUserBillingSetupUrl({
   const trialEndsAt =
     existing.settings.trialEndsAt ??
     new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const setupCancelPath =
+    cancelPath ??
+    "/settings?section=usage&panel=payment-method&engine_message=Billing%20setup%20cancelled.";
+  const setupSuccessPath =
+    successPath ??
+    "/settings?section=usage&panel=payment-method&engine_message=Billing%20method%20saved.";
   const session = await createStripeSetupCheckoutSession({
-    cancelUrl: `${config.appUrl}/settings?section=usage&panel=usage-summary&engine_message=Billing%20setup%20cancelled.`,
+    cancelUrl: `${config.appUrl}${setupCancelPath}`,
     customerId: stripeCustomerId,
     metadata: {
       flow: KYRO_BILLING_SETUP_FLOW,
       userId: user.id,
       workspaceId: workspace.id,
     },
-    successUrl: `${config.appUrl}/settings?section=usage&panel=usage-summary&engine_message=Billing%20method%20saved.`,
+    successUrl: `${config.appUrl}${setupSuccessPath}`,
   });
 
   await upsertBillingSettings({
@@ -204,7 +214,7 @@ export async function createKyroUserBillingPortalUrl({
 
   const portal = await createStripeBillingPortalSession({
     customerId: overview.settings.stripeCustomerId,
-    returnUrl: `${config.appUrl}/settings?section=usage&panel=usage-summary`,
+    returnUrl: `${config.appUrl}/settings?section=usage&panel=payment-method`,
   });
 
   return portal.url;

@@ -4056,19 +4056,13 @@ function modelUsageDescription(row: UsageBreakdownRow) {
 
 function UsageSettingsDetail({
   activeWindow,
-  billingOverview,
   displayCurrencySettings,
   usageReport,
 }: Readonly<{
   activeWindow: string;
-  billingOverview: KyroUserBillingOverview;
   displayCurrencySettings: DisplayCurrencySettings;
   usageReport: UsageReportData;
 }>) {
-  const billingReady = billingOverview.setupReady;
-  const billingBlocked =
-    !billingOverview.configured || !billingOverview.appUrlConfigured;
-
   return (
     <>
       <section className="usage-summary-strip" aria-label="Usage metrics">
@@ -4104,53 +4098,6 @@ function UsageSettingsDetail({
             rows={usageReport.ledger}
           />
         </div>
-      </section>
-
-      <section className="panel embedded-panel kyro-billing-card">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">Billing method</p>
-            <h2>{billingReady ? "Payment method ready" : "Set up Kyro billing"}</h2>
-          </div>
-          <span className={billingReady ? "status-pill ready" : "status-pill"}>
-            {billingReady ? "Ready" : "Setup needed"}
-          </span>
-        </div>
-        <p className="kyro-billing-copy">
-          Your first two weeks are free. After that, Kyro bills metered usage to
-          the saved payment method.
-        </p>
-        {!billingOverview.configured ? (
-          <p className="form-alert error compact-alert">
-            Stripe is not configured for Kyro billing yet.
-          </p>
-        ) : null}
-        {!billingOverview.webhookConfigured ? (
-          <p className="form-alert error compact-alert">
-            Stripe webhook confirmation is not configured yet.
-          </p>
-        ) : null}
-        {!billingOverview.appUrlConfigured ? (
-          <p className="form-alert error compact-alert">
-            NEXT_PUBLIC_APP_URL is needed before starting billing setup.
-          </p>
-        ) : null}
-        <form
-          action={
-            billingReady
-              ? openKyroBillingPortalAction
-              : startKyroBillingSetupAction
-          }
-          className="kyro-billing-actions"
-        >
-          <button
-            className="usage-ledger-open-button"
-            disabled={billingBlocked}
-            type="submit"
-          >
-            {billingReady ? "Manage billing" : "Set up payment method"}
-          </button>
-        </form>
       </section>
 
       <div className="usage-grid compact">
@@ -4276,6 +4223,75 @@ function UsageSettingsDetail({
         </article>
       </div>
     </>
+  );
+}
+
+function KyroBillingSettingsDetail({
+  billingOverview,
+}: Readonly<{
+  billingOverview: KyroUserBillingOverview;
+}>) {
+  const billingReady = billingOverview.setupReady;
+  const billingBlocked =
+    !billingOverview.configured || !billingOverview.appUrlConfigured;
+  const trialEndsAt = billingOverview.settings.trialEndsAt
+    ? formatDate(billingOverview.settings.trialEndsAt)
+    : null;
+
+  return (
+    <section className="panel embedded-panel kyro-billing-card standalone">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Kyro subscription</p>
+          <h2>{billingReady ? "Payment method ready" : "Add a card to start your trial"}</h2>
+        </div>
+        <span className={billingReady ? "status-pill ready" : "status-pill"}>
+          {billingReady ? "Ready" : "Setup needed"}
+        </span>
+      </div>
+      <p className="kyro-billing-copy">
+        Add a credit or debit card to activate the two-week free trial. Kyro
+        meters usage during the trial, but trial usage is not billed. After the
+        trial, Kyro charges the saved payment method for metered usage.
+      </p>
+      {trialEndsAt ? (
+        <div className="kyro-billing-fact">
+          <span>Trial ends</span>
+          <strong>{trialEndsAt}</strong>
+        </div>
+      ) : null}
+      {!billingOverview.configured ? (
+        <p className="form-alert error compact-alert">
+          Stripe is not configured for Kyro billing yet.
+        </p>
+      ) : null}
+      {!billingOverview.webhookConfigured ? (
+        <p className="form-alert error compact-alert">
+          Stripe webhook confirmation is not configured yet.
+        </p>
+      ) : null}
+      {!billingOverview.appUrlConfigured ? (
+        <p className="form-alert error compact-alert">
+          NEXT_PUBLIC_APP_URL is needed before starting billing setup.
+        </p>
+      ) : null}
+      <form
+        action={
+          billingReady
+            ? openKyroBillingPortalAction
+            : startKyroBillingSetupAction
+        }
+        className="kyro-billing-actions"
+      >
+        <button
+          className="usage-ledger-open-button"
+          disabled={billingBlocked}
+          type="submit"
+        >
+          {billingReady ? "Change payment method" : "Add card for free trial"}
+        </button>
+      </form>
+    </section>
   );
 }
 
@@ -4570,6 +4586,13 @@ export default async function SettingsPage({
                   title: "Usage summary",
                 },
                 {
+                  detail: "Trial, card setup, and saved payment method",
+                  href: settingsPanelHref("usage", "payment-method", activeWindow),
+                  key: "payment-method",
+                  selected: selectedPanel === "payment-method",
+                  title: "Payment method",
+                },
+                {
                   detail: "Detailed exportable event log",
                   href: settingsPanelHref("usage", "ledger", activeWindow),
                   key: "ledger",
@@ -4662,12 +4685,15 @@ export default async function SettingsPage({
         eyebrow="Usage"
         title={selectedNestedTitle ?? "Usage and billing"}
       >
-        <UsageSettingsDetail
-          activeWindow={activeWindow}
-          billingOverview={kyroBillingOverview}
-          displayCurrencySettings={generalSettings}
-          usageReport={usageReport}
-        />
+        {selectedPanel === "payment-method" ? (
+          <KyroBillingSettingsDetail billingOverview={kyroBillingOverview} />
+        ) : (
+          <UsageSettingsDetail
+            activeWindow={activeWindow}
+            displayCurrencySettings={generalSettings}
+            usageReport={usageReport}
+          />
+        )}
       </SettingsDetailShell>
     ) : selectedSection === "voice" && voiceSettings ? (
       <SettingsDetailShell

@@ -713,12 +713,14 @@ The read-only billing export endpoint is \`/api/billing/usage\`. It returns stor
 customer-charge snapshots for a monthly, weekly, or custom range so Stripe,
 bookkeeping, or invoice workflows can consume the same append-only ledger.
 
-Kyro user billing setup is handled from Settings -> Usage and billing. The user
-can save a payment method through Stripe Checkout setup mode, gets a two-week
-free trial, and the Stripe webhook marks \`workspace_policies.kyro_user_billing\`
-as ready when setup completes. This stores the billing method state only; the
-actual post-trial metered charge/invoice job still needs to be scheduled before
-automatic production billing is live.
+Kyro user billing setup is part of account onboarding. New users add a credit or
+debit card through Stripe Checkout setup mode to start the two-week free trial.
+Existing users can change or add the saved payment method from Settings -> Usage
+and billing -> Payment method. The Stripe webhook marks
+\`workspace_policies.kyro_user_billing\` as ready when setup completes. This
+stores the billing method state only; the actual post-trial metered
+charge/invoice job still needs to be scheduled before automatic production
+billing is live.
 
 ## Web Search
 

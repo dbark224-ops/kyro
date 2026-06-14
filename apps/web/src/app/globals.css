@@ -9014,9 +9014,30 @@ button:disabled {
   margin-bottom: 14px;
 }
 
+.kyro-billing-card.standalone {
+  max-width: 760px;
+}
+
 .kyro-billing-copy {
   color: var(--muted);
+  line-height: 1.55;
   margin: 0;
+}
+
+.kyro-billing-fact {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.kyro-billing-fact span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .kyro-billing-actions {

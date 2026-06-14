@@ -1766,7 +1766,7 @@ export async function startKyroBillingSetupAction() {
         ? error.message
         : "Unable to start Kyro billing setup.";
     redirect(
-      `/settings?section=usage&panel=usage-summary&engine_error=${encodeURIComponent(
+      `/settings?section=usage&panel=payment-method&engine_error=${encodeURIComponent(
         message,
       )}`,
     );
@@ -1791,7 +1791,7 @@ export async function openKyroBillingPortalAction() {
         ? error.message
         : "Unable to open Kyro billing portal.";
     redirect(
-      `/settings?section=usage&panel=usage-summary&engine_error=${encodeURIComponent(
+      `/settings?section=usage&panel=payment-method&engine_error=${encodeURIComponent(
         message,
       )}`,
     );

@@ -56,7 +56,8 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           <h1>Create your business workspace.</h1>
           <p className="form-copy">
             Add the core business details Kyro needs to prepare your CRM,
-            assistant context, documents, and billing defaults.
+            assistant context, documents, and billing defaults. After this,
+            Stripe will securely save a card for your two-week free trial.
           </p>
         </div>
 
@@ -103,7 +104,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           </label>
           </div>
           <button className="primary-button" type="submit">
-            Create workspace
+            Continue to card setup
           </button>
         </form>
       </section>

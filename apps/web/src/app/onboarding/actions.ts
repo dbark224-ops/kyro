@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient } from "../../lib/supabase/server";
+import { createKyroUserBillingSetupUrl } from "../../lib/billing/kyro-user-billing";
 import { createWorkspaceBootstrap, getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
 import { isOperatingCountry } from "../../lib/workspace/operating-countries";
 import { revalidatePath } from "next/cache";
@@ -46,8 +47,10 @@ export async function bootstrapWorkspaceAction(formData: FormData) {
     redirectWithError("Choose the country this workspace operates in.");
   }
 
+  let workspace;
+
   try {
-    await createWorkspaceBootstrap(supabase, user, {
+    workspace = await createWorkspaceBootstrap(supabase, user, {
       businessLocation,
       businessName,
       country,
@@ -60,6 +63,26 @@ export async function bootstrapWorkspaceAction(formData: FormData) {
     redirectWithError(error instanceof Error ? error.message : "Workspace bootstrap failed.");
   }
 
+  let billingSetupUrl = "";
+
+  try {
+    billingSetupUrl = await createKyroUserBillingSetupUrl({
+      cancelPath:
+        "/settings?section=usage&panel=payment-method&engine_message=Billing%20setup%20cancelled.%20You%20can%20finish%20it%20here%20before%20your%20trial%20ends.",
+      successPath:
+        "/dashboard?engine_message=Billing%20method%20saved.%20Your%20two-week%20trial%20has%20started.",
+      supabase,
+      user,
+      workspace,
+    });
+  } catch (error) {
+    redirect(
+      `/settings?section=usage&panel=payment-method&engine_error=${encodeURIComponent(
+        error instanceof Error ? error.message : "Billing setup failed.",
+      )}`,
+    );
+  }
+
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect(billingSetupUrl);
 }
