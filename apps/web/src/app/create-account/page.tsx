@@ -58,9 +58,10 @@ export default async function CreateAccountPage({
         <div className="auth-copy centered">
           <h1>Create your Kyro account.</h1>
           <p className="form-copy">
-            Set up your login, business basics, and two-week trial. Kyro will
-            create a working workspace now, and you can refine branding, phones,
-            service areas, and signatures later in Settings.
+            Set up your login, business basics, and two-week trial. Card details
+            are collected by Stripe after the workspace is created, and you can
+            refine branding, phones, service areas, and signatures later in
+            Settings.
           </p>
         </div>
 

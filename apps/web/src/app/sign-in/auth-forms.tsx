@@ -148,6 +148,7 @@ export function SignInForm({ action }: { action: ServerAction }) {
 export function CreateAccountForm({ action }: { action: ServerAction }) {
   const [step, setStep] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const steps = [
     {
@@ -177,8 +178,8 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
     },
     {
       eyebrow: "Step 3",
-      title: "Add card for free trial",
-      copy: "Your first two weeks are free. Stripe will securely save your card so billing can start only after the trial.",
+      title: "Secure card setup",
+      copy: "Create the workspace, then Kyro opens Stripe's secure card setup. Your first two weeks are free and Kyro never stores raw card details.",
       fields: ["trialAcknowledged"],
     },
   ];
@@ -339,7 +340,15 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (!validateAllSteps(event.currentTarget)) {
       event.preventDefault();
+      return;
     }
+
+    if (isSubmitting) {
+      event.preventDefault();
+      return;
+    }
+
+    setIsSubmitting(true);
   }
 
   return (
@@ -597,10 +606,11 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
           </div>
           <div className="auth-secure-payment-card">
             <p className="eyebrow">Payment method</p>
-            <h3>Add a credit or debit card after this step.</h3>
+            <h3>Stripe opens immediately after signup.</h3>
             <p>
-              Kyro will open a Stripe-hosted card setup screen. Kyro never
-              stores raw card details.
+              You will enter card details on Stripe's secure page, not inside
+              this form. If email verification is required, the Stripe page
+              opens after you verify your email.
             </p>
           </div>
         </div>
@@ -647,8 +657,8 @@ export function CreateAccountForm({ action }: { action: ServerAction }) {
             Continue
           </button>
         ) : (
-          <button className="primary-button" type="submit">
-            Continue to card setup
+          <button className="primary-button" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Creating account..." : "Create account and open Stripe"}
           </button>
         )}
       </div>

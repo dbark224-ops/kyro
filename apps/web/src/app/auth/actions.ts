@@ -22,6 +22,24 @@ function redirectWithError(path: string, message: string): never {
   redirect(`${path}?error=${encodeURIComponent(message)}`);
 }
 
+function friendlySignupError(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("rate limit") || normalized.includes("too many")) {
+    return "Kyro has temporarily hit the verification email limit for this address. Check your inbox first, or wait a few minutes before trying again.";
+  }
+
+  if (
+    normalized.includes("already") ||
+    normalized.includes("registered") ||
+    normalized.includes("exists")
+  ) {
+    return "That email is already attached to a Kyro account. Sign in instead, or use a different email.";
+  }
+
+  return message;
+}
+
 function safeRedirectPath(path: string, fallback: string) {
   if (!path || !path.startsWith("/") || path.startsWith("//")) {
     return fallback;
@@ -245,7 +263,14 @@ export async function signUpAction(formData: FormData) {
   });
 
   if (error) {
-    redirectWithError(failurePath, error.message);
+    redirectWithError(failurePath, friendlySignupError(error.message));
+  }
+
+  if (data.user && data.user.identities && data.user.identities.length === 0) {
+    redirectWithError(
+      failurePath,
+      "That email is already attached to a Kyro account. Sign in instead, or use a different email.",
+    );
   }
 
   if (data.session && data.user) {
