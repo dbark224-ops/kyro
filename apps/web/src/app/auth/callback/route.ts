@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "../../../lib/supabase/server";
+import { createKyroUserBillingSetupUrl } from "../../../lib/billing/kyro-user-billing";
 import {
   createWorkspaceBootstrap,
   getPrimaryWorkspace,
@@ -24,15 +25,19 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (user) {
-      const workspace = await getPrimaryWorkspace(supabase);
+      let workspace = await getPrimaryWorkspace(supabase);
       const businessName = metadataString(
         user.user_metadata,
         "kyroBusinessName",
       );
+      const trialAcknowledgedAt = metadataString(
+        user.user_metadata,
+        "kyroTrialAcknowledgedAt",
+      );
 
       if (!workspace && businessName) {
         try {
-          await createWorkspaceBootstrap(supabase, user, {
+          workspace = await createWorkspaceBootstrap(supabase, user, {
             businessLocation: metadataString(
               user.user_metadata,
               "kyroBusinessLocation",
@@ -42,6 +47,10 @@ export async function GET(request: NextRequest) {
             industry: metadataString(user.user_metadata, "kyroIndustry"),
             postcode: metadataString(user.user_metadata, "kyroBusinessPostcode"),
             publicEmail: user.email ?? undefined,
+            publicPhoneNumber: metadataString(
+              user.user_metadata,
+              "kyroMobileNumber",
+            ),
             serviceArea: metadataString(
               user.user_metadata,
               "kyroBusinessServiceArea",
@@ -54,6 +63,31 @@ export async function GET(request: NextRequest) {
                 error instanceof Error
                   ? error.message
                   : "Workspace setup failed.",
+              )}`,
+              requestUrl.origin,
+            ),
+          );
+        }
+      }
+
+      if (workspace && businessName && trialAcknowledgedAt) {
+        try {
+          const billingSetupUrl = await createKyroUserBillingSetupUrl({
+            cancelPath:
+              "/settings?section=usage&panel=payment-method&engine_message=Billing%20setup%20cancelled.%20You%20can%20finish%20it%20here%20before%20your%20trial%20ends.",
+            successPath:
+              "/dashboard?engine_message=Billing%20method%20saved.%20Your%20two-week%20trial%20has%20started.",
+            supabase,
+            user,
+            workspace,
+          });
+
+          return NextResponse.redirect(billingSetupUrl);
+        } catch (error) {
+          return NextResponse.redirect(
+            new URL(
+              `/settings?section=usage&panel=payment-method&engine_error=${encodeURIComponent(
+                error instanceof Error ? error.message : "Billing setup failed.",
               )}`,
               requestUrl.origin,
             ),

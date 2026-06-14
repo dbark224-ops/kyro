@@ -185,7 +185,7 @@ export async function signUpAction(formData: FormData) {
   } else {
     redirect(
       `/sign-in?message=${encodeURIComponent(
-        "Check your email to finish creating your Kyro workspace.",
+        "Check your email to verify the account. After verification, Kyro will open secure card setup for your two-week trial.",
       )}`,
     );
   }
