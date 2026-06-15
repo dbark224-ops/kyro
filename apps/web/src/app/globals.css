@@ -1591,8 +1591,8 @@ a {
 .auth-create-header h1 {
   max-width: 680px;
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  line-height: 1;
+  font-size: clamp(1.55rem, 2.1vw, 1.95rem);
+  line-height: 1.05;
   text-align: center;
 }
 
@@ -1861,15 +1861,9 @@ a {
 .auth-payment-loading {
   display: flex;
   align-items: center;
-  gap: 12px;
-  border: 1px solid color-mix(in srgb, var(--cyan) 54%, var(--line));
-  border-radius: var(--radius-control);
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--cyan) 10%, transparent), color-mix(in srgb, var(--pink) 7%, transparent)),
-    color-mix(in srgb, var(--surface) 76%, transparent);
-  color: var(--text);
-  font-weight: 800;
-  padding: 12px 14px;
+  justify-content: center;
+  min-height: 38px;
+  padding: 4px 0;
 }
 
 .auth-payment-loading .typing-dots {
@@ -1888,6 +1882,14 @@ a {
 
 .auth-payment-placeholder p {
   margin: 0;
+}
+
+.auth-payment-placeholder-bare {
+  place-items: center;
+  min-height: 72px;
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
 }
 
 .auth-step-actions {

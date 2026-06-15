@@ -812,7 +812,6 @@ export function CreateAccountForm() {
               <span />
               <span />
             </span>
-            <span>Creating your workspace and loading the secure card form</span>
           </div>
         ) : null}
       </section>
@@ -837,13 +836,16 @@ export function CreateAccountForm() {
             <InlineCardSetup setup={billingSetup} onError={setFormError} />
           </Elements>
         ) : step === 2 ? (
-          <div className="auth-payment-placeholder">
-            <p className="eyebrow">Secure payment setup</p>
-            <p>
-              {isSubmitting
-                ? "Creating your workspace and loading the card form..."
-                : "Kyro is ready to load the card form. Go back and continue again if it does not appear."}
-            </p>
+          <div
+            className="auth-payment-placeholder auth-payment-placeholder-bare"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="typing-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
           </div>
         ) : null}
       </section>

@@ -4,7 +4,7 @@ export default function CreateAccountLoading() {
   return (
     <AuthLoadingScreen
       copy="Preparing the account and workspace setup."
-      title="Create your Kyro account."
+      title="Create your account"
     />
   );
 }

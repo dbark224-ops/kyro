@@ -52,7 +52,7 @@ export default async function CreateAccountPage({
       <section className="auth-panel wide auth-create-panel">
         <div className="auth-create-header">
           <BrandMark />
-          <h1>Create your Kyro account.</h1>
+          <h1>Create your account</h1>
         </div>
 
         {params?.error ? (
