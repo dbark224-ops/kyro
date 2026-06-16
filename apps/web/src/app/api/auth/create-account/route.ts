@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { getAuthCallbackUrl } from "../../../../lib/app-url";
 import {
   createKyroUserBillingSetupIntent,
 } from "../../../../lib/billing/kyro-user-billing";
@@ -277,7 +278,7 @@ export async function POST(request: Request) {
     return errorResponse(duplicateError, 409);
   }
 
-  const origin = request.headers.get("origin");
+  const authCallbackUrl = getAuthCallbackUrl(request.headers.get("origin"));
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase.auth.signUp({
     email: input.email,
@@ -296,7 +297,7 @@ export async function POST(request: Request) {
         name: input.name,
         phone: input.normalizedMobileNumber,
       },
-      emailRedirectTo: origin ? `${origin}/auth/callback` : undefined,
+      emailRedirectTo: authCallbackUrl,
     },
   });
 

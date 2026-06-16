@@ -1,5 +1,6 @@
 "use server";
 
+import { getAuthCallbackUrl } from "../../lib/app-url";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import { createKyroUserBillingSetupUrl } from "../../lib/billing/kyro-user-billing";
@@ -240,7 +241,7 @@ export async function signUpAction(formData: FormData) {
   });
 
   const requestHeaders = await headers();
-  const origin = requestHeaders.get("origin");
+  const authCallbackUrl = getAuthCallbackUrl(requestHeaders.get("origin"));
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -258,7 +259,7 @@ export async function signUpAction(formData: FormData) {
         name,
         phone: mobileNumber,
       },
-      emailRedirectTo: origin ? `${origin}/auth/callback` : undefined,
+      emailRedirectTo: authCallbackUrl,
     },
   });
 
