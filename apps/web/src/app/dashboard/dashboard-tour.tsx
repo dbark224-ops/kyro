@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 
 type TourStep = {
   body: string;
+  spotlightPadding?: number;
   target: string;
   title: string;
 };
@@ -53,6 +54,7 @@ const tourSteps: TourStep[] = [
   },
   {
     body: "Use this control to pick which widgets appear in each row.",
+    spotlightPadding: 4,
     target: "[data-tour='dashboard-customise']",
     title: "Customise",
   },
@@ -177,6 +179,7 @@ export function DashboardTour() {
 
   const position = cardPosition(spotlight);
   const isLast = stepIndex === tourSteps.length - 1;
+  const spotlightPadding = step.spotlightPadding ?? 8;
 
   return (
     <div className="dashboard-tour-layer" role="dialog" aria-modal="true">
@@ -185,10 +188,10 @@ export function DashboardTour() {
           aria-hidden="true"
           className="dashboard-tour-spotlight"
           style={{
-            height: spotlight.height + 16,
-            left: spotlight.left - 8,
-            top: spotlight.top - 8,
-            width: spotlight.width + 16,
+            height: spotlight.height + spotlightPadding * 2,
+            left: spotlight.left - spotlightPadding,
+            top: spotlight.top - spotlightPadding,
+            width: spotlight.width + spotlightPadding * 2,
           }}
         />
       ) : (
