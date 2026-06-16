@@ -95,6 +95,15 @@ import { redirect } from "next/navigation";
 
 const MAX_SIGNATURE_LOGO_BYTES = 512 * 1024;
 
+type TutorialSupabaseClient = {
+  from(table: "workspace_tutorial_state"): {
+    upsert(
+      values: Record<string, unknown>,
+      options: { onConflict: string },
+    ): Promise<{ error: { message: string } | null }>;
+  };
+};
+
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -1963,4 +1972,37 @@ async function savePronunciationEntryUpdate(formData: FormData) {
 export async function ignorePronunciationEntryAction(formData: FormData) {
   formData.set("status", "ignored" satisfies PronunciationStatus);
   await updatePronunciationEntryAction(formData);
+}
+
+export async function resetDashboardTutorialAction() {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const tutorialSupabase = supabase as unknown as TutorialSupabaseClient;
+
+  const { error } = await tutorialSupabase
+    .from("workspace_tutorial_state")
+    .upsert(
+      {
+        dashboard_tour_completed_at: null,
+        dashboard_tour_completed_by: null,
+        dashboard_tour_version: 1,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id" },
+    );
+
+  if (error) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      `Unable to reset dashboard tutorial: ${error.message}`,
+    );
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/settings");
+  redirectWithSectionMessage(
+    "developer",
+    "engine_message",
+    "Dashboard tutorial reset. Open Dashboard to test it again.",
+  );
 }

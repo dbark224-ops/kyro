@@ -568,7 +568,7 @@ export function AppFrame({
           </form>
         </div>
       </details>
-      <aside className="sidebar" aria-label="Primary navigation">
+      <aside className="sidebar" aria-label="Primary navigation" data-tour="side-panel">
         <div className="brand-lockup">
           <BrandMark />
         </div>
@@ -591,7 +591,7 @@ export function AppFrame({
       </aside>
 
       <section className={workspaceClassName}>
-        <div className="global-search-anchor">
+        <div className="global-search-anchor" data-tour="global-search">
           <GlobalSearch />
         </div>
         <div className="dev-top-controls">

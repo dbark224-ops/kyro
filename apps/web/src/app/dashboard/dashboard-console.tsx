@@ -587,7 +587,10 @@ function MiniAssistantWidget({
   }, [messages, pending]);
 
   return (
-    <section className="dashboard-widget assistant dashboard-widget-assistant">
+    <section
+      className="dashboard-widget assistant dashboard-widget-assistant"
+      data-tour="dashboard-assistant"
+    >
       <DashboardWidgetHeader
         action={
           <Link className="filter-pill" href="/assistant">
@@ -693,7 +696,11 @@ function renderWidget({
       .slice(0, 4);
 
     return (
-      <section className="dashboard-widget dashboard-widget-queue" key={key}>
+      <section
+        className="dashboard-widget dashboard-widget-queue"
+        data-tour="work-queue"
+        key={key}
+      >
         <DashboardWidgetHeader
           action={
             <select
@@ -755,7 +762,11 @@ function renderWidget({
       .slice(0, 6);
 
     return (
-      <section className="dashboard-widget dashboard-widget-activity" key={key}>
+      <section
+        className="dashboard-widget dashboard-widget-activity"
+        data-tour="system-activity"
+        key={key}
+      >
         <DashboardWidgetHeader
           action={
             <select
@@ -999,7 +1010,7 @@ export function DashboardConsole({
         <div className="dashboard-command-title">
           <h1>Dashboard</h1>
         </div>
-        <div className="dashboard-command-actions">
+        <div className="dashboard-command-actions" data-tour="dashboard-customise">
           <button
             className="secondary-button compact"
             onClick={() => setCustomizeOpen((current) => !current)}
@@ -1127,7 +1138,7 @@ export function DashboardConsole({
 
       {!customizeOpen ? (
         <>
-          <section className="dashboard-stat-grid">
+          <section className="dashboard-stat-grid" data-tour="dashboard-metrics">
             {layout.top.map((metricKey) => {
               const definition = metricDefinitions[metricKey];
 
@@ -1163,7 +1174,10 @@ export function DashboardConsole({
             )}
           </section>
 
-          <section className="dashboard-bottom-grid">
+          <section
+            className="dashboard-bottom-grid"
+            data-tour="dashboard-bottom-widgets"
+          >
             {layout.bottom.map((widgetKey) =>
               renderWidget({
                 activityFilter,

@@ -13743,6 +13743,113 @@ button:disabled {
   line-height: 1;
 }
 
+.dashboard-tour-layer {
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 95;
+}
+
+.dashboard-tour-backdrop {
+  background: rgba(2, 6, 23, 0.72);
+  inset: 0;
+  position: fixed;
+}
+
+.dashboard-tour-spotlight {
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 78%, transparent);
+  border-radius: 18px;
+  box-shadow:
+    0 0 0 9999px rgba(2, 6, 23, 0.72),
+    0 0 32px color-mix(in srgb, var(--cyan) 24%, transparent);
+  pointer-events: none;
+  position: fixed;
+  transition: all 160ms ease;
+}
+
+.dashboard-tour-card {
+  background: linear-gradient(
+    135deg,
+    rgba(10, 18, 30, 0.98),
+    rgba(24, 13, 31, 0.98)
+  );
+  border: 1px solid color-mix(in srgb, var(--cyan) 62%, transparent);
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  color: var(--text);
+  padding: 18px;
+  pointer-events: auto;
+  position: fixed;
+  width: min(380px, calc(100vw - 32px));
+}
+
+.dashboard-tour-step {
+  color: color-mix(in srgb, var(--cyan) 94%, white);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dashboard-tour-card h2 {
+  font-size: 1.3rem;
+  margin: 6px 0;
+}
+
+.dashboard-tour-card p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.dashboard-tour-progress {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0;
+}
+
+.dashboard-tour-progress span {
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 999px;
+  height: 8px;
+  width: 8px;
+}
+
+.dashboard-tour-progress span.active {
+  background: linear-gradient(90deg, var(--cyan), var(--pink));
+  width: 22px;
+}
+
+.dashboard-tour-actions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.dashboard-tour-actions > div {
+  display: flex;
+  gap: 8px;
+}
+
+.developer-reset-card {
+  align-items: center;
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 22%, var(--line));
+  border-radius: 16px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 14px;
+}
+
+.developer-reset-card p {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
 .dashboard-vapi-widget,
 .dashboard-vapi-widget iframe,
 .dashboard-vapi-embed-shell {

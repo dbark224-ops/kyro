@@ -1,4 +1,5 @@
 import { DashboardConsole } from "./dashboard-console";
+import { DashboardTour } from "./dashboard-tour";
 import { AppFrame } from "../components/app-frame";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import type { AssistantThreadState } from "../../lib/assistant/types";
@@ -43,6 +44,7 @@ export default async function DashboardPage() {
         data={data}
         initialAssistantState={buildWelcomeState(threadState)}
       />
+      <DashboardTour />
     </AppFrame>
   );
 }

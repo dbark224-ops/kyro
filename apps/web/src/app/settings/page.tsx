@@ -10,6 +10,7 @@ import {
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
   removeInboundEmailSenderRuleSettingsAction,
+  resetDashboardTutorialAction,
   syncInboundEmailNowAction,
   updateCommunicationSettingsAction,
   updateGeneralSettingsAction,
@@ -3651,6 +3652,20 @@ function DeveloperSettingsDetail({
               <Link href="/developer/assistant-tools">Tool registry</Link>
             </strong>
           </div>
+        </div>
+        <div className="developer-reset-card">
+          <div>
+            <strong>Dashboard tutorial</strong>
+            <p>
+              Clears the first-run dashboard tour completion flag for this
+              workspace so you can test the onboarding walkthrough again.
+            </p>
+          </div>
+          <form action={resetDashboardTutorialAction}>
+            <button className="secondary-button compact" type="submit">
+              Reset tutorial
+            </button>
+          </form>
         </div>
       </article>
 
