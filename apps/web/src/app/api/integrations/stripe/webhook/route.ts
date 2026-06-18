@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import {
   getStripeConfig,
+  getStripeWebhookSecrets,
   verifyStripeWebhookSignature,
   STRIPE_PROVIDER,
 } from "../../../../../lib/payments/stripe";
@@ -349,20 +350,19 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const config = getStripeConfig();
   const rawBody = await request.text();
+  const webhookSecrets = getStripeWebhookSecrets();
 
-  if (!config.webhookSecret) {
+  if (webhookSecrets.length === 0) {
     return NextResponse.json(
       { error: "Stripe webhook secret is not configured." },
       { status: 500 },
     );
   }
 
-  const signatureValid = verifyStripeWebhookSignature(
-    rawBody,
-    request.headers.get("stripe-signature"),
-    config.webhookSecret,
+  const signatureHeader = request.headers.get("stripe-signature");
+  const signatureValid = webhookSecrets.some((webhookSecret) =>
+    verifyStripeWebhookSignature(rawBody, signatureHeader, webhookSecret),
   );
 
   if (!signatureValid) {
@@ -372,9 +372,33 @@ export async function POST(request: Request) {
     );
   }
 
-  const event = JSON.parse(rawBody) as StripeWebhookEvent;
+  let event: StripeWebhookEvent;
 
-  await handleStripeEvent(event);
+  try {
+    event = JSON.parse(rawBody) as StripeWebhookEvent;
+  } catch (error) {
+    console.error("Unable to parse Stripe webhook payload", error);
+
+    return NextResponse.json(
+      { error: "Invalid Stripe payload." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    await handleStripeEvent(event);
+  } catch (error) {
+    console.error("Stripe webhook processing failed", {
+      error,
+      eventId: event.id,
+      eventType: event.type,
+    });
+
+    return NextResponse.json({
+      processed: false,
+      received: true,
+    });
+  }
 
   return NextResponse.json({ received: true });
 }

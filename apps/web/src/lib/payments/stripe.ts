@@ -66,12 +66,28 @@ function envString(name: string) {
   return value || null;
 }
 
+export function getStripeWebhookSecrets() {
+  const singleSecret = envString("STRIPE_WEBHOOK_SECRET");
+  const multipleSecrets = envString("STRIPE_WEBHOOK_SECRETS");
+  const secrets = [
+    ...(singleSecret ? [singleSecret] : []),
+    ...(multipleSecrets
+      ? multipleSecrets
+          .split(/[\n,]/)
+          .map((secret) => secret.trim())
+          .filter(Boolean)
+      : []),
+  ];
+
+  return Array.from(new Set(secrets));
+}
+
 export function getStripeConfig(): StripeConfig {
   const secretKey = envString("STRIPE_SECRET_KEY");
   const publishableKey =
     envString("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY") ??
     envString("STRIPE_PUBLISHABLE_KEY");
-  const webhookSecret = envString("STRIPE_WEBHOOK_SECRET");
+  const webhookSecret = getStripeWebhookSecrets()[0] ?? null;
   const feeValue = Number(envString("STRIPE_PLATFORM_FEE_BPS"));
 
   return {
@@ -83,7 +99,7 @@ export function getStripeConfig(): StripeConfig {
         : DEFAULT_PLATFORM_FEE_BPS,
     publishableKey,
     secretKey,
-    webhookConfigured: Boolean(webhookSecret),
+    webhookConfigured: getStripeWebhookSecrets().length > 0,
     webhookSecret,
   };
 }
