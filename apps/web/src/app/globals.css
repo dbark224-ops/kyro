@@ -11713,9 +11713,56 @@ button:disabled {
   .auth-stepper,
   .auth-grid,
   .auth-form-grid,
-  .auth-trial-grid,
-  .auth-phone-row {
+  .auth-trial-grid {
     grid-template-columns: 1fr;
+  }
+
+  .auth-create-panel {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .auth-create-header {
+    min-height: 0;
+    justify-items: center;
+  }
+
+  .auth-create-header .brand-mark {
+    position: static;
+    width: 104px;
+    justify-self: start;
+  }
+
+  .auth-create-header h1 {
+    width: 100%;
+    font-size: clamp(1.25rem, 7vw, 1.65rem);
+  }
+
+  .auth-create-form {
+    padding: 14px;
+  }
+
+  .auth-create-form .auth-stepper {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .auth-create-form .auth-step {
+    justify-content: center;
+    padding: 8px 6px;
+  }
+
+  .auth-create-form .auth-step-title {
+    display: none;
+  }
+
+  .auth-create-form .auth-phone-row {
+    grid-template-columns: minmax(88px, 0.32fr) minmax(0, 1fr);
+    max-width: none;
+  }
+
+  .auth-create-form .auth-phone-row select {
+    padding-inline: 10px 24px;
   }
 
   .auth-step-actions {

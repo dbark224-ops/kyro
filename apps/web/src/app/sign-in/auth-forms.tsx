@@ -552,7 +552,7 @@ export function CreateAccountForm() {
             onClick={(event) => goToStep(index, event.currentTarget.form)}
           >
             <span className="auth-step-index">{index + 1}</span>
-            <span>{item.title}</span>
+            <span className="auth-step-title">{item.title}</span>
           </button>
         ))}
       </div>
