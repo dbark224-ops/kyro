@@ -11757,7 +11757,7 @@ button:disabled {
   }
 
   .auth-create-form .auth-phone-row {
-    grid-template-columns: minmax(88px, 0.32fr) minmax(0, 1fr);
+    grid-template-columns: 116px minmax(0, 1fr);
     max-width: none;
   }
 
