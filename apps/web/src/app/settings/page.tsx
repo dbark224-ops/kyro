@@ -10,8 +10,8 @@ import {
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
   removeInboundEmailSenderRuleSettingsAction,
-  resetDashboardTutorialAction,
   syncInboundEmailNowAction,
+  updateDashboardTutorialTestModeAction,
   updateCommunicationSettingsAction,
   updateGeneralSettingsAction,
   updateInboundEmailSettingsAction,
@@ -3603,8 +3603,10 @@ function VoiceSettingsDetail({
 }
 
 function DeveloperSettingsDetail({
+  dashboardTutorialForceShow,
   voiceSettings,
 }: Readonly<{
+  dashboardTutorialForceShow: boolean;
   voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
 }>) {
   return (
@@ -3657,13 +3659,25 @@ function DeveloperSettingsDetail({
           <div>
             <strong>Dashboard tutorial</strong>
             <p>
-              Clears the first-run dashboard tour completion flag for this
-              workspace so you can test the onboarding walkthrough again.
+              Keep this on while testing the first-run walkthrough. Normal
+              workspaces still only see the tutorial once unless they launch it
+              manually from the top bar.
             </p>
           </div>
-          <form action={resetDashboardTutorialAction}>
+          <form
+            action={updateDashboardTutorialTestModeAction}
+            className="developer-reset-form"
+          >
+            <label className="developer-toggle-label">
+              <input
+                defaultChecked={dashboardTutorialForceShow}
+                name="dashboardTutorialForceShow"
+                type="checkbox"
+              />
+              <span>Always show tutorial</span>
+            </label>
             <button className="secondary-button compact" type="submit">
-              Reset tutorial
+              Save
             </button>
           </form>
         </div>
@@ -4310,6 +4324,41 @@ function KyroBillingSettingsDetail({
   );
 }
 
+type DashboardTutorialStateRow = {
+  dashboard_tour_force_show: boolean | null;
+};
+
+type DashboardTutorialStateSupabaseClient = {
+  from(table: "workspace_tutorial_state"): {
+    select(columns: string): {
+      eq(column: string, value: string): {
+        maybeSingle(): Promise<{
+          data: DashboardTutorialStateRow | null;
+          error: { message: string } | null;
+        }>;
+      };
+    };
+  };
+};
+
+async function getDashboardTutorialState(
+  supabase: unknown,
+  workspaceId: string,
+) {
+  const tutorialSupabase = supabase as DashboardTutorialStateSupabaseClient;
+  const { data, error } = await tutorialSupabase
+    .from("workspace_tutorial_state")
+    .select("dashboard_tour_force_show")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+
+  if (error) {
+    return { forceShow: false };
+  }
+
+  return { forceShow: Boolean(data?.dashboard_tour_force_show) };
+}
+
 export default async function SettingsPage({
   searchParams,
 }: SettingsPageProps) {
@@ -4343,6 +4392,7 @@ export default async function SettingsPage({
     usageReport,
     voiceSettings,
     kyroBillingOverview,
+    dashboardTutorialState,
   ] = await Promise.all([
     selectedSection === "general" || selectedSection === "integrations"
       ? getCommunicationSettings(supabase, workspace.id)
@@ -4390,6 +4440,9 @@ export default async function SettingsPage({
     selectedSection === "usage"
       ? getKyroUserBillingOverview(createServiceSupabaseClient(), workspace.id)
       : Promise.resolve(null),
+    selectedSection === "developer" && isDeveloperAccount
+      ? getDashboardTutorialState(supabase, workspace.id)
+      : Promise.resolve({ forceShow: false }),
   ]);
   const googleOverview = integrationOverviews?.[0] ?? null;
   const microsoftOverview = integrationOverviews?.[1] ?? null;
@@ -4727,7 +4780,10 @@ export default async function SettingsPage({
         eyebrow="Developer"
         title={selectedNestedTitle ?? "Developer settings"}
       >
-        <DeveloperSettingsDetail voiceSettings={voiceSettings} />
+        <DeveloperSettingsDetail
+          dashboardTutorialForceShow={dashboardTutorialState.forceShow}
+          voiceSettings={voiceSettings}
+        />
       </SettingsDetailShell>
     ) : null;
 

@@ -2285,6 +2285,28 @@ textarea:focus {
   position: static;
 }
 
+.tutorial-launcher-pill {
+  align-items: center;
+  background: color-mix(in srgb, var(--cyan) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--cyan) 55%, var(--line));
+  border-radius: 999px;
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--cyan) 12%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  height: 36px;
+  justify-content: center;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.tutorial-launcher-pill:hover {
+  background: color-mix(in srgb, var(--cyan) 18%, var(--panel));
+}
+
 .global-search-anchor {
   position: fixed;
   top: 28px;
@@ -13848,6 +13870,35 @@ button:disabled {
 .developer-reset-card p {
   color: var(--muted);
   margin: 4px 0 0;
+}
+
+.developer-reset-form {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.developer-toggle-label {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel-strong) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
+  border-radius: 999px;
+  color: var(--text);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.developer-toggle-label input {
+  accent-color: var(--cyan);
+  height: 15px;
+  width: 15px;
 }
 
 .dashboard-vapi-widget,

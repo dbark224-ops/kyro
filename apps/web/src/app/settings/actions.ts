@@ -1974,16 +1974,20 @@ export async function ignorePronunciationEntryAction(formData: FormData) {
   await updatePronunciationEntryAction(formData);
 }
 
-export async function resetDashboardTutorialAction() {
+export async function updateDashboardTutorialTestModeAction(formData: FormData) {
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const tutorialSupabase = supabase as unknown as TutorialSupabaseClient;
+  const forceShow = formBoolean(formData, "dashboardTutorialForceShow");
 
   const { error } = await tutorialSupabase
     .from("workspace_tutorial_state")
     .upsert(
       {
-        dashboard_tour_completed_at: null,
-        dashboard_tour_completed_by: null,
+        dashboard_tour_completed_at: forceShow
+          ? null
+          : new Date().toISOString(),
+        dashboard_tour_completed_by: forceShow ? null : user.id,
+        dashboard_tour_force_show: forceShow,
         dashboard_tour_version: 1,
         workspace_id: workspace.id,
       },
@@ -1994,7 +1998,7 @@ export async function resetDashboardTutorialAction() {
     redirectWithSectionMessage(
       "developer",
       "engine_error",
-      `Unable to reset dashboard tutorial: ${error.message}`,
+      `Unable to update dashboard tutorial test mode: ${error.message}`,
     );
   }
 
@@ -2003,6 +2007,8 @@ export async function resetDashboardTutorialAction() {
   redirectWithSectionMessage(
     "developer",
     "engine_message",
-    "Dashboard tutorial reset. Open Dashboard to test it again.",
+    forceShow
+      ? "Dashboard tutorial test mode is on. The tour will appear whenever the Dashboard loads until you turn this off."
+      : "Dashboard tutorial test mode is off. The tour will only appear for first-time workspaces.",
   );
 }

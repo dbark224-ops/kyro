@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import {
+  DASHBOARD_TOUR_START_EVENT,
+  DASHBOARD_TOUR_STORAGE_KEY,
+} from "../components/tutorial-events";
 
 type TourStep = {
   body: string;
@@ -99,6 +103,36 @@ function cardPosition(rect: SpotlightRect | null) {
   return { left, top };
 }
 
+function hasManualTourRequest() {
+  const params = new URLSearchParams(window.location.search);
+  const requestedByUrl = params.get("tour") === "1";
+  let requestedByStorage = false;
+
+  try {
+    requestedByStorage =
+      window.sessionStorage.getItem(DASHBOARD_TOUR_STORAGE_KEY) === "1";
+  } catch {
+    requestedByStorage = false;
+  }
+
+  return requestedByUrl || requestedByStorage;
+}
+
+function clearManualTourRequest() {
+  try {
+    window.sessionStorage.removeItem(DASHBOARD_TOUR_STORAGE_KEY);
+  } catch {
+    // Session storage can be unavailable in hardened browser modes.
+  }
+
+  const url = new URL(window.location.href);
+
+  if (url.searchParams.has("tour")) {
+    url.searchParams.delete("tour");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  }
+}
+
 export function DashboardTour() {
   const [loading, setLoading] = useState(true);
   const [visible, setVisible] = useState(false);
@@ -106,6 +140,14 @@ export function DashboardTour() {
   const [spotlight, setSpotlight] = useState<SpotlightRect | null>(null);
 
   const step = tourSteps[stepIndex];
+
+  const startTour = useCallback(() => {
+    clearManualTourRequest();
+    setLoading(false);
+    setStepIndex(0);
+    setSpotlight(null);
+    setVisible(true);
+  }, []);
 
   const updateSpotlight = useCallback(() => {
     if (!visible || !step) {
@@ -119,14 +161,25 @@ export function DashboardTour() {
     let cancelled = false;
 
     async function loadTutorialState() {
+      if (hasManualTourRequest()) {
+        if (!cancelled) {
+          startTour();
+        }
+        return;
+      }
+
       try {
         const response = await fetch("/api/onboarding/tutorial", {
           cache: "no-store",
         });
-        const data = (await response.json()) as { completed?: boolean };
+        const data = (await response.json()) as {
+          completed?: boolean;
+          shouldShow?: boolean;
+        };
+        const shouldShow = data.shouldShow ?? !data.completed;
 
-        if (!cancelled && !data.completed) {
-          setVisible(true);
+        if (!cancelled && shouldShow) {
+          startTour();
         }
       } catch {
         // If the check fails, avoid blocking the dashboard with a tutorial error.
@@ -142,7 +195,17 @@ export function DashboardTour() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [startTour]);
+
+  useEffect(() => {
+    const handleStartTour = () => startTour();
+
+    window.addEventListener(DASHBOARD_TOUR_START_EVENT, handleStartTour);
+
+    return () => {
+      window.removeEventListener(DASHBOARD_TOUR_START_EVENT, handleStartTour);
+    };
+  }, [startTour]);
 
   useLayoutEffect(() => {
     updateSpotlight();
