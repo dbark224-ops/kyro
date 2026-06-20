@@ -34,8 +34,13 @@ export type WorkspaceBusinessProfileSettings = {
   businessAddress: string;
   businessName: string;
   contactHours: string;
+  emergencyAfterHoursRate: string;
+  emergencyAvailabilityMode: string;
+  emergencyDays: string;
+  emergencyEndTime: string;
   emergencyJobsEnabled: boolean;
   emergencyRateNotes: string;
+  emergencyStartTime: string;
   industry: string;
   logoContentBase64: string;
   logoContentType: string;
@@ -68,8 +73,13 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     businessAddress: "",
     businessName: "",
     contactHours: "",
+    emergencyAfterHoursRate: "",
+    emergencyAvailabilityMode: "specified",
+    emergencyDays: "Every day",
+    emergencyEndTime: "",
     emergencyJobsEnabled: false,
     emergencyRateNotes: "",
+    emergencyStartTime: "",
     industry: "",
     logoContentBase64: "",
     logoContentType: "",
@@ -191,6 +201,28 @@ export function normalizeWorkspaceBusinessProfileSettings(
       fallback.contactHours ?? defaultSettings.contactHours,
       600,
     ),
+    emergencyAfterHoursRate: cappedTextValue(
+      settings.emergencyAfterHoursRate,
+      fallback.emergencyAfterHoursRate ??
+        defaultSettings.emergencyAfterHoursRate,
+      160,
+    ),
+    emergencyAvailabilityMode: cappedTextValue(
+      settings.emergencyAvailabilityMode,
+      fallback.emergencyAvailabilityMode ??
+        defaultSettings.emergencyAvailabilityMode,
+      80,
+    ),
+    emergencyDays: cappedTextValue(
+      settings.emergencyDays,
+      fallback.emergencyDays ?? defaultSettings.emergencyDays,
+      500,
+    ),
+    emergencyEndTime: cappedTextValue(
+      settings.emergencyEndTime,
+      fallback.emergencyEndTime ?? defaultSettings.emergencyEndTime,
+      40,
+    ),
     emergencyJobsEnabled:
       typeof settings.emergencyJobsEnabled === "boolean"
         ? settings.emergencyJobsEnabled
@@ -199,6 +231,11 @@ export function normalizeWorkspaceBusinessProfileSettings(
       settings.emergencyRateNotes,
       fallback.emergencyRateNotes ?? defaultSettings.emergencyRateNotes,
       1000,
+    ),
+    emergencyStartTime: cappedTextValue(
+      settings.emergencyStartTime,
+      fallback.emergencyStartTime ?? defaultSettings.emergencyStartTime,
+      40,
     ),
     industry: cappedTextValue(
       settings.industry,

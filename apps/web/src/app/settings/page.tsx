@@ -1,4 +1,5 @@
 import { AppFrame } from "../components/app-frame";
+import { AddressAutocompleteField } from "../components/address-autocomplete-field";
 import {
   disconnectIntegrationAction,
   disconnectWorkspacePhoneSmsAction,
@@ -22,6 +23,7 @@ import {
 } from "./actions";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
+import { TagInputField } from "./tag-input-field";
 import {
   ELEVENLABS_VOICE_PRESETS,
   OPENAI_VOICE_OPTIONS,
@@ -2347,356 +2349,508 @@ function GeneralSettingsDetail({
         <span className="pill">Workspace facts</span>
       </section>
 
-      <div className="settings-grid business-profile-grid">
-        <label className="setting-card">
-          <SettingCardHeading info="Shown internally and used as the default business name in generated documents and reports.">
-            Business name
-          </SettingCardHeading>
-          <input
-            defaultValue={profile.businessName || workspaceName}
-            name="businessName"
-            placeholder="WFA Plumbing"
-          />
-        </label>
+      <nav
+        aria-label="Business profile sections"
+        className="business-profile-section-tabs"
+      >
+        <a className="business-profile-section-tab" href="#business-profile-core">
+          Core profile
+        </a>
+        <a
+          className="business-profile-section-tab"
+          href="#business-profile-branding"
+        >
+          Branding and logo
+        </a>
+        <a
+          className="business-profile-section-tab"
+          href="#business-profile-signature"
+        >
+          Email signature
+        </a>
+        <a
+          className="business-profile-section-tab"
+          href="#business-profile-emergency"
+        >
+          Emergency work
+        </a>
+      </nav>
 
-        <label className="setting-card">
-          <SettingCardHeading info="The trade or service category Kyro should assume for tone, context, and future workflows.">
-            Industry
-          </SettingCardHeading>
-          <input
-            defaultValue={profile.industry}
-            name="businessIndustry"
-            placeholder="Plumbing, electrical, building, landscaping..."
-          />
-        </label>
+      <section
+        className="business-profile-section-panel"
+        id="business-profile-core"
+      >
+        <div className="settings-grid business-profile-grid">
+          <label className="setting-card">
+            <SettingCardHeading info="Shown internally and used as the default business name in generated documents and reports.">
+              Business name
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.businessName || workspaceName}
+              name="businessName"
+              placeholder="WFA Plumbing"
+            />
+          </label>
 
-        <label className="setting-card">
-          <SettingCardHeading info="Used as the workspace operating country for phone number assignment, local defaults, and future regional workflows.">
-            Operating country
-          </SettingCardHeading>
-          <select
-            defaultValue={operatingCountry}
-            name="businessOperatingCountry"
-            required
-          >
-            <option value="" disabled>
-              Select operating country
-            </option>
-            {OPERATING_COUNTRY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+          <label className="setting-card">
+            <SettingCardHeading info="The trade or service category Kyro should assume for tone, context, and future workflows.">
+              Industry
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.industry}
+              name="businessIndustry"
+              placeholder="Plumbing, electrical, building, landscaping..."
+            />
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="Used as the workspace operating country for phone number assignment, local defaults, and future regional workflows.">
+              Operating country
+            </SettingCardHeading>
+            <select
+              defaultValue={operatingCountry}
+              name="businessOperatingCountry"
+              required
+            >
+              <option value="" disabled>
+                Select operating country
               </option>
-            ))}
-          </select>
-        </label>
+              {OPERATING_COUNTRY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="setting-card">
-          <SettingCardHeading info="The public email address shown on reports, documents, and business-facing material.">
-            Public email
-          </SettingCardHeading>
-          <input
-            defaultValue={profile.publicEmail || userEmail}
-            name="businessPublicEmail"
-            placeholder="hello@example.com"
-            type="email"
-          />
-        </label>
+          <label className="setting-card setting-card-compact-input">
+            <SettingCardHeading info="The public email address shown on reports, documents, and business-facing material.">
+              Public email
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.publicEmail || userEmail}
+              name="businessPublicEmail"
+              placeholder="hello@example.com"
+              type="email"
+            />
+          </label>
 
-        <label className="setting-card">
-          <SettingCardHeading
-            info={
-              <>
-                This is the displayed public phone number. It can be different
-                from the operational Twilio/Vapi number used for inbound and
-                outbound automation.
-              </>
-            }
-          >
-            Public phone number
-          </SettingCardHeading>
-          <input
-            defaultValue={defaultPublicPhone}
-            list="business-public-phone-options"
-            name="businessPublicPhoneNumber"
-            placeholder="+61 7 4517 4330"
-          />
-          <datalist id="business-public-phone-options">
-            {operationalPhoneNumbers.map((number) => (
-              <option
-                key={number.id}
-                label={`${number.friendlyName ?? "Workspace number"} - ${phoneCapabilitiesLabel(
-                  number,
-                )} connected`}
-                value={number.phoneNumber}
+          <label className="setting-card setting-card-compact-input">
+            <SettingCardHeading
+              info={
+                <>
+                  This is the displayed public phone number. It can be different
+                  from the operational Twilio/Vapi number used for inbound and
+                  outbound automation.
+                </>
+              }
+            >
+              Public phone number
+            </SettingCardHeading>
+            <input
+              defaultValue={defaultPublicPhone}
+              list="business-public-phone-options"
+              name="businessPublicPhoneNumber"
+              placeholder="+61 7 4517 4330"
+            />
+            <datalist id="business-public-phone-options">
+              {operationalPhoneNumbers.map((number) => (
+                <option
+                  key={number.id}
+                  label={`${number.friendlyName ?? "Workspace number"} - ${phoneCapabilitiesLabel(
+                    number,
+                  )} connected`}
+                  value={number.phoneNumber}
+                />
+              ))}
+            </datalist>
+          </label>
+
+          <div className="setting-card business-address-card">
+            <SettingCardHeading info="The business base address. Customer job addresses are still stored separately on contacts and leads.">
+              Business address
+            </SettingCardHeading>
+            <AddressAutocompleteField
+              className="business-address-autocomplete"
+              defaultValue={profile.businessAddress}
+              label="Verified address"
+              name="businessAddress"
+              placeholder="Start typing a verified business address..."
+            />
+          </div>
+
+          <div className="setting-card">
+            <SettingCardHeading info="Plain-English operating area Kyro can reference when qualifying jobs. Press Enter after each area.">
+              Service area
+            </SettingCardHeading>
+            <TagInputField
+              ariaLabel="Service area"
+              defaultValue={profile.serviceArea}
+              name="businessServiceArea"
+              placeholder="Brisbane southside, Logan, Ipswich..."
+            />
+          </div>
+
+          <div className="setting-card">
+            <SettingCardHeading info="Useful for matching and explaining whether a job is likely inside the normal service area. Press Enter after each suburb.">
+              Suburbs serviced
+            </SettingCardHeading>
+            <TagInputField
+              ariaLabel="Suburbs serviced"
+              defaultValue={profile.serviceSuburbs}
+              name="businessServiceSuburbs"
+              placeholder="Holland Park West, Mount Gravatt..."
+            />
+          </div>
+
+          <div className="setting-card">
+            <SettingCardHeading info="Optional postcode list. Press Enter after each postcode.">
+              Postcodes serviced
+            </SettingCardHeading>
+            <TagInputField
+              ariaLabel="Postcodes serviced"
+              defaultValue={profile.servicePostcodes}
+              name="businessServicePostcodes"
+              placeholder="4121, 4122, 4101..."
+            />
+          </div>
+
+          <label className="setting-card">
+            <SettingCardHeading info="Approximate normal travel radius for jobs. Leave blank if the business uses suburb/postcode rules instead.">
+              Travel radius
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.travelRadiusKm ?? ""}
+              min={0}
+              name="businessTravelRadiusKm"
+              placeholder="30"
+              type="number"
+            />
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="A lightweight staffing number Kyro can use for workload and capability context.">
+              Staff count
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.staffCount ?? ""}
+              min={0}
+              name="businessStaffCount"
+              placeholder="3"
+              type="number"
+            />
+          </label>
+
+          <label className="setting-card settings-textarea">
+            <SettingCardHeading info="Normal operating hours for work and job scheduling context.">
+              Working hours
+            </SettingCardHeading>
+            <textarea
+              defaultValue={profile.workingHours}
+              name="businessWorkingHours"
+              placeholder="Monday to Friday, 7:00 AM to 4:00 PM"
+            />
+          </label>
+
+          <label className="setting-card settings-textarea">
+            <SettingCardHeading info="Hours customers can expect the business or Kyro to respond.">
+              Contact hours
+            </SettingCardHeading>
+            <textarea
+              defaultValue={profile.contactHours}
+              name="businessContactHours"
+              placeholder="Weekdays 7:00 AM to 5:30 PM; urgent calls after hours"
+            />
+          </label>
+        </div>
+
+        <section className="signature-editor">
+          <div>
+            <p className="eyebrow">Operational phone numbers</p>
+            <p>
+              These are the numbers already assigned for Twilio/Vapi. The public
+              number above can use one of these or any other displayed number.
+            </p>
+          </div>
+          {operationalPhoneNumbers.length ? (
+            <div className="detail-list compact-detail-list">
+              {operationalPhoneNumbers.map((number) => (
+                <div className="operational-phone-number-row" key={number.id}>
+                  <div>
+                    <strong>{number.phoneNumber}</strong>
+                    <span>
+                      {number.friendlyName ?? "Workspace number"} -{" "}
+                      {phoneCapabilitiesLabel(number)} -{" "}
+                      {formatLabel(number.status)}
+                    </span>
+                  </div>
+                  <button
+                    className="text-button danger"
+                    formAction={disconnectWorkspacePhoneSmsAction}
+                    name="phoneNumberId"
+                    type="submit"
+                    value={number.id}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">
+              No operational phone number is assigned yet. Configure phone and
+              SMS in Connected accounts when the workspace is ready.
+            </p>
+          )}
+        </section>
+
+        <div className="settings-grid">
+          <label className="setting-card">
+            <SettingCardHeading
+              info={
+                <>
+                  Used wherever Kyro needs local time, including quiet-hours
+                  email polling. Use an IANA timezone such as
+                  Australia/Brisbane, America/Denver, or UTC.
+                </>
+              }
+            >
+              Workspace timezone
+            </SettingCardHeading>
+            <input
+              defaultValue={settings.timeZone}
+              name="workspaceTimeZone"
+              placeholder="Australia/Brisbane"
+            />
+          </label>
+          <label className="setting-card">
+            <SettingCardHeading
+              info={
+                <>
+                  Controls how Kyro displays internal money values such as
+                  usage charges and billing exports. Stored ledger values stay
+                  in USD for clean accounting; this is the display currency
+                  users see in the app.
+                </>
+              }
+            >
+              Display currency
+            </SettingCardHeading>
+            <select
+              defaultValue={settings.displayCurrency}
+              name="workspaceDisplayCurrency"
+            >
+              {DISPLAY_CURRENCIES.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="setting-card">
+            <SettingCardHeading
+              info={
+                <>
+                  Used when a customer gives a local phone number without a
+                  country code. Numbers that already include a country code are
+                  kept international.
+                </>
+              }
+            >
+              Default phone region
+            </SettingCardHeading>
+            <select
+              defaultValue={settings.defaultPhoneRegion}
+              name="workspaceDefaultPhoneRegion"
+            >
+              {PHONE_REGION_OPTIONS.map((region) => (
+                <option key={region.value} value={region.value}>
+                  {region.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section
+        className="business-profile-section-panel"
+        id="business-profile-branding"
+      >
+        <section className="integration-choice-panel">
+          <div>
+            <p className="eyebrow">Branding and logo</p>
+            <h3>Visual identity</h3>
+            <p>
+              Logo, colours, and style notes used by reports, documents, and
+              generated customer-facing assets.
+            </p>
+          </div>
+        </section>
+
+        <BusinessLogoEditor profile={profile} />
+
+        <div className="settings-grid">
+          <label className="setting-card">
+            <SettingCardHeading info="Primary brand colour for documents, previews, and future generated assets.">
+              Primary colour
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.brandPrimaryColor}
+              name="businessBrandPrimaryColor"
+              type="color"
+            />
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="Accent colour for highlights and secondary visual marks.">
+              Accent colour
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.brandAccentColor}
+              name="businessBrandAccentColor"
+              type="color"
+            />
+          </label>
+
+          <label className="setting-card settings-textarea">
+            <SettingCardHeading info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect.">
+              Brand style notes
+            </SettingCardHeading>
+            <textarea
+              defaultValue={profile.brandStyle}
+              name="businessBrandStyle"
+              placeholder="Clean, practical, friendly, no corporate fluff..."
+            />
+          </label>
+        </div>
+      </section>
+
+      <section
+        className="business-profile-section-panel"
+        id="business-profile-signature"
+      >
+        <section className="integration-choice-panel">
+          <div>
+            <p className="eyebrow">Email signature</p>
+            <h3>Default customer email signature</h3>
+            <p>
+              The signature Kyro can use when drafting or sending business
+              emails.
+            </p>
+          </div>
+        </section>
+
+        <EmailSignatureEditor
+          description="Used for manual replies and business-facing email defaults. Advanced AI signature controls still live in Connected accounts."
+          namePrefix="manualSignature"
+          signature={communicationSettings.manualSignature}
+          title="Default email signature"
+        />
+      </section>
+
+      <section
+        className="business-profile-section-panel"
+        id="business-profile-emergency"
+      >
+        <section className="integration-choice-panel">
+          <div>
+            <p className="eyebrow">Emergency work</p>
+            <h3>After-hours availability and handling</h3>
+            <p>
+              Define when Kyro should treat work as urgent or after-hours, and
+              what rate or handling notes to reference.
+            </p>
+          </div>
+        </section>
+
+        <div className="settings-grid emergency-settings-grid">
+          <label className="setting-card emergency-toggle-card">
+            <SettingCardHeading info="Used by Kyro when handling urgent calls, SMS, and customer requests.">
+              Emergency work
+            </SettingCardHeading>
+            <span className="settings-switch-row compact">
+              <span>Offers urgent or after-hours jobs</span>
+              <input
+                defaultChecked={profile.emergencyJobsEnabled}
+                name="businessEmergencyJobsEnabled"
+                type="checkbox"
               />
-            ))}
-          </datalist>
-        </label>
+            </span>
+          </label>
 
-        <label className="setting-card settings-textarea">
-          <SettingCardHeading info="The business base address. Customer job addresses are still stored separately on contacts and leads.">
-            Business address
+          <label className="setting-card">
+            <SettingCardHeading info="Choose whether emergency availability is always on or limited to a schedule.">
+              Availability
+            </SettingCardHeading>
+            <select
+              defaultValue={profile.emergencyAvailabilityMode}
+              name="businessEmergencyAvailabilityMode"
+            >
+              <option value="specified">Specified after-hours window</option>
+              <option value="twenty_four_seven">24/7 emergency work</option>
+            </select>
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="Optional rate text Kyro can reference without inventing prices.">
+              After-hours rate
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.emergencyAfterHoursRate}
+              name="businessEmergencyAfterHoursRate"
+              placeholder="$250 call-out, double time, POA..."
+            />
+          </label>
+        </div>
+
+        <div className="settings-grid emergency-schedule-grid">
+          <label className="setting-card">
+            <SettingCardHeading info="Leave blank if emergency work is available any time.">
+              Start time
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.emergencyStartTime}
+              name="businessEmergencyStartTime"
+              placeholder="5:00 PM"
+            />
+          </label>
+
+          <label className="setting-card">
+            <SettingCardHeading info="Leave blank if emergency work is available any time.">
+              End time
+            </SettingCardHeading>
+            <input
+              defaultValue={profile.emergencyEndTime}
+              name="businessEmergencyEndTime"
+              placeholder="7:00 AM"
+            />
+          </label>
+
+          <div className="setting-card">
+            <SettingCardHeading info="Press Enter after each day or group, such as Weekdays, Saturday, Sunday, or Every day.">
+              Days
+            </SettingCardHeading>
+            <TagInputField
+              ariaLabel="Emergency work days"
+              defaultValue={profile.emergencyDays}
+              name="businessEmergencyDays"
+              placeholder="Every day, Weekdays, Saturday..."
+            />
+          </div>
+        </div>
+
+        <label className="settings-textarea setting-card">
+          <SettingCardHeading info="Instructions Kyro should follow when an urgent or after-hours request comes in.">
+            Handling notes
           </SettingCardHeading>
-          <textarea
-            defaultValue={profile.businessAddress}
-            name="businessAddress"
-            placeholder="Street address, suburb, state, postcode"
-          />
-        </label>
-
-        <label className="setting-card settings-textarea">
-          <SettingCardHeading info="Plain-English operating area Kyro can reference when qualifying jobs.">
-            Service area
-          </SettingCardHeading>
-          <textarea
-            defaultValue={profile.serviceArea}
-            name="businessServiceArea"
-            placeholder="Brisbane southside, Logan, Ipswich, northern Gold Coast..."
-          />
-        </label>
-
-        <label className="setting-card settings-textarea">
-          <SettingCardHeading info="Useful for matching and explaining whether a job is likely inside the normal service area.">
-            Suburbs serviced
-          </SettingCardHeading>
-          <textarea
-            defaultValue={profile.serviceSuburbs}
-            name="businessServiceSuburbs"
-            placeholder="Holland Park West, Mount Gravatt, Coorparoo..."
-          />
-        </label>
-
-        <label className="setting-card settings-textarea">
-          <SettingCardHeading info="Optional postcode list. Keep it loose if the business works by suburb instead.">
-            Postcodes serviced
-          </SettingCardHeading>
-          <textarea
-            defaultValue={profile.servicePostcodes}
-            name="businessServicePostcodes"
-            placeholder="4121, 4122, 4101..."
-          />
-        </label>
-
-        <label className="setting-card">
-          <SettingCardHeading info="Approximate normal travel radius for jobs. Leave blank if the business uses suburb/postcode rules instead.">
-            Travel radius
-          </SettingCardHeading>
-          <input
-            defaultValue={profile.travelRadiusKm ?? ""}
-            min={0}
-            name="businessTravelRadiusKm"
-            placeholder="30"
-            type="number"
-          />
-        </label>
-
-        <label className="setting-card">
-          <SettingCardHeading info="A lightweight staffing number Kyro can use for workload and capability context.">
-            Staff count
-          </SettingCardHeading>
-          <input
-            defaultValue={profile.staffCount ?? ""}
-            min={0}
-            name="businessStaffCount"
-            placeholder="3"
-            type="number"
-          />
-        </label>
-
-        <label className="setting-card settings-textarea">
-          <SettingCardHeading info="Normal operating hours for work and job scheduling context.">
-            Working hours
-          </SettingCardHeading>
-          <textarea
-            defaultValue={profile.workingHours}
-            name="businessWorkingHours"
-            placeholder="Monday to Friday, 7:00 AM to 4:00 PM"
-          />
-        </label>
-
-        <label className="setting-card settings-textarea">
-          <SettingCardHeading info="Hours customers can expect the business or Kyro to respond.">
-            Contact hours
-          </SettingCardHeading>
-          <textarea
-            defaultValue={profile.contactHours}
-            name="businessContactHours"
-            placeholder="Weekdays 7:00 AM to 5:30 PM; urgent calls after hours"
-          />
-        </label>
-      </div>
-
-      <fieldset className="settings-fieldset compact-checkbox-fieldset">
-        <legend>Emergency work</legend>
-        <label className="compact-checkbox-row">
-          <input
-            defaultChecked={profile.emergencyJobsEnabled}
-            name="businessEmergencyJobsEnabled"
-            type="checkbox"
-          />
-          <span>Offers 24-hour or urgent emergency jobs</span>
-        </label>
-        <label className="settings-textarea">
-          Emergency rate and handling notes
           <textarea
             defaultValue={profile.emergencyRateNotes}
             name="businessEmergencyRateNotes"
-            placeholder="Emergency call-outs are charged at an after-hours rate. Ask for safety details first."
+            placeholder="Ask for safety details first. Confirm call-out rates before promising attendance."
           />
         </label>
-      </fieldset>
-
-      <section className="signature-editor">
-        <div>
-          <p className="eyebrow">Operational phone numbers</p>
-          <p>
-            These are the numbers already assigned for Twilio/Vapi. The public
-            number above can use one of these or any other displayed number.
-          </p>
-        </div>
-        {operationalPhoneNumbers.length ? (
-          <div className="detail-list compact-detail-list">
-            {operationalPhoneNumbers.map((number) => (
-              <div className="operational-phone-number-row" key={number.id}>
-                <div>
-                  <strong>{number.phoneNumber}</strong>
-                  <span>
-                    {number.friendlyName ?? "Workspace number"} -{" "}
-                    {phoneCapabilitiesLabel(number)} -{" "}
-                    {formatLabel(number.status)}
-                  </span>
-                </div>
-                <button
-                  className="text-button danger"
-                  formAction={disconnectWorkspacePhoneSmsAction}
-                  name="phoneNumberId"
-                  type="submit"
-                  value={number.id}
-                >
-                  Disconnect
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="empty-copy">
-            No operational phone number is assigned yet. Configure phone and SMS
-            in Connected accounts when the workspace is ready.
-          </p>
-        )}
       </section>
-
-      <BusinessLogoEditor profile={profile} />
-
-      <div className="settings-grid">
-        <label className="setting-card">
-          <SettingCardHeading info="Primary brand colour for documents, previews, and future generated assets.">
-            Primary colour
-          </SettingCardHeading>
-          <input
-            defaultValue={profile.brandPrimaryColor}
-            name="businessBrandPrimaryColor"
-            type="color"
-          />
-        </label>
-
-        <label className="setting-card">
-          <SettingCardHeading info="Accent colour for highlights and secondary visual marks.">
-            Accent colour
-          </SettingCardHeading>
-          <input
-            defaultValue={profile.brandAccentColor}
-            name="businessBrandAccentColor"
-            type="color"
-          />
-        </label>
-
-        <label className="setting-card settings-textarea">
-          <SettingCardHeading info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect.">
-            Brand style notes
-          </SettingCardHeading>
-          <textarea
-            defaultValue={profile.brandStyle}
-            name="businessBrandStyle"
-            placeholder="Clean, practical, friendly, no corporate fluff..."
-          />
-        </label>
-      </div>
-
-      <EmailSignatureEditor
-        description="Used for manual replies and business-facing email defaults. Advanced AI signature controls still live in Connected accounts."
-        namePrefix="manualSignature"
-        signature={communicationSettings.manualSignature}
-        title="Default email signature"
-      />
-
-      <div className="settings-grid">
-        <label className="setting-card">
-          <SettingCardHeading
-            info={
-              <>
-                Used wherever Kyro needs local time, including quiet-hours email
-                polling. Use an IANA timezone such as Australia/Brisbane,
-                America/Denver, or UTC.
-              </>
-            }
-          >
-            Workspace timezone
-          </SettingCardHeading>
-          <input
-            defaultValue={settings.timeZone}
-            name="workspaceTimeZone"
-            placeholder="Australia/Brisbane"
-          />
-        </label>
-        <label className="setting-card">
-          <SettingCardHeading
-            info={
-              <>
-                Controls how Kyro displays internal money values such as usage
-                charges and billing exports. Stored ledger values stay in USD
-                for clean accounting; this is the display currency users see in
-                the app.
-              </>
-            }
-          >
-            Display currency
-          </SettingCardHeading>
-          <select
-            defaultValue={settings.displayCurrency}
-            name="workspaceDisplayCurrency"
-          >
-            {DISPLAY_CURRENCIES.map((currency) => (
-              <option key={currency} value={currency}>
-                {currency}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="setting-card">
-          <SettingCardHeading
-            info={
-              <>
-                Used when a customer gives a local phone number without a
-                country code. Numbers that already include a country code are
-                kept international.
-              </>
-            }
-          >
-            Default phone region
-          </SettingCardHeading>
-          <select
-            defaultValue={settings.defaultPhoneRegion}
-            name="workspaceDefaultPhoneRegion"
-          >
-            {PHONE_REGION_OPTIONS.map((region) => (
-              <option key={region.value} value={region.value}>
-                {region.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
 
       <div className="settings-footer">
         <span>
