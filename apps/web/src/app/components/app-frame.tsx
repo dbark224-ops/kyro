@@ -363,13 +363,28 @@ async function WorkspaceAccountChip() {
   }
 
   return (
-    <div className="workspace-account-chip" aria-label="Workspace summary">
-      <span className="workspace-account-avatar">{data.initials}</span>
-      <span className="workspace-account-copy">
-        <strong>{data.workspaceName}</strong>
-        <small>{data.userEmail}</small>
-      </span>
-    </div>
+    <details className="workspace-account-menu">
+      <summary className="workspace-account-chip" aria-label="Workspace menu">
+        <span className="workspace-account-avatar">{data.initials}</span>
+        <span className="workspace-account-copy">
+          <strong>{data.workspaceName}</strong>
+          <small>{data.userEmail}</small>
+        </span>
+        <span className="workspace-account-chevron" aria-hidden="true">
+          v
+        </span>
+      </summary>
+      <div className="workspace-account-menu-panel">
+        <SmartPrefetchLink className="workspace-account-menu-item" href="/settings">
+          Settings
+        </SmartPrefetchLink>
+        <form action={signOutAction}>
+          <button className="workspace-account-menu-item danger" type="submit">
+            Sign out
+          </button>
+        </form>
+      </div>
+    </details>
   );
 }
 

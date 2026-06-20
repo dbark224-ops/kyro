@@ -12941,6 +12941,10 @@ button:disabled {
   text-decoration: none;
 }
 
+.workspace-account-menu {
+  position: relative;
+}
+
 .workspace-account-chip {
   display: inline-flex;
   align-items: center;
@@ -12950,7 +12954,32 @@ button:disabled {
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   box-shadow: 0 12px 34px rgb(0 0 0 / 0.12);
+  cursor: pointer;
+  list-style: none;
   padding: 8px 12px 8px 8px;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.workspace-account-chip::-webkit-details-marker {
+  display: none;
+}
+
+.workspace-account-chip::marker {
+  content: "";
+}
+
+.workspace-account-chip:hover,
+.workspace-account-menu[open] .workspace-account-chip {
+  border-color: color-mix(in srgb, var(--cyan) 58%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
+}
+
+.workspace-account-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cyan) 70%, transparent);
+  outline-offset: 3px;
 }
 
 .workspace-account-avatar {
@@ -12986,6 +13015,66 @@ button:disabled {
 .workspace-account-copy small {
   color: var(--muted);
   font-size: 0.6875rem;
+}
+
+.workspace-account-chevron {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1;
+  margin-left: 2px;
+}
+
+.workspace-account-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  display: grid;
+  gap: 6px;
+  min-width: 164px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 54%
+    ),
+    color-mix(in srgb, var(--surface) 98%, #000 2%);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.2);
+  padding: 8px;
+}
+
+.workspace-account-menu-panel form {
+  margin: 0;
+}
+
+.workspace-account-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 850;
+  padding: 9px 10px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.workspace-account-menu-item:hover,
+.workspace-account-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--cyan) 12%, transparent);
+  outline: none;
+}
+
+.workspace-account-menu-item.danger {
+  color: color-mix(in srgb, var(--pink) 72%, var(--text));
 }
 
 .dev-top-controls {
