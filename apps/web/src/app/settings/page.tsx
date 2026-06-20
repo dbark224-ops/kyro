@@ -2,6 +2,8 @@ import { AppFrame } from "../components/app-frame";
 import {
   disconnectIntegrationAction,
   disconnectWorkspacePhoneSmsAction,
+  disableVoicemailOverflowNumberAction,
+  enableVoicemailOverflowNumberAction,
   enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
   openKyroBillingPortalAction,
@@ -194,6 +196,13 @@ function settingsPanelHref(
   });
 
   return `/settings?${params.toString()}`;
+}
+
+function isVoicemailOverflowPhoneNumber(number: WorkspacePhoneNumberPoolRow) {
+  const purpose =
+    number.metadata.voicePurpose ?? number.metadata.purpose ?? null;
+
+  return purpose === "voicemail_overflow";
 }
 
 function defaultSettingsPanel(section: SettingsSection | null) {
@@ -3390,9 +3399,11 @@ function CommunicationSettingsDetail({
 }
 
 function VoiceSettingsDetail({
+  assignedPhoneNumbers,
   pronunciationEntries,
   voiceSettings,
 }: Readonly<{
+  assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   pronunciationEntries: AssistantPronunciationEntry[];
   voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
 }>) {
@@ -3597,8 +3608,135 @@ function VoiceSettingsDetail({
         </div>
       </form>
 
+      <VoicemailOverflowSettings
+        assignedPhoneNumbers={assignedPhoneNumbers}
+        voiceSettings={voiceSettings}
+      />
+
       <PronunciationVocabularySettings entries={pronunciationEntries} />
     </>
+  );
+}
+
+function VoicemailOverflowSettings({
+  assignedPhoneNumbers,
+  voiceSettings,
+}: Readonly<{
+  assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
+  voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
+}>) {
+  const voiceNumbers = assignedPhoneNumbers.filter(
+    (number) => number.status === "active" && number.capabilities.voice,
+  );
+  const voicemailNumber =
+    voiceNumbers.find(isVoicemailOverflowPhoneNumber) ??
+    assignedPhoneNumbers.find(isVoicemailOverflowPhoneNumber) ??
+    null;
+  const defaultPhoneNumberId = voicemailNumber?.id ?? voiceNumbers[0]?.id ?? "";
+
+  return (
+    <article className="panel embedded-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Voicemail overflow</p>
+          <h2>Missed-call fallback number</h2>
+        </div>
+        <span className="pill">
+          {voicemailNumber
+            ? "Configured"
+            : voiceNumbers.length > 0
+              ? "Choose number"
+              : "Needs phone number"}
+        </span>
+      </div>
+
+      <p className="empty-copy">
+        Pick the Kyro number that your carrier forwards unanswered or missed
+        calls to. Kyro will answer those forwarded calls with the voicemail
+        overflow assistant, record the transcript, and surface the result in
+        activity.
+      </p>
+
+      {voicemailNumber ? (
+        <div className="detail-list compact-detail-list">
+          <div>
+            <span>Forward missed calls to</span>
+            <strong>{voicemailNumber.phoneNumber}</strong>
+          </div>
+          <div>
+            <span>Call purpose</span>
+            <strong>Voicemail overflow</strong>
+          </div>
+        </div>
+      ) : null}
+
+      {!voiceSettings.phoneAgentVoicemailOverflowEnabled ? (
+        <p className="form-alert compact-alert">
+          Turn on voicemail overflow in phone assistant settings and save before
+          forwarded callers are routed to the voicemail overflow assistant.
+        </p>
+      ) : null}
+
+      {voiceNumbers.length > 0 ? (
+        <div className="settings-grid">
+          <form
+            action={enableVoicemailOverflowNumberAction}
+            className="setting-card"
+          >
+            <SettingCardHeading info="This only marks which of your assigned Kyro numbers is used for missed-call forwarding. Your mobile carrier or phone system still controls the actual forwarding rule.">
+              Overflow destination
+            </SettingCardHeading>
+            <select defaultValue={defaultPhoneNumberId} name="phoneNumberId">
+              {voiceNumbers.map((number) => (
+                <option key={number.id} value={number.id}>
+                  {number.phoneNumber}
+                  {isVoicemailOverflowPhoneNumber(number)
+                    ? " - current overflow"
+                    : ""}
+                </option>
+              ))}
+            </select>
+            <div className="settings-footer align-end">
+              <button className="primary-button compact" type="submit">
+                Save overflow number
+              </button>
+            </div>
+          </form>
+
+          <form
+            action={disableVoicemailOverflowNumberAction}
+            className="setting-card"
+          >
+            <SettingCardHeading info="This removes the voicemail overflow purpose from the Kyro number. It does not change forwarding rules inside your carrier account.">
+              Disconnect overflow routing
+            </SettingCardHeading>
+            <p className="empty-copy">
+              Use this when the number should keep working for normal calls and
+              SMS, but should no longer be treated as a voicemail fallback.
+            </p>
+            <input
+              name="phoneNumberId"
+              type="hidden"
+              value={voicemailNumber?.id ?? ""}
+            />
+            <div className="settings-footer align-end">
+              <button
+                className="secondary-button compact"
+                disabled={!voicemailNumber}
+                type="submit"
+              >
+                Remove overflow setup
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : (
+        <p className="form-alert compact-alert">
+          Enable phone and SMS in Connected accounts first so Kyro has a
+          voice-capable number to use for overflow.
+        </p>
+      )}
+    </article>
   );
 }
 
@@ -4428,7 +4566,7 @@ export default async function SettingsPage({
     selectedSection === "voice"
       ? getPronunciationEntries(supabase, workspace.id)
       : Promise.resolve([]),
-    selectedSection === "general"
+    selectedSection === "general" || selectedSection === "voice"
       ? getWorkspaceAssignedPhoneNumbers(supabase, workspace.id)
       : Promise.resolve([]),
     selectedSection === "usage"
@@ -4769,6 +4907,7 @@ export default async function SettingsPage({
         title={selectedNestedTitle ?? "Voice assistant"}
       >
         <VoiceSettingsDetail
+          assignedPhoneNumbers={assignedPhoneNumbers}
           pronunciationEntries={pronunciationEntries}
           voiceSettings={voiceSettings}
         />

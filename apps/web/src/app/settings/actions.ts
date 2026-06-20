@@ -89,6 +89,7 @@ import {
   ensureWorkspacePhoneNumberFromPool,
   getWorkspaceAssignedPhoneNumbers,
   releaseWorkspacePhoneNumberToPool,
+  type WorkspacePhoneNumberPoolRow,
 } from "../../lib/voice/phone-number-pool";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -118,6 +119,48 @@ function formChannels(formData: FormData) {
 
 function formBoolean(formData: FormData, key: string) {
   return formData.get(key) === "on";
+}
+
+function phoneNumberMetadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function voicemailOverflowMetadata(
+  metadata: Record<string, unknown>,
+  userId: string,
+) {
+  return {
+    ...metadata,
+    voicePurpose: "voicemail_overflow",
+    voicemailOverflowEnabledAt: new Date().toISOString(),
+    voicemailOverflowEnabledBy: userId,
+  };
+}
+
+function clearVoicemailOverflowMetadata(metadata: Record<string, unknown>) {
+  const next = { ...metadata };
+
+  if (next.voicePurpose === "voicemail_overflow") {
+    delete next.voicePurpose;
+  }
+
+  if (next.purpose === "voicemail_overflow") {
+    delete next.purpose;
+  }
+
+  delete next.voicemailOverflowEnabledAt;
+  delete next.voicemailOverflowEnabledBy;
+
+  return next;
+}
+
+function numberHasVoicemailOverflowPurpose(number: WorkspacePhoneNumberPoolRow) {
+  const purpose =
+    number.metadata.voicePurpose ?? number.metadata.purpose ?? null;
+
+  return purpose === "voicemail_overflow";
 }
 
 function formStringList(formData: FormData, key: string) {
@@ -1414,6 +1457,283 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     redirectSection,
     "engine_message",
     "Voice assistant settings saved.",
+  );
+}
+
+export async function enableVoicemailOverflowNumberAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+
+  if (!phoneNumberId) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Choose a voicemail overflow number first.",
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let assignedNumbers: WorkspacePhoneNumberPoolRow[] = [];
+
+  try {
+    assignedNumbers = await getWorkspaceAssignedPhoneNumbers(
+      serviceSupabase,
+      workspace.id,
+    );
+  } catch (error) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load assigned phone numbers.",
+    );
+  }
+
+  const selectedNumber = assignedNumbers.find(
+    (number) => number.id === phoneNumberId,
+  );
+
+  if (!selectedNumber) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "That phone number is not assigned to this workspace.",
+    );
+  }
+
+  if (!selectedNumber.capabilities.voice) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Choose a number that supports voice calls.",
+    );
+  }
+
+  const before = assignedNumbers.map((number) => ({
+    id: number.id,
+    metadata: number.metadata,
+    phoneNumber: number.phoneNumber,
+  }));
+
+  for (const number of assignedNumbers) {
+    const baseMetadata = phoneNumberMetadataRecord(number.metadata);
+    const metadata =
+      number.id === selectedNumber.id
+        ? voicemailOverflowMetadata(baseMetadata, user.id)
+        : clearVoicemailOverflowMetadata(baseMetadata);
+
+    const { error } = await serviceSupabase
+      .from("workspace_phone_numbers")
+      .update({ metadata })
+      .eq("id", number.id)
+      .eq("workspace_id", workspace.id);
+
+    if (error) {
+      redirectWithSectionMessage(
+        "voice",
+        "engine_error",
+        `Unable to save voicemail overflow number: ${error.message}`,
+      );
+    }
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const voiceSettings = normalizeVoiceSettings({
+    ...existingVoiceSettings,
+    phoneAgentEnabled: true,
+    phoneAgentVoicemailOverflowEnabled: true,
+    vapiPhoneNumberId:
+      existingVoiceSettings.vapiPhoneNumberId ??
+      selectedNumber.vapiPhoneNumberId,
+  });
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage("voice", "engine_error", beforeError.message);
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings: voiceSettings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      saveError?.message ?? "Unable to enable voicemail overflow.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "voice.voicemail_overflow_number.enabled",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      phoneNumber: selectedNumber.phoneNumber,
+      phoneNumberId: selectedNumber.id,
+      settings: voiceSettings,
+    },
+    before: {
+      numbers: before,
+      settings: beforePolicy?.settings ?? null,
+    },
+    entityId: selectedNumber.id,
+    entityType: "workspace_phone_number",
+    metadata: {
+      vapiPhoneNumberId: selectedNumber.vapiPhoneNumberId,
+    },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "voice",
+    "engine_message",
+    `${selectedNumber.phoneNumber} is now the voicemail overflow number.`,
+  );
+}
+
+export async function disableVoicemailOverflowNumberAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let assignedNumbers: WorkspacePhoneNumberPoolRow[] = [];
+
+  try {
+    assignedNumbers = await getWorkspaceAssignedPhoneNumbers(
+      serviceSupabase,
+      workspace.id,
+    );
+  } catch (error) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load assigned phone numbers.",
+    );
+  }
+
+  const overflowNumbers = assignedNumbers.filter((number) => {
+    if (phoneNumberId && number.id !== phoneNumberId) {
+      return false;
+    }
+
+    return numberHasVoicemailOverflowPurpose(number);
+  });
+
+  if (phoneNumberId && overflowNumbers.length === 0) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "That number is not currently set as voicemail overflow.",
+    );
+  }
+
+  for (const number of overflowNumbers) {
+    const { error } = await serviceSupabase
+      .from("workspace_phone_numbers")
+      .update({
+        metadata: clearVoicemailOverflowMetadata(
+          phoneNumberMetadataRecord(number.metadata),
+        ),
+      })
+      .eq("id", number.id)
+      .eq("workspace_id", workspace.id);
+
+    if (error) {
+      redirectWithSectionMessage(
+        "voice",
+        "engine_error",
+        `Unable to remove voicemail overflow: ${error.message}`,
+      );
+    }
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const voiceSettings = normalizeVoiceSettings({
+    ...existingVoiceSettings,
+    phoneAgentVoicemailOverflowEnabled: false,
+  });
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage("voice", "engine_error", beforeError.message);
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings: voiceSettings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      saveError?.message ?? "Unable to disable voicemail overflow.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "voice.voicemail_overflow_number.disabled",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      removedPhoneNumberIds: overflowNumbers.map((number) => number.id),
+      settings: voiceSettings,
+    },
+    before: {
+      numbers: overflowNumbers.map((number) => ({
+        id: number.id,
+        metadata: number.metadata,
+        phoneNumber: number.phoneNumber,
+      })),
+      settings: beforePolicy?.settings ?? null,
+    },
+    entityId: phoneNumberId || workspace.id,
+    entityType: phoneNumberId ? "workspace_phone_number" : "workspace",
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "voice",
+    "engine_message",
+    "Voicemail overflow routing is disabled.",
   );
 }
 
