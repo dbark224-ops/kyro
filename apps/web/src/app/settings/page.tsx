@@ -536,7 +536,7 @@ function OutboundWritingStyleEditor({
   const writing = communicationSettings.replyWriting;
 
   return (
-    <details className="settings-accordion">
+    <details className="settings-accordion settings-expandable">
       <summary>
         <div className="settings-accordion-title">
           <strong>Outbound writing style</strong>
@@ -2901,10 +2901,10 @@ function InboundEmailSyncSettings({
 
   return (
     <section className="integration-provider-stack">
-      <section className="integration-choice-panel">
+      <section className="integration-choice-panel inbound-email-sync-intro">
         <div>
-          <p className="eyebrow">Inbound email</p>
-          <h3>Email awareness and action filtering</h3>
+          <p className="eyebrow">Inbound email sync</p>
+          <h3>Email sync, filtering, and health</h3>
           <p>
             Kyro can read connected Gmail or Outlook inboxes, keep lightweight
             awareness of skipped mail, and only promote business-actionable
@@ -3411,64 +3411,68 @@ function CommunicationSettingsDetail({
         value={communicationSettings.replyWriting.tone}
       />
 
-      <div className="settings-grid single">
-        <label className="setting-card">
-          <SettingCardHeading
-            info={
-              <>
-                Email sends through the connected Gmail or Outlook account.
-                Other channels stay internal until their providers are
-                connected.
-              </>
-            }
-          >
-            Outbound permission
-          </SettingCardHeading>
-          <select
-            defaultValue={
-              communicationSettings.approvalRequired
-                ? "approval_required"
-                : "auto_dry_run"
-            }
-            name="approvalMode"
-          >
-            <option value="approval_required">
-              Approval required before outbound
-            </option>
-            <option value="auto_dry_run">
-              Allow outbound without extra approval
-            </option>
-          </select>
-        </label>
-      </div>
+      <section className="setting-card outbound-routing-card">
+        <div className="outbound-routing-grid">
+          <label className="outbound-permission-control">
+            <SettingCardHeading
+              info={
+                <>
+                  Email sends through the connected Gmail or Outlook account.
+                  Other channels stay internal until their providers are
+                  connected.
+                </>
+              }
+            >
+              Outbound permission
+            </SettingCardHeading>
+            <select
+              defaultValue={
+                communicationSettings.approvalRequired
+                  ? "approval_required"
+                  : "auto_dry_run"
+              }
+              name="approvalMode"
+            >
+              <option value="approval_required">
+                Approval required before outbound
+              </option>
+              <option value="auto_dry_run">
+                Allow outbound without extra approval
+              </option>
+            </select>
+          </label>
 
-      <fieldset className="settings-fieldset">
-        <legend>Allowed outbound channels</legend>
-        <div className="channel-toggle-grid">
-          {OUTBOUND_CHANNELS.map((channel) => (
-            <label className="channel-toggle" key={channel}>
-              <input
-                defaultChecked={communicationSettings.allowedChannels.includes(
-                  channel,
-                )}
-                name="allowedChannels"
-                type="checkbox"
-                value={channel}
-              />
-              <span>{formatLabel(channel)}</span>
-            </label>
-          ))}
+          <fieldset className="outbound-channel-control">
+            <legend className="settings-control-label">
+              Allowed outbound channels
+            </legend>
+            <div className="channel-toggle-grid compact-channel-toggle-grid">
+              {OUTBOUND_CHANNELS.map((channel) => (
+                <label className="channel-toggle" key={channel}>
+                  <input
+                    defaultChecked={communicationSettings.allowedChannels.includes(
+                      channel,
+                    )}
+                    name="allowedChannels"
+                    type="checkbox"
+                    value={channel}
+                  />
+                  <span>{formatLabel(channel)}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </div>
-      </fieldset>
+      </section>
 
       <OutboundWritingStyleEditor
         communicationSettings={communicationSettings}
       />
 
-      <fieldset className="settings-fieldset">
+      <fieldset className="settings-fieldset follow-up-reminder-panel">
         <legend>Follow-up reminders</legend>
-        <div className="settings-grid">
-          <label className="compact-checkbox-row setting-card">
+        <div className="follow-up-reminder-grid">
+          <label className="compact-checkbox-row setting-card follow-up-toggle-card">
             <input
               defaultChecked={communicationSettings.followUpRemindersEnabled}
               name="followUpRemindersEnabled"
@@ -3477,7 +3481,7 @@ function CommunicationSettingsDetail({
             <span>Automatically create internal follow-up reminders</span>
           </label>
 
-          <label className="setting-card">
+          <label className="setting-card follow-up-delay-card">
             <SettingCardHeading info="Kyro creates the reminder after an outbound reply is recorded. It stays internal until calendar/task integrations are added later.">
               Default delay
             </SettingCardHeading>
@@ -3493,7 +3497,7 @@ function CommunicationSettingsDetail({
         </div>
       </fieldset>
 
-      <details className="settings-accordion">
+      <details className="settings-accordion settings-expandable email-signatures-accordion">
         <summary>
           <div className="settings-accordion-title">
             <strong>Email signatures</strong>
@@ -4880,7 +4884,7 @@ export default async function SettingsPage({
               ),
               key: "inbound-email",
               selected: activeIntegrationPanel === "inbound-email",
-              title: "Inbound email",
+              title: "Inbound email sync",
             },
             {
               detail: "Approval rules, reply style, signatures, follow-ups",

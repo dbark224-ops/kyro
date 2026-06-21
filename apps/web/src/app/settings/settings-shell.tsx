@@ -66,7 +66,6 @@ export function SettingsShell({
               }
               href={item.href}
               key={item.section}
-              prefetch={false}
               >
                 <div className="settings-menu-main">
                   <p className="eyebrow">{item.eyebrow}</p>
@@ -98,7 +97,6 @@ export function SettingsShell({
                 }
                 href={item.href}
                 key={item.key}
-                prefetch={false}
               >
                 <div className="settings-menu-main">
                   <strong>{item.title}</strong>

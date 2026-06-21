@@ -8001,6 +8001,17 @@ button:disabled {
   line-height: 1.45;
 }
 
+.integration-choice-panel.inbound-email-sync-intro {
+  align-items: center;
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 34%
+    ),
+    color-mix(in srgb, var(--cyan) 5%, var(--surface));
+}
+
 .integration-provider-section {
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
@@ -8526,6 +8537,7 @@ button:disabled {
 }
 
 .settings-accordion summary {
+  position: relative;
   display: flex;
   min-height: 68px;
   align-items: center;
@@ -8534,6 +8546,31 @@ button:disabled {
   padding: 12px;
   cursor: pointer;
   list-style: none;
+}
+
+.settings-expandable summary {
+  padding-right: 96px;
+}
+
+.settings-expandable summary::after {
+  content: "Expand";
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  border: 1px solid color-mix(in srgb, var(--cyan) 45%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--cyan) 8%, transparent);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+  padding: 7px 10px;
+  pointer-events: none;
+}
+
+.settings-expandable[open] summary::after {
+  content: "Collapse";
 }
 
 .settings-accordion summary::-webkit-details-marker {
@@ -9062,6 +9099,77 @@ button:disabled {
 .channel-toggle span {
   color: var(--text);
   font-weight: 800;
+}
+
+.outbound-routing-card {
+  padding: 12px;
+}
+
+.outbound-routing-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.outbound-permission-control,
+.outbound-channel-control {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-control-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.compact-channel-toggle-grid {
+  gap: 6px;
+  margin-top: 0;
+}
+
+.compact-channel-toggle-grid .channel-toggle {
+  min-height: 38px;
+  justify-content: center;
+  padding: 7px 9px;
+}
+
+.compact-channel-toggle-grid .channel-toggle input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.follow-up-reminder-panel {
+  padding: 12px;
+}
+
+.follow-up-reminder-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.65fr) minmax(220px, 0.35fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.follow-up-reminder-panel .setting-card {
+  min-height: auto;
+  padding: 12px;
+}
+
+.follow-up-toggle-card {
+  width: 100%;
+}
+
+.follow-up-delay-card input[type="number"] {
+  max-width: 120px;
 }
 
 .compact-checkbox-fieldset {

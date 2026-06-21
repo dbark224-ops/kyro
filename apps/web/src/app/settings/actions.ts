@@ -286,7 +286,9 @@ function redirectWithSettingsMessage(
   key: "engine_error" | "engine_message",
   message: string,
 ): never {
-  redirectWithSectionMessage("integrations", key, message);
+  redirectWithSectionMessage("integrations", key, message, {
+    panel: "outbound",
+  });
 }
 
 function integrationService(provider: string) {
