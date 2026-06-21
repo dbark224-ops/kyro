@@ -267,9 +267,13 @@ function redirectWithSectionMessage(
   section: "general" | "integrations" | "voice" | "developer",
   key: "engine_error" | "engine_message",
   message: string,
-  options: { panel?: string; senderRules?: boolean } = {},
+  options: { focus?: string; panel?: string; senderRules?: boolean } = {},
 ): never {
   const params = new URLSearchParams({ section, [key]: message });
+
+  if (options.focus) {
+    params.set("focus", options.focus);
+  }
 
   if (options.panel) {
     params.set("panel", options.panel);
@@ -285,8 +289,10 @@ function redirectWithSectionMessage(
 function redirectWithSettingsMessage(
   key: "engine_error" | "engine_message",
   message: string,
+  focus?: string | null,
 ): never {
   redirectWithSectionMessage("integrations", key, message, {
+    ...(focus ? { focus } : {}),
     panel: "outbound",
   });
 }
@@ -387,6 +393,12 @@ async function saveInboundEmailPolicyUpdate({
 }
 
 export async function updateCommunicationSettingsAction(formData: FormData) {
+  const settingsFocusRaw = formString(formData, "settingsFocus");
+  const settingsFocus =
+    settingsFocusRaw === "email-signatures" ||
+    settingsFocusRaw === "outbound-writing"
+      ? settingsFocusRaw
+      : null;
   const approvalMode = formString(formData, "approvalMode");
   const defaultTone = formString(formData, "defaultTone");
   const allowedChannels = [...new Set(formChannels(formData))];
@@ -426,6 +438,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       "Outbound approval mode is invalid.",
+      settingsFocus,
     );
   }
 
@@ -433,6 +446,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       "Select at least one outbound channel.",
+      settingsFocus,
     );
   }
 
@@ -444,6 +458,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       `${unsupportedChannel} is not a supported channel.`,
+      settingsFocus,
     );
   }
 
@@ -471,7 +486,11 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectWithSettingsMessage("engine_error", beforeError.message);
+    redirectWithSettingsMessage(
+      "engine_error",
+      beforeError.message,
+      settingsFocus,
+    );
   }
 
   const { data: savedPolicy, error: saveError } = await supabase
@@ -493,6 +512,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       saveError?.message ?? "Unable to save communication settings.",
+      settingsFocus,
     );
   }
 
@@ -512,6 +532,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
   redirectWithSettingsMessage(
     "engine_message",
     "Communication settings saved.",
+    settingsFocus,
   );
 }
 

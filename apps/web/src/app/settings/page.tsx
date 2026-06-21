@@ -1,5 +1,6 @@
 import { AppFrame } from "../components/app-frame";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
+import { AutoSubmitControl } from "./auto-submit-control";
 import {
   disconnectIntegrationAction,
   disconnectWorkspacePhoneSmsAction,
@@ -143,6 +144,7 @@ type SettingsPageProps = {
   searchParams?: Promise<{
     engine_error?: string;
     engine_message?: string;
+    focus?: string;
     inboundTrace?: string;
     panel?: string;
     section?: string;
@@ -530,13 +532,15 @@ function EmptySettingsDetail() {
 
 function OutboundWritingStyleEditor({
   communicationSettings,
+  defaultOpen = false,
 }: Readonly<{
   communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+  defaultOpen?: boolean;
 }>) {
   const writing = communicationSettings.replyWriting;
 
   return (
-    <details className="settings-accordion settings-expandable">
+    <details className="settings-accordion settings-expandable" open={defaultOpen}>
       <summary>
         <div className="settings-accordion-title">
           <strong>Outbound writing style</strong>
@@ -614,6 +618,18 @@ function OutboundWritingStyleEditor({
             placeholder="Always ask for site access details on quote replies. Avoid promising exact arrival times unless the user provided one."
           />
         </label>
+
+        <div className="settings-footer compact-settings-footer">
+          <span>Save to apply these writing instructions to future drafts.</span>
+          <button
+            className="primary-button compact"
+            name="settingsFocus"
+            type="submit"
+            value="outbound-writing"
+          >
+            Save writing style
+          </button>
+        </div>
       </div>
     </details>
   );
@@ -3176,6 +3192,7 @@ function WorkspaceIntegrationsSettings({
   inboundEmailSummary,
   microsoftOverview,
   microsoftStatus,
+  settingsFocus,
   showInboundTrace,
   showSenderRules,
   stripeOverview,
@@ -3193,6 +3210,7 @@ function WorkspaceIntegrationsSettings({
   inboundEmailSummary: InboundEmailOperationalSummary;
   microsoftOverview: MicrosoftIntegrationOverview;
   microsoftStatus: string;
+  settingsFocus?: string | null;
   showInboundTrace: boolean;
   showSenderRules: boolean;
   stripeOverview: StripePaymentOverview;
@@ -3276,6 +3294,7 @@ function WorkspaceIntegrationsSettings({
         >
           <CommunicationSettingsDetail
             communicationSettings={communicationSettings}
+            settingsFocus={settingsFocus}
           />
         </ProviderDetails>
       ) : null}
@@ -3396,8 +3415,10 @@ function WorkspaceIntegrationsSettings({
 
 function CommunicationSettingsDetail({
   communicationSettings,
+  settingsFocus,
 }: Readonly<{
   communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+  settingsFocus?: string | null;
 }>) {
   return (
     <form
@@ -3411,93 +3432,99 @@ function CommunicationSettingsDetail({
         value={communicationSettings.replyWriting.tone}
       />
 
-      <section className="setting-card outbound-routing-card">
-        <div className="outbound-routing-grid">
-          <label className="outbound-permission-control">
-            <SettingCardHeading
-              info={
-                <>
-                  Email sends through the connected Gmail or Outlook account.
-                  Other channels stay internal until their providers are
-                  connected.
-                </>
-              }
-            >
-              Outbound permission
-            </SettingCardHeading>
-            <select
-              defaultValue={
-                communicationSettings.approvalRequired
-                  ? "approval_required"
-                  : "auto_dry_run"
-              }
-              name="approvalMode"
-            >
-              <option value="approval_required">
-                Approval required before outbound
-              </option>
-              <option value="auto_dry_run">
-                Allow outbound without extra approval
-              </option>
-            </select>
-          </label>
+      <AutoSubmitControl className="settings-auto-save-stack">
+        <section className="setting-card outbound-routing-card">
+          <div className="outbound-routing-grid">
+            <label className="outbound-permission-control">
+              <SettingCardHeading
+                info={
+                  <>
+                    Email sends through the connected Gmail or Outlook account.
+                    Other channels stay internal until their providers are
+                    connected.
+                  </>
+                }
+              >
+                Outbound permission
+              </SettingCardHeading>
+              <select
+                defaultValue={
+                  communicationSettings.approvalRequired
+                    ? "approval_required"
+                    : "auto_dry_run"
+                }
+                name="approvalMode"
+              >
+                <option value="approval_required">
+                  Approval required before outbound
+                </option>
+                <option value="auto_dry_run">
+                  Allow outbound without extra approval
+                </option>
+              </select>
+            </label>
 
-          <fieldset className="outbound-channel-control">
-            <legend className="settings-control-label">
-              Allowed outbound channels
-            </legend>
-            <div className="channel-toggle-grid compact-channel-toggle-grid">
-              {OUTBOUND_CHANNELS.map((channel) => (
-                <label className="channel-toggle" key={channel}>
-                  <input
-                    defaultChecked={communicationSettings.allowedChannels.includes(
-                      channel,
-                    )}
-                    name="allowedChannels"
-                    type="checkbox"
-                    value={channel}
-                  />
-                  <span>{formatLabel(channel)}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        </div>
-      </section>
+            <fieldset className="outbound-channel-control">
+              <legend className="settings-control-label">
+                Allowed outbound channels
+              </legend>
+              <div className="channel-toggle-grid compact-channel-toggle-grid">
+                {OUTBOUND_CHANNELS.map((channel) => (
+                  <label className="channel-toggle" key={channel}>
+                    <input
+                      defaultChecked={communicationSettings.allowedChannels.includes(
+                        channel,
+                      )}
+                      name="allowedChannels"
+                      type="checkbox"
+                      value={channel}
+                    />
+                    <span>{formatLabel(channel)}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </div>
+        </section>
+
+        <fieldset className="settings-fieldset follow-up-reminder-panel">
+          <legend>Follow-up reminders</legend>
+          <div className="follow-up-reminder-grid">
+            <label className="compact-checkbox-row setting-card follow-up-toggle-card">
+              <input
+                defaultChecked={communicationSettings.followUpRemindersEnabled}
+                name="followUpRemindersEnabled"
+                type="checkbox"
+              />
+              <span>Automatically create internal follow-up reminders</span>
+            </label>
+
+            <label className="setting-card follow-up-delay-card">
+              <SettingCardHeading info="Kyro creates the reminder after an outbound reply is recorded. It stays internal until calendar/task integrations are added later.">
+                Default delay
+              </SettingCardHeading>
+              <input
+                defaultValue={communicationSettings.followUpDelayDays}
+                max={MAX_FOLLOW_UP_DELAY_DAYS}
+                min={MIN_FOLLOW_UP_DELAY_DAYS}
+                name="followUpDelayDays"
+                type="number"
+              />
+              <span>Days after the outbound reply before follow-up is due.</span>
+            </label>
+          </div>
+        </fieldset>
+      </AutoSubmitControl>
 
       <OutboundWritingStyleEditor
         communicationSettings={communicationSettings}
+        defaultOpen={settingsFocus === "outbound-writing"}
       />
 
-      <fieldset className="settings-fieldset follow-up-reminder-panel">
-        <legend>Follow-up reminders</legend>
-        <div className="follow-up-reminder-grid">
-          <label className="compact-checkbox-row setting-card follow-up-toggle-card">
-            <input
-              defaultChecked={communicationSettings.followUpRemindersEnabled}
-              name="followUpRemindersEnabled"
-              type="checkbox"
-            />
-            <span>Automatically create internal follow-up reminders</span>
-          </label>
-
-          <label className="setting-card follow-up-delay-card">
-            <SettingCardHeading info="Kyro creates the reminder after an outbound reply is recorded. It stays internal until calendar/task integrations are added later.">
-              Default delay
-            </SettingCardHeading>
-            <input
-              defaultValue={communicationSettings.followUpDelayDays}
-              max={MAX_FOLLOW_UP_DELAY_DAYS}
-              min={MIN_FOLLOW_UP_DELAY_DAYS}
-              name="followUpDelayDays"
-              type="number"
-            />
-            <span>Days after the outbound reply before follow-up is due.</span>
-          </label>
-        </div>
-      </fieldset>
-
-      <details className="settings-accordion settings-expandable email-signatures-accordion">
+      <details
+        className="settings-accordion settings-expandable email-signatures-accordion"
+        open={settingsFocus === "email-signatures"}
+      >
         <summary>
           <div className="settings-accordion-title">
             <strong>Email signatures</strong>
@@ -3549,23 +3576,17 @@ function CommunicationSettingsDetail({
               Save to refresh the signature previews and apply them to future
               Gmail sends.
             </span>
-            <button className="primary-button compact" type="submit">
+            <button
+              className="primary-button compact"
+              name="settingsFocus"
+              type="submit"
+              value="email-signatures"
+            >
               Save and preview signatures
             </button>
           </div>
         </div>
       </details>
-
-      <div className="settings-footer">
-        <span>
-          Connected email providers can send real email. SMS can send through
-          Twilio when a workspace sender is ready; phone calls route through
-          Vapi once the voice assistant IDs are configured.
-        </span>
-        <button className="primary-button compact" type="submit">
-          Save settings
-        </button>
-      </div>
     </form>
   );
 }
@@ -4692,6 +4713,7 @@ export default async function SettingsPage({
     selectedSection === "integrations" && query?.inboundTrace === "1";
   const showSenderRules =
     selectedSection === "integrations" && query?.senderRules === "1";
+  const settingsFocus = typeof query?.focus === "string" ? query.focus : null;
   const [
     communicationSettings,
     availablePhoneNumbers,
@@ -5057,6 +5079,7 @@ export default async function SettingsPage({
           inboundEmailSummary={inboundEmailSummary}
           microsoftOverview={microsoftOverview}
           microsoftStatus={microsoftStatus}
+          settingsFocus={settingsFocus}
           showInboundTrace={showInboundTrace}
           showSenderRules={showSenderRules}
           availablePhoneNumbers={availablePhoneNumbers}
