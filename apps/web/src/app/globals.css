@@ -7690,34 +7690,6 @@ button:disabled {
   grid-column: span 1;
 }
 
-.business-profile-section-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.business-profile-section-tab {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
-  color: var(--text);
-  font-size: 0.78rem;
-  font-weight: 850;
-  padding: 7px 11px;
-  text-decoration: none;
-}
-
-.business-profile-section-tab:hover,
-.business-profile-section-tab:focus-visible {
-  border-color: color-mix(in srgb, var(--magenta) 55%, var(--cyan));
-  background: color-mix(in srgb, var(--cyan) 14%, var(--surface));
-  outline: none;
-}
-
 .business-profile-section-panel {
   display: grid;
   gap: 12px;
@@ -7726,10 +7698,6 @@ button:disabled {
 
 .business-profile-section-panel + .business-profile-section-panel {
   margin-top: 4px;
-}
-
-.setting-card.settings-scroll-anchor {
-  scroll-margin-top: 12px;
 }
 
 .setting-card-compact-input,

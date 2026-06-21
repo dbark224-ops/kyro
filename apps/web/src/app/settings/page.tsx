@@ -24,7 +24,6 @@ import {
 } from "./actions";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
-import { SettingsSectionScroller } from "./settings-section-scroller";
 import { TagInputField } from "./tag-input-field";
 import {
   ELEVENLABS_VOICE_PRESETS,
@@ -2325,16 +2324,16 @@ function BusinessLogoEditor({
 }
 
 function GeneralSettingsDetail({
+  activePanel,
   communicationSettings,
   operationalPhoneNumbers,
-  scrollTargetId,
   settings,
   userEmail,
   workspaceName,
 }: Readonly<{
+  activePanel?: string | null;
   communicationSettings: CommunicationSettings;
   operationalPhoneNumbers: WorkspacePhoneNumberPoolRow[];
-  scrollTargetId?: string | null;
   settings: WorkspaceGeneralSettings;
   userEmail: string;
   workspaceName: string;
@@ -2349,6 +2348,24 @@ function GeneralSettingsDetail({
       (number) => number.capabilities.sms && number.capabilities.voice,
     )?.phoneNumber ||
     "";
+  const activeBusinessPanel =
+    activePanel === "public-details" ||
+    activePanel === "service-area" ||
+    activePanel === "availability" ||
+    activePanel === "branding-logo" ||
+    activePanel === "email-signature" ||
+    activePanel === "emergency-work"
+      ? activePanel
+      : "business";
+  const hiddenPanelStyle = { display: "none" } as const;
+  const visibleWhen = (condition: boolean) =>
+    condition ? undefined : hiddenPanelStyle;
+  const showCoreProfile = activeBusinessPanel === "business";
+  const showPublicDetails = activeBusinessPanel === "public-details";
+  const showServiceArea = activeBusinessPanel === "service-area";
+  const showAvailability = activeBusinessPanel === "availability";
+  const showCorePanel =
+    showCoreProfile || showPublicDetails || showServiceArea || showAvailability;
 
   return (
     <form
@@ -2356,8 +2373,6 @@ function GeneralSettingsDetail({
       className="settings-form"
       encType="multipart/form-data"
     >
-      <SettingsSectionScroller targetId={scrollTargetId ?? null} />
-
       <section className="integration-choice-panel">
         <div>
           <p className="eyebrow">Business profile</p>
@@ -2370,39 +2385,13 @@ function GeneralSettingsDetail({
         <span className="pill">Workspace facts</span>
       </section>
 
-      <nav
-        aria-label="Business profile sections"
-        className="business-profile-section-tabs"
-      >
-        <a className="business-profile-section-tab" href="#business-profile-core">
-          Core profile
-        </a>
-        <a
-          className="business-profile-section-tab"
-          href="#business-profile-branding"
-        >
-          Branding and logo
-        </a>
-        <a
-          className="business-profile-section-tab"
-          href="#business-profile-signature"
-        >
-          Email signature
-        </a>
-        <a
-          className="business-profile-section-tab"
-          href="#business-profile-emergency"
-        >
-          Emergency work
-        </a>
-      </nav>
-
       <section
         className="business-profile-section-panel"
         id="business-profile-core"
+        style={visibleWhen(showCorePanel)}
       >
         <div className="settings-grid business-profile-grid">
-          <label className="setting-card">
+          <label className="setting-card" style={visibleWhen(showCoreProfile)}>
             <SettingCardHeading info="Shown internally and used as the default business name in generated documents and reports.">
               Business name
             </SettingCardHeading>
@@ -2413,7 +2402,7 @@ function GeneralSettingsDetail({
             />
           </label>
 
-          <label className="setting-card">
+          <label className="setting-card" style={visibleWhen(showCoreProfile)}>
             <SettingCardHeading info="The trade or service category Kyro should assume for tone, context, and future workflows.">
               Industry
             </SettingCardHeading>
@@ -2424,7 +2413,7 @@ function GeneralSettingsDetail({
             />
           </label>
 
-          <label className="setting-card">
+          <label className="setting-card" style={visibleWhen(showCoreProfile)}>
             <SettingCardHeading info="Used as the workspace operating country for phone number assignment, local defaults, and future regional workflows.">
               Operating country
             </SettingCardHeading>
@@ -2445,8 +2434,8 @@ function GeneralSettingsDetail({
           </label>
 
           <label
-            className="setting-card setting-card-compact-input settings-scroll-anchor"
-            id="business-profile-public-details"
+            className="setting-card setting-card-compact-input"
+            style={visibleWhen(showPublicDetails)}
           >
             <SettingCardHeading info="The public email address shown on reports, documents, and business-facing material.">
               Public email
@@ -2459,7 +2448,10 @@ function GeneralSettingsDetail({
             />
           </label>
 
-          <label className="setting-card setting-card-compact-input">
+          <label
+            className="setting-card setting-card-compact-input"
+            style={visibleWhen(showPublicDetails)}
+          >
             <SettingCardHeading
               info={
                 <>
@@ -2490,7 +2482,10 @@ function GeneralSettingsDetail({
             </datalist>
           </label>
 
-          <div className="setting-card business-address-card">
+          <div
+            className="setting-card business-address-card"
+            style={visibleWhen(showPublicDetails)}
+          >
             <SettingCardHeading info="The business base address. Customer job addresses are still stored separately on contacts and leads.">
               Business address
             </SettingCardHeading>
@@ -2504,8 +2499,8 @@ function GeneralSettingsDetail({
           </div>
 
           <div
-            className="setting-card settings-scroll-anchor"
-            id="business-profile-service-area"
+            className="setting-card"
+            style={visibleWhen(showServiceArea)}
           >
             <SettingCardHeading info="Plain-English operating area Kyro can reference when qualifying jobs. Press Enter after each area.">
               Service area
@@ -2518,7 +2513,7 @@ function GeneralSettingsDetail({
             />
           </div>
 
-          <div className="setting-card">
+          <div className="setting-card" style={visibleWhen(showServiceArea)}>
             <SettingCardHeading info="Useful for matching and explaining whether a job is likely inside the normal service area. Press Enter after each suburb.">
               Suburbs serviced
             </SettingCardHeading>
@@ -2530,7 +2525,7 @@ function GeneralSettingsDetail({
             />
           </div>
 
-          <div className="setting-card">
+          <div className="setting-card" style={visibleWhen(showServiceArea)}>
             <SettingCardHeading info="Optional postcode list. Press Enter after each postcode.">
               Postcodes serviced
             </SettingCardHeading>
@@ -2542,7 +2537,7 @@ function GeneralSettingsDetail({
             />
           </div>
 
-          <label className="setting-card">
+          <label className="setting-card" style={visibleWhen(showServiceArea)}>
             <SettingCardHeading info="Approximate normal travel radius for jobs. Leave blank if the business uses suburb/postcode rules instead.">
               Travel radius
             </SettingCardHeading>
@@ -2555,7 +2550,7 @@ function GeneralSettingsDetail({
             />
           </label>
 
-          <label className="setting-card">
+          <label className="setting-card" style={visibleWhen(showAvailability)}>
             <SettingCardHeading info="A lightweight staffing number Kyro can use for workload and capability context.">
               Staff count
             </SettingCardHeading>
@@ -2569,8 +2564,8 @@ function GeneralSettingsDetail({
           </label>
 
           <label
-            className="setting-card settings-textarea settings-scroll-anchor"
-            id="business-profile-availability"
+            className="setting-card settings-textarea"
+            style={visibleWhen(showAvailability)}
           >
             <SettingCardHeading info="Normal operating hours for work and job scheduling context.">
               Working hours
@@ -2582,7 +2577,10 @@ function GeneralSettingsDetail({
             />
           </label>
 
-          <label className="setting-card settings-textarea">
+          <label
+            className="setting-card settings-textarea"
+            style={visibleWhen(showAvailability)}
+          >
             <SettingCardHeading info="Hours customers can expect the business or Kyro to respond.">
               Contact hours
             </SettingCardHeading>
@@ -2594,7 +2592,10 @@ function GeneralSettingsDetail({
           </label>
         </div>
 
-        <section className="signature-editor">
+        <section
+          className="signature-editor"
+          style={visibleWhen(showPublicDetails)}
+        >
           <div>
             <p className="eyebrow">Operational phone numbers</p>
             <p>
@@ -2634,7 +2635,7 @@ function GeneralSettingsDetail({
           )}
         </section>
 
-        <div className="settings-grid">
+        <div className="settings-grid" style={visibleWhen(showCoreProfile)}>
           <label className="setting-card">
             <SettingCardHeading
               info={
@@ -2706,6 +2707,7 @@ function GeneralSettingsDetail({
       <section
         className="business-profile-section-panel"
         id="business-profile-branding"
+        style={visibleWhen(activeBusinessPanel === "branding-logo")}
       >
         <section className="integration-choice-panel">
           <div>
@@ -2759,6 +2761,7 @@ function GeneralSettingsDetail({
       <section
         className="business-profile-section-panel"
         id="business-profile-signature"
+        style={visibleWhen(activeBusinessPanel === "email-signature")}
       >
         <section className="integration-choice-panel">
           <div>
@@ -2782,6 +2785,7 @@ function GeneralSettingsDetail({
       <section
         className="business-profile-section-panel"
         id="business-profile-emergency"
+        style={visibleWhen(activeBusinessPanel === "emergency-work")}
       >
         <section className="integration-choice-panel">
           <div>
@@ -3592,10 +3596,12 @@ function CommunicationSettingsDetail({
 }
 
 function VoiceSettingsDetail({
+  activePanel,
   assignedPhoneNumbers,
   pronunciationEntries,
   voiceSettings,
 }: Readonly<{
+  activePanel?: string | null;
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   pronunciationEntries: AssistantPronunciationEntry[];
   voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
@@ -3608,17 +3614,36 @@ function VoiceSettingsDetail({
           phoneNumber,
           role: null,
         }));
+  const activeVoicePanel =
+    activePanel === "phone-assistant" ||
+    activePanel === "voicemail-overflow" ||
+    activePanel === "pronunciation"
+      ? activePanel
+      : "voice-assistant";
+  const hiddenPanelStyle = { display: "none" } as const;
+  const visibleWhen = (condition: boolean) =>
+    condition ? undefined : hiddenPanelStyle;
+  const showVoiceSettingsForm =
+    activeVoicePanel === "voice-assistant" ||
+    activeVoicePanel === "phone-assistant";
 
   return (
     <>
-      <form action={updateVoiceSettingsAction} className="settings-form">
+      <form
+        action={updateVoiceSettingsAction}
+        className="settings-form"
+        style={visibleWhen(showVoiceSettingsForm)}
+      >
         <input name="openAiVoice" type="hidden" value={voiceSettings.openAiVoice} />
         <input
           name="outboundVoicePronunciationPolicy"
           type="hidden"
           value={voiceSettings.outboundVoicePronunciationPolicy}
         />
-        <div className="settings-grid">
+        <div
+          className="settings-grid"
+          style={visibleWhen(activeVoicePanel === "voice-assistant")}
+        >
           <label className="setting-card">
             <SettingCardHeading
               info={
@@ -3644,7 +3669,10 @@ function VoiceSettingsDetail({
           </label>
         </div>
 
-        <fieldset className="settings-fieldset">
+        <fieldset
+          className="settings-fieldset"
+          style={visibleWhen(activeVoicePanel === "phone-assistant")}
+        >
           <legend>Phone assistant</legend>
           <div className="phone-assistant-compact-panel">
             <label className="settings-switch-row phone-assistant-master-toggle">
@@ -3794,19 +3822,26 @@ function VoiceSettingsDetail({
           <TeamPhoneNumberEditor initialRows={teamPhoneRows} />
         </fieldset>
 
-        <div className="settings-footer align-end">
+        <div
+          className="settings-footer align-end"
+          style={visibleWhen(showVoiceSettingsForm)}
+        >
           <button className="primary-button compact" type="submit">
             Save voice settings
           </button>
         </div>
       </form>
 
-      <VoicemailOverflowSettings
-        assignedPhoneNumbers={assignedPhoneNumbers}
-        voiceSettings={voiceSettings}
-      />
+      <div style={visibleWhen(activeVoicePanel === "voicemail-overflow")}>
+        <VoicemailOverflowSettings
+          assignedPhoneNumbers={assignedPhoneNumbers}
+          voiceSettings={voiceSettings}
+        />
+      </div>
 
-      <PronunciationVocabularySettings entries={pronunciationEntries} />
+      <div style={visibleWhen(activeVoicePanel === "pronunciation")}>
+        <PronunciationVocabularySettings entries={pronunciationEntries} />
+      </div>
     </>
   );
 }
@@ -4870,11 +4905,11 @@ export default async function SettingsPage({
     selectedSection === "general"
       ? [
           {
-            detail: "Name, industry, logo, colour, and defaults",
+            detail: "Name, industry, country, currency, and defaults",
             href: settingsPanelHref("general", "business", activeWindow),
             key: "business",
             selected: selectedPanel === "business",
-            title: "Business profile",
+            title: "Core profile",
           },
           {
             detail: "Public email, phone, website, and address",
@@ -4891,11 +4926,32 @@ export default async function SettingsPage({
             title: "Service area",
           },
           {
-            detail: "Working hours, emergency jobs, and availability",
+            detail: "Working hours and standard availability",
             href: settingsPanelHref("general", "availability", activeWindow),
             key: "availability",
             selected: selectedPanel === "availability",
             title: "Availability",
+          },
+          {
+            detail: "Logo, colours, and brand style",
+            href: settingsPanelHref("general", "branding-logo", activeWindow),
+            key: "branding-logo",
+            selected: selectedPanel === "branding-logo",
+            title: "Branding and logo",
+          },
+          {
+            detail: "Default business email signature",
+            href: settingsPanelHref("general", "email-signature", activeWindow),
+            key: "email-signature",
+            selected: selectedPanel === "email-signature",
+            title: "Email signature",
+          },
+          {
+            detail: "After-hours rates and urgent job handling",
+            href: settingsPanelHref("general", "emergency-work", activeWindow),
+            key: "emergency-work",
+            selected: selectedPanel === "emergency-work",
+            title: "Emergency work",
           },
         ]
       : selectedSection === "integrations"
@@ -4972,6 +5028,17 @@ export default async function SettingsPage({
                 title: "Phone assistant",
               },
               {
+                detail: "Overflow routing, caller instructions, and test details",
+                href: settingsPanelHref(
+                  "voice",
+                  "voicemail-overflow",
+                  activeWindow,
+                ),
+                key: "voicemail-overflow",
+                selected: selectedPanel === "voicemail-overflow",
+                title: "Voicemail overflow",
+              },
+              {
                 detail: "Names, places, acronyms, and spoken hints",
                 href: settingsPanelHref("voice", "pronunciation", activeWindow),
                 key: "pronunciation",
@@ -5022,12 +5089,6 @@ export default async function SettingsPage({
                   },
                 ]
               : [];
-  const generalSettingsScrollTargets: Record<string, string> = {
-    availability: "business-profile-availability",
-    business: "business-profile-core",
-    "public-details": "business-profile-public-details",
-    "service-area": "business-profile-service-area",
-  };
   const selectedNestedTitle =
     nestedItems.find((item) => item.selected)?.title ?? null;
   const selectedDetail =
@@ -5039,12 +5100,9 @@ export default async function SettingsPage({
         title={selectedNestedTitle ?? "Business profile"}
       >
         <GeneralSettingsDetail
+          activePanel={selectedPanel}
           communicationSettings={communicationSettings}
           operationalPhoneNumbers={assignedPhoneNumbers}
-          scrollTargetId={
-            generalSettingsScrollTargets[selectedPanel] ??
-            "business-profile-core"
-          }
           settings={generalSettings}
           userEmail={user.email ?? ""}
           workspaceName={workspace.name}
@@ -5108,6 +5166,7 @@ export default async function SettingsPage({
         title={selectedNestedTitle ?? "Voice assistant"}
       >
         <VoiceSettingsDetail
+          activePanel={selectedPanel}
           assignedPhoneNumbers={assignedPhoneNumbers}
           pronunciationEntries={pronunciationEntries}
           voiceSettings={voiceSettings}
