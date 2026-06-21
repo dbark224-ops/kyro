@@ -4704,8 +4704,11 @@ export default async function SettingsPage({
     normalizedSection === "developer" && !isDeveloperAccount
       ? null
       : normalizedSection;
+  const requestedPanel = query?.panel ?? defaultSettingsPanel(selectedSection) ?? "";
   const selectedPanel =
-    query?.panel ?? defaultSettingsPanel(selectedSection) ?? "";
+    selectedSection === "usage" && requestedPanel === "ledger"
+      ? "usage-summary"
+      : requestedPanel;
   const activeIntegrationPanel = normalizeIntegrationPanel(
     selectedSection === "integrations" ? selectedPanel : null,
   );
@@ -4991,13 +4994,6 @@ export default async function SettingsPage({
                   key: "payment-method",
                   selected: selectedPanel === "payment-method",
                   title: "Payment method",
-                },
-                {
-                  detail: "Detailed exportable event log",
-                  href: settingsPanelHref("usage", "ledger", activeWindow),
-                  key: "ledger",
-                  selected: selectedPanel === "ledger",
-                  title: "Usage ledger",
                 },
               ]
             : selectedSection === "developer"
