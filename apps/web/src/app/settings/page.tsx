@@ -23,6 +23,7 @@ import {
 } from "./actions";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
+import { SettingsSectionScroller } from "./settings-section-scroller";
 import { TagInputField } from "./tag-input-field";
 import {
   ELEVENLABS_VOICE_PRESETS,
@@ -2310,12 +2311,14 @@ function BusinessLogoEditor({
 function GeneralSettingsDetail({
   communicationSettings,
   operationalPhoneNumbers,
+  scrollTargetId,
   settings,
   userEmail,
   workspaceName,
 }: Readonly<{
   communicationSettings: CommunicationSettings;
   operationalPhoneNumbers: WorkspacePhoneNumberPoolRow[];
+  scrollTargetId?: string | null;
   settings: WorkspaceGeneralSettings;
   userEmail: string;
   workspaceName: string;
@@ -2337,6 +2340,8 @@ function GeneralSettingsDetail({
       className="settings-form"
       encType="multipart/form-data"
     >
+      <SettingsSectionScroller targetId={scrollTargetId ?? null} />
+
       <section className="integration-choice-panel">
         <div>
           <p className="eyebrow">Business profile</p>
@@ -2423,7 +2428,10 @@ function GeneralSettingsDetail({
             </select>
           </label>
 
-          <label className="setting-card setting-card-compact-input">
+          <label
+            className="setting-card setting-card-compact-input settings-scroll-anchor"
+            id="business-profile-public-details"
+          >
             <SettingCardHeading info="The public email address shown on reports, documents, and business-facing material.">
               Public email
             </SettingCardHeading>
@@ -2479,7 +2487,10 @@ function GeneralSettingsDetail({
             />
           </div>
 
-          <div className="setting-card">
+          <div
+            className="setting-card settings-scroll-anchor"
+            id="business-profile-service-area"
+          >
             <SettingCardHeading info="Plain-English operating area Kyro can reference when qualifying jobs. Press Enter after each area.">
               Service area
             </SettingCardHeading>
@@ -2541,7 +2552,10 @@ function GeneralSettingsDetail({
             />
           </label>
 
-          <label className="setting-card settings-textarea">
+          <label
+            className="setting-card settings-textarea settings-scroll-anchor"
+            id="business-profile-availability"
+          >
             <SettingCardHeading info="Normal operating hours for work and job scheduling context.">
               Working hours
             </SettingCardHeading>
@@ -4986,6 +5000,12 @@ export default async function SettingsPage({
                   },
                 ]
               : [];
+  const generalSettingsScrollTargets: Record<string, string> = {
+    availability: "business-profile-availability",
+    business: "business-profile-core",
+    "public-details": "business-profile-public-details",
+    "service-area": "business-profile-service-area",
+  };
   const selectedNestedTitle =
     nestedItems.find((item) => item.selected)?.title ?? null;
   const selectedDetail =
@@ -4999,6 +5019,10 @@ export default async function SettingsPage({
         <GeneralSettingsDetail
           communicationSettings={communicationSettings}
           operationalPhoneNumbers={assignedPhoneNumbers}
+          scrollTargetId={
+            generalSettingsScrollTargets[selectedPanel] ??
+            "business-profile-core"
+          }
           settings={generalSettings}
           userEmail={user.email ?? ""}
           workspaceName={workspace.name}

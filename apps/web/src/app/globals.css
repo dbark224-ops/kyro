@@ -7723,6 +7723,10 @@ button:disabled {
   margin-top: 4px;
 }
 
+.setting-card.settings-scroll-anchor {
+  scroll-margin-top: 12px;
+}
+
 .setting-card-compact-input,
 .business-address-card {
   align-content: start;
