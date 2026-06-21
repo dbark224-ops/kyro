@@ -1,6 +1,7 @@
 "use client";
 
 import { sendAssistantMessageAction } from "../assistant/actions";
+import { AssistantCompactBlocks } from "./assistant-compact-blocks";
 import type {
   AssistantThreadMessage,
   AssistantThreadState,
@@ -29,23 +30,9 @@ function writeStoredOpenState(isOpen: boolean) {
   }
 }
 
-function trimMessages(messages: AssistantThreadMessage[], limit = 4) {
-  return messages.slice(Math.max(messages.length - limit, 0));
-}
-
 function lastAssistantMessageId(messages: AssistantThreadMessage[]) {
   return [...messages].reverse().find((message) => message.role === "assistant")
     ?.id;
-}
-
-function messageSnippet(message: AssistantThreadMessage) {
-  const content = message.content.replace(/\s+/g, " ").trim();
-
-  if (content.length <= 220) {
-    return content;
-  }
-
-  return `${content.slice(0, 217).trim()}...`;
 }
 
 export function FloatingAssistantWidget({
@@ -60,6 +47,7 @@ export function FloatingAssistantWidget({
     initialState,
   );
   const [draft, setDraft] = useState("");
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isOpen, setIsOpen] = useState(readStoredOpenState);
   const [optimisticMessage, setOptimisticMessage] =
     useState<AssistantThreadMessage | null>(null);
@@ -99,11 +87,9 @@ export function FloatingAssistantWidget({
 
   const messages = useMemo(
     () =>
-      trimMessages(
-        optimisticMessage
-          ? [...assistantState.messages, optimisticMessage]
-          : assistantState.messages,
-      ),
+      optimisticMessage
+        ? [...assistantState.messages, optimisticMessage]
+        : assistantState.messages,
     [assistantState.messages, optimisticMessage],
   );
 
@@ -113,9 +99,10 @@ export function FloatingAssistantWidget({
     }
 
     feedRef.current.scrollTop = feedRef.current.scrollHeight;
-  }, [isOpen, messages]);
+  }, [isExpanded, isOpen, messages, pending]);
 
   const closeForFullScreen = () => {
+    setIsExpanded(false);
     setIsOpen(false);
     writeStoredOpenState(false);
   };
@@ -123,7 +110,9 @@ export function FloatingAssistantWidget({
   return (
     <aside
       aria-label="Floating Kyro assistant"
-      className={`floating-assistant ${isOpen ? "open" : ""}`}
+      className={`floating-assistant ${isOpen ? "open" : ""} ${
+        isExpanded ? "expanded" : ""
+      }`}
     >
       {isOpen ? (
         <section className="floating-assistant-panel">
@@ -133,6 +122,18 @@ export function FloatingAssistantWidget({
               <strong>{workspaceName}</strong>
             </div>
             <div className="floating-assistant-header-actions">
+              <button
+                aria-label={
+                  isExpanded
+                    ? "Shrink floating assistant"
+                    : "Expand floating assistant"
+                }
+                className="filter-pill"
+                onClick={() => setIsExpanded((current) => !current)}
+                type="button"
+              >
+                {isExpanded ? "Shrink" : "Expand"}
+              </button>
               <Link
                 className="filter-pill"
                 href="/assistant"
@@ -160,9 +161,26 @@ export function FloatingAssistantWidget({
                 key={message.id}
               >
                 <span>{message.role === "user" ? "You" : "Kyro"}</span>
-                <p>{messageSnippet(message)}</p>
+                <p>{message.content}</p>
+                <AssistantCompactBlocks
+                  maxItems={isExpanded ? 4 : 2}
+                  message={message}
+                />
               </article>
             ))}
+            {pending ? (
+              <article
+                aria-label="Kyro is typing"
+                className="floating-assistant-turn assistant floating-assistant-typing"
+              >
+                <span>Kyro</span>
+                <p aria-hidden="true" className="typing-dots">
+                  <span />
+                  <span />
+                  <span />
+                </p>
+              </article>
+            ) : null}
           </div>
 
           {assistantState.error ? (

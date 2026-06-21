@@ -6,7 +6,7 @@ import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
 import { TutorialLauncher } from "./tutorial-launcher";
 import { signOutAction } from "../auth/actions";
-import type { AssistantThreadState } from "../../lib/assistant/types";
+import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
 import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
@@ -286,6 +286,42 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
   }
 });
 
+const loadFloatingAssistantData = cache(async function loadFloatingAssistantData() {
+  if (!hasSupabaseEnv()) {
+    return null;
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return null;
+    }
+
+    const workspace = await getPrimaryWorkspace(supabase);
+
+    if (!workspace) {
+      return null;
+    }
+
+    const assistantState = await getAssistantThreadState({
+      supabase,
+      user,
+      workspace,
+    });
+
+    return {
+      assistantState,
+      workspaceName: workspace.name,
+    };
+  } catch {
+    return null;
+  }
+});
+
 async function SidebarUsageCard() {
   const data = await loadWorkspaceChromeData();
 
@@ -388,25 +424,8 @@ async function WorkspaceAccountChip() {
   );
 }
 
-function buildFloatingAssistantShellState(): AssistantThreadState {
-  return {
-    messages: [
-      {
-        content:
-          "I’m here. Ask me anything, or open the full Assistant when you want the bigger workspace.",
-        createdAt: new Date().toISOString(),
-        id: "floating-assistant-welcome",
-        role: "assistant",
-      },
-    ],
-    summary: null,
-    threadId: null,
-    threads: [],
-  };
-}
-
 async function FloatingAssistantBridge() {
-  const data = await loadWorkspaceChromeData();
+  const data = await loadFloatingAssistantData();
 
   if (!data) {
     return null;
@@ -414,7 +433,7 @@ async function FloatingAssistantBridge() {
 
   return (
     <FloatingAssistantWidget
-      initialState={buildFloatingAssistantShellState()}
+      initialState={data.assistantState}
       workspaceName={data.workspaceName}
     />
   );

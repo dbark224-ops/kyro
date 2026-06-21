@@ -1,6 +1,7 @@
 "use client";
 
 import { sendAssistantMessageAction } from "../assistant/actions";
+import { AssistantCompactBlocks } from "../components/assistant-compact-blocks";
 import type {
   AssistantThreadMessage,
   AssistantThreadState,
@@ -607,6 +608,7 @@ function MiniAssistantWidget({
           >
             <span>{message.role === "user" ? "You" : "Kyro"}</span>
             <p>{message.content}</p>
+            <AssistantCompactBlocks maxItems={2} message={message} />
           </article>
         ))}
         {pending ? (
