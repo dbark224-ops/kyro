@@ -109,6 +109,10 @@ export async function runAssistantTurn({
   const inputTokensEstimate = estimateTokens(
     JSON.stringify({ command, prompt: trimmedPrompt }),
   );
+  const commandUiBlocks = command.uiBlocks ?? [];
+  const commandHasGeneratedImageBlock = commandUiBlocks.some(
+    (block) => block.type === "generated_image",
+  );
   const { data: aiRun, error: aiRunError } = await supabase
     .from("ai_runs")
     .insert({
@@ -141,16 +145,26 @@ export async function runAssistantTurn({
   }
 
   const aiRunId = String(aiRun.id);
-  const modelOutput = await runAssistantModel(route, {
-    command,
-    inputSource,
-    memories,
-    prompt: trimmedPrompt,
-    recentMessages,
-    threadSummary,
-  });
+  const modelOutput: Awaited<ReturnType<typeof runAssistantModel>> =
+    commandHasGeneratedImageBlock
+      ? {
+          inputTokens: inputTokensEstimate,
+          outputTokens: estimateTokens(command.fallbackAnswer),
+          text: command.fallbackAnswer,
+        }
+      : await runAssistantModel(route, {
+          command,
+          inputSource,
+          memories,
+          prompt: trimmedPrompt,
+          recentMessages,
+          threadSummary,
+        });
   const webSourceLinks = modelOutput.webSources ?? [];
   const resultLinks = dedupeAssistantLinks([...command.links, ...webSourceLinks]);
+  const assistantContent = commandHasGeneratedImageBlock
+    ? command.fallbackAnswer
+    : modelOutput.text;
   const toolCalls = [
     ...commandToolCalls,
     ...webSearchToToolCalls(modelOutput, trimmedPrompt),
@@ -241,7 +255,7 @@ export async function runAssistantTurn({
   }
 
   const output = {
-    answer: modelOutput.text,
+    answer: assistantContent,
     command: {
       context: command.context,
       intent: command.intent,
@@ -297,7 +311,7 @@ export async function runAssistantTurn({
   });
 
   return {
-    content: modelOutput.text,
+    content: assistantContent,
     fallbackReason: modelOutput.fallbackReason,
     id: aiRunId,
     intent: command.intent,
@@ -307,7 +321,10 @@ export async function runAssistantTurn({
     role: "assistant",
     toolCalls,
     uiBlocks: [
-      ...linkCardsBlock(command.title, command.links),
+      ...commandUiBlocks,
+      ...(commandHasGeneratedImageBlock
+        ? []
+        : linkCardsBlock(command.title, command.links)),
       ...linkCardsBlock("Web sources", webSourceLinks),
     ],
   };

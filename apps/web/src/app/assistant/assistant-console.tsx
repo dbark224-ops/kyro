@@ -2401,6 +2401,10 @@ function AssistantMessageBlocks({
           );
         }
 
+        if (block.type !== "link_cards") {
+          return null;
+        }
+
         const visibleLinks = block.links
           .map((link) => mergeAssistantLink(link, linkOverrides))
           .filter((link) => shouldRenderAssistantLink(message, link));

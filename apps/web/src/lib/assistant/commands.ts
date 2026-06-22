@@ -47,6 +47,10 @@ import {
   type QuoteTemplate,
 } from "../documents/templates";
 import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  generateKyroImage,
+  looksLikeKyroImageGenerationRequest,
+} from "../images/generation";
 import { syncInboundEmail } from "../integrations/inbound-email-sync";
 import { getInboundEmailOperationalSummary } from "../integrations/inbound-email-settings";
 import {
@@ -71,6 +75,7 @@ import {
   updateAssistantEditableSettings,
 } from "./settings-tools";
 import type { AssistantCommandResult, AssistantLink } from "./types";
+import { generatedImageBlock } from "./ui-blocks";
 
 type WorkspaceInput = {
   id: string;
@@ -1042,6 +1047,10 @@ export async function resolveAssistantCommand({
       user,
       workspace,
     });
+  }
+
+  if (looksLikeKyroImageGenerationRequest(prompt)) {
+    return imageGenerationCommand({ prompt, supabase, user, workspace });
   }
 
   if (looksLikeHelpRequest(prompt)) {
@@ -2943,6 +2952,72 @@ async function createQuoteDraftCommand({
       label: "Quote draft created",
     },
     title: "Create quote draft",
+  };
+}
+
+async function imageGenerationCommand({
+  prompt,
+  supabase,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult> {
+  const image = await generateKyroImage({
+    prompt,
+    supabase,
+    user,
+    workspace,
+  });
+  const label = image.editMode
+    ? "Generated image with references"
+    : "Generated image";
+  const meta = `${image.provider} ${image.model} - ${image.size} - ${image.quality}`;
+
+  return {
+    context: {
+      generatedImage: {
+        editMode: image.editMode,
+        fileId: image.fileId,
+        filename: image.filename,
+        model: image.model,
+        provider: image.provider,
+        quality: image.quality,
+        referenceCount: image.referenceFiles.length,
+        size: image.size,
+      },
+    },
+    fallbackAnswer:
+      image.referenceFiles.length > 0
+        ? "I generated a referenced image from the attached file context and saved it to Kyro files."
+        : "I generated the image and saved it to Kyro files.",
+    intent: "image_generation",
+    links: [
+      rowLink(label, image.href, meta),
+      rowLink("Download image", image.downloadHref, image.filename),
+    ],
+    mutation: {
+      entityId: image.fileId,
+      entityType: "file",
+      label: "Generated image",
+    },
+    title: "Image generation",
+    uiBlocks: generatedImageBlock("Generated image", [
+      {
+        alt: `Generated image for: ${prompt}`,
+        contentType: image.contentType,
+        downloadHref: image.downloadHref,
+        editMode: image.editMode,
+        fileId: image.fileId,
+        filename: image.filename,
+        href: image.href,
+        meta,
+        model: image.model,
+        prompt,
+        provider: image.provider,
+        quality: image.quality,
+        referenceCount: image.referenceFiles.length,
+        size: image.size,
+      },
+    ]),
   };
 }
 

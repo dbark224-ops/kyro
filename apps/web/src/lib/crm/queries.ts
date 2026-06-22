@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const LIST_MESSAGE_LIMIT = 500;
 const LIST_ACTION_LIMIT = 500;
 const LIST_QUOTE_DRAFT_LIMIT = 250;
+const LIST_TASK_LIMIT = 500;
 const REVIEW_MESSAGE_LIMIT = 120;
 const REVIEW_AI_RUN_LIMIT = 30;
 const REVIEW_ACTION_LIMIT = 80;
@@ -69,6 +70,9 @@ export type ConversationListItem = {
   activeActionTypes: string[];
   completedActionTypes: string[];
   quoteDraftCount: number;
+  followUpDueAt: string | null;
+  followUpIsDue: boolean;
+  followUpTaskId: string | null;
   inquiryFacts: {
     jobType: string | null;
     address: string | null;
@@ -131,6 +135,7 @@ type ConversationListOptions = {
 
 type ConversationWorkflowCounts = {
   awaitingCustomer: number;
+  followUpDue: number;
   missingInfo: number;
   needsReply: number;
   needsReview: number;
@@ -157,6 +162,50 @@ type ActionSummary = {
   latestActionType: string | null;
   pendingApprovalCount: number;
 };
+
+type FollowUpReminderSummary = {
+  dueAt: string | null;
+  id: string;
+  isDue: boolean;
+};
+
+function isMissingTableError(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist")
+  );
+}
+
+function setEarliestFollowUpReminder(
+  target: Map<string, FollowUpReminderSummary>,
+  targetId: string | null,
+  task: { due_at?: unknown; id?: unknown },
+) {
+  if (!targetId || !task.id) {
+    return;
+  }
+
+  const dueAt = textValue(task.due_at);
+  const existing = target.get(targetId);
+  const dueTime = dueAt ? Date.parse(dueAt) : Number.POSITIVE_INFINITY;
+  const existingTime = existing?.dueAt
+    ? Date.parse(existing.dueAt)
+    : Number.POSITIVE_INFINITY;
+
+  if (existing && existingTime <= dueTime) {
+    return;
+  }
+
+  target.set(targetId, {
+    dueAt,
+    id: String(task.id),
+    isDue: Boolean(dueAt && dueTime <= Date.now()),
+  });
+}
 
 function skippedEmailLast24HoursStart() {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -853,6 +902,7 @@ export async function getConversationList(
     actionsResult,
     factsResult,
     quoteDraftsResult,
+    followUpsResult,
   ] = await Promise.all([
     conversationIds.length > 0
       ? supabase
@@ -906,6 +956,17 @@ export async function getConversationList(
           .in("conversation_id", conversationIds)
           .limit(LIST_QUOTE_DRAFT_LIMIT)
       : Promise.resolve({ data: [], error: null }),
+    conversationIds.length > 0
+      ? supabase
+          .from("conversation_tasks")
+          .select("id,conversation_id,due_at")
+          .eq("workspace_id", workspaceId)
+          .eq("task_type", "customer_follow_up")
+          .eq("status", "open")
+          .in("conversation_id", conversationIds)
+          .order("due_at", { ascending: true, nullsFirst: false })
+          .limit(LIST_TASK_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (messagesResult.error) {
@@ -941,6 +1002,12 @@ export async function getConversationList(
   if (quoteDraftsResult.error) {
     throw new Error(
       `Unable to load conversation quote drafts: ${quoteDraftsResult.error.message}`,
+    );
+  }
+
+  if (followUpsResult.error && !isMissingTableError(followUpsResult.error)) {
+    throw new Error(
+      `Unable to load conversation follow-up reminders: ${followUpsResult.error.message}`,
     );
   }
 
@@ -1047,6 +1114,7 @@ export async function getConversationList(
     ]),
   );
   const quoteDraftsByConversation = new Map<string, QuoteDraftSummary>();
+  const followUpByConversation = new Map<string, FollowUpReminderSummary>();
 
   for (const quoteDraft of quoteDraftsResult.data ?? []) {
     const conversationId = quoteDraft.conversation_id
@@ -1079,6 +1147,16 @@ export async function getConversationList(
     }
 
     quoteDraftsByConversation.set(conversationId, summary);
+  }
+
+  if (!followUpsResult.error) {
+    for (const task of followUpsResult.data ?? []) {
+      setEarliestFollowUpReminder(
+        followUpByConversation,
+        task.conversation_id ? String(task.conversation_id) : null,
+        task,
+      );
+    }
   }
 
   const actionsByConversation = new Map<string, ActionSummary>();
@@ -1164,6 +1242,7 @@ export async function getConversationList(
       total: 0,
     };
     const quoteDraftCount = quoteDraftSummary.total;
+    const followUp = followUpByConversation.get(String(conversation.id));
     const activeActionTypes = [...new Set(actionSummary.activeActionTypes)];
     const completedActionTypes = [
       ...new Set(actionSummary.completedActionTypes),
@@ -1173,6 +1252,7 @@ export async function getConversationList(
       approvedActionCount: actionSummary.approvedActionCount,
       completedActionTypes,
       facts,
+      followUpIsDue: followUp?.isDue ?? false,
       latestDirection,
       leadPriority: lead?.priority ?? null,
       pendingApprovalCount: actionSummary.pendingApprovalCount,
@@ -1216,6 +1296,9 @@ export async function getConversationList(
       approvedActionCount: actionSummary.approvedActionCount,
       activeActionTypes,
       completedActionTypes,
+      followUpDueAt: followUp?.dueAt ?? null,
+      followUpIsDue: followUp?.isDue ?? false,
+      followUpTaskId: followUp?.id ?? null,
       inquiryFacts: facts,
       quoteDraftCount,
       nextActionLabel,
@@ -1343,6 +1426,7 @@ export async function getConversationWorkflowCounts(
     actionsResult,
     factsResult,
     quoteDraftsResult,
+    followUpsResult,
   ] = await Promise.all([
     conversationIds.length > 0
       ? supabase
@@ -1385,6 +1469,17 @@ export async function getConversationWorkflowCounts(
           .in("conversation_id", conversationIds)
           .limit(LIST_QUOTE_DRAFT_LIMIT)
       : Promise.resolve({ data: [], error: null }),
+    conversationIds.length > 0
+      ? supabase
+          .from("conversation_tasks")
+          .select("id,conversation_id,due_at")
+          .eq("workspace_id", workspaceId)
+          .eq("task_type", "customer_follow_up")
+          .eq("status", "open")
+          .in("conversation_id", conversationIds)
+          .order("due_at", { ascending: true, nullsFirst: false })
+          .limit(LIST_TASK_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (messagesResult.error) {
@@ -1414,6 +1509,12 @@ export async function getConversationWorkflowCounts(
   if (quoteDraftsResult.error) {
     throw new Error(
       `Unable to load conversation quote counts: ${quoteDraftsResult.error.message}`,
+    );
+  }
+
+  if (followUpsResult.error && !isMissingTableError(followUpsResult.error)) {
+    throw new Error(
+      `Unable to load conversation follow-up counts: ${followUpsResult.error.message}`,
     );
   }
 
@@ -1450,6 +1551,7 @@ export async function getConversationWorkflowCounts(
     ]),
   );
   const quoteDraftsByConversation = new Map<string, QuoteDraftSummary>();
+  const followUpByConversation = new Map<string, FollowUpReminderSummary>();
 
   for (const quoteDraft of quoteDraftsResult.data ?? []) {
     const conversationId = quoteDraft.conversation_id
@@ -1482,6 +1584,16 @@ export async function getConversationWorkflowCounts(
     }
 
     quoteDraftsByConversation.set(conversationId, summary);
+  }
+
+  if (!followUpsResult.error) {
+    for (const task of followUpsResult.data ?? []) {
+      setEarliestFollowUpReminder(
+        followUpByConversation,
+        task.conversation_id ? String(task.conversation_id) : null,
+        task,
+      );
+    }
   }
 
   const actionsByConversation = new Map<string, ActionSummary>();
@@ -1536,6 +1648,7 @@ export async function getConversationWorkflowCounts(
 
   const counts: ConversationWorkflowCounts = {
     awaitingCustomer: 0,
+    followUpDue: 0,
     missingInfo: 0,
     needsReply: 0,
     needsReview: 0,
@@ -1568,6 +1681,7 @@ export async function getConversationWorkflowCounts(
       approvedActionCount: actionSummary.approvedActionCount,
       completedActionTypes: [...new Set(actionSummary.completedActionTypes)],
       facts: factsByConversation.get(conversationId) ?? null,
+      followUpIsDue: followUpByConversation.get(conversationId)?.isDue ?? false,
       latestDirection:
         latestDirectionByConversation.get(conversationId) ?? null,
       leadPriority: conversation.lead_id
@@ -1580,6 +1694,8 @@ export async function getConversationWorkflowCounts(
 
     if (workflowBucket === "awaiting_customer") {
       counts.awaitingCustomer += 1;
+    } else if (workflowBucket === "follow_up_due") {
+      counts.followUpDue += 1;
     } else if (workflowBucket === "missing_info") {
       counts.missingInfo += 1;
     } else if (workflowBucket === "needs_reply") {
@@ -1605,6 +1721,7 @@ function deriveConversationWorkflow({
   approvedActionCount,
   completedActionTypes,
   facts,
+  followUpIsDue,
   latestDirection,
   leadPriority,
   pendingApprovalCount,
@@ -1615,6 +1732,7 @@ function deriveConversationWorkflow({
   approvedActionCount: number;
   completedActionTypes: string[];
   facts: ConversationFactsSummary;
+  followUpIsDue: boolean;
   latestDirection: string | null;
   leadPriority: string | null;
   pendingApprovalCount: number;
@@ -1648,7 +1766,9 @@ function deriveConversationWorkflow({
       ? "resolved"
       : leadPriority === "high"
         ? "needs_review"
-        : hasQuoteChangeRequest
+        : followUpIsDue
+          ? "follow_up_due"
+          : hasQuoteChangeRequest
           ? "ready_to_quote"
         : isAwaitingCustomer || hasSentQuoteDraft
           ? "awaiting_customer"
@@ -1668,6 +1788,8 @@ function deriveConversationWorkflow({
   const nextActionLabel =
     leadPriority === "high"
       ? "Profile check"
+      : followUpIsDue
+        ? "Follow up now"
       : hasQuoteChangeRequest
         ? "Review quote changes"
       : isAwaitingCustomer

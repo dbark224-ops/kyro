@@ -3,8 +3,26 @@ import type { UsageEventCreate, UsageType } from "@kyro/contracts";
 
 const DEFAULT_MARKUP_RATE = 0.25;
 const PRICE_SOURCE = "openai_api_pricing_2026_05_24";
+const IMAGE_PRICE_SOURCE = "openai_api_pricing_2026_05_27";
 const WEB_SEARCH_NON_REASONING_COST_PER_1K_CALLS = 25;
 const WEB_SEARCH_REASONING_COST_PER_1K_CALLS = 10;
+const DEFAULT_GPT_IMAGE_PRICES: Record<string, Record<string, number>> = {
+  high: {
+    "1024x1024": 0.167,
+    "1024x1536": 0.25,
+    "1536x1024": 0.25,
+  },
+  low: {
+    "1024x1024": 0.011,
+    "1024x1536": 0.016,
+    "1536x1024": 0.016,
+  },
+  medium: {
+    "1024x1024": 0.042,
+    "1024x1536": 0.063,
+    "1536x1024": 0.063,
+  },
+};
 
 type JsonObject = Record<string, unknown>;
 
@@ -35,6 +53,19 @@ export type OpenAiRealtimeTokenUsage = {
   reasoningTokens: number;
   textInputTokens: number;
   textOutputTokens: number;
+  totalTokens: number;
+};
+
+export type OpenAiImageUsage = {
+  cachedImageInputTokens: number;
+  cachedTextInputTokens: number;
+  estimated: boolean;
+  imageInputTokens: number;
+  inputTokens: number;
+  outputImageTokens: number;
+  outputTokens: number;
+  textInputTokens: number;
+  tokenSplitEstimated: boolean;
   totalTokens: number;
 };
 
@@ -290,6 +321,40 @@ function realtimeUnitCostFor(input: {
   };
 }
 
+function imageUnitCostFor(input: {
+  model: string;
+  quality: string;
+  size: string;
+}) {
+  const prefix = modelEnvPrefix(input.model);
+  const modelSpecific = numberEnv(`OPENAI_${prefix}_IMAGE_COST_PER_IMAGE`);
+  const generic = numberEnv("OPENAI_IMAGE_COST_PER_IMAGE");
+
+  if (modelSpecific !== null || generic !== null) {
+    return {
+      priceEstimated: false,
+      priceSource:
+        modelSpecific !== null
+          ? `env:${prefix}_IMAGE_COST_PER_IMAGE`
+          : "env:OPENAI_IMAGE_COST_PER_IMAGE",
+      unitCost: modelSpecific ?? generic ?? 0,
+    };
+  }
+
+  const quality = input.quality.trim().toLowerCase() || "medium";
+  const size = input.size.trim().toLowerCase();
+  const normalizedSize = size === "auto" || !size ? "1024x1024" : size;
+  const unitCost =
+    DEFAULT_GPT_IMAGE_PRICES[quality]?.[normalizedSize] ??
+    DEFAULT_GPT_IMAGE_PRICES.medium["1024x1024"];
+
+  return {
+    priceEstimated: true,
+    priceSource: `${IMAGE_PRICE_SOURCE}:fallback:${quality}:${normalizedSize}`,
+    unitCost,
+  };
+}
+
 function priceQuantity(quantity: number, unitCost: number) {
   const cost = quantity * unitCost;
   const markup = markupRate();
@@ -455,6 +520,71 @@ export function openAiRealtimeUsageFromResponse(
   };
 }
 
+export function openAiImageUsageFromResponse(
+  payload: unknown,
+): OpenAiImageUsage | null {
+  const usage = objectRecord(objectRecord(payload).usage);
+  const rawInputTokens = numberValue(usage.input_tokens);
+  const rawOutputTokens = numberValue(usage.output_tokens);
+  const rawTotalTokens = numberValue(usage.total_tokens);
+
+  if (rawInputTokens === null && rawOutputTokens === null && rawTotalTokens === null) {
+    return null;
+  }
+
+  const inputDetails = {
+    ...objectRecord(usage.input_token_details),
+    ...objectRecord(usage.input_tokens_details),
+  };
+  const rawTextInputTokens = numberValue(inputDetails.text_tokens);
+  const rawImageInputTokens = numberValue(inputDetails.image_tokens);
+  const inputTokens = Math.trunc(
+    rawInputTokens ?? (rawTextInputTokens ?? 0) + (rawImageInputTokens ?? 0),
+  );
+  const outputTokens = Math.trunc(rawOutputTokens ?? 0);
+  const hasTokenSplit =
+    rawTextInputTokens !== null || rawImageInputTokens !== null;
+  const textInputTokens = clampTokenCount(
+    rawTextInputTokens ??
+      (hasTokenSplit ? Math.max(0, inputTokens - (rawImageInputTokens ?? 0)) : inputTokens),
+    inputTokens,
+  );
+  const imageInputTokens = clampTokenCount(
+    rawImageInputTokens ??
+      (hasTokenSplit ? Math.max(0, inputTokens - textInputTokens) : 0),
+    inputTokens,
+  );
+  const cachedDetails = {
+    ...objectRecord(inputDetails.cached_tokens_details),
+    ...objectRecord(inputDetails.cached_token_details),
+  };
+  const cachedTextInputTokens = clampTokenCount(
+    numberValue(inputDetails.cached_text_tokens) ??
+      numberValue(cachedDetails.text_tokens) ??
+      0,
+    textInputTokens,
+  );
+  const cachedImageInputTokens = clampTokenCount(
+    numberValue(inputDetails.cached_image_tokens) ??
+      numberValue(cachedDetails.image_tokens) ??
+      0,
+    imageInputTokens,
+  );
+
+  return {
+    cachedImageInputTokens,
+    cachedTextInputTokens,
+    estimated: rawInputTokens === null || rawOutputTokens === null,
+    imageInputTokens,
+    inputTokens,
+    outputImageTokens: outputTokens,
+    outputTokens,
+    textInputTokens,
+    tokenSplitEstimated: inputTokens > 0 && !hasTokenSplit,
+    totalTokens: Math.trunc(rawTotalTokens ?? inputTokens + outputTokens),
+  };
+}
+
 export function buildRealtimeUsageEvents(input: {
   context: {
     aiRunId?: string | null;
@@ -604,6 +734,73 @@ export function buildLlmUsageEvents(input: {
   });
 
   return rows;
+}
+
+export function buildOpenAiImageGenerationUsageEvent(input: {
+  context: {
+    aiRunId?: string | null;
+    metadata?: JsonObject;
+    providerUsageId?: string | null;
+    sourceId?: string | null;
+    sourceType?: string | null;
+    userId?: string | null;
+    workspaceId: string;
+  };
+  editMode: boolean;
+  model: string;
+  providerUsage?: OpenAiImageUsage | null;
+  quality: string;
+  size: string;
+}): UsageEventDraft {
+  const unit = imageUnitCostFor({
+    model: input.model,
+    quality: input.quality,
+    size: input.size,
+  });
+  const price = priceQuantity(1, unit.unitCost);
+  const usage = input.providerUsage;
+
+  return {
+    aiRunId: input.context.aiRunId ?? undefined,
+    costSnapshot: price.costSnapshot,
+    currency: "USD",
+    customerChargeSnapshot: price.customerChargeSnapshot,
+    markupSnapshot: price.markupSnapshot,
+    metadata: {
+      ...input.context.metadata,
+      editMode: input.editMode,
+      imageQuality: input.quality,
+      imageSize: input.size,
+      imageUsage: usage
+        ? {
+            cachedImageInputTokens: usage.cachedImageInputTokens,
+            cachedTextInputTokens: usage.cachedTextInputTokens,
+            imageInputTokens: usage.imageInputTokens,
+            inputTokens: usage.inputTokens,
+            outputImageTokens: usage.outputImageTokens,
+            outputTokens: usage.outputTokens,
+            textInputTokens: usage.textInputTokens,
+            tokenSplitEstimated: usage.tokenSplitEstimated,
+            totalTokens: usage.totalTokens,
+          }
+        : null,
+      priceEstimated: unit.priceEstimated,
+      priceSource: unit.priceSource,
+      usageEstimated: usage?.estimated ?? true,
+    },
+    model: input.model,
+    provider: "openai",
+    providerUsageId: input.context.providerUsageId ?? undefined,
+    quantity: 1,
+    service: "image_generation",
+    sourceId: input.context.sourceId ?? undefined,
+    sourceType: input.context.sourceType ?? undefined,
+    unit: "image",
+    unitCostSnapshot: price.unitCostSnapshot,
+    usageType: "image_generation",
+    userId: input.context.userId ?? undefined,
+    workspaceId: input.context.workspaceId,
+  };
 }
 
 export function buildOpenAiWebSearchCallUsageEvent(input: {

@@ -26,6 +26,26 @@ export type AssistantUiBlock =
       type: "memory_notice";
       title: string;
       content: string;
+    }
+  | {
+      type: "generated_image";
+      title: string;
+      images: Array<{
+        alt: string;
+        contentType: string;
+        downloadHref: string;
+        editMode: boolean;
+        fileId: string;
+        filename: string;
+        href: string;
+        meta?: string;
+        model: string;
+        prompt: string;
+        provider: string;
+        quality: string;
+        referenceCount: number;
+        size: string;
+      }>;
     };
 
 export type AssistantCommandResult = {
@@ -34,6 +54,7 @@ export type AssistantCommandResult = {
   fallbackAnswer: string;
   context: Record<string, unknown>;
   links: AssistantLink[];
+  uiBlocks?: AssistantUiBlock[];
   mutation?: {
     entityId: string;
     entityType: string;

@@ -110,7 +110,7 @@ export async function getAssistantThreadState({
   workspace: WorkspaceInput;
 }): Promise<AssistantThreadState> {
   const thread = threadId
-    ? await getAssistantThread(supabase, workspace.id, threadId)
+    ? await getAssistantThread(supabase, workspace.id, threadId, user.id)
     : await getOrCreateAssistantThread(supabase, workspace, user);
   const resolvedThreadId = String(thread.id);
   const [messages, memories] = await Promise.all([
@@ -151,7 +151,7 @@ export async function getAssistantTurnContext({
   workspaceId: string;
 }) {
   const [thread, recentMessages, memories] = await Promise.all([
-    getAssistantThread(supabase, workspaceId, threadId),
+    getAssistantThread(supabase, workspaceId, threadId, user.id),
     getAssistantMessages(
       supabase,
       workspaceId,
@@ -413,11 +413,13 @@ async function getAssistantThread(
   supabase: SupabaseClient,
   workspaceId: string,
   threadId: string,
+  userId: string,
 ) {
   const { data, error } = await supabase
     .from("assistant_threads")
     .select("id,summary")
     .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
     .eq("id", threadId)
     .maybeSingle();
 
@@ -677,7 +679,11 @@ function normalizeUiBlocks(value: unknown): AssistantUiBlock[] {
     }
 
     const record = block as Record<string, unknown>;
-    return record.type === "link_cards" || record.type === "memory_notice";
+    return (
+      record.type === "link_cards" ||
+      record.type === "memory_notice" ||
+      record.type === "generated_image"
+    );
   });
 }
 
