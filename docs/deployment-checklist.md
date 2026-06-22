@@ -58,7 +58,39 @@ Optional until those integrations are enabled:
   `VAPI_INBOUND_ASSISTANT_ID`, `VAPI_VOICEMAIL_OVERFLOW_ASSISTANT_ID`, and
   `VAPI_OUTBOUND_ASSISTANT_ID`
 - `STRIPE_SECRET_KEY`
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
+
+## 1a. Auth Email / Resend
+
+Production auth email is sent through Supabase Auth using the configured SMTP
+provider. Kyro currently uses Resend for this path.
+
+- Configure Supabase Auth SMTP with the production Resend credentials.
+- Set the Supabase Site URL to `https://kyroassistant.com`.
+- Add redirect URLs for `https://kyroassistant.com/**`; localhost redirects are
+  only for local development.
+- Keep the Supabase confirmation template branded and make the button use
+  Supabase's `{{ .ConfirmationURL }}` variable.
+- Send a new signup confirmation email after changing SMTP/template settings and
+  confirm the link resolves to the live app, not localhost.
+
+## 1b. Stripe User Billing And Customer Payments
+
+Stripe is used for two different product paths: Kyro billing its own users, and
+workspaces collecting customer payments through connected/customer payment flows.
+
+- Set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, and
+  `STRIPE_WEBHOOK_SECRET` in Vercel Production.
+- Configure the webhook endpoint as
+  `${NEXT_PUBLIC_APP_URL}/api/integrations/stripe/webhook` and verify Stripe sees
+  a 2xx response.
+- Complete the Stripe platform/Connect setup before testing workspace payment
+  links or connected payment onboarding.
+- Test the create-account inline payment-method flow with the production publishable
+  key and the matching live secret key.
+- Do not expose provider margin to customers; user-facing usage should show the
+  final customer charge while internal ledgers can keep provider cost and margin.
 
 ## 2. Secret Handling
 

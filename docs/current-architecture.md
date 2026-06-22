@@ -131,14 +131,15 @@ Workspace creation lives in:
 - `apps/web/src/app/onboarding/actions.ts`
 - `apps/web/src/lib/workspace/bootstrap.ts`
 
-Create-account now collects the minimum login and business setup details in one
-flow: owner name, email/password, business name, industry, country, operating
-location, postcode/ZIP, and optional service area. If Supabase returns an active
-session immediately, Kyro creates the workspace in the signup action. If email
-confirmation is required, those setup values are saved in Supabase user metadata
-and `auth/callback` creates the workspace after the session is exchanged. The
-older onboarding page remains as a fallback for signed-in users with no
-workspace.
+Create-account is now a three-step onboarding flow: owner login/contact details,
+business basics including operating country/location/service area, and inline
+Stripe payment-method setup for the two-week trial. The workspace can be created
+between the business-basics and payment steps so Stripe can attach the saved
+payment method to a real workspace/customer record. If Supabase requires email
+confirmation before an active session exists, Kyro stores the pending setup
+values in Supabase user metadata and `auth/callback` creates the workspace after
+the session is exchanged. The older onboarding page remains as a fallback for
+signed-in users with no workspace.
 
 On account/workspace bootstrap, Kyro creates:
 
@@ -177,6 +178,11 @@ It renders a small welcome state and only creates/loads the real persisted Assis
 thread when the user sends a message or opens the full Assistant tab. This avoids
 making every logged-in route pay for assistant-thread history queries just because
 the launcher is visible.
+
+First-run product guidance is handled by a lightweight tutorial overlay on the
+dashboard. Completion is stored against the workspace/user so it only appears once
+for normal users, while developer accounts can replay or reset the tutorial from
+the app UI during product testing.
 
 On narrow mobile viewports, the shell hides the desktop sidebar, exposes the full
 navigation through a drawer menu, and pins a bottom quick-nav for Assistant, Voice,
