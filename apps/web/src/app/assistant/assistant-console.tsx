@@ -1936,7 +1936,7 @@ function AssistantExternalActivityPane({
                       dateTime={item.at}
                       title={formatFullMessageTime(item.at)}
                     >
-                      {formatMessageTime(item.at)}
+                      {formatActivityTime(item.at)}
                     </time>
                   </div>
                   {item.subject ? (
@@ -3775,6 +3775,15 @@ function formatMessageTime(value: string) {
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatActivityTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
   }).format(new Date(value));
 }
 

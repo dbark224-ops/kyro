@@ -4216,6 +4216,10 @@ h2 {
   font-weight: 800;
 }
 
+.assistant-activity-copy time {
+  white-space: nowrap;
+}
+
 .assistant-activity-subject,
 .assistant-activity-preview {
   margin: 0;

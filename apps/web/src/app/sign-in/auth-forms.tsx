@@ -260,12 +260,11 @@ export function CreateAccountForm() {
   const [billingSetup, setBillingSetup] = useState<BillingSetupState | null>(
     null,
   );
+  const stripePublishableKey = billingSetup?.publishableKey ?? null;
   const stripePromise = useMemo(
     () =>
-      billingSetup?.publishableKey
-        ? loadStripe(billingSetup.publishableKey)
-        : null,
-    [billingSetup?.publishableKey],
+      stripePublishableKey ? loadStripe(stripePublishableKey) : null,
+    [stripePublishableKey],
   );
 
   const steps = [

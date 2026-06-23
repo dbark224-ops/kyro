@@ -208,7 +208,11 @@ export function DashboardTour() {
   }, [startTour]);
 
   useLayoutEffect(() => {
-    updateSpotlight();
+    const frame = window.requestAnimationFrame(updateSpotlight);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
   }, [updateSpotlight]);
 
   useEffect(() => {
