@@ -8310,6 +8310,16 @@ button:disabled {
   padding: 12px;
 }
 
+.settings-step-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 .setting-card strong,
 .settings-fieldset legend {
   color: var(--muted);

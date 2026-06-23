@@ -3861,6 +3861,11 @@ function VoicemailOverflowSettings({
     assignedPhoneNumbers.find(isVoicemailOverflowPhoneNumber) ??
     null;
   const defaultPhoneNumberId = voicemailNumber?.id ?? voiceNumbers[0]?.id ?? "";
+  const voicemailBackendReady = Boolean(
+    voicemailNumber?.vapiPhoneNumberId &&
+      voiceSettings.phoneAgentVoicemailOverflowEnabled &&
+      voiceSettings.vapiVoicemailAssistantId,
+  );
 
   return (
     <article className="panel embedded-panel">
@@ -3895,6 +3900,14 @@ function VoicemailOverflowSettings({
             <span>Call purpose</span>
             <strong>Voicemail overflow</strong>
           </div>
+          <div>
+            <span>Backend status</span>
+            <strong>
+              {voicemailBackendReady
+                ? "Ready for forwarded calls"
+                : "Needs Vapi assistant or linked number"}
+            </strong>
+          </div>
         </div>
       ) : null}
 
@@ -3907,6 +3920,40 @@ function VoicemailOverflowSettings({
 
       {voiceNumbers.length > 0 ? (
         <div className="settings-grid">
+          {voicemailNumber ? (
+            <div className="setting-card">
+              <SettingCardHeading info="Kyro cannot change a mobile carrier forwarding rule directly. Use this number in the user's phone or carrier portal for unanswered, busy, or unreachable-call forwarding.">
+                Forward missed calls from a personal phone
+              </SettingCardHeading>
+              <div className="detail-list compact-detail-list">
+                <div>
+                  <span>Forward unanswered or busy calls to</span>
+                  <strong>{voicemailNumber.phoneNumber}</strong>
+                </div>
+              </div>
+              <ol className="settings-step-list">
+                <li>
+                  Open the mobile carrier, phone-system, or handset call
+                  forwarding settings.
+                </li>
+                <li>
+                  Choose forwarding for unanswered, busy, or unreachable calls,
+                  not unconditional forwarding unless every call should go to
+                  Kyro.
+                </li>
+                <li>
+                  Save the Kyro number above as the forwarding destination, then
+                  place a test call and let the personal phone ring out.
+                </li>
+              </ol>
+              <p className="empty-copy">
+                Once the carrier forwards the call, Kyro answers with the
+                voicemail overflow assistant and records the result in Assistant
+                activity.
+              </p>
+            </div>
+          ) : null}
+
           <form
             action={enableVoicemailOverflowNumberAction}
             className="setting-card"

@@ -1578,8 +1578,7 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
     phoneAgentEnabled: true,
     phoneAgentVoicemailOverflowEnabled: true,
     vapiPhoneNumberId:
-      existingVoiceSettings.vapiPhoneNumberId ??
-      selectedNumber.vapiPhoneNumberId,
+      selectedNumber.vapiPhoneNumberId ?? existingVoiceSettings.vapiPhoneNumberId,
   });
 
   const { data: beforePolicy, error: beforeError } = await supabase
