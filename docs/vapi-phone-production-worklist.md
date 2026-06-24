@@ -43,6 +43,9 @@ To finish:
 8. Copy the Vapi credential id into Vercel as `VAPI_TOOL_CREDENTIAL_ID`.
 9. Attach the tool credential to every Vapi tool server URL that calls
    `https://kyroassistant.com/api/integrations/vapi/tool`.
+   Use the same `Kyro Production Tool` credential for every Kyro tool; do not
+   create a separate credential per tool unless a future security review decides
+   to split them.
 10. Redeploy production after adding the Vercel environment variables.
 11. Confirm both readiness endpoints report credential readiness as `true`:
     - `https://kyroassistant.com/api/integrations/vapi/webhook`
@@ -258,7 +261,13 @@ Done means:
 
 Goal: verify each live Vapi tool works against Kyro production.
 
-Tools to test:
+Every live Vapi tool below should point to:
+
+- Server URL: `https://kyroassistant.com/api/integrations/vapi/tool`
+- Credential: the shared `Kyro Production Tool` Custom Credential
+- Method: `POST`
+
+Tools to configure and test:
 
 - `kyro_lookup_contact`
 - `kyro_update_contact`
