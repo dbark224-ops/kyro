@@ -14,7 +14,9 @@ const VAPI_API_BASE_URL = "https://api.vapi.ai";
 type VapiConfig = {
   apiKey: string;
   appUrl: string | null;
+  toolCredentialId: string | null;
   toolSecret: string | null;
+  webhookCredentialId: string | null;
   webhookSecret: string | null;
 };
 
@@ -25,9 +27,11 @@ export type VapiVoiceOverview = {
   outboundAssistantId: string | null;
   phoneNumberId: string | null;
   publicKeyReady: boolean;
+  toolCredentialReady: boolean;
   toolSecretReady: boolean;
   toolUrl: string | null;
   voicemailAssistantId: string | null;
+  webhookCredentialReady: boolean;
   webhookSecretReady: boolean;
   webhookUrl: string | null;
 };
@@ -62,7 +66,9 @@ export function getVapiConfig(): VapiConfig | null {
   return {
     apiKey,
     appUrl: appUrl(),
+    toolCredentialId: textValue(process.env.VAPI_TOOL_CREDENTIAL_ID),
     toolSecret: textValue(process.env.VAPI_TOOL_SECRET),
+    webhookCredentialId: textValue(process.env.VAPI_WEBHOOK_CREDENTIAL_ID),
     webhookSecret: textValue(process.env.VAPI_WEBHOOK_SECRET),
   };
 }
@@ -85,12 +91,22 @@ export function getVapiVoiceOverview(
     outboundAssistantId: voiceSettings.vapiOutboundAssistantId,
     phoneNumberId: voiceSettings.vapiPhoneNumberId,
     publicKeyReady: Boolean(textValue(process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY)),
+    toolCredentialReady: Boolean(config?.toolCredentialId),
     toolSecretReady: Boolean(config?.toolSecret),
     toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
     voicemailAssistantId: voiceSettings.vapiVoicemailAssistantId,
+    webhookCredentialReady: Boolean(config?.webhookCredentialId),
     webhookSecretReady: Boolean(config?.webhookSecret),
     webhookUrl: vapiEndpointUrl(VAPI_WEBHOOK_PATH),
   };
+}
+
+export function vapiWebhookCredentialId() {
+  return textValue(process.env.VAPI_WEBHOOK_CREDENTIAL_ID);
+}
+
+export function vapiToolCredentialId() {
+  return textValue(process.env.VAPI_TOOL_CREDENTIAL_ID);
 }
 
 function safeEquals(left: string, right: string) {

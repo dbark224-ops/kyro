@@ -178,6 +178,10 @@ If Twilio SMS is enabled:
 If Vapi phone calls are enabled:
 
 - set `VAPI_API_KEY`, `VAPI_WEBHOOK_SECRET`, and `VAPI_TOOL_SECRET` server-side,
+- create Vapi bearer-token Custom Credentials for Kyro webhook/tool calls and set
+  `VAPI_WEBHOOK_CREDENTIAL_ID` and `VAPI_TOOL_CREDENTIAL_ID`; Kyro injects the
+  webhook credential id into dynamic server URLs, and each Vapi tool definition
+  should also use the tool credential id,
 - set `NEXT_PUBLIC_VAPI_PUBLIC_KEY` only if the browser/mobile Vapi voice runtime
   is enabled,
 - review the internal Vapi STT defaults, or override them with

@@ -12,6 +12,7 @@ import {
   VAPI_TOOL_PATH,
   VAPI_WEBHOOK_PATH,
   vapiEndpointUrl,
+  vapiWebhookCredentialId,
 } from "../integrations/vapi";
 import {
   DEFAULT_WORKSPACE_GENERAL_SETTINGS,
@@ -526,6 +527,7 @@ export async function buildVapiAssistantRequestResponse(
   const toolUrl = remotelyReachableUrl(vapiEndpointUrl(VAPI_TOOL_PATH)) ?? "";
   const webhookUrl =
     remotelyReachableUrl(vapiEndpointUrl(VAPI_WEBHOOK_PATH)) ?? "";
+  const webhookCredentialId = vapiWebhookCredentialId();
   const pronunciationGuide = pronunciationGuideText(pronunciationEntries) || null;
   const kyroContext =
     purpose === "inbound_user"
@@ -567,6 +569,9 @@ export async function buildVapiAssistantRequestResponse(
       metadata,
       server: webhookUrl
         ? {
+            ...(webhookCredentialId
+              ? { credentialId: webhookCredentialId }
+              : {}),
             timeoutSeconds: 45,
             url: webhookUrl,
           }

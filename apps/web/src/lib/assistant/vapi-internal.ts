@@ -14,6 +14,7 @@ import {
   VAPI_TOOL_PATH,
   VAPI_WEBHOOK_PATH,
   vapiEndpointUrl,
+  vapiWebhookCredentialId,
 } from "../integrations/vapi";
 import { vapiAssistantGuidance } from "../voice/calls";
 import {
@@ -371,6 +372,7 @@ export async function getVapiInternalVoiceSession({
   const configuredWebhookUrl = vapiEndpointUrl(VAPI_WEBHOOK_PATH);
   const remoteToolUrl = remotelyReachableUrl(configuredToolUrl);
   const remoteWebhookUrl = remotelyReachableUrl(configuredWebhookUrl);
+  const webhookCredentialId = vapiWebhookCredentialId();
   const missing = [
     publicKey ? null : "NEXT_PUBLIC_VAPI_PUBLIC_KEY",
     assistantId ? null : "VAPI_INTERNAL_ASSISTANT_ID",
@@ -458,6 +460,9 @@ export async function getVapiInternalVoiceSession({
         : {}),
       server: remoteWebhookUrl
         ? {
+            ...(webhookCredentialId
+              ? { credentialId: webhookCredentialId }
+              : {}),
             timeoutSeconds: 45,
             url: remoteWebhookUrl,
           }

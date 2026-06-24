@@ -25,8 +25,12 @@ export async function GET() {
     ok: true,
     provider: "vapi",
     serverApiKeyReady: Boolean(process.env.VAPI_API_KEY?.trim()),
+    toolCredentialReady: Boolean(process.env.VAPI_TOOL_CREDENTIAL_ID?.trim()),
     toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
     toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
+    webhookCredentialReady: Boolean(
+      process.env.VAPI_WEBHOOK_CREDENTIAL_ID?.trim(),
+    ),
     webhookSecretReady: Boolean(process.env.VAPI_WEBHOOK_SECRET?.trim()),
     webhookUrl: vapiEndpointUrl(VAPI_WEBHOOK_PATH),
   });

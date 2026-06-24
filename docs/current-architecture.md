@@ -490,8 +490,12 @@ In production, Vapi tools and webhooks must include the shared Kyro header
 `VAPI_WEBHOOK_SECRET`. The production Vapi endpoints are
 `https://kyroassistant.com/api/integrations/vapi/tool` and
 `https://kyroassistant.com/api/integrations/vapi/webhook`. These routes also
-return safe `GET` readiness payloads showing whether the server key and shared
-secret are configured.
+return safe `GET` readiness payloads showing whether the server key, shared
+secret, and Vapi Custom Credential ids are configured. Dynamic Vapi server
+overrides include `VAPI_WEBHOOK_CREDENTIAL_ID`, which should point to a Vapi
+bearer-token Custom Credential that sends the matching Kyro webhook secret.
+Vapi tool definitions should use a matching tool Custom Credential so calls to
+the Kyro tool endpoint send `VAPI_TOOL_SECRET`.
 
 Settings -> Connected accounts now has a beta self-serve phone/SMS enablement
 flow for manually preloaded numbers. Kyro lists available

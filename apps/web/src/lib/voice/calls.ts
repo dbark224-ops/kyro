@@ -9,6 +9,9 @@ import {
   createVapiOutboundCall,
   VAPI_CARRIER_PROVIDER,
   VAPI_PROVIDER,
+  VAPI_WEBHOOK_PATH,
+  vapiEndpointUrl,
+  vapiWebhookCredentialId,
 } from "../integrations/vapi";
 import {
   telephonyUsageCost,
@@ -113,6 +116,22 @@ type OutboundVoiceNumberSelection = {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function remotelyReachableUrl(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+
+    return url.protocol === "https:" && url.hostname !== "localhost"
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function numberValue(value: unknown) {
@@ -1530,10 +1549,22 @@ export async function createOutboundVoiceCall(input: {
     );
   }
 
+  const webhookUrl = remotelyReachableUrl(vapiEndpointUrl(VAPI_WEBHOOK_PATH));
+  const webhookCredentialId = vapiWebhookCredentialId();
+
   try {
     const result = await createVapiOutboundCall({
       assistantId,
       assistantOverrides: {
+        server: webhookUrl
+          ? {
+              ...(webhookCredentialId
+                ? { credentialId: webhookCredentialId }
+                : {}),
+              timeoutSeconds: 45,
+              url: webhookUrl,
+            }
+          : undefined,
         voice: elevenLabsVapiVoiceOverride(settings),
         variableValues: {
           assistant_context_summary: assistantContextSummary ?? "",

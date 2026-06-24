@@ -34,6 +34,15 @@ Required before real calls:
 - `VAPI_API_KEY`
 - `VAPI_WEBHOOK_SECRET`
 - `VAPI_TOOL_SECRET`
+- `VAPI_WEBHOOK_CREDENTIAL_ID`
+- `VAPI_TOOL_CREDENTIAL_ID`
+
+Create the credential ids in Vapi as bearer-token Custom Credentials. The
+webhook credential token must match `VAPI_WEBHOOK_SECRET`; the tool credential
+token must match `VAPI_TOOL_SECRET`. Kyro injects the webhook credential id into
+dynamic assistant `server` overrides so lifecycle callbacks, transcripts, and
+end-of-call reports authenticate back to Kyro. Vapi tool definitions should use
+the tool credential id directly on their tool server URL.
 
 Outbound calls also need at least one Vapi phone-number id. The preferred
 production path is to attach a Vapi phone-number id to each active
@@ -475,19 +484,24 @@ audited tools rather than free-form provider access.
      binding only a fixed assistant if you want Kyro to inject
      `{{workspace_name}}`, `{{kyro_context}}`, user/team caller detection, and
      tool-ready workspace/user/thread ids at call start.
-5. Add Vapi tools pointing at:
+5. Attach the Kyro webhook Custom Credential to assistant or phone-number server
+   URLs. For dynamic assistant-request responses, set
+   `VAPI_WEBHOOK_CREDENTIAL_ID` so Kyro includes it in the returned server
+   override.
+6. Add Vapi tools pointing at:
    - `https://YOUR_APP_URL/api/integrations/vapi/tool`
-6. Save assistant ids in Settings -> Voice, and save a fallback phone-number id
+   and attach the Kyro tool Custom Credential to each tool server URL.
+7. Save assistant ids in Settings -> Voice, and save a fallback phone-number id
    only while per-number mappings are not available.
-7. For each Twilio number connected to Vapi, add/update the matching
+8. For each Twilio number connected to Vapi, add/update the matching
    `workspace_phone_numbers` row with `country_code`, `region`, voice/SMS
    capabilities, Twilio `provider_phone_number_id`, and
    `metadata.vapiPhoneNumberId`.
-8. Add user/team numbers in Settings -> Voice so Kyro can treat those callers as
+9. Add user/team numbers in Settings -> Voice so Kyro can treat those callers as
    internal instructions.
-9. For `/voice-vapi`, add `NEXT_PUBLIC_VAPI_PUBLIC_KEY` and save the internal
+10. For `/voice-vapi`, add `NEXT_PUBLIC_VAPI_PUBLIC_KEY` and save the internal
    assistant id, then confirm turns persist into the main Assistant thread.
-10. Place a controlled test call, confirm it appears in Kyro activity, then inspect
+11. Place a controlled test call, confirm it appears in Kyro activity, then inspect
    transcript, recording, and events.
 
 ## Assistant Request Flow
@@ -503,7 +517,8 @@ Kyro responds with:
 - `workspace_id`, `workspace_name`, `user_id`, `thread_id`, `caller_number`,
   `kyro_number`, and `kyro_context` variable values,
 - metadata that tools can use to stay scoped to the right workspace,
-- the Kyro server URL so live call events and transcripts continue to flow back.
+- the Kyro server URL and Vapi webhook credential id so live call events and
+  transcripts continue to flow back with Kyro authentication.
 
 This is the missing piece that prevents Vapi from literally reading placeholders
 like `{{workspace_name}}` and allows the same Kyro tools to work for live inbound
