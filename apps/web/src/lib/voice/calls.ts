@@ -1469,6 +1469,10 @@ export async function createOutboundVoiceCall(input: {
       ),
     ]);
   const currentTime = buildVapiCurrentTimeContext(generalSettings.timeZone);
+  const outboundBusinessName =
+    textValue(generalSettings.businessProfile.businessName) ??
+    outboundWorkspaceName ??
+    "";
   const phoneMatchedContact = linkedRows.contact
     ? null
     : await findContactByPhone(input.supabase, input.workspaceId, customerNumber);
@@ -1492,7 +1496,7 @@ export async function createOutboundVoiceCall(input: {
     instructions: callInstructions,
     lead: linkedRows.lead,
     recentOutboundCallContext,
-    workspaceName: outboundWorkspaceName,
+    workspaceName: outboundBusinessName || outboundWorkspaceName,
   });
   const outboundCallContextWithTime = [
     currentTime.promptLine,
@@ -1568,6 +1572,7 @@ export async function createOutboundVoiceCall(input: {
         voice: elevenLabsVapiVoiceOverride(settings),
         variableValues: {
           assistant_context_summary: assistantContextSummary ?? "",
+          business_name: outboundBusinessName,
           call_instructions: callInstructions ?? "",
           contact_address: outboundContact?.address ?? "",
           contact_company: outboundContact?.company ?? "",

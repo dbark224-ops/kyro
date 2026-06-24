@@ -529,6 +529,8 @@ export async function buildVapiAssistantRequestResponse(
     remotelyReachableUrl(vapiEndpointUrl(VAPI_WEBHOOK_PATH)) ?? "";
   const webhookCredentialId = vapiWebhookCredentialId();
   const pronunciationGuide = pronunciationGuideText(pronunciationEntries) || null;
+  const businessName =
+    textValue(generalSettings.businessProfile.businessName) ?? workspace.name;
   const kyroContext =
     purpose === "inbound_user"
       ? internalCallerContextMessage({
@@ -539,14 +541,14 @@ export async function buildVapiAssistantRequestResponse(
           teamNumberContext: teamNumberContext(
             settings.phoneAgentUserNumberDetails,
           ),
-          workspaceName: workspace.name,
+          workspaceName: businessName,
         })
       : customerContextMessage({
           callerNumber: from,
           currentTimePromptLine: currentTime.promptLine,
           kyroNumber: to,
           pronunciationGuide,
-          workspaceName: workspace.name,
+          workspaceName: businessName,
         });
   const metadata = {
     callerNumber: from,
@@ -579,6 +581,7 @@ export async function buildVapiAssistantRequestResponse(
       serverMessages: VAPI_SERVER_MESSAGES,
       variableValues: {
         ...currentTime.variableValues,
+        business_name: businessName,
         caller_number: from ?? "",
         caller_role:
           purpose === "inbound_user" ? "internal_user" : "external_caller",

@@ -261,6 +261,7 @@ overrides:
   "recent_chat_context": "same recent Assistant thread context, named for Vapi prompt readability",
   "recent_outbound_call_context": "recent outbound calls to the same contact or phone number",
   "kyro_context": "same compact outbound call context",
+  "business_name": "front-facing business name from Business profile, falling back to workspace display name",
   "workspace_name": "workspace display name",
   "workspace_id": "workspace uuid",
   "user_id": "requesting user uuid",
@@ -462,8 +463,9 @@ Recommended Vapi tool definitions:
 
 For the internal Vapi voice assistant, configure its system prompt to include
 `{{kyro_context}}` and instruct it to use the Kyro tool endpoint for work-related
-requests instead of answering from memory. Kyro passes `workspace_id`, `user_id`,
-`thread_id`, `kyro_context`, and `kyro_tool_url` as Vapi variable values.
+requests instead of answering from memory. Kyro passes `business_name`,
+`workspace_id`, `workspace_name`, `user_id`, `thread_id`, `kyro_context`, and
+`kyro_tool_url` as Vapi variable values.
 
 More tools can be added later for creating tasks, booking appointments, sending
 email follow-ups, or escalating urgent work. Those should remain explicit,
@@ -482,7 +484,7 @@ audited tools rather than free-form provider access.
    - `https://YOUR_APP_URL/api/integrations/vapi/webhook`
    - For inbound phone numbers, use Vapi's `assistant-request` flow rather than
      binding only a fixed assistant if you want Kyro to inject
-     `{{workspace_name}}`, `{{kyro_context}}`, user/team caller detection, and
+     `{{business_name}}`, `{{workspace_name}}`, `{{kyro_context}}`, user/team caller detection, and
      tool-ready workspace/user/thread ids at call start.
 5. Attach the Kyro webhook Custom Credential to assistant or phone-number server
    URLs. For dynamic assistant-request responses, set
@@ -514,15 +516,15 @@ Kyro responds with:
 
 - the correct assistant id for `inbound_user`, `inbound_customer`, or
   `voicemail_overflow`,
-- `workspace_id`, `workspace_name`, `user_id`, `thread_id`, `caller_number`,
-  `kyro_number`, and `kyro_context` variable values,
+- `workspace_id`, `workspace_name`, `business_name`, `user_id`, `thread_id`,
+  `caller_number`, `kyro_number`, and `kyro_context` variable values,
 - metadata that tools can use to stay scoped to the right workspace,
 - the Kyro server URL and Vapi webhook credential id so live call events and
   transcripts continue to flow back with Kyro authentication.
 
 This is the missing piece that prevents Vapi from literally reading placeholders
-like `{{workspace_name}}` and allows the same Kyro tools to work for live inbound
-phone calls.
+like `{{business_name}}` or `{{workspace_name}}` and allows the same Kyro tools
+to work for live inbound phone calls.
 
 ## Known Hardening
 

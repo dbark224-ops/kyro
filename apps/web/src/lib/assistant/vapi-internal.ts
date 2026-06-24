@@ -373,6 +373,8 @@ export async function getVapiInternalVoiceSession({
   const remoteToolUrl = remotelyReachableUrl(configuredToolUrl);
   const remoteWebhookUrl = remotelyReachableUrl(configuredWebhookUrl);
   const webhookCredentialId = vapiWebhookCredentialId();
+  const businessName =
+    textValue(generalSettings.businessProfile.businessName) ?? workspace.name;
   const missing = [
     publicKey ? null : "NEXT_PUBLIC_VAPI_PUBLIC_KEY",
     assistantId ? null : "VAPI_INTERNAL_ASSISTANT_ID",
@@ -481,6 +483,7 @@ export async function getVapiInternalVoiceSession({
       ],
       variableValues: {
         ...currentTime.variableValues,
+        business_name: businessName,
         kyro_context: contextMessage,
         kyro_tool_url: remoteToolUrl ?? "",
         thread_id: threadId ?? "",
