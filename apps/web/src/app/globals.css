@@ -8288,6 +8288,53 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.voicemail-overflow-status-list {
+  align-items: stretch;
+}
+
+.settings-status-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+}
+
+.settings-status-pill::before {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  content: "";
+}
+
+.settings-status-pill.ready {
+  border-color: color-mix(in srgb, #22c55e 46%, var(--line));
+  background: color-mix(in srgb, #22c55e 12%, transparent);
+  color: color-mix(in srgb, #22c55e 72%, var(--text));
+}
+
+.settings-status-pill.ready::before {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #22c55e 14%, transparent);
+}
+
+.settings-status-pill.warning {
+  border-color: color-mix(in srgb, var(--pink) 46%, var(--line));
+  background: color-mix(in srgb, var(--pink) 12%, transparent);
+  color: color-mix(in srgb, var(--pink) 72%, var(--text));
+}
+
+.settings-status-pill.warning::before {
+  background: var(--pink);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pink) 14%, transparent);
+}
+
 .integration-scope-list {
   margin-bottom: 12px;
 }

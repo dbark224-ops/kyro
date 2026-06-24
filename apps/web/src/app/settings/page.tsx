@@ -5,7 +5,6 @@ import {
   disconnectIntegrationAction,
   disconnectWorkspacePhoneSmsAction,
   disableVoicemailOverflowNumberAction,
-  enableVoicemailOverflowNumberAction,
   enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
   openKyroBillingPortalAction,
@@ -3860,7 +3859,6 @@ function VoicemailOverflowSettings({
     voiceNumbers.find(isVoicemailOverflowPhoneNumber) ??
     assignedPhoneNumbers.find(isVoicemailOverflowPhoneNumber) ??
     null;
-  const defaultPhoneNumberId = voicemailNumber?.id ?? voiceNumbers[0]?.id ?? "";
   const voicemailBackendReady = Boolean(
     voicemailNumber?.vapiPhoneNumberId &&
       voiceSettings.phoneAgentVoicemailOverflowEnabled &&
@@ -3878,31 +3876,26 @@ function VoicemailOverflowSettings({
           {voicemailNumber
             ? "Configured"
             : voiceNumbers.length > 0
-              ? "Choose number"
+              ? "Needs setup"
               : "Needs phone number"}
         </span>
       </div>
 
-      <p className="empty-copy">
-        Pick the Kyro number that your carrier forwards unanswered or missed
-        calls to. Kyro will answer those forwarded calls with the voicemail
-        overflow assistant, record the transcript, and surface the result in
-        activity.
-      </p>
-
       {voicemailNumber ? (
-        <div className="detail-list compact-detail-list">
+        <div className="detail-list compact-detail-list voicemail-overflow-status-list">
           <div>
-            <span>Forward missed calls to</span>
+            <span>Your call forwarding number is</span>
             <strong>{voicemailNumber.phoneNumber}</strong>
           </div>
           <div>
-            <span>Call purpose</span>
-            <strong>Voicemail overflow</strong>
-          </div>
-          <div>
             <span>Backend status</span>
-            <strong>
+            <strong
+              className={
+                voicemailBackendReady
+                  ? "settings-status-pill ready"
+                  : "settings-status-pill warning"
+              }
+            >
               {voicemailBackendReady
                 ? "Ready for forwarded calls"
                 : "Needs Vapi assistant or linked number"}
@@ -3918,65 +3911,48 @@ function VoicemailOverflowSettings({
         </p>
       ) : null}
 
-      {voiceNumbers.length > 0 ? (
+      {voicemailNumber ? (
         <div className="settings-grid">
-          {voicemailNumber ? (
-            <div className="setting-card">
-              <SettingCardHeading info="Kyro cannot change a mobile carrier forwarding rule directly. Use this number in the user's phone or carrier portal for unanswered, busy, or unreachable-call forwarding.">
-                Forward missed calls from a personal phone
-              </SettingCardHeading>
-              <div className="detail-list compact-detail-list">
-                <div>
-                  <span>Forward unanswered or busy calls to</span>
-                  <strong>{voicemailNumber.phoneNumber}</strong>
-                </div>
-              </div>
-              <ol className="settings-step-list">
-                <li>
-                  Open the mobile carrier, phone-system, or handset call
-                  forwarding settings.
-                </li>
-                <li>
-                  Choose forwarding for unanswered, busy, or unreachable calls,
-                  not unconditional forwarding unless every call should go to
-                  Kyro.
-                </li>
-                <li>
-                  Save the Kyro number above as the forwarding destination, then
-                  place a test call and let the personal phone ring out.
-                </li>
-              </ol>
-              <p className="empty-copy">
-                Once the carrier forwards the call, Kyro answers with the
-                voicemail overflow assistant and records the result in Assistant
-                activity.
-              </p>
-            </div>
-          ) : null}
-
-          <form
-            action={enableVoicemailOverflowNumberAction}
-            className="setting-card"
-          >
-            <SettingCardHeading info="This only marks which of your assigned Kyro numbers is used for missed-call forwarding. Your mobile carrier or phone system still controls the actual forwarding rule.">
-              Overflow destination
+          <div className="setting-card">
+            <SettingCardHeading info="Kyro cannot change a mobile carrier forwarding rule directly. Use this number in the user's phone or carrier portal for unanswered, busy, or unreachable-call forwarding.">
+              Set up personal phone overflow
             </SettingCardHeading>
-            <select defaultValue={defaultPhoneNumberId} name="phoneNumberId">
-              {voiceNumbers.map((number) => (
-                <option key={number.id} value={number.id}>
-                  {number.phoneNumber}
-                  {isVoicemailOverflowPhoneNumber(number)
-                    ? " - current overflow"
-                    : ""}
-                </option>
-              ))}
-            </select>
-            <div className="settings-footer align-end">
-              <button className="primary-button compact" type="submit">
-                Save overflow number
-              </button>
+            <div className="detail-list compact-detail-list">
+              <div>
+                <span>Use this number in your phone forwarding settings</span>
+                <strong>{voicemailNumber.phoneNumber}</strong>
+              </div>
             </div>
-          </form>
+            <ol className="settings-step-list">
+              <li>
+                Open your mobile carrier or phone-system call forwarding
+                settings.
+              </li>
+              <li>
+                Choose conditional forwarding for unanswered, busy, and
+                unreachable calls. Avoid unconditional forwarding unless every
+                call should go straight to Kyro.
+              </li>
+              <li>
+                Enter the Kyro number shown above as the forwarding destination
+                and save the change.
+              </li>
+              <li>
+                If you use iPhone, turn off Live Voicemail before testing so the
+                carrier can forward missed calls to Kyro instead of the phone
+                intercepting them locally.
+              </li>
+              <li>
+                Place a test call from another phone, let your personal phone
+                ring out, then confirm the call appears in Kyro activity.
+              </li>
+            </ol>
+            <p className="empty-copy">
+              Once the carrier forwards the missed call, Kyro answers with the
+              voicemail overflow assistant and records the transcript in
+              Assistant activity.
+            </p>
+          </div>
 
           <form
             action={disableVoicemailOverflowNumberAction}
@@ -4005,6 +3981,11 @@ function VoicemailOverflowSettings({
             </div>
           </form>
         </div>
+      ) : voiceNumbers.length > 0 ? (
+        <p className="form-alert compact-alert">
+          Your workspace has a voice-capable Kyro number, but voicemail overflow
+          is not assigned to it yet.
+        </p>
       ) : (
         <p className="form-alert compact-alert">
           Enable phone and SMS in Connected accounts first so Kyro has a
