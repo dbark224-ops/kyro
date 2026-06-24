@@ -21,13 +21,14 @@ while deciding what to build, defer, or keep manual.
 Goal: Vapi webhook callbacks and Vapi tool calls authenticate reliably against
 Kyro in production.
 
-Current production readiness on 2026-06-24:
+Current production readiness on 2026-06-24 after deploy
+`dpl_9s6khrZRJSpBq9zk7KstZua3C7T6`:
 
 - `VAPI_API_KEY`: ready
 - `VAPI_WEBHOOK_SECRET`: ready
 - `VAPI_TOOL_SECRET`: ready
-- `VAPI_WEBHOOK_CREDENTIAL_ID`: not ready
-- `VAPI_TOOL_CREDENTIAL_ID`: not ready
+- `VAPI_WEBHOOK_CREDENTIAL_ID`: ready
+- `VAPI_TOOL_CREDENTIAL_ID`: ready
 
 To finish:
 
