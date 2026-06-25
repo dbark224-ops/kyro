@@ -2,6 +2,10 @@ import {
   ELEVENLABS_VOICE_PRESETS,
   OPENAI_VOICE_OPTIONS,
   OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
+  PHONE_AGENT_DEMEANORS,
+  PHONE_AGENT_ESCALATION_MODES,
+  PHONE_AGENT_HUMOUR_LEVELS,
+  PHONE_AGENT_VERBOSITIES,
   VOICE_SETTINGS_POLICY_TYPE,
   elevenLabsVoicePresetById,
   getVoiceSettings,
@@ -58,10 +62,17 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
-import { getUsageReport, normalizeUsageWindow, usageWindows } from "../../../../lib/usage/queries";
 import {
+  getUsageReport,
+  normalizeUsageWindow,
+  usageWindows,
+} from "../../../../lib/usage/queries";
+import {
+  PHONE_REGION_OPTIONS,
   WORKSPACE_GENERAL_POLICY_TYPE,
   getWorkspaceGeneralSettings,
+  normalizePhoneRegion,
+  normalizeWorkspaceBusinessProfileSettings,
   normalizeWorkspaceGeneralSettings,
 } from "../../../../lib/workspace/general-settings";
 
@@ -142,11 +153,10 @@ export async function PATCH(request: Request) {
   }
 }
 
-async function buildSettingsResponse({
-  supabase,
-  user,
-  workspace,
-}: MobileContext, usageWindow = normalizeUsageWindow("30d")) {
+async function buildSettingsResponse(
+  { supabase, user, workspace }: MobileContext,
+  usageWindow = normalizeUsageWindow("30d"),
+) {
   const [
     communication,
     general,
@@ -155,6 +165,7 @@ async function buildSettingsResponse({
     inboundSummary,
     microsoft,
     pronunciationEntries,
+    phoneSms,
     usageReport,
     voice,
   ] = await Promise.all([
@@ -165,6 +176,7 @@ async function buildSettingsResponse({
     getInboundEmailOperationalSummary(supabase, workspace.id),
     getMicrosoftIntegrationOverview(supabase, workspace.id),
     getPronunciationEntries(supabase, workspace.id),
+    getMobilePhoneSmsStatus(supabase, workspace.id),
     getUsageReport(supabase, workspace.id, usageWindow),
     getVoiceSettings(supabase, workspace.id),
   ]);
@@ -224,6 +236,11 @@ async function buildSettingsResponse({
       outboundVoicePronunciationPolicies: [
         ...OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
       ],
+      phoneAgentDemeanors: [...PHONE_AGENT_DEMEANORS],
+      phoneAgentEscalationModes: [...PHONE_AGENT_ESCALATION_MODES],
+      phoneAgentHumourLevels: [...PHONE_AGENT_HUMOUR_LEVELS],
+      phoneAgentVerbosities: [...PHONE_AGENT_VERBOSITIES],
+      phoneRegions: [...PHONE_REGION_OPTIONS],
       pronunciationCategories: [...PRONUNCIATION_CATEGORIES],
       pronunciationStatuses: [...PRONUNCIATION_STATUSES],
       openAiVoices: [...OPENAI_VOICE_OPTIONS],
@@ -291,9 +308,20 @@ async function buildSettingsResponse({
         openAiVoice: voice.openAiVoice,
         outboundVoicePronunciationPolicy:
           voice.outboundVoicePronunciationPolicy,
+        phoneAgentDemeanor: voice.phoneAgentDemeanor,
+        phoneAgentEnabled: voice.phoneAgentEnabled,
+        phoneAgentEscalationMode: voice.phoneAgentEscalationMode,
+        phoneAgentHumourLevel: voice.phoneAgentHumourLevel,
+        phoneAgentInboundEnabled: voice.phoneAgentInboundEnabled,
+        phoneAgentOutboundEnabled: voice.phoneAgentOutboundEnabled,
+        phoneAgentUserNumbers: voice.phoneAgentUserNumbers,
+        phoneAgentVerbosity: voice.phoneAgentVerbosity,
+        phoneAgentVoicemailOverflowEnabled:
+          voice.phoneAgentVoicemailOverflowEnabled,
         provider: voice.provider,
       },
     },
+    phoneSms,
     status: {
       connectedAccountCount: connectedCount,
       inboundDecisionCount: inboundSummary.decisions.length,
@@ -330,20 +358,22 @@ async function buildSettingsResponse({
         unit: row.unit,
         userName: row.userName,
       })),
-      providerBreakdown: usageReport.providerBreakdown.slice(0, 6).map((row) => ({
-        customerCharge: row.customerCharge,
-        displayCustomerCharge: formatDisplayMoney(
-          row.customerCharge,
-          row.currency,
-          general,
-        ),
-        events: row.events,
-        key: row.key,
-        label: row.label,
-        model: row.model,
-        provider: row.provider,
-        service: row.service,
-      })),
+      providerBreakdown: usageReport.providerBreakdown
+        .slice(0, 6)
+        .map((row) => ({
+          customerCharge: row.customerCharge,
+          displayCustomerCharge: formatDisplayMoney(
+            row.customerCharge,
+            row.currency,
+            general,
+          ),
+          events: row.events,
+          key: row.key,
+          label: row.label,
+          model: row.model,
+          provider: row.provider,
+          service: row.service,
+        })),
       taskBreakdown: usageReport.taskBreakdown.slice(0, 6).map((row) => ({
         customerCharge: row.customerCharge,
         description: row.description,
@@ -393,12 +423,25 @@ async function updateGeneralSettings(
     beforeGeneral?.settings,
     { timeZone: beforeInboundSettings.timeZone },
   );
-  const timeZone = textValue(updates.timeZone) ?? beforeGeneralSettings.timeZone;
+  const timeZone =
+    textValue(updates.timeZone) ?? beforeGeneralSettings.timeZone;
 
   assertValidTimeZone(timeZone);
 
+  const businessProfile = normalizeWorkspaceBusinessProfileSettings(
+    {
+      ...beforeGeneralSettings.businessProfile,
+      ...objectRecord(updates.businessProfile),
+    },
+    beforeGeneralSettings.businessProfile,
+  );
   const settings = normalizeWorkspaceGeneralSettings({
     ...beforeGeneralSettings,
+    businessProfile,
+    defaultPhoneRegion: normalizePhoneRegion(
+      textValue(updates.defaultPhoneRegion),
+      beforeGeneralSettings.defaultPhoneRegion,
+    ),
     displayCurrency: normalizeDisplayCurrency(
       updates.displayCurrency,
       beforeGeneralSettings.displayCurrency,
@@ -429,6 +472,68 @@ async function updateGeneralSettings(
   if (error) {
     throw new Error(error.message);
   }
+}
+
+async function getMobilePhoneSmsStatus(
+  supabase: MobileContext["supabase"],
+  workspaceId: string,
+) {
+  const { data, error } = await supabase
+    .from("workspace_phone_numbers")
+    .select(
+      "id,phone_number,normalized_phone,friendly_name,provider_phone_number_id,country_code,region,capabilities,status,monthly_cost_snapshot,currency,metadata",
+    )
+    .eq("workspace_id", workspaceId)
+    .in("status", ["active", "pending"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (tableMissing(error)) {
+      return {
+        configured: false,
+        numbers: [],
+      };
+    }
+
+    throw new Error(`Unable to load phone and SMS numbers: ${error.message}`);
+  }
+
+  const numbers = ((data ?? []) as unknown as Record<string, unknown>[]).map(
+    (row) => {
+      const capabilities = objectRecord(row.capabilities);
+      const metadata = objectRecord(row.metadata);
+      const vapi = objectRecord(metadata.vapi);
+
+      return {
+        capabilities: {
+          mms: Boolean(capabilities.mms),
+          sms: Boolean(capabilities.sms),
+          voice: Boolean(capabilities.voice),
+        },
+        countryCode: textValue(row.country_code),
+        currency: textValue(row.currency) ?? "USD",
+        friendlyName: textValue(row.friendly_name),
+        id: String(row.id),
+        monthlyCostSnapshot: numberValue(row.monthly_cost_snapshot) ?? 0,
+        normalizedPhone: textValue(row.normalized_phone),
+        phoneNumber:
+          textValue(row.phone_number) ?? String(row.phone_number ?? ""),
+        providerPhoneNumberId: textValue(row.provider_phone_number_id),
+        region: textValue(row.region),
+        status: textValue(row.status) ?? "active",
+        vapiPhoneNumberId:
+          textValue(metadata.vapiPhoneNumberId) ??
+          textValue(metadata.vapi_phone_number_id) ??
+          textValue(vapi.phoneNumberId) ??
+          textValue(vapi.phone_number_id),
+      };
+    },
+  );
+
+  return {
+    configured: numbers.length > 0,
+    numbers,
+  };
 }
 
 async function updateCommunicationSettings(
@@ -527,12 +632,14 @@ async function updateInboundEmailSettings(
   const settings = normalizeInboundEmailSettings({
     ...beforeSettings,
     actionInstructions:
-      textValue(updates.actionInstructions) ?? beforeSettings.actionInstructions,
+      textValue(updates.actionInstructions) ??
+      beforeSettings.actionInstructions,
     includeAwarenessEvents:
       typeof updates.includeAwarenessEvents === "boolean"
         ? updates.includeAwarenessEvents
         : beforeSettings.includeAwarenessEvents,
-    lookbackDays: numberValue(updates.lookbackDays) ?? beforeSettings.lookbackDays,
+    lookbackDays:
+      numberValue(updates.lookbackDays) ?? beforeSettings.lookbackDays,
     maxMessagesPerSync:
       numberValue(updates.maxMessagesPerSync) ??
       beforeSettings.maxMessagesPerSync,
@@ -564,7 +671,9 @@ async function updateInboundEmailSettings(
   });
 }
 
-function senderRuleMatchValue(value: unknown): InboundEmailSenderRule["match"] | null {
+function senderRuleMatchValue(
+  value: unknown,
+): InboundEmailSenderRule["match"] | null {
   return value === "email" || value === "domain" ? value : null;
 }
 
@@ -628,7 +737,10 @@ async function removeSenderRuleSettings(
     throw new Error("Choose a valid sender rule to remove.");
   }
 
-  const settings = removeInboundEmailSenderRule(beforeSettings, { match, value });
+  const settings = removeInboundEmailSenderRule(beforeSettings, {
+    match,
+    value,
+  });
 
   await savePolicy(context, {
     action: "inbound_email.sender_rule_removed",
@@ -670,7 +782,61 @@ async function updateVoiceSettings(
     elevenLabsVoicePresetId,
     openAiVoice,
     outboundVoicePronunciationPolicy,
-    provider: "openai",
+    phoneAgentDemeanor:
+      typeof updates.phoneAgentDemeanor === "string" &&
+      PHONE_AGENT_DEMEANORS.includes(
+        updates.phoneAgentDemeanor as (typeof PHONE_AGENT_DEMEANORS)[number],
+      )
+        ? updates.phoneAgentDemeanor
+        : beforeSettings.phoneAgentDemeanor,
+    phoneAgentEnabled:
+      typeof updates.phoneAgentEnabled === "boolean"
+        ? updates.phoneAgentEnabled
+        : beforeSettings.phoneAgentEnabled,
+    phoneAgentEscalationMode:
+      typeof updates.phoneAgentEscalationMode === "string" &&
+      PHONE_AGENT_ESCALATION_MODES.includes(
+        updates.phoneAgentEscalationMode as (typeof PHONE_AGENT_ESCALATION_MODES)[number],
+      )
+        ? updates.phoneAgentEscalationMode
+        : beforeSettings.phoneAgentEscalationMode,
+    phoneAgentHumourLevel:
+      typeof updates.phoneAgentHumourLevel === "string" &&
+      PHONE_AGENT_HUMOUR_LEVELS.includes(
+        updates.phoneAgentHumourLevel as (typeof PHONE_AGENT_HUMOUR_LEVELS)[number],
+      )
+        ? updates.phoneAgentHumourLevel
+        : beforeSettings.phoneAgentHumourLevel,
+    phoneAgentInboundEnabled:
+      typeof updates.phoneAgentInboundEnabled === "boolean"
+        ? updates.phoneAgentInboundEnabled
+        : beforeSettings.phoneAgentInboundEnabled,
+    phoneAgentOutboundEnabled:
+      typeof updates.phoneAgentOutboundEnabled === "boolean"
+        ? updates.phoneAgentOutboundEnabled
+        : beforeSettings.phoneAgentOutboundEnabled,
+    phoneAgentUserNumbers: Array.isArray(updates.phoneAgentUserNumbers)
+      ? updates.phoneAgentUserNumbers
+          .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+          .filter(Boolean)
+      : textValue(updates.phoneAgentUserNumbers)
+        ? String(updates.phoneAgentUserNumbers)
+            .split(/[\n,]+/)
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : beforeSettings.phoneAgentUserNumbers,
+    phoneAgentVerbosity:
+      typeof updates.phoneAgentVerbosity === "string" &&
+      PHONE_AGENT_VERBOSITIES.includes(
+        updates.phoneAgentVerbosity as (typeof PHONE_AGENT_VERBOSITIES)[number],
+      )
+        ? updates.phoneAgentVerbosity
+        : beforeSettings.phoneAgentVerbosity,
+    phoneAgentVoicemailOverflowEnabled:
+      typeof updates.phoneAgentVoicemailOverflowEnabled === "boolean"
+        ? updates.phoneAgentVoicemailOverflowEnabled
+        : beforeSettings.phoneAgentVoicemailOverflowEnabled,
+    provider: beforeSettings.provider,
   });
 
   await savePolicy(context, {
@@ -773,7 +939,10 @@ async function updatePronunciationSettings(
   });
 }
 
-async function loadPolicy({ supabase, workspace }: MobileContext, policyType: string) {
+async function loadPolicy(
+  { supabase, workspace }: MobileContext,
+  policyType: string,
+) {
   const { data, error } = await supabase
     .from("workspace_policies")
     .select("id,settings")
@@ -865,6 +1034,18 @@ function assertValidTimeZone(value: string) {
   }
 }
 
+function tableMissing(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("workspace_phone_numbers") ||
+    message.includes("does not exist")
+  );
+}
+
 function integrationStatusLabel(overview: {
   configured: boolean;
   connections: Array<{ status: string }>;
@@ -884,7 +1065,9 @@ function integrationStatusLabel(overview: {
     return "Setup needed";
   }
 
-  if (overview.connections.some((connection) => connection.status === "connected")) {
+  if (
+    overview.connections.some((connection) => connection.status === "connected")
+  ) {
     return "Connected";
   }
 

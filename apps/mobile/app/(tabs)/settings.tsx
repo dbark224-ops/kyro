@@ -29,7 +29,7 @@ import {
   Upload,
   Users,
   Volume2,
-  X
+  X,
 } from "lucide-react-native";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
@@ -46,14 +46,14 @@ import {
   Switch,
   Text,
   TextInput,
-  View
+  View,
 } from "react-native";
 
 import { DataState } from "@/components/DataState";
 import {
   SkeletonIcon,
   SkeletonLine,
-  SkeletonPill
+  SkeletonPill,
 } from "@/components/LoadingSkeleton";
 import { Screen } from "@/components/Screen";
 import {
@@ -61,12 +61,12 @@ import {
   ListRow,
   SectionCard,
   SectionHeader,
-  StatusPill
+  StatusPill,
 } from "@/components/ui";
 import { useAuthSession } from "@/features/auth/auth-context";
 import {
   useAppLock,
-  type AppLockMode
+  type AppLockMode,
 } from "@/features/security/app-lock-context";
 import { kyroApiFetch } from "@/lib/kyro-api";
 import { mobileEnv } from "@/lib/env";
@@ -78,7 +78,7 @@ import {
   mobilePaymentsQueryOptions,
   mobileQueryKeys,
   mobileSettingsQueryOptions,
-  mobileWorkspaceToolsQueryOptions
+  mobileWorkspaceToolsQueryOptions,
 } from "@/lib/mobile-query";
 import type {
   MobileActivityLogItem,
@@ -94,7 +94,7 @@ import type {
   MobilePaymentsResponse,
   MobileReportPreview,
   MobileSettingsResponse,
-  MobileWorkspaceToolsResponse
+  MobileWorkspaceToolsResponse,
 } from "@/lib/mobile-api-types";
 import type {
   MobileFileFilter,
@@ -102,7 +102,7 @@ import type {
   MobileFileLinkResponse,
   MobileQuoteDraftDetailResponse,
   MobileQuoteDraftListItem,
-  MobileQuoteLineItem
+  MobileQuoteLineItem,
 } from "@/lib/mobile-api-types";
 import { colors, radii, typography } from "@/theme";
 
@@ -111,6 +111,7 @@ type SettingsSection =
   | "files"
   | "general"
   | "integrations"
+  | "phone_sms"
   | "contact_sync"
   | "activity"
   | "developer"
@@ -135,6 +136,8 @@ type SettingsSaveSection =
   | "pronunciation"
   | "voice";
 type GeneralDraft = {
+  businessProfile: MobileSettingsResponse["settings"]["general"]["businessProfile"];
+  defaultPhoneRegion: string;
   displayCurrency: string;
   timeZone: string;
 };
@@ -162,8 +165,18 @@ type VoiceDraft = {
   elevenLabsVoicePresetId: string;
   openAiVoice: string;
   outboundVoicePronunciationPolicy: string;
+  phoneAgentDemeanor: string;
+  phoneAgentEnabled: boolean;
+  phoneAgentEscalationMode: string;
+  phoneAgentHumourLevel: string;
+  phoneAgentInboundEnabled: boolean;
+  phoneAgentOutboundEnabled: boolean;
+  phoneAgentUserNumbers: string[];
+  phoneAgentVerbosity: string;
+  phoneAgentVoicemailOverflowEnabled: boolean;
 };
-type PronunciationEntry = MobileSettingsResponse["pronunciationEntries"][number];
+type PronunciationEntry =
+  MobileSettingsResponse["pronunciationEntries"][number];
 type DeviceContactImportType =
   | "builder"
   | "client"
@@ -181,12 +194,10 @@ type DeviceContactRow = {
   name: string | null;
   phone: string | null;
 };
-type DocumentLaunch =
-  | {
-      mode: "invoice";
-      nonce: number;
-    }
-  | null;
+type DocumentLaunch = {
+  mode: "invoice";
+  nonce: number;
+} | null;
 
 const deviceContactImportTypes: DeviceContactImportType[] = [
   "client",
@@ -194,89 +205,90 @@ const deviceContactImportTypes: DeviceContactImportType[] = [
   "contractor",
   "builder",
   "property_manager",
-  "other"
+  "other",
 ];
 
-const vapiVoiceOptionsFallback: MobileSettingsResponse["options"]["vapiVoices"] = [
-  {
-    accent: "Australian",
-    id: "male_australian",
-    label: "Male - Australian",
-    voiceId: "DYkrAHD8iwork3YSUBbs"
-  },
-  {
-    accent: "Australian",
-    id: "female_australian",
-    label: "Female - Australian",
-    voiceId: "56bWURjYFHyYyVf490Dp"
-  },
-  {
-    accent: "American",
-    id: "female_usa",
-    label: "Female - USA",
-    voiceId: "DODLEQrClDo8wCz460ld"
-  },
-  {
-    accent: "Italian",
-    id: "male_italian",
-    label: "Male - Italian",
-    voiceId: "yowh82B72eMNrxcxHgBh"
-  },
-  {
-    accent: "American",
-    id: "male_usa_young_urban_african_american",
-    label: "Male - USA - Young urban African American",
-    voiceId: "YjlcD3XHztjJEo2wNszv"
-  },
-  {
-    accent: "American",
-    id: "male_usa_deep_calming",
-    label: "Male - USA - Deep and calming",
-    voiceId: "sB7vwSCyX0tQmU24cW2C"
-  },
-  {
-    accent: "American",
-    id: "male_usa_upbeat",
-    label: "Male - USA - Upbeat",
-    voiceId: "7EzWGsX10sAS4c9m9cPf"
-  },
-  {
-    accent: "English",
-    id: "male_english_deeper",
-    label: "Male - English - Deeper",
-    voiceId: "xYo5z1CSHgIA8XSPGcsR"
-  },
-  {
-    accent: "English",
-    id: "female_english",
-    label: "Female - English",
-    voiceId: "lcMyyd2HUfFzxdCaC4Ta"
-  },
-  {
-    accent: "English",
-    id: "male_english_upbeat",
-    label: "Male - English - Upbeat",
-    voiceId: "jRAAK67SEFE9m7ci5DhD"
-  },
-  {
-    accent: "American",
-    id: "male_usa_boston",
-    label: "Male - USA (Boston)",
-    voiceId: "UZvBfqEdvCFLqsBOo9Zr"
-  },
-  {
-    accent: "Irish",
-    id: "female_irish",
-    label: "Female - Irish",
-    voiceId: "sgk995upfe3tYLvoGcBN"
-  },
-  {
-    accent: "Irish",
-    id: "male_irish",
-    label: "Male - Irish",
-    voiceId: "hmMWXCj9K7N5mCPcRkfC"
-  }
-];
+const vapiVoiceOptionsFallback: MobileSettingsResponse["options"]["vapiVoices"] =
+  [
+    {
+      accent: "Australian",
+      id: "male_australian",
+      label: "Male - Australian",
+      voiceId: "DYkrAHD8iwork3YSUBbs",
+    },
+    {
+      accent: "Australian",
+      id: "female_australian",
+      label: "Female - Australian",
+      voiceId: "56bWURjYFHyYyVf490Dp",
+    },
+    {
+      accent: "American",
+      id: "female_usa",
+      label: "Female - USA",
+      voiceId: "DODLEQrClDo8wCz460ld",
+    },
+    {
+      accent: "Italian",
+      id: "male_italian",
+      label: "Male - Italian",
+      voiceId: "yowh82B72eMNrxcxHgBh",
+    },
+    {
+      accent: "American",
+      id: "male_usa_young_urban_african_american",
+      label: "Male - USA - Young urban African American",
+      voiceId: "YjlcD3XHztjJEo2wNszv",
+    },
+    {
+      accent: "American",
+      id: "male_usa_deep_calming",
+      label: "Male - USA - Deep and calming",
+      voiceId: "sB7vwSCyX0tQmU24cW2C",
+    },
+    {
+      accent: "American",
+      id: "male_usa_upbeat",
+      label: "Male - USA - Upbeat",
+      voiceId: "7EzWGsX10sAS4c9m9cPf",
+    },
+    {
+      accent: "English",
+      id: "male_english_deeper",
+      label: "Male - English - Deeper",
+      voiceId: "xYo5z1CSHgIA8XSPGcsR",
+    },
+    {
+      accent: "English",
+      id: "female_english",
+      label: "Female - English",
+      voiceId: "lcMyyd2HUfFzxdCaC4Ta",
+    },
+    {
+      accent: "English",
+      id: "male_english_upbeat",
+      label: "Male - English - Upbeat",
+      voiceId: "jRAAK67SEFE9m7ci5DhD",
+    },
+    {
+      accent: "American",
+      id: "male_usa_boston",
+      label: "Male - USA (Boston)",
+      voiceId: "UZvBfqEdvCFLqsBOo9Zr",
+    },
+    {
+      accent: "Irish",
+      id: "female_irish",
+      label: "Female - Irish",
+      voiceId: "sgk995upfe3tYLvoGcBN",
+    },
+    {
+      accent: "Irish",
+      id: "male_irish",
+      label: "Male - Irish",
+      voiceId: "hmMWXCj9K7N5mCPcRkfC",
+    },
+  ];
 
 const emptySignature: MobileEmailSignatureSettings = {
   logoContentBase64: "",
@@ -285,8 +297,35 @@ const emptySignature: MobileEmailSignatureSettings = {
   logoSizeBytes: 0,
   logoUrl: "",
   logoWidthPx: 96,
-  text: ""
+  text: "",
 };
+
+const emptyBusinessProfile: MobileSettingsResponse["settings"]["general"]["businessProfile"] =
+  {
+    brandAccentColor: "#ec3c96",
+    brandPrimaryColor: "#36d7f4",
+    brandStyle: "",
+    businessAddress: "",
+    businessName: "",
+    contactHours: "",
+    emergencyJobsEnabled: false,
+    industry: "",
+    logoContentBase64: "",
+    logoContentType: "",
+    logoFilename: "",
+    logoSizeBytes: 0,
+    logoUrl: "",
+    logoWidthPx: 120,
+    operatingCountry: "",
+    publicEmail: "",
+    publicPhoneNumber: "",
+    serviceArea: "",
+    servicePostcodes: "",
+    serviceSuburbs: "",
+    staffCount: null,
+    travelRadiusKm: null,
+    workingHours: "",
+  };
 
 type SettingsSectionItem = {
   detail: string;
@@ -305,103 +344,110 @@ type SettingsGroupItem = {
 
 const sectionItems: SettingsSectionItem[] = [
   {
-    detail: "Timezone, currency, workspace defaults",
-    eyebrow: "General",
+    detail: "Business details, public info, service area",
+    eyebrow: "Business",
     icon: Globe2,
     section: "general",
-    title: "System defaults"
+    title: "Business profile",
   },
   {
     detail: "Email sync, providers, outbound rules",
     eyebrow: "Integrations",
     icon: Mail,
     section: "integrations",
-    title: "Connected accounts"
+    title: "Connected accounts",
+  },
+  {
+    detail: "Assigned voice and SMS numbers",
+    eyebrow: "Phone",
+    icon: Mic2,
+    section: "phone_sms",
+    title: "Phone and SMS",
   },
   {
     detail: "Biometrics, passcode, or no app lock",
     eyebrow: "Security",
     icon: ShieldCheck,
     section: "security",
-    title: "App unlock"
+    title: "App unlock",
   },
   {
     detail: "Realtime voice and pronunciation",
     eyebrow: "Voice",
     icon: Mic2,
     section: "voice",
-    title: "Voice assistant"
+    title: "Voice assistant",
   },
   {
     detail: "Import selected device contacts",
     eyebrow: "CRM",
     icon: Users,
     section: "contact_sync",
-    title: "Phone contacts"
+    title: "Phone contacts",
   },
   {
     detail: "Summary, requests, links, and invoices",
     eyebrow: "Payments",
     icon: CreditCard,
     section: "payments",
-    title: "Payments"
+    title: "Payments",
   },
   {
     detail: "Stripe status and invoice defaults",
     eyebrow: "Stripe",
     icon: CreditCard,
     section: "stripe",
-    title: "Stripe"
+    title: "Stripe",
   },
   {
     detail: "Quote drafts, templates, and PDFs",
     eyebrow: "Documents",
     icon: FileText,
     section: "document_generator",
-    title: "Document generator"
+    title: "Document generator",
   },
   {
     detail: "Generated files, uploads, and attachments",
     eyebrow: "Files",
     icon: FileText,
     section: "files",
-    title: "Files library"
+    title: "Files library",
   },
   {
     detail: "Build workspace summaries and ledgers",
     eyebrow: "Reports",
     icon: BarChart3,
     section: "reports",
-    title: "Report generator"
+    title: "Report generator",
   },
   {
     detail: "Message, AI, audit, and usage events",
     eyebrow: "Activity",
     icon: Activity,
     section: "activity",
-    title: "Activity"
+    title: "Activity",
   },
   {
     detail: "Inbound and outbound operational traces",
     eyebrow: "Log",
     icon: Activity,
     section: "logs",
-    title: "Operational log"
+    title: "Operational log",
   },
   {
     detail: "Health, smoke checks, and internal tools",
     eyebrow: "Developer",
     icon: Code2,
     section: "developer",
-    title: "Developer"
+    title: "Developer",
   },
   {
     detail: "Usage charge, tasks, provider ledger",
     eyebrow: "Usage",
     icon: Activity,
     section: "usage",
-    title: "Usage and billing"
-  }
+    title: "Usage and billing",
+  },
 ];
 
 const settingsGroups: SettingsGroupItem[] = [
@@ -410,55 +456,59 @@ const settingsGroups: SettingsGroupItem[] = [
     icon: LockKeyhole,
     id: "app_account",
     sections: ["security", "usage"],
-    title: "App & account"
+    title: "App & account",
   },
   {
-    detail: "Workspace defaults, voice, and CRM imports",
+    detail: "Business profile, voice, and CRM imports",
     icon: Globe2,
     id: "workspace",
     sections: ["general", "voice", "contact_sync"],
-    title: "Workspace"
+    title: "Business profile",
   },
   {
-    detail: "Email providers, outbound rules, and traces",
+    detail: "Email providers, phone numbers, outbound rules, and traces",
     icon: Mail,
     id: "communication",
-    sections: ["integrations", "logs"],
-    title: "Communication"
+    sections: ["integrations", "phone_sms", "logs"],
+    title: "Communication",
   },
   {
     detail: "Quotes, report PDFs, and generated files",
     icon: BarChart3,
     id: "document_generator",
     sections: ["document_generator", "reports", "files"],
-    title: "Document Generator"
+    title: "Document Generator",
   },
   {
     detail: "Payment links, invoices, and Stripe setup",
     icon: CreditCard,
     id: "payments",
     sections: ["payments", "stripe"],
-    title: "Payments"
+    title: "Payments",
   },
   {
     detail: "Activity history and internal tools",
     icon: Activity,
     id: "insight_tools",
     sections: ["activity", "developer"],
-    title: "Activity & tools"
-  }
+    title: "Activity & tools",
+  },
 ];
 
 export default function SettingsScreen() {
   const { session, signOut, status, user } = useAuthSession();
-  const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(
+    null,
+  );
   const [selectedSection, setSelectedSection] =
     useState<SettingsSection | null>(null);
   const [documentLaunch, setDocumentLaunch] = useState<DocumentLaunch>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [generalDraft, setGeneralDraft] = useState<GeneralDraft>({
+    businessProfile: emptyBusinessProfile,
+    defaultPhoneRegion: "AU",
     displayCurrency: "USD",
-    timeZone: "UTC"
+    timeZone: "UTC",
   });
   const [inboundDraft, setInboundDraft] = useState<InboundDraft>({
     actionInstructions: "",
@@ -469,29 +519,38 @@ export default function SettingsScreen() {
     quietHoursEnabled: true,
     quietHoursEnd: "04:00",
     quietHoursStart: "22:00",
-    syncMode: "automatic"
+    syncMode: "automatic",
   });
   const [communicationDraft, setCommunicationDraft] =
     useState<CommunicationDraft>({
-    aiGeneratedSignature: emptySignature,
-    aiGeneratedSignatureText: "",
-    allowedChannels: ["email", "sms", "manual"],
-    approvalRequired: true,
-    manualSignature: emptySignature,
-    manualSignatureText: "",
-    useSeparateAiSignature: false
-  });
+      aiGeneratedSignature: emptySignature,
+      aiGeneratedSignatureText: "",
+      allowedChannels: ["email", "sms", "manual"],
+      approvalRequired: true,
+      manualSignature: emptySignature,
+      manualSignatureText: "",
+      useSeparateAiSignature: false,
+    });
   const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>({
     elevenLabsVoicePresetId: "female_australian",
     openAiVoice: "ballad",
-    outboundVoicePronunciationPolicy: "balanced"
+    outboundVoicePronunciationPolicy: "balanced",
+    phoneAgentDemeanor: "friendly_direct",
+    phoneAgentEnabled: false,
+    phoneAgentEscalationMode: "request_callback",
+    phoneAgentHumourLevel: "light",
+    phoneAgentInboundEnabled: true,
+    phoneAgentOutboundEnabled: true,
+    phoneAgentUserNumbers: [],
+    phoneAgentVerbosity: "balanced",
+    phoneAgentVoicemailOverflowEnabled: true,
   });
   const queryClient = useQueryClient();
   const settingsQueryOptions = mobileSettingsQueryOptions(session);
   const queryKey = settingsQueryOptions.queryKey;
   const settings = useQuery({
     ...settingsQueryOptions,
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const data = settings.data;
   const isSettingsLoading =
@@ -499,7 +558,7 @@ export default function SettingsScreen() {
   const saveSettings = useMutation({
     mutationFn: ({
       section,
-      settings: nextSettings
+      settings: nextSettings,
     }: {
       section: SettingsSaveSection;
       settings: Record<string, unknown>;
@@ -507,18 +566,20 @@ export default function SettingsScreen() {
       kyroApiFetch<MobileSettingsResponse>("/api/mobile/settings", {
         body: {
           section,
-          settings: nextSettings
+          settings: nextSettings,
         },
         method: "PATCH",
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to save settings.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to save settings.",
+      );
     },
     onSuccess: (nextData) => {
       queryClient.setQueryData(queryKey, nextData);
       setMessage(nextData.message ?? "Settings saved.");
-    }
+    },
   });
 
   useEffect(() => {
@@ -527,8 +588,11 @@ export default function SettingsScreen() {
     }
 
     setGeneralDraft({
+      businessProfile:
+        data.settings.general.businessProfile ?? emptyBusinessProfile,
+      defaultPhoneRegion: data.settings.general.defaultPhoneRegion ?? "AU",
       displayCurrency: data.settings.general.displayCurrency,
-      timeZone: data.settings.general.timeZone
+      timeZone: data.settings.general.timeZone,
     });
     setInboundDraft({
       actionInstructions: data.settings.inboundEmail.actionInstructions,
@@ -539,7 +603,7 @@ export default function SettingsScreen() {
       quietHoursEnabled: data.settings.inboundEmail.quietHoursEnabled,
       quietHoursEnd: data.settings.inboundEmail.quietHoursEnd,
       quietHoursStart: data.settings.inboundEmail.quietHoursStart,
-      syncMode: data.settings.inboundEmail.syncMode
+      syncMode: data.settings.inboundEmail.syncMode,
     });
     setCommunicationDraft({
       aiGeneratedSignature:
@@ -552,13 +616,23 @@ export default function SettingsScreen() {
         data.settings.communication.manualSignature ?? emptySignature,
       manualSignatureText: data.settings.communication.manualSignatureText,
       useSeparateAiSignature:
-        data.settings.communication.useSeparateAiSignature
+        data.settings.communication.useSeparateAiSignature,
     });
     setVoiceDraft({
       elevenLabsVoicePresetId: data.settings.voice.elevenLabsVoicePresetId,
       openAiVoice: data.settings.voice.openAiVoice,
       outboundVoicePronunciationPolicy:
-        data.settings.voice.outboundVoicePronunciationPolicy
+        data.settings.voice.outboundVoicePronunciationPolicy,
+      phoneAgentDemeanor: data.settings.voice.phoneAgentDemeanor,
+      phoneAgentEnabled: data.settings.voice.phoneAgentEnabled,
+      phoneAgentEscalationMode: data.settings.voice.phoneAgentEscalationMode,
+      phoneAgentHumourLevel: data.settings.voice.phoneAgentHumourLevel,
+      phoneAgentInboundEnabled: data.settings.voice.phoneAgentInboundEnabled,
+      phoneAgentOutboundEnabled: data.settings.voice.phoneAgentOutboundEnabled,
+      phoneAgentUserNumbers: data.settings.voice.phoneAgentUserNumbers,
+      phoneAgentVerbosity: data.settings.voice.phoneAgentVerbosity,
+      phoneAgentVoicemailOverflowEnabled:
+        data.settings.voice.phoneAgentVoicemailOverflowEnabled,
     });
   }, [data]);
 
@@ -577,7 +651,7 @@ export default function SettingsScreen() {
         }
 
         return true;
-      }
+      },
     );
 
     return () => subscription.remove();
@@ -637,7 +711,7 @@ export default function SettingsScreen() {
                   onSave={() =>
                     saveSettings.mutate({
                       section: "general",
-                      settings: generalDraft
+                      settings: generalDraft,
                     })
                   }
                 />
@@ -654,16 +728,20 @@ export default function SettingsScreen() {
                   onSaveCommunication={() =>
                     saveSettings.mutate({
                       section: "communication",
-                      settings: communicationDraft
+                      settings: communicationDraft,
                     })
                   }
                   onSaveInbound={() =>
                     saveSettings.mutate({
                       section: "inboundEmail",
-                      settings: inboundDraft
+                      settings: inboundDraft,
                     })
                   }
                 />
+              ) : null}
+
+              {selectedSection === "phone_sms" ? (
+                <PhoneSmsSettingsPanel data={data} />
               ) : null}
 
               {selectedSection === "security" ? (
@@ -679,7 +757,7 @@ export default function SettingsScreen() {
                   onSave={() =>
                     saveSettings.mutate({
                       section: "voice",
-                      settings: voiceDraft
+                      settings: voiceDraft,
                     })
                   }
                 />
@@ -712,9 +790,13 @@ export default function SettingsScreen() {
 
               {selectedSection === "reports" ? <ReportsSettingsPanel /> : null}
 
-              {selectedSection === "activity" ? <ActivitySettingsPanel /> : null}
+              {selectedSection === "activity" ? (
+                <ActivitySettingsPanel />
+              ) : null}
 
-              {selectedSection === "logs" ? <OperationalLogSettingsPanel /> : null}
+              {selectedSection === "logs" ? (
+                <OperationalLogSettingsPanel />
+              ) : null}
 
               {selectedSection === "developer" && data.developer.enabled ? (
                 <DeveloperSettingsPanel
@@ -723,7 +805,7 @@ export default function SettingsScreen() {
                   onSaveVoice={() =>
                     saveSettings.mutate({
                       section: "voice",
-                      settings: voiceDraft
+                      settings: voiceDraft,
                     })
                   }
                   onVoiceDraftChange={setVoiceDraft}
@@ -731,7 +813,9 @@ export default function SettingsScreen() {
                 />
               ) : null}
 
-              {selectedSection === "usage" ? <UsageSettingsPanel data={data} /> : null}
+              {selectedSection === "usage" ? (
+                <UsageSettingsPanel data={data} />
+              ) : null}
             </SettingsDetailTransition>
           ) : selectedGroup ? (
             <SettingsGroupMenu
@@ -765,7 +849,7 @@ function shouldShowSettingsHeaderUsage(section: SettingsSection | null) {
 
 function SettingsHeaderUsageChip({
   onPress,
-  value
+  value,
 }: {
   onPress: () => void;
   value: string;
@@ -777,7 +861,7 @@ function SettingsHeaderUsageChip({
       onPress={onPress}
       style={({ pressed }) => [
         styles.headerUsageChip,
-        pressed ? styles.pressed : null
+        pressed ? styles.pressed : null,
       ]}
     >
       <Text numberOfLines={1} style={styles.headerUsageValue}>
@@ -800,20 +884,28 @@ function SettingsLoadingState() {
             const tone = (["cyan", "purple", "pink"] as const)[index % 3];
 
             return (
-            <View
-              key={`${tone}-${index}`}
-              style={[
-                styles.settingsLoadingRow,
-                index === visibleItems.length - 1 ? styles.settingsRowLast : null
-              ]}
-            >
-              <SkeletonIcon tone={tone} />
-              <View style={styles.settingsRowMain}>
-                <SkeletonLine tone={tone} width={index === 1 ? "46%" : "56%"} />
-                <SkeletonLine height={10} width={index === 2 ? "84%" : "68%"} />
+              <View
+                key={`${tone}-${index}`}
+                style={[
+                  styles.settingsLoadingRow,
+                  index === visibleItems.length - 1
+                    ? styles.settingsRowLast
+                    : null,
+                ]}
+              >
+                <SkeletonIcon tone={tone} />
+                <View style={styles.settingsRowMain}>
+                  <SkeletonLine
+                    tone={tone}
+                    width={index === 1 ? "46%" : "56%"}
+                  />
+                  <SkeletonLine
+                    height={10}
+                    width={index === 2 ? "84%" : "68%"}
+                  />
+                </View>
+                <ChevronRight color={colors.muted} size={18} />
               </View>
-              <ChevronRight color={colors.muted} size={18} />
-            </View>
             );
           })}
         </View>
@@ -835,7 +927,7 @@ function SettingsLoadingState() {
 
 function SettingsMenu({
   data,
-  onSelect
+  onSelect,
 }: {
   data: MobileSettingsResponse;
   onSelect: (group: SettingsGroup) => void;
@@ -844,7 +936,7 @@ function SettingsMenu({
   const visibleGroups = settingsGroups
     .map((group) => ({
       ...group,
-      sections: visibleSectionsForGroup(group, data)
+      sections: visibleSectionsForGroup(group, data),
     }))
     .filter((group) => group.sections.length > 0);
 
@@ -871,7 +963,7 @@ function SettingsGroupMenu({
   data,
   groupId,
   onBack,
-  onSelect
+  onSelect,
 }: {
   data: MobileSettingsResponse;
   groupId: SettingsGroup;
@@ -936,7 +1028,7 @@ function SettingsGroupRow({
   data,
   group,
   isLast,
-  onPress
+  onPress,
 }: {
   appLockMode: AppLockMode;
   data: MobileSettingsResponse;
@@ -971,7 +1063,7 @@ function SettingsMenuRow({
   data,
   isLast,
   item,
-  onPress
+  onPress,
 }: {
   appLockMode: AppLockMode;
   data: MobileSettingsResponse;
@@ -1003,7 +1095,7 @@ function SettingsMenuRow({
 
 function SettingsDetailHeader({
   onBack,
-  section
+  section,
 }: {
   onBack: () => void;
   section: SettingsSection;
@@ -1036,7 +1128,7 @@ function SettingsDetailHeader({
 
 function SettingsDetailTransition({
   children,
-  section
+  section,
 }: {
   children: ReactNode;
   section: SettingsSection | SettingsGroup;
@@ -1052,14 +1144,14 @@ function SettingsDetailTransition({
         duration: 190,
         easing: Easing.out(Easing.cubic),
         toValue: 1,
-        useNativeDriver: true
+        useNativeDriver: true,
       }),
       Animated.timing(translateX, {
         duration: 220,
         easing: Easing.out(Easing.cubic),
         toValue: 0,
-        useNativeDriver: true
-      })
+        useNativeDriver: true,
+      }),
     ]).start();
   }, [opacity, section, translateX]);
 
@@ -1069,8 +1161,8 @@ function SettingsDetailTransition({
         styles.detailTransition,
         {
           opacity,
-          transform: [{ translateX }]
-        }
+          transform: [{ translateX }],
+        },
       ]}
     >
       {children}
@@ -1081,7 +1173,7 @@ function SettingsDetailTransition({
 function AccountSessionCard({
   onSignOut,
   status,
-  userEmail
+  userEmail,
 }: {
   onSignOut: () => void;
   status: ReturnType<typeof useAuthSession>["status"];
@@ -1127,7 +1219,7 @@ function GeneralSettingsPanel({
   disabled,
   draft,
   onChange,
-  onSave
+  onSave,
 }: {
   data: MobileSettingsResponse;
   disabled: boolean;
@@ -1135,40 +1227,239 @@ function GeneralSettingsPanel({
   onChange: (draft: GeneralDraft) => void;
   onSave: () => void;
 }) {
+  const updateProfile = (
+    key: keyof GeneralDraft["businessProfile"],
+    value: string | boolean | number | null,
+  ) => {
+    onChange({
+      ...draft,
+      businessProfile: {
+        ...draft.businessProfile,
+        [key]: value,
+      },
+    });
+  };
+
   return (
-    <SectionCard>
-      <SectionHeader
-        action={<StatusPill label="General" tone="cyan" />}
-        eyebrow="Workspace defaults"
-        title="System defaults"
-      />
-      <SettingField label="Workspace timezone">
-        <TextInput
-          autoCapitalize="none"
-          editable={!disabled}
-          onChangeText={(timeZone) => onChange({ ...draft, timeZone })}
-          placeholder="Australia/Brisbane"
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-          value={draft.timeZone}
+    <>
+      <SectionCard>
+        <SectionHeader
+          action={<StatusPill label="Profile" tone="cyan" />}
+          eyebrow="Business"
+          title="Business profile"
         />
-      </SettingField>
-      <SettingField label="Display currency">
-        <OptionChips
-          onChange={(displayCurrency) =>
-            onChange({ ...draft, displayCurrency })
+        <SettingField label="Business name">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(businessName) =>
+              updateProfile("businessName", businessName)
+            }
+            placeholder="WFA Plumbing"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.businessProfile.businessName}
+          />
+        </SettingField>
+        <SettingField label="Industry">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(industry) => updateProfile("industry", industry)}
+            placeholder="Plumbing"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.businessProfile.industry}
+          />
+        </SettingField>
+        <View style={styles.twoColumn}>
+          <SettingField label="Operating country">
+            <TextInput
+              autoCapitalize="characters"
+              editable={!disabled}
+              onChangeText={(operatingCountry) =>
+                updateProfile("operatingCountry", operatingCountry)
+              }
+              placeholder="AU"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+              value={draft.businessProfile.operatingCountry}
+            />
+          </SettingField>
+          <SettingField label="Default phone region">
+            <ReportDropdown
+              label="Default phone region"
+              onChange={(defaultPhoneRegion) =>
+                onChange({ ...draft, defaultPhoneRegion })
+              }
+              options={(data.options.phoneRegions ?? ["AU", "US", "GB"]).map(
+                (region) => ({
+                  label: region,
+                  value: region,
+                }),
+              )}
+              value={draft.defaultPhoneRegion}
+            />
+          </SettingField>
+        </View>
+        <SettingField label="Public email">
+          <TextInput
+            autoCapitalize="none"
+            editable={!disabled}
+            keyboardType="email-address"
+            onChangeText={(publicEmail) =>
+              updateProfile("publicEmail", publicEmail)
+            }
+            placeholder="hello@example.com"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.businessProfile.publicEmail}
+          />
+        </SettingField>
+        <SettingField label="Public phone">
+          <TextInput
+            editable={!disabled}
+            keyboardType="phone-pad"
+            onChangeText={(publicPhoneNumber) =>
+              updateProfile("publicPhoneNumber", publicPhoneNumber)
+            }
+            placeholder="+61..."
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.businessProfile.publicPhoneNumber}
+          />
+        </SettingField>
+        <SettingField label="Business address">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(businessAddress) =>
+              updateProfile("businessAddress", businessAddress)
+            }
+            placeholder="Office or trading address"
+            placeholderTextColor={colors.muted}
+            style={[styles.input, styles.textAreaSmall]}
+            multiline
+            value={draft.businessProfile.businessAddress}
+          />
+        </SettingField>
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader
+          action={
+            <StatusPill
+              label={draft.businessProfile.emergencyJobsEnabled ? "On" : "Off"}
+              tone={
+                draft.businessProfile.emergencyJobsEnabled ? "cyan" : "neutral"
+              }
+            />
           }
-          options={data.options.displayCurrencies}
-          value={draft.displayCurrency}
+          eyebrow="Operations"
+          title="Service area"
         />
-      </SettingField>
-      <SaveFooter
-        disabled={disabled}
-        label="Save workspace defaults"
-        onPress={onSave}
-        text={`Currency uses ${data.settings.general.displayCurrencySourceLabel}.`}
-      />
-    </SectionCard>
+        <SettingField label="Service area">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(serviceArea) =>
+              updateProfile("serviceArea", serviceArea)
+            }
+            placeholder="Brisbane northside, Moreton Bay..."
+            placeholderTextColor={colors.muted}
+            style={[styles.input, styles.textAreaSmall]}
+            multiline
+            value={draft.businessProfile.serviceArea}
+          />
+        </SettingField>
+        <SettingField label="Suburbs">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(serviceSuburbs) =>
+              updateProfile("serviceSuburbs", serviceSuburbs)
+            }
+            placeholder="Stafford, Kedron, Chermside"
+            placeholderTextColor={colors.muted}
+            style={[styles.input, styles.textAreaSmall]}
+            multiline
+            value={draft.businessProfile.serviceSuburbs}
+          />
+        </SettingField>
+        <SettingField label="Postcodes">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(servicePostcodes) =>
+              updateProfile("servicePostcodes", servicePostcodes)
+            }
+            placeholder="4053, 4032"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.businessProfile.servicePostcodes}
+          />
+        </SettingField>
+        <SettingField label="Working hours">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(workingHours) =>
+              updateProfile("workingHours", workingHours)
+            }
+            placeholder="Mon-Fri, 7:00am-4:00pm"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.businessProfile.workingHours}
+          />
+        </SettingField>
+        <SettingField label="Contact hours">
+          <TextInput
+            editable={!disabled}
+            onChangeText={(contactHours) =>
+              updateProfile("contactHours", contactHours)
+            }
+            placeholder="When Kyro should expect responses"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.businessProfile.contactHours}
+          />
+        </SettingField>
+        <SwitchRow
+          label="Emergency work"
+          onValueChange={(emergencyJobsEnabled) =>
+            updateProfile("emergencyJobsEnabled", emergencyJobsEnabled)
+          }
+          value={draft.businessProfile.emergencyJobsEnabled}
+        />
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader
+          action={<StatusPill label="Defaults" tone="purple" />}
+          eyebrow="System"
+          title="Workspace defaults"
+        />
+        <SettingField label="Workspace timezone">
+          <TextInput
+            autoCapitalize="none"
+            editable={!disabled}
+            onChangeText={(timeZone) => onChange({ ...draft, timeZone })}
+            placeholder="Australia/Brisbane"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={draft.timeZone}
+          />
+        </SettingField>
+        <SettingField label="Display currency">
+          <OptionChips
+            onChange={(displayCurrency) =>
+              onChange({ ...draft, displayCurrency })
+            }
+            options={data.options.displayCurrencies}
+            value={draft.displayCurrency}
+          />
+        </SettingField>
+        <SaveFooter
+          disabled={disabled}
+          label="Save business profile"
+          onPress={onSave}
+          text={`Currency uses ${data.settings.general.displayCurrencySourceLabel}.`}
+        />
+      </SectionCard>
+    </>
   );
 }
 
@@ -1186,11 +1477,11 @@ function ContactSyncSettingsPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const selectedSet = new Set(selectedContactIds);
   const filteredContacts = contacts.filter((contact) =>
-    contactMatchesSearch(contact, search)
+    contactMatchesSearch(contact, search),
   );
   const visibleContacts = filteredContacts.slice(0, visibleLimit);
   const selectedContacts = contacts.filter((contact) =>
-    selectedSet.has(contact.id)
+    selectedSet.has(contact.id),
   );
   const importContacts = useMutation({
     mutationFn: () =>
@@ -1199,30 +1490,30 @@ function ContactSyncSettingsPanel() {
         {
           body: {
             contactType,
-            contacts: selectedContacts
+            contacts: selectedContacts,
           },
           method: "POST",
-          session
-        }
+          session,
+        },
       ),
     onError: (error) => {
       setMessage(
-        error instanceof Error ? error.message : "Unable to import contacts."
+        error instanceof Error ? error.message : "Unable to import contacts.",
       );
     },
     onSuccess: (response) => {
       setSelectedContactIds([]);
       setMessage(response.message);
       queryClient.invalidateQueries({
-        queryKey: mobileQueryKeys.crm(session?.user.id)
+        queryKey: mobileQueryKeys.crm(session?.user.id),
       });
       queryClient.invalidateQueries({
-        queryKey: mobileQueryKeys.dashboard(session?.user.id)
+        queryKey: mobileQueryKeys.dashboard(session?.user.id),
       });
       queryClient.invalidateQueries({
-        queryKey: mobileQueryKeys.settings(session?.user.id)
+        queryKey: mobileQueryKeys.settings(session?.user.id),
       });
-    }
+    },
   });
 
   useEffect(() => {
@@ -1243,7 +1534,7 @@ function ContactSyncSettingsPanel() {
       }
 
       setPermissionLabel(
-        permission.accessPrivileges === "limited" ? "Limited" : "Granted"
+        permission.accessPrivileges === "limited" ? "Limited" : "Granted",
       );
 
       const result = await Contacts.getContactsAsync({
@@ -1255,26 +1546,28 @@ function ContactSyncSettingsPanel() {
           Contacts.Fields.Company,
           Contacts.Fields.Emails,
           Contacts.Fields.PhoneNumbers,
-          Contacts.Fields.Addresses
+          Contacts.Fields.Addresses,
         ],
         pageSize: 0,
-        sort: Contacts.SortTypes.FirstName
+        sort: Contacts.SortTypes.FirstName,
       });
       const rows = dedupeDeviceContacts(
         result.data
           .map(normalizeDeviceContact)
-          .filter((contact): contact is DeviceContactRow => Boolean(contact))
+          .filter((contact): contact is DeviceContactRow => Boolean(contact)),
       );
 
       setContacts(rows);
       setSelectedContactIds([]);
       setVisibleLimit(80);
       setMessage(
-        rows.length ? `${rows.length} phone contacts ready.` : "No contacts found."
+        rows.length
+          ? `${rows.length} phone contacts ready.`
+          : "No contacts found.",
       );
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : "Unable to load contacts."
+        error instanceof Error ? error.message : "Unable to load contacts.",
       );
     } finally {
       setLoadingContacts(false);
@@ -1285,7 +1578,7 @@ function ContactSyncSettingsPanel() {
     setSelectedContactIds((current) =>
       current.includes(contactId)
         ? current.filter((id) => id !== contactId)
-        : [...current, contactId]
+        : [...current, contactId],
     );
   };
 
@@ -1313,7 +1606,9 @@ function ContactSyncSettingsPanel() {
           onPress={handleLoadContacts}
           style={[
             styles.iconButton,
-            loadingContacts || importContacts.isPending ? styles.disabled : null
+            loadingContacts || importContacts.isPending
+              ? styles.disabled
+              : null,
           ]}
         >
           <Users color={colors.text} size={17} strokeWidth={2.4} />
@@ -1329,7 +1624,7 @@ function ContactSyncSettingsPanel() {
             styles.saveButton,
             !selectedContacts.length || importContacts.isPending
               ? styles.disabled
-              : null
+              : null,
           ]}
         >
           <Text style={styles.saveButtonText}>
@@ -1374,13 +1669,13 @@ function ContactSyncSettingsPanel() {
                 onPress={() => toggleContact(contact.id)}
                 style={[
                   styles.contactSyncRow,
-                  selected ? styles.contactSyncRowSelected : null
+                  selected ? styles.contactSyncRowSelected : null,
                 ]}
               >
                 <View
                   style={[
                     styles.contactSyncCheck,
-                    selected ? styles.contactSyncCheckSelected : null
+                    selected ? styles.contactSyncCheckSelected : null,
                   ]}
                 >
                   {selected ? (
@@ -1393,7 +1688,10 @@ function ContactSyncSettingsPanel() {
                 </View>
                 <View style={styles.contactSyncCopy}>
                   <Text style={styles.contactSyncName} numberOfLines={1}>
-                    {contact.name ?? contact.company ?? contact.email ?? contact.phone}
+                    {contact.name ??
+                      contact.company ??
+                      contact.email ??
+                      contact.phone}
                   </Text>
                   <Text style={styles.contactSyncMeta} numberOfLines={1}>
                     {[contact.company, contact.email, contact.phone]
@@ -1417,7 +1715,9 @@ function ContactSyncSettingsPanel() {
             </Pressable>
           ) : null}
           {!filteredContacts.length ? (
-            <Text style={styles.emptyCopy}>No phone contacts match that search.</Text>
+            <Text style={styles.emptyCopy}>
+              No phone contacts match that search.
+            </Text>
           ) : null}
         </View>
       ) : (
@@ -1437,7 +1737,7 @@ function IntegrationsSettingsPanel({
   onCommunicationChange,
   onInboundChange,
   onSaveCommunication,
-  onSaveInbound
+  onSaveInbound,
 }: {
   communicationDraft: CommunicationDraft;
   data: MobileSettingsResponse;
@@ -1471,7 +1771,9 @@ function IntegrationsSettingsPanel({
               key={connection.id}
               right={
                 <StatusPill
-                  label={connection.needsReconnect ? "Reconnect" : connection.status}
+                  label={
+                    connection.needsReconnect ? "Reconnect" : connection.status
+                  }
                   tone={connection.needsReconnect ? "warning" : "neutral"}
                 />
               }
@@ -1482,7 +1784,9 @@ function IntegrationsSettingsPanel({
               </Text>
               <Text style={styles.rowCopy}>
                 {connection.accountEmail ?? "No account email"} -{" "}
-                {connection.readReady ? "read scope ready" : "read scope missing"}
+                {connection.readReady
+                  ? "read scope ready"
+                  : "read scope missing"}
               </Text>
               <Text style={styles.rowMeta}>
                 Last sync {formatDate(connection.lastSyncAt)}
@@ -1490,7 +1794,9 @@ function IntegrationsSettingsPanel({
             </ListRow>
           ))
         ) : (
-          <Text style={styles.emptyCopy}>No Google or Outlook account connected.</Text>
+          <Text style={styles.emptyCopy}>
+            No Google or Outlook account connected.
+          </Text>
         )}
       </SectionCard>
 
@@ -1512,7 +1818,9 @@ function IntegrationsSettingsPanel({
         <SettingField label="Sync mode">
           <OptionChips
             formatOption={inboundSyncModeLabel}
-            onChange={(syncMode) => onInboundChange({ ...inboundDraft, syncMode })}
+            onChange={(syncMode) =>
+              onInboundChange({ ...inboundDraft, syncMode })
+            }
             options={data.options.inboundSyncModes}
             value={inboundDraft.syncMode}
           />
@@ -1523,7 +1831,7 @@ function IntegrationsSettingsPanel({
             onChange={(value) =>
               onInboundChange({
                 ...inboundDraft,
-                pollIntervalMinutes: Number(value)
+                pollIntervalMinutes: Number(value),
               })
             }
             options={data.options.inboundPollIntervals.map(String)}
@@ -1650,13 +1958,13 @@ function IntegrationsSettingsPanel({
           label="Default email signature"
           signature={{
             ...communicationDraft.manualSignature,
-            text: communicationDraft.manualSignatureText
+            text: communicationDraft.manualSignatureText,
           }}
           onChange={(manualSignature) =>
             onCommunicationChange({
               ...communicationDraft,
               manualSignature,
-              manualSignatureText: manualSignature.text
+              manualSignatureText: manualSignature.text,
             })
           }
         />
@@ -1665,7 +1973,7 @@ function IntegrationsSettingsPanel({
           onValueChange={(useSeparateAiSignature) =>
             onCommunicationChange({
               ...communicationDraft,
-              useSeparateAiSignature
+              useSeparateAiSignature,
             })
           }
           value={communicationDraft.useSeparateAiSignature}
@@ -1676,13 +1984,13 @@ function IntegrationsSettingsPanel({
             label="Assistant signature"
             signature={{
               ...communicationDraft.aiGeneratedSignature,
-              text: communicationDraft.aiGeneratedSignatureText
+              text: communicationDraft.aiGeneratedSignatureText,
             }}
             onChange={(aiGeneratedSignature) =>
               onCommunicationChange({
                 ...communicationDraft,
                 aiGeneratedSignature,
-                aiGeneratedSignatureText: aiGeneratedSignature.text
+                aiGeneratedSignatureText: aiGeneratedSignature.text,
               })
             }
           />
@@ -1698,9 +2006,110 @@ function IntegrationsSettingsPanel({
   );
 }
 
+function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
+  const voiceNumbers = data.phoneSms.numbers.filter(
+    (number) => number.capabilities.voice,
+  ).length;
+  const smsNumbers = data.phoneSms.numbers.filter(
+    (number) => number.capabilities.sms,
+  ).length;
+
+  return (
+    <>
+      <SectionCard>
+        <SectionHeader
+          action={
+            <StatusPill
+              label={data.phoneSms.configured ? "Enabled" : "Not assigned"}
+              tone={data.phoneSms.configured ? "green" : "neutral"}
+            />
+          }
+          eyebrow="Phone and SMS"
+          title="Workspace numbers"
+        />
+        <View style={styles.summaryStrip}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Voice</Text>
+            <Text style={styles.summaryValue}>{voiceNumbers}</Text>
+            <Text style={styles.summaryMeta}>call-capable numbers</Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>SMS</Text>
+            <Text style={styles.summaryValue}>{smsNumbers}</Text>
+            <Text style={styles.summaryMeta}>text-capable numbers</Text>
+          </View>
+        </View>
+        {data.phoneSms.numbers.length ? (
+          data.phoneSms.numbers.map((number) => (
+            <ListRow
+              key={number.id}
+              right={
+                <StatusPill label={formatLabel(number.status)} tone="cyan" />
+              }
+            >
+              <Text style={styles.rowTitle}>{number.phoneNumber}</Text>
+              <Text style={styles.rowCopy}>
+                {[
+                  number.friendlyName,
+                  number.countryCode,
+                  number.region,
+                  number.capabilities.voice ? "Voice" : null,
+                  number.capabilities.sms ? "SMS" : null,
+                  number.capabilities.mms ? "MMS" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" - ")}
+              </Text>
+              <Text style={styles.rowMeta}>
+                {number.monthlyCostSnapshot
+                  ? `${number.currency} ${number.monthlyCostSnapshot}/mo`
+                  : "No monthly snapshot"}{" "}
+                {number.vapiPhoneNumberId
+                  ? `- Vapi ${number.vapiPhoneNumberId}`
+                  : ""}
+              </Text>
+            </ListRow>
+          ))
+        ) : (
+          <Text style={styles.emptyCopy}>
+            No workspace phone or SMS number is assigned yet. Use the web
+            settings screen to assign or release numbers.
+          </Text>
+        )}
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader
+          action={
+            <StatusPill
+              label={data.settings.general.defaultPhoneRegion}
+              tone="purple"
+            />
+          }
+          eyebrow="Routing"
+          title="Defaults"
+        />
+        <ListRow>
+          <Text style={styles.rowTitle}>Public phone</Text>
+          <Text style={styles.rowCopy}>
+            {data.settings.general.businessProfile.publicPhoneNumber ||
+              "Not set"}
+          </Text>
+        </ListRow>
+        <ListRow>
+          <Text style={styles.rowTitle}>Default phone region</Text>
+          <Text style={styles.rowCopy}>
+            {data.settings.general.defaultPhoneRegion}
+          </Text>
+        </ListRow>
+      </SectionCard>
+    </>
+  );
+}
+
 function SenderRulesManager({
   data,
-  disabled
+  disabled,
 }: {
   data: MobileSettingsResponse;
   disabled: boolean;
@@ -1720,32 +2129,46 @@ function SenderRulesManager({
         body: {
           operation: payload.operation,
           section: "inboundEmail",
-          settings: payload.settings
+          settings: payload.settings,
         },
         method: "PATCH",
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to update sender rule.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to update sender rule.",
+      );
     },
     onSuccess: (nextData) => {
-      queryClient.setQueryData(mobileSettingsQueryOptions(session).queryKey, nextData);
+      queryClient.setQueryData(
+        mobileSettingsQueryOptions(session).queryKey,
+        nextData,
+      );
       setValue("");
       setMessage(nextData.message ?? "Sender rules updated.");
-    }
+    },
   });
 
   return (
     <View style={styles.nestedPanel}>
       <SectionHeader
-        action={<StatusPill label={`${data.settings.inboundEmail.senderRuleCount}`} tone="purple" />}
+        action={
+          <StatusPill
+            label={`${data.settings.inboundEmail.senderRuleCount}`}
+            tone="purple"
+          />
+        }
         eyebrow="Sender rules"
         title="Email handling"
       />
       <View style={styles.twoColumn}>
         <SettingField label="Match">
           <OptionChips
-            onChange={(next) => setMatch(next as MobileInboundSenderRule["match"])}
+            onChange={(next) =>
+              setMatch(next as MobileInboundSenderRule["match"])
+            }
             options={["email", "domain"]}
             value={match}
           />
@@ -1775,10 +2198,13 @@ function SenderRulesManager({
         onPress={() =>
           mutateRule.mutate({
             operation: "upsert_sender_rule",
-            settings: { action, match, value }
+            settings: { action, match, value },
           })
         }
-        style={[styles.saveButton, disabled || !value.trim() ? styles.disabled : null]}
+        style={[
+          styles.saveButton,
+          disabled || !value.trim() ? styles.disabled : null,
+        ]}
       >
         <Text style={styles.saveButtonText}>Save sender rule</Text>
       </Pressable>
@@ -1794,7 +2220,7 @@ function SenderRulesManager({
                 onPress={() =>
                   mutateRule.mutate({
                     operation: "remove_sender_rule",
-                    settings: rule
+                    settings: rule,
                   })
                 }
               >
@@ -1820,7 +2246,7 @@ function SignatureEditor({
   disabled,
   label,
   onChange,
-  signature
+  signature,
 }: {
   disabled: boolean;
   label: string;
@@ -1832,7 +2258,7 @@ function SignatureEditor({
       allowsEditing: true,
       base64: true,
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8
+      quality: 0.8,
     });
 
     if (result.canceled || !result.assets[0]) {
@@ -1844,7 +2270,7 @@ function SignatureEditor({
       asset.base64 ??
       (asset.uri
         ? await FileSystem.readAsStringAsync(asset.uri, {
-            encoding: FileSystem.EncodingType.Base64
+            encoding: FileSystem.EncodingType.Base64,
           })
         : "");
 
@@ -1853,7 +2279,7 @@ function SignatureEditor({
       logoContentBase64: base64,
       logoContentType: asset.mimeType ?? "image/jpeg",
       logoFilename: asset.fileName ?? "signature-logo.jpg",
-      logoSizeBytes: base64 ? Math.round((base64.length * 3) / 4) : 0
+      logoSizeBytes: base64 ? Math.round((base64.length * 3) / 4) : 0,
     });
   };
   const logoUri = signature.logoContentBase64
@@ -1900,11 +2326,13 @@ function SignatureEditor({
             source={{ uri: logoUri }}
             style={[
               styles.signatureLogo,
-              { width: Math.min(180, signature.logoWidthPx) }
+              { width: Math.min(180, signature.logoWidthPx) },
             ]}
           />
         ) : null}
-        <Text style={styles.rowCopy}>{signature.text || "Signature preview"}</Text>
+        <Text style={styles.rowCopy}>
+          {signature.text || "Signature preview"}
+        </Text>
       </View>
       <Pressable
         accessibilityRole="button"
@@ -1920,13 +2348,8 @@ function SignatureEditor({
 }
 
 function SecuritySettingsPanel() {
-  const {
-    biometricCapability,
-    error,
-    lockMode,
-    setPasscodeLock,
-    setLockMode
-  } = useAppLock();
+  const { biometricCapability, error, lockMode, setPasscodeLock, setLockMode } =
+    useAppLock();
   const [message, setMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [passcode, setPasscode] = useState("");
@@ -1949,7 +2372,7 @@ function SecuritySettingsPanel() {
       setMessage(
         nextError instanceof Error
           ? nextError.message
-          : "Unable to update app unlock."
+          : "Unable to update app unlock.",
       );
     } finally {
       setIsSaving(false);
@@ -1984,7 +2407,7 @@ function SecuritySettingsPanel() {
       setMessage(
         nextError instanceof Error
           ? nextError.message
-          : "Unable to save passcode."
+          : "Unable to save passcode.",
       );
     } finally {
       setIsSaving(false);
@@ -2031,7 +2454,9 @@ function SecuritySettingsPanel() {
             <TextInput
               keyboardType="number-pad"
               maxLength={8}
-              onChangeText={(value) => setPasscode(normalizeSecurityPasscode(value))}
+              onChangeText={(value) =>
+                setPasscode(normalizeSecurityPasscode(value))
+              }
               placeholder="New passcode"
               placeholderTextColor={colors.muted}
               secureTextEntry
@@ -2105,7 +2530,7 @@ function SecurityModeOption({
   disabled,
   icon: Icon,
   onPress,
-  title
+  title,
 }: {
   active: boolean;
   description: string;
@@ -2123,7 +2548,7 @@ function SecurityModeOption({
         styles.securityMode,
         active ? styles.securityModeActive : null,
         disabled ? styles.disabled : null,
-        pressed && !disabled ? styles.pressed : null
+        pressed && !disabled ? styles.pressed : null,
       ]}
     >
       <View style={styles.securityModeIcon}>
@@ -2137,7 +2562,7 @@ function SecurityModeOption({
         <Text
           style={[
             styles.settingsRowTitle,
-            active ? styles.securityModeTitleActive : null
+            active ? styles.securityModeTitleActive : null,
           ]}
         >
           {title}
@@ -2146,7 +2571,7 @@ function SecurityModeOption({
           numberOfLines={2}
           style={[
             styles.settingsRowDetail,
-            active ? styles.securityModeDetailActive : null
+            active ? styles.securityModeDetailActive : null,
           ]}
         >
           {description}
@@ -2162,7 +2587,7 @@ function VoiceSettingsPanel({
   disabled,
   draft,
   onChange,
-  onSave
+  onSave,
 }: {
   data: MobileSettingsResponse;
   disabled: boolean;
@@ -2178,7 +2603,7 @@ function VoiceSettingsPanel({
     accent: data.settings.voice.elevenLabsVoiceAccent || "Vapi",
     id: data.settings.voice.elevenLabsVoicePresetId,
     label: data.settings.voice.elevenLabsVoiceLabel || "Saved Vapi voice",
-    voiceId: data.settings.voice.elevenLabsVoiceId
+    voiceId: data.settings.voice.elevenLabsVoiceId,
   };
   const vapiVoiceOptions =
     savedVapiVoiceOption.id &&
@@ -2187,7 +2612,7 @@ function VoiceSettingsPanel({
       : baseVapiVoiceOptions;
   const activeVapiVoice =
     vapiVoiceOptions.find(
-      (voice) => voice.id === draft.elevenLabsVoicePresetId
+      (voice) => voice.id === draft.elevenLabsVoicePresetId,
     ) ?? vapiVoiceOptions[0];
 
   return (
@@ -2212,7 +2637,7 @@ function VoiceSettingsPanel({
             options={vapiVoiceOptions.map((voice) => ({
               description: voice.accent,
               label: voice.label,
-              value: voice.id
+              value: voice.id,
             }))}
             value={draft.elevenLabsVoicePresetId}
           />
@@ -2238,6 +2663,132 @@ function VoiceSettingsPanel({
         <SectionHeader
           action={
             <StatusPill
+              label={draft.phoneAgentEnabled ? "Enabled" : "Off"}
+              tone={draft.phoneAgentEnabled ? "green" : "neutral"}
+            />
+          }
+          eyebrow="Calls"
+          title="Phone assistant"
+        />
+        <SwitchRow
+          label="Enable phone assistant"
+          onValueChange={(phoneAgentEnabled) =>
+            onChange({ ...draft, phoneAgentEnabled })
+          }
+          value={draft.phoneAgentEnabled}
+        />
+        <View style={styles.twoColumn}>
+          <SwitchRow
+            label="Inbound calls"
+            onValueChange={(phoneAgentInboundEnabled) =>
+              onChange({ ...draft, phoneAgentInboundEnabled })
+            }
+            value={draft.phoneAgentInboundEnabled}
+          />
+          <SwitchRow
+            label="Outbound calls"
+            onValueChange={(phoneAgentOutboundEnabled) =>
+              onChange({ ...draft, phoneAgentOutboundEnabled })
+            }
+            value={draft.phoneAgentOutboundEnabled}
+          />
+        </View>
+        <SwitchRow
+          label="Voicemail overflow"
+          onValueChange={(phoneAgentVoicemailOverflowEnabled) =>
+            onChange({ ...draft, phoneAgentVoicemailOverflowEnabled })
+          }
+          value={draft.phoneAgentVoicemailOverflowEnabled}
+        />
+        <SettingField label="Demeanor">
+          <ReportDropdown
+            label="Demeanor"
+            onChange={(phoneAgentDemeanor) =>
+              onChange({ ...draft, phoneAgentDemeanor })
+            }
+            options={(data.options.phoneAgentDemeanors ?? []).map((value) => ({
+              label: formatLabel(value),
+              value,
+            }))}
+            value={draft.phoneAgentDemeanor}
+          />
+        </SettingField>
+        <SettingField label="Detail">
+          <ReportDropdown
+            label="Detail"
+            onChange={(phoneAgentVerbosity) =>
+              onChange({ ...draft, phoneAgentVerbosity })
+            }
+            options={(data.options.phoneAgentVerbosities ?? []).map(
+              (value) => ({
+                label: formatLabel(value),
+                value,
+              }),
+            )}
+            value={draft.phoneAgentVerbosity}
+          />
+        </SettingField>
+        <SettingField label="Warmth">
+          <ReportDropdown
+            label="Warmth"
+            onChange={(phoneAgentHumourLevel) =>
+              onChange({ ...draft, phoneAgentHumourLevel })
+            }
+            options={(data.options.phoneAgentHumourLevels ?? []).map(
+              (value) => ({
+                label: formatLabel(value),
+                value,
+              }),
+            )}
+            value={draft.phoneAgentHumourLevel}
+          />
+        </SettingField>
+        <SettingField label="Escalation">
+          <ReportDropdown
+            label="Escalation"
+            onChange={(phoneAgentEscalationMode) =>
+              onChange({ ...draft, phoneAgentEscalationMode })
+            }
+            options={(data.options.phoneAgentEscalationModes ?? []).map(
+              (value) => ({
+                label: formatLabel(value),
+                value,
+              }),
+            )}
+            value={draft.phoneAgentEscalationMode}
+          />
+        </SettingField>
+        <SettingField label="Team phone numbers">
+          <TextInput
+            editable={!disabled}
+            multiline
+            onChangeText={(text) =>
+              onChange({
+                ...draft,
+                phoneAgentUserNumbers: text
+                  .split(/[\n,]+/)
+                  .map((entry) => entry.trim())
+                  .filter(Boolean),
+              })
+            }
+            placeholder="+614..., one per line"
+            placeholderTextColor={colors.muted}
+            style={[styles.input, styles.textAreaSmall]}
+            textAlignVertical="top"
+            value={draft.phoneAgentUserNumbers.join("\n")}
+          />
+        </SettingField>
+        <SaveFooter
+          disabled={disabled}
+          label="Save phone assistant"
+          onPress={onSave}
+        />
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader
+          action={
+            <StatusPill
               label={`${data.pronunciationEntries.length} entries`}
               tone="cyan"
             />
@@ -2253,7 +2804,7 @@ function VoiceSettingsPanel({
 
 function PronunciationManager({
   data,
-  disabled
+  disabled,
 }: {
   data: MobileSettingsResponse;
   disabled: boolean;
@@ -2262,7 +2813,7 @@ function PronunciationManager({
   const queryClient = useQueryClient();
   const [editorOpen, setEditorOpen] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<PronunciationEntry | null>(
-    null
+    null,
   );
   const [phrase, setPhrase] = useState("");
   const [pronunciationHint, setPronunciationHint] = useState("");
@@ -2282,7 +2833,7 @@ function PronunciationManager({
   const saveEntry = useMutation({
     mutationFn: ({
       operation,
-      settings
+      settings,
     }: {
       operation?: "remove";
       settings: Record<string, unknown>;
@@ -2291,33 +2842,40 @@ function PronunciationManager({
         body: {
           operation,
           section: "pronunciation",
-          settings
+          settings,
         },
         method: "PATCH",
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to save pronunciation.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to save pronunciation.",
+      );
     },
     onSuccess: (nextData) => {
-      queryClient.setQueryData(mobileSettingsQueryOptions(session).queryKey, nextData);
+      queryClient.setQueryData(
+        mobileSettingsQueryOptions(session).queryKey,
+        nextData,
+      );
       resetDraft();
       setEditorOpen(false);
       setMessage(nextData.message ?? "Pronunciation updated.");
-    }
+    },
   });
   const previewEntry = async (id: string) => {
     try {
       setMessage("Preparing preview...");
       const url = new URL(
         "/api/mobile/settings/pronunciation-preview",
-        mobileEnv.kyroApiBaseUrl
+        mobileEnv.kyroApiBaseUrl,
       );
       url.searchParams.set("entryId", id);
       const response = await fetch(url.toString(), {
         headers: session?.access_token
           ? { Authorization: `Bearer ${session.access_token}` }
-          : undefined
+          : undefined,
       });
 
       if (!response.ok) {
@@ -2325,7 +2883,7 @@ function PronunciationManager({
         throw new Error(
           payload && typeof payload === "object" && "error" in payload
             ? String(payload.error)
-            : "Unable to preview pronunciation."
+            : "Unable to preview pronunciation.",
         );
       }
 
@@ -2335,13 +2893,17 @@ function PronunciationManager({
       const uri = `${FileSystem.cacheDirectory}kyro-pronunciation-${id}.${extension}`;
 
       await FileSystem.writeAsStringAsync(uri, bytesToBase64(bytes), {
-        encoding: FileSystem.EncodingType.Base64
+        encoding: FileSystem.EncodingType.Base64,
       });
       const player = createAudioPlayer({ uri }, { downloadFirst: false });
       player.play();
       setMessage("Playing pronunciation preview.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to preview pronunciation.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to preview pronunciation.",
+      );
     }
   };
   const editEntry = (entry: PronunciationEntry) => {
@@ -2364,18 +2926,20 @@ function PronunciationManager({
     category: entry?.category ?? category,
     entryId: entry?.id ?? selectedEntry?.id ?? null,
     phrase: entry?.phrase ?? phrase,
-    pronunciationHint: entry ? entry.pronunciationHint ?? "" : pronunciationHint,
-    status: entry?.status ?? status
+    pronunciationHint: entry
+      ? (entry.pronunciationHint ?? "")
+      : pronunciationHint,
+    status: entry?.status ?? status,
   });
   const submitEntry = () => {
     saveEntry.mutate({
-      settings: entrySettings()
+      settings: entrySettings(),
     });
   };
   const removeEntry = (entry: PronunciationEntry) => {
     saveEntry.mutate({
       operation: "remove",
-      settings: entrySettings(entry)
+      settings: entrySettings(entry),
     });
   };
   const closeEditor = () => {
@@ -2394,7 +2958,10 @@ function PronunciationManager({
           accessibilityRole="button"
           disabled={disabled || saveEntry.isPending}
           onPress={addEntry}
-          style={[styles.pronunciationAddButton, disabled ? styles.disabled : null]}
+          style={[
+            styles.pronunciationAddButton,
+            disabled ? styles.disabled : null,
+          ]}
         >
           <Plus color={colors.background} size={15} />
           <Text style={styles.pronunciationAddButtonText}>Add</Text>
@@ -2437,7 +3004,7 @@ function PronunciationManager({
                   onPress={() => removeEntry(entry)}
                   style={[
                     styles.pronunciationIconButton,
-                    styles.pronunciationRemoveButton
+                    styles.pronunciationRemoveButton,
                   ]}
                 >
                   <X color="#ff5c7a" size={17} />
@@ -2447,7 +3014,9 @@ function PronunciationManager({
           ))}
         </View>
       ) : (
-        <Text style={styles.emptyCopy}>No active pronunciation entries yet.</Text>
+        <Text style={styles.emptyCopy}>
+          No active pronunciation entries yet.
+        </Text>
       )}
 
       <Modal
@@ -2529,10 +3098,12 @@ function PronunciationManager({
                 <ReportDropdown
                   label="Pronunciation category"
                   onChange={setCategory}
-                  options={data.options.pronunciationCategories.map((value) => ({
-                    label: formatLabel(value),
-                    value
-                  }))}
+                  options={data.options.pronunciationCategories.map(
+                    (value) => ({
+                      label: formatLabel(value),
+                      value,
+                    }),
+                  )}
                   value={category}
                 />
               </SettingField>
@@ -2556,7 +3127,7 @@ function PronunciationManager({
                   style={[
                     styles.saveButton,
                     styles.actionRowButton,
-                    !phrase.trim() ? styles.disabled : null
+                    !phrase.trim() ? styles.disabled : null,
                   ]}
                 >
                   <Text style={styles.saveButtonText}>
@@ -2614,10 +3185,10 @@ function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
     queryFn: () =>
       kyroApiFetch<MobileSettingsResponse>("/api/mobile/settings", {
         query: { usageWindow },
-        session
+        session,
       }),
     queryKey: ["mobile-settings-usage", session?.user.id, usageWindow],
-    staleTime: 60 * 1000
+    staleTime: 60 * 1000,
   });
   const activeData = usage.data ?? data;
 
@@ -2625,7 +3196,9 @@ function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
     <>
       <SectionCard>
         <SectionHeader
-          action={<StatusPill label={activeData.usage.activeWindow} tone="pink" />}
+          action={
+            <StatusPill label={activeData.usage.activeWindow} tone="pink" />
+          }
           eyebrow="Usage"
           title="Usage and billing"
         />
@@ -2654,7 +3227,11 @@ function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
           activeData.usage.taskBreakdown.map((row) => (
             <ListRow
               key={row.key}
-              right={<Text style={styles.moneyText}>{row.displayCustomerCharge}</Text>}
+              right={
+                <Text style={styles.moneyText}>
+                  {row.displayCustomerCharge}
+                </Text>
+              }
             >
               <Text style={styles.rowTitle}>{row.label}</Text>
               <Text style={styles.rowCopy}>{row.description}</Text>
@@ -2662,7 +3239,9 @@ function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
             </ListRow>
           ))
         ) : (
-          <Text style={styles.emptyCopy}>No metered task usage in this range.</Text>
+          <Text style={styles.emptyCopy}>
+            No metered task usage in this range.
+          </Text>
         )}
       </SectionCard>
 
@@ -2672,7 +3251,11 @@ function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
           activeData.usage.providerBreakdown.map((row) => (
             <ListRow
               key={row.key}
-              right={<Text style={styles.moneyText}>{row.displayCustomerCharge}</Text>}
+              right={
+                <Text style={styles.moneyText}>
+                  {row.displayCustomerCharge}
+                </Text>
+              }
             >
               <Text style={styles.rowTitle}>
                 {formatLabel(row.provider)} / {row.model}
@@ -2688,20 +3271,31 @@ function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
 
       <SectionCard>
         <SectionHeader
-          action={<StatusPill label={`${activeData.usage.ledger.length}`} tone="cyan" />}
+          action={
+            <StatusPill
+              label={`${activeData.usage.ledger.length}`}
+              tone="cyan"
+            />
+          }
           eyebrow="Ledger"
           title="Usage events"
         />
         {usage.error ? (
           <Text style={styles.message}>
-            {usage.error instanceof Error ? usage.error.message : "Unable to load ledger."}
+            {usage.error instanceof Error
+              ? usage.error.message
+              : "Unable to load ledger."}
           </Text>
         ) : null}
         {activeData.usage.ledger.length ? (
           activeData.usage.ledger.map((row) => (
             <ListRow
               key={row.id}
-              right={<Text style={styles.moneyText}>{row.displayCustomerCharge}</Text>}
+              right={
+                <Text style={styles.moneyText}>
+                  {row.displayCustomerCharge}
+                </Text>
+              }
             >
               <Text style={styles.rowTitle}>{row.taskLabel}</Text>
               <Text numberOfLines={2} style={styles.rowCopy}>
@@ -2739,28 +3333,33 @@ function ReportsSettingsPanel() {
     end: timeframe === "custom" ? endDate : "",
     start: timeframe === "custom" ? startDate : "",
     timeframe,
-    type: reportType
+    type: reportType,
   };
   const tools = useQuery({
     ...mobileWorkspaceToolsQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const reportData = tools.data?.reports;
   const generateReport = useMutation({
     mutationFn: () =>
-      kyroApiFetch<MobileWorkspaceToolsResponse>("/api/mobile/workspace-tools", {
-        query: {
-          ...reportFilters
+      kyroApiFetch<MobileWorkspaceToolsResponse>(
+        "/api/mobile/workspace-tools",
+        {
+          query: {
+            ...reportFilters,
+          },
+          session,
         },
-        session
-      }),
+      ),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to generate report.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to generate report.",
+      );
     },
     onSuccess: (nextData) => {
       setMessage("Report refreshed.");
       setPreview(nextData.reports.preview);
-    }
+    },
   });
   const activePreview = preview ?? reportData?.preview ?? null;
   const openPdf = useMutation({
@@ -2770,19 +3369,21 @@ function ReportsSettingsPanel() {
             filters: reportFilters,
             mode,
             title: activePreview.title,
-            sessionToken: session?.access_token ?? null
+            sessionToken: session?.access_token ?? null,
           })
         : Promise.reject(new Error("Generate a report first.")),
     onError: (error) => {
-      setPdfMessage(error instanceof Error ? error.message : "Unable to open PDF.");
+      setPdfMessage(
+        error instanceof Error ? error.message : "Unable to open PDF.",
+      );
     },
     onSuccess: ({ mode }) => {
       setPdfMessage(
         mode === "save"
           ? "PDF ready. Choose Save to Files from the native sheet."
-          : "PDF ready."
+          : "PDF ready.",
       );
-    }
+    },
   });
 
   return (
@@ -2793,7 +3394,11 @@ function ReportsSettingsPanel() {
           eyebrow="Reports"
           title="Report builder"
         />
-        <ToolsDataState error={tools.error} loading={tools.isLoading} title="Loading reports" />
+        <ToolsDataState
+          error={tools.error}
+          loading={tools.isLoading}
+          title="Loading reports"
+        />
         {reportData ? (
           <>
             <SettingField label="Report">
@@ -2834,7 +3439,9 @@ function ReportsSettingsPanel() {
               <ReportDropdown
                 label="Contact"
                 onChange={setContactId}
-                options={reportData.contacts ?? [{ label: "All contacts", value: "" }]}
+                options={
+                  reportData.contacts ?? [{ label: "All contacts", value: "" }]
+                }
                 value={contactId}
               />
             </SettingField>
@@ -2867,7 +3474,10 @@ function ReportsSettingsPanel() {
               accessibilityRole="button"
               disabled={generateReport.isPending}
               onPress={() => generateReport.mutate()}
-              style={[styles.saveButton, generateReport.isPending ? styles.disabled : null]}
+              style={[
+                styles.saveButton,
+                generateReport.isPending ? styles.disabled : null,
+              ]}
             >
               <Text style={styles.saveButtonText}>
                 {generateReport.isPending ? "Generating" : "Generate report"}
@@ -2894,7 +3504,7 @@ function ReportDropdown({
   label,
   onChange,
   options,
-  value
+  value,
 }: {
   label: string;
   onChange: (value: string) => void;
@@ -2943,7 +3553,9 @@ function ReportDropdown({
                   style={styles.dropdownOption}
                 >
                   <View style={styles.settingsRowMain}>
-                    <Text style={styles.dropdownOptionText}>{option.label}</Text>
+                    <Text style={styles.dropdownOptionText}>
+                      {option.label}
+                    </Text>
                     {option.description ? (
                       <Text numberOfLines={2} style={styles.dropdownOptionMeta}>
                         {option.description}
@@ -2966,7 +3578,7 @@ function ReportPreviewPanel({
   message,
   onSave,
   onView,
-  preview
+  preview,
 }: {
   busy: boolean;
   message: string | null;
@@ -2996,7 +3608,9 @@ function ReportPreviewPanel({
         {preview.summaryCards.length === 0 ? (
           <View style={styles.reportSummaryCard}>
             <Text style={styles.rowMeta}>Generated</Text>
-            <Text style={styles.rowTitle}>{formatDate(preview.generatedAt)}</Text>
+            <Text style={styles.rowTitle}>
+              {formatDate(preview.generatedAt)}
+            </Text>
           </View>
         ) : null}
       </View>
@@ -3023,15 +3637,25 @@ function ReportPreviewPanel({
           accessibilityRole="button"
           disabled={busy}
           onPress={onView}
-          style={[styles.saveButton, styles.pdfActionButton, busy ? styles.disabled : null]}
+          style={[
+            styles.saveButton,
+            styles.pdfActionButton,
+            busy ? styles.disabled : null,
+          ]}
         >
-          <Text style={styles.saveButtonText}>{busy ? "Preparing" : "View PDF"}</Text>
+          <Text style={styles.saveButtonText}>
+            {busy ? "Preparing" : "View PDF"}
+          </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           disabled={busy}
           onPress={onSave}
-          style={[styles.iconButton, styles.pdfActionButton, busy ? styles.disabled : null]}
+          style={[
+            styles.iconButton,
+            styles.pdfActionButton,
+            busy ? styles.disabled : null,
+          ]}
         >
           <Text style={styles.iconButtonText}>Save PDF</Text>
         </Pressable>
@@ -3045,7 +3669,7 @@ function ActivitySettingsPanel() {
   const [filter, setFilter] = useState("all");
   const tools = useQuery({
     ...mobileWorkspaceToolsQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const activity = tools.data?.activity;
   const visibleItems =
@@ -3055,11 +3679,17 @@ function ActivitySettingsPanel() {
   return (
     <SectionCard>
       <SectionHeader
-        action={<StatusPill label={`${visibleItems.length} shown`} tone="cyan" />}
+        action={
+          <StatusPill label={`${visibleItems.length} shown`} tone="cyan" />
+        }
         eyebrow="Activity"
         title="Workspace activity"
       />
-      <ToolsDataState error={tools.error} loading={tools.isLoading} title="Loading activity" />
+      <ToolsDataState
+        error={tools.error}
+        loading={tools.isLoading}
+        title="Loading activity"
+      />
       {activity ? (
         <>
           <SettingField label="Filter">
@@ -3068,7 +3698,7 @@ function ActivitySettingsPanel() {
               onChange={setFilter}
               options={activity.filters.map((option) => ({
                 ...option,
-                label: `${option.label} ${activity.counts[option.value] ?? 0}`
+                label: `${option.label} ${activity.counts[option.value] ?? 0}`,
               }))}
               value={filter}
             />
@@ -3080,7 +3710,9 @@ function ActivitySettingsPanel() {
               ))}
             </View>
           ) : (
-            <Text style={styles.emptyCopy}>No activity matches this filter.</Text>
+            <Text style={styles.emptyCopy}>
+              No activity matches this filter.
+            </Text>
           )}
         </>
       ) : null}
@@ -3094,7 +3726,7 @@ function ActivityLogRow({ item }: { item: MobileActivityLogItem }) {
       <View
         style={[
           styles.activityMarker,
-          { backgroundColor: activityToneColor(item.tone) }
+          { backgroundColor: activityToneColor(item.tone) },
         ]}
       />
       <View style={styles.settingsRowMain}>
@@ -3121,20 +3753,29 @@ function OperationalLogSettingsPanel() {
   const [filter, setFilter] = useState("all");
   const tools = useQuery({
     ...mobileWorkspaceToolsQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const logs = tools.data?.operationalLogs;
-  const items = direction === "inbound" ? logs?.inbound ?? [] : logs?.outbound ?? [];
-  const visibleItems = items.filter((item) => operationalLogMatchesFilter(item, filter));
+  const items =
+    direction === "inbound" ? (logs?.inbound ?? []) : (logs?.outbound ?? []);
+  const visibleItems = items.filter((item) =>
+    operationalLogMatchesFilter(item, filter),
+  );
 
   return (
     <SectionCard>
       <SectionHeader
-        action={<StatusPill label={`${visibleItems.length} shown`} tone="cyan" />}
+        action={
+          <StatusPill label={`${visibleItems.length} shown`} tone="cyan" />
+        }
         eyebrow="Operational log"
         title="Inbound and outbound"
       />
-      <ToolsDataState error={tools.error} loading={tools.isLoading} title="Loading logs" />
+      <ToolsDataState
+        error={tools.error}
+        loading={tools.isLoading}
+        title="Loading logs"
+      />
       {logs ? (
         <>
           <OptionChips
@@ -3181,8 +3822,8 @@ function OperationalLogRow({ item }: { item: MobileOperationalLogItem }) {
                 ? colors.pink
                 : item.type === "sync"
                   ? colors.purple
-                  : colors.cyan
-          }
+                  : colors.cyan,
+          },
         ]}
       />
       <View style={styles.settingsRowMain}>
@@ -3208,7 +3849,7 @@ function DeveloperSettingsPanel({
   disabled,
   onSaveVoice,
   onVoiceDraftChange,
-  voiceDraft
+  voiceDraft,
 }: {
   data: MobileSettingsResponse;
   disabled: boolean;
@@ -3222,11 +3863,11 @@ function DeveloperSettingsPanel({
   const [mockFromEmail, setMockFromEmail] = useState("mobile-test@example.com");
   const [mockSubject, setMockSubject] = useState("Mock mobile inquiry");
   const [mockBody, setMockBody] = useState(
-    "Hi, I need a quote and would like Kyro to process this as a mock inbound inquiry."
+    "Hi, I need a quote and would like Kyro to process this as a mock inbound inquiry.",
   );
   const tools = useQuery({
     ...mobileWorkspaceToolsQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const developer = tools.data?.developer;
   const runDeveloperTool = useMutation({
@@ -3234,17 +3875,19 @@ function DeveloperSettingsPanel({
       kyroApiFetch<{ message: string }>("/api/mobile/workspace-tools", {
         body: payload,
         method: "POST",
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Developer action failed.");
+      setMessage(
+        error instanceof Error ? error.message : "Developer action failed.",
+      );
     },
     onSuccess: async (result) => {
       setMessage(result.message);
       await queryClient.invalidateQueries({
-        queryKey: mobileWorkspaceToolsQueryOptions(session).queryKey
+        queryKey: mobileWorkspaceToolsQueryOptions(session).queryKey,
       });
-    }
+    },
   });
 
   return (
@@ -3260,28 +3903,38 @@ function DeveloperSettingsPanel({
           eyebrow="Developer"
           title="System checks"
         />
-        <ToolsDataState error={tools.error} loading={tools.isLoading} title="Loading developer" />
-        {developer ? (
-          developer.checks.map((check) => (
-            <ListRow
-              key={check.id}
-              right={
-                <StatusPill
-                  label={formatLabel(check.status)}
-                  tone={check.status === "ok" ? "green" : check.status === "error" ? "warning" : "purple"}
-                />
-              }
-            >
-              <Text style={styles.rowTitle}>{check.title}</Text>
-              <Text style={styles.rowCopy}>{check.summary}</Text>
-              {check.detail ? (
-                <Text numberOfLines={2} style={styles.rowMeta}>
-                  {check.detail}
-                </Text>
-              ) : null}
-            </ListRow>
-          ))
-        ) : null}
+        <ToolsDataState
+          error={tools.error}
+          loading={tools.isLoading}
+          title="Loading developer"
+        />
+        {developer
+          ? developer.checks.map((check) => (
+              <ListRow
+                key={check.id}
+                right={
+                  <StatusPill
+                    label={formatLabel(check.status)}
+                    tone={
+                      check.status === "ok"
+                        ? "green"
+                        : check.status === "error"
+                          ? "warning"
+                          : "purple"
+                    }
+                  />
+                }
+              >
+                <Text style={styles.rowTitle}>{check.title}</Text>
+                <Text style={styles.rowCopy}>{check.summary}</Text>
+                {check.detail ? (
+                  <Text numberOfLines={2} style={styles.rowMeta}>
+                    {check.detail}
+                  </Text>
+                ) : null}
+              </ListRow>
+            ))
+          : null}
       </SectionCard>
 
       {developer ? (
@@ -3315,10 +3968,15 @@ function DeveloperSettingsPanel({
             onPress={() =>
               runDeveloperTool.mutate({ operation: "manual_email_sync" })
             }
-            style={[styles.saveButton, runDeveloperTool.isPending ? styles.disabled : null]}
+            style={[
+              styles.saveButton,
+              runDeveloperTool.isPending ? styles.disabled : null,
+            ]}
           >
             <Text style={styles.saveButtonText}>
-              {runDeveloperTool.isPending ? "Running sync" : "Manual email sync now"}
+              {runDeveloperTool.isPending
+                ? "Running sync"
+                : "Manual email sync now"}
             </Text>
           </Pressable>
           <View style={styles.nestedPanel}>
@@ -3357,12 +4015,15 @@ function DeveloperSettingsPanel({
                   inquiry: {
                     bodyText: mockBody,
                     fromEmail: mockFromEmail,
-                    subject: mockSubject
+                    subject: mockSubject,
                   },
-                  operation: "mock_inbound_inquiry"
+                  operation: "mock_inbound_inquiry",
                 })
               }
-              style={[styles.iconButton, runDeveloperTool.isPending ? styles.disabled : null]}
+              style={[
+                styles.iconButton,
+                runDeveloperTool.isPending ? styles.disabled : null,
+              ]}
             >
               <Plus color={colors.cyan} size={16} />
               <Text style={styles.iconButtonText}>Create mock inquiry</Text>
@@ -3395,7 +4056,7 @@ function DeveloperSettingsPanel({
 function ToolsDataState({
   error,
   loading,
-  title
+  title,
 }: {
   error: Error | null;
   loading: boolean;
@@ -3425,7 +4086,7 @@ type PaymentLinkDraft = {
 
 function PaymentsSettingsPanel({
   onCreateInvoice,
-  onOpenStripe
+  onOpenStripe,
 }: {
   onCreateInvoice: () => void;
   onOpenStripe: () => void;
@@ -3435,14 +4096,14 @@ function PaymentsSettingsPanel({
   const paymentsOptions = mobilePaymentsQueryOptions(session);
   const payments = useQuery({
     ...paymentsOptions,
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const [draft, setDraft] = useState<PaymentLinkDraft>({
     amount: "",
     contactId: "",
     currency: "AUD",
     description: "",
-    dueAt: ""
+    dueAt: "",
   });
   const [isCreatingLink, setIsCreatingLink] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -3451,17 +4112,23 @@ function PaymentsSettingsPanel({
     mutationFn: (nextDraft: PaymentLinkDraft) =>
       kyroApiFetch<MobilePaymentLinkResponse>("/api/mobile/payments", {
         body: {
-          amountCents: Math.round((parseNullableMoney(nextDraft.amount) ?? 0) * 100),
+          amountCents: Math.round(
+            (parseNullableMoney(nextDraft.amount) ?? 0) * 100,
+          ),
           contactId: nextDraft.contactId || null,
           currency: nextDraft.currency,
           description: nextDraft.description,
-          dueAt: nextDraft.dueAt || null
+          dueAt: nextDraft.dueAt || null,
         },
         method: "POST",
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to create payment link.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to create payment link.",
+      );
     },
     onSuccess: async (result) => {
       setMessage("Payment link created.");
@@ -3470,14 +4137,16 @@ function PaymentsSettingsPanel({
         ...current,
         amount: "",
         description: "",
-        dueAt: ""
+        dueAt: "",
       }));
-      void queryClient.invalidateQueries({ queryKey: paymentsOptions.queryKey });
+      void queryClient.invalidateQueries({
+        queryKey: paymentsOptions.queryKey,
+      });
 
       if (result.url) {
         await Linking.openURL(result.url);
       }
-    }
+    },
   });
 
   useEffect(() => {
@@ -3487,7 +4156,11 @@ function PaymentsSettingsPanel({
 
     setDraft((current) => ({
       ...current,
-      currency: current.currency || data.account?.defaultCurrency || data.stats.currency || "AUD"
+      currency:
+        current.currency ||
+        data.account?.defaultCurrency ||
+        data.stats.currency ||
+        "AUD",
     }));
   }, [data]);
 
@@ -3514,7 +4187,11 @@ function PaymentsSettingsPanel({
             ))}
           </View>
         ) : null}
-        <DataState error={payments.error} loading={false} title="Loading payments" />
+        <DataState
+          error={payments.error}
+          loading={false}
+          title="Loading payments"
+        />
         {data ? <PaymentsSummaryGrid data={data} /> : null}
         {message ? <Text style={styles.message}>{message}</Text> : null}
         <View style={styles.pdfActions}>
@@ -3536,7 +4213,11 @@ function PaymentsSettingsPanel({
           </Pressable>
         </View>
         {!paymentReady(data) ? (
-          <Pressable accessibilityRole="button" onPress={onOpenStripe} style={styles.iconButton}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onOpenStripe}
+            style={styles.iconButton}
+          >
             <CreditCard color={colors.cyan} size={16} />
             <Text style={styles.iconButtonText}>Open Stripe settings</Text>
           </Pressable>
@@ -3564,22 +4245,22 @@ function PaymentsSummaryGrid({ data }: { data: MobilePaymentsResponse }) {
   const items = [
     {
       label: "Paid week",
-      value: formatMoney(data.stats.paidThisWeekCents / 100, currency)
+      value: formatMoney(data.stats.paidThisWeekCents / 100, currency),
     },
     {
       label: "Paid month",
-      value: formatMoney(data.stats.paidThisMonthCents / 100, currency)
+      value: formatMoney(data.stats.paidThisMonthCents / 100, currency),
     },
     {
       label: "Outstanding",
       meta: `${data.stats.outstandingCount} open`,
-      value: formatMoney(data.stats.outstandingAmountCents / 100, currency)
+      value: formatMoney(data.stats.outstandingAmountCents / 100, currency),
     },
     {
       label: "Overdue",
       meta: `${data.stats.overdueCount} overdue`,
-      value: formatMoney(data.stats.overdueAmountCents / 100, currency)
-    }
+      value: formatMoney(data.stats.overdueAmountCents / 100, currency),
+    },
   ];
 
   return (
@@ -3590,7 +4271,9 @@ function PaymentsSummaryGrid({ data }: { data: MobilePaymentsResponse }) {
           <Text numberOfLines={1} style={styles.reportSummaryValue}>
             {item.value}
           </Text>
-          {item.meta ? <Text style={styles.summaryMeta}>{item.meta}</Text> : null}
+          {item.meta ? (
+            <Text style={styles.summaryMeta}>{item.meta}</Text>
+          ) : null}
         </View>
       ))}
     </View>
@@ -3603,7 +4286,7 @@ function PaymentLinkCreator({
   draft,
   onCancel,
   onChange,
-  onSubmit
+  onSubmit,
 }: {
   busy: boolean;
   contacts: MobilePaymentsResponse["contacts"];
@@ -3622,10 +4305,12 @@ function PaymentLinkCreator({
           options={[
             { label: "No contact linked", value: "" },
             ...contacts.map((contact) => ({
-              description: [contact.email, contact.phone].filter(Boolean).join(" - "),
+              description: [contact.email, contact.phone]
+                .filter(Boolean)
+                .join(" - "),
               label: contact.label,
-              value: contact.id
-            }))
+              value: contact.id,
+            })),
           ]}
           value={draft.contactId}
         />
@@ -3676,20 +4361,32 @@ function PaymentLinkCreator({
       </SettingField>
       <View style={styles.saveFooter}>
         <Text style={styles.footerText}>
-          Stripe Checkout manages eligible payment methods. Kyro records the request and status.
+          Stripe Checkout manages eligible payment methods. Kyro records the
+          request and status.
         </Text>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={onCancel} style={styles.iconButton}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onCancel}
+          style={styles.iconButton}
+        >
           <Text style={styles.iconButtonText}>Cancel</Text>
         </Pressable>
         <ActionButton disabled={busy} onPress={onSubmit}>
-          <Text style={styles.primaryButtonText}>{busy ? "Creating..." : "Create"}</Text>
+          <Text style={styles.primaryButtonText}>
+            {busy ? "Creating..." : "Create"}
+          </Text>
         </ActionButton>
       </View>
     </SectionCard>
   );
 }
 
-function PaymentRequestsList({ requests }: { requests: MobilePaymentRequest[] }) {
+function PaymentRequestsList({
+  requests,
+}: {
+  requests: MobilePaymentRequest[];
+}) {
   return (
     <SectionCard>
       <SectionHeader
@@ -3726,17 +4423,25 @@ function PaymentRequestRow({ request }: { request: MobilePaymentRequest }) {
     >
       <View style={styles.fileRowMain}>
         <Text numberOfLines={1} style={styles.rowTitle}>
-          {formatMoney(request.amountCents / 100, request.currency)} - {request.contactLabel}
+          {formatMoney(request.amountCents / 100, request.currency)} -{" "}
+          {request.contactLabel}
         </Text>
         <Text numberOfLines={1} style={styles.rowCopy}>
           {request.description}
         </Text>
         <Text numberOfLines={1} style={styles.rowMeta}>
-          {request.dueAt ? `Due ${formatDate(request.dueAt)}` : formatDate(request.createdAt)}
+          {request.dueAt
+            ? `Due ${formatDate(request.dueAt)}`
+            : formatDate(request.createdAt)}
         </Text>
       </View>
-      <StatusPill label={formatLabel(request.status)} tone={paymentStatusTone(request.status)} />
-      {request.paymentUrl ? <ExternalLink color={colors.muted} size={16} /> : null}
+      <StatusPill
+        label={formatLabel(request.status)}
+        tone={paymentStatusTone(request.status)}
+      />
+      {request.paymentUrl ? (
+        <ExternalLink color={colors.muted} size={16} />
+      ) : null}
     </Pressable>
   );
 }
@@ -3748,11 +4453,11 @@ function StripeSettingsPanel() {
   const documentsOptions = mobileDocumentsQueryOptions(session);
   const payments = useQuery({
     ...paymentsOptions,
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const documents = useQuery({
     ...documentsOptions,
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
   const [stripeMessage, setStripeMessage] = useState<string | null>(null);
@@ -3762,21 +4467,25 @@ function StripeSettingsPanel() {
       kyroApiFetch<MobileDocumentsResponse>("/api/mobile/documents", {
         body: {
           defaultInvoiceTemplateKey: defaultInvoiceTemplateKey || null,
-          operation: "save_default_invoice_template"
+          operation: "save_default_invoice_template",
         },
         method: "POST",
-        session
-    }),
+        session,
+      }),
     onError: (error) => {
       setTemplateMessage(
-        error instanceof Error ? error.message : "Unable to save invoice template."
+        error instanceof Error
+          ? error.message
+          : "Unable to save invoice template.",
       );
     },
     onSuccess: (nextData) => {
       setTemplateMessage(nextData.message ?? "Default invoice template saved.");
       queryClient.setQueryData(documentsOptions.queryKey, nextData);
-      void queryClient.invalidateQueries({ queryKey: paymentsOptions.queryKey });
-    }
+      void queryClient.invalidateQueries({
+        queryKey: paymentsOptions.queryKey,
+      });
+    },
   });
 
   useEffect(() => {
@@ -3792,17 +4501,19 @@ function StripeSettingsPanel() {
       kyroApiFetch<MobilePaymentSetupResponse>("/api/mobile/payments", {
         body: { operation: "connect_stripe" },
         method: "POST",
-        session
+        session,
       }),
     onError: (error) => {
       setStripeMessage(
-        error instanceof Error ? error.message : "Unable to start Stripe setup."
+        error instanceof Error
+          ? error.message
+          : "Unable to start Stripe setup.",
       );
     },
     onSuccess: async (result) => {
       setStripeMessage("Stripe setup opened.");
       await Linking.openURL(result.url);
-    }
+    },
   });
 
   return (
@@ -3819,16 +4530,23 @@ function StripeSettingsPanel() {
           title="Payment connection"
         />
         {payments.isLoading ? <FilesLoadingRows /> : null}
-        <DataState error={payments.error} loading={false} title="Loading Stripe" />
+        <DataState
+          error={payments.error}
+          loading={false}
+          title="Loading Stripe"
+        />
         {overview ? (
           <View style={styles.summaryStrip}>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Account</Text>
               <Text style={styles.summaryValue}>
-                {overview.account?.status ? formatLabel(overview.account.status) : "Not connected"}
+                {overview.account?.status
+                  ? formatLabel(overview.account.status)
+                  : "Not connected"}
               </Text>
               <Text numberOfLines={1} style={styles.summaryMeta}>
-                {overview.account?.providerAccountId ?? "No Stripe account linked"}
+                {overview.account?.providerAccountId ??
+                  "No Stripe account linked"}
               </Text>
             </View>
             <View style={styles.summaryItem}>
@@ -3837,7 +4555,9 @@ function StripeSettingsPanel() {
                 {overview.webhookConfigured ? "Configured" : "Missing"}
               </Text>
               <Text numberOfLines={1} style={styles.summaryMeta}>
-                {overview.configured ? "Stripe key loaded" : "Stripe key missing"}
+                {overview.configured
+                  ? "Stripe key loaded"
+                  : "Stripe key missing"}
               </Text>
             </View>
           </View>
@@ -3847,13 +4567,18 @@ function StripeSettingsPanel() {
             Payment tables are not available in this backend yet.
           </Text>
         ) : null}
-        {stripeMessage ? <Text style={styles.message}>{stripeMessage}</Text> : null}
+        {stripeMessage ? (
+          <Text style={styles.message}>{stripeMessage}</Text>
+        ) : null}
         {overview?.migrationReady && overview.configured ? (
           <Pressable
             accessibilityRole="button"
             disabled={connectStripe.isPending}
             onPress={() => connectStripe.mutate()}
-            style={[styles.iconButton, connectStripe.isPending ? styles.disabled : null]}
+            style={[
+              styles.iconButton,
+              connectStripe.isPending ? styles.disabled : null,
+            ]}
           >
             <ExternalLink color={colors.cyan} size={16} />
             <Text style={styles.iconButtonText}>
@@ -3870,7 +4595,11 @@ function StripeSettingsPanel() {
       <SectionCard>
         <SectionHeader eyebrow="Invoices" title="Default invoice template" />
         {documents.isLoading ? <FilesLoadingRows /> : null}
-        <DataState error={documents.error} loading={false} title="Loading templates" />
+        <DataState
+          error={documents.error}
+          loading={false}
+          title="Loading templates"
+        />
         {templates.length ? (
           <>
             <ReportDropdown
@@ -3881,8 +4610,8 @@ function StripeSettingsPanel() {
                 ...templates.map((template) => ({
                   description: `${template.lineItems.length} reusable items`,
                   label: template.label,
-                  value: template.key
-                }))
+                  value: template.key,
+                })),
               ]}
               value={selectedTemplateKey}
             />
@@ -3905,7 +4634,8 @@ function StripeSettingsPanel() {
           </>
         ) : (
           <Text style={styles.emptyCopy}>
-            Create an invoice template in Document Generator, then select it here.
+            Create an invoice template in Document Generator, then select it
+            here.
           </Text>
         )}
       </SectionCard>
@@ -3946,7 +4676,7 @@ type TemplateEditorDraft = {
 
 function DocumentWorkbenchPanel({
   launch,
-  onLaunchConsumed
+  onLaunchConsumed,
 }: {
   launch?: DocumentLaunch;
   onLaunchConsumed?: () => void;
@@ -3954,39 +4684,53 @@ function DocumentWorkbenchPanel({
   const { session, status } = useAuthSession();
   const queryClient = useQueryClient();
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
-  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
-  const [newQuoteTemplateKey, setNewQuoteTemplateKey] = useState<string | null>(null);
-  const [newQuoteKind, setNewQuoteKind] = useState<"invoice" | "quote">("quote");
-  const [quoteMode, setQuoteMode] = useState<"list" | "new" | "template">("list");
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(
+    null,
+  );
+  const [newQuoteTemplateKey, setNewQuoteTemplateKey] = useState<string | null>(
+    null,
+  );
+  const [newQuoteKind, setNewQuoteKind] = useState<"invoice" | "quote">(
+    "quote",
+  );
+  const [quoteMode, setQuoteMode] = useState<"list" | "new" | "template">(
+    "list",
+  );
   const [message, setMessage] = useState<string | null>(null);
   const documentsOptions = mobileDocumentsQueryOptions(session);
   const documents = useQuery({
     ...documentsOptions,
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const documentsData = documents.data;
   const selectedTemplate =
     quoteMode === "template"
-      ? documentsData?.templates.find((template) => template.key === selectedTemplateKey)
+      ? documentsData?.templates.find(
+          (template) => template.key === selectedTemplateKey,
+        )
       : null;
   const selectedNewQuoteTemplate =
     quoteMode === "new" && documentsData
-      ? documentsData.templates.find((template) => template.key === newQuoteTemplateKey) ??
+      ? (documentsData.templates.find(
+          (template) => template.key === newQuoteTemplateKey,
+        ) ??
         documentsData.templates[0] ??
-        null
+        null)
       : null;
   const createQuote = useMutation({
     mutationFn: (draft: QuoteEditorDraft) =>
       kyroApiFetch<MobileDocumentsResponse>("/api/mobile/documents", {
         body: {
           ...quoteDraftPayload(draft),
-          operation: "create_quote"
+          operation: "create_quote",
         },
         method: "POST",
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to create quote.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to create quote.",
+      );
     },
     onSuccess: (nextData) => {
       queryClient.setQueryData(documentsOptions.queryKey, nextData);
@@ -3995,7 +4739,7 @@ function DocumentWorkbenchPanel({
       setNewQuoteKind("quote");
       setNewQuoteTemplateKey(null);
       setSelectedQuoteId(nextData.quoteDrafts[0]?.id ?? null);
-    }
+    },
   });
   const saveTemplate = useMutation({
     mutationFn: (draft: TemplateEditorDraft) =>
@@ -4013,19 +4757,21 @@ function DocumentWorkbenchPanel({
           quoteStyleDirection: draft.quoteStyleDirection,
           showPreparedBy: draft.showPreparedBy,
           templateKey: draft.templateKey || null,
-          validityDays: Number(draft.validityDays)
+          validityDays: Number(draft.validityDays),
         },
         method: "POST",
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to save template.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to save template.",
+      );
     },
     onSuccess: (nextData) => {
       queryClient.setQueryData(documentsOptions.queryKey, nextData);
       setMessage(nextData.message ?? "Template saved.");
       setQuoteMode("list");
-    }
+    },
   });
 
   useEffect(() => {
@@ -4043,7 +4789,7 @@ function DocumentWorkbenchPanel({
       setMessage(
         template
           ? `Invoice draft opened with ${template.label}.`
-          : "Invoice draft opened. Choose or create an invoice template when ready."
+          : "Invoice draft opened. Choose or create an invoice template when ready.",
       );
     }
 
@@ -4057,11 +4803,11 @@ function DocumentWorkbenchPanel({
         onChanged={(detail) => {
           setMessage("Quote updated.");
           void queryClient.invalidateQueries({
-            queryKey: documentsOptions.queryKey
+            queryKey: documentsOptions.queryKey,
           });
           void queryClient.setQueryData(
             mobileDocumentQuoteQueryOptions(session, selectedQuoteId).queryKey,
-            detail
+            detail,
           );
         }}
         quoteDraftId={selectedQuoteId}
@@ -4073,7 +4819,12 @@ function DocumentWorkbenchPanel({
     <>
       <SectionCard>
         <SectionHeader
-          action={<StatusPill label={`${documentsData?.counts.total ?? 0} quotes`} tone="cyan" />}
+          action={
+            <StatusPill
+              label={`${documentsData?.counts.total ?? 0} quotes`}
+              tone="cyan"
+            />
+          }
           eyebrow="Quotes"
           title="Document workbench"
         />
@@ -4115,7 +4866,10 @@ function DocumentWorkbenchPanel({
       {quoteMode === "new" && documentsData ? (
         <QuoteDraftForm
           busy={createQuote.isPending}
-          initialDraft={quoteDraftFromTemplate(selectedNewQuoteTemplate, newQuoteKind)}
+          initialDraft={quoteDraftFromTemplate(
+            selectedNewQuoteTemplate,
+            newQuoteKind,
+          )}
           onCancel={() => setQuoteMode("list")}
           onSave={(draft) => createQuote.mutate(draft)}
           templates={documentsData.templates}
@@ -4125,7 +4879,10 @@ function DocumentWorkbenchPanel({
       {quoteMode === "template" && documentsData ? (
         <TemplateDraftForm
           busy={saveTemplate.isPending}
-          initialDraft={templateDraftFromTemplate(selectedTemplate, documentsData.settings)}
+          initialDraft={templateDraftFromTemplate(
+            selectedTemplate,
+            documentsData.settings,
+          )}
           onCancel={() => setQuoteMode("list")}
           onSave={(draft) => saveTemplate.mutate(draft)}
         />
@@ -4177,7 +4934,7 @@ function DocumentWorkbenchPanel({
 function QuoteDraftMobileEditor({
   onBack,
   onChanged,
-  quoteDraftId
+  quoteDraftId,
 }: {
   onBack: () => void;
   onChanged: (detail: MobileQuoteDraftDetailResponse) => void;
@@ -4195,40 +4952,46 @@ function QuoteDraftMobileEditor({
         {
           body: {
             ...quoteDraftPayload(nextDraft),
-            operation: "update_quote"
+            operation: "update_quote",
           },
           method: "PATCH",
-          session
-        }
+          session,
+        },
       ),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to save quote.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to save quote.",
+      );
     },
     onSuccess: (nextDetail) => {
       setMessage(nextDetail.message ?? "Quote draft saved.");
       onChanged(nextDetail);
-    }
+    },
   });
   const runQuoteAction = useMutation({
-    mutationFn: (operation: "create_approval_link" | "prepare_send" | "apply_template") =>
+    mutationFn: (
+      operation: "create_approval_link" | "prepare_send" | "apply_template",
+    ) =>
       kyroApiFetch<MobileQuoteDraftDetailResponse>(
         `/api/mobile/documents/${quoteDraftId}`,
         {
           body: {
             operation,
-            templateKey: draft?.templateKey || undefined
+            templateKey: draft?.templateKey || undefined,
           },
           method: "PATCH",
-          session
-        }
+          session,
+        },
       ),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to update quote.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to update quote.",
+      );
     },
     onSuccess: (nextDetail) => {
       setMessage(nextDetail.message ?? "Quote updated.");
       onChanged(nextDetail);
-    }
+    },
   });
   const pdfAction = useMutation({
     mutationFn: (mode: "save" | "view") =>
@@ -4236,18 +4999,20 @@ function QuoteDraftMobileEditor({
         mode,
         quoteDraftId,
         sessionToken: session?.access_token ?? null,
-        title: detail.data?.quoteDraft.title ?? "quote"
+        title: detail.data?.quoteDraft.title ?? "quote",
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to open PDF.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to open PDF.",
+      );
     },
     onSuccess: ({ mode }) => {
       setMessage(
         mode === "view"
           ? "Quote PDF ready."
-          : "Quote PDF ready. Choose Save to Files from the native sheet."
+          : "Quote PDF ready. Choose Save to Files from the native sheet.",
       );
-    }
+    },
   });
 
   useEffect(() => {
@@ -4262,7 +5027,11 @@ function QuoteDraftMobileEditor({
 
   return (
     <>
-      <Pressable accessibilityRole="button" onPress={onBack} style={styles.backButton}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onBack}
+        style={styles.backButton}
+      >
         <ChevronLeft color={colors.text} size={20} strokeWidth={2.5} />
         <Text style={styles.backButtonText}>Quotes</Text>
       </Pressable>
@@ -4291,7 +5060,10 @@ function QuoteDraftMobileEditor({
             {quote.history.length ? (
               <View style={styles.fileList}>
                 {quote.history.map((event, index) => (
-                  <View key={`${event.kind}-${event.occurredAt}-${index}`} style={styles.reportRow}>
+                  <View
+                    key={`${event.kind}-${event.occurredAt}-${index}`}
+                    style={styles.reportRow}
+                  >
                     <Text style={styles.rowTitle}>{event.label}</Text>
                     <Text style={styles.rowCopy}>
                       {event.meta} - {formatDate(event.occurredAt)}
@@ -4301,7 +5073,8 @@ function QuoteDraftMobileEditor({
               </View>
             ) : (
               <Text style={styles.emptyCopy}>
-                PDF generation, customer approval, and send-prep events will appear here.
+                PDF generation, customer approval, and send-prep events will
+                appear here.
               </Text>
             )}
           </SectionCard>
@@ -4317,7 +5090,7 @@ function QuotePreviewCard({
   onApprovalLink,
   onPrepareSend,
   onSavePdf,
-  onViewPdf
+  onViewPdf,
 }: {
   busy: boolean;
   detail: MobileQuoteDraftDetailResponse;
@@ -4367,26 +5140,44 @@ function QuotePreviewCard({
       {detail.revision.needsRevision ? (
         <Text style={styles.securityError}>
           Customer requested changes:{" "}
-          {detail.revision.pendingChangeRequest?.message ?? "Review and revise this quote."}
+          {detail.revision.pendingChangeRequest?.message ??
+            "Review and revise this quote."}
         </Text>
       ) : null}
       <View style={styles.pdfActions}>
         <ActionButton disabled={busy} onPress={onViewPdf}>
           <Text style={styles.primaryButtonText}>View PDF</Text>
         </ActionButton>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={onSavePdf} style={styles.saveButton}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onSavePdf}
+          style={styles.saveButton}
+        >
           <Text style={styles.saveButtonText}>Save PDF</Text>
         </Pressable>
       </View>
       <View style={styles.pdfActions}>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={onApprovalLink} style={styles.iconButton}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onApprovalLink}
+          style={styles.iconButton}
+        >
           <Text style={styles.iconButtonText}>
             {detail.approval ? "Fresh approval link" : "Create approval link"}
           </Text>
         </Pressable>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={onPrepareSend} style={styles.iconButton}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onPrepareSend}
+          style={styles.iconButton}
+        >
           <Text style={styles.iconButtonText}>
-            {detail.revision.currentVersion > 1 ? "Send revised quote" : "Prepare send"}
+            {detail.revision.currentVersion > 1
+              ? "Send revised quote"
+              : "Prepare send"}
           </Text>
         </Pressable>
       </View>
@@ -4404,7 +5195,7 @@ function QuoteDraftForm({
   initialDraft,
   onCancel,
   onSave,
-  templates
+  templates,
 }: {
   busy: boolean;
   initialDraft: QuoteEditorDraft;
@@ -4427,25 +5218,29 @@ function QuoteDraftForm({
             <Pressable
               accessibilityRole="button"
               key={template.key}
-      onPress={() =>
-        setDraft({
-          ...draft,
-          documentKind: draft.documentKind,
-          jobType: draft.jobType || template.label,
-          lineItemsText: lineItemsToText(template.lineItems),
-          notes: draft.notes || template.notes,
-                  templateKey: template.key
+              onPress={() =>
+                setDraft({
+                  ...draft,
+                  documentKind: draft.documentKind,
+                  jobType: draft.jobType || template.label,
+                  lineItemsText: lineItemsToText(template.lineItems),
+                  notes: draft.notes || template.notes,
+                  templateKey: template.key,
                 })
               }
               style={[
                 styles.choiceChip,
-                draft.templateKey === template.key ? styles.choiceChipActive : null
+                draft.templateKey === template.key
+                  ? styles.choiceChipActive
+                  : null,
               ]}
             >
               <Text
                 style={[
                   styles.choiceText,
-                  draft.templateKey === template.key ? styles.choiceTextActive : null
+                  draft.templateKey === template.key
+                    ? styles.choiceTextActive
+                    : null,
                 ]}
               >
                 {template.label}
@@ -4485,7 +5280,9 @@ function QuoteDraftForm({
         <SettingField label="Customer">
           <TextInput
             editable={!busy}
-            onChangeText={(customerName) => setDraft({ ...draft, customerName })}
+            onChangeText={(customerName) =>
+              setDraft({ ...draft, customerName })
+            }
             style={styles.input}
             value={draft.customerName}
           />
@@ -4495,7 +5292,9 @@ function QuoteDraftForm({
             autoCapitalize="none"
             editable={!busy}
             keyboardType="email-address"
-            onChangeText={(customerEmail) => setDraft({ ...draft, customerEmail })}
+            onChangeText={(customerEmail) =>
+              setDraft({ ...draft, customerEmail })
+            }
             style={styles.input}
             value={draft.customerEmail}
           />
@@ -4513,7 +5312,9 @@ function QuoteDraftForm({
         <TextInput
           editable={!busy}
           multiline
-          onChangeText={(lineItemsText) => setDraft({ ...draft, lineItemsText })}
+          onChangeText={(lineItemsText) =>
+            setDraft({ ...draft, lineItemsText })
+          }
           style={[styles.input, styles.textAreaSmall]}
           value={draft.lineItemsText}
         />
@@ -4531,11 +5332,18 @@ function QuoteDraftForm({
         <Text style={styles.footerText}>
           One line item per row: item | qty | unit | price | note
         </Text>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={onCancel} style={styles.iconButton}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onCancel}
+          style={styles.iconButton}
+        >
           <Text style={styles.iconButtonText}>Reset</Text>
         </Pressable>
         <ActionButton disabled={busy} onPress={() => onSave(draft)}>
-          <Text style={styles.primaryButtonText}>{busy ? "Saving..." : "Save"}</Text>
+          <Text style={styles.primaryButtonText}>
+            {busy ? "Saving..." : "Save"}
+          </Text>
         </ActionButton>
       </View>
     </SectionCard>
@@ -4546,7 +5354,7 @@ function TemplateDraftForm({
   busy,
   initialDraft,
   onCancel,
-  onSave
+  onSave,
 }: {
   busy: boolean;
   initialDraft: TemplateEditorDraft;
@@ -4582,7 +5390,9 @@ function TemplateDraftForm({
         <TextInput
           editable={!busy}
           multiline
-          onChangeText={(lineItemsText) => setDraft({ ...draft, lineItemsText })}
+          onChangeText={(lineItemsText) =>
+            setDraft({ ...draft, lineItemsText })
+          }
           style={[styles.input, styles.textAreaSmall]}
           value={draft.lineItemsText}
         />
@@ -4637,12 +5447,21 @@ function TemplateDraftForm({
         />
       </SettingField>
       <View style={styles.saveFooter}>
-        <Text style={styles.footerText}>Templates seed future quote drafts.</Text>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={onCancel} style={styles.iconButton}>
+        <Text style={styles.footerText}>
+          Templates seed future quote drafts.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onCancel}
+          style={styles.iconButton}
+        >
           <Text style={styles.iconButtonText}>Cancel</Text>
         </Pressable>
         <ActionButton disabled={busy} onPress={() => onSave(draft)}>
-          <Text style={styles.primaryButtonText}>{busy ? "Saving..." : "Save"}</Text>
+          <Text style={styles.primaryButtonText}>
+            {busy ? "Saving..." : "Save"}
+          </Text>
         </ActionButton>
       </View>
     </SectionCard>
@@ -4651,20 +5470,27 @@ function TemplateDraftForm({
 
 function QuoteDraftRow({
   onPress,
-  quoteDraft
+  quoteDraft,
 }: {
   onPress: () => void;
   quoteDraft: MobileQuoteDraftListItem;
 }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.fileRow}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={styles.fileRow}
+    >
       <View style={styles.fileRowMain}>
         <Text numberOfLines={1} style={styles.rowTitle}>
           {quoteDraft.title}
         </Text>
         <Text numberOfLines={1} style={styles.rowCopy}>
-          {quoteDraft.contact?.name ?? quoteDraft.contact?.company ?? "Manual customer"} -{" "}
-          {quoteDraft.lineItemCount} items - {formatDate(quoteDraft.updatedAt)}
+          {quoteDraft.contact?.name ??
+            quoteDraft.contact?.company ??
+            "Manual customer"}{" "}
+          - {quoteDraft.lineItemCount} items -{" "}
+          {formatDate(quoteDraft.updatedAt)}
         </Text>
       </View>
       <StatusPill label={formatLabel(quoteDraft.status)} tone="purple" />
@@ -4675,19 +5501,24 @@ function QuoteDraftRow({
 
 function TemplateRow({
   onEdit,
-  template
+  template,
 }: {
   onEdit: () => void;
   template: MobileDocumentTemplate;
 }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onEdit} style={styles.fileRow}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onEdit}
+      style={styles.fileRow}
+    >
       <View style={styles.fileRowMain}>
         <Text numberOfLines={1} style={styles.rowTitle}>
           {template.label}
         </Text>
         <Text numberOfLines={1} style={styles.rowCopy}>
-          {template.lineItems.length} reusable items - {template.settings.currency}
+          {template.lineItems.length} reusable items -{" "}
+          {template.settings.currency}
         </Text>
       </View>
       <ChevronRight color={colors.muted} size={18} />
@@ -4697,12 +5528,17 @@ function TemplateRow({
 
 function DocumentGeneratorSettingsPanel({
   launch,
-  onLaunchConsumed
+  onLaunchConsumed,
 }: {
   launch?: DocumentLaunch;
   onLaunchConsumed?: () => void;
 }) {
-  return <DocumentWorkbenchPanel launch={launch} onLaunchConsumed={onLaunchConsumed} />;
+  return (
+    <DocumentWorkbenchPanel
+      launch={launch}
+      onLaunchConsumed={onLaunchConsumed}
+    />
+  );
 }
 
 function FilesSettingsPanel() {
@@ -4713,29 +5549,36 @@ function FilesSettingsPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const files = useQuery({
     ...mobileFilesQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const openFile = useMutation({
     mutationFn: (fileId: string) =>
       kyroApiFetch<MobileFileLinkResponse>("/api/mobile/file-link", {
         query: { fileId },
-        session
+        session,
       }),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to open file.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to open file.",
+      );
     },
     onSuccess: async (link) => {
       setMessage(null);
       await Linking.openURL(link.url);
-    }
+    },
   });
   const fileData = files.data;
   const visibleFiles =
-    fileData?.files.filter((file) => fileMatchesMobileFilter(file, activeFilter)) ??
-    [];
+    fileData?.files.filter((file) =>
+      fileMatchesMobileFilter(file, activeFilter),
+    ) ?? [];
 
   useEffect(() => {
-    if (status !== "signed-in" || !session?.access_token || !fileData?.files.length) {
+    if (
+      status !== "signed-in" ||
+      !session?.access_token ||
+      !fileData?.files.length
+    ) {
       return undefined;
     }
 
@@ -4747,7 +5590,7 @@ function FilesSettingsPanel() {
           void queryClient
             .prefetchQuery(mobileFilePreviewQueryOptions(session, file.id))
             .catch(() => undefined);
-        }, index * 80)
+        }, index * 80),
       );
 
     return () => {
@@ -4778,11 +5621,7 @@ function FilesSettingsPanel() {
         />
         {message ? <Text style={styles.message}>{message}</Text> : null}
         {files.isLoading ? <FilesLoadingRows /> : null}
-        <DataState
-          error={files.error}
-          loading={false}
-          title="Loading files"
-        />
+        <DataState error={files.error} loading={false} title="Loading files" />
         {fileData && !files.isLoading ? (
           visibleFiles.length ? (
             <View style={styles.fileList}>
@@ -4824,7 +5663,7 @@ function FileFilterChips({
   activeFilter,
   counts,
   filters,
-  onChange
+  onChange,
 }: {
   activeFilter: MobileFileFilter;
   counts?: Record<MobileFileFilter, number>;
@@ -4837,7 +5676,7 @@ function FileFilterChips({
     "upload",
     "image",
     "document",
-    "email"
+    "email",
   ];
 
   return (
@@ -4856,7 +5695,7 @@ function FileFilterChips({
             <Text
               style={[
                 styles.choiceText,
-                active ? styles.choiceTextActive : null
+                active ? styles.choiceTextActive : null,
               ]}
             >
               {fileFilterLabel(filter)}
@@ -4889,7 +5728,7 @@ function FilesLoadingRows() {
 function FileLibraryRow({
   disabled,
   file,
-  onOpen
+  onOpen,
 }: {
   disabled: boolean;
   file: MobileFileItem;
@@ -4903,7 +5742,7 @@ function FileLibraryRow({
       style={({ pressed }) => [
         styles.fileRow,
         pressed && !disabled ? styles.pressed : null,
-        disabled ? styles.disabled : null
+        disabled ? styles.disabled : null,
       ]}
     >
       <FileThumb file={file} />
@@ -4932,7 +5771,7 @@ function FileThumb({ file }: { file: MobileFileItem }) {
   const { session } = useAuthSession();
   const preview = useQuery({
     ...mobileFilePreviewQueryOptions(session, file.id),
-    enabled: Boolean(session?.access_token && file.kind === "image")
+    enabled: Boolean(session?.access_token && file.kind === "image"),
   });
   const imageUri = preview.data?.dataUri;
 
@@ -4957,7 +5796,7 @@ function FileThumb({ file }: { file: MobileFileItem }) {
 
 function FileImagePreviewModal({
   file,
-  onClose
+  onClose,
 }: {
   file: MobileFileItem | null;
   onClose: () => void;
@@ -4965,7 +5804,7 @@ function FileImagePreviewModal({
   const { session } = useAuthSession();
   const preview = useQuery({
     ...mobileFilePreviewQueryOptions(session, file?.id),
-    enabled: Boolean(session?.access_token && file?.id)
+    enabled: Boolean(session?.access_token && file?.id),
   });
   const imageUri = preview.data?.dataUri;
 
@@ -5007,7 +5846,9 @@ function LatestInboundSummary({ data }: { data: MobileSettingsResponse }) {
     <View style={styles.summaryStrip}>
       <View style={styles.summaryItem}>
         <Text style={styles.summaryLabel}>Last sync</Text>
-        <Text style={styles.summaryValue}>{formatDate(latestSync?.createdAt)}</Text>
+        <Text style={styles.summaryValue}>
+          {formatDate(latestSync?.createdAt)}
+        </Text>
         <Text style={styles.summaryMeta}>
           {latestSync
             ? `${latestSync.promotedMessages} promoted - ${latestSync.errors} errors`
@@ -5029,7 +5870,7 @@ function LatestInboundSummary({ data }: { data: MobileSettingsResponse }) {
 
 function SettingField({
   children,
-  label
+  label,
 }: {
   children: ReactNode;
   label: string;
@@ -5045,7 +5886,7 @@ function SettingField({
 function SwitchRow({
   label,
   onValueChange,
-  value
+  value,
 }: {
   label: string;
   onValueChange: (value: boolean) => void;
@@ -5059,7 +5900,7 @@ function SwitchRow({
         thumbColor={value ? colors.text : colors.muted}
         trackColor={{
           false: colors.line,
-          true: "rgba(81, 229, 255, 0.48)"
+          true: "rgba(81, 229, 255, 0.48)",
         }}
         value={value}
       />
@@ -5070,7 +5911,7 @@ function SwitchRow({
 function NumberInput({
   disabled,
   onChange,
-  value
+  value,
 }: {
   disabled: boolean;
   onChange: (value: number) => void;
@@ -5098,7 +5939,7 @@ function OptionChips({
   formatOption = formatLabel,
   onChange,
   options,
-  value
+  value,
 }: {
   formatOption?: (value: string) => string;
   onChange: (value: string) => void;
@@ -5121,7 +5962,7 @@ function OptionChips({
             <Text
               style={[
                 styles.choiceText,
-                active ? styles.choiceTextActive : null
+                active ? styles.choiceTextActive : null,
               ]}
             >
               {formatOption(option)}
@@ -5136,7 +5977,7 @@ function OptionChips({
 function MultiOptionChips({
   onChange,
   options,
-  value
+  value,
 }: {
   onChange: (value: string[]) => void;
   options: string[];
@@ -5164,7 +6005,7 @@ function MultiOptionChips({
             <Text
               style={[
                 styles.choiceText,
-                active ? styles.choiceTextActive : null
+                active ? styles.choiceTextActive : null,
               ]}
             >
               {formatLabel(option)}
@@ -5180,7 +6021,7 @@ function SaveFooter({
   disabled,
   label,
   onPress,
-  text
+  text,
 }: {
   disabled: boolean;
   label: string;
@@ -5189,16 +6030,18 @@ function SaveFooter({
 }) {
   return (
     <View style={styles.saveFooter}>
-      {text ? <Text style={styles.footerText}>{text}</Text> : <View style={styles.footerSpacer} />}
+      {text ? (
+        <Text style={styles.footerText}>{text}</Text>
+      ) : (
+        <View style={styles.footerSpacer} />
+      )}
       <Pressable
         accessibilityRole="button"
         disabled={disabled}
         onPress={onPress}
         style={[styles.saveButton, disabled ? styles.disabled : null]}
       >
-        <Text style={styles.saveButtonText}>
-          {disabled ? "Saving" : label}
-        </Text>
+        <Text style={styles.saveButtonText}>{disabled ? "Saving" : label}</Text>
       </Pressable>
     </View>
   );
@@ -5210,17 +6053,17 @@ function sectionItemFor(section: SettingsSection) {
 
 function visibleSectionsForGroup(
   group: SettingsGroupItem,
-  data: MobileSettingsResponse
+  data: MobileSettingsResponse,
 ) {
   return group.sections.filter(
-    (section) => section !== "developer" || data.developer.enabled
+    (section) => section !== "developer" || data.developer.enabled,
   );
 }
 
 function settingsGroupDetail(
   group: SettingsGroupItem,
   data: MobileSettingsResponse,
-  appLockMode: AppLockMode
+  appLockMode: AppLockMode,
 ) {
   if (group.id === "app_account") {
     return `${appLockModeLabel(appLockMode)} - ${data.usage.totals.displayCustomerCharge}`;
@@ -5238,7 +6081,7 @@ function settingsGroupDetail(
 
   if (group.id === "communication") {
     return `${data.status.connectedAccountCount} connected - ${inboundSyncModeLabel(
-      data.settings.inboundEmail.syncMode
+      data.settings.inboundEmail.syncMode,
     )}`;
   }
 
@@ -5254,7 +6097,7 @@ function settingsGroupDetail(
 function settingsMenuDetail(
   section: SettingsSection,
   data: MobileSettingsResponse,
-  appLockMode: AppLockMode
+  appLockMode: AppLockMode,
 ) {
   if (section === "general") {
     return `${data.settings.general.timeZone} - ${data.settings.general.displayCurrency}`;
@@ -5262,7 +6105,7 @@ function settingsMenuDetail(
 
   if (section === "integrations") {
     return `${data.status.connectedAccountCount} connected - ${inboundSyncModeLabel(
-      data.settings.inboundEmail.syncMode
+      data.settings.inboundEmail.syncMode,
     )}`;
   }
 
@@ -5333,7 +6176,7 @@ function isValidSecurityPasscode(value: string) {
 
 function fileMatchesMobileFilter(
   file: MobileFileItem,
-  filter: MobileFileFilter
+  filter: MobileFileFilter,
 ) {
   if (filter === "all") {
     return true;
@@ -5360,13 +6203,13 @@ function quoteDraftPayload(draft: QuoteEditorDraft) {
     preferredTime: draft.preferredTime,
     status: draft.status || "draft",
     templateKey: draft.templateKey || null,
-    title: draft.title || "Quote draft"
+    title: draft.title || "Quote draft",
   };
 }
 
 function quoteDraftFromTemplate(
   template: MobileDocumentTemplate | null,
-  documentKind: "invoice" | "quote" = "quote"
+  documentKind: "invoice" | "quote" = "quote",
 ): QuoteEditorDraft {
   return {
     customerCompany: "",
@@ -5385,12 +6228,12 @@ function quoteDraftFromTemplate(
       ? `${template.label} ${documentKind}`
       : documentKind === "invoice"
         ? "Invoice draft"
-        : "Quote draft"
+        : "Quote draft",
   };
 }
 
 function quoteDraftFromDetail(
-  detail: MobileQuoteDraftDetailResponse
+  detail: MobileQuoteDraftDetailResponse,
 ): QuoteEditorDraft {
   const quote = detail.quoteDraft;
   const quoteMetadata =
@@ -5400,30 +6243,41 @@ function quoteDraftFromDetail(
 
   return {
     customerCompany: stringDraftValue(quoteMetadata.customerCompany),
-    customerEmail: stringDraftValue(quoteMetadata.customerEmail ?? quote.contact?.email),
-    customerName: stringDraftValue(quoteMetadata.customerName ?? quote.contact?.name),
-    customerPhone: stringDraftValue(quoteMetadata.customerPhone ?? quote.contact?.phone),
-    documentKind: quoteMetadata.documentKind === "invoice" ? "invoice" : "quote",
+    customerEmail: stringDraftValue(
+      quoteMetadata.customerEmail ?? quote.contact?.email,
+    ),
+    customerName: stringDraftValue(
+      quoteMetadata.customerName ?? quote.contact?.name,
+    ),
+    customerPhone: stringDraftValue(
+      quoteMetadata.customerPhone ?? quote.contact?.phone,
+    ),
+    documentKind:
+      quoteMetadata.documentKind === "invoice" ? "invoice" : "quote",
     jobAddress: stringDraftValue(
-      quoteMetadata.jobAddress ?? quote.inquiryFacts?.address ?? quote.contact?.address
+      quoteMetadata.jobAddress ??
+        quote.inquiryFacts?.address ??
+        quote.contact?.address,
     ),
     jobType: stringDraftValue(
-      quoteMetadata.jobType ?? quote.inquiryFacts?.jobType ?? quote.lead?.serviceType
+      quoteMetadata.jobType ??
+        quote.inquiryFacts?.jobType ??
+        quote.lead?.serviceType,
     ),
     lineItemsText: lineItemsToText(quote.lineItems),
     notes: quote.notes ?? "",
     preferredTime: stringDraftValue(
-      quoteMetadata.preferredTime ?? quote.inquiryFacts?.preferredTime
+      quoteMetadata.preferredTime ?? quote.inquiryFacts?.preferredTime,
     ),
     status: quote.status,
     templateKey: stringDraftValue(quoteMetadata.templateKey),
-    title: quote.title
+    title: quote.title,
   };
 }
 
 function templateDraftFromTemplate(
   template: MobileDocumentTemplate | null | undefined,
-  settings: MobileDocumentsResponse["settings"]
+  settings: MobileDocumentsResponse["settings"],
 ): TemplateEditorDraft {
   const sourceSettings = template?.settings ?? settings;
 
@@ -5439,7 +6293,7 @@ function templateDraftFromTemplate(
     quoteStyleDirection: sourceSettings.quoteStyleDirection,
     showPreparedBy: sourceSettings.showPreparedBy,
     templateKey: template?.key ?? "",
-    validityDays: String(sourceSettings.validityDays)
+    validityDays: String(sourceSettings.validityDays),
   };
 }
 
@@ -5453,8 +6307,13 @@ function parseLineItemsText(value: string): MobileQuoteLineItem[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [descriptionValue, quantityValue, unitValue, unitPriceValue, notesValue] =
-        line.split("|").map((part) => part.trim());
+      const [
+        descriptionValue,
+        quantityValue,
+        unitValue,
+        unitPriceValue,
+        notesValue,
+      ] = line.split("|").map((part) => part.trim());
       const quantity = parseNullableMoney(quantityValue);
       const unitPrice = parseNullableMoney(unitPriceValue);
 
@@ -5467,7 +6326,7 @@ function parseLineItemsText(value: string): MobileQuoteLineItem[] {
             ? Math.round(quantity * unitPrice * 100) / 100
             : null,
         unit: unitValue || null,
-        unitPrice
+        unitPrice,
       };
     });
 }
@@ -5480,8 +6339,8 @@ function lineItemsToText(items: MobileQuoteLineItem[]) {
         item.quantity ?? "",
         item.unit ?? "",
         item.unitPrice ?? "",
-        item.notes ?? ""
-      ].join(" | ")
+        item.notes ?? "",
+      ].join(" | "),
     )
     .join("\n");
 }
@@ -5505,21 +6364,21 @@ function formatMoney(value: number | null | undefined, currency = "AUD") {
     currency,
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
-    style: "currency"
+    style: "currency",
   }).format(value);
 }
 
 function paymentReady(data?: MobilePaymentsResponse | null) {
   return Boolean(
     data?.migrationReady &&
-      data.configured &&
-      data.account?.status === "active" &&
-      data.account.chargesEnabled
+    data.configured &&
+    data.account?.status === "active" &&
+    data.account.chargesEnabled,
   );
 }
 
 function paymentStatusTone(
-  status: string
+  status: string,
 ): "cyan" | "green" | "neutral" | "pink" | "purple" | "warning" {
   if (status === "paid") {
     return "green";
@@ -5618,7 +6477,7 @@ function formatContactType(value: string) {
 }
 
 function normalizeDeviceContact(
-  contact: Contacts.ExistingContact
+  contact: Contacts.ExistingContact,
 ): DeviceContactRow | null {
   const email = primaryEmail(contact.emails);
   const phone = primaryPhone(contact.phoneNumbers);
@@ -5645,7 +6504,7 @@ function normalizeDeviceContact(
       [name, email, phone, company].filter(Boolean).join(":").toLowerCase(),
     lastName,
     name,
-    phone
+    phone,
   };
 }
 
@@ -5677,7 +6536,7 @@ function formatDeviceAddress(address?: Contacts.Address) {
       address.city,
       address.region,
       address.postalCode,
-      address.country
+      address.country,
     ]
       .map(cleanText)
       .filter(Boolean)
@@ -5693,7 +6552,7 @@ function dedupeDeviceContacts(contacts: DeviceContactRow[]) {
       contact.email?.toLowerCase(),
       normalizePhone(contact.phone),
       contact.name?.toLowerCase(),
-      contact.company?.toLowerCase()
+      contact.company?.toLowerCase(),
     ]
       .filter(Boolean)
       .join("|");
@@ -5720,7 +6579,7 @@ function contactMatchesSearch(contact: DeviceContactRow, search: string) {
     contact.company,
     contact.email,
     contact.phone,
-    contact.address
+    contact.address,
   ]
     .filter(Boolean)
     .join(" ")
@@ -5767,11 +6626,14 @@ function formatDate(value?: string | null) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    month: "short"
+    month: "short",
   }).format(date);
 }
 
-function activityItemMatchesFilter(item: MobileActivityLogItem, filter: string) {
+function activityItemMatchesFilter(
+  item: MobileActivityLogItem,
+  filter: string,
+) {
   if (filter === "all") {
     return true;
   }
@@ -5797,7 +6659,7 @@ function activityItemMatchesFilter(item: MobileActivityLogItem, filter: string) 
 
 function operationalLogMatchesFilter(
   item: MobileOperationalLogItem,
-  filter: string
+  filter: string,
 ) {
   if (filter === "all") {
     return true;
@@ -5831,7 +6693,7 @@ function activityToneColor(tone: MobileActivityLogItem["tone"]) {
 }
 
 function developerHealthLabel(
-  checks: MobileWorkspaceToolsResponse["developer"]["checks"]
+  checks: MobileWorkspaceToolsResponse["developer"]["checks"],
 ) {
   if (checks.some((check) => check.status === "error")) {
     return "Needs attention";
@@ -5845,7 +6707,7 @@ function developerHealthLabel(
 }
 
 function developerHealthTone(
-  checks: MobileWorkspaceToolsResponse["developer"]["checks"]
+  checks: MobileWorkspaceToolsResponse["developer"]["checks"],
 ) {
   if (checks.some((check) => check.status === "error")) {
     return "warning" as const;
@@ -5862,7 +6724,7 @@ async function writeReportPdf({
   filters,
   mode,
   title,
-  sessionToken
+  sessionToken,
 }: {
   filters: {
     channel: string;
@@ -5897,13 +6759,13 @@ async function writeReportPdf({
   const uri = await downloadPdfFile({
     filename,
     sessionToken,
-    url: url.toString()
+    url: url.toString(),
   });
 
   await presentPdfFile({
     filename,
     mode,
-    uri
+    uri,
   });
 
   return { mode, uri };
@@ -5913,7 +6775,7 @@ async function writeQuotePdf({
   mode,
   quoteDraftId,
   sessionToken,
-  title
+  title,
 }: {
   mode: "save" | "view";
   quoteDraftId: string;
@@ -5930,19 +6792,19 @@ async function writeQuotePdf({
 
   const url = new URL(
     `/api/mobile/documents/${encodeURIComponent(quoteDraftId)}/pdf`,
-    mobileEnv.kyroApiBaseUrl
+    mobileEnv.kyroApiBaseUrl,
   );
   const filename = `${reportPdfFilename(title, false)}.pdf`;
   const uri = await downloadPdfFile({
     filename,
     sessionToken,
-    url: url.toString()
+    url: url.toString(),
   });
 
   await presentPdfFile({
     filename,
     mode,
-    uri
+    uri,
   });
 
   return { mode, uri };
@@ -5951,7 +6813,7 @@ async function writeQuotePdf({
 async function downloadPdfFile({
   filename,
   sessionToken,
-  url
+  url,
 }: {
   filename: string;
   sessionToken: string;
@@ -5965,14 +6827,14 @@ async function downloadPdfFile({
   const result = await FileSystem.downloadAsync(url, uri, {
     headers: {
       Accept: "application/pdf",
-      Authorization: `Bearer ${sessionToken}`
-    }
+      Authorization: `Bearer ${sessionToken}`,
+    },
   });
 
   if (result.status < 200 || result.status >= 300) {
     const body = await FileSystem.readAsStringAsync(result.uri).catch(() => "");
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(
-      () => undefined
+      () => undefined,
     );
     const payload = body ? parseJsonObject(body) : null;
     const message =
@@ -5989,7 +6851,7 @@ async function downloadPdfFile({
 async function presentPdfFile({
   filename,
   mode,
-  uri
+  uri,
 }: {
   filename: string;
   mode: "save" | "view";
@@ -6000,9 +6862,8 @@ async function presentPdfFile({
   if (sharingAvailable) {
     await Sharing.shareAsync(uri, {
       UTI: "com.adobe.pdf",
-      dialogTitle:
-        mode === "save" ? `Save ${filename}` : `Open ${filename}`,
-      mimeType: "application/pdf"
+      dialogTitle: mode === "save" ? `Save ${filename}` : `Open ${filename}`,
+      mimeType: "application/pdf",
     });
     return;
   }
@@ -6015,7 +6876,9 @@ async function presentPdfFile({
   const canOpen = await Linking.canOpenURL(openUri).catch(() => false);
 
   if (!canOpen) {
-    throw new Error("PDF saved, but this device could not find an app to open it.");
+    throw new Error(
+      "PDF saved, but this device could not find an app to open it.",
+    );
   }
 
   await Linking.openURL(openUri);
@@ -6036,7 +6899,7 @@ function filenameTimestamp(date: Date) {
   const pad = (part: number) => String(part).padStart(2, "0");
 
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate()
+    date.getDate(),
   )}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
@@ -6061,7 +6924,8 @@ function bytesToBase64(bytes: Uint8Array) {
   for (; index + 2 < bytes.length; index += 3) {
     output += alphabet[bytes[index] >> 2];
     output += alphabet[((bytes[index] & 3) << 4) | (bytes[index + 1] >> 4)];
-    output += alphabet[((bytes[index + 1] & 15) << 2) | (bytes[index + 2] >> 6)];
+    output +=
+      alphabet[((bytes[index + 1] & 15) << 2) | (bytes[index + 2] >> 6)];
     output += alphabet[bytes[index + 2] & 63];
   }
 
@@ -6084,18 +6948,18 @@ function bytesToBase64(bytes: Uint8Array) {
 const styles = StyleSheet.create({
   actionRow: {
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   actionRowButton: {
-    flex: 1
+    flex: 1,
   },
   activityList: {
-    gap: 8
+    gap: 8,
   },
   activityMarker: {
     borderRadius: radii.pill,
     height: "72%",
-    width: 3
+    width: 3,
   },
   activityRow: {
     alignItems: "center",
@@ -6106,24 +6970,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 82,
-    padding: 10
+    padding: 10,
   },
   activityRowTop: {
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   buttonInner: {
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    justifyContent: "center"
+    justifyContent: "center",
   },
   chipGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   choiceChip: {
     alignItems: "center",
@@ -6134,24 +6998,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 5,
     minHeight: 34,
-    paddingHorizontal: 11
+    paddingHorizontal: 11,
   },
   choiceChipActive: {
     backgroundColor: colors.surfaceStrong,
-    borderColor: colors.cyan
+    borderColor: colors.cyan,
   },
   choiceText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   choiceTextActive: {
-    color: colors.background
+    color: colors.background,
   },
   contactSyncActions: {
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   contactSyncCheck: {
     alignItems: "center",
@@ -6161,31 +7025,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 22,
     justifyContent: "center",
-    width: 22
+    width: 22,
   },
   contactSyncCheckSelected: {
     backgroundColor: colors.cyan,
-    borderColor: colors.cyan
+    borderColor: colors.cyan,
   },
   contactSyncCopy: {
     flex: 1,
     gap: 3,
-    minWidth: 0
+    minWidth: 0,
   },
   contactSyncList: {
-    gap: 8
+    gap: 8,
   },
   contactSyncMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   contactSyncName: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   contactSyncRow: {
     alignItems: "center",
@@ -6197,19 +7061,19 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 58,
     paddingHorizontal: 10,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   contactSyncRowSelected: {
-    borderColor: colors.cyan
+    borderColor: colors.cyan,
   },
   disabled: {
-    opacity: 0.52
+    opacity: 0.52,
   },
   dropdownBackdrop: {
     backgroundColor: "rgba(0, 0, 0, 0.58)",
     flex: 1,
     justifyContent: "flex-end",
-    padding: 16
+    padding: 16,
   },
   dropdownButton: {
     alignItems: "center",
@@ -6220,7 +7084,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 46,
-    paddingHorizontal: 12
+    paddingHorizontal: 12,
   },
   dropdownOption: {
     alignItems: "center",
@@ -6229,20 +7093,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     minHeight: 58,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   dropdownOptionMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "700",
-    lineHeight: 16
+    lineHeight: 16,
   },
   dropdownOptionText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   dropdownSheet: {
     backgroundColor: colors.surface,
@@ -6251,21 +7115,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 2,
     maxHeight: "78%",
-    padding: 14
+    padding: 14,
   },
   dropdownTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 16,
     fontWeight: "900",
-    paddingBottom: 4
+    paddingBottom: 4,
   },
   dropdownValue: {
     color: colors.text,
     flex: 1,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   backButton: {
     alignItems: "center",
@@ -6273,16 +7137,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 4,
     minHeight: 36,
-    paddingRight: 12
+    paddingRight: 12,
   },
   backButtonText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   detailHeader: {
-    gap: 8
+    gap: 8,
   },
   detailTitle: {
     color: colors.text,
@@ -6290,12 +7154,12 @@ const styles = StyleSheet.create({
     fontSize: 25,
     fontWeight: "900",
     letterSpacing: 0,
-    lineHeight: 29
+    lineHeight: 29,
   },
   detailTitleCopy: {
     flex: 1,
     gap: 3,
-    minWidth: 0
+    minWidth: 0,
   },
   detailTitleIcon: {
     alignItems: "center",
@@ -6305,15 +7169,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 38,
     justifyContent: "center",
-    width: 38
+    width: 38,
   },
   detailTitleRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   detailTransition: {
-    gap: 14
+    gap: 14,
   },
   developerToolRow: {
     alignItems: "center",
@@ -6322,21 +7186,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 72,
-    paddingVertical: 10
+    paddingVertical: 10,
   },
   emptyCopy: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "600",
-    lineHeight: 19
+    lineHeight: 19,
   },
   eyebrow: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   fileKindToken: {
     alignItems: "center",
@@ -6346,16 +7210,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 48,
     justifyContent: "center",
-    width: 48
+    width: 48,
   },
   fileKindTokenText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 10,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   fileList: {
-    gap: 8
+    gap: 8,
   },
   fileRow: {
     alignItems: "center",
@@ -6366,12 +7230,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 72,
-    padding: 9
+    padding: 9,
   },
   fileRowMain: {
     flex: 1,
     gap: 3,
-    minWidth: 0
+    minWidth: 0,
   },
   fileThumbImage: {
     backgroundColor: colors.surface,
@@ -6379,7 +7243,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     height: 48,
-    width: 48
+    width: 48,
   },
   footerText: {
     color: colors.muted,
@@ -6387,10 +7251,10 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "700",
-    lineHeight: 17
+    lineHeight: 17,
   },
   footerSpacer: {
-    flex: 1
+    flex: 1,
   },
   headerUsageChip: {
     alignItems: "baseline",
@@ -6406,14 +7270,14 @@ const styles = StyleSheet.create({
     minHeight: 42,
     minWidth: 118,
     paddingHorizontal: 11,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   headerUsageLabel: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "800",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   headerUsageValue: {
     color: colors.text,
@@ -6421,7 +7285,7 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: "900",
     lineHeight: 22,
-    maxWidth: 86
+    maxWidth: 86,
   },
   iconButton: {
     alignItems: "center",
@@ -6433,13 +7297,13 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "center",
     minHeight: 42,
-    paddingHorizontal: 14
+    paddingHorizontal: 14,
   },
   iconButtonText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   nestedPanel: {
     backgroundColor: "rgba(255, 255, 255, 0.025)",
@@ -6447,7 +7311,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
     gap: 10,
-    padding: 10
+    padding: 10,
   },
   input: {
     backgroundColor: colors.surfaceSoft,
@@ -6460,29 +7324,29 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     minHeight: 44,
     paddingHorizontal: 12,
-    paddingVertical: 10
+    paddingVertical: 10,
   },
   message: {
     color: colors.green,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   passcodeSetup: {
     gap: 10,
-    paddingTop: 4
+    paddingTop: 4,
   },
   moneyText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   primaryButtonText: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pronunciationAddButton: {
     alignItems: "center",
@@ -6491,29 +7355,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 6,
     minHeight: 34,
-    paddingHorizontal: 12
+    paddingHorizontal: 12,
   },
   pronunciationAddButtonText: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pronunciationCount: {
     color: colors.muted,
     flex: 1,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   pronunciationEditorContent: {
     gap: 12,
-    paddingBottom: 4
+    paddingBottom: 4,
   },
   pronunciationEditorHeader: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   pronunciationEditorSheet: {
     backgroundColor: colors.surface,
@@ -6521,12 +7385,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     maxHeight: "82%",
-    padding: 14
+    padding: 14,
   },
   pronunciationHeaderRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   pronunciationIconButton: {
     alignItems: "center",
@@ -6536,10 +7400,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 34,
     justifyContent: "center",
-    width: 34
+    width: 34,
   },
   pronunciationList: {
-    gap: 7
+    gap: 7,
   },
   pronunciationListRow: {
     alignItems: "center",
@@ -6551,7 +7415,7 @@ const styles = StyleSheet.create({
     gap: 9,
     minHeight: 58,
     paddingHorizontal: 10,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   pronunciationMetaCell: {
     backgroundColor: colors.surfaceSoft,
@@ -6561,42 +7425,42 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
     minWidth: 0,
-    padding: 10
+    padding: 10,
   },
   pronunciationMetaGrid: {
     flexDirection: "row",
-    gap: 8
+    gap: 8,
   },
   pronunciationMetaLabel: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   pronunciationMetaValue: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "800",
-    lineHeight: 17
+    lineHeight: 17,
   },
   pronunciationRemoveButton: {
     backgroundColor: "rgba(255, 92, 122, 0.1)",
-    borderColor: "rgba(255, 92, 122, 0.3)"
+    borderColor: "rgba(255, 92, 122, 0.3)",
   },
   pronunciationRowActions: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 7
+    gap: 7,
   },
   pronunciationRowMain: {
     flex: 1,
     gap: 3,
-    minWidth: 0
+    minWidth: 0,
   },
   pressed: {
-    opacity: 0.72
+    opacity: 0.72,
   },
   previewBackdrop: {
     alignItems: "center",
@@ -6604,45 +7468,45 @@ const styles = StyleSheet.create({
     flex: 1,
     height: "100%",
     justifyContent: "center",
-    width: "100%"
+    width: "100%",
   },
   previewImage: {
     height: "100%",
-    width: "100%"
+    width: "100%",
   },
   previewLoadingText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   pdfActionButton: {
-    flex: 1
+    flex: 1,
   },
   pdfActions: {
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   pdfDivider: {
     backgroundColor: "rgba(8, 9, 13, 0.16)",
     height: 1,
-    marginVertical: 9
+    marginVertical: 9,
   },
   pdfLine: {
     flexDirection: "row",
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   pdfLineLabel: {
     color: "rgba(8, 9, 13, 0.62)",
     fontFamily: typography.fontFamily,
     fontSize: 9,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pdfLineValue: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 10,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pdfPage: {
     alignSelf: "center",
@@ -6651,66 +7515,66 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     gap: 3,
     padding: 18,
-    width: "72%"
+    width: "72%",
   },
   pdfPreviewFrame: {
     backgroundColor: colors.surfaceSoft,
     borderColor: colors.line,
     borderRadius: radii.md,
     borderWidth: 1,
-    paddingVertical: 18
+    paddingVertical: 18,
   },
   quotePreviewPage: {
     backgroundColor: colors.surfaceStrong,
     borderRadius: 8,
     gap: 5,
-    padding: 16
+    padding: 16,
   },
   pdfRowText: {
     color: "rgba(8, 9, 13, 0.72)",
     fontFamily: typography.fontFamily,
     fontSize: 7,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   pdfSectionTitle: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "900",
-    marginBottom: 2
+    marginBottom: 2,
   },
   pdfSubtitle: {
     color: "rgba(8, 9, 13, 0.58)",
     fontFamily: typography.fontFamily,
     fontSize: 8,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   pdfTitle: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 16,
     fontWeight: "900",
-    lineHeight: 18
+    lineHeight: 18,
   },
   rowCopy: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "600",
-    lineHeight: 18
+    lineHeight: 18,
   },
   rowMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   rowTitle: {
     color: colors.text,
     flexShrink: 1,
     fontFamily: typography.fontFamily,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   reportRow: {
     backgroundColor: colors.surfaceSoft,
@@ -6718,10 +7582,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     gap: 4,
-    padding: 10
+    padding: 10,
   },
   reportRowList: {
-    gap: 8
+    gap: 8,
   },
   reportSummaryCard: {
     backgroundColor: colors.surfaceSoft,
@@ -6732,19 +7596,19 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     gap: 4,
     minHeight: 82,
-    padding: 10
+    padding: 10,
   },
   reportSummaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   reportSummaryValue: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 22,
     fontWeight: "900",
-    lineHeight: 26
+    lineHeight: 26,
   },
   saveButton: {
     alignItems: "center",
@@ -6752,16 +7616,16 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     justifyContent: "center",
     minHeight: 40,
-    paddingHorizontal: 13
+    paddingHorizontal: 13,
   },
   saveButtonText: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   signatureLogo: {
-    height: 46
+    height: 46,
   },
   signaturePreview: {
     backgroundColor: "rgba(255, 255, 255, 0.035)",
@@ -6769,7 +7633,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
     gap: 8,
-    padding: 10
+    padding: 10,
   },
   saveFooter: {
     alignItems: "center",
@@ -6777,38 +7641,38 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     flexDirection: "row",
     gap: 12,
-    paddingTop: 13
+    paddingTop: 13,
   },
   sessionCopy: {
     flex: 1,
     gap: 5,
-    minWidth: 0
+    minWidth: 0,
   },
   sessionRow: {
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 12,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   sessionText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "600",
-    lineHeight: 19
+    lineHeight: 19,
   },
   sessionTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   securityError: {
     color: colors.pink,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "800",
-    lineHeight: 19
+    lineHeight: 19,
   },
   securityMode: {
     alignItems: "center",
@@ -6819,14 +7683,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 72,
-    padding: 10
+    padding: 10,
   },
   securityModeActive: {
     backgroundColor: colors.surfaceStrong,
-    borderColor: colors.cyan
+    borderColor: colors.cyan,
   },
   securityModeDetailActive: {
-    color: "rgba(8, 9, 13, 0.72)"
+    color: "rgba(8, 9, 13, 0.72)",
   },
   securityModeIcon: {
     alignItems: "center",
@@ -6836,10 +7700,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 36,
     justifyContent: "center",
-    width: 36
+    width: 36,
   },
   securityModeTitleActive: {
-    color: colors.background
+    color: colors.background,
   },
   securitySummary: {
     backgroundColor: colors.surfaceSoft,
@@ -6848,22 +7712,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 12,
-    padding: 12
+    padding: 12,
   },
   settingField: {
     flex: 1,
     gap: 8,
-    minWidth: 0
+    minWidth: 0,
   },
   settingLabel: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   settingsListCard: {
     gap: 12,
-    paddingBottom: 4
+    paddingBottom: 4,
   },
   settingsLoadingRow: {
     alignItems: "center",
@@ -6872,7 +7736,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     minHeight: 58,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   settingsRow: {
     alignItems: "center",
@@ -6881,16 +7745,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     minHeight: 58,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   settingsRowDetail: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   settingsRowGroup: {
-    gap: 0
+    gap: 0,
   },
   settingsRowIcon: {
     alignItems: "center",
@@ -6900,39 +7764,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 32,
     justifyContent: "center",
-    width: 32
+    width: 32,
   },
   settingsRowLast: {
-    borderBottomWidth: 0
+    borderBottomWidth: 0,
   },
   settingsRowMain: {
     flex: 1,
     gap: 3,
-    minWidth: 0
+    minWidth: 0,
   },
   settingsRowTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   summaryItem: {
     flex: 1,
     gap: 4,
-    minWidth: 0
+    minWidth: 0,
   },
   summaryLabel: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   summaryMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   summaryStrip: {
     backgroundColor: colors.surfaceSoft,
@@ -6941,13 +7805,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 12,
-    padding: 12
+    padding: 12,
   },
   summaryValue: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   switchRow: {
     alignItems: "center",
@@ -6955,20 +7819,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
-    minHeight: 48
+    minHeight: 48,
   },
   textArea: {
-    minHeight: 132
+    minHeight: 132,
   },
   textAreaSmall: {
-    minHeight: 86
+    minHeight: 86,
   },
   toolSkeletonList: {
-    gap: 8
+    gap: 8,
   },
   twoColumn: {
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   usageHero: {
     backgroundColor: colors.surfaceSoft,
@@ -6976,14 +7840,14 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     gap: 5,
-    padding: 14
+    padding: 14,
   },
   usageLabel: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   usageValue: {
     color: colors.text,
@@ -6991,6 +7855,6 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: "900",
     letterSpacing: 0,
-    lineHeight: 34
-  }
+    lineHeight: 34,
+  },
 });

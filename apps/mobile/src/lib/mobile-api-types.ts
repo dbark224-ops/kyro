@@ -862,6 +862,11 @@ export type MobileSettingsResponse = {
     openAiVoices: string[];
     outboundChannels: string[];
     outboundVoicePronunciationPolicies: string[];
+    phoneAgentDemeanors: string[];
+    phoneAgentEscalationModes: string[];
+    phoneAgentHumourLevels: string[];
+    phoneAgentVerbosities: string[];
+    phoneRegions: string[];
     pronunciationCategories: string[];
     pronunciationStatuses: string[];
     vapiVoices: MobileVapiVoiceOption[];
@@ -891,6 +896,32 @@ export type MobileSettingsResponse = {
       useSeparateAiSignature: boolean;
     };
     general: {
+      businessProfile: {
+        brandAccentColor: string;
+        brandPrimaryColor: string;
+        brandStyle: string;
+        businessAddress: string;
+        businessName: string;
+        contactHours: string;
+        emergencyJobsEnabled: boolean;
+        industry: string;
+        logoContentBase64: string;
+        logoContentType: string;
+        logoFilename: string;
+        logoSizeBytes: number;
+        logoUrl: string;
+        logoWidthPx: number;
+        operatingCountry: string;
+        publicEmail: string;
+        publicPhoneNumber: string;
+        serviceArea: string;
+        servicePostcodes: string;
+        serviceSuburbs: string;
+        staffCount: number | null;
+        travelRadiusKm: number | null;
+        workingHours: string;
+      };
+      defaultPhoneRegion: string;
       displayCurrency: string;
       displayCurrencySourceLabel: string;
       exchangeRateProvider: string;
@@ -918,8 +949,38 @@ export type MobileSettingsResponse = {
       elevenLabsVoicePresetId: string;
       openAiVoice: string;
       outboundVoicePronunciationPolicy: string;
+      phoneAgentDemeanor: string;
+      phoneAgentEnabled: boolean;
+      phoneAgentEscalationMode: string;
+      phoneAgentHumourLevel: string;
+      phoneAgentInboundEnabled: boolean;
+      phoneAgentOutboundEnabled: boolean;
+      phoneAgentUserNumbers: string[];
+      phoneAgentVerbosity: string;
+      phoneAgentVoicemailOverflowEnabled: boolean;
       provider: string;
     };
+  };
+  phoneSms: {
+    configured: boolean;
+    numbers: Array<{
+      capabilities: {
+        mms: boolean;
+        sms: boolean;
+        voice: boolean;
+      };
+      countryCode: string | null;
+      currency: string;
+      friendlyName: string | null;
+      id: string;
+      monthlyCostSnapshot: number;
+      normalizedPhone: string | null;
+      phoneNumber: string;
+      providerPhoneNumberId: string | null;
+      region: string | null;
+      status: string;
+      vapiPhoneNumberId: string | null;
+    }>;
   };
   status: {
     connectedAccountCount: number;
