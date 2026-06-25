@@ -1,6 +1,15 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { SettingsRoutePrefetcher } from "./settings-route-prefetcher";
-import type { ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 export type SettingsSection =
   | "general"
@@ -38,11 +47,43 @@ export function SettingsShell({
   nestedItems: SettingsNestedItem[];
   selectedSection: SettingsSection | null;
 }>) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const hasDetail = Boolean(selectedSection && detail);
   const prefetchHrefs = [
     ...items.map((item) => item.href),
     ...nestedItems.map((item) => item.href),
   ];
+  const currentHref = useMemo(() => {
+    const query = searchParams.toString();
+
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams]);
+  const detailIsLoading = Boolean(pendingHref && pendingHref !== currentHref);
+
+  useEffect(() => {
+    setPendingHref(null);
+  }, [currentHref]);
+
+  function markRoutePending(
+    event: MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) {
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0 ||
+      href === currentHref
+    ) {
+      return;
+    }
+
+    setPendingHref(href);
+  }
 
   return (
     <section
@@ -72,13 +113,14 @@ export function SettingsShell({
               }
               href={item.href}
               key={item.section}
-              >
-                <div className="settings-menu-main">
-                  <p className="eyebrow">{item.eyebrow}</p>
-                  <strong>{item.title}</strong>
-                  <span>{item.detail}</span>
-                </div>
-              </Link>
+              onClick={(event) => markRoutePending(event, item.href)}
+            >
+              <div className="settings-menu-main">
+                <p className="eyebrow">{item.eyebrow}</p>
+                <strong>{item.title}</strong>
+                <span>{item.detail}</span>
+              </div>
+            </Link>
           ))}
         </div>
       </section>
@@ -103,6 +145,7 @@ export function SettingsShell({
                 }
                 href={item.href}
                 key={item.key}
+                onClick={(event) => markRoutePending(event, item.href)}
               >
                 <div className="settings-menu-main">
                   <strong>{item.title}</strong>
@@ -118,7 +161,25 @@ export function SettingsShell({
         </div>
       </section>
 
-      {hasDetail ? detail : empty}
+      <div
+        aria-busy={detailIsLoading}
+        className={
+          detailIsLoading
+            ? "settings-detail-transition is-loading"
+            : "settings-detail-transition"
+        }
+      >
+        {hasDetail ? detail : empty}
+        {detailIsLoading ? (
+          <div className="settings-detail-loading-overlay" aria-live="polite">
+            <span
+              className="settings-detail-loading-spinner"
+              aria-hidden="true"
+            />
+            <span>Loading settings</span>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

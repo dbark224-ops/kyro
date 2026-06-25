@@ -7875,6 +7875,52 @@ button:disabled {
   top: 16px;
 }
 
+.settings-detail-transition {
+  position: sticky;
+  top: 16px;
+  min-width: 0;
+}
+
+.settings-detail-transition .settings-detail-panel {
+  position: relative;
+  top: auto;
+  transition:
+    filter 160ms ease,
+    opacity 160ms ease;
+}
+
+.settings-detail-transition.is-loading .settings-detail-panel {
+  filter: grayscale(0.15);
+  opacity: 0.48;
+  pointer-events: none;
+}
+
+.settings-detail-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--background) 52%, transparent);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.settings-detail-loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--cyan) 25%, transparent);
+  border-top-color: var(--cyan);
+  border-radius: 999px;
+  animation: settings-loading-spin 680ms linear infinite;
+}
+
 .settings-detail-header {
   border-bottom: 1px solid var(--line);
   padding: 18px;
@@ -12077,6 +12123,12 @@ button:disabled {
   }
 }
 
+@keyframes settings-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 1180px) {
   .global-search-anchor {
     width: 320px;
@@ -12090,6 +12142,7 @@ button:disabled {
   }
 
   .inbox-inline-preview,
+  .settings-detail-transition,
   .settings-detail-panel {
     position: static;
     max-height: none;
