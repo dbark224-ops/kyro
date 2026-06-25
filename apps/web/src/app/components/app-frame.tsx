@@ -342,7 +342,10 @@ async function SidebarUsageCard() {
           <strong>{data.usageMonthLabel}</strong>
         </div>
       </div>
-      <SmartPrefetchLink className="sidebar-usage-link" href="/settings">
+      <SmartPrefetchLink
+        className="sidebar-usage-link"
+        href="/settings?section=usage"
+      >
         View settings and billing
       </SmartPrefetchLink>
     </section>

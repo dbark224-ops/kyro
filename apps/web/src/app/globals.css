@@ -13348,10 +13348,29 @@ button:disabled {
 }
 
 .sidebar-usage-link {
-  color: var(--text);
-  font-size: 0.8125rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 0.78rem;
   font-weight: 850;
+  line-height: 1;
+  padding: 7px 10px;
   text-decoration: none;
+}
+
+.sidebar-usage-link:hover,
+.sidebar-usage-link:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 82%, white);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text);
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .workspace-account-menu {
