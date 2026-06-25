@@ -115,6 +115,17 @@ const REQUIRED_TABLES: TableRequirement[] = [
     table: "model_route_decisions",
   },
   { label: "Usage events", scope: "workspace", table: "usage_events" },
+  {
+    label: "Kyro billing periods",
+    scope: "workspace",
+    table: "kyro_billing_periods",
+  },
+  { label: "Kyro invoices", scope: "workspace", table: "kyro_invoices" },
+  {
+    label: "Kyro invoice line items",
+    scope: "workspace",
+    table: "kyro_invoice_line_items",
+  },
   { label: "Audit logs", scope: "workspace", table: "audit_logs" },
 ];
 
@@ -795,6 +806,23 @@ export async function loadDeveloperSystemHealth({
                 ? "Protected outbox processor endpoint can be called by cron."
                 : "Set OUTBOUND_DELIVERY_SECRET, CRON_SECRET, or INBOUND_EMAIL_SYNC_SECRET.",
             title: "Outbox retry worker",
+          },
+          {
+            href: "/api/billing/kyro/run",
+            id: "worker:kyro-billing",
+            status:
+              isConfigured("KYRO_BILLING_RUN_SECRET") ||
+              isConfigured("OUTBOUND_DELIVERY_SECRET") ||
+              isConfigured("CRON_SECRET")
+                ? "ok"
+                : "warning",
+            summary:
+              isConfigured("KYRO_BILLING_RUN_SECRET") ||
+              isConfigured("OUTBOUND_DELIVERY_SECRET") ||
+              isConfigured("CRON_SECRET")
+                ? "Protected Kyro billing runner can generate invoices and optionally charge saved cards."
+                : "Set KYRO_BILLING_RUN_SECRET, OUTBOUND_DELIVERY_SECRET, or CRON_SECRET before enabling automated invoice runs.",
+            title: "Kyro billing runner",
           },
         ],
         eyebrow: "Operations",

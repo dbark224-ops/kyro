@@ -63,6 +63,10 @@ Optional until those integrations are enabled:
 - `STRIPE_SECRET_KEY`
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
+- optional Kyro-owned billing controls: `KYRO_BILLING_RUN_SECRET`,
+  `KYRO_BILLING_AUTO_CHARGE`, `KYRO_BASE_MONTHLY_PRICE_USD`,
+  `KYRO_BASE_MONTHLY_PRICE_CENTS`, `KYRO_BILLING_CURRENCY`,
+  `KYRO_BILLING_TAX_RATE_BPS`, and `KYRO_BILLING_TAX_LABEL`
 
 ## 1a. Auth Email / Resend
 
@@ -94,6 +98,11 @@ workspaces collecting customer payments through connected/customer payment flows
   key and the matching live secret key.
 - Do not expose provider margin to customers; user-facing usage should show the
   final customer charge while internal ledgers can keep provider cost and margin.
+- Kyro owns SaaS billing periods and invoices. Stripe is used only to set up the
+  saved customer/payment method and charge the final Kyro invoice amount.
+- Keep `KYRO_BILLING_AUTO_CHARGE` unset or `false` until invoice generation has
+  been inspected in Settings -> Developer. Use `?charge=1` with the billing run
+  secret for explicit manual charge tests.
 
 ## 2. Secret Handling
 
@@ -276,6 +285,15 @@ It also registers the weekly adaptive assistant suggestion refresh:
 }
 ```
 
+It also registers the Kyro-owned billing runner:
+
+```json
+{
+  "path": "/api/billing/kyro/run",
+  "schedule": "33 4 * * *"
+}
+```
+
 Before enabling production cron:
 
 - set `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`,
@@ -283,6 +301,8 @@ Before enabling production cron:
 - confirm `/api/integrations/email/sync` returns authorized only with the bearer secret,
 - confirm `/api/outbox/process` returns authorized only with `OUTBOUND_DELIVERY_SECRET`, `INBOUND_EMAIL_SYNC_SECRET`, or `CRON_SECRET`,
 - confirm `/api/assistant/suggestions/refresh` returns authorized only with `ASSISTANT_SUGGESTION_REFRESH_SECRET` or `CRON_SECRET`,
+- confirm `/api/billing/kyro/run` returns authorized only with
+  `KYRO_BILLING_RUN_SECRET`, `OUTBOUND_DELIVERY_SECRET`, or `CRON_SECRET`,
 - run one manual sync from Settings,
 - check the Settings inbound trace for the latest sync run counts and recent email decisions,
 - confirm reconnect-needed states are visible for accounts with missing scopes or undecryptable tokens,
@@ -321,5 +341,7 @@ Recommended deploy sequence:
   voice-runtime testbed and should not replace the OpenAI `/voice` path until it
   is tested with the chosen production Vapi assistant.
 - Native iOS shell is future work; current UI is web/iOS-shaped.
-- Billing UI is usage visibility only, not payment collection.
+- Kyro-owned SaaS billing periods, invoices, line items, and Stripe off-session
+  charges now exist. Production tax configuration, accounting exports, and
+  bookkeeping reconciliation are still future work.
 - Image generation is Assistant/file-storage backed. Rich media gallery/history, multi-turn visual editing, and mobile camera-first flows are future work.

@@ -37,9 +37,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: summary,
       meta: {
-        billingSystemReady: false,
+        billingSystemReady: true,
         source: "usage_events.customer_charge_snapshot",
-        usage: "Read-only billable usage summary. Payment collection is not wired yet.",
+        usage:
+          "Read-only usage summary feeding Kyro-owned billing periods, invoices, and optional Stripe off-session charges.",
       },
     });
   } catch (error) {

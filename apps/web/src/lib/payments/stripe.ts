@@ -49,6 +49,20 @@ export type StripeSetupIntent = {
   status?: string | null;
 };
 
+export type StripePaymentIntent = {
+  amount?: number | null;
+  client_secret?: string | null;
+  currency?: string | null;
+  customer?: string | null;
+  id: string;
+  last_payment_error?: {
+    message?: string | null;
+  } | null;
+  metadata?: Record<string, unknown> | null;
+  payment_method?: string | null;
+  status?: string | null;
+};
+
 export type StripeBillingPortalSession = {
   id: string;
   url: string;
@@ -351,6 +365,33 @@ export async function createStripeBillingPortalSession({
       return_url: returnUrl,
     },
   );
+}
+
+export async function createStripePaymentIntent({
+  amountCents,
+  currency,
+  customerId,
+  description,
+  metadata,
+  paymentMethodId,
+}: {
+  amountCents: number;
+  currency: string;
+  customerId: string;
+  description: string;
+  metadata: Record<string, string>;
+  paymentMethodId: string;
+}) {
+  return stripeApiRequest<StripePaymentIntent>("/v1/payment_intents", {
+    amount: amountCents,
+    confirm: true,
+    currency: currency.toLowerCase(),
+    customer: customerId,
+    description,
+    metadata,
+    off_session: true,
+    payment_method: paymentMethodId,
+  });
 }
 
 export async function createStripeCheckoutSession({

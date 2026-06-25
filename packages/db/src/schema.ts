@@ -1358,6 +1358,129 @@ export const usageRollups = pgTable(
   }),
 );
 
+export const kyroBillingPeriods = pgTable(
+  "kyro_billing_periods",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("draft"),
+    currency: text("currency").notNull().default("USD"),
+    subtotalAmount: numeric("subtotal_amount").notNull().default("0"),
+    usageAmount: numeric("usage_amount").notNull().default("0"),
+    baseSubscriptionAmount: numeric("base_subscription_amount")
+      .notNull()
+      .default("0"),
+    taxAmount: numeric("tax_amount").notNull().default("0"),
+    totalAmount: numeric("total_amount").notNull().default("0"),
+    providerCostAmount: numeric("provider_cost_amount").notNull().default("0"),
+    invoiceId: uuid("invoice_id"),
+    generatedAt: timestamp("generated_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    kyroBillingPeriodsWorkspacePeriodIdx: uniqueIndex(
+      "kyro_billing_periods_workspace_period_idx",
+    ).on(table.workspaceId, table.periodStart, table.periodEnd),
+    kyroBillingPeriodsWorkspaceStatusIdx: index(
+      "kyro_billing_periods_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.periodEnd),
+  }),
+);
+
+export const kyroInvoices = pgTable(
+  "kyro_invoices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    billingPeriodId: uuid("billing_period_id").references(
+      () => kyroBillingPeriods.id,
+    ),
+    invoiceNumber: text("invoice_number").notNull(),
+    status: text("status").notNull().default("draft"),
+    currency: text("currency").notNull().default("USD"),
+    subtotalAmount: numeric("subtotal_amount").notNull().default("0"),
+    taxAmount: numeric("tax_amount").notNull().default("0"),
+    totalAmount: numeric("total_amount").notNull().default("0"),
+    providerCostAmount: numeric("provider_cost_amount").notNull().default("0"),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripePaymentMethodId: text("stripe_payment_method_id"),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    stripeLastEventId: text("stripe_last_event_id"),
+    failureCount: integer("failure_count").notNull().default(0),
+    lastError: text("last_error"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    kyroInvoicesInvoiceNumberIdx: uniqueIndex(
+      "kyro_invoices_invoice_number_idx",
+    ).on(table.invoiceNumber),
+    kyroInvoicesBillingPeriodIdx: uniqueIndex(
+      "kyro_invoices_billing_period_idx",
+    ).on(table.billingPeriodId),
+    kyroInvoicesWorkspaceStatusIdx: index(
+      "kyro_invoices_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.dueAt),
+    kyroInvoicesStripePaymentIntentIdx: index(
+      "kyro_invoices_stripe_payment_intent_idx",
+    ).on(table.stripePaymentIntentId),
+  }),
+);
+
+export const kyroInvoiceLineItems = pgTable(
+  "kyro_invoice_line_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => kyroInvoices.id),
+    billingPeriodId: uuid("billing_period_id").references(
+      () => kyroBillingPeriods.id,
+    ),
+    sourceType: text("source_type"),
+    sourceId: uuid("source_id"),
+    kind: text("kind").notNull(),
+    description: text("description").notNull(),
+    provider: text("provider"),
+    service: text("service"),
+    usageType: text("usage_type"),
+    quantity: numeric("quantity").notNull().default("1"),
+    unitAmount: numeric("unit_amount").notNull().default("0"),
+    amount: numeric("amount").notNull().default("0"),
+    taxAmount: numeric("tax_amount").notNull().default("0"),
+    currency: text("currency").notNull().default("USD"),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    kyroInvoiceLineItemsInvoiceIdx: index(
+      "kyro_invoice_line_items_invoice_idx",
+    ).on(table.invoiceId),
+    kyroInvoiceLineItemsWorkspacePeriodIdx: index(
+      "kyro_invoice_line_items_workspace_period_idx",
+    ).on(table.workspaceId, table.billingPeriodId),
+  }),
+);
+
 export const pricingRules = pgTable("pricing_rules", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id").references(() => workspaces.id),

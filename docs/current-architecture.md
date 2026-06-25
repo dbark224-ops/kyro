@@ -105,6 +105,12 @@ All business data is workspace-scoped. The important tables are:
 - `ai_runs`: AI workflow records.
 - `model_route_decisions`: model selection audit trail.
 - `usage_events`: metered provider/API usage.
+- `kyro_billing_periods`: Kyro-owned monthly billing periods generated from
+  usage and plan settings.
+- `kyro_invoices`: Kyro invoices for charging workspace owners through saved
+  Stripe customer/payment-method records.
+- `kyro_invoice_line_items`: invoice detail rows for base subscription, usage,
+  tax, and future adjustments.
 - `workspace_policies`: JSON policy store for workspace-level settings such as
   `workspace_general`, communication/outbound preferences, inbound email,
   voice, document templates, and budgets. `workspace_general` now includes the
@@ -1762,7 +1768,11 @@ These are not bugs:
 - Browser print/save-to-PDF quote output, server-generated quote/invoice PDFs, first-class generated document records, private PDF storage, and user-approved Google Drive filing exist. Payment-provider billing, bookkeeping, reconciliation, and fully parsed user-uploaded template assets are not implemented yet.
 - Assistant chat is implemented as a persisted safe command/tool layer, not a free-roaming autonomous agent.
 - Assistant long-term memory saves explicit instructions immediately and can suggest implied durable preferences for user approval. Suggested memories are not active until approved.
-- Usage visibility exists in Settings, but payments, payment-provider billing, bookkeeping, reconciliation, and tax are intentionally out of scope.
+- Usage visibility exists in Settings, and Kyro now owns first-pass billing
+  periods, invoice rows, line items, Stripe off-session charging, retry state,
+  and webhook reconciliation for its own SaaS billing. Full accounting exports,
+  country-specific tax compliance, and bookkeeping integrations remain future
+  work.
 - Google address autocomplete is wired for CRM contacts, inquiry facts, and mock
   inbound once `GOOGLE_MAPS_API_KEY` is configured. Manual addresses are still
   allowed when Google lookup is unavailable or the user intentionally types a

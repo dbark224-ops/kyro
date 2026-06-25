@@ -11,6 +11,7 @@ import {
   markKyroUserBillingSetupComplete,
   markKyroUserBillingSetupIntentComplete,
 } from "../../../../../lib/billing/kyro-user-billing";
+import { reconcileKyroInvoicePaymentIntent } from "../../../../../lib/billing/kyro-billing-engine";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -236,6 +237,49 @@ async function handlePaymentIntentStatus(
   }
 
   const supabase = createServiceSupabaseClient();
+  const reconciledKyroInvoice = await reconcileKyroInvoicePaymentIntent({
+    eventId: event.id,
+    eventType: event.type,
+    paymentIntent,
+    supabase,
+  });
+
+  if (reconciledKyroInvoice) {
+    const metadata =
+      paymentIntent.metadata && typeof paymentIntent.metadata === "object"
+        ? (paymentIntent.metadata as Record<string, unknown>)
+        : {};
+    const workspaceId = textValue(metadata.workspaceId);
+
+    if (workspaceId) {
+      await supabase.from("events").upsert(
+        {
+          idempotency_key: `stripe.${event.id}`,
+          payload: {
+            flow: "kyro_user_billing_invoice",
+            invoiceId: textValue(metadata.invoiceId),
+            providerPaymentIntentId: paymentIntentId,
+            status:
+              event.type === "payment_intent.succeeded"
+                ? "paid"
+                : "payment_failed",
+          },
+          processed_at: new Date().toISOString(),
+          source: "stripe.webhook",
+          status: "processed",
+          type:
+            event.type === "payment_intent.succeeded"
+              ? "billing.invoice.paid"
+              : "billing.invoice.payment_failed",
+          workspace_id: workspaceId,
+        },
+        { ignoreDuplicates: true, onConflict: "idempotency_key" },
+      );
+    }
+
+    return;
+  }
+
   const { data: requestRow, error } = await supabase
     .from("payment_requests")
     .select("id,workspace_id")

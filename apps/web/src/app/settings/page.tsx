@@ -53,6 +53,7 @@ import {
 } from "../../lib/communication/settings";
 import {
   DISPLAY_CURRENCIES,
+  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   displayCurrencySourceLabel,
   formatCurrencyAmount,
   formatDisplayMoney,
@@ -97,6 +98,10 @@ import {
   getKyroUserBillingOverview,
   type KyroUserBillingOverview,
 } from "../../lib/billing/kyro-user-billing";
+import {
+  getKyroBillingEngineOverview,
+  type KyroBillingEngineOverview,
+} from "../../lib/billing/kyro-billing-engine";
 import {
   getDocumentTemplateSettings,
   type DocumentTemplateSettings,
@@ -3998,10 +4003,12 @@ function VoicemailOverflowSettings({
 
 function DeveloperSettingsDetail({
   assignedPhoneNumbers,
+  billingEngineOverview,
   dashboardTutorialForceShow,
   voiceSettings,
 }: Readonly<{
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
+  billingEngineOverview: KyroBillingEngineOverview;
   dashboardTutorialForceShow: boolean;
   voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
 }>) {
@@ -4233,6 +4240,109 @@ function DeveloperSettingsDetail({
               Save developer voice settings
             </button>
           </div>
+        </article>
+
+        <article className="panel embedded-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Kyro billing</p>
+              <h2>Invoice engine</h2>
+            </div>
+            <span
+              className={
+                billingEngineOverview.pastDueInvoiceCount > 0
+                  ? "settings-status-pill warning"
+                  : "settings-status-pill ready"
+              }
+            >
+              {billingEngineOverview.pastDueInvoiceCount > 0
+                ? "Action needed"
+                : "Inspectable"}
+            </span>
+          </div>
+          <p className="empty-copy">
+            Dev-only readout for Kyro-owned billing periods, invoice totals, and
+            failed-payment retry state. Stripe only receives the final invoice
+            amount when charging is enabled.
+          </p>
+          <div className="detail-list compact-detail-list">
+            <div>
+              <span>Open invoices</span>
+              <strong>{billingEngineOverview.openInvoiceCount}</strong>
+            </div>
+            <div>
+              <span>Past due</span>
+              <strong>{billingEngineOverview.pastDueInvoiceCount}</strong>
+            </div>
+            <div>
+              <span>Latest invoice</span>
+              <strong>
+                {billingEngineOverview.latestInvoice?.invoiceNumber ?? "None"}
+              </strong>
+            </div>
+          </div>
+          {billingEngineOverview.invoices.length > 0 ? (
+            <div className="developer-billing-grid">
+              <div className="usage-table kyro-invoice-table">
+                <div
+                  className="usage-row usage-row-three heading"
+                  aria-hidden="true"
+                >
+                  <span>Invoice</span>
+                  <span>Status</span>
+                  <span>Total</span>
+                </div>
+                {billingEngineOverview.invoices.map((invoice) => (
+                  <div className="usage-row usage-row-three" key={invoice.id}>
+                    <div>
+                      <strong>{invoice.invoiceNumber}</strong>
+                      <span>
+                        {invoice.dueAt ? `Due ${formatDate(invoice.dueAt)}` : "No due date"}
+                      </span>
+                    </div>
+                    <span>{formatLabel(invoice.status)}</span>
+                    <span>
+                      {formatDisplayMoney(
+                        invoice.totalAmount,
+                        invoice.currency,
+                        invoiceDisplayCurrencySettings(invoice.currency),
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="usage-table kyro-invoice-table">
+                <div
+                  className="usage-row usage-row-three heading"
+                  aria-hidden="true"
+                >
+                  <span>Period</span>
+                  <span>Status</span>
+                  <span>Total</span>
+                </div>
+                {billingEngineOverview.periods.map((period) => (
+                  <div className="usage-row usage-row-three" key={period.id}>
+                    <div>
+                      <strong>{formatDate(period.periodStart)}</strong>
+                      <span>to {formatDate(period.periodEnd)}</span>
+                    </div>
+                    <span>{formatLabel(period.status)}</span>
+                    <span>
+                      {formatDisplayMoney(
+                        period.totalAmount,
+                        period.currency,
+                        invoiceDisplayCurrencySettings(period.currency),
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="empty-copy">
+              No Kyro billing periods have been generated yet.
+            </p>
+          )}
         </article>
 
         <article className="panel embedded-panel">
@@ -4740,9 +4850,26 @@ function UsageSettingsDetail({
   );
 }
 
+function invoiceDisplayCurrencySettings(
+  currency: string,
+): DisplayCurrencySettings {
+  const displayCurrency = DISPLAY_CURRENCIES.includes(
+    currency.toUpperCase() as (typeof DISPLAY_CURRENCIES)[number],
+  )
+    ? (currency.toUpperCase() as (typeof DISPLAY_CURRENCIES)[number])
+    : DEFAULT_DISPLAY_CURRENCY_SETTINGS.displayCurrency;
+
+  return {
+    ...DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+    displayCurrency,
+  };
+}
+
 function KyroBillingSettingsDetail({
+  billingEngineOverview,
   billingOverview,
 }: Readonly<{
+  billingEngineOverview: KyroBillingEngineOverview;
   billingOverview: KyroUserBillingOverview;
 }>) {
   const billingReady = billingOverview.setupReady;
@@ -4805,6 +4932,82 @@ function KyroBillingSettingsDetail({
           {billingReady ? "Change payment method" : "Add card for free trial"}
         </button>
       </form>
+      <div className="kyro-billing-engine-panel">
+        <div className="panel-heading compact-panel-heading">
+          <div>
+            <p className="eyebrow">Billing engine</p>
+            <h3>Kyro invoices</h3>
+          </div>
+          <span
+            className={
+              billingEngineOverview.pastDueInvoiceCount > 0
+                ? "settings-status-pill warning"
+                : "settings-status-pill ready"
+            }
+          >
+            {billingEngineOverview.pastDueInvoiceCount > 0
+              ? "Past due"
+              : "Current"}
+          </span>
+        </div>
+        <div className="detail-list compact-detail-list">
+          <div>
+            <span>Open invoices</span>
+            <strong>{billingEngineOverview.openInvoiceCount}</strong>
+          </div>
+          <div>
+            <span>Past due</span>
+            <strong>{billingEngineOverview.pastDueInvoiceCount}</strong>
+          </div>
+          <div>
+            <span>Latest invoice</span>
+            <strong>
+              {billingEngineOverview.latestInvoice
+                ? `${billingEngineOverview.latestInvoice.invoiceNumber} - ${formatDisplayMoney(
+                    billingEngineOverview.latestInvoice.totalAmount,
+                    billingEngineOverview.latestInvoice.currency,
+                    invoiceDisplayCurrencySettings(
+                      billingEngineOverview.latestInvoice.currency,
+                    ),
+                  )}`
+                : "None yet"}
+            </strong>
+          </div>
+        </div>
+        {billingEngineOverview.latestInvoice?.lastError ? (
+          <p className="form-alert error compact-alert">
+            {billingEngineOverview.latestInvoice.lastError}
+          </p>
+        ) : null}
+        {billingEngineOverview.invoices.length > 0 ? (
+          <div className="usage-table kyro-invoice-table">
+            <div className="usage-row usage-row-three heading" aria-hidden="true">
+              <span>Invoice</span>
+              <span>Status</span>
+              <span>Total</span>
+            </div>
+            {billingEngineOverview.invoices.slice(0, 5).map((invoice) => (
+              <div className="usage-row usage-row-three" key={invoice.id}>
+                <div>
+                  <strong>{invoice.invoiceNumber}</strong>
+                  <span>{invoice.issuedAt ? formatDate(invoice.issuedAt) : "Draft"}</span>
+                </div>
+                <span>{formatLabel(invoice.status)}</span>
+                <span>
+                  {formatDisplayMoney(invoice.totalAmount, invoice.currency, {
+                    ...invoiceDisplayCurrencySettings(invoice.currency),
+                  })}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">
+            No Kyro invoices have been generated yet. The billing runner creates
+            monthly invoices from metered usage after each period closes.
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -4881,6 +5084,7 @@ export default async function SettingsPage({
     usageReport,
     voiceSettings,
     kyroBillingOverview,
+    kyroBillingEngineOverview,
     dashboardTutorialState,
   ] = await Promise.all([
     selectedSection === "general" || selectedSection === "integrations"
@@ -4930,6 +5134,12 @@ export default async function SettingsPage({
       : Promise.resolve(null),
     selectedSection === "usage"
       ? getKyroUserBillingOverview(createServiceSupabaseClient(), workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "usage" || selectedSection === "developer"
+      ? getKyroBillingEngineOverview(
+          createServiceSupabaseClient(),
+          workspace.id,
+        )
       : Promise.resolve(null),
     selectedSection === "developer" && isDeveloperAccount
       ? getDashboardTutorialState(supabase, workspace.id)
@@ -5266,13 +5476,17 @@ export default async function SettingsPage({
     ) : selectedSection === "usage" &&
       usageReport &&
       generalSettings &&
-      kyroBillingOverview ? (
+      kyroBillingOverview &&
+      kyroBillingEngineOverview ? (
       <SettingsDetailShell
         eyebrow="Usage"
         title={selectedNestedTitle ?? "Usage and billing"}
       >
         {selectedPanel === "payment-method" ? (
-          <KyroBillingSettingsDetail billingOverview={kyroBillingOverview} />
+          <KyroBillingSettingsDetail
+            billingEngineOverview={kyroBillingEngineOverview}
+            billingOverview={kyroBillingOverview}
+          />
         ) : (
           <UsageSettingsDetail
             activeWindow={activeWindow}
@@ -5295,16 +5509,18 @@ export default async function SettingsPage({
       </SettingsDetailShell>
     ) : selectedSection === "developer" &&
       isDeveloperAccount &&
-      voiceSettings ? (
+      voiceSettings &&
+      kyroBillingEngineOverview ? (
       <SettingsDetailShell
         eyebrow="Developer"
         title={selectedNestedTitle ?? "Developer settings"}
       >
-        <DeveloperSettingsDetail
-          assignedPhoneNumbers={assignedPhoneNumbers}
-          dashboardTutorialForceShow={dashboardTutorialState.forceShow}
-          voiceSettings={voiceSettings}
-        />
+      <DeveloperSettingsDetail
+        assignedPhoneNumbers={assignedPhoneNumbers}
+        billingEngineOverview={kyroBillingEngineOverview}
+        dashboardTutorialForceShow={dashboardTutorialState.forceShow}
+        voiceSettings={voiceSettings}
+      />
       </SettingsDetailShell>
     ) : null;
 
