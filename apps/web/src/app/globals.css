@@ -8207,7 +8207,7 @@ button:disabled {
 
 .settings-switch::after {
   position: absolute;
-  top: 3px;
+  top: 50%;
   left: 3px;
   width: 18px;
   height: 18px;
@@ -8215,6 +8215,7 @@ button:disabled {
   background: color-mix(in srgb, var(--text) 82%, var(--surface));
   box-shadow: 0 5px 12px rgb(0 0 0 / 16%);
   content: "";
+  transform: translateY(-50%);
   transition: transform 150ms ease;
 }
 
@@ -8224,7 +8225,7 @@ button:disabled {
 }
 
 .settings-switch-row input[type="checkbox"]:checked + .settings-switch::after {
-  transform: translateX(18px);
+  transform: translate(18px, -50%);
 }
 
 .settings-switch-row:has(input[type="checkbox"]:focus-visible) {

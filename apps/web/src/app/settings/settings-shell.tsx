@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SettingsRoutePrefetcher } from "./settings-route-prefetcher";
 import type { ReactNode } from "react";
 
 export type SettingsSection =
@@ -38,6 +39,10 @@ export function SettingsShell({
   selectedSection: SettingsSection | null;
 }>) {
   const hasDetail = Boolean(selectedSection && detail);
+  const prefetchHrefs = [
+    ...items.map((item) => item.href),
+    ...nestedItems.map((item) => item.href),
+  ];
 
   return (
     <section
@@ -45,6 +50,7 @@ export function SettingsShell({
         hasDetail ? "settings-workspace has-detail" : "settings-workspace"
       }
     >
+      <SettingsRoutePrefetcher hrefs={prefetchHrefs} />
       <section className="panel settings-list-panel settings-primary-panel">
         <div className="panel-heading">
           <div>
