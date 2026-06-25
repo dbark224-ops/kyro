@@ -30,6 +30,7 @@ type UsageAggregationRow = {
 type WorkspaceBillingRow = {
   id: unknown;
   name: unknown;
+  owner_user_id: unknown;
 };
 
 type BillingPeriodRow = {
@@ -135,6 +136,46 @@ function envString(name: string, fallback: string) {
   return process.env[name]?.trim() || fallback;
 }
 
+function booleanFlag(value: unknown) {
+  if (value === true || value === 1) {
+    return true;
+  }
+
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  return ["1", "true", "yes", "y"].includes(value.trim().toLowerCase());
+}
+
+function developerMetadataEnabled(metadata: unknown) {
+  const values =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>)
+      : {};
+
+  return booleanFlag(values.developer) || booleanFlag(values.mobileDeveloper);
+}
+
+function configuredDeveloperEmails() {
+  return [
+    process.env.KYRO_BILLING_DEV_EMAILS,
+    process.env.KYRO_DEVELOPER_EMAILS,
+  ]
+    .join(",")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function emailIsConfiguredDeveloper(email: string | null) {
+  if (!email) {
+    return false;
+  }
+
+  return configuredDeveloperEmails().includes(email.toLowerCase());
+}
+
 function roundMoney(value: number) {
   return Number(value.toFixed(8));
 }
@@ -224,6 +265,76 @@ function taxRate() {
 
 function defaultBillingCurrency() {
   return envString("KYRO_BILLING_CURRENCY", "USD").toUpperCase();
+}
+
+async function workspaceAutoChargeDecision(input: {
+  includeDeveloperAccounts?: boolean;
+  ownerUserId: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  if (input.includeDeveloperAccounts) {
+    return { allowed: true, reason: null };
+  }
+
+  if (!input.ownerUserId) {
+    return { allowed: false, reason: "missing_owner_user_id" };
+  }
+
+  const { data, error } = await input.supabase.auth.admin.getUserById(
+    input.ownerUserId,
+  );
+
+  if (error) {
+    await insertAuditLog(input.supabase, {
+      workspaceId: input.workspaceId,
+      actorType: "system",
+      action: "kyro_billing.auto_charge_owner_lookup_failed",
+      entityType: "workspace",
+      entityId: input.workspaceId,
+      after: {
+        error: error.message,
+        ownerUserId: input.ownerUserId,
+      },
+    });
+
+    return { allowed: false, reason: "owner_lookup_failed" };
+  }
+
+  const user = data.user as
+    | {
+        app_metadata?: unknown;
+        email?: string | null;
+      }
+    | null
+    | undefined;
+  const isDeveloper =
+    developerMetadataEnabled(user?.app_metadata) ||
+    emailIsConfiguredDeveloper(textValue(user?.email));
+
+  return {
+    allowed: !isDeveloper,
+    reason: isDeveloper ? "developer_account" : null,
+  };
+}
+
+async function workspaceOwnerUserId(input: {
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("workspaces")
+    .select("owner_user_id")
+    .eq("id", input.workspaceId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Unable to load workspace owner for billing: ${error.message}`,
+    );
+  }
+
+  return textValue((data as Record<string, unknown> | null)?.owner_user_id);
 }
 
 async function loadUsageRows(input: {
@@ -923,6 +1034,7 @@ export async function reconcileKyroInvoicePaymentIntent(input: {
 
 export async function runKyroBillingCycle(input: {
   autoCharge?: boolean;
+  includeDeveloperAccounts?: boolean;
   periodEnd?: string;
   periodStart?: string;
   supabase: SupabaseClient;
@@ -932,7 +1044,7 @@ export async function runKyroBillingCycle(input: {
     : previousMonthlyBillingPeriod();
   const { data: workspaces, error } = await input.supabase
     .from("workspaces")
-    .select("id,name")
+    .select("id,name,owner_user_id")
     .order("created_at", { ascending: true })
     .limit(500);
 
@@ -944,6 +1056,14 @@ export async function runKyroBillingCycle(input: {
 
   for (const workspace of (workspaces ?? []) as WorkspaceBillingRow[]) {
     const workspaceId = String(workspace.id);
+    const autoChargeDecision = input.autoCharge
+      ? await workspaceAutoChargeDecision({
+          includeDeveloperAccounts: input.includeDeveloperAccounts,
+          ownerUserId: textValue(workspace.owner_user_id),
+          supabase: input.supabase,
+          workspaceId,
+        })
+      : { allowed: false, reason: "auto_charge_disabled" };
     const generated = await generateKyroBillingInvoice({
       periodEnd: period.end,
       periodStart: period.start,
@@ -951,7 +1071,7 @@ export async function runKyroBillingCycle(input: {
       workspaceId,
     });
     const chargeResult =
-      input.autoCharge && generated.totalAmount > 0
+      input.autoCharge && autoChargeDecision.allowed && generated.totalAmount > 0
         ? await chargeKyroInvoice({
             invoiceId: generated.invoiceId,
             supabase: input.supabase,
@@ -959,6 +1079,9 @@ export async function runKyroBillingCycle(input: {
         : null;
 
     results.push({
+      autoChargeSkippedReason: autoChargeDecision.allowed
+        ? null
+        : autoChargeDecision.reason,
       chargeResult,
       generated,
       workspaceId,
@@ -972,12 +1095,13 @@ export async function runKyroBillingCycle(input: {
 }
 
 export async function chargeDueKyroInvoices(input: {
+  includeDeveloperAccounts?: boolean;
   supabase: SupabaseClient;
 }) {
   const now = Date.now();
   const { data, error } = await input.supabase
     .from("kyro_invoices")
-    .select("id,next_retry_at")
+    .select("id,next_retry_at,workspace_id")
     .in("status", ["open", "payment_failed"])
     .gt("total_amount", 0)
     .limit(100);
@@ -992,6 +1116,33 @@ export async function chargeDueKyroInvoices(input: {
     const retryAt = textValue(invoice.next_retry_at);
 
     if (retryAt && new Date(retryAt).getTime() > now) {
+      continue;
+    }
+
+    const workspaceId = textValue(invoice.workspace_id);
+
+    if (!workspaceId) {
+      continue;
+    }
+
+    const ownerUserId = await workspaceOwnerUserId({
+      supabase: input.supabase,
+      workspaceId,
+    });
+    const autoChargeDecision = await workspaceAutoChargeDecision({
+      includeDeveloperAccounts: input.includeDeveloperAccounts,
+      ownerUserId,
+      supabase: input.supabase,
+      workspaceId,
+    });
+
+    if (!autoChargeDecision.allowed) {
+      results.push({
+        charged: false,
+        invoiceId: String(invoice.id),
+        skippedReason: autoChargeDecision.reason,
+        status: "skipped",
+      });
       continue;
     }
 

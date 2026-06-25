@@ -820,7 +820,7 @@ export async function loadDeveloperSystemHealth({
               isConfigured("KYRO_BILLING_RUN_SECRET") ||
               isConfigured("OUTBOUND_DELIVERY_SECRET") ||
               isConfigured("CRON_SECRET")
-                ? "Protected Kyro billing runner can generate invoices and optionally charge saved cards."
+                ? "Protected Kyro billing runner can generate invoices and auto-charge non-developer accounts."
                 : "Set KYRO_BILLING_RUN_SECRET, OUTBOUND_DELIVERY_SECRET, or CRON_SECRET before enabling automated invoice runs.",
             title: "Kyro billing runner",
           },

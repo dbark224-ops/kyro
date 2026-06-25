@@ -34,7 +34,30 @@ function autoChargeEnabled(request: NextRequest) {
     return true;
   }
 
-  return process.env.KYRO_BILLING_AUTO_CHARGE?.trim().toLowerCase() === "true";
+  if (explicit === "0" || explicit === "false") {
+    return false;
+  }
+
+  const configured = process.env.KYRO_BILLING_AUTO_CHARGE?.trim().toLowerCase();
+
+  if (configured === "false" || configured === "0" || configured === "no") {
+    return false;
+  }
+
+  return true;
+}
+
+function chargeDeveloperAccountsEnabled(request: NextRequest) {
+  const explicit = request.nextUrl.searchParams.get("includeDevCharges");
+
+  if (explicit === "1" || explicit === "true") {
+    return true;
+  }
+
+  return (
+    process.env.KYRO_BILLING_CHARGE_DEV_ACCOUNTS?.trim().toLowerCase() ===
+    "true"
+  );
 }
 
 async function handle(request: NextRequest) {
@@ -58,18 +81,21 @@ async function handle(request: NextRequest) {
   const periodStart = request.nextUrl.searchParams.get("periodStart");
   const periodEnd = request.nextUrl.searchParams.get("periodEnd");
   const autoCharge = autoChargeEnabled(request);
+  const includeDeveloperAccounts = chargeDeveloperAccountsEnabled(request);
   const cycle = await runKyroBillingCycle({
     autoCharge,
+    includeDeveloperAccounts,
     periodEnd: periodEnd || undefined,
     periodStart: periodStart || undefined,
     supabase,
   });
   const retryResults = autoCharge
-    ? await chargeDueKyroInvoices({ supabase })
+    ? await chargeDueKyroInvoices({ includeDeveloperAccounts, supabase })
     : [];
 
   return NextResponse.json({
     autoCharge,
+    includeDeveloperAccounts,
     generated: cycle.results.length,
     ok: true,
     period: cycle.period,

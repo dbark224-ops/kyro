@@ -64,7 +64,8 @@ Optional until those integrations are enabled:
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - optional Kyro-owned billing controls: `KYRO_BILLING_RUN_SECRET`,
-  `KYRO_BILLING_AUTO_CHARGE`, `KYRO_BASE_MONTHLY_PRICE_USD`,
+  `KYRO_BILLING_AUTO_CHARGE`, `KYRO_BILLING_CHARGE_DEV_ACCOUNTS`,
+  `KYRO_BILLING_DEV_EMAILS`, `KYRO_BASE_MONTHLY_PRICE_USD`,
   `KYRO_BASE_MONTHLY_PRICE_CENTS`, `KYRO_BILLING_CURRENCY`,
   `KYRO_BILLING_TAX_RATE_BPS`, and `KYRO_BILLING_TAX_LABEL`
 
@@ -100,9 +101,14 @@ workspaces collecting customer payments through connected/customer payment flows
   final customer charge while internal ledgers can keep provider cost and margin.
 - Kyro owns SaaS billing periods and invoices. Stripe is used only to set up the
   saved customer/payment method and charge the final Kyro invoice amount.
-- Keep `KYRO_BILLING_AUTO_CHARGE` unset or `false` until invoice generation has
-  been inspected in Settings -> Developer. Use `?charge=1` with the billing run
-  secret for explicit manual charge tests.
+- Kyro billing auto-charge defaults on for non-developer accounts. Set
+  `KYRO_BILLING_AUTO_CHARGE=false` or call the billing run with `?charge=0` for
+  invoice-only dry runs.
+- Developer accounts are invoice-only by default. They are detected from Supabase
+  auth `app_metadata.developer` / `app_metadata.mobileDeveloper`, with
+  `KYRO_BILLING_DEV_EMAILS` as an optional comma-separated fallback. Only set
+  `KYRO_BILLING_CHARGE_DEV_ACCOUNTS=true` or use `?includeDevCharges=1` for an
+  intentional dev-account charge test.
 
 ## 2. Secret Handling
 
