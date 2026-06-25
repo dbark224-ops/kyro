@@ -20,10 +20,10 @@ export function MarketingHeader({
         <Image
           alt=""
           aria-hidden="true"
-          height={96}
+          height={500}
           priority={variant === "hero"}
           src="/brand/kyro-logo-dark.png"
-          width={260}
+          width={1000}
         />
       </Link>
 
@@ -54,9 +54,9 @@ export function MarketingFooter() {
         <Image
           alt="Kyro"
           className="marketing-footer-logo"
-          height={96}
+          height={500}
           src="/brand/kyro-logo-dark.png"
-          width={260}
+          width={1000}
         />
         <p>
           AI agents and personal assistant software for sole traders and small

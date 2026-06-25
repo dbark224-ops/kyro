@@ -1632,8 +1632,12 @@ Heavy data should remain on demand:
 
 ## Branding
 
-Current temporary logo asset:
+Current logo assets:
 
+- `apps/web/public/brand/kyro-logo.png`
+- `apps/web/public/brand/kyro-logo-dark.png`
+- `apps/web/public/brand/kyro-logo-light.png`
+- `apps/web/public/brand/kyro-email-logo.png`
 - `apps/web/public/kyro-icon.png`
 - `apps/web/src/app/icon.png`
 

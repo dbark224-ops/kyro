@@ -2549,7 +2549,7 @@ textarea:focus {
 
 .brand-mark {
   width: min(100%, 178px);
-  aspect-ratio: 1024 / 500;
+  aspect-ratio: 2 / 1;
   flex-shrink: 0;
   background: transparent;
 }
