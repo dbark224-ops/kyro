@@ -56,7 +56,140 @@ export type WorkspaceBusinessProfileSettings = {
   serviceSuburbs: string;
   staffCount: number | null;
   travelRadiusKm: number | null;
+  urgentEscalation: UrgentEscalationSettings;
+  workplaceContacts: WorkplaceContactSettings[];
   workingHours: string;
+};
+
+export const WORKPLACE_CONTACT_CHANNELS = [
+  "sms",
+  "email",
+  "phone",
+  "app_notification",
+] as const;
+
+export type WorkplaceContactChannel = (typeof WORKPLACE_CONTACT_CHANNELS)[number];
+
+export type WorkplaceContactSettings = {
+  activeDays: string;
+  email: string;
+  id: string;
+  name: string;
+  notes: string;
+  phoneNumber: string;
+  preferredChannel: WorkplaceContactChannel;
+  privatePhoneNumber: string;
+  receivesEscalations: boolean;
+  role: string;
+  tradeSpecialty: string;
+  vehicleRegistration: string;
+  workingHours: string;
+};
+
+export const URGENT_ESCALATION_TRIGGER_DEFINITIONS = [
+  {
+    defaultEnabled: true,
+    description: "The customer explicitly says urgent, emergency, ASAP, or same-day critical.",
+    key: "explicit_urgency",
+    label: "Customer says it is urgent",
+  },
+  {
+    defaultEnabled: true,
+    description: "Burst pipes, flooding, roof leaks, water through ceilings, or active damage.",
+    key: "active_property_damage",
+    label: "Active property damage",
+  },
+  {
+    defaultEnabled: true,
+    description: "Gas, electrical danger, fire risk, injury, unsafe structure, or similar safety risk.",
+    key: "safety_risk",
+    label: "Safety risk",
+  },
+  {
+    defaultEnabled: true,
+    description: "A previous or current customer says completed work is failing or causing damage.",
+    key: "existing_job_serious_issue",
+    label: "Existing job serious issue",
+  },
+  {
+    defaultEnabled: true,
+    description: "Refund, complaint, legal, regulator, bad review, or highly unhappy customer language.",
+    key: "complaint_or_reputation_risk",
+    label: "Complaint or reputation risk",
+  },
+  {
+    defaultEnabled: true,
+    description: "The same person tries multiple channels or contacts repeatedly within a short window.",
+    key: "repeat_contact_short_window",
+    label: "Repeat contact pressure",
+  },
+  {
+    defaultEnabled: true,
+    description: "Urgent-looking inquiry outside the normal work/contact window.",
+    key: "after_hours_emergency",
+    label: "After-hours emergency inquiry",
+  },
+  {
+    defaultEnabled: false,
+    description: "Commercial, renovation, insurance, emergency callout, or other likely high-value work.",
+    key: "high_value_lead",
+    label: "High-value lead",
+  },
+  {
+    defaultEnabled: false,
+    description: "No hot water, no heating, no power, access issue, or vulnerable customer impact.",
+    key: "essential_service_outage",
+    label: "Essential service outage",
+  },
+  {
+    defaultEnabled: false,
+    description: "A customer marked as important or VIP contacts the business.",
+    key: "vip_customer",
+    label: "VIP customer",
+  },
+  {
+    defaultEnabled: false,
+    description: "A known customer calls and the call is missed or reaches voicemail overflow.",
+    key: "missed_known_customer_call",
+    label: "Missed call from known customer",
+  },
+  {
+    defaultEnabled: false,
+    description: "The customer asks for the owner, boss, or tradie to call immediately.",
+    key: "asks_for_owner_now",
+    label: "Customer asks for owner now",
+  },
+] as const;
+
+export type UrgentEscalationTriggerKey =
+  (typeof URGENT_ESCALATION_TRIGGER_DEFINITIONS)[number]["key"];
+
+export const URGENT_ESCALATION_HOURS_MODES = [
+  "always",
+  "business_hours",
+  "after_hours",
+  "custom",
+] as const;
+
+export type UrgentEscalationHoursMode =
+  (typeof URGENT_ESCALATION_HOURS_MODES)[number];
+
+export type UrgentEscalationStepSettings = {
+  channel: WorkplaceContactChannel;
+  contactId: string;
+  delayMinutes: number;
+  id: string;
+};
+
+export type UrgentEscalationSettings = {
+  customDays: string;
+  customEndTime: string;
+  customStartTime: string;
+  enabled: boolean;
+  hoursMode: UrgentEscalationHoursMode;
+  requireAcknowledgement: boolean;
+  steps: UrgentEscalationStepSettings[];
+  triggerKeys: UrgentEscalationTriggerKey[];
 };
 
 export type WorkspaceGeneralSettingsFallback = Partial<
@@ -95,6 +228,44 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     serviceSuburbs: "",
     staffCount: null,
     travelRadiusKm: null,
+    urgentEscalation: {
+      customDays: "Every day",
+      customEndTime: "",
+      customStartTime: "",
+      enabled: true,
+      hoursMode: "always",
+      requireAcknowledgement: true,
+      steps: [
+        {
+          channel: "sms",
+          contactId: "primary",
+          delayMinutes: 0,
+          id: "default-sms-primary",
+        },
+        {
+          channel: "phone",
+          contactId: "primary",
+          delayMinutes: 5,
+          id: "default-call-primary",
+        },
+        {
+          channel: "phone",
+          contactId: "primary",
+          delayMinutes: 10,
+          id: "default-call-primary-repeat",
+        },
+        {
+          channel: "sms",
+          contactId: "fallback",
+          delayMinutes: 15,
+          id: "default-sms-fallback",
+        },
+      ],
+      triggerKeys: URGENT_ESCALATION_TRIGGER_DEFINITIONS.filter(
+        (trigger) => trigger.defaultEnabled,
+      ).map((trigger) => trigger.key),
+    },
+    workplaceContacts: [],
     workingHours: "",
   };
 
@@ -163,6 +334,176 @@ function clampLogoWidth(value: unknown, fallback: number) {
   const parsed = numberValue(value) ?? fallback;
 
   return Math.max(32, Math.min(320, Math.round(parsed)));
+}
+
+function booleanValue(value: unknown, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+
+    if (["0", "false", "no", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return fallback;
+}
+
+function stableId(value: unknown, fallback: string) {
+  const id = textValue(value);
+
+  return id && /^[a-z0-9_-]{2,80}$/i.test(id) ? id : fallback;
+}
+
+function normalizeWorkplaceContactChannel(
+  value: unknown,
+  fallback: WorkplaceContactChannel = "sms",
+): WorkplaceContactChannel {
+  const channel = textValue(value);
+
+  return WORKPLACE_CONTACT_CHANNELS.includes(
+    channel as WorkplaceContactChannel,
+  )
+    ? (channel as WorkplaceContactChannel)
+    : fallback;
+}
+
+function normalizeWorkplaceContacts(value: unknown): WorkplaceContactSettings[] {
+  const rows = Array.isArray(value) ? value : [];
+
+  return rows
+    .slice(0, 12)
+    .map((row, index) => {
+      const record = objectRecord(row);
+
+      return {
+        activeDays: cappedTextValue(record.activeDays, "", 300),
+        email: cappedTextValue(record.email, "", 240),
+        id: stableId(record.id, `contact-${index + 1}`),
+        name: cappedTextValue(record.name, "", 120),
+        notes: cappedTextValue(record.notes, "", 800),
+        phoneNumber: cappedTextValue(record.phoneNumber, "", 80),
+        preferredChannel: normalizeWorkplaceContactChannel(
+          record.preferredChannel,
+        ),
+        privatePhoneNumber: cappedTextValue(record.privatePhoneNumber, "", 80),
+        receivesEscalations: booleanValue(record.receivesEscalations, true),
+        role: cappedTextValue(record.role, "", 120),
+        tradeSpecialty: cappedTextValue(record.tradeSpecialty, "", 160),
+        vehicleRegistration: cappedTextValue(record.vehicleRegistration, "", 80),
+        workingHours: cappedTextValue(record.workingHours, "", 300),
+      };
+    })
+    .filter(
+      (contact) =>
+        contact.name ||
+        contact.phoneNumber ||
+        contact.email ||
+        contact.role ||
+        contact.tradeSpecialty,
+    );
+}
+
+function normalizeEscalationTriggerKeys(
+  value: unknown,
+): UrgentEscalationTriggerKey[] {
+  const allowed = new Set(
+    URGENT_ESCALATION_TRIGGER_DEFINITIONS.map((trigger) => trigger.key),
+  );
+  const keys = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const normalized = keys
+    .map((key) => (typeof key === "string" ? key.trim() : ""))
+    .filter((key): key is UrgentEscalationTriggerKey =>
+      allowed.has(key as UrgentEscalationTriggerKey),
+    );
+
+  return Array.from(new Set(normalized));
+}
+
+function normalizeEscalationHoursMode(
+  value: unknown,
+  fallback: UrgentEscalationHoursMode = "always",
+): UrgentEscalationHoursMode {
+  const mode = textValue(value);
+
+  return URGENT_ESCALATION_HOURS_MODES.includes(
+    mode as UrgentEscalationHoursMode,
+  )
+    ? (mode as UrgentEscalationHoursMode)
+    : fallback;
+}
+
+function normalizeEscalationSteps(value: unknown): UrgentEscalationStepSettings[] {
+  const rows = Array.isArray(value) ? value : [];
+
+  return rows
+    .slice(0, 8)
+    .map((row, index) => {
+      const record = objectRecord(row);
+      const delayMinutes = numberValue(record.delayMinutes);
+
+      return {
+        channel: normalizeWorkplaceContactChannel(record.channel),
+        contactId: cappedTextValue(record.contactId, "primary", 80),
+        delayMinutes: Math.max(
+          0,
+          Math.min(240, Math.round(delayMinutes ?? (index === 0 ? 0 : 5))),
+        ),
+        id: stableId(record.id, `step-${index + 1}`),
+      };
+    })
+    .filter((step) => step.channel && step.contactId);
+}
+
+function normalizeUrgentEscalationSettings(
+  value: unknown,
+  fallback = DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS.urgentEscalation,
+): UrgentEscalationSettings {
+  const settings = objectRecord(value);
+  const steps = normalizeEscalationSteps(settings.steps);
+  const triggerKeys = normalizeEscalationTriggerKeys(settings.triggerKeys);
+  const hasSteps = Object.prototype.hasOwnProperty.call(settings, "steps");
+  const hasTriggerKeys = Object.prototype.hasOwnProperty.call(
+    settings,
+    "triggerKeys",
+  );
+
+  return {
+    customDays: cappedTextValue(
+      settings.customDays,
+      fallback.customDays,
+      300,
+    ),
+    customEndTime: cappedTextValue(
+      settings.customEndTime,
+      fallback.customEndTime,
+      40,
+    ),
+    customStartTime: cappedTextValue(
+      settings.customStartTime,
+      fallback.customStartTime,
+      40,
+    ),
+    enabled: booleanValue(settings.enabled, fallback.enabled),
+    hoursMode: normalizeEscalationHoursMode(settings.hoursMode, fallback.hoursMode),
+    requireAcknowledgement: booleanValue(
+      settings.requireAcknowledgement,
+      fallback.requireAcknowledgement,
+    ),
+    steps: hasSteps ? steps : fallback.steps,
+    triggerKeys: hasTriggerKeys ? triggerKeys : fallback.triggerKeys,
+  };
 }
 
 export function normalizeWorkspaceBusinessProfileSettings(
@@ -306,6 +647,13 @@ export function normalizeWorkspaceBusinessProfileSettings(
     ),
     travelRadiusKm: nullablePositiveInteger(
       settings.travelRadiusKm ?? fallback.travelRadiusKm,
+    ),
+    urgentEscalation: normalizeUrgentEscalationSettings(
+      settings.urgentEscalation,
+      fallback.urgentEscalation ?? defaultSettings.urgentEscalation,
+    ),
+    workplaceContacts: normalizeWorkplaceContacts(
+      settings.workplaceContacts ?? fallback.workplaceContacts,
     ),
     workingHours: cappedTextValue(
       settings.workingHours,

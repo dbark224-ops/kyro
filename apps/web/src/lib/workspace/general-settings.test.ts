@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { normalizeWorkspaceGeneralSettings } from "./general-settings";
+import {
+  URGENT_ESCALATION_TRIGGER_DEFINITIONS,
+  normalizeWorkspaceGeneralSettings,
+} from "./general-settings";
 
 describe("workspace general settings", () => {
   it("normalizes display currency and timezone", () => {
@@ -59,5 +62,93 @@ describe("workspace general settings", () => {
     assert.equal(settings.businessProfile.publicPhoneNumber, "+61 7 4517 4330");
     assert.equal(settings.businessProfile.staffCount, 4);
     assert.equal(settings.businessProfile.travelRadiusKm, 32);
+  });
+
+  it("keeps urgent escalation defaults ready for new workspaces", () => {
+    const settings = normalizeWorkspaceGeneralSettings({});
+    const defaultTriggerKeys = URGENT_ESCALATION_TRIGGER_DEFINITIONS.filter(
+      (trigger) => trigger.defaultEnabled,
+    ).map((trigger) => trigger.key);
+
+    assert.equal(settings.businessProfile.urgentEscalation.enabled, true);
+    assert.deepEqual(
+      settings.businessProfile.urgentEscalation.triggerKeys,
+      defaultTriggerKeys,
+    );
+    assert.deepEqual(
+      settings.businessProfile.urgentEscalation.steps.map((step) => [
+        step.channel,
+        step.contactId,
+        step.delayMinutes,
+      ]),
+      [
+        ["sms", "primary", 0],
+        ["phone", "primary", 5],
+        ["phone", "primary", 10],
+        ["sms", "fallback", 15],
+      ],
+    );
+  });
+
+  it("allows a workspace to intentionally clear urgent triggers", () => {
+    const settings = normalizeWorkspaceGeneralSettings({
+      businessProfile: {
+        urgentEscalation: {
+          triggerKeys: [],
+        },
+      },
+    });
+
+    assert.deepEqual(settings.businessProfile.urgentEscalation.triggerKeys, []);
+  });
+
+  it("normalizes workplace contacts and escalation steps", () => {
+    const settings = normalizeWorkspaceGeneralSettings({
+      businessProfile: {
+        urgentEscalation: {
+          steps: [
+            {
+              channel: "phone",
+              contactId: "owner",
+              delayMinutes: "7",
+              id: "owner-call",
+            },
+            {
+              channel: "not-real",
+              contactId: "fallback",
+              delayMinutes: "999",
+              id: "bad-channel",
+            },
+          ],
+          triggerKeys: ["explicit_urgency", "not-real"],
+        },
+        workplaceContacts: [
+          {
+            email: " owner@example.com ",
+            id: "owner",
+            name: " Daryl ",
+            preferredChannel: "phone",
+            receivesEscalations: "true",
+            role: " Owner ",
+          },
+          {
+            id: "empty",
+          },
+        ],
+      },
+    });
+
+    assert.equal(settings.businessProfile.workplaceContacts.length, 1);
+    assert.equal(settings.businessProfile.workplaceContacts[0]?.name, "Daryl");
+    assert.equal(
+      settings.businessProfile.workplaceContacts[0]?.preferredChannel,
+      "phone",
+    );
+    assert.deepEqual(settings.businessProfile.urgentEscalation.triggerKeys, [
+      "explicit_urgency",
+    ]);
+    assert.equal(settings.businessProfile.urgentEscalation.steps[0]?.delayMinutes, 7);
+    assert.equal(settings.businessProfile.urgentEscalation.steps[1]?.channel, "sms");
+    assert.equal(settings.businessProfile.urgentEscalation.steps[1]?.delayMinutes, 240);
   });
 });

@@ -23,6 +23,7 @@ import {
 } from "./actions";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
+import { EscalationSettingsEditor } from "./escalation-settings-editor";
 import { TagInputField } from "./tag-input-field";
 import {
   ELEVENLABS_VOICE_PRESETS,
@@ -2434,7 +2435,9 @@ function GeneralSettingsDetail({
     activePanel === "availability" ||
     activePanel === "branding-logo" ||
     activePanel === "email-signature" ||
-    activePanel === "emergency-work"
+    activePanel === "emergency-work" ||
+    activePanel === "urgent-escalation" ||
+    activePanel === "workplace-contacts"
       ? activePanel
       : "business";
   const hiddenPanelStyle = { display: "none" } as const;
@@ -2964,6 +2967,26 @@ function GeneralSettingsDetail({
             placeholder="Ask for safety details first. Confirm call-out rates before promising attendance."
           />
         </label>
+      </section>
+
+      <section
+        className="business-profile-section-panel"
+        id="business-profile-workplace-contacts"
+        style={visibleWhen(
+          activeBusinessPanel === "workplace-contacts" ||
+            activeBusinessPanel === "urgent-escalation",
+        )}
+      >
+        <EscalationSettingsEditor
+          contacts={profile.workplaceContacts}
+          defaultEmail={userEmail}
+          escalation={profile.urgentEscalation}
+          focus={
+            activeBusinessPanel === "urgent-escalation"
+              ? "escalation"
+              : "contacts"
+          }
+        />
       </section>
 
       <div className="settings-footer">
@@ -5352,6 +5375,28 @@ export default async function SettingsPage({
             key: "email-signature",
             selected: selectedPanel === "email-signature",
             title: "Email signature",
+          },
+          {
+            detail: "Owners, admin, tradies, and fallback people",
+            href: settingsPanelHref(
+              "general",
+              "workplace-contacts",
+              activeWindow,
+            ),
+            key: "workplace-contacts",
+            selected: selectedPanel === "workplace-contacts",
+            title: "Workplace contacts",
+          },
+          {
+            detail: "Triggers, channels, retries, and acknowledgement",
+            href: settingsPanelHref(
+              "general",
+              "urgent-escalation",
+              activeWindow,
+            ),
+            key: "urgent-escalation",
+            selected: selectedPanel === "urgent-escalation",
+            title: "Urgent escalation",
           },
           {
             detail: "After-hours rates and urgent job handling",

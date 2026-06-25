@@ -183,6 +183,72 @@ function phoneAgentUserNumberDetailsFromForm(formData: FormData) {
     .filter((row) => row.phoneNumber);
 }
 
+function workplaceContactsFromForm(formData: FormData) {
+  const ids = formStringList(formData, "workplaceContactId");
+  const names = formStringList(formData, "workplaceContactName");
+  const roles = formStringList(formData, "workplaceContactRole");
+  const phones = formStringList(formData, "workplaceContactPhone");
+  const privatePhones = formStringList(formData, "workplaceContactPrivatePhone");
+  const emails = formStringList(formData, "workplaceContactEmail");
+  const specialties = formStringList(formData, "workplaceContactSpecialty");
+  const activeDays = formStringList(formData, "workplaceContactActiveDays");
+  const workingHours = formStringList(formData, "workplaceContactWorkingHours");
+  const vehicleRegistrations = formStringList(
+    formData,
+    "workplaceContactVehicleRegistration",
+  );
+  const notes = formStringList(formData, "workplaceContactNotes");
+  const receivesEscalations = formStringList(
+    formData,
+    "workplaceContactReceivesEscalations",
+  );
+  const preferredChannels = formStringList(
+    formData,
+    "workplaceContactPreferredChannel",
+  );
+
+  return ids
+    .map((id, index) => ({
+      activeDays: activeDays[index] || "",
+      email: emails[index] || "",
+      id: id || `contact-${index + 1}`,
+      name: names[index] || "",
+      notes: notes[index] || "",
+      phoneNumber: phones[index] || "",
+      preferredChannel: preferredChannels[index] || "sms",
+      privatePhoneNumber: privatePhones[index] || "",
+      receivesEscalations: receivesEscalations[index] !== "false",
+      role: roles[index] || "",
+      tradeSpecialty: specialties[index] || "",
+      vehicleRegistration: vehicleRegistrations[index] || "",
+      workingHours: workingHours[index] || "",
+    }))
+    .filter(
+      (contact) =>
+        contact.name ||
+        contact.phoneNumber ||
+        contact.email ||
+        contact.role ||
+        contact.tradeSpecialty,
+    );
+}
+
+function urgentEscalationStepsFromForm(formData: FormData) {
+  const ids = formStringList(formData, "urgentEscalationStepId");
+  const channels = formStringList(formData, "urgentEscalationStepChannel");
+  const contactIds = formStringList(formData, "urgentEscalationStepContactId");
+  const delays = formStringList(formData, "urgentEscalationStepDelayMinutes");
+
+  return ids
+    .map((id, index) => ({
+      channel: channels[index] || "sms",
+      contactId: contactIds[index] || "primary",
+      delayMinutes: delays[index] || "0",
+      id: id || `step-${index + 1}`,
+    }))
+    .filter((step) => step.channel && step.contactId);
+}
+
 function formInteger(formData: FormData, key: string) {
   const parsed = Number(formString(formData, key));
 
@@ -694,6 +760,23 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       serviceSuburbs: formString(formData, "businessServiceSuburbs"),
       staffCount: formString(formData, "businessStaffCount"),
       travelRadiusKm: formString(formData, "businessTravelRadiusKm"),
+      urgentEscalation: {
+        customDays: formString(formData, "urgentEscalationCustomDays"),
+        customEndTime: formString(formData, "urgentEscalationCustomEndTime"),
+        customStartTime: formString(formData, "urgentEscalationCustomStartTime"),
+        enabled: formBoolean(formData, "urgentEscalationEnabled"),
+        hoursMode: formString(formData, "urgentEscalationHoursMode"),
+        requireAcknowledgement: formBoolean(
+          formData,
+          "urgentEscalationRequireAcknowledgement",
+        ),
+        steps: urgentEscalationStepsFromForm(formData),
+        triggerKeys: formData
+          .getAll("urgentEscalationTriggerKey")
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter(Boolean),
+      },
+      workplaceContacts: workplaceContactsFromForm(formData),
       workingHours: formString(formData, "businessWorkingHours"),
     },
     {
