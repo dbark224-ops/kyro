@@ -14,6 +14,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/voice/recordings/cleanup",
+      "schedule": "17 3 * * *"
+    },
+    {
       "path": "/api/assistant/suggestions/refresh",
       "schedule": "0 11 * * 0"
     }

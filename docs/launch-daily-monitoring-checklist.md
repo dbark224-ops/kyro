@@ -22,8 +22,12 @@ trust problems do not quietly pile up.
 3. Confirm Vercel logs show no recurring Vapi `401`, `400`, timeout, or tool
    errors.
 4. Spot-check recent `voice_calls` rows for expected status, purpose,
-   transcript, summary, recording URL, and linked events.
-5. Review failed, missed, or partial calls and decide whether they need manual
+   transcript, summary, recording URL or `recording_deleted_at`, and linked
+   events.
+5. Check `https://kyroassistant.com/api/voice/recordings/cleanup` readiness or
+   latest cron logs and review any `recordingRetention.status =
+   'delete_failed'` rows.
+6. Review failed, missed, or partial calls and decide whether they need manual
    follow-up.
 
 ## Twilio SMS Health

@@ -42,6 +42,12 @@ export type VapiOutboundCallResult = {
   raw: Record<string, unknown>;
 };
 
+export type VapiDeleteCallResult = {
+  deleted: boolean;
+  error: string | null;
+  status: number | null;
+};
+
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -220,5 +226,51 @@ export async function createVapiOutboundCall(input: {
     id: textValue(payload.id),
     raw: payload,
     status: textValue(payload.status),
+  };
+}
+
+export async function deleteVapiCallData(
+  callId: string,
+): Promise<VapiDeleteCallResult> {
+  const config = getVapiConfig();
+
+  if (!config) {
+    return {
+      deleted: false,
+      error: "VAPI_API_KEY is not configured.",
+      status: null,
+    };
+  }
+
+  const response = await fetch(
+    `${VAPI_API_BASE_URL}/call/${encodeURIComponent(callId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      method: "DELETE",
+    },
+  );
+
+  if (response.ok || response.status === 404) {
+    return {
+      deleted: true,
+      error: null,
+      status: response.status,
+    };
+  }
+
+  const payload = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+
+  return {
+    deleted: false,
+    error:
+      textValue(payload.message) ??
+      textValue(payload.error) ??
+      `Vapi delete call failed with HTTP ${response.status}.`,
+    status: response.status,
   };
 }

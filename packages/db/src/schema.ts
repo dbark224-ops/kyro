@@ -802,6 +802,15 @@ export const voiceCalls = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
     durationSeconds: integer("duration_seconds"),
     recordingUrl: text("recording_url"),
+    recordingRetentionDays: integer("recording_retention_days")
+      .notNull()
+      .default(30),
+    recordingExpiresAt: timestamp("recording_expires_at", {
+      withTimezone: true,
+    }),
+    recordingDeletedAt: timestamp("recording_deleted_at", {
+      withTimezone: true,
+    }),
     transcript: text("transcript"),
     summary: text("summary"),
     endedReason: text("ended_reason"),
@@ -831,6 +840,13 @@ export const voiceCalls = pgTable(
     voiceCallsProviderCallIdx: uniqueIndex("voice_calls_provider_call_idx")
       .on(table.provider, table.providerCallId)
       .where(sql`${table.providerCallId} is not null`),
+    voiceCallsRecordingRetentionDueIdx: index(
+      "voice_calls_recording_retention_due_idx",
+    )
+      .on(table.recordingExpiresAt)
+      .where(
+        sql`${table.recordingUrl} is not null and ${table.recordingDeletedAt} is null`,
+      ),
   }),
 );
 

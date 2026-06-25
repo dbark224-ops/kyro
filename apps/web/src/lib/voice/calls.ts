@@ -7,6 +7,7 @@ import {
 import { buildVapiCurrentTimeContext } from "../assistant/vapi-time";
 import {
   createVapiOutboundCall,
+  deleteVapiCallData,
   VAPI_CARRIER_PROVIDER,
   VAPI_PROVIDER,
   VAPI_WEBHOOK_PATH,
@@ -22,6 +23,8 @@ import {
   DEFAULT_WORKSPACE_GENERAL_SETTINGS,
   getWorkspaceGeneralSettings,
 } from "../workspace/general-settings";
+
+export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
 export type VoiceCallDirection = "inbound" | "outbound";
 export type VoiceCallPurpose =
@@ -59,6 +62,9 @@ export type VoiceCallPreview = {
     providerCallId: string | null;
     providerPhoneNumberId: string | null;
     purpose: VoiceCallPurpose;
+    recordingDeletedAt: string | null;
+    recordingExpiresAt: string | null;
+    recordingRetentionDays: number;
     recordingUrl: string | null;
     startedAt: string | null;
     status: VoiceCallStatus;
@@ -539,6 +545,30 @@ async function workspaceOwnerId(
   }
 
   return textValue(data?.owner_user_id);
+}
+
+function addDaysIso(value: string | null, days: number) {
+  const date = value ? new Date(value) : new Date();
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return date.toISOString();
+}
+
+function recordingExpiryFromTiming(input: {
+  createdAt?: string | null;
+  endedAt?: string | null;
+  startedAt?: string | null;
+}) {
+  return addDaysIso(
+    timestampValue(input.endedAt, input.startedAt, input.createdAt) ??
+      new Date().toISOString(),
+    VOICE_RECORDING_RETENTION_DAYS,
+  );
 }
 
 async function workspaceName(
@@ -1029,6 +1059,10 @@ function rowToPreviewCall(row: Record<string, unknown>) {
     providerCallId: textValue(row.provider_call_id),
     providerPhoneNumberId: textValue(row.provider_phone_number_id),
     purpose: (textValue(row.purpose) ?? "inbound_customer") as VoiceCallPurpose,
+    recordingDeletedAt: textValue(row.recording_deleted_at),
+    recordingExpiresAt: textValue(row.recording_expires_at),
+    recordingRetentionDays:
+      numberValue(row.recording_retention_days) ?? VOICE_RECORDING_RETENTION_DAYS,
     recordingUrl: textValue(row.recording_url),
     startedAt: textValue(row.started_at),
     status: (textValue(row.status) ?? "created") as VoiceCallStatus,
@@ -1233,7 +1267,9 @@ export async function upsertVoiceCallFromVapiEvent(
   const existingByProviderId = providerId
     ? await supabase
         .from("voice_calls")
-        .select("id,metadata")
+        .select(
+          "id,metadata,recording_url,recording_expires_at,recording_deleted_at,recording_retention_days",
+        )
         .eq("provider", VAPI_PROVIDER)
         .eq("provider_call_id", providerId)
         .maybeSingle()
@@ -1246,6 +1282,18 @@ export async function upsertVoiceCallFromVapiEvent(
       );
     }
   }
+
+  const existingRecordingUrl = textValue(existingByProviderId.data?.recording_url);
+  const nextRecordingUrl = recordingUrl ?? existingRecordingUrl;
+  const nextRecordingDeletedAt = recordingUrl
+    ? null
+    : textValue(existingByProviderId.data?.recording_deleted_at);
+  const nextRecordingExpiresAt = nextRecordingUrl
+    ? recordingUrl
+      ? recordingExpiryFromTiming(timing)
+      : (textValue(existingByProviderId.data?.recording_expires_at) ??
+        recordingExpiryFromTiming(timing))
+    : null;
 
   const payloadRow = {
     workspace_id: workspaceId,
@@ -1270,7 +1318,10 @@ export async function upsertVoiceCallFromVapiEvent(
     started_at: timing.startedAt,
     ended_at: timing.endedAt,
     duration_seconds: duration,
-    recording_url: recordingUrl,
+    recording_url: nextRecordingUrl,
+    recording_retention_days: VOICE_RECORDING_RETENTION_DAYS,
+    recording_expires_at: nextRecordingExpiresAt,
+    recording_deleted_at: nextRecordingDeletedAt,
     transcript,
     summary,
     ended_reason: firstText(
@@ -1285,6 +1336,11 @@ export async function upsertVoiceCallFromVapiEvent(
       ...objectRecord(existingByProviderId.data?.metadata),
       lastEventType: event,
       lastPayloadReceivedAt: new Date().toISOString(),
+      recordingRetention: {
+        days: VOICE_RECORDING_RETENTION_DAYS,
+        expiresAt: nextRecordingExpiresAt,
+        policy: "delete_vapi_call_data_and_clear_recording_url",
+      },
       vapiMetadata: metadata,
     },
   };
@@ -1327,6 +1383,163 @@ export async function upsertVoiceCallFromVapiEvent(
   }
 
   return { callId, ignored: false, reason: null };
+}
+
+export async function cleanupExpiredVoiceCallRecordings(
+  supabase: SupabaseClient,
+  input: {
+    limit?: number;
+    now?: Date | string;
+    workspaceId?: string | null;
+  } = {},
+) {
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+  const now =
+    input.now instanceof Date
+      ? input.now
+      : input.now
+        ? new Date(input.now)
+        : new Date();
+  const checkedAt = Number.isNaN(now.getTime())
+    ? new Date().toISOString()
+    : now.toISOString();
+  let query = supabase
+    .from("voice_calls")
+    .select(
+      "id,workspace_id,provider,provider_call_id,recording_expires_at,metadata",
+    )
+    .not("recording_url", "is", null)
+    .is("recording_deleted_at", null)
+    .lte("recording_expires_at", checkedAt)
+    .order("recording_expires_at", { ascending: true })
+    .limit(limit);
+
+  if (input.workspaceId) {
+    query = query.eq("workspace_id", input.workspaceId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    if (tableMissing(error)) {
+      return {
+        checkedAt,
+        deleted: 0,
+        failed: 0,
+        processed: 0,
+        reason: "voice_calls table is not available.",
+      };
+    }
+
+    throw new Error(
+      `Unable to load expired voice recordings: ${error.message}`,
+    );
+  }
+
+  let deleted = 0;
+  let failed = 0;
+  const failures: Array<{ callId: string; error: string }> = [];
+
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const callId = String(row.id);
+    const workspaceId = String(row.workspace_id);
+    const provider = textValue(row.provider) ?? VAPI_PROVIDER;
+    const providerCallId = textValue(row.provider_call_id);
+    const metadata = objectRecord(row.metadata);
+    const retentionMetadata = {
+      ...objectRecord(metadata.recordingRetention),
+      attemptedAt: checkedAt,
+      expiresAt: textValue(row.recording_expires_at),
+      provider,
+    };
+
+    if (provider !== VAPI_PROVIDER || !providerCallId) {
+      failed += 1;
+      const reason =
+        provider !== VAPI_PROVIDER
+          ? `Recording provider ${provider} is not deletable by the Vapi cleanup worker.`
+          : "Vapi provider call id is missing.";
+      failures.push({ callId, error: reason });
+
+      await supabase
+        .from("voice_calls")
+        .update({
+          metadata: {
+            ...metadata,
+            recordingRetention: {
+              ...retentionMetadata,
+              deletionError: reason,
+              status: "delete_failed",
+            },
+          },
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", callId);
+
+      continue;
+    }
+
+    const deleteResult = await deleteVapiCallData(providerCallId);
+
+    if (!deleteResult.deleted) {
+      failed += 1;
+      const reason = deleteResult.error ?? "Vapi recording delete failed.";
+      failures.push({ callId, error: reason });
+
+      await supabase
+        .from("voice_calls")
+        .update({
+          metadata: {
+            ...metadata,
+            recordingRetention: {
+              ...retentionMetadata,
+              deletionError: reason,
+              providerDeleteStatus: deleteResult.status,
+              status: "delete_failed",
+            },
+          },
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", callId);
+
+      continue;
+    }
+
+    const { error: updateError } = await supabase
+      .from("voice_calls")
+      .update({
+        metadata: {
+          ...metadata,
+          recordingRetention: {
+            ...retentionMetadata,
+            deletedAt: checkedAt,
+            deletionError: null,
+            providerDeleteStatus: deleteResult.status,
+            status: "deleted",
+          },
+        },
+        recording_deleted_at: checkedAt,
+        recording_url: null,
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("id", callId);
+
+    if (updateError) {
+      failed += 1;
+      failures.push({ callId, error: updateError.message });
+      continue;
+    }
+
+    deleted += 1;
+  }
+
+  return {
+    checkedAt,
+    deleted,
+    failed,
+    failures,
+    processed: data?.length ?? 0,
+  };
 }
 
 export async function lookupVoiceContactsForTool(input: {

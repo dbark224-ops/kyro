@@ -463,6 +463,9 @@ follow-up action.
 - `ended_at`
 - `duration_seconds`
 - `recording_url`
+- `recording_retention_days`
+- `recording_expires_at`
+- `recording_deleted_at`
 - `transcript`
 - `summary`
 - `ended_reason`

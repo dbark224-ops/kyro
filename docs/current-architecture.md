@@ -473,14 +473,18 @@ recent email sync, contact profile updates, and call-note recording; `GET
 web assistant pane; `GET /api/voice/calls/[callId]` returns the same preview
 payload used by the web assistant and mobile app; and `POST /api/voice/outbound`
 queues a workspace-scoped outbound customer call through the configured Vapi
-outbound assistant. Outbound calls can route across multiple workspace-owned
+outbound assistant. `GET|POST /api/voice/recordings/cleanup` runs as a daily
+Vercel cron, deletes expired Vapi call data after 30 days, clears Kyro's
+recording URL only after provider deletion succeeds, and keeps transcript,
+summary, and audit rows for complaint review. Outbound calls can route across
+multiple workspace-owned
 numbers: Kyro prefers an active voice-capable `workspace_phone_numbers` row whose
 country matches the customer destination number, uses that row's
 `metadata.vapiPhoneNumberId`, falls back to the first active mapped voice number,
 and only then uses the Settings/env fallback Vapi phone-number id. The
 Assistant's Kyro activity pane now includes phone activity and opens a detail
 preview with call status, purpose, contact/conversation links, transcript,
-summary, recording URL, and raw event history. Settings -> Voice stores Vapi
+summary, recording URL or deletion date, and raw event history. Settings -> Voice stores Vapi
 assistant ids, the fallback Vapi phone-number id, user/team numbers, the shared
 ElevenLabs/Vapi voice preset, and broad call style preferences that can be passed
 into Vapi assistant prompts.

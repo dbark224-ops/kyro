@@ -57,6 +57,9 @@ Optional until those integrations are enabled:
   `VAPI_DEFAULT_ASSISTANT_ID`, `VAPI_INTERNAL_ASSISTANT_ID`,
   `VAPI_INBOUND_ASSISTANT_ID`, `VAPI_VOICEMAIL_OVERFLOW_ASSISTANT_ID`, and
   `VAPI_OUTBOUND_ASSISTANT_ID`
+- optional `VOICE_RECORDING_RETENTION_SECRET` for the recording cleanup route;
+  if omitted, the route falls back to `OUTBOUND_DELIVERY_SECRET`,
+  `INBOUND_EMAIL_SYNC_SECRET`, or `CRON_SECRET`
 - `STRIPE_SECRET_KEY`
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
@@ -313,8 +316,8 @@ Recommended deploy sequence:
   SMS compliance/opt-out hardening, and internal-operator SMS classification are
   still future work.
 - Vapi/Twilio phone calls have a first backend foundation, but live Vapi prompts,
-  number wiring, recording retention, urgent escalation, and post-call CRM action
-  automation still need production testing. `/voice-vapi` is a separate internal
+  number wiring, urgent escalation, and post-call CRM action automation still
+  need production testing. `/voice-vapi` is a separate internal
   voice-runtime testbed and should not replace the OpenAI `/voice` path until it
   is tested with the chosen production Vapi assistant.
 - Native iOS shell is future work; current UI is web/iOS-shaped.

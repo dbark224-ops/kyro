@@ -101,7 +101,8 @@ claims to be the business owner or staff.
 
 `voice_calls` is the durable call ledger. It stores workspace/contact/conversation
 links, Vapi/Twilio ids, direction, purpose, status, numbers, transcript, summary,
-recording URL, cost snapshots, and metadata.
+recording URL, 30-day recording retention/deletion metadata, cost snapshots, and
+metadata.
 
 `voice_call_events` stores raw Vapi webhook/tool payloads for debugging and audit.
 The UI should show compact summaries, not raw provider JSON, unless it is an
@@ -132,6 +133,18 @@ workspace users by RLS.
 - Stores raw `voice_call_events`.
 - Records voice-call usage on completed calls when provider cost/duration is
   available.
+
+`GET|POST /api/voice/recordings/cleanup`
+
+- Called by Vercel cron once per day.
+- Verifies `VOICE_RECORDING_RETENTION_SECRET`, `OUTBOUND_DELIVERY_SECRET`,
+  `INBOUND_EMAIL_SYNC_SECRET`, or `CRON_SECRET`.
+- Finds `voice_calls` rows whose `recording_expires_at` has passed.
+- Deletes the Vapi call data for default Vapi storage using the provider call id.
+- Clears Kyro's `recording_url` only after provider deletion succeeds, then sets
+  `recording_deleted_at`.
+- Keeps transcript, summary, call row, and event audit data for complaint review
+  and operational history.
 
 `POST /api/integrations/vapi/tool`
 
@@ -533,7 +546,8 @@ to work for live inbound phone calls.
 ## Known Hardening
 
 - Tune exact Vapi payload parsing against live webhooks.
-- Decide recording retention, download, and privacy policy before production.
+- Confirm production call-recording notice/consent language with the business's
+  legal requirements before launch.
 - Convert accepted call summaries into normal CRM messages/tasks when useful.
 - Add number search/purchase UI and pass-through rental usage billing.
 - Add richer Vapi tools for task creation, appointment suggestions, and urgent

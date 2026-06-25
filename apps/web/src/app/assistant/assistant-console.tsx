@@ -3531,6 +3531,17 @@ function VoiceCallPreview({
           <audio className="voice-call-audio" controls src={call.recordingUrl}>
             <track kind="captions" />
           </audio>
+          <p className="empty-copy">
+            Recording kept until {formatDate(call.recordingExpiresAt)}.
+          </p>
+        </PreviewPanel>
+      ) : call.recordingDeletedAt ? (
+        <PreviewPanel title="Recording">
+          <p className="empty-copy">
+            Recording deleted on {formatDate(call.recordingDeletedAt)} after{" "}
+            {call.recordingRetentionDays} days. Transcript and summary remain
+            available.
+          </p>
         </PreviewPanel>
       ) : null}
 

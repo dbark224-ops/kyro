@@ -75,6 +75,9 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260527024424_structured_addresses.sql`: adds structured Google/manual address fields to `contacts` and `inquiry_facts`, including line/locality/postal/country/coordinate/place-id fields, validation status, raw structured JSON, and workspace indexes for place/postal lookups.
 - `20260529021344_twilio_sms_foundation.sql`: adds `workspace_phone_numbers` for Twilio SMS/voice-capable numbers, workspace RLS, indexes, capability metadata, provider ids, and updated-at trigger support.
 - `20260529043000_vapi_voice_calls.sql`: adds `voice_calls` and `voice_call_events` for Vapi/Twilio inbound calls, voicemail overflow, user-to-Kyro calls, outbound customer calls, transcripts, recordings, provider status, cost snapshots, raw event audit, and workspace RLS.
+- `20260625001321_voice_recording_retention.sql`: adds 30-day voice recording
+  retention fields and an expiry index so Kyro can delete Vapi call data while
+  preserving call transcripts, summaries, and audit rows.
 
 CRM profile identity now uses normalized email, normalized phone, and normalized company values. App code normalizes bare local phone numbers with the workspace default phone region before falling back through broader international parsing. Explicit country-coded numbers remain country-safe.
 
@@ -109,12 +112,17 @@ Vapi/Twilio voice now has a first database foundation:
 
 - `voice_calls` stores call direction, purpose, provider ids, Twilio/Vapi numbers,
   matched contact/conversation/lead ids, transcript, summary, recording URL,
-  status, duration, provider cost, customer charge, and metadata,
+  recording expiry/deletion metadata, status, duration, provider cost, customer
+  charge, and metadata,
 - `voice_call_events` stores raw Vapi webhook and tool payloads for audit and
   debugging,
 - completed calls can write `usage_events` rows with `usage_type = voice_call`,
 - Assistant Kyro activity and the mobile app both load call details through
   `/api/voice/calls/[callId]` rather than querying these tables directly.
+- `/api/voice/recordings/cleanup` runs on a daily Vercel cron. It deletes the
+  Vapi call data for expired recordings, clears `recording_url` after provider
+  deletion succeeds, sets `recording_deleted_at`, and leaves retryable metadata
+  when deletion fails.
 
 Assistant memory/thread behavior does not currently need a new migration.
 `assistant_threads.status` is used for active versus archived threads, and
