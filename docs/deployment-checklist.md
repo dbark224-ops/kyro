@@ -30,6 +30,7 @@ Required for the current product:
 - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret.
 - `INTEGRATION_TOKEN_ENCRYPTION_KEY`: stable secret used to encrypt OAuth refresh tokens.
 - `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`: bearer secret for scheduled email sync and outbox processing.
+- `INBOUND_EMAIL_PUSH_SECRET`: optional bearer secret for Gmail Pub/Sub and Microsoft Graph email push receivers; if omitted, those receivers accept `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`.
 - `OUTBOUND_DELIVERY_SECRET`: optional separate bearer secret for `/api/outbox/process`; if omitted, Kyro accepts `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`.
 - `ASSISTANT_SUGGESTION_REFRESH_SECRET`: optional separate bearer secret for `/api/assistant/suggestions/refresh`; if omitted, Kyro accepts `CRON_SECRET`.
 - `KYRO_FILE_STORAGE_BUCKET`: optional private Supabase Storage bucket name for inbound attachments, assistant uploads, generated images, and retryable outbound email attachments. Defaults to `kyro-files`.
@@ -142,7 +143,8 @@ In Google Cloud Console, configure the production OAuth client:
 
 - Authorized JavaScript origin: production `NEXT_PUBLIC_APP_URL` origin.
 - Authorized redirect URI: `${NEXT_PUBLIC_APP_URL}/integrations/google/callback`.
-- Scopes include Gmail send and Gmail read access currently required by Kyro.
+- Scopes include Gmail send, Gmail read, Drive file, and Calendar events access currently required by Kyro.
+- Gmail push receiver endpoint is `${NEXT_PUBLIC_APP_URL}/api/integrations/email/google/push`. It expects authenticated Pub/Sub delivery carrying Gmail `emailAddress` and `historyId`; configure delivery with `INBOUND_EMAIL_PUSH_SECRET` or the sync secret.
 - OAuth consent screen has the right app name, support email, privacy policy, and test/production publishing state.
 
 Existing local accounts may need disconnect/reconnect when moving environments because OAuth tokens are encrypted with the environment's `INTEGRATION_TOKEN_ENCRYPTION_KEY`.
@@ -154,7 +156,8 @@ If Outlook is enabled, configure Microsoft Entra:
 - redirect URI: `${NEXT_PUBLIC_APP_URL}/integrations/microsoft/callback`,
 - client id and secret in production env,
 - tenant id set to `common` unless the product is limited to one tenant,
-- Mail read/send scopes reviewed and approved.
+- Mail read/send and Calendar read/write scopes reviewed and approved.
+- Microsoft Graph mail notification receiver endpoint is `${NEXT_PUBLIC_APP_URL}/api/integrations/email/microsoft/notifications`. It supports Graph validation tokens and authenticated notification POSTs.
 
 ## 5a. Google Maps Address Lookup
 
@@ -181,6 +184,7 @@ If Twilio SMS is enabled:
 - optionally set `TWILIO_MESSAGING_SERVICE_SID` for Messaging Service sends,
 - optionally set `TWILIO_VOICE_NUMBER` as a temporary testing sender,
 - apply migrations so `workspace_phone_numbers` exists,
+- apply migrations so `sms_recipient_preferences` exists,
 - add a workspace phone-number row for the Twilio destination number before
   testing inbound SMS,
 - configure the Twilio inbound message webhook to
@@ -188,6 +192,8 @@ If Twilio SMS is enabled:
 - configure the delivery status callback to
   `${NEXT_PUBLIC_APP_URL}/api/integrations/twilio/status`,
 - send one inbound SMS and confirm it creates a CRM conversation,
+- send `STOP` or `OPTOUT` from a test number and confirm Kyro records the opt-out
+  state and blocks future outbound sends to that recipient,
 - send one outbound SMS from an Inbox/Assistant preview and confirm it appears in
   the outbox, conversation thread, Log, Usage, and Assistant activity pane.
 
@@ -335,12 +341,10 @@ Recommended deploy sequence:
 
 ## 9. Current Known Production Gaps
 
-- Gmail/Outlook push mailbox watches are deferred; production uses 5-minute polling.
+- Gmail/Outlook push receivers are built, but production still needs provider watch/subscription setup, renewal jobs, and deeper history cursor handling. Until then, scheduled polling remains the primary sync path.
 - Inbound email attachments are persisted to private Supabase Storage when provider bytes are available, but richer Drive/job-file organisation is future work.
 - Deep provider history/watch sync is deferred; current thread matching uses provider thread id, RFC references, and same-contact same-subject fallback.
-- Twilio SMS has a first send/receive foundation, but user-facing number purchase,
-  SMS compliance/opt-out hardening, and internal-operator SMS classification are
-  still future work.
+- Twilio SMS has send/receive, opt-out state, staff/operator classification, and an outbound opt-out guard. User-facing number purchase, A2P/provider registration visibility, and deeper delivery recovery remain future work.
 - Vapi/Twilio phone calls have a first backend foundation, but live Vapi prompts,
   number wiring, urgent escalation, and post-call CRM action automation still
   need production testing. `/voice-vapi` is a separate internal

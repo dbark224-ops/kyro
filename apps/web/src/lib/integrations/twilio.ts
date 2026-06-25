@@ -40,6 +40,13 @@ export type TwilioWorkspacePhoneNumber = {
 };
 
 export type TwilioTelephonyOverview = {
+  compliance: {
+    blockedRecipients: number;
+    optedOutRecipients: number;
+    staffInternalRecipients: number;
+    tableReady: boolean;
+    trackedRecipients: number;
+  };
   configured: boolean;
   defaultFromNumber: string | null;
   error: string | null;
@@ -127,6 +134,18 @@ function tableMissing(error: { code?: string; message?: string } | null) {
   );
 }
 
+function smsComplianceTableMissing(
+  error: { code?: string; message?: string } | null,
+) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    message.includes("sms_recipient_preferences")
+  );
+}
+
 function normalizePhoneNumber(value: string, defaultRegion: PhoneRegion = "AU") {
   return normalizeContactPhoneForRegion(value, defaultRegion) ?? value.trim();
 }
@@ -158,11 +177,49 @@ function toWorkspacePhoneNumber(row: Record<string, unknown>) {
   } satisfies TwilioWorkspacePhoneNumber;
 }
 
+async function getSmsComplianceSummary(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<TwilioTelephonyOverview["compliance"]> {
+  const { data, error } = await supabase
+    .from("sms_recipient_preferences")
+    .select("consent_status")
+    .eq("workspace_id", workspaceId)
+    .limit(1000);
+
+  if (error) {
+    return {
+      blockedRecipients: 0,
+      optedOutRecipients: 0,
+      staffInternalRecipients: 0,
+      tableReady: !smsComplianceTableMissing(error),
+      trackedRecipients: 0,
+    };
+  }
+
+  const rows = (data ?? []) as Array<{ consent_status?: string | null }>;
+
+  return {
+    blockedRecipients: rows.filter(
+      (row) => row.consent_status === "blocked",
+    ).length,
+    optedOutRecipients: rows.filter(
+      (row) => row.consent_status === "opted_out",
+    ).length,
+    staffInternalRecipients: rows.filter(
+      (row) => row.consent_status === "staff_internal",
+    ).length,
+    tableReady: true,
+    trackedRecipients: rows.length,
+  };
+}
+
 export async function getTwilioTelephonyOverview(
   supabase: SupabaseClient,
   workspaceId: string,
 ): Promise<TwilioTelephonyOverview> {
   const config = getTwilioConfig();
+  const compliance = await getSmsComplianceSummary(supabase, workspaceId);
   const { data, error } = await supabase
     .from("workspace_phone_numbers")
     .select(
@@ -174,6 +231,7 @@ export async function getTwilioTelephonyOverview(
 
   if (error) {
     return {
+      compliance,
       configured: Boolean(config),
       defaultFromNumber: config?.defaultFromNumber ?? null,
       error: tableMissing(error) ? null : error.message,
@@ -186,6 +244,7 @@ export async function getTwilioTelephonyOverview(
   }
 
   return {
+    compliance,
     configured: Boolean(config),
     defaultFromNumber: config?.defaultFromNumber ?? null,
     error: null,

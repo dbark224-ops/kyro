@@ -12,6 +12,10 @@ import {
 } from "../../../../../lib/integrations/twilio";
 import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import {
+  recordSmsRecipientPreference,
+  smsConsentCommand,
+} from "../../../../../lib/communication/sms-compliance";
 import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
 import { createOutboundVoiceCall } from "../../../../../lib/voice/calls";
 import {
@@ -239,10 +243,61 @@ export async function POST(request: Request) {
     throw new Error("Unable to process inbound SMS without a workspace owner.");
   }
 
+  const consentCommand = smsConsentCommand(body);
+
+  if (consentCommand.status) {
+    await recordSmsRecipientPreference(supabase, {
+      channelNumberId: workspaceNumber.id,
+      consentNote:
+        consentCommand.status === "opted_out"
+          ? "Recipient opted out by SMS keyword."
+          : "Recipient opted back in by SMS keyword.",
+      keyword: consentCommand.keyword,
+      metadata: {
+        from,
+        messageSid,
+        provider: TWILIO_PROVIDER,
+        to,
+      },
+      phoneNumber: from,
+      source: "twilio_sms_keyword",
+      status: consentCommand.status,
+      touch: "inbound",
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    await recordInboundSmsUsage(supabase, {
+      eventId: null,
+      from,
+      messageSid,
+      to,
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    return twilioWebhookResponse();
+  }
+
   if (
     looksLikeOutboundCallRequest(body) &&
     (await isInternalSmsSender(supabase, workspaceNumber.workspaceId, from))
   ) {
+    await recordSmsRecipientPreference(supabase, {
+      channelNumberId: workspaceNumber.id,
+      consentNote: "Trusted staff/operator SMS command.",
+      metadata: {
+        classification: "staff_operator",
+        from,
+        messageSid,
+        provider: TWILIO_PROVIDER,
+        to,
+      },
+      phoneNumber: from,
+      source: "twilio_internal_sms",
+      status: "staff_internal",
+      touch: "inbound",
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
     await recordInboundSmsUsage(supabase, {
       eventId: null,
       from,
@@ -281,6 +336,20 @@ export async function POST(request: Request) {
 
     return twilioWebhookResponse();
   }
+
+  await recordSmsRecipientPreference(supabase, {
+    channelNumberId: workspaceNumber.id,
+    metadata: {
+      from,
+      messageSid,
+      provider: TWILIO_PROVIDER,
+      to,
+    },
+    phoneNumber: from,
+    source: "twilio_inbound_sms",
+    touch: "inbound",
+    workspaceId: workspaceNumber.workspaceId,
+  });
 
   const contactName =
     (await findExistingContactName(supabase, workspaceNumber.workspaceId, from)) ??

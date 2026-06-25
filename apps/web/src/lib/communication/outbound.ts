@@ -31,6 +31,10 @@ import {
   isOutboundChannel,
   type OutboundChannel,
 } from "./settings";
+import {
+  assertSmsSendAllowed,
+  recordSmsRecipientPreference,
+} from "./sms-compliance";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const SCHEDULED_PROCESS_LIMIT = 25;
@@ -1614,6 +1618,11 @@ async function deliverOutboundQueueItem(
         );
       }
 
+      await assertSmsSendAllowed(supabase, {
+        phoneNumber: recipientPhone,
+        workspaceId: activeRow.workspace_id,
+      });
+
       const workspaceSmsNumber = await getActiveWorkspaceSmsNumber(
         supabase,
         activeRow.workspace_id,
@@ -1645,6 +1654,20 @@ async function deliverOutboundQueueItem(
         sentFrom = senderNumber;
         sentTo = recipientPhone;
         providerAccepted = true;
+        await recordSmsRecipientPreference(supabase, {
+          channelNumberId: workspaceSmsNumber?.id ?? null,
+          metadata: {
+            from: senderNumber,
+            outboundQueueId: activeRow.id,
+            provider: TWILIO_PROVIDER,
+            providerMessageId: smsResult.messageId,
+            sentTo: recipientPhone,
+          },
+          phoneNumber: recipientPhone,
+          source: "twilio_outbound_sms",
+          touch: "outbound",
+          workspaceId: activeRow.workspace_id,
+        });
         await markOutboundExternalProviderAccepted(supabase, activeRow, {
           channelId,
           messageId: smsResult.messageId,

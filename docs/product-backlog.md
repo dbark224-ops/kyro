@@ -32,11 +32,11 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 ### Twilio Number and SMS Hardening
 
 - The beta pre-purchased number pool model exists and is documented in `docs/phone-number-pool.md`.
+- SMS compliance state now has a durable `sms_recipient_preferences` table, Settings visibility, Twilio inbound keyword handling, staff/operator SMS classification, and an outbound send guard that blocks opted-out or blocked recipients before Twilio is called.
 - Replace the beta pool with user-facing Twilio number search, selection, and purchase once signup volume justifies it.
 - Automate the full Twilio purchase -> webhook/messaging-service setup -> Vapi phone-number mapping flow while preserving the current `workspace_phone_numbers` model.
 - Meter phone-number rental as its own billing category, separate from SMS segments and voice minutes.
-- Add workspace operator/staff number rules so SMS from the owner, apprentice, family member, or partner can be treated as internal instructions instead of customer inquiries.
-- Harden inbound SMS contact matching, opt-out handling, consent/compliance copy, and delivery-error recovery before public launch.
+- Harden inbound SMS contact matching, A2P/provider registration visibility, consent/compliance copy, and delivery-error recovery before public launch.
 
 ### Outbound Delivery Operations
 
@@ -56,7 +56,8 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 ### Assistant External Tools
 
 - The Assistant tool registry, action engine, outbox, audit trail, and richer UI block model already exist.
-- Add approval-gated calendar providers once email, SMS, and phone boundaries remain stable in production-like testing.
+- Calendar writeback state now exists on `conversation_appointments`, the Google/Microsoft OAuth scope lists include calendar write permission, and `/api/integrations/calendar/readiness` reports whether connected providers are ready before writeback jobs are enabled.
+- Build the actual approval-gated Google Calendar and Outlook Calendar event writer once reconnected accounts have the new calendar scopes in production.
 - Reuse the current tool registry and action engine patterns instead of giving the LLM direct provider access.
 
 ### Industry Knowledge and Compliance
@@ -70,15 +71,15 @@ This is now the single source of truth for the remaining Kyro work. It absorbs t
 ### Image Generation Hardening
 
 - Image generation, chat rendering, inline previews, popup preview, edit-with-annotation, and save-to-files workflows have all been attacked.
-- Promote generated images from private file rows into a richer media gallery/history if one-off visuals become common.
-- Add stronger multi-turn image revision controls so users can continue editing a selected image without reattaching everything manually.
+- Assistant now surfaces a recent generated-image history strip backed by saved file rows, while the Files area remains the full gallery/archive.
+- Multi-turn image revision works through the Assistant image lightbox: users can reopen a generated image, mark it up, and send the original plus annotation layer back into image generation.
 - Design the mobile camera-first workflow for renovation photos, inspiration references, and customer-ready render previews.
 
 ### Future Channels
 
 - Follow-up reminders already exist at the workspace-default level, and email sync foundations are already in place.
 - Add per-inquiry follow-up delay overrides if the global workspace delay proves too blunt.
-- Upgrade Gmail/Outlook inbound sync from bounded polling to provider push/watch delivery once polling is stable in production.
+- Gmail Pub/Sub and Microsoft Graph push receiver endpoints now exist and reuse the current inbound email sync engine with provider metadata updates. Remaining work is provider dashboard/subscription setup, watch renewal jobs, and deeper history-cursor fetching.
 - Promote stored inbound email attachments into richer job-file/document records, including Drive sync and user-facing document organisation.
 - Add deeper forwarded-message parsing and provider history cursors for messy email chains that do not preserve thread ids or RFC references cleanly.
 - Add social DMs and web chat once provider selection, permissions, and audit trails feel solid.

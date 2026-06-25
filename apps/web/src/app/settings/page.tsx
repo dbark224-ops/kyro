@@ -1042,6 +1042,34 @@ function TwilioTelephonySettings({
             Outbound SMS
           </SettingCardHeading>
         </article>
+        <article className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Kyro records inbound SMS consent signals, separates trusted
+                staff/operator command texts from customer messages, and blocks
+                outbound SMS to opted-out or blocked recipients before Twilio is
+                called.
+              </>
+            }
+          >
+            SMS compliance guard
+          </SettingCardHeading>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{overview.compliance.trackedRecipients}</strong>
+              Tracked recipients
+            </span>
+            <span>
+              <strong>{overview.compliance.optedOutRecipients}</strong>
+              Opted out
+            </span>
+            <span>
+              <strong>{overview.compliance.staffInternalRecipients}</strong>
+              Staff/operator
+            </span>
+          </div>
+        </article>
       </div>
 
       {!overview.migrationReady ? (
@@ -1054,6 +1082,12 @@ function TwilioTelephonySettings({
         <p className="form-alert">
           Add <code>TWILIO_ACCOUNT_SID</code> and{" "}
           <code>TWILIO_AUTH_TOKEN</code> before sending or receiving SMS.
+        </p>
+      ) : null}
+      {!overview.compliance.tableReady ? (
+        <p className="form-alert">
+          SMS compliance storage is not in the database yet. Apply the latest
+          migration before sending production SMS.
         </p>
       ) : null}
       {overview.configured && !overview.inboundSmsWebhookUrl ? (
@@ -1714,6 +1748,16 @@ function scopeLabel(value: string) {
     .replace("https://graph.microsoft.com/", "");
 }
 
+function appBaseUrl() {
+  return process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ?? "";
+}
+
+function emailPushEndpoint(path: string) {
+  const baseUrl = appBaseUrl();
+
+  return baseUrl ? `${baseUrl}${path}` : path;
+}
+
 function EmailSyncHealthPanel({
   connections,
   settings,
@@ -1727,6 +1771,11 @@ function EmailSyncHealthPanel({
   const health = syncHealthStatus({ connections, settings });
   const lastSyncAt = latestTimestamp(connected, "lastSyncAt");
   const lastCheckedAt = latestTimestamp(connected, "lastCheckedAt");
+  const pushSecretReady = Boolean(
+    process.env.INBOUND_EMAIL_PUSH_SECRET?.trim() ||
+      process.env.INBOUND_EMAIL_SYNC_SECRET?.trim() ||
+      process.env.CRON_SECRET?.trim(),
+  );
 
   return (
     <section className={`email-sync-health ${health.tone}`}>
@@ -1764,6 +1813,33 @@ function EmailSyncHealthPanel({
           <span>Next scheduled sync</span>
           <strong>{nextSyncLabel({ connections, settings })}</strong>
         </article>
+      </div>
+
+      <div className="usage-ledger compact">
+        <div className="usage-ledger-row">
+          <div className="usage-ledger-main">
+            <strong>Gmail push receiver</strong>
+            <span>
+              {emailPushEndpoint("/api/integrations/email/google/push")}
+            </span>
+          </div>
+          <span className={pushSecretReady ? "pill success" : "pill warning"}>
+            {pushSecretReady ? "Guarded" : "Secret needed"}
+          </span>
+        </div>
+        <div className="usage-ledger-row">
+          <div className="usage-ledger-main">
+            <strong>Outlook push receiver</strong>
+            <span>
+              {emailPushEndpoint(
+                "/api/integrations/email/microsoft/notifications",
+              )}
+            </span>
+          </div>
+          <span className={pushSecretReady ? "pill success" : "pill warning"}>
+            {pushSecretReady ? "Guarded" : "Secret needed"}
+          </span>
+        </div>
       </div>
 
       {connected.length > 0 ? (

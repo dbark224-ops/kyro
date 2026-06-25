@@ -64,6 +64,23 @@ type GeneratedImageBlock = Extract<
   { type: "generated_image" }
 >;
 type GeneratedImage = GeneratedImageBlock["images"][number];
+type AssistantRecentImage = {
+  alt: string;
+  contentType: string;
+  createdAt: string;
+  downloadHref: string;
+  editMode: boolean;
+  fileId: string;
+  filename: string;
+  href: string;
+  meta?: string;
+  model: string;
+  prompt: string;
+  provider: string;
+  quality: string;
+  referenceCount: number;
+  size: string;
+};
 type OutboundCallRequestBlock = Extract<
   AssistantUiBlock,
   { type: "outbound_call_request" }
@@ -119,6 +136,7 @@ export function AssistantConsole({
   initialState,
   isDeveloperAccount = false,
   promptSuggestions,
+  recentImages = [],
 }: {
   externalActivityItems?: AssistantExternalActivityItem[];
   initialPreviewEngineError?: string;
@@ -127,6 +145,7 @@ export function AssistantConsole({
   initialState: AssistantThreadState;
   isDeveloperAccount?: boolean;
   promptSuggestions?: string[];
+  recentImages?: AssistantRecentImage[];
 }) {
   const [state, formAction, pending] = useActionState(
     sendAssistantMessageAction,
@@ -933,6 +952,11 @@ export function AssistantConsole({
 
         {state.error ? <p className="form-alert error">{state.error}</p> : null}
 
+        <AssistantRecentImageStrip
+          images={recentImages}
+          onOpenImage={(image) => setExpandedImage(image)}
+        />
+
         <div className="assistant-suggestions">
           {quickPrompts.map((prompt) => (
             <button
@@ -1392,6 +1416,56 @@ function AssistantImageLightbox({
         ) : null}
       </article>
     </div>
+  );
+}
+
+function AssistantRecentImageStrip({
+  images,
+  onOpenImage,
+}: {
+  images: AssistantRecentImage[];
+  onOpenImage: (image: GeneratedImage) => void;
+}) {
+  if (images.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="assistant-recent-media" aria-label="Recent generated images">
+      <div className="assistant-recent-media-header">
+        <div>
+          <p className="eyebrow">Recent media</p>
+          <strong>Generated images</strong>
+        </div>
+        <Link className="text-button" href="/files?kind=generated">
+          View all
+        </Link>
+      </div>
+      <div className="assistant-recent-media-strip">
+        {images.map((image) => (
+          <article className="assistant-recent-media-card" key={image.fileId}>
+            <button
+              aria-label={`Open ${image.filename}`}
+              className="assistant-recent-media-thumb"
+              onClick={() => onOpenImage(image)}
+              type="button"
+            >
+              <Image
+                alt={image.alt}
+                fill
+                sizes="96px"
+                src={image.href}
+                unoptimized
+              />
+            </button>
+            <div>
+              <strong>{image.filename}</strong>
+              <span>{formatDate(image.createdAt)}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

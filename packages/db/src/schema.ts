@@ -419,6 +419,45 @@ export const workspacePhoneNumbers = pgTable(
   }),
 );
 
+export const smsRecipientPreferences = pgTable(
+  "sms_recipient_preferences",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    phoneNumber: text("phone_number").notNull(),
+    normalizedPhone: text("normalized_phone").notNull(),
+    channelNumberId: uuid("channel_number_id").references(
+      () => workspacePhoneNumbers.id,
+    ),
+    consentStatus: text("consent_status").notNull().default("unknown"),
+    source: text("source").notNull().default("system"),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+    lastOutboundAt: timestamp("last_outbound_at", { withTimezone: true }),
+    optedOutAt: timestamp("opted_out_at", { withTimezone: true }),
+    optedInAt: timestamp("opted_in_at", { withTimezone: true }),
+    optOutKeyword: text("opt_out_keyword"),
+    consentNote: text("consent_note"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    smsRecipientPreferencesWorkspacePhoneIdx: uniqueIndex(
+      "sms_recipient_preferences_workspace_phone_idx",
+    ).on(table.workspaceId, table.normalizedPhone),
+    smsRecipientPreferencesWorkspaceStatusIdx: index(
+      "sms_recipient_preferences_workspace_status_idx",
+    ).on(table.workspaceId, table.consentStatus, table.updatedAt),
+    smsRecipientPreferencesContactIdx: index(
+      "sms_recipient_preferences_contact_idx",
+    )
+      .on(table.workspaceId, table.contactId)
+      .where(sql`${table.contactId} is not null`),
+  }),
+);
+
 export const conversations = pgTable("conversations", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id")
@@ -672,6 +711,15 @@ export const conversationAppointments = pgTable(
     startsAt: timestamp("starts_at", { withTimezone: true }),
     endsAt: timestamp("ends_at", { withTimezone: true }),
     location: text("location"),
+    externalCalendarProvider: text("external_calendar_provider"),
+    externalCalendarId: text("external_calendar_id"),
+    externalEventId: text("external_event_id"),
+    externalEventEtag: text("external_event_etag"),
+    externalSyncStatus: text("external_sync_status")
+      .notNull()
+      .default("not_synced"),
+    externalSyncedAt: timestamp("external_synced_at", { withTimezone: true }),
+    externalSyncError: text("external_sync_error"),
     metadata: jsonb("metadata").notNull().default({}),
     ...timestamps,
   },
@@ -685,6 +733,20 @@ export const conversationAppointments = pgTable(
     conversationAppointmentsTaskIdx: index(
       "conversation_appointments_task_idx",
     ).on(table.workspaceId, table.taskId),
+    conversationAppointmentsExternalSyncIdx: index(
+      "conversation_appointments_external_sync_idx",
+    ).on(table.workspaceId, table.externalSyncStatus, table.startsAt),
+    conversationAppointmentsExternalEventIdx: uniqueIndex(
+      "conversation_appointments_external_event_idx",
+    )
+      .on(
+        table.workspaceId,
+        table.externalCalendarProvider,
+        table.externalEventId,
+      )
+      .where(
+        sql`${table.externalCalendarProvider} is not null and ${table.externalEventId} is not null`,
+      ),
   }),
 );
 

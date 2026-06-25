@@ -3740,6 +3740,72 @@ h2 {
   color: var(--foreground);
 }
 
+.assistant-recent-media {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
+  padding: 12px;
+}
+
+.assistant-recent-media-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assistant-recent-media-header strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.9rem;
+}
+
+.assistant-recent-media-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.assistant-recent-media-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.assistant-recent-media-thumb {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  cursor: pointer;
+}
+
+.assistant-recent-media-thumb img {
+  object-fit: cover;
+}
+
+.assistant-recent-media-card strong,
+.assistant-recent-media-card span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-recent-media-card strong {
+  font-size: 0.78rem;
+}
+
+.assistant-recent-media-card span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .assistant-image-lightbox {
   position: fixed;
   inset: 0;
@@ -8202,6 +8268,28 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.mini-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mini-status-grid span {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 48%, var(--surface));
+  color: var(--muted);
+  font-size: 0.72rem;
+  padding: 8px;
+}
+
+.mini-status-grid strong {
+  color: var(--text);
+  font-size: 1rem;
 }
 
 .email-sync-status-grid article {

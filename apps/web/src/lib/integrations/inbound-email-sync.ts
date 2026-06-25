@@ -37,7 +37,11 @@ import {
   encryptIntegrationTokenSet,
 } from "./token-vault";
 
-export type InboundEmailSyncTrigger = "assistant" | "manual" | "scheduled";
+export type InboundEmailSyncTrigger =
+  | "assistant"
+  | "manual"
+  | "provider_push"
+  | "scheduled";
 export type InboundEmailProvider = "google" | "microsoft";
 
 type ProviderConnectionRow = {
