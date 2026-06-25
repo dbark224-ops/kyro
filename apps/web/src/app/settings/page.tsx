@@ -33,14 +33,12 @@ import {
   PHONE_AGENT_ESCALATION_MODES,
   PHONE_AGENT_HUMOUR_LEVELS,
   PHONE_AGENT_VERBOSITIES,
-  elevenLabsVoicePresetById,
-  getVoiceSettings,
+  type VoiceSettings,
 } from "../../lib/assistant/voice-settings";
 import {
   PRONUNCIATION_CATEGORIES,
   defaultPronunciationHint,
   formatPronunciationAliases,
-  getPronunciationEntries,
   type AssistantPronunciationEntry,
 } from "../../lib/assistant/pronunciation";
 import {
@@ -48,7 +46,6 @@ import {
   MIN_FOLLOW_UP_DELAY_DAYS,
   OUTBOUND_CHANNELS,
   REPLY_MESSAGE_LENGTH_OPTIONS,
-  getCommunicationSettings,
   type CommunicationSettings,
   type EmailSignatureSettings,
 } from "../../lib/communication/settings";
@@ -61,23 +58,20 @@ import {
   type DisplayCurrencySettings,
 } from "../../lib/billing/display-currency";
 import {
-  getUsageReport,
-  normalizeUsageWindow,
   usageWindows,
   type UsageBreakdownRow,
+  type UsageReport,
 } from "../../lib/usage/queries";
-import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
   GOOGLE_PROVIDER,
   GOOGLE_GMAIL_READ_SCOPE,
-  getGoogleIntegrationOverview,
+  type GoogleIntegrationOverview,
 } from "../../lib/integrations/google";
 import {
   INBOUND_EMAIL_POLL_INTERVALS,
   INBOUND_EMAIL_SYNC_MODES,
-  getInboundEmailOperationalSummary,
-  getInboundEmailSettings,
   type InboundEmailDecisionItem,
+  type InboundEmailSettings,
   type InboundEmailOperationalSummary,
   type InboundEmailSenderRule,
   type InboundEmailSyncHistoryItem,
@@ -85,34 +79,25 @@ import {
 import {
   MICROSOFT_MAIL_READ_SCOPE,
   MICROSOFT_PROVIDER,
-  getMicrosoftIntegrationOverview,
+  type MicrosoftIntegrationOverview,
 } from "../../lib/integrations/microsoft";
 import {
-  getTwilioTelephonyOverview,
   type TwilioTelephonyOverview,
 } from "../../lib/integrations/twilio";
 import {
-  getWorkspaceStripePaymentOverview,
   type WorkspaceStripePaymentOverview,
 } from "../../lib/payments/accounts";
 import {
-  getKyroUserBillingOverview,
   type KyroUserBillingOverview,
 } from "../../lib/billing/kyro-user-billing";
 import {
-  getKyroBillingEngineOverview,
   type KyroBillingEngineOverview,
 } from "../../lib/billing/kyro-billing-engine";
-import {
-  getDocumentTemplateSettings,
-} from "../../lib/documents/settings";
 import {
   quoteTemplateCatalog,
   type QuoteTemplate,
 } from "../../lib/documents/templates";
-import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
-  getWorkspaceGeneralSettings,
   type WorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
 import {
@@ -121,19 +106,25 @@ import {
   operatingCountryPhoneRegion,
 } from "../../lib/workspace/operating-countries";
 import {
-  getAvailableWorkspacePhoneNumbersFromPool,
-  getWorkspaceAssignedPhoneNumbers,
   type WorkspacePhoneNumberPoolRow,
 } from "../../lib/voice/phone-number-pool";
-import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import { PHONE_REGION_OPTIONS } from "../../lib/crm/identity";
 import Link from "next/link";
 import {
   SettingsShell,
-  type SettingsMenuItem,
-  type SettingsNestedItem,
-  type SettingsSection,
 } from "./settings-shell";
+import {
+  usageWindowHref,
+  type IntegrationSettingsPanel,
+} from "./settings-navigation";
+import {
+  buildSettingsMenuItems,
+  buildSettingsNestedItems,
+} from "./settings-menu";
+import {
+  loadSettingsPageData,
+  type SettingsPageQuery,
+} from "./settings-page-loader";
 import { InfoBubble } from "./info-bubble";
 import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
 import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
@@ -144,114 +135,14 @@ import { DefaultInvoiceTemplateForm } from "../payments/default-invoice-template
 export const dynamic = "force-dynamic";
 
 type SettingsPageProps = {
-  searchParams?: Promise<{
-    engine_error?: string;
-    engine_message?: string;
-    focus?: string;
-    inboundTrace?: string;
-    panel?: string;
-    section?: string;
-    senderRules?: string;
-    window?: string;
-  }>;
+  searchParams?: Promise<SettingsPageQuery>;
 };
-
-function normalizeSettingsSection(value: string | undefined) {
-  if (
-    value === "communication" ||
-    value === "google" ||
-    value === "microsoft" ||
-    value === "integrations"
-  ) {
-    return "integrations" satisfies SettingsSection;
-  }
-
-  if (value === "general" || value === "usage" || value === "voice") {
-    return value satisfies SettingsSection;
-  }
-
-  if (value === "developer") {
-    return value satisfies SettingsSection;
-  }
-
-  return null;
-}
-
-function settingsSectionHref(section: SettingsSection, activeWindow = "30d") {
-  const params = new URLSearchParams({ section });
-
-  if (section === "usage" && activeWindow !== "30d") {
-    params.set("window", activeWindow);
-  }
-
-  return `/settings?${params.toString()}`;
-}
-
-function settingsPanelHref(
-  section: SettingsSection,
-  panel: string,
-  activeWindow = "30d",
-  extra?: Record<string, string>,
-) {
-  const params = new URLSearchParams({ section, panel });
-
-  if (section === "usage" && activeWindow !== "30d") {
-    params.set("window", activeWindow);
-  }
-
-  Object.entries(extra ?? {}).forEach(([key, value]) => {
-    params.set(key, value);
-  });
-
-  return `/settings?${params.toString()}`;
-}
 
 function isVoicemailOverflowPhoneNumber(number: WorkspacePhoneNumberPoolRow) {
   const purpose =
     number.metadata.voicePurpose ?? number.metadata.purpose ?? null;
 
   return purpose === "voicemail_overflow";
-}
-
-function defaultSettingsPanel(section: SettingsSection | null) {
-  switch (section) {
-    case "general":
-      return "business";
-    case "integrations":
-      return "inbound-email";
-    case "usage":
-      return "usage-summary";
-    case "voice":
-      return "voice-assistant";
-    case "developer":
-      return "developer-tools";
-    default:
-      return null;
-  }
-}
-
-function normalizeIntegrationPanel(value: string | null): IntegrationSettingsPanel {
-  if (
-    value === "outbound" ||
-    value === "phone-sms" ||
-    value === "stripe" ||
-    value === "google" ||
-    value === "microsoft"
-  ) {
-    return value;
-  }
-
-  return "inbound-email";
-}
-
-function usageWindowHref(window: string) {
-  const params = new URLSearchParams({ section: "usage" });
-
-  if (window !== "30d") {
-    params.set("window", window);
-  }
-
-  return `/settings?${params.toString()}`;
 }
 
 function formatLabel(value: string) {
@@ -468,15 +359,6 @@ function EmailSignatureEditor({
   );
 }
 
-type GoogleIntegrationOverview = Awaited<
-  ReturnType<typeof getGoogleIntegrationOverview>
->;
-type MicrosoftIntegrationOverview = Awaited<
-  ReturnType<typeof getMicrosoftIntegrationOverview>
->;
-type TwilioIntegrationOverview = TwilioTelephonyOverview;
-type StripePaymentOverview = WorkspaceStripePaymentOverview;
-type InboundEmailSettings = Awaited<ReturnType<typeof getInboundEmailSettings>>;
 type IntegrationOverview = {
   configured: boolean;
   connections: Array<{ lastError: string | null; status: string }>;
@@ -536,7 +418,7 @@ function OutboundWritingStyleEditor({
   communicationSettings,
   defaultOpen = false,
 }: Readonly<{
-  communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+  communicationSettings: CommunicationSettings;
   defaultOpen?: boolean;
 }>) {
   const writing = communicationSettings.replyWriting;
@@ -972,7 +854,7 @@ function MicrosoftIntegrationSettings({
   );
 }
 
-function twilioStatusLabel(overview: TwilioIntegrationOverview) {
+function twilioStatusLabel(overview: TwilioTelephonyOverview) {
   if (!overview.migrationReady) {
     return "Migration needed";
   }
@@ -999,7 +881,7 @@ function TwilioTelephonySettings({
 }: Readonly<{
   availableNumbers: WorkspacePhoneNumberPoolRow[];
   generalSettings: WorkspaceGeneralSettings;
-  overview: TwilioIntegrationOverview;
+  overview: TwilioTelephonyOverview;
 }>) {
   const smsNumber = overview.numbers.find((number) => number.capabilities.sms);
   const activeVoiceSmsNumber = overview.numbers.find(
@@ -1277,7 +1159,7 @@ function TwilioTelephonySettings({
   );
 }
 
-function stripePaymentsStatusLabel(overview: StripePaymentOverview) {
+function stripePaymentsStatusLabel(overview: WorkspaceStripePaymentOverview) {
   if (!overview.migrationReady) {
     return "Migration needed";
   }
@@ -1304,7 +1186,7 @@ function StripePaymentsSettings({
 }: Readonly<{
   defaultInvoiceTemplateKey: string | null;
   documentTemplates: QuoteTemplate[];
-  overview: StripePaymentOverview;
+  overview: WorkspaceStripePaymentOverview;
 }>) {
   const account = overview.account;
   const ready = account?.status === "active";
@@ -3277,14 +3159,6 @@ function ProviderDetails({
   );
 }
 
-type IntegrationSettingsPanel =
-  | "inbound-email"
-  | "outbound"
-  | "phone-sms"
-  | "stripe"
-  | "google"
-  | "microsoft";
-
 function WorkspaceIntegrationsSettings({
   activePanel,
   availablePhoneNumbers,
@@ -3306,7 +3180,7 @@ function WorkspaceIntegrationsSettings({
 }: Readonly<{
   activePanel: IntegrationSettingsPanel;
   availablePhoneNumbers: WorkspacePhoneNumberPoolRow[];
-  communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>> | null;
+  communicationSettings: CommunicationSettings | null;
   defaultInvoiceTemplateKey: string | null;
   documentTemplates: QuoteTemplate[];
   generalSettings: WorkspaceGeneralSettings | null;
@@ -3319,8 +3193,8 @@ function WorkspaceIntegrationsSettings({
   settingsFocus?: string | null;
   showInboundTrace: boolean;
   showSenderRules: boolean;
-  stripeOverview: StripePaymentOverview | null;
-  twilioOverview: TwilioIntegrationOverview | null;
+  stripeOverview: WorkspaceStripePaymentOverview | null;
+  twilioOverview: TwilioTelephonyOverview | null;
 }>) {
   const googleConnections = googleOverview?.connections ?? [];
   const microsoftConnections = microsoftOverview?.connections ?? [];
@@ -3527,7 +3401,7 @@ function CommunicationSettingsDetail({
   communicationSettings,
   settingsFocus,
 }: Readonly<{
-  communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+  communicationSettings: CommunicationSettings;
   settingsFocus?: string | null;
 }>) {
   return (
@@ -3710,7 +3584,7 @@ function VoiceSettingsDetail({
   activePanel?: string | null;
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   pronunciationEntries: AssistantPronunciationEntry[];
-  voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
+  voiceSettings: VoiceSettings;
 }>) {
   const teamPhoneRows =
     voiceSettings.phoneAgentUserNumberDetails.length > 0
@@ -3957,7 +3831,7 @@ function VoicemailOverflowSettings({
   voiceSettings,
 }: Readonly<{
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
-  voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
+  voiceSettings: VoiceSettings;
 }>) {
   const voiceNumbers = assignedPhoneNumbers.filter(
     (number) => number.status === "active" && number.capabilities.voice,
@@ -4112,7 +3986,7 @@ function DeveloperSettingsDetail({
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   billingEngineOverview: KyroBillingEngineOverview;
   dashboardTutorialForceShow: boolean;
-  voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
+  voiceSettings: VoiceSettings;
 }>) {
   const voiceNumbers = assignedPhoneNumbers.filter(
     (number) => number.status === "active" && number.capabilities.voice,
@@ -4743,8 +4617,6 @@ function PronunciationEntryCard({
   );
 }
 
-type UsageReportData = Awaited<ReturnType<typeof getUsageReport>>;
-
 function modelUsageDescription(row: UsageBreakdownRow) {
   const model = row.model.toLowerCase();
   const service = row.service.toLowerCase();
@@ -4787,7 +4659,7 @@ function UsageSettingsDetail({
 }: Readonly<{
   activeWindow: string;
   displayCurrencySettings: DisplayCurrencySettings;
-  usageReport: UsageReportData;
+  usageReport: UsageReport;
 }>) {
   return (
     <>
@@ -5114,171 +4986,39 @@ function KyroBillingSettingsDetail({
   );
 }
 
-type DashboardTutorialStateRow = {
-  dashboard_tour_force_show: boolean | null;
-};
-
-type DashboardTutorialStateSupabaseClient = {
-  from(table: "workspace_tutorial_state"): {
-    select(columns: string): {
-      eq(column: string, value: string): {
-        maybeSingle(): Promise<{
-          data: DashboardTutorialStateRow | null;
-          error: { message: string } | null;
-        }>;
-      };
-    };
-  };
-};
-
-async function getDashboardTutorialState(
-  supabase: unknown,
-  workspaceId: string,
-) {
-  const tutorialSupabase = supabase as DashboardTutorialStateSupabaseClient;
-  const { data, error } = await tutorialSupabase
-    .from("workspace_tutorial_state")
-    .select("dashboard_tour_force_show")
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
-
-  if (error) {
-    return { forceShow: false };
-  }
-
-  return { forceShow: Boolean(data?.dashboard_tour_force_show) };
-}
-
 export default async function SettingsPage({
   searchParams,
 }: SettingsPageProps) {
-  const [query, { supabase, user, workspace }] = await Promise.all([
-    searchParams,
-    requireWorkspaceContext(),
-  ]);
-  const activeWindow = normalizeUsageWindow(query?.window);
-  const isDeveloperAccount = developerAccessEnabled(user);
-  const normalizedSection = normalizeSettingsSection(query?.section);
-  const selectedSection =
-    normalizedSection === "developer" && !isDeveloperAccount
-      ? null
-      : normalizedSection;
-  const requestedPanel = query?.panel ?? defaultSettingsPanel(selectedSection) ?? "";
-  const selectedPanel =
-    selectedSection === "usage" && requestedPanel === "ledger"
-      ? "usage-summary"
-      : requestedPanel;
-  const activeIntegrationPanel = normalizeIntegrationPanel(
-    selectedSection === "integrations" ? selectedPanel : null,
-  );
-  const showInboundTrace =
-    selectedSection === "integrations" && query?.inboundTrace === "1";
-  const showSenderRules =
-    selectedSection === "integrations" && query?.senderRules === "1";
-  const settingsFocus = typeof query?.focus === "string" ? query.focus : null;
-  const needsGeneralSettings =
-    selectedSection === "general" ||
-    selectedSection === "usage" ||
-    (selectedSection === "integrations" &&
-      activeIntegrationPanel === "phone-sms");
-  const needsCommunicationSettings =
-    (selectedSection === "general" && selectedPanel === "email-signature") ||
-    (selectedSection === "integrations" &&
-      activeIntegrationPanel === "outbound");
-  const needsEmailProviderOverview =
-    selectedSection === "integrations" &&
-    (activeIntegrationPanel === "inbound-email" ||
-      activeIntegrationPanel === "google" ||
-      activeIntegrationPanel === "microsoft");
-  const needsAssignedPhoneNumbers =
-    (selectedSection === "general" && selectedPanel === "public-details") ||
-    (selectedSection === "voice" && selectedPanel === "voicemail-overflow") ||
-    (selectedSection === "developer" && isDeveloperAccount);
-  const [
-    communicationSettings,
+  const {
+    activeIntegrationPanel,
+    activeWindow,
+    assignedPhoneNumbers,
     availablePhoneNumbers,
+    communicationSettings,
+    dashboardTutorialState,
+    documentTemplateSettings,
     generalSettings,
     googleOverview,
-    microsoftOverview,
     inboundEmailSettings,
     inboundEmailSummary,
-    twilioOverview,
-    stripeOverview,
-    documentTemplateSettings,
-    pronunciationEntries,
-    assignedPhoneNumbers,
-    usageReport,
-    voiceSettings,
-    kyroBillingOverview,
+    isDeveloperAccount,
     kyroBillingEngineOverview,
-    dashboardTutorialState,
-  ] = await Promise.all([
-    needsCommunicationSettings
-      ? getCommunicationSettings(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "integrations" && activeIntegrationPanel === "phone-sms"
-      ? getWorkspaceGeneralSettings(supabase, workspace.id)
-          .then((settings) =>
-            getAvailableWorkspacePhoneNumbersFromPool(
-              createServiceSupabaseClient(),
-              operatingCountryPhoneRegion(
-                settings.businessProfile.operatingCountry,
-              ) ?? settings.defaultPhoneRegion,
-            ),
-          )
-          .catch(() => [])
-      : Promise.resolve([]),
-    needsGeneralSettings
-      ? getWorkspaceGeneralSettings(supabase, workspace.id)
-      : Promise.resolve(null),
-    needsEmailProviderOverview
-      ? getGoogleIntegrationOverview(supabase, workspace.id)
-      : Promise.resolve(null),
-    needsEmailProviderOverview
-      ? getMicrosoftIntegrationOverview(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "integrations" &&
-    activeIntegrationPanel === "inbound-email"
-      ? getInboundEmailSettings(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "integrations" &&
-    activeIntegrationPanel === "inbound-email"
-      ? getInboundEmailOperationalSummary(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "integrations" && activeIntegrationPanel === "phone-sms"
-      ? getTwilioTelephonyOverview(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "integrations" && activeIntegrationPanel === "stripe"
-      ? getWorkspaceStripePaymentOverview(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "integrations" && activeIntegrationPanel === "stripe"
-      ? getDocumentTemplateSettings(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "voice" && selectedPanel === "pronunciation"
-      ? getPronunciationEntries(supabase, workspace.id)
-      : Promise.resolve([]),
-    needsAssignedPhoneNumbers
-      ? getWorkspaceAssignedPhoneNumbers(supabase, workspace.id)
-      : Promise.resolve([]),
-    selectedSection === "usage"
-      ? getUsageReport(supabase, workspace.id, activeWindow)
-      : Promise.resolve(null),
-    selectedSection === "voice" || selectedSection === "developer"
-      ? getVoiceSettings(supabase, workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "usage"
-      ? getKyroUserBillingOverview(createServiceSupabaseClient(), workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "usage" || selectedSection === "developer"
-      ? getKyroBillingEngineOverview(
-          createServiceSupabaseClient(),
-          workspace.id,
-        )
-      : Promise.resolve(null),
-    selectedSection === "developer" && isDeveloperAccount
-      ? getDashboardTutorialState(supabase, workspace.id)
-      : Promise.resolve({ forceShow: false }),
-  ]);
+    kyroBillingOverview,
+    microsoftOverview,
+    pronunciationEntries,
+    query,
+    selectedPanel,
+    selectedSection,
+    settingsFocus,
+    showInboundTrace,
+    showSenderRules,
+    stripeOverview,
+    twilioOverview,
+    usageReport,
+    user,
+    voiceSettings,
+    workspace,
+  } = await loadSettingsPageData(searchParams);
   const documentTemplates = documentTemplateSettings
     ? quoteTemplateCatalog(documentTemplateSettings.customTemplates)
     : [];
@@ -5293,280 +5033,19 @@ export default async function SettingsPage({
   const microsoftStatus = microsoftOverview
     ? integrationStatusLabel(microsoftOverview)
     : "Open";
-  const settingsItems: SettingsMenuItem[] = [
-    {
-      detail: generalSettings
-        ? [
-            generalSettings.businessProfile.industry || "Business details",
-            generalSettings.businessProfile.publicPhoneNumber ||
-              "Public phone unset",
-          ].join(" - ")
-        : "Business, brand, service area, and defaults",
-      eyebrow: "Profile",
-      href: settingsSectionHref("general", activeWindow),
-      section: "general",
-      title: "Business profile",
-    },
-    {
-      detail: "Accounts, outbound rules, and inbound sync",
-      eyebrow: "Integrations",
-      href: settingsSectionHref("integrations", activeWindow),
-      section: "integrations",
-      title: "Connected accounts",
-    },
-    {
-      detail: voiceSettings
-        ? `${elevenLabsVoicePresetById(voiceSettings.elevenLabsVoicePresetId).label} - ${
-            voiceSettings.phoneAgentEnabled ? "Phone on" : "Phone off"
-          }`
-        : "Realtime, playback, and phone voice controls",
-      eyebrow: "Voice",
-      href: settingsSectionHref("voice", activeWindow),
-      section: "voice",
-      title: "Voice assistant",
-    },
-    {
-      detail: usageReport
-        ? `${usageReport.totals.events} ledger events - ${
-            generalSettings
-              ? formatDisplayMoney(
-                  usageReport.totals.customerCharge,
-                  usageReport.totals.currency,
-                  generalSettings,
-                )
-              : formatMoney(
-                  usageReport.totals.customerCharge,
-                  usageReport.totals.currency,
-                )
-          } usage charge`
-        : "Usage charge, tasks, and ledger export",
-      eyebrow: "Usage",
-      href: settingsSectionHref("usage", activeWindow),
-      section: "usage",
-      title: "Usage and billing",
-    },
-    ...(isDeveloperAccount
-      ? [
-          {
-            detail: "Internal tools, diagnostics, and hidden voice controls",
-            eyebrow: "Developer",
-            href: settingsSectionHref("developer", activeWindow),
-            section: "developer" as const,
-            title: "Developer settings",
-          },
-        ]
-      : []),
-  ];
-  const nestedItems: SettingsNestedItem[] =
-    selectedSection === "general"
-      ? [
-          {
-            detail: "Name, industry, country, currency, and defaults",
-            href: settingsPanelHref("general", "business", activeWindow),
-            key: "business",
-            selected: selectedPanel === "business",
-            title: "Core profile",
-          },
-          {
-            detail: "Public email, phone, website, and address",
-            href: settingsPanelHref("general", "public-details", activeWindow),
-            key: "public-details",
-            selected: selectedPanel === "public-details",
-            title: "Public details",
-          },
-          {
-            detail: "Suburbs, postcodes, travel range, and country",
-            href: settingsPanelHref("general", "service-area", activeWindow),
-            key: "service-area",
-            selected: selectedPanel === "service-area",
-            title: "Service area",
-          },
-          {
-            detail: "Working hours and standard availability",
-            href: settingsPanelHref("general", "availability", activeWindow),
-            key: "availability",
-            selected: selectedPanel === "availability",
-            title: "Availability",
-          },
-          {
-            detail: "Logo, colours, and brand style",
-            href: settingsPanelHref("general", "branding-logo", activeWindow),
-            key: "branding-logo",
-            selected: selectedPanel === "branding-logo",
-            title: "Branding and logo",
-          },
-          {
-            detail: "Default business email signature",
-            href: settingsPanelHref("general", "email-signature", activeWindow),
-            key: "email-signature",
-            selected: selectedPanel === "email-signature",
-            title: "Email signature",
-          },
-          {
-            detail: "Owners, admin, tradies, and fallback people",
-            href: settingsPanelHref(
-              "general",
-              "workplace-contacts",
-              activeWindow,
-            ),
-            key: "workplace-contacts",
-            selected: selectedPanel === "workplace-contacts",
-            title: "Workplace contacts",
-          },
-          {
-            detail: "Triggers, channels, retries, and acknowledgement",
-            href: settingsPanelHref(
-              "general",
-              "urgent-escalation",
-              activeWindow,
-            ),
-            key: "urgent-escalation",
-            selected: selectedPanel === "urgent-escalation",
-            title: "Urgent escalation",
-          },
-          {
-            detail: "After-hours rates and urgent job handling",
-            href: settingsPanelHref("general", "emergency-work", activeWindow),
-            key: "emergency-work",
-            selected: selectedPanel === "emergency-work",
-            title: "Emergency work",
-          },
-        ]
-      : selectedSection === "integrations"
-        ? [
-            {
-              detail: "Inbound sync, health, sender rules, and logs",
-              href: settingsPanelHref(
-                "integrations",
-                "inbound-email",
-                activeWindow,
-              ),
-              key: "inbound-email",
-              selected: activeIntegrationPanel === "inbound-email",
-              title: "Inbound email sync",
-            },
-            {
-              detail: "Approval rules, reply style, signatures, follow-ups",
-              href: settingsPanelHref("integrations", "outbound", activeWindow),
-              key: "outbound",
-              selected: activeIntegrationPanel === "outbound",
-              title: "Outbound communication",
-            },
-            {
-              detail: "Workspace phone number, SMS, and call setup",
-              href: settingsPanelHref(
-                "integrations",
-                "phone-sms",
-                activeWindow,
-              ),
-              key: "phone-sms",
-              selected: activeIntegrationPanel === "phone-sms",
-              title: "Phone and SMS",
-            },
-            {
-              detail: "Customer payment links and default invoice template",
-              href: settingsPanelHref("integrations", "stripe", activeWindow),
-              key: "stripe",
-              selected: activeIntegrationPanel === "stripe",
-              title: "Stripe payments",
-            },
-            {
-              detail: "Gmail, Google account, and Drive access",
-              href: settingsPanelHref("integrations", "google", activeWindow),
-              key: "google",
-              selected: activeIntegrationPanel === "google",
-              title: "Google Workspace",
-            },
-            {
-              detail: "Outlook and Microsoft 365 email",
-              href: settingsPanelHref(
-                "integrations",
-                "microsoft",
-                activeWindow,
-              ),
-              key: "microsoft",
-              selected: activeIntegrationPanel === "microsoft",
-              title: "Microsoft Outlook",
-            },
-          ]
-        : selectedSection === "voice"
-          ? [
-              {
-                detail: "Shared assistant voice and phone style",
-                href: settingsPanelHref("voice", "voice-assistant", activeWindow),
-                key: "voice-assistant",
-                selected: selectedPanel === "voice-assistant",
-                title: "Voice assistant",
-              },
-              {
-                detail: "Inbound, outbound, overflow, and team numbers",
-                href: settingsPanelHref("voice", "phone-assistant", activeWindow),
-                key: "phone-assistant",
-                selected: selectedPanel === "phone-assistant",
-                title: "Phone assistant",
-              },
-              {
-                detail: "Overflow routing, caller instructions, and test details",
-                href: settingsPanelHref(
-                  "voice",
-                  "voicemail-overflow",
-                  activeWindow,
-                ),
-                key: "voicemail-overflow",
-                selected: selectedPanel === "voicemail-overflow",
-                title: "Voicemail overflow",
-              },
-              {
-                detail: "Names, places, acronyms, and spoken hints",
-                href: settingsPanelHref("voice", "pronunciation", activeWindow),
-                key: "pronunciation",
-                selected: selectedPanel === "pronunciation",
-                title: "Pronunciation",
-              },
-            ]
-          : selectedSection === "usage"
-            ? [
-                {
-                  detail: "Task breakdown, timeframe, and display currency",
-                  href: settingsPanelHref("usage", "usage-summary", activeWindow),
-                  key: "usage-summary",
-                  selected: selectedPanel === "usage-summary",
-                  title: "Usage summary",
-                },
-                {
-                  detail: "Trial, card setup, and saved payment method",
-                  href: settingsPanelHref("usage", "payment-method", activeWindow),
-                  key: "payment-method",
-                  selected: selectedPanel === "payment-method",
-                  title: "Payment method",
-                },
-              ]
-            : selectedSection === "developer"
-              ? [
-                  {
-                    detail: "Internal tools and operational links",
-                    href: settingsPanelHref(
-                      "developer",
-                      "developer-tools",
-                      activeWindow,
-                    ),
-                    key: "developer-tools",
-                    selected: selectedPanel === "developer-tools",
-                    title: "Developer tools",
-                  },
-                  {
-                    detail: "Legacy voice controls and provider IDs",
-                    href: settingsPanelHref(
-                      "developer",
-                      "provider-ids",
-                      activeWindow,
-                    ),
-                    key: "provider-ids",
-                    selected: selectedPanel === "provider-ids",
-                    title: "Provider internals",
-                  },
-                ]
-              : [];
+  const settingsItems = buildSettingsMenuItems({
+    activeWindow,
+    generalSettings,
+    isDeveloperAccount,
+    usageReport,
+    voiceSettings,
+  });
+  const nestedItems = buildSettingsNestedItems({
+    activeIntegrationPanel,
+    activeWindow,
+    selectedPanel,
+    selectedSection,
+  });
   const selectedNestedTitle =
     nestedItems.find((item) => item.selected)?.title ?? null;
   const selectedDetail =
