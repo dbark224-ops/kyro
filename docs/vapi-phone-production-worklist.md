@@ -61,6 +61,9 @@ To test:
 9. Confirm Assistant activity shows purpose `voicemail_overflow`.
 10. Confirm transcript, summary, recording URL, caller number, and event history
     look right.
+11. Confirm `kyro_record_call_note` creates a phone conversation/message
+    snapshot, internal note, and follow-up task when the voicemail asks for a
+    callback or urgent work.
 
 Done means:
 
@@ -79,10 +82,14 @@ To test:
    address/suburb, urgency, and preferred timing.
 4. Confirm it does not expose private CRM or internal workspace data.
 5. Confirm call details appear in Assistant activity.
+6. Confirm `kyro_record_call_note` creates a normal Inbox/CRM phone
+   conversation, internal note, and inferred task for callbacks, quotes,
+   bookings, complaints, or urgent work.
 
 Done means:
 
 - External callers get useful business intake without internal privileges.
+- Useful call outcomes leave a visible CRM record and next action.
 
 ### 4. Internal User Call Smoke Test
 
@@ -95,7 +102,9 @@ To test:
 3. Confirm Kyro selects `inbound_user`.
 4. Confirm internal tools work for CRM lookup, recent messages, SMS, outbound
    call requests, email checks, and context lookup.
-5. Confirm an unconfigured number cannot access internal behaviour.
+5. Confirm internal `kyro_record_call_note` saves notes/tasks without exposing
+   internal context to external callers.
+6. Confirm an unconfigured number cannot access internal behaviour.
 
 Done means:
 
@@ -116,6 +125,8 @@ To test:
 5. Confirm `business_name`, `call_instructions`, `outbound_call_context`, and
    customer/contact variables are present.
 6. Confirm transcript, summary, recording URL, and usage rows are recorded.
+7. Confirm outbound call outcomes saved through `kyro_record_call_note` create
+   the expected conversation note and follow-up task.
 
 Done means:
 
@@ -148,6 +159,8 @@ Done means:
 
 - Each tool returns a useful Vapi-readable response.
 - Tool calls write expected audit/event records.
+- `kyro_record_call_note` writes a phone message snapshot, internal note,
+  inferred task when appropriate, audit logs, and raw `voice_call_events`.
 - Dangerous tools are only available in trusted internal contexts.
 
 ### 7. Activity and Call Preview Polish
@@ -159,8 +172,10 @@ To finish:
 1. Confirm date and time display properly in Assistant activity.
 2. Confirm call purpose, status, direction, contact, transcript, summary, and
    recording display clearly.
-3. Confirm failed, missed, partial, and completed calls look different.
-4. Confirm call preview works on desktop and mobile-sized layouts.
+3. Confirm post-call notes and inferred tasks are visible in the linked
+   Inbox/CRM conversation.
+4. Confirm failed, missed, partial, and completed calls look different.
+5. Confirm call preview works on desktop and mobile-sized layouts.
 
 Done means:
 
