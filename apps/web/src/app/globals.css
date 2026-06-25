@@ -6387,6 +6387,110 @@ button.voice-card {
   min-height: 0;
 }
 
+.crm-add-lead-trigger {
+  min-height: 32px;
+  padding-inline: 14px;
+}
+
+.crm-lead-modal-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(2 6 14 / 74%);
+  backdrop-filter: blur(18px);
+}
+
+.crm-lead-modal {
+  display: grid;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(860px, calc(100dvh - 32px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
+  border-radius: var(--radius-panel);
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--surface) 95%, var(--cyan) 5%),
+      color-mix(in srgb, var(--surface) 94%, var(--pink) 6%)
+    );
+  box-shadow: 0 26px 80px rgb(0 0 0 / 46%);
+}
+
+.crm-lead-modal-header,
+.crm-lead-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding: 16px 18px;
+}
+
+.crm-lead-modal-header h2,
+.crm-lead-modal-header p {
+  margin: 0;
+}
+
+.crm-lead-modal-footer {
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  justify-content: flex-end;
+  padding: 14px 18px;
+}
+
+.crm-lead-form {
+  display: grid;
+  min-height: 0;
+  overflow: auto;
+}
+
+.crm-lead-form-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.crm-lead-form-section h3 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.crm-lead-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.crm-lead-form-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.crm-lead-form-grid .full-row {
+  grid-column: 1 / -1;
+}
+
+.crm-lead-form-grid input,
+.crm-lead-form-grid select,
+.crm-lead-form-grid textarea {
+  width: 100%;
+}
+
+.crm-lead-form-grid textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
 .crm-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(150px, 0.32fr) auto;
@@ -11840,6 +11944,7 @@ button:disabled {
   .crm-workspace,
   .crm-toolbar,
   .crm-advanced-grid,
+  .crm-lead-form-grid,
   .log-search-form,
   .log-advanced-grid,
   .inbox-workspace.has-preview,
@@ -11922,6 +12027,27 @@ button:disabled {
   }
 
   .crm-toolbar .secondary-button {
+    width: 100%;
+  }
+
+  .crm-lead-modal-backdrop {
+    align-items: stretch;
+    padding: 12px;
+  }
+
+  .crm-lead-modal {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+  }
+
+  .crm-lead-modal-header,
+  .crm-lead-modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .crm-lead-modal-footer .primary-button,
+  .crm-lead-modal-footer .secondary-button {
     width: 100%;
   }
 

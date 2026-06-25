@@ -30,6 +30,7 @@ import {
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import Link from "next/link";
+import { ManualLeadModal } from "./manual-lead-modal";
 
 export const dynamic = "force-dynamic";
 
@@ -1350,6 +1351,7 @@ export default async function ContactsPage({
               <h2>People, companies and leads</h2>
             </div>
             <div className="action-row">
+              <ManualLeadModal />
               <span className="pill">
                 {totalItems === 0
                   ? "0 shown"

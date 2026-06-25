@@ -31,6 +31,17 @@ function nullableText(value: string) {
   return value ? value : null;
 }
 
+function nullableMoney(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.replace(/[$,\s]/g, "");
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) && parsed >= 0 ? String(parsed) : null;
+}
+
 function safeRedirectPath(value: string, fallback: string) {
   return value.startsWith("/") && !value.startsWith("//") ? value : fallback;
 }
@@ -68,6 +79,222 @@ function redirectWithContactError(
   redirectTo?: string,
 ): never {
   redirectWithContactStatus(contactId, "engine_error", message, redirectTo);
+}
+
+function leadRedirect(contactId: string | null, message: string): never {
+  const params = new URLSearchParams({
+    engine_message: message,
+    filter: "leads",
+  });
+
+  if (contactId) {
+    params.set("contactId", contactId);
+  }
+
+  redirect(`/contacts?${params.toString()}`);
+}
+
+function leadError(message: string): never {
+  redirect(
+    `/contacts?filter=leads&engine_error=${encodeURIComponent(message)}`,
+  );
+}
+
+function normalizePriority(value: string) {
+  return ["low", "normal", "high", "urgent"].includes(value)
+    ? value
+    : "normal";
+}
+
+async function findExistingLeadContact({
+  email,
+  normalizedPhone,
+  supabase,
+  workspaceId,
+}: {
+  email: string | null;
+  normalizedPhone: string | null;
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"];
+  workspaceId: string;
+}) {
+  if (email) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .is("merged_into_contact_id", null)
+      .eq("normalized_email", email)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Unable to match contact by email: ${error.message}`);
+    }
+
+    if (data?.id) {
+      return String(data.id);
+    }
+  }
+
+  if (normalizedPhone) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .is("merged_into_contact_id", null)
+      .eq("normalized_phone", normalizedPhone)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Unable to match contact by phone: ${error.message}`);
+    }
+
+    if (data?.id) {
+      return String(data.id);
+    }
+  }
+
+  return null;
+}
+
+export async function createManualLeadAction(formData: FormData) {
+  const title = formString(formData, "title");
+
+  if (!title) {
+    leadError("Add a lead title.");
+  }
+
+  const name = formString(formData, "name");
+  const rawEmail = formString(formData, "email");
+  const email = normalizeContactEmail(rawEmail);
+  const phone = formString(formData, "phone");
+  const company = formString(formData, "company");
+  const address = formString(formData, "address");
+  const description = formString(formData, "description");
+  const serviceType = formString(formData, "serviceType");
+  const nextStep = formString(formData, "nextStep");
+  const priority = normalizePriority(formString(formData, "priority"));
+  const estimatedValue = nullableMoney(formString(formData, "estimatedValue"));
+  const contactNotes = formString(formData, "contactNotes");
+  const hasContactDetails = Boolean(
+    name || email || phone || company || address || contactNotes,
+  );
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const normalizedPhone = normalizeContactPhoneForRegion(
+    phone,
+    generalSettings.defaultPhoneRegion,
+  );
+  let contactId: string | null = null;
+
+  try {
+    contactId = await findExistingLeadContact({
+      email,
+      normalizedPhone,
+      supabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    leadError(error instanceof Error ? error.message : "Unable to match contact.");
+  }
+
+  if (!contactId && hasContactDetails) {
+    const addressFields = parseAddressFormData(formData, "address");
+    const { data: contact, error } = await supabase
+      .from("contacts")
+      .insert({
+        ...addressFields,
+        company: nullableText(company),
+        contact_type: "client",
+        email,
+        lifecycle_reason: "Created manually with a CRM lead.",
+        lifecycle_source: "manual",
+        lifecycle_stage: "lead",
+        name: nullableText(name),
+        normalized_company: normalizeCompanyName(company),
+        normalized_email: email,
+        normalized_phone: normalizedPhone,
+        notes: nullableText(contactNotes),
+        phone: nullableText(phone),
+        source: "manual_crm",
+        workspace_id: workspace.id,
+      })
+      .select("id,name,email,phone,company,address,notes")
+      .single();
+
+    if (error || !contact) {
+      leadError(
+        `Unable to create contact: ${error?.message ?? "unknown error"}`,
+      );
+    }
+
+    contactId = String(contact.id);
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "contact.created_manually",
+      entityType: "contact",
+      entityId: contactId,
+      after: contact,
+      metadata: {
+        source: "crm_manual_lead_form",
+      },
+    });
+  }
+
+  const { data: lead, error: leadInsertError } = await supabase
+    .from("leads")
+    .insert({
+      contact_id: contactId,
+      description: nullableText(description),
+      estimated_value: estimatedValue,
+      next_step: nullableText(nextStep),
+      priority,
+      service_type: nullableText(serviceType),
+      source: "manual_crm",
+      status: "new",
+      title,
+      workspace_id: workspace.id,
+    })
+    .select(
+      "id,title,description,status,priority,source,service_type,next_step,estimated_value,contact_id",
+    )
+    .single();
+
+  if (leadInsertError || !lead) {
+    leadError(
+      `Unable to create lead: ${leadInsertError?.message ?? "unknown error"}`,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "lead.created_manually",
+    entityType: "lead",
+    entityId: String(lead.id),
+    after: lead,
+    metadata: {
+      contactId,
+      source: "crm_manual_lead_form",
+    },
+  });
+
+  revalidatePath("/contacts");
+  if (contactId) {
+    revalidatePath(`/contacts/${contactId}`);
+  }
+
+  leadRedirect(contactId, "Lead created.");
 }
 
 export async function updateContactProfileAction(formData: FormData) {
