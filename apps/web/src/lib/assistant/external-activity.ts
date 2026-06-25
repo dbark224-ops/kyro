@@ -97,6 +97,12 @@ function cleanPreview(value: string | null) {
   return value?.replace(/\s+/g, " ").trim() ?? null;
 }
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function channelKind(value: string) {
   const lower = value.toLowerCase();
 
@@ -263,17 +269,41 @@ function toVoiceCallActivity(
     180,
   );
   const status = textValue(row.status) ?? "recorded";
+  const metadata = objectRecord(row.metadata);
+  const outcome = objectRecord(metadata.callOutcome);
+  const assistantSelection = objectRecord(metadata.assistantSelection);
+  const needsReview = outcome.needsReview === true;
+  const proofStatus = textValue(assistantSelection.proofStatus);
+  const voicemail = textValue(row.purpose) === "voicemail_overflow";
+  const statusPrefix =
+    status === "failed" || status === "missed"
+      ? `${formatLabel(status)} call`
+      : needsReview
+        ? "Partial call"
+        : voicemail
+          ? "Voicemail captured"
+          : null;
+  const assistantMeta =
+    voicemail && proofStatus
+      ? proofStatus === "reported_assistant_matched" ||
+        proofStatus === "expected_assistant_selected"
+        ? "voicemail assistant matched"
+        : "assistant check needed"
+      : null;
+  const preview =
+    summary ??
+    transcriptPreview ??
+    textValue(row.ended_reason) ??
+    (needsReview
+      ? "No transcript or summary was captured. Review the call event details."
+      : `${formatLabel(status)} call recorded.`);
 
   return {
     at,
     href: `/voice/calls/${row.id}`,
     id: `voice:${row.id}`,
-    meta: `Phone - ${customer}`,
-    preview:
-      summary ??
-      transcriptPreview ??
-      textValue(row.ended_reason) ??
-      `${formatLabel(status)} call recorded.`,
+    meta: [`Phone - ${customer}`, assistantMeta].filter(Boolean).join(" - "),
+    preview: statusPrefix ? `${statusPrefix}: ${preview}` : preview,
     subject: summary ? transcriptPreview : null,
     title: voiceCallTitle(row),
     tone:

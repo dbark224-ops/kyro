@@ -16,8 +16,13 @@ while deciding what to build, defer, or keep manual.
   deletes Vapi call data and clears Kyro's recording URL while keeping the call
   row, transcript, summary, and audit metadata.
 - `kyro_record_call_note` now writes a normal phone conversation/message
-  snapshot, an internal CRM note, optional inferred follow-up task, audit logs,
-  and the raw Vapi event.
+  snapshot, an internal CRM note, unknown-caller contact/lead records when
+  needed, optional inferred follow-up task, audit logs, and the raw Vapi event.
+- Vapi assistant-request responses now stamp assistant-selection proof into call
+  metadata, including the intended purpose and selected/reported assistant ids.
+- Developer accounts have a Settings -> Developer voicemail overflow readiness
+  panel for checking the configured forwarding number, linked Vapi number, and
+  voicemail assistant id.
 
 ## Active Work Items
 
@@ -48,6 +53,18 @@ Done means:
 Goal: prove missed personal calls route to the dedicated Kyro voicemail overflow
 assistant.
 
+Built:
+
+- Assistant-selection proof is stored on Vapi call metadata so tests can confirm
+  voicemail overflow used the intended assistant.
+- Unknown voicemail/inbound callers can become CRM contacts and leads through
+  post-call automation.
+- Voicemail overflow notes create review tasks even when the assistant did not
+  explicitly ask for a task.
+- Failed, missed, partial, and completed calls carry call-outcome metadata and
+  are labelled more clearly in Assistant activity.
+- Developer-only readiness checks are available in Settings -> Developer.
+
 To test:
 
 1. Confirm the workspace has a Kyro number marked for voicemail overflow.
@@ -58,12 +75,17 @@ To test:
 6. Disable iPhone Live Voicemail before testing.
 7. Place a test call from another phone and let the personal phone ring out.
 8. Confirm Kyro answers with the voicemail overflow assistant.
-9. Confirm Assistant activity shows purpose `voicemail_overflow`.
-10. Confirm transcript, summary, recording URL, caller number, and event history
+9. Confirm the call row has `purpose = 'voicemail_overflow'` and
+   `metadata.assistantSelection.proofStatus` is matched or otherwise explains
+   the fallback.
+10. Confirm Assistant activity labels the call as voicemail overflow and shows
+    failed/partial/completed state clearly.
+11. Confirm transcript, summary, recording URL, caller number, and event history
     look right.
-11. Confirm `kyro_record_call_note` creates a phone conversation/message
-    snapshot, internal note, and follow-up task when the voicemail asks for a
-    callback or urgent work.
+12. Confirm `kyro_record_call_note` creates or links the caller contact, creates
+    a lead when appropriate, creates a phone conversation/message snapshot,
+    internal note, and follow-up task when the voicemail needs review, callback,
+    or urgent work.
 
 Done means:
 
@@ -167,7 +189,16 @@ Done means:
 
 Goal: make phone activity trustworthy and easy to inspect.
 
-To finish:
+Built:
+
+- Assistant activity distinguishes voicemail captured, failed/missed, partial,
+  and completed voice calls.
+- Voice call activity includes assistant-selection proof hints for voicemail
+  overflow tests.
+- Post-call automation links created contacts/leads to the resulting
+  conversation, note, task, and voice call.
+
+To test:
 
 1. Confirm date and time display properly in Assistant activity.
 2. Confirm call purpose, status, direction, contact, transcript, summary, and

@@ -3997,12 +3997,57 @@ function VoicemailOverflowSettings({
 }
 
 function DeveloperSettingsDetail({
+  assignedPhoneNumbers,
   dashboardTutorialForceShow,
   voiceSettings,
 }: Readonly<{
+  assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   dashboardTutorialForceShow: boolean;
   voiceSettings: Awaited<ReturnType<typeof getVoiceSettings>>;
 }>) {
+  const voiceNumbers = assignedPhoneNumbers.filter(
+    (number) => number.status === "active" && number.capabilities.voice,
+  );
+  const voicemailNumber =
+    voiceNumbers.find(isVoicemailOverflowPhoneNumber) ??
+    assignedPhoneNumbers.find(isVoicemailOverflowPhoneNumber) ??
+    null;
+  const voicemailReadiness = [
+    {
+      ready: voiceSettings.phoneAgentEnabled,
+      title: "Phone infrastructure",
+      value: voiceSettings.phoneAgentEnabled ? "Enabled" : "Disabled",
+    },
+    {
+      ready: voiceSettings.phoneAgentVoicemailOverflowEnabled,
+      title: "Voicemail overflow",
+      value: voiceSettings.phoneAgentVoicemailOverflowEnabled
+        ? "Enabled"
+        : "Disabled",
+    },
+    {
+      ready: Boolean(voicemailNumber?.phoneNumber),
+      title: "Forwarding number",
+      value: voicemailNumber?.phoneNumber ?? "Missing",
+    },
+    {
+      ready: Boolean(voicemailNumber?.vapiPhoneNumberId),
+      title: "Linked Vapi number",
+      value: voicemailNumber?.vapiPhoneNumberId ?? "Missing",
+    },
+    {
+      ready: Boolean(voiceSettings.vapiVoicemailAssistantId),
+      title: "Voicemail assistant",
+      value: voiceSettings.vapiVoicemailAssistantId ?? "Missing",
+    },
+    {
+      ready: Boolean(voiceSettings.vapiInboundAssistantId),
+      title: "Inbound fallback",
+      value: voiceSettings.vapiInboundAssistantId ?? "Missing",
+    },
+  ];
+  const readinessOk = voicemailReadiness.every((check) => check.ready);
+
   return (
     <div className="settings-form">
       <article className="panel embedded-panel">
@@ -4188,6 +4233,52 @@ function DeveloperSettingsDetail({
               Save developer voice settings
             </button>
           </div>
+        </article>
+
+        <article className="panel embedded-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Voicemail overflow</p>
+              <h2>Routing readiness</h2>
+            </div>
+            <span
+              className={
+                readinessOk
+                  ? "settings-status-pill ready"
+                  : "settings-status-pill warning"
+              }
+            >
+              {readinessOk ? "Ready" : "Needs attention"}
+            </span>
+          </div>
+          <p className="empty-copy">
+            Dev-only smoke panel for confirming missed-call forwarding is aimed
+            at a Kyro number that resolves to the voicemail overflow assistant.
+          </p>
+          <div className="developer-readiness-grid">
+            {voicemailReadiness.map((check) => (
+              <div className="developer-readiness-row" key={check.title}>
+                <span
+                  className={
+                    check.ready
+                      ? "settings-status-pill ready"
+                      : "settings-status-pill warning"
+                  }
+                >
+                  {check.ready ? "OK" : "Check"}
+                </span>
+                <div>
+                  <strong>{check.title}</strong>
+                  <small>{check.value}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="empty-copy">
+            Assistant-selection proof is stored on each Vapi call under
+            voice_calls.metadata.assistantSelection after the assistant-request
+            and webhook events return.
+          </p>
         </article>
 
         <article className="panel embedded-panel">
@@ -4826,7 +4917,9 @@ export default async function SettingsPage({
     selectedSection === "voice"
       ? getPronunciationEntries(supabase, workspace.id)
       : Promise.resolve([]),
-    selectedSection === "general" || selectedSection === "voice"
+    selectedSection === "general" ||
+    selectedSection === "voice" ||
+    selectedSection === "developer"
       ? getWorkspaceAssignedPhoneNumbers(supabase, workspace.id)
       : Promise.resolve([]),
     selectedSection === "usage"
@@ -5208,6 +5301,7 @@ export default async function SettingsPage({
         title={selectedNestedTitle ?? "Developer settings"}
       >
         <DeveloperSettingsDetail
+          assignedPhoneNumbers={assignedPhoneNumbers}
           dashboardTutorialForceShow={dashboardTutorialState.forceShow}
           voiceSettings={voiceSettings}
         />

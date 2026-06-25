@@ -668,6 +668,68 @@ function compactText(value: string | null, maxLength = 220) {
   return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}...` : clean;
 }
 
+function statusDetailFromCall(input: {
+  endedReason: string | null;
+  recordingUrl: string | null;
+  status: VoiceCallStatus;
+  summary: string | null;
+  transcript: string | null;
+}) {
+  const hasTranscript = Boolean(input.transcript);
+  const hasSummary = Boolean(input.summary);
+  const failed = input.status === "failed" || input.status === "missed";
+  const partial =
+    failed ||
+    (input.status === "completed" && !hasTranscript && !hasSummary);
+
+  return {
+    endedReason: input.endedReason,
+    hasRecording: Boolean(input.recordingUrl),
+    hasSummary,
+    hasTranscript,
+    needsReview: partial,
+    partial,
+    status: input.status,
+  };
+}
+
+function assistantSelectionFromMetadata(
+  metadata: Record<string, unknown>,
+  reportedAssistantId: string | null,
+) {
+  const rawSelection = objectRecord(metadata.assistantSelection);
+  const selectedAssistantId =
+    textValue(rawSelection.selectedAssistantId) ??
+    textValue(metadata.selectedAssistantId);
+  const purpose =
+    textValue(rawSelection.purpose) ?? textValue(metadata.purpose);
+  const expectedVoicemailAssistantId = textValue(
+    rawSelection.expectedVoicemailAssistantId,
+  );
+  const proofStatus =
+    purpose === "voicemail_overflow" &&
+    expectedVoicemailAssistantId &&
+    reportedAssistantId
+      ? reportedAssistantId === expectedVoicemailAssistantId
+        ? "reported_assistant_matched"
+        : "reported_assistant_mismatch"
+      : textValue(rawSelection.proofStatus) ??
+        (reportedAssistantId && selectedAssistantId
+          ? reportedAssistantId === selectedAssistantId
+            ? "reported_assistant_matched"
+            : "reported_assistant_mismatch"
+          : "awaiting_reported_assistant");
+
+  return {
+    ...rawSelection,
+    expectedVoicemailAssistantId,
+    proofStatus,
+    purpose,
+    reportedAssistantId,
+    selectedAssistantId,
+  };
+}
+
 function voiceCallSubject(call: VoiceCallAutomationTarget) {
   const party =
     call.direction === "outbound"
@@ -716,12 +778,15 @@ function taskPlanFromCallNote(input: {
   const complaintFollowUp =
     booleanValue(args.complaint) ??
     /\b(complaint|unhappy|angry|refund|bad service|escalate)\b/.test(lower);
+  const voicemailReview =
+    input.call?.purpose === "voicemail_overflow" && Boolean(compactText(note));
   const shouldCreateTask =
     createTask ||
     callbackRequested ||
     quoteFollowUp ||
     bookingFollowUp ||
     complaintFollowUp ||
+    voicemailReview ||
     input.priority === "urgent";
 
   if (!shouldCreateTask) {
@@ -731,14 +796,16 @@ function taskPlanFromCallNote(input: {
   const taskType =
     explicitTaskType ??
     (complaintFollowUp
-      ? "call_complaint_follow_up"
-      : callbackRequested
-        ? "call_callback"
-        : quoteFollowUp
-          ? "call_quote_follow_up"
-          : bookingFollowUp
-            ? "call_booking_follow_up"
-            : "call_follow_up");
+        ? "call_complaint_follow_up"
+        : callbackRequested
+          ? "call_callback"
+          : quoteFollowUp
+            ? "call_quote_follow_up"
+            : bookingFollowUp
+              ? "call_booking_follow_up"
+              : voicemailReview
+                ? "voicemail_overflow_review"
+                : "call_follow_up");
   const title =
     explicitTaskTitle ??
     (complaintFollowUp
@@ -751,7 +818,9 @@ function taskPlanFromCallNote(input: {
             ? "Arrange booking or site visit"
             : input.priority === "urgent"
               ? "Review urgent call"
-              : "Follow up from phone call");
+              : voicemailReview
+                ? "Review voicemail overflow call"
+                : "Follow up from phone call");
   const description =
     textValue(args.taskDescription ?? args.description) ??
     compactText(note, 500) ??
@@ -762,6 +831,8 @@ function taskPlanFromCallNote(input: {
       ? addHoursIso(new Date().toISOString(), 1)
       : callbackRequested || complaintFollowUp
         ? addHoursIso(new Date().toISOString(), 4)
+        : voicemailReview
+          ? addHoursIso(new Date().toISOString(), 4)
         : null);
 
   return {
@@ -1378,7 +1449,7 @@ export async function getRecentVoiceCallsForActivity(
   const { data, error } = await supabase
     .from("voice_calls")
     .select(
-      "id,direction,purpose,status,from_number,to_number,customer_number,created_at,started_at,ended_at,summary,transcript,ended_reason,contact_id,provider",
+      "id,direction,purpose,status,from_number,to_number,customer_number,created_at,started_at,ended_at,summary,transcript,ended_reason,contact_id,lead_id,provider,provider_assistant_id,metadata",
     )
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
@@ -1501,6 +1572,12 @@ export async function upsertVoiceCallFromVapiEvent(
   const cost = callCost(payload);
   const duration = durationSeconds(payload);
   const status = statusFromEvent(event);
+  const endedReason = firstText(
+    vapiMessage(payload).endedReason,
+    vapiCall(payload).endedReason,
+    payload.endedReason,
+  );
+  const reportedAssistantId = providerAssistantId(payload);
   const existingByProviderId = providerId
     ? await supabase
         .from("voice_calls")
@@ -1543,7 +1620,7 @@ export async function upsertVoiceCallFromVapiEvent(
     provider: VAPI_PROVIDER,
     carrier_provider: VAPI_CARRIER_PROVIDER,
     provider_call_id: providerId,
-    provider_assistant_id: providerAssistantId(payload),
+    provider_assistant_id: reportedAssistantId,
     provider_phone_number_id:
       providerPhoneNumberId(payload) ?? matchedWorkspaceNumber?.providerPhoneNumberId,
     from_number: from,
@@ -1561,16 +1638,23 @@ export async function upsertVoiceCallFromVapiEvent(
     recording_deleted_at: nextRecordingDeletedAt,
     transcript,
     summary,
-    ended_reason: firstText(
-      vapiMessage(payload).endedReason,
-      vapiCall(payload).endedReason,
-      payload.endedReason,
-    ),
+    ended_reason: endedReason,
     cost_provider_amount: String(cost.providerCost),
     cost_customer_amount: String(cost.customerCharge),
     currency: cost.currency,
     metadata: {
       ...objectRecord(existingByProviderId.data?.metadata),
+      assistantSelection: assistantSelectionFromMetadata(
+        metadata,
+        reportedAssistantId,
+      ),
+      callOutcome: statusDetailFromCall({
+        endedReason,
+        recordingUrl: nextRecordingUrl,
+        status,
+        summary,
+        transcript,
+      }),
       lastEventType: event,
       lastPayloadReceivedAt: new Date().toISOString(),
       recordingRetention: {
@@ -2025,7 +2109,9 @@ async function ensureVoiceCallConversation(input: {
     await input.supabase
       .from("conversations")
       .update({
+        contact_id: call.contactId,
         last_message_at: now,
+        lead_id: call.leadId,
         status: "open",
       })
       .eq("workspace_id", input.workspaceId)
@@ -2108,6 +2194,224 @@ async function ensureVoiceCallConversation(input: {
   };
 }
 
+function callCustomerNumber(call: VoiceCallAutomationTarget | null) {
+  if (!call) {
+    return null;
+  }
+
+  return call.direction === "outbound"
+    ? (call.toNumber ?? call.fromNumber)
+    : (call.fromNumber ?? call.toNumber);
+}
+
+function callerDisplayName(args: Record<string, unknown>) {
+  return firstText(
+    args.contactName,
+    args.callerName,
+    args.customerName,
+    args.name,
+  );
+}
+
+function callServiceType(args: Record<string, unknown>, note: string) {
+  return (
+    firstText(args.serviceType, args.jobType, args.workType, args.issueType) ??
+    (/quote/i.test(note)
+      ? "Quote"
+      : /leak|burst|flood/i.test(note)
+        ? "Urgent plumbing"
+        : null)
+  );
+}
+
+function shouldCreateLeadForCall(input: {
+  args: Record<string, unknown>;
+  call: VoiceCallAutomationTarget | null;
+  note: string;
+  priority: PostCallTaskPlan["priority"];
+}) {
+  const explicit = booleanValue(input.args.createLead);
+
+  if (explicit !== null) {
+    return explicit;
+  }
+
+  if (!input.call || input.call.purpose === "inbound_user") {
+    return false;
+  }
+
+  if (input.call.purpose === "voicemail_overflow") {
+    return true;
+  }
+
+  const lower = input.note.toLowerCase();
+
+  return (
+    input.priority === "urgent" ||
+    /\b(job|quote|estimate|book|booking|appointment|site visit|callback|call back|complaint|repair|install|service)\b/.test(
+      lower,
+    )
+  );
+}
+
+async function ensureVoiceCallCrmArtifacts(input: {
+  args: Record<string, unknown>;
+  call: VoiceCallAutomationTarget | null;
+  note: string;
+  priority: PostCallTaskPlan["priority"];
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const call = input.call;
+
+  if (!call || call.purpose === "inbound_user") {
+    return call;
+  }
+
+  const customerNumber = callCustomerNumber(call);
+  const normalizedCustomerNumber = normalizePhone(customerNumber);
+  let contactId = call.contactId;
+
+  if (!contactId) {
+    const existingContact = await findContactByPhone(
+      input.supabase,
+      input.workspaceId,
+      customerNumber,
+    );
+
+    contactId = existingContact?.id ?? null;
+  }
+
+  if (!contactId && (customerNumber || callerDisplayName(input.args))) {
+    const name =
+      callerDisplayName(input.args) ??
+      (customerNumber ? "Unknown phone caller" : "Unknown caller");
+    const address = firstText(
+      input.args.address,
+      input.args.jobAddress,
+      input.args.serviceAddress,
+    );
+    const email = firstText(input.args.email, input.args.customerEmail);
+    const { data: contact, error } = await input.supabase
+      .from("contacts")
+      .insert({
+        address,
+        contact_type: "lead",
+        email,
+        lifecycle_reason: "Created from Vapi post-call automation.",
+        lifecycle_source: "ai",
+        lifecycle_stage: "lead",
+        name,
+        notes: compactText(input.note, 900),
+        normalized_phone: normalizedCustomerNumber,
+        phone: customerNumber,
+        source: "vapi_phone_call",
+        workspace_id: input.workspaceId,
+      })
+      .select("id")
+      .single();
+
+    if (error || !contact) {
+      throw new Error(
+        `Unable to create caller contact: ${error?.message ?? "unknown error"}`,
+      );
+    }
+
+    contactId = String(contact.id);
+
+    await insertAuditLog(input.supabase, {
+      workspaceId: input.workspaceId,
+      actorType: "ai",
+      actorId: textValue(input.args.userId) ?? undefined,
+      action: "voice_call.contact_created",
+      entityType: "contact",
+      entityId: contactId,
+      after: {
+        customerNumber,
+        name,
+        purpose: call.purpose,
+        source: "vapi_phone_call",
+      },
+    });
+  }
+
+  let leadId = call.leadId;
+
+  if (!leadId && contactId && shouldCreateLeadForCall(input)) {
+    const displayName =
+      callerDisplayName(input.args) ?? customerNumber ?? "unknown caller";
+    const serviceType = callServiceType(input.args, input.note);
+    const title =
+      firstText(input.args.leadTitle) ??
+      (serviceType
+        ? `${serviceType} call from ${displayName}`
+        : call.purpose === "voicemail_overflow"
+          ? `Voicemail enquiry from ${displayName}`
+          : `Phone enquiry from ${displayName}`);
+    const nextStep =
+      input.priority === "urgent"
+        ? "Review urgently and call the customer back"
+        : call.purpose === "voicemail_overflow"
+          ? "Review voicemail overflow call and follow up"
+          : "Review phone call outcome and follow up";
+    const { data: lead, error } = await input.supabase
+      .from("leads")
+      .insert({
+        contact_id: contactId,
+        description: compactText(input.note, 1_000),
+        next_step: nextStep,
+        priority: input.priority,
+        service_type: serviceType,
+        source: "vapi_phone_call",
+        status: "new",
+        title,
+        workspace_id: input.workspaceId,
+      })
+      .select("id,title")
+      .single();
+
+    if (error || !lead) {
+      throw new Error(
+        `Unable to create call lead: ${error?.message ?? "unknown error"}`,
+      );
+    }
+
+    leadId = String(lead.id);
+
+    await insertAuditLog(input.supabase, {
+      workspaceId: input.workspaceId,
+      actorType: "ai",
+      actorId: textValue(input.args.userId) ?? undefined,
+      action: "voice_call.lead_created",
+      entityType: "lead",
+      entityId: leadId,
+      after: {
+        contactId,
+        priority: input.priority,
+        purpose: call.purpose,
+        title: lead.title,
+      },
+    });
+  }
+
+  if (call.id && (contactId !== call.contactId || leadId !== call.leadId)) {
+    await input.supabase
+      .from("voice_calls")
+      .update({
+        contact_id: contactId,
+        lead_id: leadId,
+      })
+      .eq("workspace_id", input.workspaceId)
+      .eq("id", call.id);
+  }
+
+  return {
+    ...call,
+    contactId,
+    leadId,
+  } satisfies VoiceCallAutomationTarget;
+}
+
 export async function recordVoiceCallPostCallAutomation(input: {
   args: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -2130,8 +2434,16 @@ export async function recordVoiceCallPostCallAutomation(input: {
       providerCallId: input.providerCallId,
     });
   const priority = normalizedPriority(input.args.priority, note);
-  const target = await ensureVoiceCallConversation({
+  const automationTargetWithCrm = await ensureVoiceCallCrmArtifacts({
+    args: input.args,
     call: automationTarget,
+    note,
+    priority,
+    supabase: input.supabase,
+    workspaceId: input.workspaceId,
+  });
+  const target = await ensureVoiceCallConversation({
+    call: automationTargetWithCrm,
     note,
     priority,
     supabase: input.supabase,
@@ -2188,7 +2500,7 @@ export async function recordVoiceCallPostCallAutomation(input: {
 
   const taskPlan = taskPlanFromCallNote({
     args: input.args,
-    call: voiceCall,
+    call: automationTargetWithCrm,
     note,
     priority,
   });

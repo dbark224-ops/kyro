@@ -378,6 +378,38 @@ function assistantIdForPurpose(
   );
 }
 
+function assistantSelectionProof(input: {
+  assistantId: string;
+  matchedNumber: WorkspaceVoiceNumberMatch;
+  purpose: string;
+  settings: Awaited<ReturnType<typeof getVoiceSettings>>;
+  vapiPhoneNumberId: string | null;
+}) {
+  const expectedVoicemailAssistantId = input.settings.vapiVoicemailAssistantId;
+  const exactVoicemailMatch =
+    input.purpose !== "voicemail_overflow" ||
+    (Boolean(expectedVoicemailAssistantId) &&
+      input.assistantId === expectedVoicemailAssistantId);
+
+  return {
+    configuredAssistantIds: {
+      inbound: input.settings.vapiInboundAssistantId,
+      internal: input.settings.vapiInternalAssistantId,
+      outbound: input.settings.vapiOutboundAssistantId,
+      voicemail: input.settings.vapiVoicemailAssistantId,
+    },
+    expectedVoicemailAssistantId,
+    matchedNumberId: input.matchedNumber.id,
+    matchedProviderPhoneNumberId: input.matchedNumber.providerPhoneNumberId,
+    matchedVapiPhoneNumberId: input.vapiPhoneNumberId,
+    proofStatus: exactVoicemailMatch ? "expected_assistant_selected" : "fallback_selected",
+    purpose: input.purpose,
+    selectedAssistantId: input.assistantId,
+    selectedAt: new Date().toISOString(),
+    source: "kyro.vapi_assistant_request",
+  };
+}
+
 function clipped(value: string, maxLength = 800) {
   const clean = value.replace(/\s+/g, " ").trim();
 
@@ -531,6 +563,13 @@ export async function buildVapiAssistantRequestResponse(
   const pronunciationGuide = pronunciationGuideText(pronunciationEntries) || null;
   const businessName =
     textValue(generalSettings.businessProfile.businessName) ?? workspace.name;
+  const assistantSelection = assistantSelectionProof({
+    assistantId,
+    matchedNumber,
+    purpose,
+    settings,
+    vapiPhoneNumberId,
+  });
   const kyroContext =
     purpose === "inbound_user"
       ? internalCallerContextMessage({
@@ -557,6 +596,9 @@ export async function buildVapiAssistantRequestResponse(
     phoneNumberRowId: matchedNumber.id,
     providerPhoneNumberId: matchedNumber.providerPhoneNumberId,
     purpose,
+    selectedAssistantId: assistantId,
+    selectedAssistantPurpose: purpose,
+    assistantSelection,
     source: "kyro.vapi_inbound_assistant_request",
     threadId,
     userId: workspace.ownerUserId,
@@ -585,8 +627,10 @@ export async function buildVapiAssistantRequestResponse(
         caller_number: from ?? "",
         caller_role:
           purpose === "inbound_user" ? "internal_user" : "external_caller",
+        assistant_selection_purpose: purpose,
         kyro_context: clipped(kyroContext, 3_500),
         kyro_number: to ?? "",
+        selected_assistant_id: assistantId,
         kyro_tool_url: toolUrl,
         phone_number_row_id: matchedNumber.id,
         thread_id: threadId ?? "",
