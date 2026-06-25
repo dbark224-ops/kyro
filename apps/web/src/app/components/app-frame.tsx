@@ -589,9 +589,13 @@ export function AppFrame({
           Menu
         </summary>
         <div className="mobile-drawer-panel">
-          <div className="brand-lockup">
+          <SmartPrefetchLink
+            aria-label="Go to Dashboard"
+            className="brand-lockup"
+            href="/dashboard"
+          >
             <BrandMark />
-          </div>
+          </SmartPrefetchLink>
 
           <nav className="mobile-drawer-list" aria-label="Mobile navigation">
             <Suspense fallback={null}>
@@ -607,9 +611,13 @@ export function AppFrame({
         </div>
       </details>
       <aside className="sidebar" aria-label="Primary navigation" data-tour="side-panel">
-        <div className="brand-lockup">
+        <SmartPrefetchLink
+          aria-label="Go to Dashboard"
+          className="brand-lockup"
+          href="/dashboard"
+        >
           <BrandMark />
-        </div>
+        </SmartPrefetchLink>
 
         <nav className="nav-list">
           <Suspense fallback={null}>
