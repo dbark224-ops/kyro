@@ -473,6 +473,10 @@ audited tools rather than free-form provider access.
 
 ## Live Setup Checklist
 
+For the current manual Vapi dashboard contract, including assistant roles,
+runtime variables, custom tool setup, and credentials, use
+`docs/vapi-dashboard-configuration.md` as the source of truth.
+
 1. Create or select a Twilio number with voice and SMS capabilities.
 2. Connect the number to Vapi.
 3. Create Vapi assistants for:

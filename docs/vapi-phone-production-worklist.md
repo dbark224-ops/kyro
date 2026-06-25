@@ -16,35 +16,7 @@ while deciding what to build, defer, or keep manual.
 
 ## Active Work Items
 
-### 1. Manual Vapi Assistant Configuration Checklist
-
-Goal: keep manual Vapi dashboard setup reliable without building full sync
-automation yet.
-
-To finish:
-
-1. Document the live assistant ids for internal, inbound customer, voicemail
-   overflow, and outbound customer calls.
-2. Confirm assistant prompts reference the Kyro variables they need:
-   `business_name`, `workspace_name`, `kyro_context`, `caller_number`,
-   `kyro_number`, `caller_role`, `workspace_id`, `user_id`, and `thread_id`.
-3. Confirm Vapi tool names exactly match Kyro backend handlers:
-   `kyro_lookup_contact`, `kyro_update_contact`, `kyro_record_call_note`,
-   `kyro_context_lookup` or `kyro_assistant_command`, `kyro_web_search`,
-   `kyro_check_recent_email`, `kyro_start_outbound_call`, `kyro_send_sms`, and
-   `kyro_send_drafted_sms`.
-4. Confirm Vapi tool server URLs point to Kyro production and use the Kyro tool
-   Custom Credential.
-5. Confirm inbound/voicemail phone numbers use Vapi's `assistant-request` flow
-   when Kyro needs to choose the assistant and inject workspace variables.
-
-Done means:
-
-- There is a human-readable record of which live Vapi assistants Kyro expects.
-- The live Vapi prompts and tools match Kyro's variable/tool contract.
-- We have not automated this yet by choice.
-
-### 2. Manual Phone Number Provisioning
+### 1. Manual Phone Number Provisioning
 
 Goal: keep the beta pool model working without prematurely automating Twilio
 purchase and Vapi setup.
@@ -66,7 +38,7 @@ Done means:
 - Workspaces can still self-serve from the preloaded pool.
 - No automatic purchase flow is required for the current launch stage.
 
-### 3. Recording Retention
+### 2. Recording Retention
 
 Goal: decide and implement how Kyro stores, displays, expires, and deletes call
 recordings.
@@ -88,7 +60,7 @@ Done means:
 - The app behaviour matches the policy.
 - Users are not surprised that calls are recorded or retained.
 
-### 4. Urgent Escalation
+### 3. Urgent Escalation
 
 Goal: move urgent-call handling from prompt-only guidance into a reliable Kyro
 workflow.
@@ -110,7 +82,7 @@ Done means:
 - The user can see and act on urgent calls quickly.
 - The assistant does not rely only on natural-language prompt instructions.
 
-### 5. Post-Call Automation
+### 4. Post-Call Automation
 
 Goal: turn useful call outcomes into normal Kyro business records.
 
@@ -131,7 +103,7 @@ Done means:
 - Raw provider events remain available for audit, but they are not the only
   durable call outcome.
 
-### 6. Voicemail Overflow Smoke Test
+### 5. Voicemail Overflow Smoke Test
 
 Goal: prove missed personal calls route to the dedicated Kyro voicemail overflow
 assistant.
@@ -155,7 +127,7 @@ Done means:
 - Missed personal calls are handled by the intended voicemail overflow path, not
   a generic inbound assistant.
 
-### 7. Inbound Customer Call Smoke Test
+### 6. Inbound Customer Call Smoke Test
 
 Goal: prove direct calls to the Kyro number behave as external customer calls.
 
@@ -172,7 +144,7 @@ Done means:
 
 - External callers get useful business intake without internal privileges.
 
-### 8. Internal User Call Smoke Test
+### 7. Internal User Call Smoke Test
 
 Goal: prove trusted user/team numbers get internal assistant behaviour.
 
@@ -190,7 +162,7 @@ Done means:
 - Owner/team calls can control Kyro safely.
 - External callers cannot impersonate the owner by saying they are staff.
 
-### 9. Outbound Call Smoke Test
+### 8. Outbound Call Smoke Test
 
 Goal: prove Kyro can start customer-facing outbound calls through the right Vapi
 assistant and number.
@@ -210,7 +182,7 @@ Done means:
 - The user can confidently ask Kyro to place a customer call from an approved
   path.
 
-### 10. Vapi Tool-Call Test Matrix
+### 9. Vapi Tool-Call Test Matrix
 
 Goal: verify each live Vapi tool works against Kyro production.
 
@@ -238,7 +210,7 @@ Done means:
 - Tool calls write expected audit/event records.
 - Dangerous tools are only available in trusted internal contexts.
 
-### 11. Activity and Call Preview Polish
+### 10. Activity and Call Preview Polish
 
 Goal: make phone activity trustworthy and easy to inspect.
 
