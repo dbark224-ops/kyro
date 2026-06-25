@@ -11,60 +11,12 @@ while deciding what to build, defer, or keep manual.
   automating Twilio purchase and Vapi number mapping.
 - Vapi assistant prompts can stay neutral when they use Kyro-provided variables
   such as `business_name`, `workspace_name`, and `kyro_context`.
-- Kyro does need production work for credential readiness, recording retention,
-  urgent escalation, post-call automation, and smoke testing.
+- Kyro still needs production work for recording retention, urgent escalation,
+  post-call automation, and smoke testing.
 
 ## Active Work Items
 
-### 1. Vapi Credential Readiness
-
-Goal: Vapi webhook callbacks and Vapi tool calls authenticate reliably against
-Kyro in production.
-
-Current production readiness on 2026-06-24 after deploy
-`dpl_9s6khrZRJSpBq9zk7KstZua3C7T6`:
-
-- `VAPI_API_KEY`: ready
-- `VAPI_WEBHOOK_SECRET`: ready
-- `VAPI_TOOL_SECRET`: ready
-- `VAPI_WEBHOOK_CREDENTIAL_ID`: ready
-- `VAPI_TOOL_CREDENTIAL_ID`: ready
-
-To finish:
-
-1. In Vapi, create a bearer-token Custom Credential for Kyro webhooks.
-2. Set that credential token to exactly match Kyro's `VAPI_WEBHOOK_SECRET`.
-3. Copy the Vapi credential id into Vercel as `VAPI_WEBHOOK_CREDENTIAL_ID`.
-4. Attach the webhook credential to the Vapi server URL used for the initial
-   `assistant-request` call.
-5. Confirm Kyro's dynamic assistant response includes that credential id for
-   lifecycle callbacks, transcripts, and end-of-call reports.
-6. In Vapi, create a bearer-token Custom Credential for Kyro tools.
-7. Set that credential token to exactly match Kyro's `VAPI_TOOL_SECRET`.
-8. Copy the Vapi credential id into Vercel as `VAPI_TOOL_CREDENTIAL_ID`.
-9. Attach the tool credential to every Vapi tool server URL that calls
-   `https://kyroassistant.com/api/integrations/vapi/tool`.
-   Use the same `Kyro Production Tool` credential for every Kyro tool; do not
-   create a separate credential per tool unless a future security review decides
-   to split them.
-10. Redeploy production after adding the Vercel environment variables.
-11. Confirm both readiness endpoints report credential readiness as `true`:
-    - `https://kyroassistant.com/api/integrations/vapi/webhook`
-    - `https://kyroassistant.com/api/integrations/vapi/tool`
-12. Place a controlled test call and confirm Vercel logs no longer show Vapi
-    webhook or tool-call `401` responses.
-
-Done means:
-
-- `webhookCredentialReady` is `true`.
-- `toolCredentialReady` is `true`.
-- Initial `assistant-request` reaches Kyro with auth.
-- Follow-up lifecycle events reach Kyro with auth.
-- Vapi tool calls reach Kyro with auth.
-- The call creates or updates a `voice_calls` row and inserts
-  `voice_call_events`.
-
-### 2. Manual Vapi Assistant Configuration Checklist
+### 1. Manual Vapi Assistant Configuration Checklist
 
 Goal: keep manual Vapi dashboard setup reliable without building full sync
 automation yet.
@@ -92,7 +44,7 @@ Done means:
 - The live Vapi prompts and tools match Kyro's variable/tool contract.
 - We have not automated this yet by choice.
 
-### 3. Manual Phone Number Provisioning
+### 2. Manual Phone Number Provisioning
 
 Goal: keep the beta pool model working without prematurely automating Twilio
 purchase and Vapi setup.
@@ -114,7 +66,7 @@ Done means:
 - Workspaces can still self-serve from the preloaded pool.
 - No automatic purchase flow is required for the current launch stage.
 
-### 4. Recording Retention
+### 3. Recording Retention
 
 Goal: decide and implement how Kyro stores, displays, expires, and deletes call
 recordings.
@@ -136,7 +88,7 @@ Done means:
 - The app behaviour matches the policy.
 - Users are not surprised that calls are recorded or retained.
 
-### 5. Urgent Escalation
+### 4. Urgent Escalation
 
 Goal: move urgent-call handling from prompt-only guidance into a reliable Kyro
 workflow.
@@ -158,7 +110,7 @@ Done means:
 - The user can see and act on urgent calls quickly.
 - The assistant does not rely only on natural-language prompt instructions.
 
-### 6. Post-Call Automation
+### 5. Post-Call Automation
 
 Goal: turn useful call outcomes into normal Kyro business records.
 
@@ -179,7 +131,7 @@ Done means:
 - Raw provider events remain available for audit, but they are not the only
   durable call outcome.
 
-### 7. Voicemail Overflow Smoke Test
+### 6. Voicemail Overflow Smoke Test
 
 Goal: prove missed personal calls route to the dedicated Kyro voicemail overflow
 assistant.
@@ -203,7 +155,7 @@ Done means:
 - Missed personal calls are handled by the intended voicemail overflow path, not
   a generic inbound assistant.
 
-### 8. Inbound Customer Call Smoke Test
+### 7. Inbound Customer Call Smoke Test
 
 Goal: prove direct calls to the Kyro number behave as external customer calls.
 
@@ -220,7 +172,7 @@ Done means:
 
 - External callers get useful business intake without internal privileges.
 
-### 9. Internal User Call Smoke Test
+### 8. Internal User Call Smoke Test
 
 Goal: prove trusted user/team numbers get internal assistant behaviour.
 
@@ -238,7 +190,7 @@ Done means:
 - Owner/team calls can control Kyro safely.
 - External callers cannot impersonate the owner by saying they are staff.
 
-### 10. Outbound Call Smoke Test
+### 9. Outbound Call Smoke Test
 
 Goal: prove Kyro can start customer-facing outbound calls through the right Vapi
 assistant and number.
@@ -258,7 +210,7 @@ Done means:
 - The user can confidently ask Kyro to place a customer call from an approved
   path.
 
-### 11. Vapi Tool-Call Test Matrix
+### 10. Vapi Tool-Call Test Matrix
 
 Goal: verify each live Vapi tool works against Kyro production.
 
@@ -286,7 +238,7 @@ Done means:
 - Tool calls write expected audit/event records.
 - Dangerous tools are only available in trusted internal contexts.
 
-### 12. Activity and Call Preview Polish
+### 11. Activity and Call Preview Polish
 
 Goal: make phone activity trustworthy and easy to inspect.
 
