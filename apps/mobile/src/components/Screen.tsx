@@ -99,7 +99,7 @@ export function Screen({
                   <Image
                     accessibilityIgnoresInvertColors
                     resizeMode="contain"
-                    source={require("../../assets/kyro-logo-light.png")}
+                    source={require("../../assets/kyro-icon.png")}
                     style={styles.compactBusinessLogo}
                   />
                 </View>
@@ -152,8 +152,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   compactBusinessLogo: {
-    height: 15,
-    width: 42
+    height: 16,
+    width: 16
   },
   compactBusinessMark: {
     alignItems: "center",

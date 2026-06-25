@@ -6,7 +6,7 @@ export function BrandLockup() {
       <Image
         accessibilityIgnoresInvertColors
         resizeMode="contain"
-        source={require("../../assets/kyro-logo-light.png")}
+        source={require("../../assets/kyro-icon.png")}
         style={styles.logo}
       />
     </View>
@@ -18,7 +18,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   logo: {
-    height: 27,
-    width: 108
+    height: 31,
+    width: 31
   }
 });
