@@ -105,7 +105,6 @@ import {
 } from "../../lib/billing/kyro-billing-engine";
 import {
   getDocumentTemplateSettings,
-  type DocumentTemplateSettings,
 } from "../../lib/documents/settings";
 import {
   quoteTemplateCatalog,
@@ -477,7 +476,6 @@ type MicrosoftIntegrationOverview = Awaited<
 >;
 type TwilioIntegrationOverview = TwilioTelephonyOverview;
 type StripePaymentOverview = WorkspaceStripePaymentOverview;
-type DocumentTemplateSettingsOverview = DocumentTemplateSettings;
 type InboundEmailSettings = Awaited<ReturnType<typeof getInboundEmailSettings>>;
 type IntegrationOverview = {
   configured: boolean;
@@ -2413,7 +2411,7 @@ function GeneralSettingsDetail({
   workspaceName,
 }: Readonly<{
   activePanel?: string | null;
-  communicationSettings: CommunicationSettings;
+  communicationSettings: CommunicationSettings | null;
   operationalPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   settings: WorkspaceGeneralSettings;
   userEmail: string;
@@ -2841,29 +2839,30 @@ function GeneralSettingsDetail({
         </div>
       </section>
 
-      <section
-        className="business-profile-section-panel"
-        id="business-profile-signature"
-        style={visibleWhen(activeBusinessPanel === "email-signature")}
-      >
-        <section className="integration-choice-panel">
-          <div>
-            <p className="eyebrow">Email signature</p>
-            <h3>Default customer email signature</h3>
-            <p>
-              The signature Kyro can use when drafting or sending business
-              emails.
-            </p>
-          </div>
-        </section>
+      {activeBusinessPanel === "email-signature" && communicationSettings ? (
+        <section
+          className="business-profile-section-panel"
+          id="business-profile-signature"
+        >
+          <section className="integration-choice-panel">
+            <div>
+              <p className="eyebrow">Email signature</p>
+              <h3>Default customer email signature</h3>
+              <p>
+                The signature Kyro can use when drafting or sending business
+                emails.
+              </p>
+            </div>
+          </section>
 
-        <EmailSignatureEditor
-          description="Used for manual replies and business-facing email defaults. Advanced AI signature controls still live in Connected accounts."
-          namePrefix="manualSignature"
-          signature={communicationSettings.manualSignature}
-          title="Default email signature"
-        />
-      </section>
+          <EmailSignatureEditor
+            description="Used for manual replies and business-facing email defaults. Advanced AI signature controls still live in Connected accounts."
+            namePrefix="manualSignature"
+            signature={communicationSettings.manualSignature}
+            title="Default email signature"
+          />
+        </section>
+      ) : null}
 
       <section
         className="business-profile-section-panel"
@@ -3307,28 +3306,26 @@ function WorkspaceIntegrationsSettings({
 }: Readonly<{
   activePanel: IntegrationSettingsPanel;
   availablePhoneNumbers: WorkspacePhoneNumberPoolRow[];
-  communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>>;
+  communicationSettings: Awaited<ReturnType<typeof getCommunicationSettings>> | null;
   defaultInvoiceTemplateKey: string | null;
   documentTemplates: QuoteTemplate[];
-  generalSettings: WorkspaceGeneralSettings;
-  googleOverview: GoogleIntegrationOverview;
+  generalSettings: WorkspaceGeneralSettings | null;
+  googleOverview: GoogleIntegrationOverview | null;
   googleStatus: string;
-  inboundEmailSettings: InboundEmailSettings;
-  inboundEmailSummary: InboundEmailOperationalSummary;
-  microsoftOverview: MicrosoftIntegrationOverview;
+  inboundEmailSettings: InboundEmailSettings | null;
+  inboundEmailSummary: InboundEmailOperationalSummary | null;
+  microsoftOverview: MicrosoftIntegrationOverview | null;
   microsoftStatus: string;
   settingsFocus?: string | null;
   showInboundTrace: boolean;
   showSenderRules: boolean;
-  stripeOverview: StripePaymentOverview;
-  twilioOverview: TwilioIntegrationOverview;
+  stripeOverview: StripePaymentOverview | null;
+  twilioOverview: TwilioIntegrationOverview | null;
 }>) {
-  const googleConnection = latestConnectedConnection(
-    googleOverview.connections,
-  );
-  const microsoftConnection = latestConnectedConnection(
-    microsoftOverview.connections,
-  );
+  const googleConnections = googleOverview?.connections ?? [];
+  const microsoftConnections = microsoftOverview?.connections ?? [];
+  const googleConnection = latestConnectedConnection(googleConnections);
+  const microsoftConnection = latestConnectedConnection(microsoftConnections);
   const googleConnected = Boolean(googleConnection);
   const microsoftConnected = Boolean(microsoftConnection);
   const anyConnected = googleConnected || microsoftConnected;
@@ -3347,13 +3344,13 @@ function WorkspaceIntegrationsSettings({
         ? connectionName(googleConnection, "Google Workspace")
         : null;
   const emailConnections: EmailProviderConnection[] = [
-    ...googleOverview.connections.map((connection) => ({
+    ...googleConnections.map((connection) => ({
       ...connection,
       provider: "google" as const,
       providerLabel: "Google",
       requiredReadScope: GOOGLE_GMAIL_READ_SCOPE,
     })),
-    ...microsoftOverview.connections.map((connection) => ({
+    ...microsoftConnections.map((connection) => ({
       ...connection,
       provider: "microsoft" as const,
       providerLabel: "Microsoft",
@@ -3372,15 +3369,21 @@ function WorkspaceIntegrationsSettings({
       connection.status === "connected" &&
       connectionNeedsReconnect(connection),
   );
-  const communicationStatus = communicationSettings.approvalRequired
+  const communicationStatus = communicationSettings?.approvalRequired
     ? "Approval required"
     : "Auto outbound";
-  const twilioStatus = twilioStatusLabel(twilioOverview);
-  const stripeStatus = stripePaymentsStatusLabel(stripeOverview);
+  const twilioStatus = twilioOverview
+    ? twilioStatusLabel(twilioOverview)
+    : "Open";
+  const stripeStatus = stripeOverview
+    ? stripePaymentsStatusLabel(stripeOverview)
+    : "Open";
 
   return (
     <div className="integration-provider-stack">
-      {activePanel === "inbound-email" ? (
+      {activePanel === "inbound-email" &&
+      inboundEmailSettings &&
+      inboundEmailSummary ? (
         <InboundEmailSyncSettings
           connections={emailConnections}
           operationalSummary={inboundEmailSummary}
@@ -3390,7 +3393,7 @@ function WorkspaceIntegrationsSettings({
         />
       ) : null}
 
-      {activePanel === "outbound" ? (
+      {activePanel === "outbound" && communicationSettings ? (
         <ProviderDetails
           description={`${communicationSettings.allowedChannels.length} channels and email signatures`}
           forceOpen
@@ -3406,7 +3409,7 @@ function WorkspaceIntegrationsSettings({
         </ProviderDetails>
       ) : null}
 
-      {activePanel === "phone-sms" ? (
+      {activePanel === "phone-sms" && twilioOverview && generalSettings ? (
         <ProviderDetails
           description={
             twilioOverview.numbers.length > 0
@@ -3429,7 +3432,7 @@ function WorkspaceIntegrationsSettings({
         </ProviderDetails>
       ) : null}
 
-      {activePanel === "stripe" ? (
+      {activePanel === "stripe" && stripeOverview ? (
         <ProviderDetails
           description={
             stripeOverview.account?.status === "active"
@@ -3450,7 +3453,7 @@ function WorkspaceIntegrationsSettings({
         </ProviderDetails>
       ) : null}
 
-      {activePanel === "google" ? (
+      {activePanel === "google" && googleOverview ? (
         <>
           <section className="integration-choice-panel">
             <div>
@@ -3493,7 +3496,7 @@ function WorkspaceIntegrationsSettings({
         </>
       ) : null}
 
-      {activePanel === "microsoft" ? (
+      {activePanel === "microsoft" && microsoftOverview ? (
         <ProviderDetails
           description={
             microsoftConnection
@@ -5173,11 +5176,35 @@ export default async function SettingsPage({
   const showSenderRules =
     selectedSection === "integrations" && query?.senderRules === "1";
   const settingsFocus = typeof query?.focus === "string" ? query.focus : null;
+  const needsGeneralSettings =
+    selectedSection === "general" ||
+    selectedSection === "usage" ||
+    (selectedSection === "integrations" &&
+      activeIntegrationPanel === "phone-sms");
+  const needsCommunicationSettings =
+    (selectedSection === "general" && selectedPanel === "email-signature") ||
+    (selectedSection === "integrations" &&
+      activeIntegrationPanel === "outbound");
+  const needsEmailProviderOverview =
+    selectedSection === "integrations" &&
+    (activeIntegrationPanel === "inbound-email" ||
+      activeIntegrationPanel === "google" ||
+      activeIntegrationPanel === "microsoft");
+  const needsAssignedPhoneNumbers =
+    (selectedSection === "general" && selectedPanel === "public-details") ||
+    (selectedSection === "voice" && selectedPanel === "voicemail-overflow") ||
+    (selectedSection === "developer" && isDeveloperAccount);
   const [
     communicationSettings,
     availablePhoneNumbers,
     generalSettings,
-    integrationOverviews,
+    googleOverview,
+    microsoftOverview,
+    inboundEmailSettings,
+    inboundEmailSummary,
+    twilioOverview,
+    stripeOverview,
+    documentTemplateSettings,
     pronunciationEntries,
     assignedPhoneNumbers,
     usageReport,
@@ -5186,10 +5213,10 @@ export default async function SettingsPage({
     kyroBillingEngineOverview,
     dashboardTutorialState,
   ] = await Promise.all([
-    selectedSection === "general" || selectedSection === "integrations"
+    needsCommunicationSettings
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
-    selectedSection === "integrations"
+    selectedSection === "integrations" && activeIntegrationPanel === "phone-sms"
       ? getWorkspaceGeneralSettings(supabase, workspace.id)
           .then((settings) =>
             getAvailableWorkspacePhoneNumbersFromPool(
@@ -5201,28 +5228,36 @@ export default async function SettingsPage({
           )
           .catch(() => [])
       : Promise.resolve([]),
-    selectedSection === "general" ||
-    selectedSection === "integrations" ||
-    selectedSection === "usage"
+    needsGeneralSettings
       ? getWorkspaceGeneralSettings(supabase, workspace.id)
       : Promise.resolve(null),
-    selectedSection === "integrations"
-      ? Promise.all([
-          getGoogleIntegrationOverview(supabase, workspace.id),
-          getMicrosoftIntegrationOverview(supabase, workspace.id),
-          getInboundEmailSettings(supabase, workspace.id),
-          getInboundEmailOperationalSummary(supabase, workspace.id),
-          getTwilioTelephonyOverview(supabase, workspace.id),
-          getWorkspaceStripePaymentOverview(supabase, workspace.id),
-          getDocumentTemplateSettings(supabase, workspace.id),
-        ])
+    needsEmailProviderOverview
+      ? getGoogleIntegrationOverview(supabase, workspace.id)
       : Promise.resolve(null),
-    selectedSection === "voice"
+    needsEmailProviderOverview
+      ? getMicrosoftIntegrationOverview(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "integrations" &&
+    activeIntegrationPanel === "inbound-email"
+      ? getInboundEmailSettings(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "integrations" &&
+    activeIntegrationPanel === "inbound-email"
+      ? getInboundEmailOperationalSummary(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "integrations" && activeIntegrationPanel === "phone-sms"
+      ? getTwilioTelephonyOverview(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "integrations" && activeIntegrationPanel === "stripe"
+      ? getWorkspaceStripePaymentOverview(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "integrations" && activeIntegrationPanel === "stripe"
+      ? getDocumentTemplateSettings(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "voice" && selectedPanel === "pronunciation"
       ? getPronunciationEntries(supabase, workspace.id)
       : Promise.resolve([]),
-    selectedSection === "general" ||
-    selectedSection === "voice" ||
-    selectedSection === "developer"
+    needsAssignedPhoneNumbers
       ? getWorkspaceAssignedPhoneNumbers(supabase, workspace.id)
       : Promise.resolve([]),
     selectedSection === "usage"
@@ -5244,15 +5279,6 @@ export default async function SettingsPage({
       ? getDashboardTutorialState(supabase, workspace.id)
       : Promise.resolve({ forceShow: false }),
   ]);
-  const googleOverview = integrationOverviews?.[0] ?? null;
-  const microsoftOverview = integrationOverviews?.[1] ?? null;
-  const inboundEmailSettings = integrationOverviews?.[2] ?? null;
-  const inboundEmailSummary = integrationOverviews?.[3] ?? null;
-  const twilioOverview = integrationOverviews?.[4] ?? null;
-  const stripeOverview = integrationOverviews?.[5] ?? null;
-  const documentTemplateSettings =
-    (integrationOverviews?.[6] as DocumentTemplateSettingsOverview | undefined) ??
-    null;
   const documentTemplates = documentTemplateSettings
     ? quoteTemplateCatalog(documentTemplateSettings.customTemplates)
     : [];
@@ -5545,8 +5571,7 @@ export default async function SettingsPage({
     nestedItems.find((item) => item.selected)?.title ?? null;
   const selectedDetail =
     selectedSection === "general" &&
-    generalSettings &&
-    communicationSettings ? (
+    generalSettings ? (
       <SettingsDetailShell
         eyebrow="Profile"
         title={selectedNestedTitle ?? "Business profile"}
@@ -5560,16 +5585,7 @@ export default async function SettingsPage({
           workspaceName={workspace.name}
         />
       </SettingsDetailShell>
-    ) : selectedSection === "integrations" &&
-      communicationSettings &&
-      generalSettings &&
-      googleOverview &&
-      microsoftOverview &&
-      inboundEmailSettings &&
-      inboundEmailSummary &&
-      twilioOverview &&
-      stripeOverview &&
-      documentTemplateSettings ? (
+    ) : selectedSection === "integrations" ? (
       <SettingsDetailShell
         eyebrow="Integrations"
         title={selectedNestedTitle ?? "Connected accounts"}

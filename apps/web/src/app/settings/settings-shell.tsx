@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SettingsRoutePrefetcher } from "./settings-route-prefetcher";
 import {
-  useEffect,
   useMemo,
   useState,
   type MouseEvent,
   type ReactNode,
 } from "react";
+
+const intentPrefetchedSettingsRoutes = new Set<string>();
 
 export type SettingsSection =
   | "general"
@@ -48,6 +49,7 @@ export function SettingsShell({
   selectedSection: SettingsSection | null;
 }>) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const hasDetail = Boolean(selectedSection && detail);
@@ -61,10 +63,6 @@ export function SettingsShell({
     return query ? `${pathname}?${query}` : pathname;
   }, [pathname, searchParams]);
   const detailIsLoading = Boolean(pendingHref && pendingHref !== currentHref);
-
-  useEffect(() => {
-    setPendingHref(null);
-  }, [currentHref]);
 
   function markRoutePending(
     event: MouseEvent<HTMLAnchorElement>,
@@ -85,13 +83,26 @@ export function SettingsShell({
     setPendingHref(href);
   }
 
+  function prefetchRouteOnIntent(href: string) {
+    if (href === currentHref || intentPrefetchedSettingsRoutes.has(href)) {
+      return;
+    }
+
+    intentPrefetchedSettingsRoutes.add(href);
+    try {
+      router.prefetch(href);
+    } catch {
+      intentPrefetchedSettingsRoutes.delete(href);
+    }
+  }
+
   return (
     <section
       className={
         hasDetail ? "settings-workspace has-detail" : "settings-workspace"
       }
     >
-      <SettingsRoutePrefetcher hrefs={prefetchHrefs} />
+      <SettingsRoutePrefetcher activeHref={currentHref} hrefs={prefetchHrefs} />
       <section className="panel settings-list-panel settings-primary-panel">
         <div className="panel-heading">
           <div>
@@ -114,6 +125,10 @@ export function SettingsShell({
               href={item.href}
               key={item.section}
               onClick={(event) => markRoutePending(event, item.href)}
+              onFocus={() => prefetchRouteOnIntent(item.href)}
+              onMouseEnter={() => prefetchRouteOnIntent(item.href)}
+              onTouchStart={() => prefetchRouteOnIntent(item.href)}
+              prefetch={false}
             >
               <div className="settings-menu-main">
                 <p className="eyebrow">{item.eyebrow}</p>
@@ -146,6 +161,10 @@ export function SettingsShell({
                 href={item.href}
                 key={item.key}
                 onClick={(event) => markRoutePending(event, item.href)}
+                onFocus={() => prefetchRouteOnIntent(item.href)}
+                onMouseEnter={() => prefetchRouteOnIntent(item.href)}
+                onTouchStart={() => prefetchRouteOnIntent(item.href)}
+                prefetch={false}
               >
                 <div className="settings-menu-main">
                   <strong>{item.title}</strong>
