@@ -310,6 +310,10 @@ such as `site_visit`. Automatic follow-up reminders use
 `customer_follow_up`; outbound replies create or reschedule one open reminder
 for the conversation, and inbound customer messages complete any open reminder
 so stale due states do not remain after the customer has replied.
+Post-call Vapi automation can also create `call_callback`,
+`call_quote_follow_up`, `call_booking_follow_up`,
+`call_complaint_follow_up`, or `call_follow_up` tasks from
+`kyro_record_call_note`.
 
 - `id`
 - `workspace_id`

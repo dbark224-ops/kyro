@@ -143,7 +143,7 @@ Configure these tool names exactly:
 | --- | --- | --- |
 | `kyro_lookup_contact` | Internal, inbound, voicemail, outbound | Looks up CRM contacts by phone number or query. |
 | `kyro_update_contact` | Internal only | Requires `userId`; backend handles ambiguity and audit logging. |
-| `kyro_record_call_note` | Internal, inbound, voicemail, outbound | Currently records a voice-call event; post-call automation will upgrade this into normal CRM records. |
+| `kyro_record_call_note` | Internal, inbound, voicemail, outbound | Creates a phone conversation/message snapshot when needed, an internal CRM note, optional follow-up task, audit logs, and the raw Vapi event. |
 | `kyro_context_lookup` | Internal | Calls the normal Kyro assistant command/context layer. |
 | `kyro_assistant_command` | Internal | Alias for `kyro_context_lookup`. Optional if `kyro_context_lookup` exists. |
 | `kyro_web_search` | Internal | Uses Kyro's approved web-search path for current public info. |
@@ -172,7 +172,20 @@ Optional: `contactId`, `contactQuery`, `query`, `newName`, `name`, `email`,
 
 Required: `workspaceId`, `note`
 
-Optional: `priority`
+Optional: `priority`, `createTask`, `taskTitle`, `taskDescription`,
+`taskType`, `dueAt`, `followUpAt`, `callbackAt`, `bookingAt`,
+`callbackRequested`, `quoteRequested`, `bookingRequested`, `complaint`,
+`contactId`, `conversationId`, `leadId`, `voiceCallId`, `callId`
+
+Backend behaviour:
+
+- creates or reuses a `vapi_voice` phone channel,
+- creates or reopens a phone conversation when the call is not already linked,
+- creates a message snapshot for the voice call,
+- creates an internal `conversation_notes` row,
+- infers a `conversation_tasks` row for callbacks, quote follow-up, booking/site
+  visit follow-up, complaints, and urgent calls,
+- records audit logs and keeps the raw `voice_call_events` payload.
 
 ### `kyro_context_lookup` / `kyro_assistant_command`
 

@@ -489,6 +489,13 @@ assistant ids, the fallback Vapi phone-number id, user/team numbers, the shared
 ElevenLabs/Vapi voice preset, and broad call style preferences that can be passed
 into Vapi assistant prompts.
 
+Post-call phone automation is handled by `kyro_record_call_note`. When a Vapi
+assistant records a useful call outcome, Kyro creates or reuses a `vapi_voice`
+phone channel, creates or reopens a phone conversation when needed, stores a
+message snapshot for the call, writes an internal CRM note, infers callback,
+quote/job, booking/site-visit, complaint, or urgent follow-up tasks from the
+note, writes audit logs, and still preserves the raw Vapi tool event.
+
 In production, Vapi tools and webhooks must include the shared Kyro header
 `x-kyro-vapi-secret`; Kyro reads this from `VAPI_TOOL_SECRET` and
 `VAPI_WEBHOOK_SECRET`. The production Vapi endpoints are

@@ -40,6 +40,7 @@ import {
 import {
   createOutboundVoiceCall,
   lookupVoiceContactsForTool,
+  recordVoiceCallPostCallAutomation,
   recordVoiceToolEvent,
   vapiToolCallMetadata,
   vapiToolCallPayload,
@@ -1639,13 +1640,12 @@ export async function POST(request: Request) {
     }
 
     if (toolCall.name === "kyro_record_call_note") {
-      await recordVoiceToolEvent({
-        eventType: "tool.kyro_record_call_note.completed",
-        payload: {
-          ...payload,
-          kyroNote: textValue(args.note),
-          kyroPriority: textValue(args.priority),
+      const result = await recordVoiceCallPostCallAutomation({
+        args: {
+          ...args,
+          userId,
         },
+        payload,
         providerCallId: toolCall.callId,
         supabase,
         workspaceId,
@@ -1654,6 +1654,7 @@ export async function POST(request: Request) {
       return completedToolResponse({
         ok: true,
         recorded: true,
+        ...result,
       });
     }
 

@@ -18,6 +18,7 @@ import {
   telephonyUsageCost,
   TWILIO_PROVIDER,
 } from "../integrations/twilio";
+import { insertAuditLog } from "../engine/event-action-audit";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import {
   DEFAULT_WORKSPACE_GENERAL_SETTINGS,
@@ -118,6 +119,28 @@ type OutboundVoiceNumberSelection = {
   reason: string;
   region: string | null;
   workspacePhoneNumberId: string | null;
+};
+
+type VoiceCallAutomationTarget = {
+  contactId: string | null;
+  conversationId: string | null;
+  direction: VoiceCallDirection;
+  fromNumber: string | null;
+  id: string | null;
+  leadId: string | null;
+  providerCallId: string | null;
+  purpose: VoiceCallPurpose;
+  summary: string | null;
+  toNumber: string | null;
+  transcript: string | null;
+};
+
+type PostCallTaskPlan = {
+  description: string;
+  dueAt: string | null;
+  priority: "high" | "low" | "normal" | "urgent";
+  taskType: string;
+  title: string;
 };
 
 function textValue(value: unknown) {
@@ -569,6 +592,220 @@ function recordingExpiryFromTiming(input: {
       new Date().toISOString(),
     VOICE_RECORDING_RETENTION_DAYS,
   );
+}
+
+function validTimestamp(value: unknown) {
+  const text = textValue(value);
+
+  if (!text) {
+    return null;
+  }
+
+  const date = new Date(text);
+
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function addHoursIso(startIso: string, hours: number) {
+  const date = new Date(startIso);
+  date.setHours(date.getHours() + hours);
+
+  return date.toISOString();
+}
+
+function normalizedPriority(value: unknown, note: string) {
+  const explicit = textValue(value)?.toLowerCase();
+
+  if (
+    explicit === "low" ||
+    explicit === "normal" ||
+    explicit === "high" ||
+    explicit === "urgent"
+  ) {
+    return explicit satisfies PostCallTaskPlan["priority"];
+  }
+
+  const lower = note.toLowerCase();
+
+  if (/\b(emergency|urgent|asap|danger|unsafe|flood|burst|gas leak)\b/.test(lower)) {
+    return "urgent";
+  }
+
+  if (/\b(complaint|angry|unhappy|refund|escalate|same day)\b/.test(lower)) {
+    return "high";
+  }
+
+  return "normal";
+}
+
+function booleanValue(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+
+    if (["true", "yes", "y", "1"].includes(normalized)) {
+      return true;
+    }
+
+    if (["false", "no", "n", "0"].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return null;
+}
+
+function compactText(value: string | null, maxLength = 220) {
+  const clean = value?.replace(/\s+/g, " ").trim();
+
+  if (!clean) {
+    return null;
+  }
+
+  return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}...` : clean;
+}
+
+function voiceCallSubject(call: VoiceCallAutomationTarget) {
+  const party =
+    call.direction === "outbound"
+      ? (call.toNumber ?? call.fromNumber)
+      : (call.fromNumber ?? call.toNumber);
+
+  if (call.purpose === "voicemail_overflow") {
+    return party ? `Voicemail overflow from ${party}` : "Voicemail overflow";
+  }
+
+  return party ? `Phone call with ${party}` : "Phone call";
+}
+
+function taskPlanFromCallNote(input: {
+  args: Record<string, unknown>;
+  call: VoiceCallAutomationTarget | null;
+  note: string;
+  priority: PostCallTaskPlan["priority"];
+}) {
+  const args = input.args;
+  const note = input.note;
+  const lower = note.toLowerCase();
+  const explicitTaskTitle = textValue(args.taskTitle ?? args.title);
+  const explicitTaskType = textValue(args.taskType);
+  const explicitDueAt = validTimestamp(
+    args.dueAt ?? args.followUpAt ?? args.callbackAt ?? args.bookingAt,
+  );
+  const createTask =
+    booleanValue(args.createTask) ??
+    Boolean(
+      explicitTaskTitle ||
+        textValue(args.taskDescription ?? args.description) ||
+        explicitDueAt,
+    );
+  const callbackRequested =
+    booleanValue(args.callbackRequested) ??
+    /\b(call back|callback|return call|ring back|phone back)\b/.test(lower);
+  const quoteFollowUp =
+    booleanValue(args.quoteRequested) ??
+    /\b(quote|estimate|price|pricing|invoice)\b/.test(lower);
+  const bookingFollowUp =
+    booleanValue(args.bookingRequested) ??
+    /\b(book|booking|schedule|appointment|site visit|come out|come around)\b/.test(
+      lower,
+    );
+  const complaintFollowUp =
+    booleanValue(args.complaint) ??
+    /\b(complaint|unhappy|angry|refund|bad service|escalate)\b/.test(lower);
+  const shouldCreateTask =
+    createTask ||
+    callbackRequested ||
+    quoteFollowUp ||
+    bookingFollowUp ||
+    complaintFollowUp ||
+    input.priority === "urgent";
+
+  if (!shouldCreateTask) {
+    return null;
+  }
+
+  const taskType =
+    explicitTaskType ??
+    (complaintFollowUp
+      ? "call_complaint_follow_up"
+      : callbackRequested
+        ? "call_callback"
+        : quoteFollowUp
+          ? "call_quote_follow_up"
+          : bookingFollowUp
+            ? "call_booking_follow_up"
+            : "call_follow_up");
+  const title =
+    explicitTaskTitle ??
+    (complaintFollowUp
+      ? "Review call complaint"
+      : callbackRequested
+        ? "Call customer back"
+        : quoteFollowUp
+          ? "Prepare quote follow-up"
+          : bookingFollowUp
+            ? "Arrange booking or site visit"
+            : input.priority === "urgent"
+              ? "Review urgent call"
+              : "Follow up from phone call");
+  const description =
+    textValue(args.taskDescription ?? args.description) ??
+    compactText(note, 500) ??
+    "Review the phone call outcome.";
+  const dueAt =
+    explicitDueAt ??
+    (input.priority === "urgent"
+      ? addHoursIso(new Date().toISOString(), 1)
+      : callbackRequested || complaintFollowUp
+        ? addHoursIso(new Date().toISOString(), 4)
+        : null);
+
+  return {
+    description,
+    dueAt,
+    priority: input.priority,
+    taskType,
+    title,
+  } satisfies PostCallTaskPlan;
+}
+
+function fallbackVoiceCallAutomationTarget(input: {
+  args: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  providerCallId?: string | null;
+}) {
+  const metadata = callMetadata(input.payload);
+  const direction = callDirection(input.payload);
+  const { from, to } = phoneNumbers(input.payload, direction);
+  const explicitPurpose = textValue(metadata.purpose ?? input.args.purpose);
+  const purpose =
+    explicitPurpose === "inbound_customer" ||
+    explicitPurpose === "inbound_user" ||
+    explicitPurpose === "outbound_customer" ||
+    explicitPurpose === "test" ||
+    explicitPurpose === "voicemail_overflow"
+      ? explicitPurpose
+      : direction === "outbound"
+        ? "outbound_customer"
+        : "inbound_customer";
+
+  return {
+    contactId: textValue(input.args.contactId ?? metadata.contactId),
+    conversationId: textValue(input.args.conversationId ?? metadata.conversationId),
+    direction,
+    fromNumber: from ?? textValue(metadata.callerNumber),
+    id: null,
+    leadId: textValue(input.args.leadId ?? metadata.leadId),
+    providerCallId: input.providerCallId ?? providerCallId(input.payload),
+    purpose,
+    summary: null,
+    toNumber: to ?? textValue(metadata.kyroNumber),
+    transcript: null,
+  } satisfies VoiceCallAutomationTarget;
 }
 
 async function workspaceName(
@@ -1621,6 +1858,421 @@ export async function recordVoiceToolEvent(input: {
   }
 
   return { voiceCallId };
+}
+
+async function loadVoiceCallAutomationTarget(input: {
+  args: Record<string, unknown>;
+  providerCallId?: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const explicitCallId = textValue(input.args.voiceCallId ?? input.args.callId);
+  let query = input.supabase
+    .from("voice_calls")
+    .select(
+      "id,conversation_id,contact_id,lead_id,direction,purpose,provider_call_id,from_number,to_number,summary,transcript,metadata",
+    )
+    .eq("workspace_id", input.workspaceId)
+    .limit(1);
+
+  if (explicitCallId) {
+    query = query.eq("id", explicitCallId);
+  } else if (input.providerCallId) {
+    query = query
+      .eq("provider", VAPI_PROVIDER)
+      .eq("provider_call_id", input.providerCallId);
+  } else {
+    return null;
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    if (tableMissing(error)) {
+      return null;
+    }
+
+    throw new Error(`Unable to load voice call for note: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    contactId: textValue(data.contact_id),
+    conversationId: textValue(data.conversation_id),
+    direction:
+      data.direction === "outbound" ? "outbound" : ("inbound" as VoiceCallDirection),
+    fromNumber: textValue(data.from_number),
+    id: String(data.id),
+    leadId: textValue(data.lead_id),
+    providerCallId: textValue(data.provider_call_id),
+    purpose: (textValue(data.purpose) ?? "inbound_customer") as VoiceCallPurpose,
+    summary: textValue(data.summary),
+    toNumber: textValue(data.to_number),
+    transcript: textValue(data.transcript),
+  } satisfies VoiceCallAutomationTarget;
+}
+
+async function findOrCreateVoiceConversationChannel(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("channels")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("type", "vapi_voice")
+    .eq("display_name", "Vapi phone")
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`Unable to load voice channel: ${existingError.message}`);
+  }
+
+  if (existing?.id) {
+    return String(existing.id);
+  }
+
+  const { data: created, error } = await supabase
+    .from("channels")
+    .insert({
+      display_name: "Vapi phone",
+      external_id: "vapi_voice",
+      settings: {
+        source: "vapi_post_call_automation",
+      },
+      status: "active",
+      type: "vapi_voice",
+      workspace_id: workspaceId,
+    })
+    .select("id")
+    .single();
+
+  if (error || !created) {
+    throw new Error(
+      `Unable to create voice channel: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  return String(created.id);
+}
+
+async function ensureVoiceCallConversation(input: {
+  call: VoiceCallAutomationTarget | null;
+  note: string;
+  priority: PostCallTaskPlan["priority"];
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const call = input.call;
+  const now = new Date().toISOString();
+
+  if (!call) {
+    return {
+      contactId: null,
+      conversationId: null,
+      leadId: null,
+      messageId: null,
+    };
+  }
+
+  const channelId = await findOrCreateVoiceConversationChannel(
+    input.supabase,
+    input.workspaceId,
+  );
+  let conversationId = call.conversationId;
+
+  if (!conversationId) {
+    const { data: conversation, error } = await input.supabase
+      .from("conversations")
+      .insert({
+        channel_id: channelId,
+        contact_id: call.contactId,
+        external_thread_id: call.providerCallId
+          ? `vapi:${call.providerCallId}`
+          : call.id
+            ? `voice_call:${call.id}`
+            : `vapi_note:${crypto.randomUUID()}`,
+        last_message_at: now,
+        lead_id: call.leadId,
+        status: "open",
+        workspace_id: input.workspaceId,
+      })
+      .select("id")
+      .single();
+
+    if (error || !conversation) {
+      throw new Error(
+        `Unable to create phone conversation: ${error?.message ?? "unknown error"}`,
+      );
+    }
+
+    conversationId = String(conversation.id);
+
+    if (call.id) {
+      await input.supabase
+        .from("voice_calls")
+        .update({
+          conversation_id: conversationId,
+        })
+        .eq("workspace_id", input.workspaceId)
+        .eq("id", call.id);
+    }
+  } else {
+    await input.supabase
+      .from("conversations")
+      .update({
+        last_message_at: now,
+        status: "open",
+      })
+      .eq("workspace_id", input.workspaceId)
+      .eq("id", conversationId);
+  }
+
+  const { data: existingMessage, error: existingMessageError } =
+    await input.supabase
+      .from("messages")
+      .select("id")
+      .eq("workspace_id", input.workspaceId)
+      .eq("conversation_id", conversationId)
+      .contains(
+        "metadata",
+        call.id
+          ? { voiceCallId: call.id }
+          : { providerCallId: call.providerCallId },
+      )
+      .limit(1)
+      .maybeSingle();
+
+  if (existingMessageError) {
+    throw new Error(
+      `Unable to inspect phone call message: ${existingMessageError.message}`,
+    );
+  }
+
+  if (existingMessage?.id) {
+    return {
+      contactId: call.contactId,
+      conversationId,
+      leadId: call.leadId,
+      messageId: String(existingMessage.id),
+    };
+  }
+
+  const body = [
+    input.note,
+    call.summary ? `Summary: ${call.summary}` : null,
+    !call.summary && call.transcript
+      ? `Transcript: ${compactText(call.transcript, 900)}`
+      : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n\n");
+  const { data: message, error: messageError } = await input.supabase
+    .from("messages")
+    .insert({
+      body_text: body,
+      channel_id: channelId,
+      contact_id: call.contactId,
+      conversation_id: conversationId,
+      direction: call.direction === "outbound" ? "outbound" : "inbound",
+      metadata: {
+        priority: input.priority,
+        providerCallId: call.providerCallId,
+        purpose: call.purpose,
+        source: "vapi_post_call_automation",
+        voiceCallId: call.id,
+      },
+      received_at: call.direction === "inbound" ? now : null,
+      sent_at: call.direction === "outbound" ? now : null,
+      subject: voiceCallSubject(call),
+      workspace_id: input.workspaceId,
+    })
+    .select("id")
+    .single();
+
+  if (messageError || !message) {
+    throw new Error(
+      `Unable to create phone call message: ${messageError?.message ?? "unknown error"}`,
+    );
+  }
+
+  return {
+    contactId: call.contactId,
+    conversationId,
+    leadId: call.leadId,
+    messageId: String(message.id),
+  };
+}
+
+export async function recordVoiceCallPostCallAutomation(input: {
+  args: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  providerCallId?: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const note = textValue(input.args.note);
+
+  if (!note) {
+    throw new Error("kyro_record_call_note requires a note.");
+  }
+
+  const voiceCall = await loadVoiceCallAutomationTarget(input);
+  const automationTarget =
+    voiceCall ??
+    fallbackVoiceCallAutomationTarget({
+      args: input.args,
+      payload: input.payload,
+      providerCallId: input.providerCallId,
+    });
+  const priority = normalizedPriority(input.args.priority, note);
+  const target = await ensureVoiceCallConversation({
+    call: automationTarget,
+    note,
+    priority,
+    supabase: input.supabase,
+    workspaceId: input.workspaceId,
+  });
+  const metadata = {
+    providerCallId: input.providerCallId ?? voiceCall?.providerCallId ?? null,
+    source: "vapi_record_call_note_tool",
+    toolArgs: {
+      callbackRequested: booleanValue(input.args.callbackRequested),
+      bookingRequested: booleanValue(input.args.bookingRequested),
+      complaint: booleanValue(input.args.complaint),
+      createTask: booleanValue(input.args.createTask),
+      quoteRequested: booleanValue(input.args.quoteRequested),
+    },
+    voiceCallId: voiceCall?.id ?? null,
+  };
+
+  const { data: noteRow, error: noteError } = await input.supabase
+    .from("conversation_notes")
+    .insert({
+      author_user_id: textValue(input.args.userId),
+      body: note,
+      contact_id: target.contactId ?? textValue(input.args.contactId),
+      conversation_id: target.conversationId ?? textValue(input.args.conversationId),
+      lead_id: target.leadId ?? textValue(input.args.leadId),
+      message_id: target.messageId,
+      metadata,
+      visibility: "internal",
+      workspace_id: input.workspaceId,
+    })
+    .select("id")
+    .single();
+
+  if (noteError || !noteRow) {
+    throw new Error(
+      `Unable to create call note: ${noteError?.message ?? "unknown error"}`,
+    );
+  }
+
+  await insertAuditLog(input.supabase, {
+    workspaceId: input.workspaceId,
+    actorType: "ai",
+    actorId: textValue(input.args.userId) ?? undefined,
+    action: "voice_call.note_created",
+    entityType: "conversation_note",
+    entityId: String(noteRow.id),
+    after: {
+      conversationId: target.conversationId,
+      priority,
+      voiceCallId: voiceCall?.id ?? null,
+    },
+  });
+
+  const taskPlan = taskPlanFromCallNote({
+    args: input.args,
+    call: voiceCall,
+    note,
+    priority,
+  });
+  let taskId: string | null = null;
+
+  if (taskPlan) {
+    const { data: task, error: taskError } = await input.supabase
+      .from("conversation_tasks")
+      .insert({
+        assigned_to_user_id: textValue(input.args.userId),
+        contact_id: target.contactId ?? textValue(input.args.contactId),
+        conversation_id:
+          target.conversationId ?? textValue(input.args.conversationId),
+        created_by_user_id: textValue(input.args.userId),
+        description: taskPlan.description,
+        due_at: taskPlan.dueAt,
+        lead_id: target.leadId ?? textValue(input.args.leadId),
+        message_id: target.messageId,
+        metadata: {
+          ...metadata,
+          noteId: String(noteRow.id),
+        },
+        priority: taskPlan.priority,
+        status: "open",
+        task_type: taskPlan.taskType,
+        title: taskPlan.title,
+        workspace_id: input.workspaceId,
+      })
+      .select("id")
+      .single();
+
+    if (taskError || !task) {
+      throw new Error(
+        `Unable to create call follow-up task: ${
+          taskError?.message ?? "unknown error"
+        }`,
+      );
+    }
+
+    taskId = String(task.id);
+
+    await insertAuditLog(input.supabase, {
+      workspaceId: input.workspaceId,
+      actorType: "ai",
+      actorId: textValue(input.args.userId) ?? undefined,
+      action: "voice_call.follow_up_task_created",
+      entityType: "conversation_task",
+      entityId: taskId,
+      after: {
+        conversationId: target.conversationId,
+        dueAt: taskPlan.dueAt,
+        priority: taskPlan.priority,
+        taskType: taskPlan.taskType,
+        voiceCallId: voiceCall?.id ?? null,
+      },
+    });
+  }
+
+  await recordVoiceToolEvent({
+    eventType: "tool.kyro_record_call_note.completed",
+    payload: {
+      ...input.payload,
+      kyroAutomation: {
+        conversationId: target.conversationId,
+        messageId: target.messageId,
+        noteId: String(noteRow.id),
+        taskId,
+        voiceCallId: voiceCall?.id ?? null,
+      },
+      kyroNote: note,
+      kyroPriority: priority,
+    },
+    providerCallId: input.providerCallId,
+    supabase: input.supabase,
+    workspaceId: input.workspaceId,
+  });
+
+  return {
+    conversationId: target.conversationId,
+    messageId: target.messageId,
+    noteId: String(noteRow.id),
+    taskId,
+    voiceCallId: voiceCall?.id ?? null,
+  };
 }
 
 export async function createOutboundVoiceCall(input: {

@@ -123,6 +123,9 @@ Vapi/Twilio voice now has a first database foundation:
   Vapi call data for expired recordings, clears `recording_url` after provider
   deletion succeeds, sets `recording_deleted_at`, and leaves retryable metadata
   when deletion fails.
+- `kyro_record_call_note` creates normal CRM records for useful call outcomes:
+  phone conversation/message snapshots, internal notes, inferred follow-up
+  tasks, and audit logs, while still storing the raw Vapi tool event.
 
 Assistant memory/thread behavior does not currently need a new migration.
 `assistant_threads.status` is used for active versus archived threads, and

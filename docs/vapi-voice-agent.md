@@ -146,6 +146,19 @@ workspace users by RLS.
 - Keeps transcript, summary, call row, and event audit data for complaint review
   and operational history.
 
+`kyro_record_call_note` post-call automation
+
+- Creates or reuses a `vapi_voice` phone channel.
+- Creates or reopens a phone conversation if the voice call is not already
+  linked to one.
+- Creates one message snapshot per voice call so the call has a normal Inbox/CRM
+  thread.
+- Creates an internal `conversation_notes` row for each useful call note.
+- Infers open `conversation_tasks` rows for callback requests, quote/job
+  follow-up, booking/site-visit follow-up, complaints, and urgent calls.
+- Writes audit logs for the note and task, while preserving the raw Vapi tool
+  event in `voice_call_events`.
+
 `POST /api/integrations/vapi/tool`
 
 - Called by Vapi tool calls.
@@ -376,6 +389,12 @@ Recommended Vapi tool definitions:
   - `workspaceId` string
   - `note` string
   - `priority` string, optional
+  - `createTask`, `callbackRequested`, `quoteRequested`, `bookingRequested`,
+    or `complaint` boolean, optional
+  - `taskTitle`, `taskDescription`, `taskType`, `dueAt`, `followUpAt`,
+    `callbackAt`, or `bookingAt`, optional
+  - `contactId`, `conversationId`, `leadId`, `voiceCallId`, or `callId`,
+    optional linking hints
 
 `kyro_update_contact`
 
@@ -548,7 +567,7 @@ to work for live inbound phone calls.
 - Tune exact Vapi payload parsing against live webhooks.
 - Confirm production call-recording notice/consent language with the business's
   legal requirements before launch.
-- Convert accepted call summaries into normal CRM messages/tasks when useful.
+- Smoke-test post-call notes/tasks against live Vapi tool calls.
 - Add number search/purchase UI and pass-through rental usage billing.
 - Add richer Vapi tools for task creation, appointment suggestions, and urgent
   escalation once call safety boundaries are tested.

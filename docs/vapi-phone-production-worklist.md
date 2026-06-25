@@ -11,10 +11,13 @@ while deciding what to build, defer, or keep manual.
   automating Twilio purchase and Vapi number mapping.
 - Vapi assistant prompts can stay neutral when they use Kyro-provided variables
   such as `business_name`, `workspace_name`, and `kyro_context`.
-- Kyro still needs production work for post-call automation and smoke testing.
+- Kyro still needs production work for smoke testing and production polish.
 - Raw call recordings are retained for 30 days, then the scheduled cleanup route
   deletes Vapi call data and clears Kyro's recording URL while keeping the call
   row, transcript, summary, and audit metadata.
+- `kyro_record_call_note` now writes a normal phone conversation/message
+  snapshot, an internal CRM note, optional inferred follow-up task, audit logs,
+  and the raw Vapi event.
 
 ## Active Work Items
 
@@ -40,28 +43,7 @@ Done means:
 - Workspaces can still self-serve from the preloaded pool.
 - No automatic purchase flow is required for the current launch stage.
 
-### 2. Post-Call Automation
-
-Goal: turn useful call outcomes into normal Kyro business records.
-
-To finish:
-
-1. Upgrade `kyro_record_call_note` so it creates a proper CRM/timeline note,
-   task, message, or conversation update rather than only a raw voice event.
-2. Create callback tasks when the caller needs a return call.
-3. Create quote/job/booking follow-up tasks when the call asks for work.
-4. Link calls to contacts, conversations, and leads as aggressively as is safe.
-5. Surface post-call actions in Assistant activity and CRM.
-6. Make failed/partial calls visually distinct from successfully handled calls.
-
-Done means:
-
-- A useful completed call leaves the user with a clear next action.
-- Call notes are visible where a small-business user naturally expects them.
-- Raw provider events remain available for audit, but they are not the only
-  durable call outcome.
-
-### 3. Voicemail Overflow Smoke Test
+### 2. Voicemail Overflow Smoke Test
 
 Goal: prove missed personal calls route to the dedicated Kyro voicemail overflow
 assistant.
@@ -85,7 +67,7 @@ Done means:
 - Missed personal calls are handled by the intended voicemail overflow path, not
   a generic inbound assistant.
 
-### 4. Inbound Customer Call Smoke Test
+### 3. Inbound Customer Call Smoke Test
 
 Goal: prove direct calls to the Kyro number behave as external customer calls.
 
@@ -102,7 +84,7 @@ Done means:
 
 - External callers get useful business intake without internal privileges.
 
-### 5. Internal User Call Smoke Test
+### 4. Internal User Call Smoke Test
 
 Goal: prove trusted user/team numbers get internal assistant behaviour.
 
@@ -120,7 +102,7 @@ Done means:
 - Owner/team calls can control Kyro safely.
 - External callers cannot impersonate the owner by saying they are staff.
 
-### 6. Outbound Call Smoke Test
+### 5. Outbound Call Smoke Test
 
 Goal: prove Kyro can start customer-facing outbound calls through the right Vapi
 assistant and number.
@@ -140,7 +122,7 @@ Done means:
 - The user can confidently ask Kyro to place a customer call from an approved
   path.
 
-### 7. Vapi Tool-Call Test Matrix
+### 6. Vapi Tool-Call Test Matrix
 
 Goal: verify each live Vapi tool works against Kyro production.
 
@@ -168,7 +150,7 @@ Done means:
 - Tool calls write expected audit/event records.
 - Dangerous tools are only available in trusted internal contexts.
 
-### 8. Activity and Call Preview Polish
+### 7. Activity and Call Preview Polish
 
 Goal: make phone activity trustworthy and easy to inspect.
 
