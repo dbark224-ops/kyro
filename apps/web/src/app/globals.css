@@ -2323,16 +2323,26 @@ textarea:focus {
   background: var(--purple);
 }
 
-.dev-top-controls {
+.app-top-chrome {
   position: fixed;
-  top: 10px;
+  top: 14px;
   left: 284px;
-  right: 14px;
-  z-index: 31;
+  right: 18px;
+  z-index: 32;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+  gap: 16px;
+  pointer-events: none;
+}
+
+.dev-top-controls {
+  position: static;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  min-width: 0;
   pointer-events: none;
 }
 
@@ -2367,13 +2377,10 @@ textarea:focus {
 }
 
 .global-search-anchor {
-  position: fixed;
-  top: 28px;
-  left: calc(244px + (100vw - 244px) / 2);
-  z-index: 32;
-  width: min(420px, calc(100vw - 720px));
-  min-width: 320px;
-  transform: translateX(-50%);
+  position: static;
+  justify-self: center;
+  width: min(440px, 100%);
+  min-width: 0;
   pointer-events: none;
 }
 
@@ -13669,6 +13676,7 @@ button:disabled {
 
 .workspace-account-copy {
   display: grid;
+  max-width: clamp(118px, 11vw, 190px);
   min-width: 0;
 }
 
@@ -13749,15 +13757,37 @@ button:disabled {
 }
 
 .dev-top-controls {
-  top: 14px;
-  left: 284px;
-  right: 18px;
   align-items: center;
 }
 
 .global-search-anchor {
-  top: 14px;
-  width: min(440px, calc(100vw - 760px));
+  width: min(440px, 100%);
+}
+
+@media (min-width: 761px) and (max-width: 1180px) {
+  .app-top-chrome {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 12px;
+  }
+
+  .workspace-account-chip {
+    min-height: 40px;
+    gap: 0;
+    padding: 5px;
+  }
+
+  .workspace-account-copy,
+  .workspace-account-chevron {
+    display: none;
+  }
+
+  .text-scale-control button {
+    min-width: 28px;
+  }
+
+  .text-scale-control span {
+    min-width: 30px;
+  }
 }
 
 .dashboard-command-centre {
@@ -15966,15 +15996,29 @@ button:disabled {
     padding: 126px 12px 92px;
   }
 
-  .dev-top-controls {
+  .app-top-chrome {
     top: 12px;
     left: 112px;
     right: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .dev-top-controls {
+    max-width: calc(100vw - 124px);
+    flex-wrap: wrap;
     justify-content: flex-end;
   }
 
   .global-search-anchor {
+    position: fixed;
     top: 60px;
+    left: 50%;
+    width: min(420px, calc(100vw - 28px));
+    transform: translateX(-50%);
   }
 
   .workspace-account-chip {

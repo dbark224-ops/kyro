@@ -637,22 +637,24 @@ export function AppFrame({
       </aside>
 
       <section className={workspaceClassName}>
-        <div className="global-search-anchor" data-tour="global-search">
-          <GlobalSearch />
-        </div>
-        <div className="dev-top-controls">
-          {topControls}
-          <Suspense fallback={null}>
-            <UsageInternalCostPills />
-          </Suspense>
-          <TutorialLauncher />
-          <TextScaleControl />
-          <Suspense fallback={null}>
-            <LlmDevStatusPill />
-          </Suspense>
-          <Suspense fallback={null}>
-            <WorkspaceAccountChip />
-          </Suspense>
+        <div className="app-top-chrome">
+          <div className="global-search-anchor" data-tour="global-search">
+            <GlobalSearch />
+          </div>
+          <div className="dev-top-controls">
+            {topControls}
+            <Suspense fallback={null}>
+              <UsageInternalCostPills />
+            </Suspense>
+            <TutorialLauncher />
+            <TextScaleControl />
+            <Suspense fallback={null}>
+              <LlmDevStatusPill />
+            </Suspense>
+            <Suspense fallback={null}>
+              <WorkspaceAccountChip />
+            </Suspense>
+          </div>
         </div>
         {children}
       </section>
