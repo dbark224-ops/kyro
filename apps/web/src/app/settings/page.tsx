@@ -3474,7 +3474,7 @@ function CommunicationSettingsDetail({
         <fieldset className="settings-fieldset follow-up-reminder-panel">
           <legend>Follow-up reminders</legend>
           <div className="follow-up-reminder-grid">
-            <label className="compact-checkbox-row setting-card follow-up-toggle-card">
+            <label className="compact-checkbox-row follow-up-toggle-card">
               <input
                 defaultChecked={communicationSettings.followUpRemindersEnabled}
                 name="followUpRemindersEnabled"

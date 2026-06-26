@@ -7948,6 +7948,18 @@ button:disabled {
   padding: 18px;
 }
 
+.settings-detail-body > *,
+.integration-provider-body,
+.settings-accordion-body,
+.settings-grid > *,
+.setting-card,
+.settings-textarea,
+.signature-editor,
+.signature-preview-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .settings-placeholder {
   align-content: start;
   padding: 24px;
@@ -7963,6 +7975,11 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.settings-detail-body .settings-accordion-body .settings-grid,
+.settings-detail-body .signature-editor .settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
 
 .settings-grid.single {
@@ -8441,6 +8458,7 @@ button:disabled {
 
 .integration-provider-body {
   border-top: 1px solid var(--line);
+  min-width: 0;
   padding: 12px;
 }
 
@@ -9584,13 +9602,14 @@ button:disabled {
 
 .channel-toggle-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 96px), 1fr));
   gap: 8px;
   margin-top: 8px;
 }
 
 .channel-toggle {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
@@ -9599,8 +9618,10 @@ button:disabled {
 }
 
 .channel-toggle span {
+  min-width: 0;
   color: var(--text);
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .outbound-routing-card {
@@ -9609,9 +9630,9 @@ button:disabled {
 
 .outbound-routing-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
   gap: 12px;
-  align-items: end;
+  align-items: start;
 }
 
 .outbound-permission-control,
@@ -9640,8 +9661,8 @@ button:disabled {
 
 .compact-channel-toggle-grid .channel-toggle {
   min-height: 38px;
-  justify-content: center;
-  padding: 7px 9px;
+  justify-content: flex-start;
+  padding: 7px 8px;
 }
 
 .compact-channel-toggle-grid .channel-toggle input {
@@ -9655,10 +9676,10 @@ button:disabled {
 }
 
 .follow-up-reminder-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.65fr) minmax(220px, 0.35fr);
-  gap: 12px;
-  align-items: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
 }
 
 .follow-up-reminder-panel .setting-card {
@@ -9667,11 +9688,21 @@ button:disabled {
 }
 
 .follow-up-toggle-card {
-  width: 100%;
+  flex: 1 1 260px;
+  width: auto;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+}
+
+.follow-up-delay-card {
+  flex: 1 1 150px;
+  max-width: 220px;
+  padding: 10px;
 }
 
 .follow-up-delay-card input[type="number"] {
-  max-width: 120px;
+  max-width: 110px;
 }
 
 .compact-checkbox-fieldset {
@@ -9703,6 +9734,8 @@ button:disabled {
 }
 
 .setting-card input[type="file"] {
+  min-width: 0;
+  max-width: 100%;
   color: var(--muted);
   font-size: 0.8125rem;
   font-weight: 700;
@@ -9774,7 +9807,7 @@ button:disabled {
 .signature-preview img {
   display: block;
   height: auto;
-  max-width: 240px;
+  max-width: min(240px, 100%);
   margin-top: 10px;
 }
 
