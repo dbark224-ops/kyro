@@ -1127,14 +1127,7 @@ function TwilioTelephonySettings({
             </div>
           ))}
         </div>
-      ) : (
-        <p className="empty-copy">
-          No workspace Twilio number is registered yet. Outbound can use the
-          configured sender number for testing, but inbound SMS needs a
-          workspace phone-number record so Kyro knows which account owns the
-          message.
-        </p>
-      )}
+      ) : null}
 
     </>
   );

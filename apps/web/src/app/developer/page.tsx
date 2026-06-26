@@ -2,6 +2,8 @@ import { AppFrame } from "../components/app-frame";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
 import { runContactLifecycleReviewAction } from "../contacts/actions";
 import { createManualInboundAction } from "../inbound/actions";
+import { getTwilioTelephonyOverview } from "../../lib/integrations/twilio";
+import { requireWorkspaceContext } from "../../lib/workspace/context";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +18,14 @@ type DeveloperPageProps = {
 export default async function DeveloperPage({
   searchParams,
 }: DeveloperPageProps) {
-  const query = await searchParams;
+  const [query, { supabase, workspace }] = await Promise.all([
+    searchParams,
+    requireWorkspaceContext(),
+  ]);
+  const twilioOverview = await getTwilioTelephonyOverview(
+    supabase,
+    workspace.id,
+  );
   const submissionKey = crypto.randomUUID();
 
   return (
@@ -170,6 +179,56 @@ export default async function DeveloperPage({
                 <strong>Gmail and Outlook</strong>
               </div>
             </div>
+          </article>
+          <article className="panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Phone/SMS</p>
+                <h2>Twilio test sender</h2>
+              </div>
+              <span
+                className={`pill ${
+                  twilioOverview.configured ? "success" : "warning"
+                }`}
+              >
+                {twilioOverview.configured ? "Configured" : "Keys needed"}
+              </span>
+            </div>
+            <p className="empty-copy">
+              Internal readout for the fallback sender used while testing
+              outbound SMS before a workspace-owned number is assigned.
+            </p>
+            <div className="detail-list">
+              <div>
+                <span>Configured sender</span>
+                <strong>
+                  {twilioOverview.defaultFromNumber ?? "Not configured"}
+                </strong>
+              </div>
+              <div>
+                <span>Workspace numbers</span>
+                <strong>{twilioOverview.numbers.length}</strong>
+              </div>
+              <div>
+                <span>Messaging service</span>
+                <strong>
+                  {twilioOverview.messagingServiceSidConfigured
+                    ? "Configured"
+                    : "Not configured"}
+                </strong>
+              </div>
+              <div>
+                <span>Inbound SMS webhook</span>
+                <strong>
+                  {twilioOverview.inboundSmsWebhookUrl
+                    ? "Ready"
+                    : "App URL needed"}
+                </strong>
+              </div>
+            </div>
+            {twilioOverview.error ? (
+              <p className="form-alert error">{twilioOverview.error}</p>
+            ) : null}
           </article>
           <article className="panel">
             <div className="panel-heading">
