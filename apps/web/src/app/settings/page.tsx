@@ -866,10 +866,6 @@ function twilioStatusLabel(overview: TwilioTelephonyOverview) {
     return "Ready";
   }
 
-  if (overview.defaultFromNumber) {
-    return "Outbound ready";
-  }
-
   return "Number needed";
 }
 
@@ -882,6 +878,39 @@ function TwilioTelephonySettings({
   generalSettings: WorkspaceGeneralSettings;
   overview: TwilioTelephonyOverview;
 }>) {
+  const activeSmsNumberCount = overview.numbers.filter(
+    (number) => number.capabilities.sms,
+  ).length;
+  const hasActiveSmsNumber = activeSmsNumberCount > 0;
+  const inboundSmsReady =
+    overview.configured &&
+    hasActiveSmsNumber &&
+    Boolean(overview.inboundSmsWebhookUrl) &&
+    overview.compliance.tableReady;
+  const outboundSmsReady =
+    overview.configured &&
+    hasActiveSmsNumber &&
+    overview.compliance.tableReady;
+  const inboundStatusLabel = inboundSmsReady
+    ? "Active"
+    : !overview.configured
+      ? "Keys needed"
+      : !hasActiveSmsNumber
+        ? "Number needed"
+        : !overview.inboundSmsWebhookUrl
+          ? "App URL needed"
+          : !overview.compliance.tableReady
+            ? "Migration needed"
+            : "Needs setup";
+  const outboundStatusLabel = outboundSmsReady
+    ? "Active"
+    : !overview.configured
+      ? "Keys needed"
+      : !hasActiveSmsNumber
+        ? "Number needed"
+        : !overview.compliance.tableReady
+          ? "Migration needed"
+          : "Needs setup";
   const activeVoiceSmsNumber = overview.numbers.find(
     (number) => number.capabilities.sms && number.capabilities.voice,
   );
@@ -896,7 +925,7 @@ function TwilioTelephonySettings({
   return (
     <>
       <div className="integration-summary-grid">
-        <article className="setting-card">
+        <article className="setting-card sms-readiness-card">
           <SettingCardHeading
             info={
               <>
@@ -907,8 +936,33 @@ function TwilioTelephonySettings({
           >
             Inbound SMS
           </SettingCardHeading>
+          <div
+            className={`settings-status-pill ${
+              inboundSmsReady ? "ready" : "warning"
+            }`}
+          >
+            {inboundStatusLabel}
+          </div>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{hasActiveSmsNumber ? "Connected" : "Missing"}</strong>
+              Workspace number
+            </span>
+            <span>
+              <strong>
+                {overview.inboundSmsWebhookUrl ? "Ready" : "Check"}
+              </strong>
+              Inbound routing
+            </span>
+            <span>
+              <strong>
+                {overview.compliance.tableReady ? "Active" : "Check"}
+              </strong>
+              Consent guard
+            </span>
+          </div>
         </article>
-        <article className="setting-card">
+        <article className="setting-card sms-readiness-card">
           <SettingCardHeading
             info={
               <>
@@ -920,6 +974,31 @@ function TwilioTelephonySettings({
           >
             Outbound SMS
           </SettingCardHeading>
+          <div
+            className={`settings-status-pill ${
+              outboundSmsReady ? "ready" : "warning"
+            }`}
+          >
+            {outboundStatusLabel}
+          </div>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{hasActiveSmsNumber ? "Ready" : "Missing"}</strong>
+              Sending number
+            </span>
+            <span>
+              <strong>
+                {overview.configured ? "Connected" : "Keys needed"}
+              </strong>
+              Twilio account
+            </span>
+            <span>
+              <strong>
+                {overview.compliance.tableReady ? "Active" : "Check"}
+              </strong>
+              Opt-out guard
+            </span>
+          </div>
         </article>
         <article className="setting-card">
           <SettingCardHeading

@@ -8887,6 +8887,21 @@ button:disabled {
   line-height: 1.45;
 }
 
+.sms-readiness-card .settings-status-pill {
+  align-self: start;
+}
+
+.sms-readiness-card .mini-status-grid {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.sms-readiness-card .mini-status-grid strong {
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.2;
+  text-transform: none;
+}
+
 .info-bubble {
   position: relative;
   display: inline-flex;
