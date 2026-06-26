@@ -63,6 +63,9 @@ import {
   type UsageReport,
 } from "../../lib/usage/queries";
 import {
+  GOOGLE_CALENDAR_EVENTS_SCOPE,
+  GOOGLE_DRIVE_FILE_SCOPE,
+  GOOGLE_GMAIL_SEND_SCOPE,
   GOOGLE_PROVIDER,
   GOOGLE_GMAIL_READ_SCOPE,
   type GoogleIntegrationOverview,
@@ -579,6 +582,31 @@ function DisconnectIntegrationButton({
   );
 }
 
+function googlePermissionLabel(scope: string) {
+  switch (scope) {
+    case GOOGLE_GMAIL_SEND_SCOPE:
+      return "Send email replies";
+    case GOOGLE_GMAIL_READ_SCOPE:
+      return "Read inbox messages";
+    case GOOGLE_DRIVE_FILE_SCOPE:
+      return "Save Kyro-created files";
+    case GOOGLE_CALENDAR_EVENTS_SCOPE:
+      return "Create calendar events";
+    default:
+      return scopeLabel(scope);
+  }
+}
+
+function googlePermissionActive(
+  overview: GoogleIntegrationOverview,
+  scope: string,
+) {
+  return overview.connections.some(
+    (connection) =>
+      connection.status === "connected" && connection.scopes.includes(scope),
+  );
+}
+
 function GoogleIntegrationSettings({
   overview,
 }: Readonly<{ overview: GoogleIntegrationOverview }>) {
@@ -617,22 +645,31 @@ function GoogleIntegrationSettings({
         </article>
       </div>
 
-      {overview.redirectUri ? (
-        <div className="detail-list compact-detail-list">
-          <div>
-            <span>Redirect URI</span>
-            <strong>{overview.redirectUri}</strong>
-            <small>Use this exact URL in the Google Cloud OAuth client.</small>
-          </div>
-        </div>
-      ) : null}
+      <div className="integration-permission-list">
+        {overview.scopes.map((scope) => {
+          const active = googlePermissionActive(overview, scope);
+          const label = googlePermissionLabel(scope);
+          const inactiveLabel = hasConnectedAccount
+            ? "Needs reconnect"
+            : "Not connected";
 
-      <div className="module-list integration-scope-list">
-        {overview.scopes.map((scope) => (
-          <span key={scope}>
-            {scope.replace("https://www.googleapis.com/auth/", "")}
-          </span>
-        ))}
+          return (
+            <div
+              aria-label={`${label}: ${active ? "active" : inactiveLabel}`}
+              className={`integration-permission-pill ${
+                active ? "active" : "inactive"
+              }`}
+              key={scope}
+            >
+              <span
+                className="integration-permission-check"
+                aria-hidden="true"
+              />
+              <span>{label}</span>
+              <small>{active ? "Active" : inactiveLabel}</small>
+            </div>
+          );
+        })}
       </div>
 
       {overview.error ? (
