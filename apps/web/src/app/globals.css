@@ -1486,7 +1486,8 @@
 }
 
 html {
-  font-size: var(--kyro-root-font-size, 16px);
+  --kyro-device-root-font-size: 16px;
+  font-size: var(--kyro-root-font-size, var(--kyro-device-root-font-size));
 }
 
 body {
@@ -16144,5 +16145,276 @@ button:disabled {
   .reports-preview-panel {
     min-height: 720px;
     padding: 12px;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1536px),
+  (min-width: 761px) and (max-height: 900px) {
+  html:has(.app-shell) {
+    --kyro-device-root-font-size: 15.2px;
+  }
+
+  html:has(.app-shell) .app-shell {
+    grid-template-columns: 244px minmax(0, 1fr);
+  }
+
+  html:has(.app-shell) .sidebar {
+    gap: 14px;
+    padding: 18px;
+  }
+
+  html:has(.app-shell) .brand-mark {
+    width: min(100%, 156px);
+  }
+
+  html:has(.app-shell) .nav-list {
+    gap: 5px;
+  }
+
+  html:has(.app-shell) .nav-link {
+    padding: 9px 10px;
+  }
+
+  html:has(.app-shell) .nav-link-inner {
+    gap: 8px;
+  }
+
+  html:has(.app-shell) .sidebar-usage-card {
+    gap: 7px;
+    padding: 12px;
+  }
+
+  html:has(.app-shell) .sidebar-usage-metrics {
+    gap: 8px;
+  }
+
+  html:has(.app-shell) .workspace {
+    padding: 64px 20px 18px;
+  }
+
+  html:has(.app-shell) .workspace-fit-fold {
+    padding: 64px 20px 14px;
+  }
+
+  html:has(.app-shell) .app-top-chrome {
+    top: 10px;
+    left: 264px;
+    right: 14px;
+    gap: 12px;
+  }
+
+  html:has(.app-shell) .global-search-anchor {
+    width: min(400px, 100%);
+  }
+
+  html:has(.app-shell) .global-search-input-wrap {
+    min-height: 34px;
+    padding-inline: 11px;
+  }
+
+  html:has(.app-shell) .tutorial-launcher-pill {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 11px;
+  }
+
+  html:has(.app-shell) .text-scale-control {
+    padding: 3px;
+  }
+
+  html:has(.app-shell) .text-scale-control button {
+    min-width: 28px;
+    min-height: 24px;
+  }
+
+  html:has(.app-shell) .workspace-account-chip {
+    min-height: 40px;
+    gap: 8px;
+    padding: 6px 9px 6px 6px;
+  }
+
+  html:has(.app-shell) .workspace-account-avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  html:has(.app-shell) .panel {
+    padding: 14px;
+  }
+
+  html:has(.app-shell) .panel-heading {
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  html:has(.app-shell) .topbar {
+    gap: 14px;
+    margin-bottom: 10px;
+  }
+
+  html:has(.app-shell) .topbar h1 {
+    font-size: 2.1rem;
+  }
+
+  html:has(.app-shell) .metric-grid {
+    gap: 5px;
+  }
+
+  html:has(.app-shell) .metric-card {
+    gap: 6px;
+    padding: 7px 9px;
+  }
+
+  html:has(.app-shell) .primary-button,
+  html:has(.app-shell) .assistant-input button {
+    padding: 9px 13px;
+  }
+
+  html:has(.app-shell) .secondary-button {
+    padding: 8px 10px;
+  }
+
+  html:has(.app-shell) input:not([type="checkbox"]):not([type="radio"]):not(
+      [type="file"]
+    ),
+  html:has(.app-shell) select,
+  html:has(.app-shell) textarea {
+    padding: 9px 10px;
+  }
+
+  html:has(.app-shell) textarea {
+    min-height: 104px;
+  }
+
+  html:has(.app-shell) .dashboard-command-centre {
+    gap: 8px;
+    margin-top: -44px;
+    min-height: calc(100vh - 56px);
+    height: calc(100vh - 56px);
+  }
+
+  html:has(.app-shell) .dashboard-command-header {
+    min-height: 48px;
+    gap: 14px;
+  }
+
+  html:has(.app-shell) .dashboard-command-header h1 {
+    font-size: 2.35rem;
+  }
+
+  html:has(.app-shell) .dashboard-command-actions {
+    gap: 8px;
+    padding-top: 44px;
+  }
+
+  html:has(.app-shell) .dashboard-stat-grid,
+  html:has(.app-shell) .dashboard-middle-grid,
+  html:has(.app-shell) .dashboard-bottom-grid {
+    gap: 8px;
+  }
+
+  html:has(.app-shell) .dashboard-stat-card {
+    min-height: 76px;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  html:has(.app-shell) .dashboard-stat-icon {
+    min-width: 46px;
+    min-height: 30px;
+  }
+
+  html:has(.app-shell) .dashboard-widget {
+    gap: 7px;
+    padding: 11px;
+  }
+
+  html:has(.app-shell) .dashboard-widget-header {
+    gap: 8px;
+  }
+
+  html:has(.app-shell) .dashboard-widget-header p {
+    font-size: 0.9rem;
+  }
+
+  html:has(.app-shell) .dashboard-work-item,
+  html:has(.app-shell) .dashboard-list-item,
+  html:has(.app-shell) .dashboard-activity-item {
+    gap: 8px;
+    min-height: 0;
+    padding: 9px 10px;
+  }
+}
+
+@media (min-width: 1181px) and (max-width: 1536px),
+  (min-width: 1181px) and (max-height: 900px) {
+  html:has(.app-shell) .settings-workspace {
+    grid-template-columns:
+      minmax(210px, 240px)
+      minmax(180px, 220px)
+      minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  html:has(.app-shell) .settings-menu-list {
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  html:has(.app-shell) .settings-menu-row {
+    min-height: 56px;
+    padding: 8px 10px;
+  }
+
+  html:has(.app-shell) .settings-primary-panel .settings-menu-row {
+    min-height: 52px;
+  }
+
+  html:has(.app-shell) .settings-nested-row {
+    min-height: 48px;
+  }
+
+  html:has(.app-shell) .settings-detail-panel {
+    max-height: calc(100vh - 112px);
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1280px) {
+  html:has(.app-shell) {
+    --kyro-device-root-font-size: 14.8px;
+  }
+
+  html:has(.app-shell) .app-shell {
+    grid-template-columns: 228px minmax(0, 1fr);
+  }
+
+  html:has(.app-shell) .app-top-chrome {
+    left: 248px;
+  }
+
+  html:has(.app-shell) .workspace {
+    padding-inline: 16px;
+  }
+
+  html:has(.app-shell) .workspace-fit-fold {
+    padding-inline: 16px;
+  }
+
+  html:has(.app-shell) .brand-mark {
+    width: min(100%, 144px);
+  }
+
+  html:has(.app-shell) .sidebar-usage-card {
+    padding: 10px;
+  }
+
+  html:has(.app-shell) .workspace-account-copy,
+  html:has(.app-shell) .workspace-account-chevron {
+    display: none;
+  }
+
+  html:has(.app-shell) .workspace-account-chip {
+    gap: 0;
+    padding: 5px;
   }
 }
