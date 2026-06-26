@@ -976,21 +976,6 @@ function TwilioTelephonySettings({
         </p>
       ) : null}
 
-      <div className="usage-ledger compact">
-        <div className="usage-ledger-row">
-          <div className="usage-ledger-main">
-            <strong>Inbound SMS webhook</strong>
-            <span>{overview.inboundSmsWebhookUrl ?? "App URL needed"}</span>
-          </div>
-        </div>
-        <div className="usage-ledger-row">
-          <div className="usage-ledger-main">
-            <strong>Delivery status callback</strong>
-            <span>{overview.statusCallbackUrl ?? "App URL needed"}</span>
-          </div>
-        </div>
-      </div>
-
       <section className="setting-card phone-number-enable-card">
         <SettingCardHeading
           info={
