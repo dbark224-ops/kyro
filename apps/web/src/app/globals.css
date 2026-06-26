@@ -9798,6 +9798,29 @@ button:disabled {
   justify-content: flex-end;
 }
 
+.settings-submit-button {
+  display: inline-flex;
+  min-width: fit-content;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.settings-submit-button[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.82;
+}
+
+.settings-submit-spinner {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: var(--radius-pill);
+  animation: settings-loading-spin 680ms linear infinite;
+}
+
 .action-review-row {
   align-items: flex-start;
 }

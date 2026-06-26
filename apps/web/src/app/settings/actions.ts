@@ -1353,6 +1353,31 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     formString(formData, "redirectSection") === "developer"
       ? "developer"
       : "voice";
+  const requestedPanel = formString(formData, "settingsPanel");
+  const redirectPanel =
+    redirectSection === "developer"
+      ? requestedPanel === "provider-ids" ||
+        requestedPanel === "developer-tools"
+        ? requestedPanel
+        : null
+      : requestedPanel === "voice-assistant" ||
+          requestedPanel === "phone-assistant" ||
+          requestedPanel === "voicemail-overflow" ||
+          requestedPanel === "pronunciation"
+        ? requestedPanel
+        : null;
+  const redirectOptions = redirectPanel ? { panel: redirectPanel } : {};
+  const redirectVoiceSettingsMessage = (
+    key: "engine_error" | "engine_message",
+    message: string,
+  ): never => {
+    redirectWithSectionMessage(
+      redirectSection,
+      key,
+      message,
+      redirectOptions,
+    );
+  };
   const openAiVoice = formString(formData, "openAiVoice") as OpenAiVoice;
   const outboundVoicePronunciationPolicy = formString(
     formData,
@@ -1373,8 +1398,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     phoneAgentUserNumberDetailsFromForm(formData);
 
   if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       "OpenAI voice is invalid.",
     );
@@ -1385,40 +1409,35 @@ export async function updateVoiceSettingsAction(formData: FormData) {
       outboundVoicePronunciationPolicy,
     )
   ) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       "Outbound pronunciation policy is invalid.",
     );
   }
 
   if (!PHONE_AGENT_DEMEANORS.includes(phoneAgentDemeanor as never)) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       "Phone assistant style is invalid.",
     );
   }
 
   if (!PHONE_AGENT_VERBOSITIES.includes(phoneAgentVerbosity as never)) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       "Phone assistant detail level is invalid.",
     );
   }
 
   if (!PHONE_AGENT_HUMOUR_LEVELS.includes(phoneAgentHumourLevel as never)) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       "Phone assistant warmth setting is invalid.",
     );
   }
 
   if (!PHONE_AGENT_ESCALATION_MODES.includes(phoneAgentEscalationMode as never)) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       "Phone assistant escalation mode is invalid.",
     );
@@ -1429,8 +1448,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
       (preset) => preset.id === elevenLabsVoicePresetId,
     )
   ) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       "Vapi voice option is invalid.",
     );
@@ -1501,8 +1519,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
           phoneNumberAssignment.number.vapiPhoneNumberId;
       }
     } catch (error) {
-      redirectWithSectionMessage(
-        redirectSection,
+      redirectVoiceSettingsMessage(
         "engine_error",
         error instanceof Error
           ? error.message
@@ -1519,8 +1536,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectWithSectionMessage(
-      redirectSection,
+    redirectVoiceSettingsMessage(
       "engine_error",
       beforeError.message,
     );
@@ -1541,9 +1557,10 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     .select("id")
     .single();
 
-  if (saveError || !savedPolicy) {
-    redirectWithSectionMessage(
-      redirectSection,
+  const savedPolicyId = savedPolicy?.id;
+
+  if (saveError || !savedPolicyId) {
+    redirectVoiceSettingsMessage(
       "engine_error",
       saveError?.message ?? "Unable to save voice assistant settings.",
     );
@@ -1556,7 +1573,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     actorType: "user",
     after: { settings },
     before: beforePolicy ? { settings: beforePolicy.settings } : null,
-    entityId: String(savedPolicy.id),
+    entityId: String(savedPolicyId),
     entityType: "workspace_policy",
     metadata: phoneNumberAssignment
       ? {
@@ -1570,8 +1587,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
   revalidatePath("/settings");
   revalidatePath("/voice");
   revalidatePath("/voice-vapi");
-  redirectWithSectionMessage(
-    redirectSection,
+  redirectVoiceSettingsMessage(
     "engine_message",
     "Voice assistant settings saved.",
   );
@@ -1579,12 +1595,14 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
 export async function enableVoicemailOverflowNumberAction(formData: FormData) {
   const phoneNumberId = formString(formData, "phoneNumberId");
+  const redirectOptions = { panel: "voicemail-overflow" };
 
   if (!phoneNumberId) {
     redirectWithSectionMessage(
       "voice",
       "engine_error",
       "Choose a voicemail overflow number first.",
+      redirectOptions,
     );
   }
 
@@ -1604,6 +1622,7 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
       error instanceof Error
         ? error.message
         : "Unable to load assigned phone numbers.",
+      redirectOptions,
     );
   }
 
@@ -1616,6 +1635,7 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
       "voice",
       "engine_error",
       "That phone number is not assigned to this workspace.",
+      redirectOptions,
     );
   }
 
@@ -1624,6 +1644,7 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
       "voice",
       "engine_error",
       "Choose a number that supports voice calls.",
+      redirectOptions,
     );
   }
 
@@ -1651,6 +1672,7 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
         "voice",
         "engine_error",
         `Unable to save voicemail overflow number: ${error.message}`,
+        redirectOptions,
       );
     }
   }
@@ -1672,7 +1694,12 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectWithSectionMessage("voice", "engine_error", beforeError.message);
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      beforeError.message,
+      redirectOptions,
+    );
   }
 
   const { data: savedPolicy, error: saveError } = await supabase
@@ -1693,6 +1720,7 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
       "voice",
       "engine_error",
       saveError?.message ?? "Unable to enable voicemail overflow.",
+      redirectOptions,
     );
   }
 
@@ -1724,11 +1752,13 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
     "voice",
     "engine_message",
     `${selectedNumber.phoneNumber} is now the voicemail overflow number.`,
+    redirectOptions,
   );
 }
 
 export async function disableVoicemailOverflowNumberAction(formData: FormData) {
   const phoneNumberId = formString(formData, "phoneNumberId");
+  const redirectOptions = { panel: "voicemail-overflow" };
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const serviceSupabase = createServiceSupabaseClient();
   let assignedNumbers: WorkspacePhoneNumberPoolRow[] = [];
@@ -1745,6 +1775,7 @@ export async function disableVoicemailOverflowNumberAction(formData: FormData) {
       error instanceof Error
         ? error.message
         : "Unable to load assigned phone numbers.",
+      redirectOptions,
     );
   }
 
@@ -1761,6 +1792,7 @@ export async function disableVoicemailOverflowNumberAction(formData: FormData) {
       "voice",
       "engine_error",
       "That number is not currently set as voicemail overflow.",
+      redirectOptions,
     );
   }
 
@@ -1780,6 +1812,7 @@ export async function disableVoicemailOverflowNumberAction(formData: FormData) {
         "voice",
         "engine_error",
         `Unable to remove voicemail overflow: ${error.message}`,
+        redirectOptions,
       );
     }
   }
@@ -1798,7 +1831,12 @@ export async function disableVoicemailOverflowNumberAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectWithSectionMessage("voice", "engine_error", beforeError.message);
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      beforeError.message,
+      redirectOptions,
+    );
   }
 
   const { data: savedPolicy, error: saveError } = await supabase
@@ -1819,6 +1857,7 @@ export async function disableVoicemailOverflowNumberAction(formData: FormData) {
       "voice",
       "engine_error",
       saveError?.message ?? "Unable to disable voicemail overflow.",
+      redirectOptions,
     );
   }
 
@@ -1850,6 +1889,7 @@ export async function disableVoicemailOverflowNumberAction(formData: FormData) {
     "voice",
     "engine_message",
     "Voicemail overflow routing is disabled.",
+    redirectOptions,
   );
 }
 

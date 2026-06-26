@@ -113,6 +113,7 @@ import Link from "next/link";
 import {
   SettingsShell,
 } from "./settings-shell";
+import { SettingsSubmitButton } from "./settings-submit-button";
 import {
   usageWindowHref,
   type IntegrationSettingsPanel,
@@ -505,14 +506,12 @@ function OutboundWritingStyleEditor({
 
         <div className="settings-footer compact-settings-footer">
           <span>Save to apply these writing instructions to future drafts.</span>
-          <button
-            className="primary-button compact"
+          <SettingsSubmitButton
             name="settingsFocus"
-            type="submit"
             value="outbound-writing"
           >
             Save writing style
-          </button>
+          </SettingsSubmitButton>
         </div>
       </div>
     </details>
@@ -1082,13 +1081,12 @@ function TwilioTelephonySettings({
                 Once assigned, the number is reserved to this workspace and will
                 not be offered to another account.
               </span>
-              <button
-                className="primary-button compact"
+              <SettingsSubmitButton
                 disabled={availableNumbers.length === 0}
-                type="submit"
+                pendingLabel="Enabling..."
               >
                 Enable phone and SMS
-              </button>
+              </SettingsSubmitButton>
             </div>
           </form>
         )}
@@ -1298,15 +1296,14 @@ function StripePaymentsSettings({
                 ? "Stripe is ready for customer payment links."
                 : "Stripe may ask for business and payout details."}
             </span>
-            <button
-              className="primary-button compact"
+            <SettingsSubmitButton
               disabled={!overview.migrationReady || !overview.configured}
-              type="submit"
+              pendingLabel="Opening..."
             >
               {account?.provider_account_id
                 ? "Continue Stripe setup"
                 : "Connect Stripe payments"}
-            </button>
+            </SettingsSubmitButton>
           </div>
         </form>
       </section>
@@ -2093,9 +2090,9 @@ function SenderRulesSettings({
                 <option value="always_ignore">Always ignore</option>
               </select>
             </label>
-            <button className="primary-button compact" type="submit">
+            <SettingsSubmitButton pendingLabel="Adding...">
               Add rule
-            </button>
+            </SettingsSubmitButton>
           </form>
 
           {sortedRules.length > 0 ? (
@@ -2134,9 +2131,12 @@ function SenderRulesSettings({
                       <option value="always_promote">Always relevant</option>
                       <option value="always_ignore">Always ignore</option>
                     </select>
-                    <button className="secondary-button compact" type="submit">
+                    <SettingsSubmitButton
+                      className="secondary-button compact"
+                      pendingLabel="Saving..."
+                    >
                       Save
-                    </button>
+                    </SettingsSubmitButton>
                   </form>
                   <form
                     action={removeInboundEmailSenderRuleSettingsAction}
@@ -2877,9 +2877,9 @@ function GeneralSettingsDetail({
           {displayCurrencySourceLabel(settings)} until the billing provider is
           connected.
         </span>
-        <button className="primary-button compact" type="submit">
+        <SettingsSubmitButton>
           Save business profile
-        </button>
+        </SettingsSubmitButton>
       </div>
     </form>
   );
@@ -3095,9 +3095,9 @@ function InboundEmailSyncSettings({
             Action rules decide what becomes CRM. Personal or noisy mail stays
             out unless it clearly affects the business.
           </span>
-          <button className="primary-button compact" type="submit">
+          <SettingsSubmitButton>
             Save inbound rules
-          </button>
+          </SettingsSubmitButton>
         </div>
       </form>
 
@@ -3560,14 +3560,12 @@ function CommunicationSettingsDetail({
               Save to refresh the signature previews and apply them to future
               Gmail sends.
             </span>
-            <button
-              className="primary-button compact"
+            <SettingsSubmitButton
               name="settingsFocus"
-              type="submit"
               value="email-signatures"
             >
               Save and preview signatures
-            </button>
+            </SettingsSubmitButton>
           </div>
         </div>
       </details>
@@ -3614,6 +3612,7 @@ function VoiceSettingsDetail({
         className="settings-form"
         style={visibleWhen(showVoiceSettingsForm)}
       >
+        <input name="settingsPanel" type="hidden" value={activeVoicePanel} />
         <input name="openAiVoice" type="hidden" value={voiceSettings.openAiVoice} />
         <input
           name="outboundVoicePronunciationPolicy"
@@ -3806,9 +3805,9 @@ function VoiceSettingsDetail({
           className="settings-footer align-end"
           style={visibleWhen(showVoiceSettingsForm)}
         >
-          <button className="primary-button compact" type="submit">
+          <SettingsSubmitButton>
             Save voice settings
-          </button>
+          </SettingsSubmitButton>
         </div>
       </form>
 
@@ -3952,13 +3951,13 @@ function VoicemailOverflowSettings({
               value={voicemailNumber?.id ?? ""}
             />
             <div className="settings-footer align-end">
-              <button
+              <SettingsSubmitButton
                 className="secondary-button compact"
                 disabled={!voicemailNumber}
-                type="submit"
+                pendingLabel="Removing..."
               >
                 Remove overflow setup
-              </button>
+              </SettingsSubmitButton>
             </div>
           </form>
         </div>
@@ -4098,15 +4097,19 @@ function DeveloperSettingsDetail({
               />
               <span>Always show tutorial</span>
             </label>
-            <button className="secondary-button compact" type="submit">
+            <SettingsSubmitButton
+              className="secondary-button compact"
+              pendingLabel="Saving..."
+            >
               Save
-            </button>
+            </SettingsSubmitButton>
           </form>
         </div>
       </article>
 
       <form action={updateVoiceSettingsAction} className="settings-form">
         <input name="redirectSection" type="hidden" value="developer" />
+        <input name="settingsPanel" type="hidden" value="provider-ids" />
         <input
           name="elevenLabsVoicePresetId"
           type="hidden"
@@ -4212,9 +4215,9 @@ function DeveloperSettingsDetail({
             </label>
           </div>
           <div className="settings-footer align-end">
-            <button className="primary-button compact" type="submit">
+            <SettingsSubmitButton>
               Save developer voice settings
-            </button>
+            </SettingsSubmitButton>
           </div>
         </article>
 
@@ -4433,9 +4436,9 @@ function DeveloperSettingsDetail({
             </label>
           </div>
           <div className="settings-footer align-end">
-            <button className="primary-button compact" type="submit">
+            <SettingsSubmitButton>
               Save provider IDs
-            </button>
+            </SettingsSubmitButton>
           </div>
         </article>
       </form>
@@ -4503,9 +4506,9 @@ function PronunciationVocabularySettings({
           <span>Aliases</span>
           <input name="aliases" placeholder="comma-separated, optional" />
         </label>
-        <button className="primary-button compact" type="submit">
+        <SettingsSubmitButton pendingLabel="Adding...">
           Add pronunciation
-        </button>
+        </SettingsSubmitButton>
       </form>
 
       <div className="pronunciation-entry-list">
@@ -4898,13 +4901,13 @@ function KyroBillingSettingsDetail({
         }
         className="kyro-billing-actions"
       >
-        <button
+        <SettingsSubmitButton
           className="usage-ledger-open-button"
           disabled={billingBlocked}
-          type="submit"
+          pendingLabel="Opening..."
         >
           {billingReady ? "Change payment method" : "Add card for free trial"}
-        </button>
+        </SettingsSubmitButton>
       </form>
       <div className="kyro-billing-engine-panel">
         <div className="panel-heading compact-panel-heading">
