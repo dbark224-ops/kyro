@@ -9069,28 +9069,24 @@ button:disabled {
 }
 
 .settings-expandable summary {
-  padding-right: 96px;
+  padding-right: 88px;
 }
 
 .settings-expandable summary::after {
-  content: "Expand";
+  content: "Expand \2193";
   position: absolute;
   top: 50%;
   right: 12px;
   transform: translateY(-50%);
-  border: 1px solid color-mix(in srgb, var(--cyan) 45%, var(--line));
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--cyan) 8%, transparent);
-  color: var(--text);
-  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--cyan) 68%, var(--muted));
+  font-size: 0.74rem;
   font-weight: 850;
-  line-height: 1;
-  padding: 7px 10px;
+  line-height: 1.2;
   pointer-events: none;
 }
 
 .settings-expandable[open] summary::after {
-  content: "Collapse";
+  content: "Collapse \2191";
 }
 
 .settings-accordion summary::-webkit-details-marker {
