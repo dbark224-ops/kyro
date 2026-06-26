@@ -3483,10 +3483,8 @@ function CommunicationSettingsDetail({
               <span>Automatically create internal follow-up reminders</span>
             </label>
 
-            <label className="setting-card follow-up-delay-card">
-              <SettingCardHeading info="Kyro creates the reminder after an outbound reply is recorded. It stays internal until calendar/task integrations are added later.">
-                Default delay
-              </SettingCardHeading>
+            <label className="follow-up-delay-card">
+              <span>Default delay</span>
               <input
                 defaultValue={communicationSettings.followUpDelayDays}
                 max={MAX_FOLLOW_UP_DELAY_DAYS}
@@ -3494,7 +3492,7 @@ function CommunicationSettingsDetail({
                 name="followUpDelayDays"
                 type="number"
               />
-              <span>Days after the outbound reply before follow-up is due.</span>
+              <span>days</span>
             </label>
           </div>
         </fieldset>

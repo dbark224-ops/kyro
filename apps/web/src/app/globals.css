@@ -9668,13 +9668,13 @@ button:disabled {
 }
 
 .follow-up-reminder-panel {
-  padding: 12px;
+  padding: 8px 10px 10px;
 }
 
 .follow-up-reminder-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: 8px 14px;
   align-items: center;
 }
 
@@ -9684,7 +9684,7 @@ button:disabled {
 }
 
 .follow-up-toggle-card {
-  flex: 1 1 260px;
+  flex: 1 1 230px;
   width: auto;
   border: 0;
   background: transparent;
@@ -9692,13 +9692,25 @@ button:disabled {
 }
 
 .follow-up-delay-card {
-  flex: 1 1 150px;
-  max-width: 220px;
-  padding: 10px;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: nowrap;
 }
 
 .follow-up-delay-card input[type="number"] {
-  max-width: 110px;
+  width: 68px;
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+.follow-up-delay-card span:last-child {
+  color: var(--muted);
 }
 
 .compact-checkbox-fieldset {
