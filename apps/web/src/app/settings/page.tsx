@@ -882,7 +882,6 @@ function TwilioTelephonySettings({
   generalSettings: WorkspaceGeneralSettings;
   overview: TwilioTelephonyOverview;
 }>) {
-  const smsNumber = overview.numbers.find((number) => number.capabilities.sms);
   const activeVoiceSmsNumber = overview.numbers.find(
     (number) => number.capabilities.sms && number.capabilities.voice,
   );
@@ -1137,22 +1136,6 @@ function TwilioTelephonySettings({
         </p>
       )}
 
-      <p className="empty-copy">
-        Beta setup uses Kyro&apos;s pre-purchased number pool. When phone/SMS is
-        enabled, Kyro assigns one available voice-and-SMS number for the
-        workspace country. Later, this path can switch to automatic Twilio
-        purchase and Vapi setup without changing the workspace number model.
-      </p>
-
-      {smsNumber ? (
-        <p className="empty-copy">
-          Active SMS number: <strong>{smsNumber.phoneNumber}</strong>
-        </p>
-      ) : overview.defaultFromNumber ? (
-        <p className="empty-copy">
-          Testing sender: <strong>{overview.defaultFromNumber}</strong>
-        </p>
-      ) : null}
     </>
   );
 }
