@@ -55,7 +55,6 @@ import {
 import {
   DISPLAY_CURRENCIES,
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
-  displayCurrencySourceLabel,
   formatCurrencyAmount,
   formatDisplayMoney,
   type DisplayCurrencySettings,
@@ -2903,12 +2902,6 @@ function GeneralSettingsDetail({
       </section>
 
       <div className="settings-footer">
-        <span>
-          Business facts are saved into the workspace profile. Timezone powers
-          quiet hours and scheduling. Display currency currently uses{" "}
-          {displayCurrencySourceLabel(settings)} until the billing provider is
-          connected.
-        </span>
         {activeBusinessPanel === "service-area" ? null : (
           <SettingsSubmitButton>Save business profile</SettingsSubmitButton>
         )}

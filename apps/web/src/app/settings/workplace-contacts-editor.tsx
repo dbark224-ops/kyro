@@ -113,6 +113,9 @@ export function WorkplaceContactsEditor({
   const controlledRows = onContactsChange ? contacts : localRows;
   const rows = ensureWorkplaceContactRows(controlledRows);
   const [selectedContactId, setSelectedContactId] = useState(rows[0]?.id ?? "");
+  const [editableContactId, setEditableContactId] = useState(
+    contacts.length ? "" : (rows[0]?.id ?? ""),
+  );
   const [search, setSearch] = useState("");
   const selectedContact =
     rows.find((contact) => contact.id === selectedContactId) ?? rows[0];
@@ -147,6 +150,7 @@ export function WorkplaceContactsEditor({
 
     commitRows((currentRows) => [...currentRows, nextContact]);
     setSelectedContactId(nextContact.id);
+    setEditableContactId(nextContact.id);
     setSearch("");
   };
 
@@ -158,6 +162,7 @@ export function WorkplaceContactsEditor({
       const fallbackRows = ensureWorkplaceContactRows(nextRows);
 
       setSelectedContactId(fallbackRows[0]?.id ?? "");
+      setEditableContactId("");
       return fallbackRows;
     });
   };
@@ -165,7 +170,7 @@ export function WorkplaceContactsEditor({
   const updateSelectedContact = (
     updates: Partial<WorkplaceContactSettings>,
   ) => {
-    if (!selectedContact) {
+    if (!selectedContact || selectedContact.id !== editableContactId) {
       return;
     }
 
@@ -177,6 +182,8 @@ export function WorkplaceContactsEditor({
       ),
     );
   };
+  const isEditingSelectedContact =
+    Boolean(selectedContact) && selectedContact.id === editableContactId;
 
   return (
     <section className="workplace-contact-editor">
@@ -296,7 +303,13 @@ export function WorkplaceContactsEditor({
                         : "workplace-contact-picker-row"
                     }
                     key={contact.id}
-                    onClick={() => setSelectedContactId(contact.id)}
+                    onClick={() => {
+                      if (contact.id !== selectedContact?.id) {
+                        setEditableContactId("");
+                      }
+
+                      setSelectedContactId(contact.id);
+                    }}
                     type="button"
                   >
                     <span>
@@ -330,19 +343,39 @@ export function WorkplaceContactsEditor({
                 <h3>{selectedContact.name || "New workplace contact"}</h3>
                 <p>{contactMetaLine(selectedContact)}</p>
               </div>
-              <button
-                className="text-button danger"
-                onClick={() => removeContact(selectedContact.id)}
-                type="button"
-              >
-                Remove
-              </button>
+              <div className="workplace-contact-form-actions">
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    setEditableContactId(
+                      isEditingSelectedContact ? "" : selectedContact.id,
+                    )
+                  }
+                  type="button"
+                >
+                  {isEditingSelectedContact ? "Done" : "Edit"}
+                </button>
+                <button
+                  className="text-button danger"
+                  onClick={() => removeContact(selectedContact.id)}
+                  type="button"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
 
-            <div className="crm-lead-form-grid workplace-contact-form-grid">
+            <div
+              className={
+                isEditingSelectedContact
+                  ? "crm-lead-form-grid workplace-contact-form-grid"
+                  : "crm-lead-form-grid workplace-contact-form-grid locked"
+              }
+            >
               <label className="workplace-contact-field-wide">
                 Name
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({ name: event.currentTarget.value })
                   }
@@ -353,6 +386,7 @@ export function WorkplaceContactsEditor({
               <label>
                 Role
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({ role: event.currentTarget.value })
                   }
@@ -363,6 +397,7 @@ export function WorkplaceContactsEditor({
               <label>
                 Preferred channel
                 <select
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       preferredChannel: event.currentTarget
@@ -381,6 +416,7 @@ export function WorkplaceContactsEditor({
               <label className="workplace-contact-field-wide">
                 Phone
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       phoneNumber: event.currentTarget.value,
@@ -394,6 +430,7 @@ export function WorkplaceContactsEditor({
               <label className="workplace-contact-field-wide">
                 Private escalation number
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       privatePhoneNumber: event.currentTarget.value,
@@ -407,6 +444,7 @@ export function WorkplaceContactsEditor({
               <label className="workplace-contact-field-wide">
                 Email
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({ email: event.currentTarget.value })
                   }
@@ -418,6 +456,7 @@ export function WorkplaceContactsEditor({
               <label>
                 Trade or specialty
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       tradeSpecialty: event.currentTarget.value,
@@ -430,6 +469,7 @@ export function WorkplaceContactsEditor({
               <label>
                 Vehicle registration
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       vehicleRegistration: event.currentTarget.value,
@@ -442,6 +482,7 @@ export function WorkplaceContactsEditor({
               <label>
                 Active days
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       activeDays: event.currentTarget.value,
@@ -454,6 +495,7 @@ export function WorkplaceContactsEditor({
               <label>
                 Working hours
                 <input
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       workingHours: event.currentTarget.value,
@@ -466,6 +508,7 @@ export function WorkplaceContactsEditor({
               <label className="workplace-contact-field-wide">
                 Escalation eligible
                 <select
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
                       receivesEscalations:
@@ -481,6 +524,7 @@ export function WorkplaceContactsEditor({
               <label className="full-row">
                 Notes
                 <textarea
+                  disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({ notes: event.currentTarget.value })
                   }

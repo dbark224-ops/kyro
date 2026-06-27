@@ -8603,6 +8603,13 @@ button:disabled {
   gap: 9px;
 }
 
+.workplace-contact-form-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .workplace-contact-form-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -8621,6 +8628,16 @@ button:disabled {
 
 .workplace-contact-form-grid textarea {
   min-height: 66px;
+}
+
+.workplace-contact-form-grid.locked input:disabled,
+.workplace-contact-form-grid.locked select:disabled,
+.workplace-contact-form-grid.locked textarea:disabled {
+  border-color: color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--background) 42%, var(--surface));
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  cursor: default;
+  opacity: 1;
 }
 
 @container workplace-contact (max-width: 860px) {
@@ -8654,9 +8671,13 @@ button:disabled {
   }
 
   .workplace-contact-editor-header .primary-button,
-  .workplace-contact-form-header .text-button {
+  .workplace-contact-form-actions .text-button {
     justify-self: stretch;
     width: 100%;
+  }
+
+  .workplace-contact-form-actions {
+    align-items: stretch;
   }
 }
 
