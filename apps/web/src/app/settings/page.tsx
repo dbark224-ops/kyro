@@ -2930,20 +2930,24 @@ function GeneralSettingsDetail({
       <section
         className="business-profile-section-panel"
         id="business-profile-workplace-contacts"
-        style={visibleWhen(
-          activeBusinessPanel === "workplace-contacts" ||
-            activeBusinessPanel === "urgent-escalation",
-        )}
+        style={visibleWhen(activeBusinessPanel === "workplace-contacts")}
+      >
+        <WorkplaceContactsEditor
+          contacts={profile.workplaceContacts}
+          defaultEmail={userEmail}
+          description="These workplace contacts are used to recognize internal callers and decide who Kyro can alert when calls need a human."
+          title="Workplace contacts"
+        />
+      </section>
+
+      <section
+        className="business-profile-section-panel"
+        id="business-profile-urgent-escalation"
+        style={visibleWhen(activeBusinessPanel === "urgent-escalation")}
       >
         <EscalationSettingsEditor
           contacts={profile.workplaceContacts}
-          defaultEmail={userEmail}
           escalation={profile.urgentEscalation}
-          focus={
-            activeBusinessPanel === "urgent-escalation"
-              ? "escalation"
-              : "contacts"
-          }
         />
       </section>
 

@@ -9,17 +9,11 @@ import {
   type WorkplaceContactSettings,
 } from "../../lib/workspace/general-settings";
 import { useMemo, useState } from "react";
-import {
-  WORKPLACE_CONTACT_CHANNEL_LABELS,
-  WorkplaceContactsEditor,
-  ensureWorkplaceContactRows,
-} from "./workplace-contacts-editor";
+import { WORKPLACE_CONTACT_CHANNEL_LABELS } from "./workplace-contacts-editor";
 
 type EscalationSettingsEditorProps = {
   contacts: WorkplaceContactSettings[];
-  defaultEmail: string;
   escalation: UrgentEscalationSettings;
-  focus: "contacts" | "escalation";
 };
 
 function nextId(prefix: string) {
@@ -48,25 +42,20 @@ function contactLabel(contact: WorkplaceContactSettings, index: number) {
 
 export function EscalationSettingsEditor({
   contacts,
-  defaultEmail,
   escalation,
-  focus,
 }: Readonly<EscalationSettingsEditorProps>) {
-  const [contactRows, setContactRows] = useState<WorkplaceContactSettings[]>(
-    ensureWorkplaceContactRows(contacts),
-  );
   const [stepRows, setStepRows] = useState<UrgentEscalationStepSettings[]>(
     escalation.steps.length ? escalation.steps : [emptyStep()],
   );
 
   const escalationContacts = useMemo(
     () =>
-      contactRows.filter(
+      contacts.filter(
         (contact) =>
           contact.receivesEscalations &&
           (contact.name || contact.phoneNumber || contact.email),
       ),
-    [contactRows],
+    [contacts],
   );
 
   const updateStep = (
@@ -81,16 +70,7 @@ export function EscalationSettingsEditor({
   };
 
   return (
-    <div className={`escalation-settings-stack focus-${focus}`}>
-      <div className="escalation-contact-editor">
-        <WorkplaceContactsEditor
-          contacts={contactRows}
-          defaultEmail={defaultEmail}
-          onContactsChange={setContactRows}
-          title="People Kyro can alert"
-        />
-      </div>
-
+    <div className="escalation-settings-stack">
       <section className="integration-choice-panel escalation-trigger-intro">
         <div>
           <p className="eyebrow">Urgent escalation</p>
@@ -207,7 +187,7 @@ export function EscalationSettingsEditor({
             <section className="escalation-step-row" key={step.id}>
               <input name="urgentEscalationStepId" type="hidden" value={step.id} />
               <div className="escalation-step-index">{index + 1}</div>
-              <label>
+              <label className="escalation-step-channel">
                 <span>Channel</span>
                 <select
                   name="urgentEscalationStepChannel"
@@ -225,7 +205,7 @@ export function EscalationSettingsEditor({
                   ))}
                 </select>
               </label>
-              <label>
+              <label className="escalation-step-recipient">
                 <span>Recipient</span>
                 <select
                   name="urgentEscalationStepContactId"
@@ -243,7 +223,7 @@ export function EscalationSettingsEditor({
                   ))}
                 </select>
               </label>
-              <label>
+              <label className="escalation-step-delay">
                 <span>Delay</span>
                 <input
                   min={0}
@@ -256,14 +236,14 @@ export function EscalationSettingsEditor({
                   type="number"
                   value={step.delayMinutes}
                 />
+                <small className="escalation-step-delay-copy">
+                  {step.delayMinutes === 0
+                    ? "Immediately"
+                    : `After ${step.delayMinutes} min if unacknowledged`}
+                </small>
               </label>
-              <span className="escalation-step-delay-copy">
-                {step.delayMinutes === 0
-                  ? "Immediately"
-                  : `After ${step.delayMinutes} min if unacknowledged`}
-              </span>
               <button
-                className="text-button danger"
+                className="text-button danger escalation-step-remove"
                 onClick={() =>
                   setStepRows((current) =>
                     current.filter((_, stepIndex) => stepIndex !== index),
