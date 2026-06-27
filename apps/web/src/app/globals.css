@@ -8333,10 +8333,10 @@ button:disabled {
 .emergency-window-controls {
   display: grid;
   min-width: 0;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns:
-    minmax(92px, 1.15fr) minmax(58px, 0.7fr) minmax(68px, 0.8fr)
-    minmax(70px, 0.8fr);
+    minmax(76px, 1fr) minmax(46px, 0.48fr) minmax(52px, 0.55fr)
+    minmax(44px, 0.42fr);
 }
 
 .emergency-window-select {
@@ -8355,6 +8355,7 @@ button:disabled {
 
 .emergency-window-select select {
   min-width: 0;
+  padding: 8px 7px;
 }
 
 .emergency-window-summary {
