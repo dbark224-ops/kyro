@@ -71,17 +71,6 @@ export function TagInputField({
     <div className="settings-tag-field">
       <input name={name} type="hidden" value={tags.join(", ")} />
       <div className="settings-tag-list">
-        {tags.map((tag) => (
-          <button
-            className="settings-tag-pill"
-            key={tag}
-            onClick={() => removeTag(tag)}
-            type="button"
-          >
-            <span>{tag}</span>
-            <span aria-hidden="true">x</span>
-          </button>
-        ))}
         <input
           aria-label={ariaLabel}
           onBlur={() => addTags()}
@@ -104,6 +93,21 @@ export function TagInputField({
           placeholder={tags.length ? "Add another..." : placeholder}
           value={draft}
         />
+        {tags.length ? (
+          <div className="settings-tag-pill-list">
+            {tags.map((tag) => (
+              <button
+                className="settings-tag-pill"
+                key={tag}
+                onClick={() => removeTag(tag)}
+                type="button"
+              >
+                <span>{tag}</span>
+                <span aria-hidden="true">x</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

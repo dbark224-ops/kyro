@@ -2585,7 +2585,7 @@ function GeneralSettingsDetail({
           </div>
 
           <div
-            className="setting-card"
+            className="setting-card service-area-tag-card"
             style={visibleWhen(showServiceArea)}
           >
             <SettingCardHeading info="Plain-English operating area Kyro can reference when qualifying jobs. Press Enter after each area.">
@@ -2599,7 +2599,10 @@ function GeneralSettingsDetail({
             />
           </div>
 
-          <div className="setting-card" style={visibleWhen(showServiceArea)}>
+          <div
+            className="setting-card service-area-tag-card"
+            style={visibleWhen(showServiceArea)}
+          >
             <SettingCardHeading info="Useful for matching and explaining whether a job is likely inside the normal service area. Press Enter after each suburb.">
               Suburbs serviced
             </SettingCardHeading>
@@ -2611,7 +2614,10 @@ function GeneralSettingsDetail({
             />
           </div>
 
-          <div className="setting-card" style={visibleWhen(showServiceArea)}>
+          <div
+            className="setting-card service-area-tag-card"
+            style={visibleWhen(showServiceArea)}
+          >
             <SettingCardHeading info="Optional postcode list. Press Enter after each postcode.">
               Postcodes serviced
             </SettingCardHeading>
@@ -2622,19 +2628,6 @@ function GeneralSettingsDetail({
               placeholder="4121, 4122, 4101..."
             />
           </div>
-
-          <label className="setting-card" style={visibleWhen(showServiceArea)}>
-            <SettingCardHeading info="Approximate normal travel radius for jobs. Leave blank if the business uses suburb/postcode rules instead.">
-              Travel radius
-            </SettingCardHeading>
-            <input
-              defaultValue={profile.travelRadiusKm ?? ""}
-              min={0}
-              name="businessTravelRadiusKm"
-              placeholder="30"
-              type="number"
-            />
-          </label>
 
           <label className="setting-card" style={visibleWhen(showAvailability)}>
             <SettingCardHeading info="A lightweight staffing number Kyro can use for workload and capability context.">

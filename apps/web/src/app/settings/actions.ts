@@ -795,7 +795,9 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       servicePostcodes: formString(formData, "businessServicePostcodes"),
       serviceSuburbs: formString(formData, "businessServiceSuburbs"),
       staffCount: formString(formData, "businessStaffCount"),
-      travelRadiusKm: formString(formData, "businessTravelRadiusKm"),
+      travelRadiusKm: formData.has("businessTravelRadiusKm")
+        ? formString(formData, "businessTravelRadiusKm")
+        : beforeGeneralSettings.businessProfile.travelRadiusKm,
       urgentEscalation: {
         customDays: formString(formData, "urgentEscalationCustomDays"),
         customEndTime: formString(formData, "urgentEscalationCustomEndTime"),

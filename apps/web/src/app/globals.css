@@ -7994,6 +7994,10 @@ button:disabled {
   grid-column: span 1;
 }
 
+.business-profile-grid .service-area-tag-card {
+  grid-column: 1 / -1;
+}
+
 .business-profile-section-panel {
   display: grid;
   gap: 12px;
@@ -8030,15 +8034,14 @@ button:disabled {
 }
 
 .settings-tag-list {
-  display: flex;
+  display: grid;
   min-height: 44px;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: stretch;
+  gap: 8px;
   border: 1px solid var(--input-border);
   border-radius: var(--radius-control);
   background: var(--input-bg);
-  padding: 6px;
+  padding: 8px;
 }
 
 .settings-tag-list:focus-within {
@@ -8047,29 +8050,51 @@ button:disabled {
 }
 
 .settings-tag-list input {
-  flex: 1 1 110px;
-  min-width: 90px;
-  min-height: 28px;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
   border: 0;
   background: transparent;
   color: var(--text);
   font: inherit;
   outline: 0;
-  padding: 4px 6px;
+  padding: 5px 6px;
+}
+
+.settings-tag-pill-list {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  padding-top: 8px;
 }
 
 .settings-tag-pill {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
+  min-width: 0;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   border: 1px solid color-mix(in srgb, var(--cyan) 50%, var(--line));
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--cyan) 13%, var(--surface));
   color: var(--text);
   cursor: pointer;
   font-size: 0.75rem;
   font-weight: 850;
-  padding: 5px 8px;
+  line-height: 1.25;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.settings-tag-pill span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-tag-pill span[aria-hidden="true"] {
+  flex: 0 0 auto;
+  color: var(--muted);
 }
 
 .settings-tag-pill:hover,
