@@ -2460,18 +2460,6 @@ function GeneralSettingsDetail({
       className="settings-form"
       encType="multipart/form-data"
     >
-      <section className="integration-choice-panel">
-        <div>
-          <p className="eyebrow">Business profile</p>
-          <h3>{profile.businessName || workspaceName}</h3>
-          <p>
-            Core facts Kyro can use across reports, assistant context,
-            documents, customer replies, and future onboarding.
-          </p>
-        </div>
-        <span className="pill">Workspace facts</span>
-      </section>
-
       <section
         className="business-profile-section-panel"
         id="business-profile-core"
