@@ -7996,6 +7996,8 @@ button:disabled {
 
 .business-profile-grid .service-area-tag-card {
   grid-column: 1 / -1;
+  gap: 7px;
+  padding: 10px;
 }
 
 .business-profile-grid .availability-editor-wrapper {
@@ -8222,7 +8224,8 @@ button:disabled {
 }
 
 .settings-tag-pill-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   padding-top: 8px;
@@ -8230,8 +8233,10 @@ button:disabled {
 
 .settings-tag-pill {
   display: flex;
-  width: 100%;
-  min-width: 0;
+  flex: 0 1 calc((100% - 24px) / 5);
+  width: auto;
+  min-width: min(100%, 96px);
+  max-width: calc((100% - 24px) / 5);
   align-items: center;
   justify-content: space-between;
   gap: 6px;
@@ -8243,7 +8248,7 @@ button:disabled {
   font-size: 0.75rem;
   font-weight: 850;
   line-height: 1.25;
-  padding: 7px 9px;
+  padding: 6px 8px;
   text-align: left;
 }
 
@@ -12665,6 +12670,11 @@ button:disabled {
 
   .availability-day-row {
     grid-template-columns: 1fr;
+  }
+
+  .settings-tag-pill {
+    flex-basis: calc((100% - 12px) / 3);
+    max-width: calc((100% - 12px) / 3);
   }
 
   .escalation-step-row label,
