@@ -34,6 +34,7 @@ export type WorkspaceBusinessProfileSettings = {
   businessAddress: string;
   businessName: string;
   contactHours: string;
+  contactHoursSchedule: BusinessHoursScheduleSettings;
   emergencyAfterHoursRate: string;
   emergencyAvailabilityMode: string;
   emergencyDays: string;
@@ -54,11 +55,37 @@ export type WorkspaceBusinessProfileSettings = {
   serviceArea: string;
   servicePostcodes: string;
   serviceSuburbs: string;
+  fieldStaffContactIds: string[];
   staffCount: number | null;
   travelRadiusKm: number | null;
   urgentEscalation: UrgentEscalationSettings;
   workplaceContacts: WorkplaceContactSettings[];
   workingHours: string;
+  workingHoursSchedule: BusinessHoursScheduleSettings;
+};
+
+export const BUSINESS_HOUR_DAYS = [
+  { key: "monday", label: "Monday", shortLabel: "Mon" },
+  { key: "tuesday", label: "Tuesday", shortLabel: "Tue" },
+  { key: "wednesday", label: "Wednesday", shortLabel: "Wed" },
+  { key: "thursday", label: "Thursday", shortLabel: "Thu" },
+  { key: "friday", label: "Friday", shortLabel: "Fri" },
+  { key: "saturday", label: "Saturday", shortLabel: "Sat" },
+  { key: "sunday", label: "Sunday", shortLabel: "Sun" },
+] as const;
+
+export type BusinessHourDayKey = (typeof BUSINESS_HOUR_DAYS)[number]["key"];
+
+export type BusinessHoursDaySettings = {
+  day: BusinessHourDayKey;
+  enabled: boolean;
+  endTime: string;
+  startTime: string;
+};
+
+export type BusinessHoursScheduleSettings = {
+  days: BusinessHoursDaySettings[];
+  notes: string;
 };
 
 export const WORKPLACE_CONTACT_CHANNELS = [
@@ -198,6 +225,20 @@ export type WorkspaceGeneralSettingsFallback = Partial<
   businessProfile?: Partial<WorkspaceBusinessProfileSettings>;
 };
 
+function defaultBusinessHoursSchedule(): BusinessHoursScheduleSettings {
+  return {
+    days: BUSINESS_HOUR_DAYS.map((day) => ({
+      day: day.key,
+      enabled: ["monday", "tuesday", "wednesday", "thursday", "friday"].includes(
+        day.key,
+      ),
+      endTime: "16:00",
+      startTime: "07:00",
+    })),
+    notes: "",
+  };
+}
+
 export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfileSettings =
   {
     brandAccentColor: "#ec3c96",
@@ -206,6 +247,7 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     businessAddress: "",
     businessName: "",
     contactHours: "",
+    contactHoursSchedule: defaultBusinessHoursSchedule(),
     emergencyAfterHoursRate: "",
     emergencyAvailabilityMode: "specified",
     emergencyDays: "Every day",
@@ -226,6 +268,7 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     serviceArea: "",
     servicePostcodes: "",
     serviceSuburbs: "",
+    fieldStaffContactIds: [],
     staffCount: null,
     travelRadiusKm: null,
     urgentEscalation: {
@@ -267,6 +310,7 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     },
     workplaceContacts: [],
     workingHours: "",
+    workingHoursSchedule: defaultBusinessHoursSchedule(),
   };
 
 export const DEFAULT_WORKSPACE_GENERAL_SETTINGS: WorkspaceGeneralSettings = {
@@ -360,6 +404,81 @@ function stableId(value: unknown, fallback: string) {
   const id = textValue(value);
 
   return id && /^[a-z0-9_-]{2,80}$/i.test(id) ? id : fallback;
+}
+
+function stableIdList(value: unknown): string[] {
+  const rows = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const seen = new Set<string>();
+
+  return rows
+    .map((row) => stableId(row, ""))
+    .filter(Boolean)
+    .filter((row) => {
+      if (seen.has(row)) {
+        return false;
+      }
+
+      seen.add(row);
+      return true;
+    })
+    .slice(0, 24);
+}
+
+function normalizeBusinessHourDayKey(
+  value: unknown,
+  fallback: BusinessHourDayKey,
+): BusinessHourDayKey {
+  const key = textValue(value);
+
+  return BUSINESS_HOUR_DAYS.some((day) => day.key === key)
+    ? (key as BusinessHourDayKey)
+    : fallback;
+}
+
+function normalizeTimeValue(value: unknown, fallback: string) {
+  const time = textValue(value);
+
+  return time && /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : fallback;
+}
+
+function normalizeBusinessHoursSchedule(
+  value: unknown,
+  fallback = defaultBusinessHoursSchedule(),
+): BusinessHoursScheduleSettings {
+  const settings = objectRecord(value);
+  const rows = Array.isArray(settings.days) ? settings.days : [];
+  const fallbackDays = new Map(fallback.days.map((day) => [day.day, day]));
+  const inputDays = new Map(
+    rows.map((row, index) => {
+      const record = objectRecord(row);
+      const fallbackDay = BUSINESS_HOUR_DAYS[index]?.key ?? "monday";
+      const key = normalizeBusinessHourDayKey(record.day, fallbackDay);
+
+      return [key, record] as const;
+    }),
+  );
+
+  return {
+    days: BUSINESS_HOUR_DAYS.map((day) => {
+      const input = inputDays.get(day.key) ?? {};
+      const fallbackDay = fallbackDays.get(day.key);
+
+      return {
+        day: day.key,
+        enabled: booleanValue(input.enabled, fallbackDay?.enabled ?? false),
+        endTime: normalizeTimeValue(input.endTime, fallbackDay?.endTime ?? "16:00"),
+        startTime: normalizeTimeValue(
+          input.startTime,
+          fallbackDay?.startTime ?? "07:00",
+        ),
+      };
+    }),
+    notes: cappedTextValue(settings.notes, fallback.notes, 600),
+  };
 }
 
 function normalizeWorkplaceContactChannel(
@@ -542,6 +661,10 @@ export function normalizeWorkspaceBusinessProfileSettings(
       fallback.contactHours ?? defaultSettings.contactHours,
       600,
     ),
+    contactHoursSchedule: normalizeBusinessHoursSchedule(
+      settings.contactHoursSchedule,
+      fallback.contactHoursSchedule ?? defaultSettings.contactHoursSchedule,
+    ),
     emergencyAfterHoursRate: cappedTextValue(
       settings.emergencyAfterHoursRate,
       fallback.emergencyAfterHoursRate ??
@@ -642,6 +765,9 @@ export function normalizeWorkspaceBusinessProfileSettings(
       fallback.serviceSuburbs ?? defaultSettings.serviceSuburbs,
       1600,
     ),
+    fieldStaffContactIds: stableIdList(
+      settings.fieldStaffContactIds ?? fallback.fieldStaffContactIds,
+    ),
     staffCount: nullablePositiveInteger(
       settings.staffCount ?? fallback.staffCount,
     ),
@@ -659,6 +785,10 @@ export function normalizeWorkspaceBusinessProfileSettings(
       settings.workingHours,
       fallback.workingHours ?? defaultSettings.workingHours,
       800,
+    ),
+    workingHoursSchedule: normalizeBusinessHoursSchedule(
+      settings.workingHoursSchedule,
+      fallback.workingHoursSchedule ?? defaultSettings.workingHoursSchedule,
     ),
   };
 }

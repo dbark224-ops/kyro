@@ -7998,6 +7998,166 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.business-profile-grid .availability-editor-wrapper {
+  grid-column: 1 / -1;
+}
+
+.availability-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.availability-schedule-card,
+.availability-staff-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 32%, var(--surface));
+  padding: 12px;
+}
+
+.availability-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.availability-card-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.availability-card-header strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.availability-card-header span,
+.availability-card-header em,
+.availability-notes-field span,
+.availability-day-row label > span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.availability-card-header em {
+  display: inline-flex;
+  min-height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--cyan) 9%, transparent);
+  color: var(--text);
+  padding: 3px 8px;
+}
+
+.availability-day-grid,
+.availability-staff-list {
+  display: grid;
+  gap: 7px;
+}
+
+.availability-day-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(110px, 0.32fr) minmax(110px, 0.32fr);
+  gap: 8px;
+  align-items: end;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface) 72%, var(--background));
+  padding: 8px;
+}
+
+.availability-day-row label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.availability-day-toggle,
+.availability-staff-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.availability-day-toggle {
+  align-self: center;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+.availability-day-toggle input,
+.availability-staff-row input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.availability-day-row input[type="time"] {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.availability-day-row input:disabled {
+  opacity: 0.48;
+}
+
+.availability-notes-field {
+  display: grid;
+  gap: 6px;
+}
+
+.availability-notes-field textarea {
+  min-height: 72px;
+}
+
+.availability-staff-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+.availability-staff-row {
+  min-width: 0;
+  align-items: flex-start;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface) 72%, var(--background));
+  color: var(--text);
+  cursor: pointer;
+  padding: 9px;
+}
+
+.availability-staff-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.availability-staff-row strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.availability-staff-row small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .business-profile-section-panel {
   display: grid;
   gap: 12px;
@@ -12501,6 +12661,10 @@ button:disabled {
 
   .escalation-step-row {
     grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .availability-day-row {
+    grid-template-columns: 1fr;
   }
 
   .escalation-step-row label,

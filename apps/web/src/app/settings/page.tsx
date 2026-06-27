@@ -26,6 +26,7 @@ import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
 import {
   EscalationSettingsEditor,
 } from "./escalation-settings-editor";
+import { BusinessAvailabilityEditor } from "./business-availability-editor";
 import { WorkplaceContactsEditor } from "./workplace-contacts-editor";
 import { TagInputField } from "./tag-input-field";
 import {
@@ -2629,46 +2630,18 @@ function GeneralSettingsDetail({
             />
           </div>
 
-          <label className="setting-card" style={visibleWhen(showAvailability)}>
-            <SettingCardHeading info="A lightweight staffing number Kyro can use for workload and capability context.">
-              Staff count
-            </SettingCardHeading>
-            <input
-              defaultValue={profile.staffCount ?? ""}
-              min={0}
-              name="businessStaffCount"
-              placeholder="3"
-              type="number"
-            />
-          </label>
-
-          <label
-            className="setting-card settings-textarea"
+          <div
+            className="availability-editor-wrapper"
             style={visibleWhen(showAvailability)}
           >
-            <SettingCardHeading info="Normal operating hours for work and job scheduling context.">
-              Working hours
-            </SettingCardHeading>
-            <textarea
-              defaultValue={profile.workingHours}
-              name="businessWorkingHours"
-              placeholder="Monday to Friday, 7:00 AM to 4:00 PM"
+            <BusinessAvailabilityEditor
+              contactHoursSchedule={profile.contactHoursSchedule}
+              fieldStaffContactIds={profile.fieldStaffContactIds}
+              staffCount={profile.staffCount}
+              workplaceContacts={profile.workplaceContacts}
+              workingHoursSchedule={profile.workingHoursSchedule}
             />
-          </label>
-
-          <label
-            className="setting-card settings-textarea"
-            style={visibleWhen(showAvailability)}
-          >
-            <SettingCardHeading info="Hours customers can expect the business or Kyro to respond.">
-              Contact hours
-            </SettingCardHeading>
-            <textarea
-              defaultValue={profile.contactHours}
-              name="businessContactHours"
-              placeholder="Weekdays 7:00 AM to 5:30 PM; urgent calls after hours"
-            />
-          </label>
+          </div>
         </div>
 
         <section

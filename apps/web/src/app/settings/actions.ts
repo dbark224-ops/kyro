@@ -124,6 +124,20 @@ function formBoolean(formData: FormData, key: string) {
   return formData.get(key) === "on";
 }
 
+function formJson(formData: FormData, key: string) {
+  const value = formString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 function phoneNumberMetadataRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? { ...(value as Record<string, unknown>) }
@@ -772,6 +786,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       businessAddress: formString(formData, "businessAddress"),
       businessName: formString(formData, "businessName"),
       contactHours: formString(formData, "businessContactHours"),
+      contactHoursSchedule: formJson(formData, "businessContactHoursSchedule"),
       emergencyAfterHoursRate: formString(
         formData,
         "businessEmergencyAfterHoursRate",
@@ -794,6 +809,10 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       serviceArea: formString(formData, "businessServiceArea"),
       servicePostcodes: formString(formData, "businessServicePostcodes"),
       serviceSuburbs: formString(formData, "businessServiceSuburbs"),
+      fieldStaffContactIds: formStringList(
+        formData,
+        "businessFieldStaffContactId",
+      ),
       staffCount: formString(formData, "businessStaffCount"),
       travelRadiusKm: formData.has("businessTravelRadiusKm")
         ? formString(formData, "businessTravelRadiusKm")
@@ -816,6 +835,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       },
       workplaceContacts: workplaceContactsFromForm(formData),
       workingHours: formString(formData, "businessWorkingHours"),
+      workingHoursSchedule: formJson(formData, "businessWorkingHoursSchedule"),
     },
     {
       businessName: workspace.name,
