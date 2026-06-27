@@ -9,6 +9,11 @@ import {
   type WorkplaceContactSettings,
 } from "../../lib/workspace/general-settings";
 import { useMemo, useState } from "react";
+import {
+  WORKPLACE_CONTACT_CHANNEL_LABELS,
+  WorkplaceContactsEditor,
+  ensureWorkplaceContactRows,
+} from "./workplace-contacts-editor";
 
 type EscalationSettingsEditorProps = {
   contacts: WorkplaceContactSettings[];
@@ -17,37 +22,12 @@ type EscalationSettingsEditorProps = {
   focus: "contacts" | "escalation";
 };
 
-const channelLabels: Record<WorkplaceContactChannel, string> = {
-  app_notification: "App notification",
-  email: "Email",
-  phone: "Phone call",
-  sms: "SMS",
-};
-
 function nextId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
   }
 
   return `${prefix}-${Date.now().toString(36)}`;
-}
-
-function emptyContact(): WorkplaceContactSettings {
-  return {
-    activeDays: "",
-    email: "",
-    id: nextId("contact"),
-    name: "",
-    notes: "",
-    phoneNumber: "",
-    preferredChannel: "sms",
-    privatePhoneNumber: "",
-    receivesEscalations: true,
-    role: "",
-    tradeSpecialty: "",
-    vehicleRegistration: "",
-    workingHours: "",
-  };
 }
 
 function emptyStep(): UrgentEscalationStepSettings {
@@ -73,7 +53,7 @@ export function EscalationSettingsEditor({
   focus,
 }: Readonly<EscalationSettingsEditorProps>) {
   const [contactRows, setContactRows] = useState<WorkplaceContactSettings[]>(
-    contacts.length ? contacts : [emptyContact()],
+    ensureWorkplaceContactRows(contacts),
   );
   const [stepRows, setStepRows] = useState<UrgentEscalationStepSettings[]>(
     escalation.steps.length ? escalation.steps : [emptyStep()],
@@ -89,17 +69,6 @@ export function EscalationSettingsEditor({
     [contactRows],
   );
 
-  const updateContact = (
-    index: number,
-    updates: Partial<WorkplaceContactSettings>,
-  ) => {
-    setContactRows((current) =>
-      current.map((contact, contactIndex) =>
-        contactIndex === index ? { ...contact, ...updates } : contact,
-      ),
-    );
-  };
-
   const updateStep = (
     index: number,
     updates: Partial<UrgentEscalationStepSettings>,
@@ -113,199 +82,13 @@ export function EscalationSettingsEditor({
 
   return (
     <div className={`escalation-settings-stack focus-${focus}`}>
-      <section className="integration-choice-panel escalation-contact-intro">
-        <div>
-          <p className="eyebrow">Workplace contacts</p>
-          <h3>People Kyro can alert</h3>
-          <p>
-            Add internal people such as the owner, PA, tradies, or fallback
-            contacts. These are not customer CRM records.
-          </p>
-        </div>
-        <button
-          className="secondary-button compact"
-          onClick={() => setContactRows((current) => [...current, emptyContact()])}
-          type="button"
-        >
-          Add contact
-        </button>
-      </section>
-
-      <div className="workplace-contact-list escalation-contact-list">
-        {contactRows.map((contact, index) => (
-          <section className="workplace-contact-card" key={contact.id}>
-            <input name="workplaceContactId" type="hidden" value={contact.id} />
-            <div className="workplace-contact-card-header">
-              <div>
-                <p className="eyebrow">Contact {index + 1}</p>
-                <strong>{contact.name || "New workplace contact"}</strong>
-              </div>
-              <button
-                className="text-button danger"
-                onClick={() =>
-                  setContactRows((current) =>
-                    current.filter((_, contactIndex) => contactIndex !== index),
-                  )
-                }
-                type="button"
-              >
-                Remove
-              </button>
-            </div>
-
-            <div className="settings-grid workplace-contact-grid">
-              <label className="setting-card setting-card-compact-input">
-                <strong>Name</strong>
-                <input
-                  name="workplaceContactName"
-                  onChange={(event) =>
-                    updateContact(index, { name: event.target.value })
-                  }
-                  placeholder="Daryl"
-                  value={contact.name}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Role</strong>
-                <input
-                  name="workplaceContactRole"
-                  onChange={(event) =>
-                    updateContact(index, { role: event.target.value })
-                  }
-                  placeholder="Owner, PA, plumber..."
-                  value={contact.role}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Phone</strong>
-                <input
-                  name="workplaceContactPhone"
-                  onChange={(event) =>
-                    updateContact(index, { phoneNumber: event.target.value })
-                  }
-                  placeholder="+61 400 000 000"
-                  value={contact.phoneNumber}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Private escalation number</strong>
-                <input
-                  name="workplaceContactPrivatePhone"
-                  onChange={(event) =>
-                    updateContact(index, {
-                      privatePhoneNumber: event.target.value,
-                    })
-                  }
-                  placeholder="Optional private number"
-                  value={contact.privatePhoneNumber}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Email</strong>
-                <input
-                  name="workplaceContactEmail"
-                  onChange={(event) =>
-                    updateContact(index, { email: event.target.value })
-                  }
-                  placeholder={defaultEmail || "person@example.com"}
-                  type="email"
-                  value={contact.email}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Preferred channel</strong>
-                <select
-                  name="workplaceContactPreferredChannel"
-                  onChange={(event) =>
-                    updateContact(index, {
-                      preferredChannel: event.target
-                        .value as WorkplaceContactChannel,
-                    })
-                  }
-                  value={contact.preferredChannel}
-                >
-                  {WORKPLACE_CONTACT_CHANNELS.map((channel) => (
-                    <option key={channel} value={channel}>
-                      {channelLabels[channel]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Trade or specialty</strong>
-                <input
-                  name="workplaceContactSpecialty"
-                  onChange={(event) =>
-                    updateContact(index, { tradeSpecialty: event.target.value })
-                  }
-                  placeholder="Gas fitter, admin, roofing..."
-                  value={contact.tradeSpecialty}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Vehicle registration</strong>
-                <input
-                  name="workplaceContactVehicleRegistration"
-                  onChange={(event) =>
-                    updateContact(index, {
-                      vehicleRegistration: event.target.value,
-                    })
-                  }
-                  placeholder="Optional"
-                  value={contact.vehicleRegistration}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Active days</strong>
-                <input
-                  name="workplaceContactActiveDays"
-                  onChange={(event) =>
-                    updateContact(index, { activeDays: event.target.value })
-                  }
-                  placeholder="Mon-Fri, weekends..."
-                  value={contact.activeDays}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Working hours</strong>
-                <input
-                  name="workplaceContactWorkingHours"
-                  onChange={(event) =>
-                    updateContact(index, { workingHours: event.target.value })
-                  }
-                  placeholder="7:00 AM to 4:00 PM"
-                  value={contact.workingHours}
-                />
-              </label>
-              <label className="setting-card setting-card-compact-input">
-                <strong>Escalation eligible</strong>
-                <select
-                  name="workplaceContactReceivesEscalations"
-                  onChange={(event) =>
-                    updateContact(index, {
-                      receivesEscalations: event.target.value !== "false",
-                    })
-                  }
-                  value={String(contact.receivesEscalations)}
-                >
-                  <option value="true">Can receive escalations</option>
-                  <option value="false">Do not escalate to this person</option>
-                </select>
-              </label>
-              <label className="setting-card settings-textarea">
-                <strong>Notes</strong>
-                <textarea
-                  name="workplaceContactNotes"
-                  onChange={(event) =>
-                    updateContact(index, { notes: event.target.value })
-                  }
-                  placeholder="Anything Kyro should know about this person."
-                  value={contact.notes}
-                />
-              </label>
-            </div>
-          </section>
-        ))}
+      <div className="escalation-contact-editor">
+        <WorkplaceContactsEditor
+          contacts={contactRows}
+          defaultEmail={defaultEmail}
+          onContactsChange={setContactRows}
+          title="People Kyro can alert"
+        />
       </div>
 
       <section className="integration-choice-panel escalation-trigger-intro">
@@ -437,7 +220,7 @@ export function EscalationSettingsEditor({
                 >
                   {WORKPLACE_CONTACT_CHANNELS.map((channel) => (
                     <option key={channel} value={channel}>
-                      {channelLabels[channel]}
+                      {WORKPLACE_CONTACT_CHANNEL_LABELS[channel]}
                     </option>
                   ))}
                 </select>

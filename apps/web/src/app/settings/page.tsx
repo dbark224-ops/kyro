@@ -23,7 +23,10 @@ import {
 } from "./actions";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
-import { EscalationSettingsEditor } from "./escalation-settings-editor";
+import {
+  EscalationSettingsEditor,
+} from "./escalation-settings-editor";
+import { WorkplaceContactsEditor } from "./workplace-contacts-editor";
 import { TagInputField } from "./tag-input-field";
 import {
   ELEVENLABS_VOICE_PRESETS,
@@ -101,6 +104,7 @@ import {
   type QuoteTemplate,
 } from "../../lib/documents/templates";
 import {
+  type WorkplaceContactSettings,
   type WorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
 import {
@@ -133,7 +137,6 @@ import { InfoBubble } from "./info-bubble";
 import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
 import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
 import { UsageLedgerModal } from "./usage-ledger-modal";
-import { TeamPhoneNumberEditor } from "./team-phone-number-editor";
 import { DefaultInvoiceTemplateForm } from "../payments/default-invoice-template-form";
 
 export const dynamic = "force-dynamic";
@@ -203,6 +206,46 @@ function policyLabel(value: string) {
       : value === "flexible"
         ? "Flexible"
         : "Off";
+}
+
+function workplaceContactsWithVoiceNumbers(
+  contacts: WorkplaceContactSettings[],
+  voiceSettings: VoiceSettings,
+) {
+  const knownNumbers = new Set(
+    contacts.flatMap((contact) =>
+      [contact.phoneNumber, contact.privatePhoneNumber].filter(Boolean),
+    ),
+  );
+  const voiceRows =
+    voiceSettings.phoneAgentUserNumberDetails.length > 0
+      ? voiceSettings.phoneAgentUserNumberDetails
+      : voiceSettings.phoneAgentUserNumbers.map((phoneNumber) => ({
+          name: null,
+          phoneNumber,
+          role: null,
+        }));
+  const additions = voiceRows
+    .filter((row) => row.phoneNumber && !knownNumbers.has(row.phoneNumber))
+    .map((row, index): WorkplaceContactSettings => ({
+      activeDays: "",
+      email: "",
+      id: `voice-contact-${index + 1}-${
+        row.phoneNumber.replace(/\W/g, "").slice(-8) || "number"
+      }`,
+      name: row.name ?? "",
+      notes: "Imported from existing voice assistant internal-number settings.",
+      phoneNumber: row.phoneNumber,
+      preferredChannel: "sms",
+      privatePhoneNumber: "",
+      receivesEscalations: true,
+      role: row.role ?? "",
+      tradeSpecialty: "",
+      vehicleRegistration: "",
+      workingHours: "",
+    }));
+
+  return [...contacts, ...additions];
 }
 
 function pronunciationUsageLabel(entry: AssistantPronunciationEntry) {
@@ -3655,21 +3698,17 @@ function VoiceSettingsDetail({
   activePanel,
   assignedPhoneNumbers,
   pronunciationEntries,
+  workplaceContacts,
+  userEmail,
   voiceSettings,
 }: Readonly<{
   activePanel?: string | null;
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   pronunciationEntries: AssistantPronunciationEntry[];
+  workplaceContacts: WorkplaceContactSettings[];
+  userEmail: string;
   voiceSettings: VoiceSettings;
 }>) {
-  const teamPhoneRows =
-    voiceSettings.phoneAgentUserNumberDetails.length > 0
-      ? voiceSettings.phoneAgentUserNumberDetails
-      : voiceSettings.phoneAgentUserNumbers.map((phoneNumber) => ({
-          name: null,
-          phoneNumber,
-          role: null,
-        }));
   const activeVoicePanel =
     activePanel === "phone-assistant" ||
     activePanel === "voicemail-overflow" ||
@@ -3876,7 +3915,13 @@ function VoiceSettingsDetail({
             type="hidden"
             value={voiceSettings.vapiOutboundAssistantId ?? ""}
           />
-          <TeamPhoneNumberEditor initialRows={teamPhoneRows} />
+          <WorkplaceContactsEditor
+            addLabel="Add person"
+            contacts={workplaceContacts}
+            defaultEmail={userEmail}
+            description="These workplace contacts are used to recognize internal callers and decide who Kyro can alert when calls need a human."
+            title="User and team contacts"
+          />
         </fieldset>
 
         <div
@@ -5201,6 +5246,11 @@ export default async function SettingsPage({
           activePanel={selectedPanel}
           assignedPhoneNumbers={assignedPhoneNumbers}
           pronunciationEntries={pronunciationEntries}
+          userEmail={user.email ?? ""}
+          workplaceContacts={workplaceContactsWithVoiceNumbers(
+            generalSettings?.businessProfile.workplaceContacts ?? [],
+            voiceSettings,
+          )}
           voiceSettings={voiceSettings}
         />
       </SettingsDetailShell>

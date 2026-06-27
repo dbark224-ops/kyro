@@ -68,10 +68,13 @@ import {
   PHONE_REGION_OPTIONS,
 } from "../../lib/crm/identity";
 import {
+  WORKPLACE_CONTACT_CHANNELS,
   WORKSPACE_GENERAL_POLICY_TYPE,
   getWorkspaceGeneralSettings,
   normalizeWorkspaceBusinessProfileSettings,
   normalizeWorkspaceGeneralSettings,
+  type WorkplaceContactChannel,
+  type WorkplaceContactSettings,
 } from "../../lib/workspace/general-settings";
 import {
   isOperatingCountry,
@@ -183,7 +186,13 @@ function phoneAgentUserNumberDetailsFromForm(formData: FormData) {
     .filter((row) => row.phoneNumber);
 }
 
-function workplaceContactsFromForm(formData: FormData) {
+function workplaceContactChannelFromForm(value: string): WorkplaceContactChannel {
+  return WORKPLACE_CONTACT_CHANNELS.includes(value as WorkplaceContactChannel)
+    ? (value as WorkplaceContactChannel)
+    : "sms";
+}
+
+function workplaceContactsFromForm(formData: FormData): WorkplaceContactSettings[] {
   const ids = formStringList(formData, "workplaceContactId");
   const names = formStringList(formData, "workplaceContactName");
   const roles = formStringList(formData, "workplaceContactRole");
@@ -215,7 +224,9 @@ function workplaceContactsFromForm(formData: FormData) {
       name: names[index] || "",
       notes: notes[index] || "",
       phoneNumber: phones[index] || "",
-      preferredChannel: preferredChannels[index] || "sms",
+      preferredChannel: workplaceContactChannelFromForm(
+        preferredChannels[index] || "sms",
+      ),
       privatePhoneNumber: privatePhones[index] || "",
       receivesEscalations: receivesEscalations[index] !== "false",
       role: roles[index] || "",
@@ -231,6 +242,31 @@ function workplaceContactsFromForm(formData: FormData) {
         contact.role ||
         contact.tradeSpecialty,
     );
+}
+
+function phoneAgentUserNumberDetailsFromWorkplaceContacts(
+  contacts: WorkplaceContactSettings[],
+) {
+  const seenNumbers = new Set<string>();
+
+  return contacts.flatMap((contact) =>
+    [contact.phoneNumber, contact.privatePhoneNumber]
+      .map((phoneNumber) => phoneNumber.trim())
+      .filter(Boolean)
+      .filter((phoneNumber) => {
+        if (seenNumbers.has(phoneNumber)) {
+          return false;
+        }
+
+        seenNumbers.add(phoneNumber);
+        return true;
+      })
+      .map((phoneNumber) => ({
+        name: contact.name || null,
+        phoneNumber,
+        role: contact.role || contact.tradeSpecialty || null,
+      })),
+  );
 }
 
 function urgentEscalationStepsFromForm(formData: FormData) {
@@ -1394,8 +1430,14 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     formData,
     "elevenLabsVoicePresetId",
   );
-  const phoneAgentUserNumberDetails =
-    phoneAgentUserNumberDetailsFromForm(formData);
+  const workplaceContactsSubmitted =
+    formString(formData, "workplaceContactsSubmitted") === "on";
+  const workplaceContacts = workplaceContactsSubmitted
+    ? workplaceContactsFromForm(formData)
+    : null;
+  const phoneAgentUserNumberDetails = workplaceContacts
+    ? phoneAgentUserNumberDetailsFromWorkplaceContacts(workplaceContacts)
+    : phoneAgentUserNumberDetailsFromForm(formData);
 
   if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
     redirectVoiceSettingsMessage(
@@ -1489,6 +1531,9 @@ export async function updateVoiceSettingsAction(formData: FormData) {
   });
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  let generalSettingsForVoice: Awaited<
+    ReturnType<typeof getWorkspaceGeneralSettings>
+  > | null = null;
   let phoneNumberAssignment: Awaited<
     ReturnType<typeof ensureWorkspacePhoneNumberFromPool>
   > | null = null;
@@ -1498,15 +1543,27 @@ export async function updateVoiceSettingsAction(formData: FormData) {
       settings.phoneAgentOutboundEnabled ||
       settings.phoneAgentVoicemailOverflowEnabled);
 
-  if (needsWorkspacePhoneNumber) {
+  if (needsWorkspacePhoneNumber || workplaceContactsSubmitted) {
     try {
-      const generalSettings = await getWorkspaceGeneralSettings(
+      generalSettingsForVoice = await getWorkspaceGeneralSettings(
         supabase,
         workspace.id,
       );
+    } catch (error) {
+      redirectVoiceSettingsMessage(
+        "engine_error",
+        error instanceof Error
+          ? error.message
+          : "Unable to load workspace settings.",
+      );
+    }
+  }
+
+  if (needsWorkspacePhoneNumber) {
+    try {
       phoneNumberAssignment = await ensureWorkspacePhoneNumberFromPool({
         actorId: user.id,
-        countryCode: generalSettings.defaultPhoneRegion,
+        countryCode: generalSettingsForVoice?.defaultPhoneRegion ?? DEFAULT_PHONE_REGION,
         supabase: createServiceSupabaseClient(),
         workspaceId: workspace.id,
       });
@@ -1526,6 +1583,78 @@ export async function updateVoiceSettingsAction(formData: FormData) {
           : "Unable to assign a workspace phone number.",
       );
     }
+  }
+
+  if (workplaceContacts && generalSettingsForVoice) {
+    const businessProfile = normalizeWorkspaceBusinessProfileSettings(
+      {
+        ...generalSettingsForVoice.businessProfile,
+        workplaceContacts,
+      },
+      {
+        businessName: workspace.name,
+        publicEmail: user.email ?? "",
+      },
+    );
+    const generalSettings = normalizeWorkspaceGeneralSettings({
+      ...generalSettingsForVoice,
+      businessProfile,
+    });
+    const { data: beforeGeneralPolicy, error: beforeGeneralError } =
+      await supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+        .maybeSingle();
+
+    if (beforeGeneralError) {
+      redirectVoiceSettingsMessage(
+        "engine_error",
+        beforeGeneralError.message,
+      );
+    }
+
+    const { data: savedGeneralPolicy, error: saveGeneralError } =
+      await supabase
+        .from("workspace_policies")
+        .upsert(
+          {
+            policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
+            settings: generalSettings,
+            workspace_id: workspace.id,
+          },
+          {
+            onConflict: "workspace_id,policy_type",
+          },
+        )
+        .select("id")
+        .single();
+    const savedGeneralPolicyId = savedGeneralPolicy?.id;
+
+    if (saveGeneralError || !savedGeneralPolicyId) {
+      redirectVoiceSettingsMessage(
+        "engine_error",
+        saveGeneralError?.message ?? "Unable to save workplace contacts.",
+      );
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: "workspace_general_settings.updated",
+      actorId: user.id,
+      actorType: "user",
+      after: { settings: generalSettings },
+      before: beforeGeneralPolicy
+        ? { settings: beforeGeneralPolicy.settings }
+        : null,
+      entityId: String(savedGeneralPolicyId),
+      entityType: "workspace_policy",
+      metadata: {
+        source: "voice_assistant_workplace_contacts",
+        workplaceContactCount: workplaceContacts.length,
+      },
+    });
   }
 
   const { data: beforePolicy, error: beforeError } = await supabase
