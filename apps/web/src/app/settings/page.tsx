@@ -951,6 +951,9 @@ function TwilioTelephonySettings({
   const activeVoiceSmsNumber = overview.numbers.find(
     (number) => number.capabilities.sms && number.capabilities.voice,
   );
+  const supportingPhoneNumbers = activeVoiceSmsNumber
+    ? overview.numbers.filter((number) => number.id !== activeVoiceSmsNumber.id)
+    : overview.numbers;
   const operatingCountry =
     generalSettings.businessProfile.operatingCountry ||
     operatingCountryForPhoneRegion(generalSettings.defaultPhoneRegion) ||
@@ -1192,9 +1195,9 @@ function TwilioTelephonySettings({
         )}
       </section>
 
-      {overview.numbers.length > 0 ? (
+      {supportingPhoneNumbers.length > 0 ? (
         <div className="usage-ledger compact">
-          {overview.numbers.map((number) => (
+          {supportingPhoneNumbers.map((number) => (
             <div className="usage-ledger-row" key={number.id}>
               <div className="usage-ledger-main">
                 <strong>{number.friendlyName ?? number.phoneNumber}</strong>
