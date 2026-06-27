@@ -23,9 +23,8 @@ import {
 } from "./actions";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
-import {
-  EscalationSettingsEditor,
-} from "./escalation-settings-editor";
+import { EscalationSettingsEditor } from "./escalation-settings-editor";
+import { EmergencyWindowEditor } from "./emergency-window-editor";
 import { BusinessAvailabilityEditor } from "./business-availability-editor";
 import { WorkplaceContactsEditor } from "./workplace-contacts-editor";
 import { TagInputField } from "./tag-input-field";
@@ -88,18 +87,10 @@ import {
   MICROSOFT_PROVIDER,
   type MicrosoftIntegrationOverview,
 } from "../../lib/integrations/microsoft";
-import {
-  type TwilioTelephonyOverview,
-} from "../../lib/integrations/twilio";
-import {
-  type WorkspaceStripePaymentOverview,
-} from "../../lib/payments/accounts";
-import {
-  type KyroUserBillingOverview,
-} from "../../lib/billing/kyro-user-billing";
-import {
-  type KyroBillingEngineOverview,
-} from "../../lib/billing/kyro-billing-engine";
+import { type TwilioTelephonyOverview } from "../../lib/integrations/twilio";
+import { type WorkspaceStripePaymentOverview } from "../../lib/payments/accounts";
+import { type KyroUserBillingOverview } from "../../lib/billing/kyro-user-billing";
+import { type KyroBillingEngineOverview } from "../../lib/billing/kyro-billing-engine";
 import {
   quoteTemplateCatalog,
   type QuoteTemplate,
@@ -113,14 +104,10 @@ import {
   operatingCountryForPhoneRegion,
   operatingCountryPhoneRegion,
 } from "../../lib/workspace/operating-countries";
-import {
-  type WorkspacePhoneNumberPoolRow,
-} from "../../lib/voice/phone-number-pool";
+import { type WorkspacePhoneNumberPoolRow } from "../../lib/voice/phone-number-pool";
 import { PHONE_REGION_OPTIONS } from "../../lib/crm/identity";
 import Link from "next/link";
-import {
-  SettingsShell,
-} from "./settings-shell";
+import { SettingsShell } from "./settings-shell";
 import { SettingsSubmitButton } from "./settings-submit-button";
 import {
   usageWindowHref,
@@ -228,23 +215,26 @@ function workplaceContactsWithVoiceNumbers(
         }));
   const additions = voiceRows
     .filter((row) => row.phoneNumber && !knownNumbers.has(row.phoneNumber))
-    .map((row, index): WorkplaceContactSettings => ({
-      activeDays: "",
-      email: "",
-      id: `voice-contact-${index + 1}-${
-        row.phoneNumber.replace(/\W/g, "").slice(-8) || "number"
-      }`,
-      name: row.name ?? "",
-      notes: "Imported from existing voice assistant internal-number settings.",
-      phoneNumber: row.phoneNumber,
-      preferredChannel: "sms",
-      privatePhoneNumber: "",
-      receivesEscalations: true,
-      role: row.role ?? "",
-      tradeSpecialty: "",
-      vehicleRegistration: "",
-      workingHours: "",
-    }));
+    .map(
+      (row, index): WorkplaceContactSettings => ({
+        activeDays: "",
+        email: "",
+        id: `voice-contact-${index + 1}-${
+          row.phoneNumber.replace(/\W/g, "").slice(-8) || "number"
+        }`,
+        name: row.name ?? "",
+        notes:
+          "Imported from existing voice assistant internal-number settings.",
+        phoneNumber: row.phoneNumber,
+        preferredChannel: "sms",
+        privatePhoneNumber: "",
+        receivesEscalations: true,
+        role: row.role ?? "",
+        tradeSpecialty: "",
+        vehicleRegistration: "",
+        workingHours: "",
+      }),
+    );
 
   return [...contacts, ...additions];
 }
@@ -472,7 +462,10 @@ function OutboundWritingStyleEditor({
   const writing = communicationSettings.replyWriting;
 
   return (
-    <details className="settings-accordion settings-expandable" open={defaultOpen}>
+    <details
+      className="settings-accordion settings-expandable"
+      open={defaultOpen}
+    >
       <summary>
         <div className="settings-accordion-title">
           <strong>Outbound writing style</strong>
@@ -552,11 +545,10 @@ function OutboundWritingStyleEditor({
         </label>
 
         <div className="settings-footer compact-settings-footer">
-          <span>Save to apply these writing instructions to future drafts.</span>
-          <SettingsSubmitButton
-            name="settingsFocus"
-            value="outbound-writing"
-          >
+          <span>
+            Save to apply these writing instructions to future drafts.
+          </span>
+          <SettingsSubmitButton name="settingsFocus" value="outbound-writing">
             Save writing style
           </SettingsSubmitButton>
         </div>
@@ -969,9 +961,7 @@ function TwilioTelephonySettings({
     Boolean(overview.inboundSmsWebhookUrl) &&
     overview.compliance.tableReady;
   const outboundSmsReady =
-    overview.configured &&
-    hasActiveSmsNumber &&
-    overview.compliance.tableReady;
+    overview.configured && hasActiveSmsNumber && overview.compliance.tableReady;
   const inboundStatusLabel = inboundSmsReady
     ? "Active"
     : !overview.configured
@@ -1003,8 +993,9 @@ function TwilioTelephonySettings({
     operatingCountryForPhoneRegion(generalSettings.defaultPhoneRegion) ||
     "your selected country";
   const phoneRegion =
-    operatingCountryPhoneRegion(generalSettings.businessProfile.operatingCountry) ??
-    generalSettings.defaultPhoneRegion;
+    operatingCountryPhoneRegion(
+      generalSettings.businessProfile.operatingCountry,
+    ) ?? generalSettings.defaultPhoneRegion;
 
   return (
     <>
@@ -1122,8 +1113,8 @@ function TwilioTelephonySettings({
       ) : null}
       {!overview.configured ? (
         <p className="form-alert">
-          Add <code>TWILIO_ACCOUNT_SID</code> and{" "}
-          <code>TWILIO_AUTH_TOKEN</code> before sending or receiving SMS.
+          Add <code>TWILIO_ACCOUNT_SID</code> and <code>TWILIO_AUTH_TOKEN</code>{" "}
+          before sending or receiving SMS.
         </p>
       ) : null}
       {!overview.compliance.tableReady ? (
@@ -1183,7 +1174,10 @@ function TwilioTelephonySettings({
             </div>
           </div>
         ) : (
-          <form action={enableWorkspacePhoneSmsAction} className="settings-form">
+          <form
+            action={enableWorkspacePhoneSmsAction}
+            className="settings-form"
+          >
             <p className="empty-copy">
               Enable inbound and outbound SMS plus inbound and outbound phone
               calls by choosing an available {operatingCountry} number. A
@@ -1218,9 +1212,9 @@ function TwilioTelephonySettings({
               </div>
             ) : (
               <p className="form-alert">
-                No available {phoneRegion} voice-and-SMS numbers are in the
-                Kyro pool yet. Add one to <code>workspace_phone_numbers</code>{" "}
-                with <code>status = available</code> and no workspace owner.
+                No available {phoneRegion} voice-and-SMS numbers are in the Kyro
+                pool yet. Add one to <code>workspace_phone_numbers</code> with{" "}
+                <code>status = available</code> and no workspace owner.
               </p>
             )}
             <div className="settings-footer compact-settings-footer">
@@ -1276,7 +1270,6 @@ function TwilioTelephonySettings({
           ))}
         </div>
       ) : null}
-
     </>
   );
 }
@@ -1775,8 +1768,8 @@ function EmailSyncHealthPanel({
   const lastCheckedAt = latestTimestamp(connected, "lastCheckedAt");
   const pushSecretReady = Boolean(
     process.env.INBOUND_EMAIL_PUSH_SECRET?.trim() ||
-      process.env.INBOUND_EMAIL_SYNC_SECRET?.trim() ||
-      process.env.CRON_SECRET?.trim(),
+    process.env.INBOUND_EMAIL_SYNC_SECRET?.trim() ||
+    process.env.CRON_SECRET?.trim(),
   );
 
   return (
@@ -2353,11 +2346,7 @@ function BusinessLogoEditor({
           <SettingCardHeading info="Upload a compact logo, up to 512 KB. If no logo is saved, Kyro falls back to the business name.">
             Logo file
           </SettingCardHeading>
-          <input
-            accept="image/*"
-            name="businessProfileLogoFile"
-            type="file"
-          />
+          <input accept="image/*" name="businessProfileLogoFile" type="file" />
         </label>
 
         <label className="setting-card">
@@ -2460,6 +2449,7 @@ function GeneralSettingsDetail({
       className="settings-form"
       encType="multipart/form-data"
     >
+      <input name="settingsPanel" type="hidden" value={activeBusinessPanel} />
       <section
         className="business-profile-section-panel"
         id="business-profile-core"
@@ -2582,6 +2572,7 @@ function GeneralSettingsDetail({
             </SettingCardHeading>
             <TagInputField
               ariaLabel="Service area"
+              autoSubmit={showServiceArea}
               defaultValue={profile.serviceArea}
               name="businessServiceArea"
               placeholder="Brisbane southside, Logan, Ipswich..."
@@ -2597,6 +2588,7 @@ function GeneralSettingsDetail({
             </SettingCardHeading>
             <TagInputField
               ariaLabel="Suburbs serviced"
+              autoSubmit={showServiceArea}
               defaultValue={profile.serviceSuburbs}
               name="businessServiceSuburbs"
               placeholder="Holland Park West, Mount Gravatt..."
@@ -2612,6 +2604,7 @@ function GeneralSettingsDetail({
             </SettingCardHeading>
             <TagInputField
               ariaLabel="Postcodes serviced"
+              autoSubmit={showServiceArea}
               defaultValue={profile.servicePostcodes}
               name="businessServicePostcodes"
               placeholder="4121, 4122, 4101..."
@@ -2698,10 +2691,10 @@ function GeneralSettingsDetail({
             <SettingCardHeading
               info={
                 <>
-                  Controls how Kyro displays internal money values such as
-                  usage charges and billing exports. Stored ledger values stay
-                  in USD for clean accounting; this is the display currency
-                  users see in the app.
+                  Controls how Kyro displays internal money values such as usage
+                  charges and billing exports. Stored ledger values stay in USD
+                  for clean accounting; this is the display currency users see
+                  in the app.
                 </>
               }
             >
@@ -2839,34 +2832,21 @@ function GeneralSettingsDetail({
           </div>
         </section>
 
+        {activeBusinessPanel === "emergency-work" ||
+        profile.emergencyJobsEnabled ? (
+          <input name="businessEmergencyJobsEnabled" type="hidden" value="on" />
+        ) : null}
+        <input
+          name="businessEmergencyAvailabilityMode"
+          type="hidden"
+          value={
+            activeBusinessPanel === "emergency-work"
+              ? "specified"
+              : profile.emergencyAvailabilityMode
+          }
+        />
+
         <div className="settings-grid emergency-settings-grid">
-          <label className="setting-card emergency-toggle-card">
-            <SettingCardHeading info="Used by Kyro when handling urgent calls, SMS, and customer requests.">
-              Emergency work
-            </SettingCardHeading>
-            <span className="settings-switch-row compact">
-              <span>Offers urgent or after-hours jobs</span>
-              <input
-                defaultChecked={profile.emergencyJobsEnabled}
-                name="businessEmergencyJobsEnabled"
-                type="checkbox"
-              />
-            </span>
-          </label>
-
-          <label className="setting-card">
-            <SettingCardHeading info="Choose whether emergency availability is always on or limited to a schedule.">
-              Availability
-            </SettingCardHeading>
-            <select
-              defaultValue={profile.emergencyAvailabilityMode}
-              name="businessEmergencyAvailabilityMode"
-            >
-              <option value="specified">Specified after-hours window</option>
-              <option value="twenty_four_seven">24/7 emergency work</option>
-            </select>
-          </label>
-
           <label className="setting-card">
             <SettingCardHeading info="Optional rate text Kyro can reference without inventing prices.">
               After-hours rate
@@ -2879,41 +2859,12 @@ function GeneralSettingsDetail({
           </label>
         </div>
 
-        <div className="settings-grid emergency-schedule-grid">
-          <label className="setting-card">
-            <SettingCardHeading info="Leave blank if emergency work is available any time.">
-              Start time
-            </SettingCardHeading>
-            <input
-              defaultValue={profile.emergencyStartTime}
-              name="businessEmergencyStartTime"
-              placeholder="5:00 PM"
-            />
-          </label>
-
-          <label className="setting-card">
-            <SettingCardHeading info="Leave blank if emergency work is available any time.">
-              End time
-            </SettingCardHeading>
-            <input
-              defaultValue={profile.emergencyEndTime}
-              name="businessEmergencyEndTime"
-              placeholder="7:00 AM"
-            />
-          </label>
-
-          <div className="setting-card">
-            <SettingCardHeading info="Press Enter after each day or group, such as Weekdays, Saturday, Sunday, or Every day.">
-              Days
-            </SettingCardHeading>
-            <TagInputField
-              ariaLabel="Emergency work days"
-              defaultValue={profile.emergencyDays}
-              name="businessEmergencyDays"
-              placeholder="Every day, Weekdays, Saturday..."
-            />
-          </div>
-        </div>
+        <EmergencyWindowEditor
+          active={activeBusinessPanel === "emergency-work"}
+          daysValue={profile.emergencyDays}
+          endValue={profile.emergencyEndTime}
+          startValue={profile.emergencyStartTime}
+        />
 
         <label className="settings-textarea setting-card">
           <SettingCardHeading info="Instructions Kyro should follow when an urgent or after-hours request comes in.">
@@ -2958,9 +2909,9 @@ function GeneralSettingsDetail({
           {displayCurrencySourceLabel(settings)} until the billing provider is
           connected.
         </span>
-        <SettingsSubmitButton>
-          Save business profile
-        </SettingsSubmitButton>
+        {activeBusinessPanel === "service-area" ? null : (
+          <SettingsSubmitButton>Save business profile</SettingsSubmitButton>
+        )}
       </div>
     </form>
   );
@@ -3176,9 +3127,7 @@ function InboundEmailSyncSettings({
             Action rules decide what becomes CRM. Personal or noisy mail stays
             out unless it clearly affects the business.
           </span>
-          <SettingsSubmitButton>
-            Save inbound rules
-          </SettingsSubmitButton>
+          <SettingsSubmitButton>Save inbound rules</SettingsSubmitButton>
         </div>
       </form>
 
@@ -3639,10 +3588,7 @@ function CommunicationSettingsDetail({
               Save to refresh the signature previews and apply them to future
               Gmail sends.
             </span>
-            <SettingsSubmitButton
-              name="settingsFocus"
-              value="email-signatures"
-            >
+            <SettingsSubmitButton name="settingsFocus" value="email-signatures">
               Save and preview signatures
             </SettingsSubmitButton>
           </div>
@@ -3688,7 +3634,11 @@ function VoiceSettingsDetail({
         style={visibleWhen(showVoiceSettingsForm)}
       >
         <input name="settingsPanel" type="hidden" value={activeVoicePanel} />
-        <input name="openAiVoice" type="hidden" value={voiceSettings.openAiVoice} />
+        <input
+          name="openAiVoice"
+          type="hidden"
+          value={voiceSettings.openAiVoice}
+        />
         <input
           name="outboundVoicePronunciationPolicy"
           type="hidden"
@@ -3733,7 +3683,8 @@ function VoiceSettingsDetail({
               <span>
                 <strong>Enable phone assistant infrastructure</strong>
                 <small>
-                  Turns on Kyro&apos;s phone-call runtime for configured numbers.
+                  Turns on Kyro&apos;s phone-call runtime for configured
+                  numbers.
                 </small>
               </span>
               <input
@@ -3761,53 +3712,53 @@ function VoiceSettingsDetail({
                 </select>
               </label>
 
-            <label className="setting-card compact-setting-card">
-              <SettingCardHeading info="Concise is best for trades call handling; detailed gives the assistant more room to explain.">
-                Detail level
-              </SettingCardHeading>
-              <select
-                defaultValue={voiceSettings.phoneAgentVerbosity}
-                name="phoneAgentVerbosity"
-              >
-                {PHONE_AGENT_VERBOSITIES.map((verbosity) => (
-                  <option key={verbosity} value={verbosity}>
-                    {formatLabel(verbosity)}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="setting-card compact-setting-card">
+                <SettingCardHeading info="Concise is best for trades call handling; detailed gives the assistant more room to explain.">
+                  Detail level
+                </SettingCardHeading>
+                <select
+                  defaultValue={voiceSettings.phoneAgentVerbosity}
+                  name="phoneAgentVerbosity"
+                >
+                  {PHONE_AGENT_VERBOSITIES.map((verbosity) => (
+                    <option key={verbosity} value={verbosity}>
+                      {formatLabel(verbosity)}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="setting-card compact-setting-card">
-              <SettingCardHeading info="Light humour keeps calls human without letting the assistant drift into banter when a customer needs help.">
-                Warmth
-              </SettingCardHeading>
-              <select
-                defaultValue={voiceSettings.phoneAgentHumourLevel}
-                name="phoneAgentHumourLevel"
-              >
-                {PHONE_AGENT_HUMOUR_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {formatLabel(level)}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="setting-card compact-setting-card">
+                <SettingCardHeading info="Light humour keeps calls human without letting the assistant drift into banter when a customer needs help.">
+                  Warmth
+                </SettingCardHeading>
+                <select
+                  defaultValue={voiceSettings.phoneAgentHumourLevel}
+                  name="phoneAgentHumourLevel"
+                >
+                  {PHONE_AGENT_HUMOUR_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {formatLabel(level)}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="setting-card compact-setting-card">
-              <SettingCardHeading info="What Kyro should do when a caller needs the human tradesperson or has an urgent issue.">
-                Escalation behaviour
-              </SettingCardHeading>
-              <select
-                defaultValue={voiceSettings.phoneAgentEscalationMode}
-                name="phoneAgentEscalationMode"
-              >
-                {PHONE_AGENT_ESCALATION_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {formatLabel(mode)}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="setting-card compact-setting-card">
+                <SettingCardHeading info="What Kyro should do when a caller needs the human tradesperson or has an urgent issue.">
+                  Escalation behaviour
+                </SettingCardHeading>
+                <select
+                  defaultValue={voiceSettings.phoneAgentEscalationMode}
+                  name="phoneAgentEscalationMode"
+                >
+                  {PHONE_AGENT_ESCALATION_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {formatLabel(mode)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <div className="phone-assistant-toggle-row">
@@ -3886,9 +3837,7 @@ function VoiceSettingsDetail({
           className="settings-footer align-end"
           style={visibleWhen(showVoiceSettingsForm)}
         >
-          <SettingsSubmitButton>
-            Save voice settings
-          </SettingsSubmitButton>
+          <SettingsSubmitButton>Save voice settings</SettingsSubmitButton>
         </div>
       </form>
 
@@ -3922,8 +3871,8 @@ function VoicemailOverflowSettings({
     null;
   const voicemailBackendReady = Boolean(
     voicemailNumber?.vapiPhoneNumberId &&
-      voiceSettings.phoneAgentVoicemailOverflowEnabled &&
-      voiceSettings.vapiVoicemailAssistantId,
+    voiceSettings.phoneAgentVoicemailOverflowEnabled &&
+    voiceSettings.vapiVoicemailAssistantId,
   );
 
   return (
@@ -4270,7 +4219,10 @@ function DeveloperSettingsDetail({
               <SettingCardHeading info="Legacy browser voice and generated-playback voice. Hidden while the Vapi voice assistant is the user-facing voice runtime.">
                 OpenAI assistant voice
               </SettingCardHeading>
-              <select defaultValue={voiceSettings.openAiVoice} name="openAiVoice">
+              <select
+                defaultValue={voiceSettings.openAiVoice}
+                name="openAiVoice"
+              >
                 {OPENAI_VOICE_OPTIONS.map((voice) => (
                   <option key={voice} value={voice}>
                     {formatLabel(voice)}
@@ -4357,7 +4309,9 @@ function DeveloperSettingsDetail({
                     <div>
                       <strong>{invoice.invoiceNumber}</strong>
                       <span>
-                        {invoice.dueAt ? `Due ${formatDate(invoice.dueAt)}` : "No due date"}
+                        {invoice.dueAt
+                          ? `Due ${formatDate(invoice.dueAt)}`
+                          : "No due date"}
                       </span>
                     </div>
                     <span>{formatLabel(invoice.status)}</span>
@@ -4517,9 +4471,7 @@ function DeveloperSettingsDetail({
             </label>
           </div>
           <div className="settings-footer align-end">
-            <SettingsSubmitButton>
-              Save provider IDs
-            </SettingsSubmitButton>
+            <SettingsSubmitButton>Save provider IDs</SettingsSubmitButton>
           </div>
         </article>
       </form>
@@ -4748,7 +4700,10 @@ function UsageSettingsDetail({
   return (
     <>
       <section className="usage-summary-strip" aria-label="Usage metrics">
-        <nav className="filter-bar usage-window-filter" aria-label="Usage date range">
+        <nav
+          className="filter-bar usage-window-filter"
+          aria-label="Usage date range"
+        >
           {usageWindows.map((window) => (
             <Link
               className={
@@ -4942,7 +4897,11 @@ function KyroBillingSettingsDetail({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Kyro subscription</p>
-          <h2>{billingReady ? "Payment method ready" : "Add a card to start your trial"}</h2>
+          <h2>
+            {billingReady
+              ? "Payment method ready"
+              : "Add a card to start your trial"}
+          </h2>
         </div>
         <span className={billingReady ? "status-pill ready" : "status-pill"}>
           {billingReady ? "Ready" : "Setup needed"}
@@ -5039,7 +4998,10 @@ function KyroBillingSettingsDetail({
         ) : null}
         {billingEngineOverview.invoices.length > 0 ? (
           <div className="usage-table kyro-invoice-table">
-            <div className="usage-row usage-row-three heading" aria-hidden="true">
+            <div
+              className="usage-row usage-row-three heading"
+              aria-hidden="true"
+            >
               <span>Invoice</span>
               <span>Status</span>
               <span>Total</span>
@@ -5048,7 +5010,9 @@ function KyroBillingSettingsDetail({
               <div className="usage-row usage-row-three" key={invoice.id}>
                 <div>
                   <strong>{invoice.invoiceNumber}</strong>
-                  <span>{invoice.issuedAt ? formatDate(invoice.issuedAt) : "Draft"}</span>
+                  <span>
+                    {invoice.issuedAt ? formatDate(invoice.issuedAt) : "Draft"}
+                  </span>
                 </div>
                 <span>{formatLabel(invoice.status)}</span>
                 <span>
@@ -5108,7 +5072,8 @@ export default async function SettingsPage({
     : [];
   const defaultInvoiceTemplateKey =
     documentTemplateSettings?.defaultInvoiceTemplateKey ??
-    documentTemplates.find((template) => /invoice/i.test(template.label))?.key ??
+    documentTemplates.find((template) => /invoice/i.test(template.label))
+      ?.key ??
     documentTemplates[0]?.key ??
     null;
   const googleStatus = googleOverview
@@ -5133,8 +5098,7 @@ export default async function SettingsPage({
   const selectedNestedTitle =
     nestedItems.find((item) => item.selected)?.title ?? null;
   const selectedDetail =
-    selectedSection === "general" &&
-    generalSettings ? (
+    selectedSection === "general" && generalSettings ? (
       <SettingsDetailShell
         eyebrow="Profile"
         title={selectedNestedTitle ?? "Business profile"}
@@ -5220,12 +5184,12 @@ export default async function SettingsPage({
         eyebrow="Developer"
         title={selectedNestedTitle ?? "Developer settings"}
       >
-      <DeveloperSettingsDetail
-        assignedPhoneNumbers={assignedPhoneNumbers}
-        billingEngineOverview={kyroBillingEngineOverview}
-        dashboardTutorialForceShow={dashboardTutorialState.forceShow}
-        voiceSettings={voiceSettings}
-      />
+        <DeveloperSettingsDetail
+          assignedPhoneNumbers={assignedPhoneNumbers}
+          billingEngineOverview={kyroBillingEngineOverview}
+          dashboardTutorialForceShow={dashboardTutorialState.forceShow}
+          voiceSettings={voiceSettings}
+        />
       </SettingsDetailShell>
     ) : null;
 

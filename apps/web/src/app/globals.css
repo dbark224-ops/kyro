@@ -1822,14 +1822,22 @@ a {
   border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
   border-radius: var(--radius-control);
   background:
-    radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--cyan) 16%, transparent), transparent 34%),
+    radial-gradient(
+      circle at 92% 10%,
+      color-mix(in srgb, var(--cyan) 16%, transparent),
+      transparent 34%
+    ),
     color-mix(in srgb, var(--surface) 76%, transparent);
   padding: 16px;
 }
 
 .auth-secure-payment-card {
   background:
-    radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--pink) 15%, transparent), transparent 34%),
+    radial-gradient(
+      circle at 92% 10%,
+      color-mix(in srgb, var(--pink) 15%, transparent),
+      transparent 34%
+    ),
     color-mix(in srgb, var(--surface) 76%, transparent);
 }
 
@@ -1873,7 +1881,11 @@ a {
   border: 1px solid color-mix(in srgb, var(--cyan) 50%, var(--line));
   border-radius: var(--radius-card);
   background:
-    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 36%),
+    radial-gradient(
+      circle at 92% 8%,
+      color-mix(in srgb, var(--cyan) 14%, transparent),
+      transparent 36%
+    ),
     color-mix(in srgb, var(--surface) 82%, transparent);
   padding: 12px;
 }
@@ -1882,7 +1894,11 @@ a {
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, transparent);
   border-radius: var(--radius-control);
   background:
-    radial-gradient(circle at 94% 20%, color-mix(in srgb, var(--cyan) 20%, transparent), transparent 42%),
+    radial-gradient(
+      circle at 94% 20%,
+      color-mix(in srgb, var(--cyan) 20%, transparent),
+      transparent 42%
+    ),
     color-mix(in srgb, var(--cyan) 8%, transparent);
   padding: 10px 12px;
 }
@@ -2031,7 +2047,11 @@ label {
   border: 1px solid color-mix(in srgb, var(--cyan) 60%, var(--pink));
   border-radius: var(--radius-control);
   background:
-    radial-gradient(circle at 8% 20%, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 42%),
+    radial-gradient(
+      circle at 8% 20%,
+      color-mix(in srgb, var(--cyan) 14%, transparent),
+      transparent 42%
+    ),
     color-mix(in srgb, var(--surface) 96%, #000);
   box-shadow: var(--shadow-soft);
   color: var(--text);
@@ -2091,7 +2111,11 @@ textarea[aria-invalid="true"] {
   border: 1px solid color-mix(in srgb, var(--pink) 64%, var(--cyan));
   border-radius: var(--radius-pill);
   background:
-    radial-gradient(circle at 9% 20%, color-mix(in srgb, var(--pink) 18%, transparent), transparent 42%),
+    radial-gradient(
+      circle at 9% 20%,
+      color-mix(in srgb, var(--pink) 18%, transparent),
+      transparent 42%
+    ),
     color-mix(in srgb, var(--surface) 78%, transparent);
   color: var(--text);
   font-size: 0.78rem;
@@ -6544,12 +6568,11 @@ button.voice-card {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--cyan) 36%, var(--line));
   border-radius: var(--radius-panel);
-  background:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--surface) 95%, var(--cyan) 5%),
-      color-mix(in srgb, var(--surface) 94%, var(--pink) 6%)
-    );
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--surface) 95%, var(--cyan) 5%),
+    color-mix(in srgb, var(--surface) 94%, var(--pink) 6%)
+  );
   box-shadow: 0 26px 80px rgb(0 0 0 / 46%);
 }
 
@@ -7789,7 +7812,10 @@ button:disabled {
 
 .settings-workspace {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(230px, 300px) minmax(620px, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(230px, 300px) minmax(
+      620px,
+      1fr
+    );
   gap: 14px;
   align-items: start;
 }
@@ -8069,7 +8095,10 @@ button:disabled {
 
 .availability-day-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(110px, 0.32fr) minmax(110px, 0.32fr);
+  grid-template-columns: minmax(140px, 1fr) minmax(110px, 0.32fr) minmax(
+      110px,
+      0.32fr
+    );
   gap: 8px;
   align-items: end;
   border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
@@ -8269,13 +8298,74 @@ button:disabled {
   outline: none;
 }
 
-.emergency-settings-grid,
-.emergency-schedule-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.emergency-settings-grid {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .emergency-toggle-card {
   align-content: start;
+}
+
+.emergency-window-editor {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.emergency-window-grid {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.emergency-window-card {
+  min-width: 0;
+  gap: 10px;
+}
+
+.emergency-window-title {
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.emergency-window-controls {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  grid-template-columns:
+    minmax(92px, 1.15fr) minmax(58px, 0.7fr) minmax(68px, 0.8fr)
+    minmax(70px, 0.8fr);
+}
+
+.emergency-window-select {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.emergency-window-select span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 850;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.emergency-window-select select {
+  min-width: 0;
+}
+
+.emergency-window-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.emergency-window-summary strong {
+  color: var(--text);
 }
 
 .escalation-settings-stack,
@@ -12758,10 +12848,15 @@ button:disabled {
   .developer-table-checks,
   .emergency-settings-grid,
   .emergency-schedule-grid,
+  .emergency-window-grid,
   .escalation-policy-grid,
   .escalation-trigger-grid,
   .workplace-contact-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .emergency-window-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .escalation-step-row {
@@ -14135,10 +14230,10 @@ button:disabled {
   border-radius: var(--radius-panel);
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--cyan) 10%, transparent),
-        transparent 42%
-      ),
+      135deg,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 42%
+    ),
     color-mix(in srgb, var(--surface) 94%, transparent);
   box-shadow: var(--shadow);
   padding: 16px;
@@ -14243,8 +14338,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-pill);
-  background:
-    linear-gradient(135deg, var(--cyan), var(--purple), var(--pink));
+  background: linear-gradient(135deg, var(--cyan), var(--purple), var(--pink));
   color: #fff;
   font-size: 0.8125rem;
   font-weight: 900;
@@ -14498,10 +14592,10 @@ button:disabled {
   border-radius: var(--radius-card);
   background:
     linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--surface) 90%, transparent),
-        var(--surface)
-      ),
+      180deg,
+      color-mix(in srgb, var(--surface) 90%, transparent),
+      var(--surface)
+    ),
     var(--surface);
   box-shadow: var(--shadow);
   color: var(--text);
@@ -14513,10 +14607,10 @@ button:disabled {
   border-color: color-mix(in srgb, var(--cyan) 40%, var(--line));
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--cyan) 10%, transparent),
-        transparent 45%
-      ),
+      135deg,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 45%
+    ),
     color-mix(in srgb, var(--surface) 96%, transparent);
 }
 
@@ -14524,10 +14618,10 @@ button:disabled {
   border-color: color-mix(in srgb, var(--purple) 38%, var(--line));
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--purple) 10%, transparent),
-        transparent 45%
-      ),
+      135deg,
+      color-mix(in srgb, var(--purple) 10%, transparent),
+      transparent 45%
+    ),
     color-mix(in srgb, var(--surface) 96%, transparent);
 }
 
@@ -14535,10 +14629,10 @@ button:disabled {
   border-color: color-mix(in srgb, var(--pink) 40%, var(--line));
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--pink) 10%, transparent),
-        transparent 45%
-      ),
+      135deg,
+      color-mix(in srgb, var(--pink) 10%, transparent),
+      transparent 45%
+    ),
     color-mix(in srgb, var(--surface) 96%, transparent);
 }
 
@@ -14546,10 +14640,10 @@ button:disabled {
   border-color: color-mix(in srgb, #22c55e 42%, var(--line));
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, #22c55e 10%, transparent),
-        transparent 45%
-      ),
+      135deg,
+      color-mix(in srgb, #22c55e 10%, transparent),
+      transparent 45%
+    ),
     color-mix(in srgb, var(--surface) 96%, transparent);
 }
 
@@ -14557,10 +14651,10 @@ button:disabled {
   border-color: color-mix(in srgb, #f59e0b 42%, var(--line));
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, #f59e0b 10%, transparent),
-        transparent 45%
-      ),
+      135deg,
+      color-mix(in srgb, #f59e0b 10%, transparent),
+      transparent 45%
+    ),
     color-mix(in srgb, var(--surface) 96%, transparent);
 }
 
@@ -14645,10 +14739,10 @@ button:disabled {
 .dashboard-widget.placeholder {
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--cyan) 9%, transparent),
-        transparent 45%
-      ),
+      135deg,
+      color-mix(in srgb, var(--cyan) 9%, transparent),
+      transparent 45%
+    ),
     color-mix(in srgb, var(--surface) 98%, transparent);
 }
 
@@ -14660,10 +14754,10 @@ button:disabled {
   border-color: color-mix(in srgb, var(--pink) 28%, var(--line));
   background:
     linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--pink) 5%, transparent),
-        transparent 22%
-      ),
+      180deg,
+      color-mix(in srgb, var(--pink) 5%, transparent),
+      transparent 22%
+    ),
     color-mix(in srgb, var(--surface) 98%, transparent);
 }
 
@@ -14671,10 +14765,10 @@ button:disabled {
   border-color: color-mix(in srgb, var(--cyan) 28%, var(--line));
   background:
     linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--cyan) 5%, transparent),
-        transparent 20%
-      ),
+      180deg,
+      color-mix(in srgb, var(--cyan) 5%, transparent),
+      transparent 20%
+    ),
     color-mix(in srgb, var(--surface) 98%, transparent);
 }
 
@@ -14682,10 +14776,10 @@ button:disabled {
   border-color: color-mix(in srgb, var(--purple) 26%, var(--line));
   background:
     linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--purple) 5%, transparent),
-        transparent 20%
-      ),
+      180deg,
+      color-mix(in srgb, var(--purple) 5%, transparent),
+      transparent 20%
+    ),
     color-mix(in srgb, var(--surface) 98%, transparent);
 }
 
@@ -14976,10 +15070,10 @@ button:disabled {
   border-radius: var(--radius-card);
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--cyan) 8%, transparent),
-        transparent 52%
-      ),
+      135deg,
+      color-mix(in srgb, var(--cyan) 8%, transparent),
+      transparent 52%
+    ),
     color-mix(in srgb, var(--background) 32%, var(--surface));
   min-height: 0;
   padding: 8px 10px;
@@ -14988,30 +15082,30 @@ button:disabled {
 .dashboard-payments-card article:nth-child(2) {
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--green) 8%, transparent),
-        transparent 52%
-      ),
+      135deg,
+      color-mix(in srgb, var(--green) 8%, transparent),
+      transparent 52%
+    ),
     color-mix(in srgb, var(--background) 32%, var(--surface));
 }
 
 .dashboard-payments-card article:nth-child(3) {
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--pink) 8%, transparent),
-        transparent 52%
-      ),
+      135deg,
+      color-mix(in srgb, var(--pink) 8%, transparent),
+      transparent 52%
+    ),
     color-mix(in srgb, var(--background) 32%, var(--surface));
 }
 
 .dashboard-payments-card article:nth-child(4) {
   background:
     linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--amber) 9%, transparent),
-        transparent 52%
-      ),
+      135deg,
+      color-mix(in srgb, var(--amber) 9%, transparent),
+      transparent 52%
+    ),
     color-mix(in srgb, var(--background) 32%, var(--surface));
 }
 
@@ -16070,7 +16164,8 @@ button:disabled {
   background: #22c55e;
 }
 
-.invoice-template-picker-option.selected .invoice-template-option-check::before {
+.invoice-template-picker-option.selected
+  .invoice-template-option-check::before {
   display: block;
   width: 6px;
   height: 3px;
@@ -16091,7 +16186,11 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent, var(--cyan)) 10%, transparent), transparent 42%),
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--accent, var(--cyan)) 10%, transparent),
+      transparent 42%
+    ),
     color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: var(--shadow-soft);
 }
@@ -16936,9 +17035,8 @@ button:disabled {
     padding: 8px 10px;
   }
 
-  html:has(.app-shell) input:not([type="checkbox"]):not([type="radio"]):not(
-      [type="file"]
-    ),
+  html:has(.app-shell)
+    input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
   html:has(.app-shell) select,
   html:has(.app-shell) textarea {
     padding: 9px 10px;

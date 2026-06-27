@@ -173,7 +173,9 @@ function clearVoicemailOverflowMetadata(metadata: Record<string, unknown>) {
   return next;
 }
 
-function numberHasVoicemailOverflowPurpose(number: WorkspacePhoneNumberPoolRow) {
+function numberHasVoicemailOverflowPurpose(
+  number: WorkspacePhoneNumberPoolRow,
+) {
   const purpose =
     number.metadata.voicePurpose ?? number.metadata.purpose ?? null;
 
@@ -200,18 +202,25 @@ function phoneAgentUserNumberDetailsFromForm(formData: FormData) {
     .filter((row) => row.phoneNumber);
 }
 
-function workplaceContactChannelFromForm(value: string): WorkplaceContactChannel {
+function workplaceContactChannelFromForm(
+  value: string,
+): WorkplaceContactChannel {
   return WORKPLACE_CONTACT_CHANNELS.includes(value as WorkplaceContactChannel)
     ? (value as WorkplaceContactChannel)
     : "sms";
 }
 
-function workplaceContactsFromForm(formData: FormData): WorkplaceContactSettings[] {
+function workplaceContactsFromForm(
+  formData: FormData,
+): WorkplaceContactSettings[] {
   const ids = formStringList(formData, "workplaceContactId");
   const names = formStringList(formData, "workplaceContactName");
   const roles = formStringList(formData, "workplaceContactRole");
   const phones = formStringList(formData, "workplaceContactPhone");
-  const privatePhones = formStringList(formData, "workplaceContactPrivatePhone");
+  const privatePhones = formStringList(
+    formData,
+    "workplaceContactPrivatePhone",
+  );
   const emails = formStringList(formData, "workplaceContactEmail");
   const specialties = formStringList(formData, "workplaceContactSpecialty");
   const activeDays = formStringList(formData, "workplaceContactActiveDays");
@@ -329,6 +338,11 @@ async function imagePayload(
   prefix: string,
   section: "general" | "integrations" | "voice",
   label: string,
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
 ) {
   const upload = formData.get(`${prefix}LogoFile`);
 
@@ -338,6 +352,7 @@ async function imagePayload(
         section,
         "engine_error",
         `${label} must be image files.`,
+        redirectOptions,
       );
     }
 
@@ -346,6 +361,7 @@ async function imagePayload(
         section,
         "engine_error",
         `${label} are limited to 512 KB for now.`,
+        redirectOptions,
       );
     }
 
@@ -371,12 +387,36 @@ async function signatureLogoPayload(
   formData: FormData,
   prefix: "manualSignature" | "aiGeneratedSignature",
   section: "general" | "integrations" = "integrations",
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
 ) {
-  return imagePayload(formData, prefix, section, "Signature logos");
+  return imagePayload(
+    formData,
+    prefix,
+    section,
+    "Signature logos",
+    redirectOptions,
+  );
 }
 
-async function businessLogoPayload(formData: FormData) {
-  return imagePayload(formData, "businessProfile", "general", "Business logos");
+async function businessLogoPayload(
+  formData: FormData,
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
+) {
+  return imagePayload(
+    formData,
+    "businessProfile",
+    "general",
+    "Business logos",
+    redirectOptions,
+  );
 }
 
 function redirectWithSectionMessage(
@@ -411,6 +451,29 @@ function redirectWithSettingsMessage(
     ...(focus ? { focus } : {}),
     panel: "outbound",
   });
+}
+
+const GENERAL_SETTINGS_PANELS = [
+  "business",
+  "public-details",
+  "service-area",
+  "availability",
+  "branding-logo",
+  "email-signature",
+  "emergency-work",
+  "urgent-escalation",
+  "workplace-contacts",
+] as const;
+
+function generalSettingsRedirectOptions(formData: FormData) {
+  const requestedPanel = formString(formData, "settingsPanel");
+  const panel = GENERAL_SETTINGS_PANELS.includes(
+    requestedPanel as (typeof GENERAL_SETTINGS_PANELS)[number],
+  )
+    ? requestedPanel
+    : "";
+
+  return panel ? { panel } : {};
 }
 
 function integrationService(provider: string) {
@@ -584,7 +647,9 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     allowedChannels,
     businessSignature: manualSignature.text,
     defaultTone:
-      replyWriting.tone || defaultTone || DEFAULT_COMMUNICATION_SETTINGS.defaultTone,
+      replyWriting.tone ||
+      defaultTone ||
+      DEFAULT_COMMUNICATION_SETTINGS.defaultTone,
     dryRunOnly: true,
     followUpDelayDays,
     followUpRemindersEnabled: formBoolean(formData, "followUpRemindersEnabled"),
@@ -652,7 +717,14 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
   );
 }
 
-function assertValidTimeZone(value: string) {
+function assertValidTimeZone(
+  value: string,
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
+) {
   try {
     new Intl.DateTimeFormat("en", { timeZone: value }).format(new Date());
   } catch {
@@ -660,11 +732,13 @@ function assertValidTimeZone(value: string) {
       "general",
       "engine_error",
       "Enter a valid IANA timezone such as Australia/Brisbane or America/Denver.",
+      redirectOptions,
     );
   }
 }
 
 export async function updateGeneralSettingsAction(formData: FormData) {
+  const redirectOptions = generalSettingsRedirectOptions(formData);
   const timeZone = formString(formData, "workspaceTimeZone");
   const defaultPhoneRegion = normalizePhoneRegion(
     formString(formData, "workspaceDefaultPhoneRegion"),
@@ -673,11 +747,12 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     formString(formData, "workspaceDisplayCurrency"),
   );
   const operatingCountry = formString(formData, "businessOperatingCountry");
-  const businessLogo = await businessLogoPayload(formData);
+  const businessLogo = await businessLogoPayload(formData, redirectOptions);
   const manualLogo = await signatureLogoPayload(
     formData,
     "manualSignature",
     "general",
+    redirectOptions,
   );
 
   if (!timeZone) {
@@ -685,16 +760,18 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       "Add a workspace timezone first.",
+      redirectOptions,
     );
   }
 
-  assertValidTimeZone(timeZone);
+  assertValidTimeZone(timeZone, redirectOptions);
 
   if (!DISPLAY_CURRENCIES.includes(displayCurrency)) {
     redirectWithSectionMessage(
       "general",
       "engine_error",
       "Choose a supported display currency.",
+      redirectOptions,
     );
   }
 
@@ -705,6 +782,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       `Choose a supported phone region such as ${DEFAULT_PHONE_REGION}.`,
+      redirectOptions,
     );
   }
 
@@ -713,40 +791,39 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       "Choose the country this workspace operates in.",
+      redirectOptions,
     );
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [
-    beforeGeneralResult,
-    beforeInboundResult,
-    beforeCommunicationResult,
-  ] = await Promise.all([
-    supabase
-      .from("workspace_policies")
-      .select("id,settings")
-      .eq("workspace_id", workspace.id)
-      .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
-      .maybeSingle(),
-    supabase
-      .from("workspace_policies")
-      .select("id,settings")
-      .eq("workspace_id", workspace.id)
-      .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
-      .maybeSingle(),
-    supabase
-      .from("workspace_policies")
-      .select("id,settings")
-      .eq("workspace_id", workspace.id)
-      .eq("policy_type", COMMUNICATION_POLICY_TYPE)
-      .maybeSingle(),
-  ]);
+  const [beforeGeneralResult, beforeInboundResult, beforeCommunicationResult] =
+    await Promise.all([
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+        .maybeSingle(),
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+        .maybeSingle(),
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", COMMUNICATION_POLICY_TYPE)
+        .maybeSingle(),
+    ]);
 
   if (beforeGeneralResult.error) {
     redirectWithSectionMessage(
       "general",
       "engine_error",
       beforeGeneralResult.error.message,
+      redirectOptions,
     );
   }
 
@@ -755,6 +832,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       beforeInboundResult.error.message,
+      redirectOptions,
     );
   }
 
@@ -763,6 +841,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       beforeCommunicationResult.error.message,
+      redirectOptions,
     );
   }
 
@@ -797,7 +876,10 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       ),
       emergencyDays: formString(formData, "businessEmergencyDays"),
       emergencyEndTime: formString(formData, "businessEmergencyEndTime"),
-      emergencyJobsEnabled: formBoolean(formData, "businessEmergencyJobsEnabled"),
+      emergencyJobsEnabled: formBoolean(
+        formData,
+        "businessEmergencyJobsEnabled",
+      ),
       emergencyRateNotes: formString(formData, "businessEmergencyRateNotes"),
       emergencyStartTime: formString(formData, "businessEmergencyStartTime"),
       industry: formString(formData, "businessIndustry"),
@@ -820,7 +902,10 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       urgentEscalation: {
         customDays: formString(formData, "urgentEscalationCustomDays"),
         customEndTime: formString(formData, "urgentEscalationCustomEndTime"),
-        customStartTime: formString(formData, "urgentEscalationCustomStartTime"),
+        customStartTime: formString(
+          formData,
+          "urgentEscalationCustomStartTime",
+        ),
         enabled: formBoolean(formData, "urgentEscalationEnabled"),
         hoursMode: formString(formData, "urgentEscalationHoursMode"),
         requireAcknowledgement: formBoolean(
@@ -888,6 +973,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       saveGeneralError?.message ?? "Unable to save workspace defaults.",
+      redirectOptions,
     );
   }
 
@@ -909,6 +995,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       saveInboundError.message,
+      redirectOptions,
     );
   }
 
@@ -933,10 +1020,14 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       saveCommunicationError?.message ?? "Unable to save email signature.",
+      redirectOptions,
     );
   }
 
-  if (businessProfile.businessName && businessProfile.businessName !== workspace.name) {
+  if (
+    businessProfile.businessName &&
+    businessProfile.businessName !== workspace.name
+  ) {
     const { error: workspaceNameError } = await supabase
       .from("workspaces")
       .update({
@@ -950,6 +1041,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
         "general",
         "engine_error",
         workspaceNameError.message,
+        redirectOptions,
       );
     }
   }
@@ -994,6 +1086,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     "general",
     "engine_message",
     "Business profile saved.",
+    redirectOptions,
   );
 }
 
@@ -1429,12 +1522,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     key: "engine_error" | "engine_message",
     message: string,
   ): never => {
-    redirectWithSectionMessage(
-      redirectSection,
-      key,
-      message,
-      redirectOptions,
-    );
+    redirectWithSectionMessage(redirectSection, key, message, redirectOptions);
   };
   const openAiVoice = formString(formData, "openAiVoice") as OpenAiVoice;
   const outboundVoicePronunciationPolicy = formString(
@@ -1462,10 +1550,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     : phoneAgentUserNumberDetailsFromForm(formData);
 
   if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
-    redirectVoiceSettingsMessage(
-      "engine_error",
-      "OpenAI voice is invalid.",
-    );
+    redirectVoiceSettingsMessage("engine_error", "OpenAI voice is invalid.");
   }
 
   if (
@@ -1500,7 +1585,9 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     );
   }
 
-  if (!PHONE_AGENT_ESCALATION_MODES.includes(phoneAgentEscalationMode as never)) {
+  if (
+    !PHONE_AGENT_ESCALATION_MODES.includes(phoneAgentEscalationMode as never)
+  ) {
     redirectVoiceSettingsMessage(
       "engine_error",
       "Phone assistant escalation mode is invalid.",
@@ -1545,10 +1632,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     vapiInboundAssistantId: formString(formData, "vapiInboundAssistantId"),
     vapiOutboundAssistantId: formString(formData, "vapiOutboundAssistantId"),
     vapiPhoneNumberId: formString(formData, "vapiPhoneNumberId"),
-    vapiVoicemailAssistantId: formString(
-      formData,
-      "vapiVoicemailAssistantId",
-    ),
+    vapiVoicemailAssistantId: formString(formData, "vapiVoicemailAssistantId"),
     provider: "openai",
   });
 
@@ -1585,7 +1669,8 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     try {
       phoneNumberAssignment = await ensureWorkspacePhoneNumberFromPool({
         actorId: user.id,
-        countryCode: generalSettingsForVoice?.defaultPhoneRegion ?? DEFAULT_PHONE_REGION,
+        countryCode:
+          generalSettingsForVoice?.defaultPhoneRegion ?? DEFAULT_PHONE_REGION,
         supabase: createServiceSupabaseClient(),
         workspaceId: workspace.id,
       });
@@ -1631,27 +1716,23 @@ export async function updateVoiceSettingsAction(formData: FormData) {
         .maybeSingle();
 
     if (beforeGeneralError) {
-      redirectVoiceSettingsMessage(
-        "engine_error",
-        beforeGeneralError.message,
-      );
+      redirectVoiceSettingsMessage("engine_error", beforeGeneralError.message);
     }
 
-    const { data: savedGeneralPolicy, error: saveGeneralError } =
-      await supabase
-        .from("workspace_policies")
-        .upsert(
-          {
-            policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
-            settings: generalSettings,
-            workspace_id: workspace.id,
-          },
-          {
-            onConflict: "workspace_id,policy_type",
-          },
-        )
-        .select("id")
-        .single();
+    const { data: savedGeneralPolicy, error: saveGeneralError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
+          settings: generalSettings,
+          workspace_id: workspace.id,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
     const savedGeneralPolicyId = savedGeneralPolicy?.id;
 
     if (saveGeneralError || !savedGeneralPolicyId) {
@@ -1687,10 +1768,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectVoiceSettingsMessage(
-      "engine_error",
-      beforeError.message,
-    );
+    redirectVoiceSettingsMessage("engine_error", beforeError.message);
   }
 
   const { data: savedPolicy, error: saveError } = await supabase
@@ -1834,7 +1912,8 @@ export async function enableVoicemailOverflowNumberAction(formData: FormData) {
     phoneAgentEnabled: true,
     phoneAgentVoicemailOverflowEnabled: true,
     vapiPhoneNumberId:
-      selectedNumber.vapiPhoneNumberId ?? existingVoiceSettings.vapiPhoneNumberId,
+      selectedNumber.vapiPhoneNumberId ??
+      existingVoiceSettings.vapiPhoneNumberId,
   });
 
   const { data: beforePolicy, error: beforeError } = await supabase
@@ -2063,8 +2142,9 @@ export async function enableWorkspacePhoneSmsAction(formData: FormData) {
     workspace.id,
   );
   const countryCode =
-    operatingCountryPhoneRegion(generalSettings.businessProfile.operatingCountry) ??
-    generalSettings.defaultPhoneRegion;
+    operatingCountryPhoneRegion(
+      generalSettings.businessProfile.operatingCountry,
+    ) ?? generalSettings.defaultPhoneRegion;
 
   let assignment: Awaited<
     ReturnType<typeof assignWorkspacePhoneNumberFromPool>
@@ -2235,7 +2315,8 @@ export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
       ?.vapiPhoneNumberId ?? null;
   const disconnectedActiveVapiNumber =
     release.number.vapiPhoneNumberId &&
-    existingVoiceSettings.vapiPhoneNumberId === release.number.vapiPhoneNumberId;
+    existingVoiceSettings.vapiPhoneNumberId ===
+      release.number.vapiPhoneNumberId;
   const shouldUpdateVoiceSettings =
     remainingNumbers.length === 0 || disconnectedActiveVapiNumber;
 
@@ -2355,7 +2436,9 @@ export async function connectStripePaymentsAction() {
     const email = user.email ?? generalSettings.businessProfile.publicEmail;
 
     if (!email) {
-      throw new Error("Add an account email before connecting Stripe payments.");
+      throw new Error(
+        "Add an account email before connecting Stripe payments.",
+      );
     }
 
     onboardingUrl = await createStripeConnectOnboardingLink({
@@ -2378,7 +2461,7 @@ export async function connectStripePaymentsAction() {
         ? "Stripe Connect is not enabled on the Kyro platform account yet. Enable Connect in Stripe first, then workspace users can onboard through this Kyro link even if they have never used Stripe before."
         : error instanceof Error
           ? error.message
-        : "Unable to start Stripe payments setup.",
+          : "Unable to start Stripe payments setup.",
     );
   }
 
@@ -2601,7 +2684,9 @@ export async function ignorePronunciationEntryAction(formData: FormData) {
   await updatePronunciationEntryAction(formData);
 }
 
-export async function updateDashboardTutorialTestModeAction(formData: FormData) {
+export async function updateDashboardTutorialTestModeAction(
+  formData: FormData,
+) {
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const tutorialSupabase = supabase as unknown as TutorialSupabaseClient;
   const forceShow = formBoolean(formData, "dashboardTutorialForceShow");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function splitTags(value: string | null | undefined) {
   const seen = new Set<string>();
@@ -23,17 +23,43 @@ function splitTags(value: string | null | undefined) {
 
 export function TagInputField({
   ariaLabel,
+  autoSubmit = false,
   defaultValue,
   name,
   placeholder,
 }: Readonly<{
   ariaLabel: string;
+  autoSubmit?: boolean;
   defaultValue?: string | null;
   name: string;
   placeholder?: string;
 }>) {
   const [tags, setTags] = useState(() => splitTags(defaultValue));
   const [draft, setDraft] = useState("");
+  const [submitVersion, setSubmitVersion] = useState(0);
+  const fieldRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!autoSubmit || submitVersion === 0) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      const form = fieldRef.current?.closest("form");
+
+      if (form instanceof HTMLFormElement) {
+        form.requestSubmit();
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [autoSubmit, submitVersion, tags]);
+
+  function queueAutoSubmit() {
+    if (autoSubmit) {
+      setSubmitVersion((current) => current + 1);
+    }
+  }
 
   function addTags(rawValue = draft) {
     const nextTags = splitTags(rawValue);
@@ -43,32 +69,39 @@ export function TagInputField({
       return;
     }
 
-    setTags((currentTags) => {
-      const seen = new Set(currentTags.map((tag) => tag.toLowerCase()));
-      const merged = [...currentTags];
+    const seen = new Set(tags.map((tag) => tag.toLowerCase()));
+    const newTags = nextTags.filter((tag) => {
+      const key = tag.toLowerCase();
 
-      for (const tag of nextTags) {
-        const key = tag.toLowerCase();
-
-        if (!seen.has(key)) {
-          seen.add(key);
-          merged.push(tag);
-        }
+      if (seen.has(key)) {
+        return false;
       }
 
-      return merged;
+      seen.add(key);
+      return true;
     });
+
     setDraft("");
+
+    if (!newTags.length) {
+      return;
+    }
+
+    setTags([...tags, ...newTags]);
+    queueAutoSubmit();
   }
 
   function removeTag(tagToRemove: string) {
-    setTags((currentTags) =>
-      currentTags.filter((tag) => tag !== tagToRemove),
-    );
+    if (!tags.includes(tagToRemove)) {
+      return;
+    }
+
+    setTags(tags.filter((tag) => tag !== tagToRemove));
+    queueAutoSubmit();
   }
 
   return (
-    <div className="settings-tag-field">
+    <div className="settings-tag-field" ref={fieldRef}>
       <input name={name} type="hidden" value={tags.join(", ")} />
       <div className="settings-tag-list">
         <input
@@ -77,9 +110,7 @@ export function TagInputField({
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             const shouldCommitTag =
-              event.key === "Enter" ||
-              event.key === "," ||
-              event.key === "Tab";
+              event.key === "Enter" || event.key === "," || event.key === "Tab";
 
             if (shouldCommitTag) {
               event.preventDefault();
@@ -87,7 +118,8 @@ export function TagInputField({
             }
 
             if (event.key === "Backspace" && !draft && tags.length) {
-              setTags((currentTags) => currentTags.slice(0, -1));
+              setTags(tags.slice(0, -1));
+              queueAutoSubmit();
             }
           }}
           placeholder={tags.length ? "Add another..." : placeholder}
