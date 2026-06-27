@@ -8444,7 +8444,7 @@ button:disabled {
 
 .workplace-contact-editor-body {
   display: grid;
-  grid-template-columns: minmax(178px, 0.24fr) minmax(0, 1fr);
+  grid-template-columns: minmax(136px, 0.28fr) minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -8452,10 +8452,10 @@ button:disabled {
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: 8px;
+  gap: 7px;
   border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--background) 28%, transparent);
-  padding: 9px;
+  padding: 8px;
 }
 
 .workplace-contact-picker-header {
@@ -8513,13 +8513,13 @@ button:disabled {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 76%, var(--background));
   color: var(--text);
   cursor: pointer;
-  padding: 7px 8px;
+  padding: 7px;
   text-align: left;
 }
 
@@ -8562,8 +8562,8 @@ button:disabled {
 
 .workplace-contact-picker-row em {
   display: inline-flex;
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -8629,7 +8629,7 @@ button:disabled {
   }
 }
 
-@container workplace-contact (max-width: 640px) {
+@container workplace-contact (max-width: 430px) {
   .workplace-contact-editor-body {
     grid-template-columns: 1fr;
   }
