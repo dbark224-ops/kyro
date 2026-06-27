@@ -8338,9 +8338,9 @@ button:disabled {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
   border-bottom: 1px solid var(--line);
-  padding: 14px;
+  padding: 10px 12px;
 }
 
 .workplace-contact-editor-header h3,
@@ -8365,7 +8365,7 @@ button:disabled {
 
 .workplace-contact-editor-body {
   display: grid;
-  grid-template-columns: minmax(190px, 0.36fr) minmax(0, 1fr);
+  grid-template-columns: minmax(150px, 0.26fr) minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -8373,10 +8373,10 @@ button:disabled {
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
   border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--background) 28%, transparent);
-  padding: 12px;
+  padding: 9px;
 }
 
 .workplace-contact-search {
@@ -8390,15 +8390,15 @@ button:disabled {
 }
 
 .workplace-contact-search input {
-  min-height: 36px;
-  padding: 8px 10px;
+  min-height: 32px;
+  padding: 6px 8px;
 }
 
 .workplace-contact-picker-list {
   display: grid;
   max-height: min(420px, 52dvh);
   align-content: start;
-  gap: 6px;
+  gap: 5px;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -8409,13 +8409,13 @@ button:disabled {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 7px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 76%, var(--background));
   color: var(--text);
   cursor: pointer;
-  padding: 9px 10px;
+  padding: 7px 8px;
   text-align: left;
 }
 
@@ -8458,8 +8458,8 @@ button:disabled {
 
 .workplace-contact-picker-row em {
   display: inline-flex;
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -8476,7 +8476,7 @@ button:disabled {
   gap: 4px;
   border: 1px dashed color-mix(in srgb, var(--cyan) 30%, var(--line));
   border-radius: var(--radius-control);
-  padding: 12px;
+  padding: 9px;
 }
 
 .workplace-contact-empty strong {
@@ -8488,20 +8488,31 @@ button:disabled {
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: 12px;
-  padding: 14px;
+  gap: 9px;
+  padding: 10px;
 }
 
 .workplace-contact-form-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 9px;
 }
 
 .workplace-contact-form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+
+.workplace-contact-form-grid input,
+.workplace-contact-form-grid select,
+.workplace-contact-form-grid textarea {
+  min-height: 34px;
+  padding: 7px 9px;
+}
+
+.workplace-contact-form-grid textarea {
+  min-height: 66px;
 }
 
 .escalation-trigger-grid {
