@@ -8444,7 +8444,7 @@ button:disabled {
 
 .workplace-contact-editor-body {
   display: grid;
-  grid-template-columns: minmax(150px, 0.26fr) minmax(0, 1fr);
+  grid-template-columns: minmax(178px, 0.24fr) minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -8456,6 +8456,31 @@ button:disabled {
   border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--background) 28%, transparent);
   padding: 9px;
+}
+
+.workplace-contact-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workplace-contact-picker-header strong {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.workplace-contact-picker-header span {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
 }
 
 .workplace-contact-search {
@@ -8579,8 +8604,12 @@ button:disabled {
 }
 
 .workplace-contact-form-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+
+.workplace-contact-form-grid .workplace-contact-field-wide {
+  grid-column: span 2;
 }
 
 .workplace-contact-form-grid input,
@@ -8594,7 +8623,13 @@ button:disabled {
   min-height: 66px;
 }
 
-@container workplace-contact (max-width: 760px) {
+@container workplace-contact (max-width: 860px) {
+  .workplace-contact-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container workplace-contact (max-width: 640px) {
   .workplace-contact-editor-body {
     grid-template-columns: 1fr;
   }
@@ -8608,10 +8643,6 @@ button:disabled {
     max-height: none;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
     overflow: visible;
-  }
-
-  .workplace-contact-form-grid {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -12810,21 +12841,6 @@ button:disabled {
   .settings-list-panel {
     align-self: start;
   }
-
-  .workplace-contact-editor-body {
-    grid-template-columns: 1fr;
-  }
-
-  .workplace-contact-picker {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .workplace-contact-picker-list {
-    max-height: none;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
-    overflow: visible;
-  }
 }
 
 @media (max-width: 940px) {
@@ -12851,8 +12867,7 @@ button:disabled {
   .emergency-schedule-grid,
   .emergency-window-grid,
   .escalation-policy-grid,
-  .escalation-trigger-grid,
-  .workplace-contact-form-grid {
+  .escalation-trigger-grid {
     grid-template-columns: 1fr;
   }
 

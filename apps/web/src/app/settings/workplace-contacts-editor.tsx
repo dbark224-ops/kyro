@@ -152,7 +152,9 @@ export function WorkplaceContactsEditor({
 
   const removeContact = (contactId: string) => {
     commitRows((currentRows) => {
-      const nextRows = currentRows.filter((contact) => contact.id !== contactId);
+      const nextRows = currentRows.filter(
+        (contact) => contact.id !== contactId,
+      );
       const fallbackRows = ensureWorkplaceContactRows(nextRows);
 
       setSelectedContactId(fallbackRows[0]?.id ?? "");
@@ -160,14 +162,18 @@ export function WorkplaceContactsEditor({
     });
   };
 
-  const updateSelectedContact = (updates: Partial<WorkplaceContactSettings>) => {
+  const updateSelectedContact = (
+    updates: Partial<WorkplaceContactSettings>,
+  ) => {
     if (!selectedContact) {
       return;
     }
 
     commitRows((currentRows) =>
       currentRows.map((contact) =>
-        contact.id === selectedContact.id ? { ...contact, ...updates } : contact,
+        contact.id === selectedContact.id
+          ? { ...contact, ...updates }
+          : contact,
       ),
     );
   };
@@ -179,8 +185,16 @@ export function WorkplaceContactsEditor({
         {rows.map((contact) => (
           <span key={contact.id}>
             <input name="workplaceContactId" type="hidden" value={contact.id} />
-            <input name="workplaceContactName" type="hidden" value={contact.name} />
-            <input name="workplaceContactRole" type="hidden" value={contact.role} />
+            <input
+              name="workplaceContactName"
+              type="hidden"
+              value={contact.name}
+            />
+            <input
+              name="workplaceContactRole"
+              type="hidden"
+              value={contact.role}
+            />
             <input
               name="workplaceContactPhone"
               type="hidden"
@@ -191,7 +205,11 @@ export function WorkplaceContactsEditor({
               type="hidden"
               value={contact.privatePhoneNumber}
             />
-            <input name="workplaceContactEmail" type="hidden" value={contact.email} />
+            <input
+              name="workplaceContactEmail"
+              type="hidden"
+              value={contact.email}
+            />
             <input
               name="workplaceContactPreferredChannel"
               type="hidden"
@@ -222,7 +240,11 @@ export function WorkplaceContactsEditor({
               type="hidden"
               value={String(contact.receivesEscalations)}
             />
-            <input name="workplaceContactNotes" type="hidden" value={contact.notes} />
+            <input
+              name="workplaceContactNotes"
+              type="hidden"
+              value={contact.notes}
+            />
           </span>
         ))}
       </div>
@@ -243,7 +265,14 @@ export function WorkplaceContactsEditor({
       </header>
 
       <div className="workplace-contact-editor-body">
-        <aside className="workplace-contact-picker" aria-label="Workplace contacts">
+        <aside
+          className="workplace-contact-picker"
+          aria-label="Workplace contacts"
+        >
+          <div className="workplace-contact-picker-header">
+            <strong>Contacts</strong>
+            <span>{rows.length}</span>
+          </div>
           <label className="workplace-contact-search">
             <span>Search contacts</span>
             <input
@@ -311,7 +340,7 @@ export function WorkplaceContactsEditor({
             </div>
 
             <div className="crm-lead-form-grid workplace-contact-form-grid">
-              <label>
+              <label className="workplace-contact-field-wide">
                 Name
                 <input
                   onChange={(event) =>
@@ -332,43 +361,6 @@ export function WorkplaceContactsEditor({
                 />
               </label>
               <label>
-                Phone
-                <input
-                  onChange={(event) =>
-                    updateSelectedContact({
-                      phoneNumber: event.currentTarget.value,
-                    })
-                  }
-                  placeholder="+61 400 000 000"
-                  type="tel"
-                  value={selectedContact.phoneNumber}
-                />
-              </label>
-              <label>
-                Private escalation number
-                <input
-                  onChange={(event) =>
-                    updateSelectedContact({
-                      privatePhoneNumber: event.currentTarget.value,
-                    })
-                  }
-                  placeholder="Optional private number"
-                  type="tel"
-                  value={selectedContact.privatePhoneNumber}
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  onChange={(event) =>
-                    updateSelectedContact({ email: event.currentTarget.value })
-                  }
-                  placeholder={defaultEmail || "person@example.com"}
-                  type="email"
-                  value={selectedContact.email}
-                />
-              </label>
-              <label>
                 Preferred channel
                 <select
                   onChange={(event) =>
@@ -385,6 +377,43 @@ export function WorkplaceContactsEditor({
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="workplace-contact-field-wide">
+                Phone
+                <input
+                  onChange={(event) =>
+                    updateSelectedContact({
+                      phoneNumber: event.currentTarget.value,
+                    })
+                  }
+                  placeholder="+61 400 000 000"
+                  type="tel"
+                  value={selectedContact.phoneNumber}
+                />
+              </label>
+              <label className="workplace-contact-field-wide">
+                Private escalation number
+                <input
+                  onChange={(event) =>
+                    updateSelectedContact({
+                      privatePhoneNumber: event.currentTarget.value,
+                    })
+                  }
+                  placeholder="Optional private number"
+                  type="tel"
+                  value={selectedContact.privatePhoneNumber}
+                />
+              </label>
+              <label className="workplace-contact-field-wide">
+                Email
+                <input
+                  onChange={(event) =>
+                    updateSelectedContact({ email: event.currentTarget.value })
+                  }
+                  placeholder={defaultEmail || "person@example.com"}
+                  type="email"
+                  value={selectedContact.email}
+                />
               </label>
               <label>
                 Trade or specialty
@@ -434,12 +463,13 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.workingHours}
                 />
               </label>
-              <label>
+              <label className="workplace-contact-field-wide">
                 Escalation eligible
                 <select
                   onChange={(event) =>
                     updateSelectedContact({
-                      receivesEscalations: event.currentTarget.value !== "false",
+                      receivesEscalations:
+                        event.currentTarget.value !== "false",
                     })
                   }
                   value={String(selectedContact.receivesEscalations)}
