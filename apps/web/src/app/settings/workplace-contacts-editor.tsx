@@ -27,6 +27,24 @@ export const WORKPLACE_CONTACT_CHANNEL_LABELS: Record<
   sms: "SMS",
 };
 
+const WORKPLACE_ACTIVE_DAY_OPTIONS = [
+  { key: "Mon", label: "Mon", aliases: ["mon", "monday"] },
+  { key: "Tue", label: "Tue", aliases: ["tue", "tues", "tuesday"] },
+  { key: "Wed", label: "Wed", aliases: ["wed", "wednesday"] },
+  { key: "Thu", label: "Thu", aliases: ["thu", "thur", "thurs", "thursday"] },
+  { key: "Fri", label: "Fri", aliases: ["fri", "friday"] },
+  { key: "Sat", label: "Sat", aliases: ["sat", "saturday"] },
+  { key: "Sun", label: "Sun", aliases: ["sun", "sunday"] },
+  {
+    key: "Holidays",
+    label: "Holidays",
+    aliases: ["holiday", "holidays", "public holiday", "public holidays"],
+  },
+] as const;
+
+type WorkplaceActiveDayKey =
+  (typeof WORKPLACE_ACTIVE_DAY_OPTIONS)[number]["key"];
+
 function nextId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
@@ -96,6 +114,100 @@ function contactDetailCount(contact: WorkplaceContactSettings) {
     contact.activeDays,
     contact.workingHours,
   ].filter(Boolean).length;
+}
+
+function activeDayKeys(value: string) {
+  const normalized = value.toLowerCase();
+  const keys = new Set<WorkplaceActiveDayKey>();
+
+  if (/\b(mon|monday)\s*(?:-|to)\s*(fri|friday)\b/.test(normalized)) {
+    ["Mon", "Tue", "Wed", "Thu", "Fri"].forEach((day) =>
+      keys.add(day as WorkplaceActiveDayKey),
+    );
+  }
+
+  if (normalized.includes("weekday")) {
+    ["Mon", "Tue", "Wed", "Thu", "Fri"].forEach((day) =>
+      keys.add(day as WorkplaceActiveDayKey),
+    );
+  }
+
+  if (normalized.includes("weekend")) {
+    keys.add("Sat");
+    keys.add("Sun");
+  }
+
+  WORKPLACE_ACTIVE_DAY_OPTIONS.forEach((option) => {
+    if (option.aliases.some((alias) => normalized.includes(alias))) {
+      keys.add(option.key);
+    }
+  });
+
+  return keys;
+}
+
+function formatActiveDays(keys: Set<WorkplaceActiveDayKey>) {
+  return WORKPLACE_ACTIVE_DAY_OPTIONS.filter((option) => keys.has(option.key))
+    .map((option) => option.key)
+    .join(", ");
+}
+
+function timeInputValue(value: string) {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+
+  if (!match) {
+    return "";
+  }
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const period = match[3]?.toLowerCase();
+
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 24 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return "";
+  }
+
+  if (period === "pm" && hour < 12) {
+    hour += 12;
+  }
+
+  if (period === "am" && hour === 12) {
+    hour = 0;
+  }
+
+  if (hour > 23) {
+    return "";
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function workingHoursRange(value: string) {
+  const parts = value
+    .split(/\s*(?:to|until|through|-)\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return {
+    end: timeInputValue(parts[1] ?? ""),
+    start: timeInputValue(parts[0] ?? ""),
+  };
+}
+
+function formatWorkingHours(start: string, end: string) {
+  if (start && end) {
+    return `${start} to ${end}`;
+  }
+
+  return start || end || "";
 }
 
 export function WorkplaceContactsEditor({
@@ -184,6 +296,36 @@ export function WorkplaceContactsEditor({
   };
   const isEditingSelectedContact =
     Boolean(selectedContact) && selectedContact.id === editableContactId;
+  const selectedActiveDays = activeDayKeys(selectedContact?.activeDays ?? "");
+  const selectedWorkingHours = workingHoursRange(
+    selectedContact?.workingHours ?? "",
+  );
+
+  function toggleSelectedActiveDay(
+    dayKey: WorkplaceActiveDayKey,
+    checked: boolean,
+  ) {
+    const nextDays = new Set(selectedActiveDays);
+
+    if (checked) {
+      nextDays.add(dayKey);
+    } else {
+      nextDays.delete(dayKey);
+    }
+
+    updateSelectedContact({ activeDays: formatActiveDays(nextDays) });
+  }
+
+  function updateSelectedWorkingHours(field: "start" | "end", value: string) {
+    const nextRange = {
+      ...selectedWorkingHours,
+      [field]: value,
+    };
+
+    updateSelectedContact({
+      workingHours: formatWorkingHours(nextRange.start, nextRange.end),
+    });
+  }
 
   return (
     <section className="workplace-contact-editor">
@@ -479,32 +621,64 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.vehicleRegistration}
                 />
               </label>
-              <label>
-                Active days
-                <input
-                  disabled={!isEditingSelectedContact}
-                  onChange={(event) =>
-                    updateSelectedContact({
-                      activeDays: event.currentTarget.value,
-                    })
-                  }
-                  placeholder="Mon-Fri, weekends..."
-                  value={selectedContact.activeDays}
-                />
-              </label>
-              <label>
-                Working hours
-                <input
-                  disabled={!isEditingSelectedContact}
-                  onChange={(event) =>
-                    updateSelectedContact({
-                      workingHours: event.currentTarget.value,
-                    })
-                  }
-                  placeholder="7:00 AM to 4:00 PM"
-                  value={selectedContact.workingHours}
-                />
-              </label>
+              <div className="workplace-contact-availability-field workplace-contact-field-wide">
+                <span className="workplace-contact-field-label">
+                  Active days
+                </span>
+                <div className="workplace-contact-day-options">
+                  {WORKPLACE_ACTIVE_DAY_OPTIONS.map((option) => (
+                    <label key={option.key}>
+                      <input
+                        checked={selectedActiveDays.has(option.key)}
+                        disabled={!isEditingSelectedContact}
+                        onChange={(event) =>
+                          toggleSelectedActiveDay(
+                            option.key,
+                            event.currentTarget.checked,
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="workplace-contact-availability-field workplace-contact-field-wide">
+                <span className="workplace-contact-field-label">
+                  Working hours
+                </span>
+                <div className="workplace-contact-time-range">
+                  <label>
+                    <span>Start</span>
+                    <input
+                      disabled={!isEditingSelectedContact}
+                      onChange={(event) =>
+                        updateSelectedWorkingHours(
+                          "start",
+                          event.currentTarget.value,
+                        )
+                      }
+                      type="time"
+                      value={selectedWorkingHours.start}
+                    />
+                  </label>
+                  <label>
+                    <span>End</span>
+                    <input
+                      disabled={!isEditingSelectedContact}
+                      onChange={(event) =>
+                        updateSelectedWorkingHours(
+                          "end",
+                          event.currentTarget.value,
+                        )
+                      }
+                      type="time"
+                      value={selectedWorkingHours.end}
+                    />
+                  </label>
+                </div>
+              </div>
               <label className="workplace-contact-field-wide">
                 Escalation eligible
                 <select

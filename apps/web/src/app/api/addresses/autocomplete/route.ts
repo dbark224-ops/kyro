@@ -1,13 +1,25 @@
-import { autocompleteAddresses } from "../../../../lib/addresses/google";
+import {
+  autocompleteAddresses,
+  type GoogleAutocompletePrimaryType,
+} from "../../../../lib/addresses/google";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
 import { NextResponse, type NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+function primaryType(value: string | null): GoogleAutocompletePrimaryType {
+  return value === "cities"
+    ? "cities"
+    : value === "regions"
+      ? "regions"
+      : "address";
+}
+
 export async function GET(request: NextRequest) {
   const input = request.nextUrl.searchParams.get("q") ?? "";
   const sessionToken = request.nextUrl.searchParams.get("sessionToken");
+  const type = primaryType(request.nextUrl.searchParams.get("type"));
 
   try {
     const { supabase, workspace } = await requireWorkspaceContext();
@@ -17,6 +29,7 @@ export async function GET(request: NextRequest) {
     );
     const suggestions = await autocompleteAddresses({
       input,
+      primaryType: type,
       region: generalSettings.defaultPhoneRegion,
       sessionToken,
     });

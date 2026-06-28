@@ -802,6 +802,12 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     "general",
     redirectOptions,
   );
+  const aiLogo = await signatureLogoPayload(
+    formData,
+    "aiGeneratedSignature",
+    "general",
+    redirectOptions,
+  );
 
   if (!timeZone) {
     redirectWithSectionMessage(
@@ -975,19 +981,40 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       publicEmail: user.email ?? "",
     },
   );
-  const manualSignature = normalizeEmailSignatureSettings(
-    {
-      ...manualLogo,
-      logoUrl: formString(formData, "manualSignatureLogoUrl"),
-      logoWidthPx: formString(formData, "manualSignatureLogoWidthPx"),
-      text: formString(formData, "manualSignatureText"),
-    },
-    beforeCommunicationSettings.manualSignature,
+  const emailSignatureSubmitted = formData.has(
+    "businessProfileEmailSignatureSubmitted",
   );
+  const manualSignature = emailSignatureSubmitted
+    ? normalizeEmailSignatureSettings(
+        {
+          ...manualLogo,
+          logoUrl: formString(formData, "manualSignatureLogoUrl"),
+          logoWidthPx: formString(formData, "manualSignatureLogoWidthPx"),
+          text: formString(formData, "manualSignatureText"),
+        },
+        beforeCommunicationSettings.manualSignature,
+      )
+    : beforeCommunicationSettings.manualSignature;
+  const aiGeneratedSignature = emailSignatureSubmitted
+    ? normalizeEmailSignatureSettings(
+        {
+          ...aiLogo,
+          logoUrl: formString(formData, "aiGeneratedSignatureLogoUrl"),
+          logoWidthPx: formString(formData, "aiGeneratedSignatureLogoWidthPx"),
+          text: formString(formData, "aiGeneratedSignatureText"),
+        },
+        beforeCommunicationSettings.aiGeneratedSignature,
+      )
+    : beforeCommunicationSettings.aiGeneratedSignature;
+  const useSeparateAiSignature = emailSignatureSubmitted
+    ? formBoolean(formData, "useSeparateAiSignature")
+    : beforeCommunicationSettings.useSeparateAiSignature;
   const communicationSettings = normalizeCommunicationSettings({
     ...beforeCommunicationSettings,
+    aiGeneratedSignature,
     businessSignature: manualSignature.text,
     manualSignature,
+    useSeparateAiSignature,
   });
   const generalSettings = normalizeWorkspaceGeneralSettings({
     ...beforeGeneralSettings,
@@ -1118,12 +1145,17 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     entityType: "workspace_policy",
     entityId: String(savedGeneralPolicy.id),
     before: {
+      aiGeneratedSignature: beforeCommunicationSettings.aiGeneratedSignature,
       businessProfile: beforeGeneralSettings.businessProfile,
       manualSignature: beforeCommunicationSettings.manualSignature,
+      useSeparateAiSignature:
+        beforeCommunicationSettings.useSeparateAiSignature,
     },
     after: {
+      aiGeneratedSignature: communicationSettings.aiGeneratedSignature,
       businessProfile: generalSettings.businessProfile,
       manualSignature: communicationSettings.manualSignature,
+      useSeparateAiSignature: communicationSettings.useSeparateAiSignature,
     },
   });
 
