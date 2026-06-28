@@ -2657,11 +2657,7 @@ function GeneralSettingsDetail({
           style={visibleWhen(showPublicDetails)}
         >
           <div>
-            <p className="eyebrow">Operational phone numbers</p>
-            <p>
-              These are the numbers already assigned for Twilio/Vapi. The public
-              number above can use one of these or any other displayed number.
-            </p>
+            <p className="eyebrow">Phone numbers</p>
           </div>
           {operationalPhoneNumbers.length ? (
             <div className="detail-list compact-detail-list">
@@ -2689,8 +2685,11 @@ function GeneralSettingsDetail({
             </div>
           ) : (
             <p className="empty-copy">
-              No operational phone number is assigned yet. Configure phone and
-              SMS in Connected accounts when the workspace is ready.
+              No operational phone number is assigned yet.{" "}
+              <Link href="/settings?section=integrations&panel=phone-sms">
+                Set up phone and SMS
+              </Link>{" "}
+              when the workspace is ready.
             </p>
           )}
         </section>
