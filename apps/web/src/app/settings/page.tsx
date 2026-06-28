@@ -5,6 +5,7 @@ import {
   disconnectIntegrationAction,
   disconnectWorkspacePhoneSmsAction,
   disableVoicemailOverflowNumberAction,
+  enableVoicemailOverflowNumberAction,
   enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
   openKyroBillingPortalAction,
@@ -3448,9 +3449,8 @@ function WorkspaceIntegrationsSettings({
               </h3>
               <p>
                 Kyro only needs one outbound email provider. Connect Gmail or
-                Outlook; if both are connected during testing, Kyro uses the
-                most recently connected account until we add a default sender
-                setting.
+                Outlook; if both are connected, Kyro uses the most recently
+                connected account until we add a default sender setting.
               </p>
             </div>
             <span className="pill">
@@ -3995,7 +3995,10 @@ function VoicemailOverflowSettings({
       {!voiceSettings.phoneAgentVoicemailOverflowEnabled ? (
         <p className="form-alert compact-alert">
           Turn on voicemail overflow in phone assistant settings and save before
-          forwarded callers are routed to the voicemail overflow assistant.
+          forwarded callers are routed to the voicemail overflow assistant.{" "}
+          <Link href="/settings?section=voice&panel=phone-assistant">
+            Open phone assistant settings
+          </Link>
         </p>
       ) : null}
 
@@ -4026,13 +4029,13 @@ function VoicemailOverflowSettings({
                 and save the change.
               </li>
               <li>
-                If you use iPhone, turn off Live Voicemail before testing so the
-                carrier can forward missed calls to Kyro instead of the phone
-                intercepting them locally.
+                If you use iPhone, turn off Live Voicemail so the carrier can
+                forward missed calls to Kyro instead of the phone intercepting
+                them locally.
               </li>
               <li>
-                Place a test call from another phone, let your personal phone
-                ring out, then confirm the call appears in Kyro activity.
+                Place a call from another phone, let your personal phone ring
+                out, then confirm the call appears in Kyro activity.
               </li>
             </ol>
             <p className="empty-copy">
@@ -4070,14 +4073,58 @@ function VoicemailOverflowSettings({
           </form>
         </div>
       ) : voiceNumbers.length > 0 ? (
-        <p className="form-alert compact-alert">
-          Your workspace has a voice-capable Kyro number, but voicemail overflow
-          is not assigned to it yet.
-        </p>
+        <form
+          action={enableVoicemailOverflowNumberAction}
+          className="setting-card voicemail-overflow-setup-card"
+        >
+          <SettingCardHeading info="Choose which Kyro number your personal phone or carrier should forward unanswered calls to.">
+            Choose overflow number
+          </SettingCardHeading>
+          <p className="empty-copy">
+            Your workspace has a voice-capable Kyro number, but voicemail
+            overflow is not assigned yet.
+          </p>
+          <div className="phone-number-choice-list">
+            {voiceNumbers.map((number, index) => (
+              <label className="phone-number-choice" key={number.id}>
+                <input
+                  defaultChecked={index === 0}
+                  name="phoneNumberId"
+                  type="radio"
+                  value={number.id}
+                />
+                <span>
+                  <strong>{number.phoneNumber}</strong>
+                  <small>
+                    {[
+                      number.friendlyName,
+                      number.countryCode,
+                      number.vapiPhoneNumberId ? "Vapi linked" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" - ")}
+                  </small>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="settings-footer compact-settings-footer">
+            <span>
+              Kyro will mark this number as the missed-call overflow
+              destination.
+            </span>
+            <SettingsSubmitButton pendingLabel="Setting up...">
+              Set up voicemail overflow
+            </SettingsSubmitButton>
+          </div>
+        </form>
       ) : (
         <p className="form-alert compact-alert">
           Enable phone and SMS in Connected accounts first so Kyro has a
-          voice-capable number to use for overflow.
+          voice-capable number to use for overflow.{" "}
+          <Link href="/settings?section=integrations&panel=phone-sms">
+            Set up Phone and SMS
+          </Link>
         </p>
       )}
     </article>
@@ -4172,9 +4219,9 @@ function DeveloperSettingsDetail({
             </strong>
           </div>
           <div>
-            <span>Smoke tests</span>
+            <span>System checks</span>
             <strong>
-              <Link href="/developer/smoke-tests">Smoke checklist</Link>
+              <Link href="/developer/system-health">Check readiness</Link>
             </strong>
           </div>
           <div>
@@ -4188,7 +4235,7 @@ function DeveloperSettingsDetail({
           <div>
             <strong>Dashboard tutorial</strong>
             <p>
-              Keep this on while testing the first-run walkthrough. Normal
+              Keep this on while previewing the first-run walkthrough. Normal
               workspaces still only see the tutorial once unless they launch it
               manually from the top bar.
             </p>
@@ -4310,7 +4357,7 @@ function DeveloperSettingsDetail({
             </label>
 
             <label className="setting-card">
-              <SettingCardHeading info="Legacy customer-facing pronunciation preflight policy retained for development and testing. The shared pronunciation list remains user-facing because Vapi uses it too.">
+              <SettingCardHeading info="Pronunciation policy for customer-facing voice replies. The shared pronunciation list is used by Vapi too.">
                 Outbound voice pronunciation
               </SettingCardHeading>
               <select
@@ -4454,8 +4501,9 @@ function DeveloperSettingsDetail({
             </span>
           </div>
           <p className="empty-copy">
-            Dev-only smoke panel for confirming missed-call forwarding is aimed
-            at a Kyro number that resolves to the voicemail overflow assistant.
+            Internal readiness panel for confirming missed-call forwarding is
+            aimed at a Kyro number that resolves to the voicemail overflow
+            assistant.
           </p>
           <div className="developer-readiness-grid">
             {voicemailReadiness.map((check) => (

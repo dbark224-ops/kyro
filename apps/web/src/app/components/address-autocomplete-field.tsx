@@ -1,6 +1,9 @@
 "use client";
 
-import type { AddressSuggestion, StructuredAddress } from "../../lib/addresses/types";
+import type {
+  AddressSuggestion,
+  StructuredAddress,
+} from "../../lib/addresses/types";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 type AddressAutocompleteFieldProps = {
@@ -188,8 +191,14 @@ export function AddressAutocompleteField({
   }
 
   return (
-    <label className={["address-autocomplete-field", className].filter(Boolean).join(" ")}>
-      {label}
+    <label
+      className={["address-autocomplete-field", className]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {label ? (
+        <span className="address-autocomplete-label">{label}</span>
+      ) : null}
       <span className="address-autocomplete-control">
         <input
           aria-autocomplete="list"
@@ -223,7 +232,11 @@ export function AddressAutocompleteField({
           <span className="address-autocomplete-spinner" aria-hidden="true" />
         ) : null}
         {isOpen ? (
-          <span className="address-autocomplete-menu" id={listId} role="listbox">
+          <span
+            className="address-autocomplete-menu"
+            id={listId}
+            role="listbox"
+          >
             {suggestions.map((suggestion) => (
               <button
                 key={suggestion.placeId}
@@ -248,27 +261,59 @@ export function AddressAutocompleteField({
       {message ? (
         <small className="address-autocomplete-message">{message}</small>
       ) : null}
-      <input name={`${name}GooglePlaceId`} type="hidden" value={hiddenFields.placeId} />
-      <input name={`${name}Formatted`} type="hidden" value={hiddenFields.formatted} />
+      <input
+        name={`${name}GooglePlaceId`}
+        type="hidden"
+        value={hiddenFields.placeId}
+      />
+      <input
+        name={`${name}Formatted`}
+        type="hidden"
+        value={hiddenFields.formatted}
+      />
       <input name={`${name}Line1`} type="hidden" value={hiddenFields.line1} />
       <input name={`${name}Line2`} type="hidden" value={hiddenFields.line2} />
-      <input name={`${name}Locality`} type="hidden" value={hiddenFields.locality} />
+      <input
+        name={`${name}Locality`}
+        type="hidden"
+        value={hiddenFields.locality}
+      />
       <input
         name={`${name}AdministrativeArea`}
         type="hidden"
         value={hiddenFields.administrativeArea}
       />
-      <input name={`${name}PostalCode`} type="hidden" value={hiddenFields.postalCode} />
-      <input name={`${name}CountryCode`} type="hidden" value={hiddenFields.countryCode} />
-      <input name={`${name}Latitude`} type="hidden" value={hiddenFields.latitude} />
-      <input name={`${name}Longitude`} type="hidden" value={hiddenFields.longitude} />
+      <input
+        name={`${name}PostalCode`}
+        type="hidden"
+        value={hiddenFields.postalCode}
+      />
+      <input
+        name={`${name}CountryCode`}
+        type="hidden"
+        value={hiddenFields.countryCode}
+      />
+      <input
+        name={`${name}Latitude`}
+        type="hidden"
+        value={hiddenFields.latitude}
+      />
+      <input
+        name={`${name}Longitude`}
+        type="hidden"
+        value={hiddenFields.longitude}
+      />
       <input name={`${name}Source`} type="hidden" value={hiddenFields.source} />
       <input
         name={`${name}ValidationStatus`}
         type="hidden"
         value={hiddenFields.validationStatus}
       />
-      <input name={`${name}Structured`} type="hidden" value={hiddenFields.structured} />
+      <input
+        name={`${name}Structured`}
+        type="hidden"
+        value={hiddenFields.structured}
+      />
     </label>
   );
 }

@@ -238,7 +238,7 @@ export function buildSettingsNestedItems({
         title: "Phone assistant",
       },
       {
-        detail: "Overflow routing, caller instructions, and test details",
+        detail: "Overflow routing and caller instructions",
         href: settingsPanelHref("voice", "voicemail-overflow", activeWindow),
         key: "voicemail-overflow",
         selected: selectedPanel === "voicemail-overflow",

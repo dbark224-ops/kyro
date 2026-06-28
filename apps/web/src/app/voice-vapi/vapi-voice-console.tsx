@@ -36,8 +36,7 @@ type VapiMessage = {
 };
 
 const VAPI_INTERNAL_MODEL = "vapi-web-internal";
-const KYRO_ADDRESSING_VARIANTS =
-  "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
+const KYRO_ADDRESSING_VARIANTS = "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
 const KYRO_ADDRESSING_PREFIX =
   "(?:(?:hey|hi|hello|yo|ok|okay|alright|right|so|what'?s up|sup)[,!.?\\s]+){0,4}";
 const VAPI_STARTER_PATTERN =
@@ -49,7 +48,10 @@ function normalizedTranscript(value: string) {
 
 function normalizeKyroAddressedTranscript(value: string) {
   return normalizedTranscript(value).replace(
-    new RegExp(`^(${KYRO_ADDRESSING_PREFIX})(${KYRO_ADDRESSING_VARIANTS})\\b`, "i"),
+    new RegExp(
+      `^(${KYRO_ADDRESSING_PREFIX})(${KYRO_ADDRESSING_VARIANTS})\\b`,
+      "i",
+    ),
     (_match, prefix: string) => `${prefix ?? ""}Kyro`,
   );
 }
@@ -130,7 +132,9 @@ function sameVoiceTurn(firstValue: string, secondValue: string) {
 
   const firstSet = new Set(firstWords);
   const secondSet = new Set(secondWords);
-  const sharedCount = [...firstSet].filter((word) => secondSet.has(word)).length;
+  const sharedCount = [...firstSet].filter((word) =>
+    secondSet.has(word),
+  ).length;
   const smallerCount = Math.min(firstSet.size, secondSet.size);
 
   return smallerCount > 0 && sharedCount / smallerCount >= 0.86;
@@ -140,7 +144,12 @@ function isVoiceTurnExpansion(shorterValue: string, longerValue: string) {
   const shorter = canonicalTranscript(shorterValue);
   const longer = canonicalTranscript(longerValue);
 
-  if (!shorter || !longer || shorter === longer || shorter.length > longer.length) {
+  if (
+    !shorter ||
+    !longer ||
+    shorter === longer ||
+    shorter.length > longer.length
+  ) {
     return false;
   }
 
@@ -212,7 +221,7 @@ export function VapiVoiceConsole({
   const [status, setStatus] = useState(
     session.configured
       ? "Ready for Vapi voice."
-      : `Add ${session.missing.join(", ")} to test Vapi voice.`,
+      : `Add ${session.missing.join(", ")} to enable Vapi voice.`,
   );
   const [error, setError] = useState<string | null>(initialState.error ?? null);
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -249,7 +258,10 @@ export function VapiVoiceConsole({
     connectionState === "connecting";
   const showVoiceMeter =
     connectionState === "listening" || connectionState === "speaking";
-  const dedupedMessages = useMemo(() => dedupeVoiceMessages(messages), [messages]);
+  const dedupedMessages = useMemo(
+    () => dedupeVoiceMessages(messages),
+    [messages],
+  );
   const latestMessage = dedupedMessages[dedupedMessages.length - 1] ?? null;
   const latestMessageSignature = latestMessage
     ? `${latestMessage.id}:${latestMessage.content.length}`
@@ -282,8 +294,7 @@ export function VapiVoiceConsole({
         const otherAt = Date.parse(otherMessage.createdAt ?? "");
 
         return (
-          Number.isFinite(otherAt) &&
-          Math.abs(otherAt - messageAt) <= 45_000
+          Number.isFinite(otherAt) && Math.abs(otherAt - messageAt) <= 45_000
         );
       });
 
@@ -400,14 +411,14 @@ export function VapiVoiceConsole({
         return [
           ...currentMessages,
           {
-          content: clean,
-          createdAt: nowIso,
-          id: `vapi-${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          intent: "vapi_internal_voice",
-          model: role === "assistant" ? VAPI_INTERNAL_MODEL : undefined,
-          provider: role === "assistant" ? provider : undefined,
-          role,
-          uiBlocks: uiBlocks.length > 0 ? uiBlocks : undefined,
+            content: clean,
+            createdAt: nowIso,
+            id: `vapi-${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            intent: "vapi_internal_voice",
+            model: role === "assistant" ? VAPI_INTERNAL_MODEL : undefined,
+            provider: role === "assistant" ? provider : undefined,
+            role,
+            uiBlocks: uiBlocks.length > 0 ? uiBlocks : undefined,
           },
         ];
       });
@@ -473,10 +484,7 @@ export function VapiVoiceConsole({
   );
 
   const persistVapiTurn = useCallback(
-    async (
-      assistantTranscript?: string,
-      uiBlocks: AssistantUiBlock[] = [],
-    ) => {
+    async (assistantTranscript?: string, uiBlocks: AssistantUiBlock[] = []) => {
       const cleanedAssistantTranscript = cleanAssistantTranscript(
         assistantTranscript ?? currentAssistantTranscriptRef.current,
       );
@@ -626,7 +634,9 @@ export function VapiVoiceConsole({
         pendingToolUiBlocksRef.current = [];
       }
 
-      appendStartTrace(`${source} added ${normalizedBlocks.length} UI block(s)`);
+      appendStartTrace(
+        `${source} added ${normalizedBlocks.length} UI block(s)`,
+      );
     },
     [appendStartTrace],
   );
@@ -687,26 +697,31 @@ export function VapiVoiceConsole({
     toolBlockCursorRef.current = latestCreatedAt;
   }, [applyToolUiBlocks, threadId]);
 
-  const captureAssistantDraft = useCallback((content: string) => {
-    const clean = cleanAssistantTranscript(content);
+  const captureAssistantDraft = useCallback(
+    (content: string) => {
+      const clean = cleanAssistantTranscript(content);
 
-    if (!clean) {
-      return;
-    }
+      if (!clean) {
+        return;
+      }
 
-    if (
-      Date.now() - lastAssistantFinalizedAtRef.current <= 20_000 &&
-      sameVoiceTurn(lastAssistantFinalizedContentRef.current, clean)
-    ) {
-      appendStartTrace("Ignored stale assistant model output from previous turn");
-      return;
-    }
+      if (
+        Date.now() - lastAssistantFinalizedAtRef.current <= 20_000 &&
+        sameVoiceTurn(lastAssistantFinalizedContentRef.current, clean)
+      ) {
+        appendStartTrace(
+          "Ignored stale assistant model output from previous turn",
+        );
+        return;
+      }
 
-    const merged = mergeAssistantContent(assistantDraftRef.current, clean);
+      const merged = mergeAssistantContent(assistantDraftRef.current, clean);
 
-    assistantDraftRef.current = merged;
-    currentAssistantTranscriptRef.current = merged;
-  }, [appendStartTrace]);
+      assistantDraftRef.current = merged;
+      currentAssistantTranscriptRef.current = merged;
+    },
+    [appendStartTrace],
+  );
 
   const finalizeAssistantTurn = useCallback(
     (content?: string) => {
@@ -743,7 +758,9 @@ export function VapiVoiceConsole({
         sameVoiceTurn(lastAssistantFinalizedContentRef.current, clean);
 
       if (recentlyFinalized) {
-        if (isVoiceTurnExpansion(lastAssistantFinalizedContentRef.current, clean)) {
+        if (
+          isVoiceTurnExpansion(lastAssistantFinalizedContentRef.current, clean)
+        ) {
           const merged = mergeVoiceTurnContent(
             lastAssistantFinalizedContentRef.current,
             clean,
@@ -753,11 +770,17 @@ export function VapiVoiceConsole({
             currentMessages.map((message) =>
               message.role === "assistant" &&
               (message.provider ?? "") === "vapi" &&
-              sameVoiceTurn(message.content, lastAssistantFinalizedContentRef.current)
+              sameVoiceTurn(
+                message.content,
+                lastAssistantFinalizedContentRef.current,
+              )
                 ? {
                     ...message,
                     content: merged,
-                    uiBlocks: mergeAssistantUiBlocks(message.uiBlocks, uiBlocks),
+                    uiBlocks: mergeAssistantUiBlocks(
+                      message.uiBlocks,
+                      uiBlocks,
+                    ),
                   }
                 : message,
             ),
@@ -780,7 +803,9 @@ export function VapiVoiceConsole({
 
         assistantDraftIdRef.current = null;
         assistantDraftRef.current = "";
-        appendStartTrace("Ignored duplicate assistant turn from Vapi event stream");
+        appendStartTrace(
+          "Ignored duplicate assistant turn from Vapi event stream",
+        );
         return;
       }
 
@@ -922,7 +947,9 @@ export function VapiVoiceConsole({
           setLiveTranscript("");
           setVoiceLevel(0);
           setStatus(
-            endedReason ? `Call ended: ${humanizeVapiReason(endedReason)}` : "Call ended.",
+            endedReason
+              ? `Call ended: ${humanizeVapiReason(endedReason)}`
+              : "Call ended.",
           );
 
           if (endedReason && !isExpectedCallEndReason(endedReason)) {
@@ -1001,10 +1028,7 @@ export function VapiVoiceConsole({
       if (type === "conversation-update") {
         const lastAssistantMessage =
           lastConversationMessage(message.messages, "assistant") ??
-          lastConversationMessage(
-            message.messagesOpenAIFormatted,
-            "assistant",
-          );
+          lastConversationMessage(message.messagesOpenAIFormatted, "assistant");
 
         if (lastAssistantMessage) {
           captureAssistantDraft(lastAssistantMessage.content);
@@ -1221,7 +1245,9 @@ export function VapiVoiceConsole({
       });
       vapi.on("volume-level", (level) => {
         const nextLevel = Math.max(0, Math.min(1, Number(level) || 0));
-        setVoiceLevel((currentLevel) => Math.max(currentLevel * 0.72, nextLevel));
+        setVoiceLevel((currentLevel) =>
+          Math.max(currentLevel * 0.72, nextLevel),
+        );
       });
       vapi.on("message", handleVapiMessage);
       vapi.on("error", (nextError) => {
@@ -1346,7 +1372,10 @@ export function VapiVoiceConsole({
       aria-label="Vapi voice assistant"
     >
       <div className="voice-console-main">
-        <section className="voice-control-panel" aria-label="Vapi voice controls">
+        <section
+          className="voice-control-panel"
+          aria-label="Vapi voice controls"
+        >
           <button
             aria-label={isConnected ? "Stop Vapi voice" : "Start Vapi voice"}
             aria-pressed={isConnected}
@@ -1378,7 +1407,11 @@ export function VapiVoiceConsole({
             <VoiceLevelMeter active={showVoiceMeter} level={voiceLevel} />
           </div>
           {isConnected ? (
-            <button className="secondary-button" onClick={stopVapi} type="button">
+            <button
+              className="secondary-button"
+              onClick={stopVapi}
+              type="button"
+            >
               End
             </button>
           ) : null}
@@ -1490,7 +1523,10 @@ function VoiceMessageBlocks({
           }
 
           return (
-            <div className="voice-known-block" key={`${message.id}-links-${index}`}>
+            <div
+              className="voice-known-block"
+              key={`${message.id}-links-${index}`}
+            >
               <strong>{block.title}</strong>
               <div className="voice-card-grid">
                 {block.links.slice(0, 6).map((link) => (
@@ -1509,7 +1545,10 @@ function VoiceMessageBlocks({
 
         if (block.type === "summary_cards") {
           return (
-            <div className="voice-known-block" key={`${message.id}-summary-${index}`}>
+            <div
+              className="voice-known-block"
+              key={`${message.id}-summary-${index}`}
+            >
               <strong>{block.title}</strong>
               <div className="voice-card-grid">
                 {block.cards.map((card) => (
@@ -1530,7 +1569,10 @@ function VoiceMessageBlocks({
 
         if (block.type === "approval_queue") {
           return (
-            <div className="voice-known-block" key={`${message.id}-approval-${index}`}>
+            <div
+              className="voice-known-block"
+              key={`${message.id}-approval-${index}`}
+            >
               <strong>{block.title}</strong>
               <div className="voice-list-block">
                 {block.items.map((item) => (
@@ -1550,7 +1592,10 @@ function VoiceMessageBlocks({
 
         if (block.type === "timeline") {
           return (
-            <div className="voice-known-block" key={`${message.id}-timeline-${index}`}>
+            <div
+              className="voice-known-block"
+              key={`${message.id}-timeline-${index}`}
+            >
               <strong>{block.title}</strong>
               <div className="voice-list-block">
                 {block.items.slice(0, 6).map((item) => (
@@ -1576,7 +1621,10 @@ function VoiceMessageBlocks({
               <strong>{block.title}</strong>
               <div className="voice-generated-image-grid">
                 {block.images.map((image) => (
-                  <article className="voice-generated-image-card" key={image.fileId}>
+                  <article
+                    className="voice-generated-image-card"
+                    key={image.fileId}
+                  >
                     <a href={image.href} rel="noreferrer" target="_blank">
                       {/* Generated file thumbnails are scoped API images, not LCP media. */}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1595,9 +1643,15 @@ function VoiceMessageBlocks({
           );
         }
 
-        if (block.type === "memory_notice" || block.type === "memory_suggestion") {
+        if (
+          block.type === "memory_notice" ||
+          block.type === "memory_suggestion"
+        ) {
           return (
-            <div className="voice-known-block notice" key={`${message.id}-memory-${index}`}>
+            <div
+              className="voice-known-block notice"
+              key={`${message.id}-memory-${index}`}
+            >
               <strong>{block.title}</strong>
               <span>{block.content}</span>
             </div>
@@ -1687,9 +1741,12 @@ function VoicePreviewPanel({
       }
     }, 0);
 
-    fetch(`/api/assistant/vapi/preview?href=${encodeURIComponent(target.href)}`, {
-      cache: "no-store",
-    })
+    fetch(
+      `/api/assistant/vapi/preview?href=${encodeURIComponent(target.href)}`,
+      {
+        cache: "no-store",
+      },
+    )
       .then(async (response) => {
         const body = objectRecord(await response.json().catch(() => ({})));
 
@@ -1771,7 +1828,11 @@ function VoicePreviewPanel({
 
 // Kept as a compact fallback preview while the primary path uses ContactProfilePanel.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function ContactVoicePreview({ data }: { data: Extract<VoicePreviewData, { type: "contact" }> }) {
+function ContactVoicePreview({
+  data,
+}: {
+  data: Extract<VoicePreviewData, { type: "contact" }>;
+}) {
   const contact = data.profile.contact;
 
   return (
@@ -1780,7 +1841,10 @@ function ContactVoicePreview({ data }: { data: Extract<VoicePreviewData, { type:
         <h3>Contact</h3>
         <div className="voice-preview-grid">
           <VoicePreviewFact label="Name" value={contact.name} />
-          <VoicePreviewFact label="Type" value={humanizeLabel(contact.contactType)} />
+          <VoicePreviewFact
+            label="Type"
+            value={humanizeLabel(contact.contactType)}
+          />
           <VoicePreviewFact label="Email" value={contact.email} />
           <VoicePreviewFact label="Phone" value={contact.phone} />
           <VoicePreviewFact label="Company" value={contact.company} />
@@ -1790,13 +1854,22 @@ function ContactVoicePreview({ data }: { data: Extract<VoicePreviewData, { type:
       <section className="voice-preview-section">
         <h3>Snapshot</h3>
         <div className="voice-preview-counts">
-          <VoicePreviewFact label="Leads" value={String(data.profile.counts.leads)} />
+          <VoicePreviewFact
+            label="Leads"
+            value={String(data.profile.counts.leads)}
+          />
           <VoicePreviewFact
             label="Conversations"
             value={String(data.profile.counts.conversations)}
           />
-          <VoicePreviewFact label="Messages" value={String(data.profile.counts.messages)} />
-          <VoicePreviewFact label="Actions" value={String(data.profile.counts.actions)} />
+          <VoicePreviewFact
+            label="Messages"
+            value={String(data.profile.counts.messages)}
+          />
+          <VoicePreviewFact
+            label="Actions"
+            value={String(data.profile.counts.actions)}
+          />
         </div>
       </section>
       <section className="voice-preview-section">
@@ -1857,7 +1930,9 @@ function VoicePreviewFact({
 function isPreviewableVoiceHref(href: string) {
   try {
     const url = new URL(href, "http://kyro.local");
-    return url.pathname === "/contacts" || /^\/contacts\/[^/]+$/.test(url.pathname);
+    return (
+      url.pathname === "/contacts" || /^\/contacts\/[^/]+$/.test(url.pathname)
+    );
   } catch {
     return false;
   }
@@ -1875,7 +1950,11 @@ function ClientMessageTime({ value }: { value: string | undefined }) {
   return <span suppressHydrationWarning>{formatMessageTime(value)}</span>;
 }
 
-function AssistantProviderPill({ message }: { message: AssistantThreadMessage }) {
+function AssistantProviderPill({
+  message,
+}: {
+  message: AssistantThreadMessage;
+}) {
   if (!message.provider) {
     return null;
   }
@@ -1938,7 +2017,9 @@ function dedupeVoiceMessages(messages: AssistantThreadMessage[]) {
           (Number.isFinite(keptAt) ? keptAt : 0),
       );
 
-      return delta <= 30_000 && sameVoiceTurn(keptMessage.content, message.content);
+      return (
+        delta <= 30_000 && sameVoiceTurn(keptMessage.content, message.content)
+      );
     });
 
     if (previous) {
@@ -1957,8 +2038,14 @@ function dedupeVoiceMessages(messages: AssistantThreadMessage[]) {
       const previousNearMatch = keptMessages[previousNearMatchIndex];
       keptMessages[previousNearMatchIndex] = {
         ...previousNearMatch,
-        content: mergeVoiceTurnContent(previousNearMatch.content, message.content),
-        uiBlocks: mergeAssistantUiBlocks(previousNearMatch.uiBlocks, message.uiBlocks),
+        content: mergeVoiceTurnContent(
+          previousNearMatch.content,
+          message.content,
+        ),
+        uiBlocks: mergeAssistantUiBlocks(
+          previousNearMatch.uiBlocks,
+          message.uiBlocks,
+        ),
       };
       continue;
     }
@@ -2170,7 +2257,11 @@ function looksLikeAssistantStreamFragment(current: string, incoming: string) {
 }
 
 function appendAssistantStreamFragment(current: string, incoming: string) {
-  if (/^[,.;:!?)]/.test(incoming) || current.endsWith(" ") || incoming.startsWith(" ")) {
+  if (
+    /^[,.;:!?)]/.test(incoming) ||
+    current.endsWith(" ") ||
+    incoming.startsWith(" ")
+  ) {
     return normalizedTranscript(`${current}${incoming}`);
   }
 
@@ -2317,7 +2408,9 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function roleFromVapiMessage(message: VapiMessage): "assistant" | "user" | null {
+function roleFromVapiMessage(
+  message: VapiMessage,
+): "assistant" | "user" | null {
   const rawRole = (
     textValue(message.role) ??
     textValue(message.speaker) ??

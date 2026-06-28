@@ -2819,7 +2819,7 @@ export async function updateDashboardTutorialTestModeAction(
     redirectWithSectionMessage(
       "developer",
       "engine_error",
-      `Unable to update dashboard tutorial test mode: ${error.message}`,
+      `Unable to update dashboard tutorial preview mode: ${error.message}`,
     );
   }
 
@@ -2829,7 +2829,7 @@ export async function updateDashboardTutorialTestModeAction(
     "developer",
     "engine_message",
     forceShow
-      ? "Dashboard tutorial test mode is on. The tour will appear whenever the Dashboard loads until you turn this off."
-      : "Dashboard tutorial test mode is off. The tour will only appear for first-time workspaces.",
+      ? "Dashboard tutorial preview mode is on. The tour will appear whenever the Dashboard loads until you turn this off."
+      : "Dashboard tutorial preview mode is off. The tour will only appear for first-time workspaces.",
   );
 }

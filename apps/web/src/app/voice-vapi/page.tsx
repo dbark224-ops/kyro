@@ -17,7 +17,9 @@ type VapiVoicePageProps = {
   }>;
 };
 
-export default async function VapiVoicePage({ searchParams }: VapiVoicePageProps) {
+export default async function VapiVoicePage({
+  searchParams,
+}: VapiVoicePageProps) {
   const query = await searchParams;
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
@@ -40,7 +42,7 @@ export default async function VapiVoicePage({ searchParams }: VapiVoicePageProps
   const { contactCount, needsReply, readyQuotes } = metrics;
   const welcomeMessage: AssistantThreadState["messages"][number] = {
     content:
-      "Vapi voice mode is ready for testing. It uses the Vapi browser runtime while still saving turns into the main Kyro Assistant thread.",
+      "Kyro voice is ready. Speak naturally and Kyro will keep the conversation linked to the main Assistant thread.",
     createdAt: new Date().toISOString(),
     id: "vapi-voice-welcome",
     model: "vapi-web",
@@ -82,7 +84,10 @@ export default async function VapiVoicePage({ searchParams }: VapiVoicePageProps
             <h1>Vapi Voice</h1>
           </div>
           <div className="topbar-right">
-            <section className="metric-grid" aria-label="Vapi voice context metrics">
+            <section
+              className="metric-grid"
+              aria-label="Vapi voice context metrics"
+            >
               <article className="metric-card cyan">
                 <p>Inbox</p>
                 <strong>{needsReply}</strong>

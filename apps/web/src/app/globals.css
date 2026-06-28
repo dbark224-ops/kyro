@@ -2359,6 +2359,14 @@ textarea:focus {
   padding: 8px 10px;
 }
 
+.form-alert a {
+  color: var(--cyan);
+  font-weight: 850;
+  text-decoration-color: color-mix(in srgb, var(--cyan) 70%, var(--pink));
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
 .inbox-page-alert {
   margin: 0 0 14px;
 }
@@ -3164,6 +3172,9 @@ h2 {
 .address-autocomplete-field {
   position: relative;
   z-index: 1;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 
 .address-autocomplete-field:focus-within {
@@ -3173,6 +3184,15 @@ h2 {
 .address-autocomplete-control {
   position: relative;
   display: block;
+  min-width: 0;
+}
+
+.address-autocomplete-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-transform: uppercase;
 }
 
 .signup-place-autocomplete-field .address-autocomplete-control input {
@@ -8499,11 +8519,11 @@ button:disabled {
 
 .availability-day-row {
   display: grid;
-  grid-template-columns: minmax(74px, 0.8fr) minmax(66px, 72px) minmax(
-      66px,
-      72px
+  grid-template-columns: minmax(96px, 1fr) minmax(104px, 112px) minmax(
+      104px,
+      112px
     );
-  gap: 4px;
+  gap: 8px;
   align-items: end;
   border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
   border-radius: var(--radius-control);
@@ -8539,11 +8559,13 @@ button:disabled {
 }
 
 .availability-day-row input[type="time"] {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   min-height: 34px;
-  padding: 6px 4px;
+  padding: 6px 7px;
   font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .availability-day-row input:disabled {
@@ -8755,7 +8777,13 @@ button:disabled {
 }
 
 .business-address-autocomplete {
-  gap: 6px;
+  gap: 0;
+}
+
+.business-address-autocomplete .address-autocomplete-control input {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 11px 12px;
 }
 
 .settings-tag-field {
@@ -10720,24 +10748,22 @@ button:disabled {
 
 .pronunciation-entry-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-  align-items: center;
+  align-items: start;
+  min-width: 0;
 }
 
 .pronunciation-entry-inline-form {
   display: grid;
-  grid-template-columns:
-    minmax(110px, 0.46fr) minmax(140px, 0.58fr) minmax(100px, 0.34fr)
-    minmax(130px, 0.5fr) minmax(180px, 0.72fr) 34px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 136px), 1fr));
   gap: 8px;
-  align-items: center;
+  align-items: end;
+  min-width: 0;
 }
 
 .pronunciation-entry-form-new {
-  grid-template-columns:
-    minmax(130px, 0.55fr) minmax(160px, 0.7fr) minmax(115px, 0.4fr)
-    minmax(170px, 0.75fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   border-color: color-mix(in srgb, var(--cyan) 56%, var(--line));
   background: color-mix(in srgb, var(--cyan) 5%, var(--surface));
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--cyan) 82%, var(--text));
@@ -10768,6 +10794,7 @@ button:disabled {
 
 .pronunciation-row-meta {
   display: grid;
+  grid-column: 1 / -1;
   min-width: 0;
   min-height: 34px;
   align-content: center;
@@ -10785,6 +10812,7 @@ button:disabled {
 .pronunciation-entry-inline-form > button,
 .pronunciation-entry-remove-form {
   align-self: center;
+  justify-self: start;
   margin-bottom: 0;
 }
 
