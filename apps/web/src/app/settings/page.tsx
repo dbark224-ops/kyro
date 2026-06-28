@@ -262,14 +262,16 @@ function pronunciationHintValue(entry: AssistantPronunciationEntry) {
 function SettingCardHeading({
   children,
   info,
+  infoPlacement,
 }: Readonly<{
   children: React.ReactNode;
   info: React.ReactNode;
+  infoPlacement?: "left" | "right";
 }>) {
   return (
     <div className="setting-card-heading">
       <strong>{children}</strong>
-      <InfoBubble>{info}</InfoBubble>
+      <InfoBubble placement={infoPlacement}>{info}</InfoBubble>
     </div>
   );
 }
@@ -2501,7 +2503,10 @@ function GeneralSettingsDetail({
             className="setting-card setting-card-compact-input"
             style={visibleWhen(showPublicDetails)}
           >
-            <SettingCardHeading info="The public email address shown on reports, documents, and business-facing material.">
+            <SettingCardHeading
+              info="The public email address shown on reports, documents, and business-facing material."
+              infoPlacement="right"
+            >
               Public email
             </SettingCardHeading>
             <input

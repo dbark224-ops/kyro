@@ -9585,6 +9585,16 @@ button:disabled {
   transform: rotate(45deg);
 }
 
+.info-bubble[data-placement="right"] .info-bubble-tooltip {
+  right: auto;
+  left: 0;
+}
+
+.info-bubble[data-placement="right"] .info-bubble-tooltip::before {
+  right: auto;
+  left: 8px;
+}
+
 .settings-accordion-title .info-bubble-tooltip,
 .compact-panel-heading .info-bubble-tooltip,
 .compact-checkbox-row .info-bubble-tooltip {
