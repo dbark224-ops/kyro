@@ -1762,16 +1762,6 @@ function scopeLabel(value: string) {
     .replace("https://graph.microsoft.com/", "");
 }
 
-function appBaseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ?? "";
-}
-
-function emailPushEndpoint(path: string) {
-  const baseUrl = appBaseUrl();
-
-  return baseUrl ? `${baseUrl}${path}` : path;
-}
-
 function EmailSyncHealthPanel({
   connections,
   settings,
@@ -1785,11 +1775,6 @@ function EmailSyncHealthPanel({
   const health = syncHealthStatus({ connections, settings });
   const lastSyncAt = latestTimestamp(connected, "lastSyncAt");
   const lastCheckedAt = latestTimestamp(connected, "lastCheckedAt");
-  const pushSecretReady = Boolean(
-    process.env.INBOUND_EMAIL_PUSH_SECRET?.trim() ||
-    process.env.INBOUND_EMAIL_SYNC_SECRET?.trim() ||
-    process.env.CRON_SECRET?.trim(),
-  );
 
   return (
     <section className={`email-sync-health ${health.tone}`}>
@@ -1799,27 +1784,16 @@ function EmailSyncHealthPanel({
           <h3>{health.title}</h3>
           <p>{health.detail}</p>
         </div>
-        <div className="email-sync-health-actions">
-          <span
-            className={`pill ${
-              health.tone === "success"
-                ? "success"
-                : health.tone === "warning"
-                  ? "warning"
-                  : ""
-            }`}
-          >
-            {inboundSyncModeLabel(settings.syncMode)}
-          </span>
-          {connected.length === 0 ? (
+        {connected.length === 0 ? (
+          <div className="email-sync-health-actions">
             <Link
               className="primary-button compact link-button"
               href="/settings?section=integrations&panel=email-accounts"
             >
               Set up email
             </Link>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="email-sync-status-grid">
@@ -1837,33 +1811,6 @@ function EmailSyncHealthPanel({
           <span>Next scheduled sync</span>
           <strong>{nextSyncLabel({ connections, settings })}</strong>
         </article>
-      </div>
-
-      <div className="usage-ledger compact">
-        <div className="usage-ledger-row">
-          <div className="usage-ledger-main">
-            <strong>Gmail push receiver</strong>
-            <span>
-              {emailPushEndpoint("/api/integrations/email/google/push")}
-            </span>
-          </div>
-          <span className={pushSecretReady ? "pill success" : "pill warning"}>
-            {pushSecretReady ? "Guarded" : "Secret needed"}
-          </span>
-        </div>
-        <div className="usage-ledger-row">
-          <div className="usage-ledger-main">
-            <strong>Outlook push receiver</strong>
-            <span>
-              {emailPushEndpoint(
-                "/api/integrations/email/microsoft/notifications",
-              )}
-            </span>
-          </div>
-          <span className={pushSecretReady ? "pill success" : "pill warning"}>
-            {pushSecretReady ? "Guarded" : "Secret needed"}
-          </span>
-        </div>
       </div>
 
       {connected.length > 0 ? (
