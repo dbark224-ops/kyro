@@ -422,15 +422,6 @@ function SettingsDetailShell({
           <p className="eyebrow">{eyebrow}</p>
           <h2>{title}</h2>
         </div>
-        <div className="row-actions">
-          <Link
-            className="secondary-button compact"
-            href="/settings"
-            prefetch={false}
-          >
-            Close
-          </Link>
-        </div>
       </header>
       <div className="settings-detail-body">{children}</div>
     </section>
