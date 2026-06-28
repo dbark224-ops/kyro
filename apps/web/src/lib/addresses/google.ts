@@ -97,6 +97,32 @@ export function hasGoogleAddressLookupConfig() {
   return Boolean(mapsApiKey());
 }
 
+export type GoogleAutocompletePrimaryType = "address" | "cities" | "regions";
+
+function googleIncludedPrimaryTypes(type?: GoogleAutocompletePrimaryType) {
+  if (type === "cities") {
+    return ["(cities)"];
+  }
+
+  if (type === "regions") {
+    return ["(regions)"];
+  }
+
+  return undefined;
+}
+
+function googleLegacyAutocompleteType(type?: GoogleAutocompletePrimaryType) {
+  if (type === "cities") {
+    return "(cities)";
+  }
+
+  if (type === "regions") {
+    return "(regions)";
+  }
+
+  return "address";
+}
+
 function googleRegionCode(region?: PhoneRegion | string | null) {
   const normalized = region?.trim().toUpperCase();
 
@@ -321,10 +347,12 @@ function normalizeValidationResult(value: unknown): Partial<StructuredAddress> |
 }
 
 export async function autocompleteAddresses({
+  primaryType = "address",
   input,
   region,
   sessionToken,
 }: {
+  primaryType?: GoogleAutocompletePrimaryType;
   input: string;
   region?: PhoneRegion | string | null;
   sessionToken?: string | null;
@@ -341,10 +369,12 @@ export async function autocompleteAddresses({
   }
 
   const includedRegionCode = googleIncludedRegionCode(region);
+  const includedPrimaryTypes = googleIncludedPrimaryTypes(primaryType);
 
   const response = await fetch(PLACES_AUTOCOMPLETE_URL, {
     body: JSON.stringify({
       input: trimmed,
+      includedPrimaryTypes,
       includedRegionCodes: includedRegionCode ? [includedRegionCode] : undefined,
       includePureServiceAreaBusinesses: false,
       locationBias: googleLocationBias(),
@@ -368,6 +398,7 @@ export async function autocompleteAddresses({
 
     try {
       return await autocompleteAddressesLegacy({
+        primaryType,
         input: trimmed,
         region,
         sessionToken,
@@ -408,10 +439,12 @@ export async function autocompleteAddresses({
 }
 
 async function autocompleteAddressesLegacy({
+  primaryType = "address",
   input,
   region,
   sessionToken,
 }: {
+  primaryType?: GoogleAutocompletePrimaryType;
   input: string;
   region?: PhoneRegion | string | null;
   sessionToken?: string | null;
@@ -422,7 +455,7 @@ async function autocompleteAddressesLegacy({
 
   url.searchParams.set("input", input);
   url.searchParams.set("key", apiKey);
-  url.searchParams.set("types", "address");
+  url.searchParams.set("types", googleLegacyAutocompleteType(primaryType));
 
   if (includedRegionCode) {
     url.searchParams.set("components", `country:${includedRegionCode}`);

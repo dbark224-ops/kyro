@@ -1,7 +1,7 @@
 import { BrandMark } from "../components/brand-mark";
+import { OnboardingBusinessBasicsFields } from "./business-basics-fields";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
-import { OPERATING_COUNTRY_OPTIONS } from "../../lib/workspace/operating-countries";
 import { bootstrapWorkspaceAction } from "./actions";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -64,45 +64,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
         {params?.error ? <p className="form-alert error">{params.error}</p> : null}
 
         <form className="form-card auth-form-card auth-create-form single" action={bootstrapWorkspaceAction}>
-          <div className="auth-form-grid">
-          <label>
-            Business name
-            <input name="businessName" type="text" autoComplete="organization" required />
-          </label>
-          <label>
-            Industry
-            <input name="industry" type="text" placeholder="Plumbing, tiling, landscaping..." />
-          </label>
-          <label>
-            Operating country
-            <select name="country" required defaultValue="">
-              <option value="" disabled>
-                Select operating country
-              </option>
-              {OPERATING_COUNTRY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Location
-            <input
-              name="businessLocation"
-              type="text"
-              placeholder="Suburb, city, or operating region"
-            />
-          </label>
-          <label>
-            Postcode / ZIP
-            <input name="postcode" type="text" autoComplete="postal-code" />
-          </label>
-          <label>
-            Service area
-            <input name="serviceArea" type="text" placeholder="City, region, or remote" />
-          </label>
-          </div>
+          <OnboardingBusinessBasicsFields />
           <button className="primary-button" type="submit">
             Continue to card setup
           </button>

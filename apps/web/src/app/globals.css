@@ -3075,6 +3075,10 @@ h2 {
   display: block;
 }
 
+.signup-place-autocomplete-field .address-autocomplete-control input {
+  padding-right: 34px;
+}
+
 .address-autocomplete-spinner {
   position: absolute;
   top: 50%;

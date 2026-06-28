@@ -8,6 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { SignupPlaceAutocompleteField } from "../components/signup-place-autocomplete-field";
 import { OPERATING_COUNTRY_OPTIONS } from "../../lib/workspace/operating-countries";
 
 const PHONE_COUNTRY_OPTIONS = [
@@ -257,6 +258,7 @@ export function CreateAccountForm() {
   const [formError, setFormError] = useState("");
   const [formMessage, setFormMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [operatingCountry, setOperatingCountry] = useState("");
   const [billingSetup, setBillingSetup] = useState<BillingSetupState | null>(
     null,
   );
@@ -734,7 +736,10 @@ export function CreateAccountForm() {
               defaultValue=""
               aria-invalid={Boolean(fieldErrors.country)}
               aria-describedby={fieldErrors.country ? "country-error" : undefined}
-              onChange={() => clearFieldError("country")}
+              onChange={(event) => {
+                setOperatingCountry(event.currentTarget.value);
+                clearFieldError("country");
+              }}
             >
               <option value="" disabled>
                 Select operating country
@@ -751,47 +756,33 @@ export function CreateAccountForm() {
               </span>
             ) : null}
           </label>
-          <label>
-            <span className="auth-label-line">
-              Location
-              <FieldHelp text="Enter the main suburb, city, or region the business operates from. Kyro uses this to understand local context and nearby work." />
-            </span>
-            <input
-              name="businessLocation"
-              type="text"
-              placeholder="Suburb, city, or operating region"
-              required
-              aria-invalid={Boolean(fieldErrors.businessLocation)}
-              aria-describedby={
-                fieldErrors.businessLocation
-                  ? "businessLocation-error"
-                  : undefined
-              }
-              onChange={() => clearFieldError("businessLocation")}
-            />
-            {fieldErrors.businessLocation ? (
-              <span className="auth-field-error" id="businessLocation-error">
-                {fieldErrors.businessLocation}
+          <SignupPlaceAutocompleteField
+            key={`location-${operatingCountry}`}
+            country={operatingCountry}
+            error={fieldErrors.businessLocation}
+            label={
+              <span className="auth-label-line">
+                Location
+                <FieldHelp text="Enter the main suburb, city, or region the business operates from. Kyro uses this to understand local context and nearby work." />
               </span>
-            ) : null}
-          </label>
-          <label>
-            Postcode / ZIP
-            <input
-              name="postcode"
-              type="text"
-              autoComplete="postal-code"
-              required
-              aria-invalid={Boolean(fieldErrors.postcode)}
-              aria-describedby={fieldErrors.postcode ? "postcode-error" : undefined}
-              onChange={() => clearFieldError("postcode")}
-            />
-            {fieldErrors.postcode ? (
-              <span className="auth-field-error" id="postcode-error">
-                {fieldErrors.postcode}
-              </span>
-            ) : null}
-          </label>
+            }
+            mode="location"
+            name="businessLocation"
+            onValueChange={() => clearFieldError("businessLocation")}
+            placeholder="Suburb, city, or operating region"
+            required
+          />
+          <SignupPlaceAutocompleteField
+            key={`postcode-${operatingCountry}`}
+            autoComplete="postal-code"
+            country={operatingCountry}
+            error={fieldErrors.postcode}
+            label="Postcode / ZIP"
+            mode="postcode"
+            name="postcode"
+            onValueChange={() => clearFieldError("postcode")}
+            required
+          />
           <label>
             <span className="auth-label-line">
               Service area
