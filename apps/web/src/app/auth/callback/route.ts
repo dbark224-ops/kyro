@@ -1,5 +1,10 @@
 import { createServerSupabaseClient } from "../../../lib/supabase/server";
-import { createKyroUserBillingSetupUrl } from "../../../lib/billing/kyro-user-billing";
+import {
+  createKyroUserBillingSetupUrl,
+  getKyroUserBillingOverview,
+} from "../../../lib/billing/kyro-user-billing";
+import { markKyroEmailVerified } from "../../../lib/auth/email-verification";
+import { createServiceSupabaseClient } from "../../../lib/supabase/service";
 import {
   createWorkspaceBootstrap,
   getPrimaryWorkspace,
@@ -12,10 +17,18 @@ function metadataString(metadata: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function safeNextPath(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/dashboard";
+  }
+
+  return value;
+}
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const next = requestUrl.searchParams.get("next") ?? "/dashboard";
+  const next = safeNextPath(requestUrl.searchParams.get("next"));
 
   if (code) {
     const supabase = await createServerSupabaseClient();
@@ -25,6 +38,24 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (user) {
+      try {
+        await markKyroEmailVerified({
+          serviceSupabase: createServiceSupabaseClient(),
+          user,
+        });
+      } catch (error) {
+        return NextResponse.redirect(
+          new URL(
+            `/settings?section=general&engine_error=${encodeURIComponent(
+              error instanceof Error
+                ? error.message
+                : "Email verification could not be saved.",
+            )}`,
+            requestUrl.origin,
+          ),
+        );
+      }
+
       let workspace = await getPrimaryWorkspace(supabase);
       const businessName = metadataString(
         user.user_metadata,
@@ -72,6 +103,15 @@ export async function GET(request: NextRequest) {
 
       if (workspace && businessName && trialAcknowledgedAt) {
         try {
+          const billingOverview = await getKyroUserBillingOverview(
+            supabase,
+            workspace.id,
+          );
+
+          if (billingOverview.setupReady) {
+            return NextResponse.redirect(new URL(next, requestUrl.origin));
+          }
+
           const billingSetupUrl = await createKyroUserBillingSetupUrl({
             cancelPath:
               "/settings?section=usage&panel=payment-method&engine_message=Billing%20setup%20cancelled.%20You%20can%20finish%20it%20here%20before%20your%20trial%20ends.",

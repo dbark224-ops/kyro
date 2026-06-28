@@ -41,6 +41,19 @@ function friendlySignupError(message: string) {
   return message;
 }
 
+function friendlySignInError(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("email not confirmed") ||
+    normalized.includes("email not verified")
+  ) {
+    return "Verify your email before signing in. If the link expired, enter your email here and resend the verification email.";
+  }
+
+  return message;
+}
+
 function safeRedirectPath(path: string, fallback: string) {
   if (!path || !path.startsWith("/") || path.startsWith("//")) {
     return fallback;
@@ -166,7 +179,7 @@ export async function signInAction(formData: FormData) {
   });
 
   if (error) {
-    redirectWithError("/sign-in", error.message);
+    redirectWithError("/sign-in", friendlySignInError(error.message));
   }
 
   revalidatePath("/", "layout");

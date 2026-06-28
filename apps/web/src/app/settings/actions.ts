@@ -85,6 +85,12 @@ import {
   createKyroUserBillingPortalUrl,
   createKyroUserBillingSetupUrl,
 } from "../../lib/billing/kyro-user-billing";
+import {
+  friendlyEmailVerificationSendError,
+  isKyroEmailVerified,
+  isSupabaseEmailConfirmed,
+  sendKyroEmailVerification,
+} from "../../lib/auth/email-verification";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { createServiceSupabaseClient } from "../../lib/supabase/service";
 import {
@@ -474,6 +480,48 @@ function generalSettingsRedirectOptions(formData: FormData) {
     : "";
 
   return panel ? { panel } : {};
+}
+
+export async function resendEmailVerificationAction() {
+  const { supabase, user } = await requireWorkspaceContext();
+
+  if (!user.email) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      "This account does not have an email address to verify.",
+    );
+  }
+
+  if (isKyroEmailVerified(user)) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_message",
+      "Email address is already verified.",
+    );
+  }
+
+  const { error } = await sendKyroEmailVerification({
+    email: user.email,
+    nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
+    nextPath:
+      "/settings?section=general&engine_message=Email%20verified.%20Settings%20are%20unlocked.",
+    supabase,
+  });
+
+  if (error) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      friendlyEmailVerificationSendError(error.message),
+    );
+  }
+
+  redirectWithSectionMessage(
+    "general",
+    "engine_message",
+    "Verification email sent. Check your inbox.",
+  );
 }
 
 function integrationService(provider: string) {

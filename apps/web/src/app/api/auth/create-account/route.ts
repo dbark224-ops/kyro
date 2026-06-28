@@ -1,9 +1,16 @@
 import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { getAuthCallbackUrl } from "../../../../lib/app-url";
 import {
   createKyroUserBillingSetupIntent,
 } from "../../../../lib/billing/kyro-user-billing";
+import {
+  buildKyroEmailVerificationRedirectUrl,
+  friendlyEmailVerificationSendError,
+  isSupabaseEmailConfirmed,
+  markKyroEmailVerificationStarted,
+  sendKyroEmailVerification,
+} from "../../../../lib/auth/email-verification";
+import { getAuthCallbackUrl } from "../../../../lib/app-url";
 import {
   normalizeContactEmail,
   normalizeContactPhoneForRegion,
@@ -349,17 +356,55 @@ export async function POST(request: Request) {
       user: data.user as User,
       workspace,
     });
+    const serviceSupabase = createServiceSupabaseClient();
+    let verificationEmailWarning: string | null = null;
+
+    try {
+      await markKyroEmailVerificationStarted({
+        serviceSupabase,
+        user: data.user as User,
+      });
+    } catch (verificationError) {
+      return errorResponse(
+        verificationError instanceof Error
+          ? verificationError.message
+          : "Email verification setup failed.",
+        500,
+      );
+    }
+
+    if (data.session) {
+      const { error: verificationEmailError } = await sendKyroEmailVerification({
+        email: input.email,
+        fallbackOrigin: request.headers.get("origin"),
+        nativeConfirmationRequired: !isSupabaseEmailConfirmed(data.user as User),
+        nextPath:
+          "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+        supabase,
+      });
+
+      if (verificationEmailError) {
+        verificationEmailWarning = friendlyEmailVerificationSendError(
+          verificationEmailError.message,
+        );
+      }
+    }
 
     return NextResponse.json({
       clientSecret: setup.clientSecret,
+      email: input.email,
       ok: true,
       publishableKey: setup.publishableKey,
       redirectAfterSetup: data.session
         ? "/dashboard?engine_message=Billing%20method%20saved.%20Your%20two-week%20trial%20has%20started."
-        : "/sign-in?message=Check%20your%20email%20to%20verify%20the%20account.%20Your%20billing%20method%20has%20been%20saved.",
-      requiresEmailVerification: !data.session,
+        : "/sign-in?message=Email%20verified.%20Sign%20in%20to%20open%20your%20Kyro%20workspace.",
+      requiresEmailVerification: true,
       setupIntentId: setup.setupIntentId,
       trialEndsAt: setup.trialEndsAt,
+      verificationEmailWarning,
+      verificationRedirectUrl: buildKyroEmailVerificationRedirectUrl({
+        fallbackOrigin: request.headers.get("origin"),
+      }),
       workspaceId: workspace.id,
     });
   } catch (billingError) {

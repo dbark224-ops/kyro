@@ -25,11 +25,14 @@ type ServerAction = (formData: FormData) => void | Promise<void>;
 
 type BillingSetupState = {
   clientSecret: string;
+  email: string;
   publishableKey: string;
   redirectAfterSetup: string;
   requiresEmailVerification: boolean;
   setupIntentId: string;
   trialEndsAt: string;
+  verificationEmailWarning: string | null;
+  verificationRedirectUrl: string;
   workspaceId: string;
 };
 
@@ -108,6 +111,67 @@ function PasswordField({
   );
 }
 
+function ResendVerificationControl({
+  email,
+  label = "Resend verification email",
+}: {
+  email: string;
+  label?: string;
+}) {
+  const [isSending, setIsSending] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function resendVerificationEmail() {
+    const normalizedEmail = email.trim();
+
+    setMessage("");
+    setError("");
+
+    if (!normalizedEmail) {
+      setError("Enter your email address first.");
+      return;
+    }
+
+    setIsSending(true);
+
+    const response = await fetch("/api/auth/resend-verification", {
+      body: JSON.stringify({ email: normalizedEmail }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; ok?: boolean }
+      | null;
+
+    setIsSending(false);
+
+    if (!response.ok) {
+      setError(payload?.error ?? "Kyro could not send a verification email.");
+      return;
+    }
+
+    setMessage("Verification email sent. Check your inbox.");
+  }
+
+  return (
+    <div className="auth-verification-resend">
+      <button
+        className="text-button"
+        disabled={isSending}
+        type="button"
+        onClick={resendVerificationEmail}
+      >
+        {isSending ? "Sending..." : label}
+      </button>
+      {message ? <span className="auth-inline-status">{message}</span> : null}
+      {error ? (
+        <span className="auth-inline-status error">{error}</span>
+      ) : null}
+    </div>
+  );
+}
+
 export function SignInForm({ action }: { action: ServerAction }) {
   const [email, setEmail] = useState("");
   const [rememberEmail, setRememberEmail] = useState(false);
@@ -155,6 +219,10 @@ export function SignInForm({ action }: { action: ServerAction }) {
         />
       </label>
       <PasswordField autoComplete="current-password" />
+      <div className="auth-verification-row">
+        <span>Need a new verification email?</span>
+        <ResendVerificationControl email={email} label="Resend" />
+      </div>
       <label className="auth-remember-row">
         <input
           name="rememberUser"
@@ -172,10 +240,12 @@ export function SignInForm({ action }: { action: ServerAction }) {
 }
 
 function InlineCardSetup({
+  onVerificationRequired,
   setup,
   onError,
 }: {
   onError: (message: string) => void;
+  onVerificationRequired: (setup: BillingSetupState) => void;
   setup: BillingSetupState;
 }) {
   const stripe = useStripe();
@@ -223,6 +293,12 @@ function InlineCardSetup({
       return;
     }
 
+    if (setup.requiresEmailVerification) {
+      setIsSaving(false);
+      onVerificationRequired(setup);
+      return;
+    }
+
     window.location.assign(setup.redirectAfterSetup);
   }
 
@@ -252,6 +328,57 @@ function InlineCardSetup({
   );
 }
 
+function EmailVerificationFinalScreen({
+  setup,
+}: {
+  setup: BillingSetupState;
+}) {
+  function continueAfterVerification() {
+    window.location.assign(setup.redirectAfterSetup);
+  }
+
+  return (
+    <section className="form-card auth-form-card auth-create-form auth-verification-final">
+      <div className="auth-stepper" aria-label="Create account progress">
+        {["Login", "Business", "Payment", "Verify"].map((title, index) => (
+          <span
+            className={`auth-step ${index === 3 ? "active" : "complete"}`}
+            key={title}
+          >
+            <span className="auth-step-index">{index + 1}</span>
+            <span className="auth-step-title">{title}</span>
+          </span>
+        ))}
+      </div>
+
+      <div className="auth-verification-card">
+        <p className="eyebrow">Final step</p>
+        <h2>Check your email to verify Kyro.</h2>
+        <p>
+          Your workspace and card setup are saved. Verify{" "}
+          <strong>{setup.email}</strong> to unlock the full settings area and
+          finish opening the account.
+        </p>
+        {setup.verificationEmailWarning ? (
+          <p className="form-alert error compact">
+            {setup.verificationEmailWarning}
+          </p>
+        ) : null}
+        <div className="auth-verification-actions">
+          <ResendVerificationControl email={setup.email} />
+          <button
+            className="primary-button"
+            type="button"
+            onClick={continueAfterVerification}
+          >
+            I have verified, continue
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function CreateAccountForm() {
   const [step, setStep] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -262,6 +389,8 @@ export function CreateAccountForm() {
   const [billingSetup, setBillingSetup] = useState<BillingSetupState | null>(
     null,
   );
+  const [verificationSetup, setVerificationSetup] =
+    useState<BillingSetupState | null>(null);
   const stripePublishableKey = billingSetup?.publishableKey ?? null;
   const stripePromise = useMemo(
     () =>
@@ -455,11 +584,14 @@ export function CreateAccountForm() {
 
     setBillingSetup({
       clientSecret: payload.clientSecret,
+      email: payload.email,
       publishableKey: payload.publishableKey,
       redirectAfterSetup: payload.redirectAfterSetup,
       requiresEmailVerification: payload.requiresEmailVerification,
       setupIntentId: payload.setupIntentId,
       trialEndsAt: payload.trialEndsAt,
+      verificationEmailWarning: payload.verificationEmailWarning ?? null,
+      verificationRedirectUrl: payload.verificationRedirectUrl,
       workspaceId: payload.workspaceId,
     });
     setIsSubmitting(false);
@@ -534,6 +666,10 @@ export function CreateAccountForm() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+  }
+
+  if (verificationSetup) {
+    return <EmailVerificationFinalScreen setup={verificationSetup} />;
   }
 
   return (
@@ -823,7 +959,11 @@ export function CreateAccountForm() {
               clientSecret: billingSetup.clientSecret,
             }}
           >
-            <InlineCardSetup setup={billingSetup} onError={setFormError} />
+            <InlineCardSetup
+              setup={billingSetup}
+              onError={setFormError}
+              onVerificationRequired={setVerificationSetup}
+            />
           </Elements>
         ) : step === 2 ? (
           <div

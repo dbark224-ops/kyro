@@ -7,6 +7,7 @@ type SettingsSubmitButtonProps = Readonly<{
   children: ReactNode;
   className?: string;
   disabled?: boolean;
+  formAction?: (formData: FormData) => void | Promise<void>;
   name?: string;
   pendingLabel?: string;
   value?: string;
@@ -16,6 +17,7 @@ export function SettingsSubmitButton({
   children,
   className = "primary-button compact",
   disabled = false,
+  formAction,
   name,
   pendingLabel = "Saving...",
   value,
@@ -27,6 +29,7 @@ export function SettingsSubmitButton({
       aria-busy={pending}
       className={`settings-submit-button ${className}`}
       disabled={disabled || pending}
+      formAction={formAction}
       name={name}
       type="submit"
       value={value}

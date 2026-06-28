@@ -13,6 +13,7 @@ import {
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
   removeInboundEmailSenderRuleSettingsAction,
+  resendEmailVerificationAction,
   syncInboundEmailNowAction,
   updateDashboardTutorialTestModeAction,
   updateCommunicationSettingsAction,
@@ -91,6 +92,7 @@ import { type TwilioTelephonyOverview } from "../../lib/integrations/twilio";
 import { type WorkspaceStripePaymentOverview } from "../../lib/payments/accounts";
 import { type KyroUserBillingOverview } from "../../lib/billing/kyro-user-billing";
 import { type KyroBillingEngineOverview } from "../../lib/billing/kyro-billing-engine";
+import { isKyroEmailVerified } from "../../lib/auth/email-verification";
 import {
   quoteTemplateCatalog,
   type QuoteTemplate,
@@ -2390,9 +2392,36 @@ function BusinessLogoEditor({
   );
 }
 
+function EmailVerificationSettingsNotice({
+  userEmail,
+}: Readonly<{
+  userEmail: string;
+}>) {
+  return (
+    <section className="email-verification-notice">
+      <div>
+        <p className="eyebrow">Email verification required</p>
+        <h3>Check your inbox to unlock these settings</h3>
+        <p>
+          Kyro has saved this workspace, but Business Profile settings stay
+          read-only until {userEmail || "your account email"} is verified.
+        </p>
+      </div>
+      <SettingsSubmitButton
+        className="secondary-button compact"
+        formAction={resendEmailVerificationAction}
+        pendingLabel="Sending..."
+      >
+        Resend verification email
+      </SettingsSubmitButton>
+    </section>
+  );
+}
+
 function GeneralSettingsDetail({
   activePanel,
   communicationSettings,
+  emailVerified,
   operationalPhoneNumbers,
   settings,
   userEmail,
@@ -2400,6 +2429,7 @@ function GeneralSettingsDetail({
 }: Readonly<{
   activePanel?: string | null;
   communicationSettings: CommunicationSettings | null;
+  emailVerified: boolean;
   operationalPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   settings: WorkspaceGeneralSettings;
   userEmail: string;
@@ -2435,6 +2465,7 @@ function GeneralSettingsDetail({
   const showAvailability = activeBusinessPanel === "availability";
   const showCorePanel =
     showCoreProfile || showPublicDetails || showServiceArea || showAvailability;
+  const emailVerificationPending = !emailVerified;
 
   return (
     <form
@@ -2443,6 +2474,17 @@ function GeneralSettingsDetail({
       encType="multipart/form-data"
     >
       <input name="settingsPanel" type="hidden" value={activeBusinessPanel} />
+      {emailVerificationPending ? (
+        <EmailVerificationSettingsNotice userEmail={userEmail} />
+      ) : null}
+      <fieldset
+        className={
+          emailVerificationPending
+            ? "settings-verification-gated is-disabled"
+            : "settings-verification-gated"
+        }
+        disabled={emailVerificationPending}
+      >
       <section
         className="business-profile-section-panel"
         id="business-profile-core"
@@ -2884,6 +2926,7 @@ function GeneralSettingsDetail({
           <SettingsSubmitButton>Save</SettingsSubmitButton>
         )}
       </div>
+      </fieldset>
     </form>
   );
 }
@@ -5079,6 +5122,7 @@ export default async function SettingsPage({
         <GeneralSettingsDetail
           activePanel={selectedPanel}
           communicationSettings={communicationSettings}
+          emailVerified={isKyroEmailVerified(user)}
           operationalPhoneNumbers={assignedPhoneNumbers}
           settings={generalSettings}
           userEmail={user.email ?? ""}

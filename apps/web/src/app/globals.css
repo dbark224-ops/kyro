@@ -1936,6 +1936,87 @@ a {
   min-width: 180px;
 }
 
+.auth-verification-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 26%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--cyan) 5%, transparent);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  padding: 9px 10px;
+}
+
+.auth-verification-resend {
+  display: inline-flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-inline-status {
+  color: var(--cyan);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.auth-inline-status.error {
+  color: var(--pink);
+}
+
+.auth-verification-final {
+  gap: 14px;
+}
+
+.auth-verification-final .auth-stepper {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.auth-verification-final .auth-step {
+  cursor: default;
+}
+
+.auth-verification-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 48%, var(--line));
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(
+      circle at 92% 10%,
+      color-mix(in srgb, var(--pink) 16%, transparent),
+      transparent 36%
+    ),
+    color-mix(in srgb, var(--cyan) 7%, var(--surface));
+  padding: 16px;
+}
+
+.auth-verification-card h2,
+.auth-verification-card p {
+  margin: 0;
+}
+
+.auth-verification-card p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.auth-verification-card strong {
+  color: var(--text);
+}
+
+.auth-verification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .auth-payment-loading {
   display: flex;
   align-items: center;
@@ -8256,6 +8337,53 @@ button:disabled {
   grid-template-columns: 1fr;
 }
 
+.email-verification-notice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--pink) 48%, var(--line));
+  border-radius: var(--radius-control);
+  background:
+    radial-gradient(
+      circle at 96% 10%,
+      color-mix(in srgb, var(--pink) 14%, transparent),
+      transparent 34%
+    ),
+    color-mix(in srgb, var(--pink) 7%, var(--surface));
+  padding: 12px;
+}
+
+.email-verification-notice h3,
+.email-verification-notice p {
+  margin: 0;
+}
+
+.email-verification-notice h3 {
+  margin-top: 2px;
+  font-size: 1rem;
+}
+
+.email-verification-notice p:last-child {
+  color: var(--muted);
+  line-height: 1.45;
+  margin-top: 4px;
+}
+
+.settings-verification-gated {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-verification-gated.is-disabled {
+  filter: grayscale(0.3);
+  opacity: 0.52;
+}
+
 .business-profile-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -13603,6 +13731,25 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
+  .email-verification-notice,
+  .auth-verification-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .email-verification-notice {
+    align-items: stretch;
+  }
+
+  .auth-verification-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .auth-verification-actions .primary-button,
+  .auth-verification-actions .secondary-button {
+    width: 100%;
+  }
+
   .auth-stepper,
   .auth-grid,
   .auth-form-grid,
