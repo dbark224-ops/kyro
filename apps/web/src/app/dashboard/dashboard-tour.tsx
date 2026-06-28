@@ -8,6 +8,7 @@ import {
 
 type TourStep = {
   body: string;
+  spotlightInsetTargetPaddingTop?: boolean;
   spotlightPadding?: number;
   target: string;
   title: string;
@@ -17,6 +18,7 @@ type SpotlightRect = {
   height: number;
   left: number;
   top: number;
+  topInset: number;
   width: number;
 };
 
@@ -58,6 +60,7 @@ const tourSteps: TourStep[] = [
   },
   {
     body: "Use this control to pick which widgets appear in each row.",
+    spotlightInsetTargetPaddingTop: true,
     spotlightPadding: 4,
     target: "[data-tour='dashboard-customise']",
     title: "Customise",
@@ -72,11 +75,15 @@ function rectForStep(step: TourStep): SpotlightRect | null {
   }
 
   const rect = element.getBoundingClientRect();
+  const topInset = step.spotlightInsetTargetPaddingTop
+    ? Number.parseFloat(window.getComputedStyle(element).paddingTop) || 0
+    : 0;
 
   return {
     height: rect.height,
     left: rect.left,
     top: rect.top,
+    topInset,
     width: rect.width,
   };
 }
@@ -247,6 +254,7 @@ export function DashboardTour() {
   const position = cardPosition(spotlight);
   const isLast = stepIndex === tourSteps.length - 1;
   const spotlightPadding = step.spotlightPadding ?? 8;
+  const spotlightTopInset = spotlight?.topInset ?? 0;
 
   return (
     <div className="dashboard-tour-layer" role="dialog" aria-modal="true">
@@ -255,9 +263,12 @@ export function DashboardTour() {
           aria-hidden="true"
           className="dashboard-tour-spotlight"
           style={{
-            height: spotlight.height + spotlightPadding * 2,
+            height: Math.max(
+              0,
+              spotlight.height + spotlightPadding * 2 - spotlightTopInset,
+            ),
             left: spotlight.left - spotlightPadding,
-            top: spotlight.top - spotlightPadding,
+            top: spotlight.top - spotlightPadding + spotlightTopInset,
             width: spotlight.width + spotlightPadding * 2,
           }}
         />
