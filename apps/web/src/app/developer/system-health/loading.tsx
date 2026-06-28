@@ -1,10 +1,12 @@
-import { AppFrame } from "../../components/app-frame";
-import { PageSkeleton } from "../../components/page-skeleton";
+import { AppDetailSkeleton } from "../../components/loading-states";
 
 export default function SystemHealthLoading() {
   return (
-    <AppFrame active="Developer">
-      <PageSkeleton eyebrow="Developer" rows={3} title="System health" />
-    </AppFrame>
+    <AppDetailSkeleton
+      active="Developer"
+      eyebrow="Developer"
+      rows={3}
+      title="System health"
+    />
   );
 }

@@ -1,10 +1,5 @@
-import { AppFrame } from "../components/app-frame";
-import { PageSkeleton } from "../components/page-skeleton";
+import { AppRouteLoading } from "../components/loading-states";
 
 export default function VapiVoiceLoading() {
-  return (
-    <AppFrame active="Vapi Voice">
-      <PageSkeleton eyebrow="Loading" rows={6} title="Vapi Voice" />
-    </AppFrame>
-  );
+  return <AppRouteLoading active="Vapi Voice" />;
 }

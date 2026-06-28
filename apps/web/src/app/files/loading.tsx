@@ -1,3 +1,5 @@
-import DocumentsLoading from "../documents/loading";
+import { AppRouteLoading } from "../components/loading-states";
 
-export default DocumentsLoading;
+export default function FilesLoading() {
+  return <AppRouteLoading active="Files" label="Loading files" />;
+}

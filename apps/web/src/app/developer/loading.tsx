@@ -1,10 +1,5 @@
-import { AppFrame } from "../components/app-frame";
-import { PageSkeleton } from "../components/page-skeleton";
+import { AppDetailSkeleton } from "../components/loading-states";
 
 export default function DeveloperLoading() {
-  return (
-    <AppFrame active="Developer">
-      <PageSkeleton eyebrow="Loading" rows={2} title="Developer" />
-    </AppFrame>
-  );
+  return <AppDetailSkeleton active="Developer" rows={2} title="Developer" />;
 }

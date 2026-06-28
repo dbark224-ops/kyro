@@ -1,10 +1,5 @@
-import { AppFrame } from "../../components/app-frame";
-import { PageSkeleton } from "../../components/page-skeleton";
+import { AppDetailSkeleton } from "../../components/loading-states";
 
 export default function ConversationReviewLoading() {
-  return (
-    <AppFrame active="Inbox">
-      <PageSkeleton detail eyebrow="Loading" title="Inquiry review" />
-    </AppFrame>
-  );
+  return <AppDetailSkeleton active="Inbox" detail title="Inquiry review" />;
 }

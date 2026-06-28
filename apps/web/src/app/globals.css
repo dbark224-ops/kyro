@@ -2674,6 +2674,65 @@ textarea:focus {
   text-transform: uppercase;
 }
 
+.app-route-loading {
+  display: grid;
+  min-height: calc(100vh - 118px);
+  min-height: calc(100dvh - 118px);
+  place-items: center;
+  padding: 24px;
+}
+
+.app-route-loading-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  width: min(100%, 360px);
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
+  border-radius: var(--radius-panel);
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 42%
+    ),
+    color-mix(in srgb, var(--surface) 88%, var(--background));
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  padding: 34px 28px 30px;
+}
+
+.app-route-loading-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--purple), var(--pink));
+  content: "";
+}
+
+.app-route-loading-card .brand-mark {
+  width: min(220px, 72vw);
+}
+
+.app-route-loading-progress {
+  position: relative;
+  display: block;
+  width: min(240px, 100%);
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--line) 66%, transparent);
+}
+
+.app-route-loading-progress span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 44%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cyan), var(--pink));
+  animation: app-route-loading-progress 1.12s ease-in-out infinite;
+}
+
 .nav-list {
   display: grid;
   gap: 6px;
@@ -12967,6 +13026,20 @@ button:disabled {
 
   to {
     transform: translateX(100%);
+  }
+}
+
+@keyframes app-route-loading-progress {
+  0% {
+    transform: translateX(-112%);
+  }
+
+  50% {
+    transform: translateX(78%);
+  }
+
+  100% {
+    transform: translateX(248%);
   }
 }
 

@@ -1,10 +1,5 @@
-import { AppFrame } from "../components/app-frame";
-import { PageSkeleton } from "../components/page-skeleton";
+import { AppRouteLoading } from "../components/loading-states";
 
 export default function ActivityLoading() {
-  return (
-    <AppFrame active="Activity">
-      <PageSkeleton eyebrow="Loading" rows={10} title="Activity" />
-    </AppFrame>
-  );
+  return <AppRouteLoading active="Activity" />;
 }

@@ -1,10 +1,5 @@
-import { AppFrame } from "../components/app-frame";
-import { PageSkeleton } from "../components/page-skeleton";
+import { AppRouteLoading } from "../components/loading-states";
 
 export default function SettingsLoading() {
-  return (
-    <AppFrame active="Settings">
-      <PageSkeleton eyebrow="Loading" rows={3} title="Settings" />
-    </AppFrame>
-  );
+  return <AppRouteLoading active="Settings" />;
 }

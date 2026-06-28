@@ -1,10 +1,5 @@
-import { AppFrame } from "../../components/app-frame";
-import { PageSkeleton } from "../../components/page-skeleton";
+import { AppDetailSkeleton } from "../../components/loading-states";
 
 export default function QuoteDraftLoading() {
-  return (
-    <AppFrame active="Files">
-      <PageSkeleton detail eyebrow="Loading" title="Quote draft" />
-    </AppFrame>
-  );
+  return <AppDetailSkeleton active="Files" detail title="Quote draft" />;
 }

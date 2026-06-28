@@ -1,10 +1,5 @@
-import { AppFrame } from "../components/app-frame";
-import { PageSkeleton } from "../components/page-skeleton";
+import { AppRouteLoading } from "../components/loading-states";
 
 export default function LeadsLoading() {
-  return (
-    <AppFrame active="CRM">
-      <PageSkeleton eyebrow="Loading" title="CRM" />
-    </AppFrame>
-  );
+  return <AppRouteLoading active="CRM" label="Loading CRM" />;
 }

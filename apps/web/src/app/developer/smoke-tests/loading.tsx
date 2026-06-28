@@ -1,10 +1,12 @@
-import { AppFrame } from "../../components/app-frame";
-import { PageSkeleton } from "../../components/page-skeleton";
+import { AppDetailSkeleton } from "../../components/loading-states";
 
 export default function SmokeTestsLoading() {
   return (
-    <AppFrame active="Developer">
-      <PageSkeleton eyebrow="Developer" rows={3} title="Smoke test checklist" />
-    </AppFrame>
+    <AppDetailSkeleton
+      active="Developer"
+      eyebrow="Developer"
+      rows={3}
+      title="Smoke test checklist"
+    />
   );
 }
