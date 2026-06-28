@@ -3799,7 +3799,6 @@ function VoiceSettingsDetail({
             value={voiceSettings.vapiOutboundAssistantId ?? ""}
           />
           <WorkplaceContactsEditor
-            addLabel="Add person"
             contacts={workplaceContacts}
             defaultEmail={userEmail}
             description="These workplace contacts are used to recognize internal callers and decide who Kyro can alert when calls need a human."

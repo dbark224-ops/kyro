@@ -8547,6 +8547,11 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+.workplace-contact-add-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .workplace-contact-editor-body {
   display: grid;
   grid-template-columns: minmax(136px, 0.28fr) minmax(0, 1fr);

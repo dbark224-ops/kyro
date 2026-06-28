@@ -263,7 +263,7 @@ export function WorkplaceContactsEditor({
           <p>{description}</p>
         </div>
         <button
-          className="primary-button compact"
+          className="primary-button compact workplace-contact-add-button"
           onClick={addContact}
           type="button"
         >
