@@ -26,6 +26,7 @@ import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
 import { EscalationSettingsEditor } from "./escalation-settings-editor";
 import { EmergencyWindowEditor } from "./emergency-window-editor";
 import { BusinessAvailabilityEditor } from "./business-availability-editor";
+import { BrandColorPicker } from "./brand-color-picker";
 import { WorkplaceContactsEditor } from "./workplace-contacts-editor";
 import { TagInputField } from "./tag-input-field";
 import {
@@ -2740,27 +2741,19 @@ function GeneralSettingsDetail({
         <BusinessLogoEditor profile={profile} />
 
         <div className="settings-grid">
-          <label className="setting-card">
-            <SettingCardHeading info="Primary brand colour for documents, previews, and future generated assets.">
-              Primary colour
-            </SettingCardHeading>
-            <input
-              defaultValue={profile.brandPrimaryColor}
-              name="businessBrandPrimaryColor"
-              type="color"
-            />
-          </label>
+          <BrandColorPicker
+            defaultValue={profile.brandPrimaryColor}
+            info="Primary brand colour for documents, previews, and future generated assets."
+            label="Primary colour"
+            name="businessBrandPrimaryColor"
+          />
 
-          <label className="setting-card">
-            <SettingCardHeading info="Accent colour for highlights and secondary visual marks.">
-              Accent colour
-            </SettingCardHeading>
-            <input
-              defaultValue={profile.brandAccentColor}
-              name="businessBrandAccentColor"
-              type="color"
-            />
-          </label>
+          <BrandColorPicker
+            defaultValue={profile.brandAccentColor}
+            info="Accent colour for highlights and secondary visual marks."
+            label="Accent colour"
+            name="businessBrandAccentColor"
+          />
 
           <label className="setting-card settings-textarea">
             <SettingCardHeading info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect.">

@@ -8211,6 +8211,100 @@ button:disabled {
   margin-top: 4px;
 }
 
+.brand-color-picker {
+  align-content: start;
+}
+
+.brand-color-preview-line {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 0 18px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.brand-color-current-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 9px;
+  align-items: end;
+}
+
+.brand-color-current-swatch {
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.brand-color-current-row label,
+.brand-color-hue-row {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.brand-color-current-row label > span,
+.brand-color-hue-row > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.brand-color-current-row input[type="text"] {
+  min-height: 36px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  text-transform: uppercase;
+}
+
+.brand-color-shade {
+  position: relative;
+  width: 100%;
+  min-height: 132px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.brand-color-shade-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid white;
+  border-radius: var(--radius-pill);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.7),
+    0 5px 16px rgba(15, 23, 42, 0.28);
+  transform: translate(-50%, -50%);
+}
+
+.brand-color-hue-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.brand-color-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.brand-color-swatch-button {
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.brand-color-swatch-button[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--surface) 92%, transparent),
+    0 0 0 4px var(--cyan);
+}
+
 .setting-card-compact-input,
 .business-address-card {
   align-content: start;
