@@ -103,6 +103,11 @@ function SchedulePicker({
   schedule: BusinessHoursScheduleSettings;
   title: string;
 }>) {
+  const scheduleColumns = [
+    schedule.days.slice(0, 4),
+    schedule.days.slice(4, 8),
+  ];
+
   return (
     <section className="availability-schedule-card">
       <input name={namePrefix} type="hidden" value={scheduleSummary(schedule)} />
@@ -118,60 +123,64 @@ function SchedulePicker({
         </div>
       </header>
       <div className="availability-day-grid">
-        {schedule.days.map((day) => {
-          const label =
-            BUSINESS_HOUR_DAYS.find((option) => option.key === day.day)
-              ?.label ?? day.day;
+        {scheduleColumns.map((days, columnIndex) => (
+          <div className="availability-day-column" key={columnIndex}>
+            {days.map((day) => {
+              const label =
+                BUSINESS_HOUR_DAYS.find((option) => option.key === day.day)
+                  ?.label ?? day.day;
 
-          return (
-            <div className="availability-day-row" key={day.day}>
-              <label className="availability-day-toggle">
-                <input
-                  checked={day.enabled}
-                  onChange={(event) =>
-                    onChange(
-                      updateDay(schedule, day.day, {
-                        enabled: event.currentTarget.checked,
-                      }),
-                    )
-                  }
-                  type="checkbox"
-                />
-                <span>{label}</span>
-              </label>
-              <label>
-                <span>Start</span>
-                <input
-                  disabled={!day.enabled}
-                  onChange={(event) =>
-                    onChange(
-                      updateDay(schedule, day.day, {
-                        startTime: event.currentTarget.value,
-                      }),
-                    )
-                  }
-                  type="time"
-                  value={day.startTime}
-                />
-              </label>
-              <label>
-                <span>End</span>
-                <input
-                  disabled={!day.enabled}
-                  onChange={(event) =>
-                    onChange(
-                      updateDay(schedule, day.day, {
-                        endTime: event.currentTarget.value,
-                      }),
-                    )
-                  }
-                  type="time"
-                  value={day.endTime}
-                />
-              </label>
-            </div>
-          );
-        })}
+              return (
+                <div className="availability-day-row" key={day.day}>
+                  <label className="availability-day-toggle">
+                    <input
+                      checked={day.enabled}
+                      onChange={(event) =>
+                        onChange(
+                          updateDay(schedule, day.day, {
+                            enabled: event.currentTarget.checked,
+                          }),
+                        )
+                      }
+                      type="checkbox"
+                    />
+                    <span>{label}</span>
+                  </label>
+                  <label>
+                    <span>Start</span>
+                    <input
+                      disabled={!day.enabled}
+                      onChange={(event) =>
+                        onChange(
+                          updateDay(schedule, day.day, {
+                            startTime: event.currentTarget.value,
+                          }),
+                        )
+                      }
+                      type="time"
+                      value={day.startTime}
+                    />
+                  </label>
+                  <label>
+                    <span>End</span>
+                    <input
+                      disabled={!day.enabled}
+                      onChange={(event) =>
+                        onChange(
+                          updateDay(schedule, day.day, {
+                            endTime: event.currentTarget.value,
+                          }),
+                        )
+                      }
+                      type="time"
+                      value={day.endTime}
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
       <label className="availability-notes-field">
         <span>Notes</span>

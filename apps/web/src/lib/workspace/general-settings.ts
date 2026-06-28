@@ -72,6 +72,7 @@ export const BUSINESS_HOUR_DAYS = [
   { key: "friday", label: "Friday", shortLabel: "Fri" },
   { key: "saturday", label: "Saturday", shortLabel: "Sat" },
   { key: "sunday", label: "Sunday", shortLabel: "Sun" },
+  { key: "holidays", label: "Holidays", shortLabel: "Holidays" },
 ] as const;
 
 export type BusinessHourDayKey = (typeof BUSINESS_HOUR_DAYS)[number]["key"];
