@@ -2529,21 +2529,10 @@ function GeneralSettingsDetail({
             </SettingCardHeading>
             <input
               defaultValue={defaultPublicPhone}
-              list="business-public-phone-options"
               name="businessPublicPhoneNumber"
               placeholder="+61 7 4517 4330"
+              type="tel"
             />
-            <datalist id="business-public-phone-options">
-              {operationalPhoneNumbers.map((number) => (
-                <option
-                  key={number.id}
-                  label={`${number.friendlyName ?? "Workspace number"} - ${phoneCapabilitiesLabel(
-                    number,
-                  )} connected`}
-                  value={number.phoneNumber}
-                />
-              ))}
-            </datalist>
           </label>
 
           <div
