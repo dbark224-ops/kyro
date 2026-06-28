@@ -49,25 +49,28 @@ function statusTone(status: string) {
 
 export default async function PaymentsPage() {
   const { supabase, workspace } = await requireWorkspaceContext();
+  const paymentsSetupHref = "/settings?section=integrations&panel=stripe";
   const [data, documentTemplateSettings] = await Promise.all([
     getPaymentsOverviewData(supabase, workspace.id),
     getDocumentTemplateSettings(supabase, workspace.id),
   ]);
-  const currency = data.stats.currency || data.account?.defaultCurrency || "AUD";
+  const currency =
+    data.stats.currency || data.account?.defaultCurrency || "AUD";
   const recentPayments = data.paymentRequests.slice(0, 12);
   const documentTemplates = quoteTemplateCatalog(
     documentTemplateSettings.customTemplates,
   );
   const defaultInvoiceTemplateKey =
     documentTemplateSettings.defaultInvoiceTemplateKey ??
-    documentTemplates.find((template) => /invoice/i.test(template.label))?.key ??
+    documentTemplates.find((template) => /invoice/i.test(template.label))
+      ?.key ??
     documentTemplates[0]?.key ??
     null;
   const paymentLinksReady = Boolean(
     data.migrationReady &&
-      data.configured &&
-      data.account?.providerAccountId &&
-      data.account.status === "active",
+    data.configured &&
+    data.account?.providerAccountId &&
+    data.account.status === "active",
   );
   const paymentLinkDisabledReason = !data.migrationReady
     ? "Payment tables need to be migrated before customer payment links can be created."
@@ -81,7 +84,11 @@ export default async function PaymentsPage() {
 
   return (
     <AppFrame active="Payments">
-      <div className="workspace-page payments-page">
+      <div
+        className={`workspace-page payments-page ${
+          paymentLinksReady ? "" : "blocked"
+        }`}
+      >
         <header className="page-heading-row payments-heading">
           <div>
             <h1>Payments</h1>
@@ -95,13 +102,15 @@ export default async function PaymentsPage() {
             />
             <CreateInvoiceModal
               defaultTemplateKey={defaultInvoiceTemplateKey}
+              disabled={!paymentLinksReady}
+              disabledReason={paymentLinkDisabledReason}
               templates={documentTemplates}
             />
             <SmartPrefetchLink
               aria-label="Payment settings"
               className="payments-settings-icon-button"
-              href="/settings?section=integrations"
-              title="Payment settings"
+              href={paymentsSetupHref}
+              title={paymentLinksReady ? "Payment settings" : "Set up payments"}
             >
               <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path
@@ -127,47 +136,85 @@ export default async function PaymentsPage() {
 
         {!data.migrationReady ? (
           <section className="engine-error">
-            Payment tables are not available yet. Run the Stripe payments migration before
-            using this screen.
+            Payment tables are not available yet. Run the Stripe payments
+            migration before using this screen.
           </section>
         ) : null}
 
-        <section className="payments-metric-grid" aria-label="Payment summary">
+        {!paymentLinksReady ? (
+          <section className="payments-setup-blocker">
+            <div>
+              <p className="eyebrow">Setup required</p>
+              <h2>Payments are not active yet</h2>
+              <p>
+                {paymentLinkDisabledReason ??
+                  "Set up Stripe payments before creating customer payment links or invoices."}
+              </p>
+            </div>
+            <SmartPrefetchLink
+              className="primary-button compact link-button"
+              href={paymentsSetupHref}
+            >
+              Set up payments
+            </SmartPrefetchLink>
+          </section>
+        ) : null}
+
+        <section
+          className={`payments-metric-grid ${
+            paymentLinksReady ? "" : "disabled"
+          }`}
+          aria-label="Payment summary"
+        >
           <article className="payments-metric-card accent-cyan">
             <p className="eyebrow">Paid this week</p>
-            <strong>{formatMoney(data.stats.paidThisWeekCents, currency)}</strong>
+            <strong>
+              {formatMoney(data.stats.paidThisWeekCents, currency)}
+            </strong>
             <span>Settled customer payments</span>
           </article>
           <article className="payments-metric-card accent-green">
             <p className="eyebrow">Paid this month</p>
-            <strong>{formatMoney(data.stats.paidThisMonthCents, currency)}</strong>
+            <strong>
+              {formatMoney(data.stats.paidThisMonthCents, currency)}
+            </strong>
             <span>Total received this month</span>
           </article>
           <article className="payments-metric-card accent-pink">
             <p className="eyebrow">Outstanding</p>
-            <strong>{formatMoney(data.stats.outstandingAmountCents, currency)}</strong>
+            <strong>
+              {formatMoney(data.stats.outstandingAmountCents, currency)}
+            </strong>
             <span>{data.stats.outstandingCount} open payment requests</span>
           </article>
           <article className="payments-metric-card accent-amber">
             <p className="eyebrow">Overdue</p>
-            <strong>{formatMoney(data.stats.overdueAmountCents, currency)}</strong>
+            <strong>
+              {formatMoney(data.stats.overdueAmountCents, currency)}
+            </strong>
             <span>{data.stats.overdueCount} past due</span>
           </article>
         </section>
 
-        <section className="payments-layout">
+        <section
+          className={`payments-layout ${paymentLinksReady ? "" : "disabled"}`}
+        >
           <div className="payments-panel payments-main-panel">
             <div className="payments-panel-header">
               <div>
                 <p className="eyebrow">Requests</p>
                 <h2>Payment links and invoices</h2>
               </div>
-              <span className="pill">{data.paymentRequests.length} requests</span>
+              <span className="pill">
+                {data.paymentRequests.length} requests
+              </span>
             </div>
 
             <div className="payments-filter-row">
               <span className="pill active">All</span>
-              <span className="pill">Outstanding {data.stats.outstandingCount}</span>
+              <span className="pill">
+                Outstanding {data.stats.outstandingCount}
+              </span>
               <span className="pill">Paid</span>
               <span className="pill">Overdue {data.stats.overdueCount}</span>
             </div>
@@ -181,14 +228,22 @@ export default async function PaymentsPage() {
                       <span>{request.description}</span>
                     </div>
                     <div className="payments-request-meta">
-                      <strong>{formatMoney(request.amountCents, request.currency)}</strong>
+                      <strong>
+                        {formatMoney(request.amountCents, request.currency)}
+                      </strong>
                       <span>{formatDate(request.createdAt)}</span>
                     </div>
-                    <span className={`payments-status-pill ${statusTone(request.status)}`}>
+                    <span
+                      className={`payments-status-pill ${statusTone(request.status)}`}
+                    >
                       {statusLabel(request.status)}
                     </span>
                     {request.paymentUrl ? (
-                      <a href={request.paymentUrl} rel="noreferrer" target="_blank">
+                      <a
+                        href={request.paymentUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
                         Open
                       </a>
                     ) : null}
@@ -196,8 +251,16 @@ export default async function PaymentsPage() {
                 ))
               ) : (
                 <div className="payments-empty-state">
-                  <strong>No payment requests yet.</strong>
-                  <span>Create your first payment link when a customer is ready to pay.</span>
+                  <strong>
+                    {paymentLinksReady
+                      ? "No payment requests yet."
+                      : "Payment setup required."}
+                  </strong>
+                  <span>
+                    {paymentLinksReady
+                      ? "Create your first payment link when a customer is ready to pay."
+                      : "Connect Stripe in Settings before customer payment requests can be created."}
+                  </span>
                 </div>
               )}
             </div>
@@ -214,7 +277,9 @@ export default async function PaymentsPage() {
             </div>
             <div className="payments-service-status">
               <span>Payouts</span>
-              <strong>{data.account?.payoutsEnabled ? "Enabled" : "Pending"}</strong>
+              <strong>
+                {data.account?.payoutsEnabled ? "Enabled" : "Pending"}
+              </strong>
             </div>
           </aside>
         </section>

@@ -26,6 +26,7 @@ function settingsRedirect(
 ) {
   const url = new URL("/settings", request.url);
   url.searchParams.set("section", "integrations");
+  url.searchParams.set("panel", "email-accounts");
   url.searchParams.set(key, message);
 
   return NextResponse.redirect(url);
@@ -66,7 +67,7 @@ export async function GET(request: Request) {
     provider: MICROSOFT_PROVIDER,
     state_hash: hashMicrosoftOAuthState(state),
     scopes: [...MICROSOFT_GRAPH_SCOPES],
-    redirect_path: "/settings?section=integrations",
+    redirect_path: "/settings?section=integrations&panel=email-accounts",
     code_verifier: verifier,
     expires_at: expiresAt,
     metadata: {

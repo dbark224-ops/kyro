@@ -80,7 +80,10 @@ import {
   isOperatingCountry,
   operatingCountryPhoneRegion,
 } from "../../lib/workspace/operating-countries";
-import { createStripeConnectOnboardingLink } from "../../lib/payments/accounts";
+import {
+  createStripeConnectOnboardingLink,
+  resetWorkspaceStripePaymentAccount,
+} from "../../lib/payments/accounts";
 import {
   createKyroUserBillingPortalUrl,
   createKyroUserBillingSetupUrl,
@@ -2546,6 +2549,32 @@ export async function connectStripePaymentsAction() {
   }
 
   redirect(onboardingUrl);
+}
+
+export async function resetStripePaymentsSetupAction() {
+  const { workspace } = await requireWorkspaceContext();
+  const supabase = createServiceSupabaseClient();
+  let key: "engine_error" | "engine_message" = "engine_message";
+  let message = "";
+
+  try {
+    const reset = await resetWorkspaceStripePaymentAccount({
+      supabase,
+      workspaceId: workspace.id,
+    });
+
+    revalidatePath("/settings");
+    revalidatePath("/payments");
+    message = reset
+      ? "Stripe setup has been reset. Start setup again to create a fresh payout account."
+      : "There was no Stripe setup to reset.";
+  } catch (error) {
+    key = "engine_error";
+    message =
+      error instanceof Error ? error.message : "Unable to reset Stripe setup.";
+  }
+
+  redirectWithSectionMessage("integrations", key, message, { panel: "stripe" });
 }
 
 export async function startKyroBillingSetupAction() {

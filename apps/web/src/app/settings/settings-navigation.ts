@@ -5,6 +5,7 @@ export type IntegrationSettingsPanel =
   | "outbound"
   | "phone-sms"
   | "stripe"
+  | "email-accounts"
   | "google"
   | "microsoft";
 
@@ -87,9 +88,14 @@ export function normalizeIntegrationPanel(
     value === "outbound" ||
     value === "phone-sms" ||
     value === "stripe" ||
+    value === "email-accounts" ||
     value === "google" ||
     value === "microsoft"
   ) {
+    if (value === "google" || value === "microsoft") {
+      return "email-accounts";
+    }
+
     return value;
   }
 

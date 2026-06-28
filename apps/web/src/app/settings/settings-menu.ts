@@ -2,7 +2,10 @@ import {
   formatCurrencyAmount,
   formatDisplayMoney,
 } from "../../lib/billing/display-currency";
-import { elevenLabsVoicePresetById, type VoiceSettings } from "../../lib/assistant/voice-settings";
+import {
+  elevenLabsVoicePresetById,
+  type VoiceSettings,
+} from "../../lib/assistant/voice-settings";
 import type { UsageReport } from "../../lib/usage/queries";
 import type { WorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import type {
@@ -156,22 +159,14 @@ export function buildSettingsNestedItems({
       },
       {
         detail: "Owners, admin, tradies, and fallback people",
-        href: settingsPanelHref(
-          "general",
-          "workplace-contacts",
-          activeWindow,
-        ),
+        href: settingsPanelHref("general", "workplace-contacts", activeWindow),
         key: "workplace-contacts",
         selected: selectedPanel === "workplace-contacts",
         title: "Workplace contacts",
       },
       {
         detail: "Triggers, channels, retries, and acknowledgement",
-        href: settingsPanelHref(
-          "general",
-          "urgent-escalation",
-          activeWindow,
-        ),
+        href: settingsPanelHref("general", "urgent-escalation", activeWindow),
         key: "urgent-escalation",
         selected: selectedPanel === "urgent-escalation",
         title: "Urgent escalation",
@@ -217,18 +212,11 @@ export function buildSettingsNestedItems({
         title: "Stripe payments",
       },
       {
-        detail: "Gmail, Google account, and Drive access",
-        href: settingsPanelHref("integrations", "google", activeWindow),
-        key: "google",
-        selected: activeIntegrationPanel === "google",
-        title: "Google Workspace",
-      },
-      {
-        detail: "Outlook and Microsoft 365 email",
-        href: settingsPanelHref("integrations", "microsoft", activeWindow),
-        key: "microsoft",
-        selected: activeIntegrationPanel === "microsoft",
-        title: "Microsoft Outlook",
+        detail: "Connect Gmail, Google Drive, or Outlook",
+        href: settingsPanelHref("integrations", "email-accounts", activeWindow),
+        key: "email-accounts",
+        selected: activeIntegrationPanel === "email-accounts",
+        title: "Email accounts",
       },
     ];
   }

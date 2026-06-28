@@ -3049,6 +3049,23 @@ h2 {
   padding: 9px 12px;
 }
 
+.primary-button:disabled,
+.secondary-button:disabled,
+.primary-action-button:disabled,
+.settings-submit-button:disabled,
+.payments-link-trigger:disabled,
+.payments-invoice-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+  transform: none;
+}
+
+.secondary-button.danger {
+  border: 1px solid color-mix(in srgb, var(--pink) 48%, var(--line));
+  background: color-mix(in srgb, var(--pink) 12%, transparent);
+  color: color-mix(in srgb, var(--pink) 72%, var(--text));
+}
+
 .compact {
   padding: 7px 9px;
   font-size: 0.8125rem;
@@ -9526,6 +9543,63 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.integration-provider-setup-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
+  border-radius: var(--radius-control);
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 42%
+    ),
+    color-mix(in srgb, var(--surface) 86%, var(--background));
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.integration-provider-setup-bar strong,
+.integration-provider-setup-bar span {
+  display: block;
+}
+
+.integration-provider-setup-bar strong {
+  margin-bottom: 3px;
+}
+
+.integration-provider-setup-bar span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.integration-provider-setup-actions,
+.email-sync-health-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.stripe-setup-bar.blocked {
+  border-color: color-mix(in srgb, var(--pink) 42%, var(--line));
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--pink) 9%, transparent),
+      transparent 42%
+    ),
+    color-mix(in srgb, var(--surface) 88%, var(--background));
+}
+
+.stripe-setup-bar.ready {
+  border-color: color-mix(in srgb, var(--cyan) 52%, var(--line));
+}
+
 .integration-provider-stack {
   display: grid;
   gap: 14px;
@@ -11585,6 +11659,19 @@ button:disabled {
 
 .phone-number-enable-card {
   margin-top: 12px;
+}
+
+.phone-number-enable-card.assistant-number-card {
+  margin-top: 0;
+  margin-bottom: 12px;
+  border-color: color-mix(in srgb, var(--cyan) 44%, var(--line));
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 44%
+    ),
+    color-mix(in srgb, var(--surface) 90%, var(--background));
 }
 
 .phone-number-active-panel,
@@ -16693,6 +16780,39 @@ button:disabled {
   gap: 14px;
 }
 
+.payments-page.blocked .payments-heading-actions {
+  opacity: 0.92;
+}
+
+.payments-setup-blocker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--pink) 46%, var(--line));
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--pink) 12%, transparent),
+      transparent 42%
+    ),
+    color-mix(in srgb, var(--surface) 88%, var(--background));
+  box-shadow: var(--shadow-soft);
+  padding: 16px;
+}
+
+.payments-setup-blocker h2 {
+  margin: 2px 0 4px;
+  font-size: 1.2rem;
+}
+
+.payments-setup-blocker p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .payments-heading {
   align-items: center;
 }
@@ -16765,6 +16885,11 @@ button:disabled {
 .payments-link-trigger:hover,
 .payments-invoice-trigger:hover {
   transform: translateY(-1px);
+}
+
+.payments-link-trigger:disabled:hover,
+.payments-invoice-trigger:disabled:hover {
+  transform: none;
 }
 
 .settings-inline-template-form {
@@ -16899,6 +17024,16 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.payments-metric-grid.disabled,
+.payments-layout.disabled {
+  opacity: 0.48;
+  filter: saturate(0.6);
+}
+
+.payments-layout.disabled {
+  pointer-events: none;
 }
 
 .payments-metric-card,
@@ -17458,6 +17593,16 @@ button:disabled {
 
   .payments-layout {
     grid-template-columns: 1fr;
+  }
+
+  .integration-provider-setup-bar,
+  .payments-setup-blocker {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-provider-setup-actions,
+  .email-sync-health-actions {
+    justify-content: flex-start;
   }
 
   .reports-form {

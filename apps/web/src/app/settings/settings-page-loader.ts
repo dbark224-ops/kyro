@@ -5,9 +5,7 @@ import { getKyroBillingEngineOverview } from "../../lib/billing/kyro-billing-eng
 import { getKyroUserBillingOverview } from "../../lib/billing/kyro-user-billing";
 import { getCommunicationSettings } from "../../lib/communication/settings";
 import { getDocumentTemplateSettings } from "../../lib/documents/settings";
-import {
-  getGoogleIntegrationOverview,
-} from "../../lib/integrations/google";
+import { getGoogleIntegrationOverview } from "../../lib/integrations/google";
 import {
   getInboundEmailOperationalSummary,
   getInboundEmailSettings,
@@ -48,7 +46,10 @@ type DashboardTutorialStateRow = {
 type DashboardTutorialStateSupabaseClient = {
   from(table: "workspace_tutorial_state"): {
     select(columns: string): {
-      eq(column: string, value: string): {
+      eq(
+        column: string,
+        value: string,
+      ): {
         maybeSingle(): Promise<{
           data: DashboardTutorialStateRow | null;
           error: { message: string } | null;
@@ -116,15 +117,15 @@ export async function loadSettingsPageData(
   const needsEmailProviderOverview =
     selectedSection === "integrations" &&
     (activeIntegrationPanel === "inbound-email" ||
+      activeIntegrationPanel === "email-accounts" ||
       activeIntegrationPanel === "google" ||
       activeIntegrationPanel === "microsoft");
   const needsAssignedPhoneNumbers =
     (selectedSection === "general" && selectedPanel === "public-details") ||
     (selectedSection === "voice" && selectedPanel === "voicemail-overflow") ||
     (selectedSection === "developer" && isDeveloperAccount);
-  let serviceSupabase:
-    | ReturnType<typeof createServiceSupabaseClient>
-    | null = null;
+  let serviceSupabase: ReturnType<typeof createServiceSupabaseClient> | null =
+    null;
   const getServiceSupabase = () => {
     serviceSupabase ??= createServiceSupabaseClient();
 

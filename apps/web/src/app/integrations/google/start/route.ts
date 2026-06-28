@@ -2,7 +2,7 @@ import {
   GOOGLE_PROVIDER,
   GOOGLE_WORKSPACE_SCOPES,
   getGoogleOAuthConfig,
-  hashOAuthState
+  hashOAuthState,
 } from "../../../../lib/integrations/google";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { getPrimaryWorkspace } from "../../../../lib/workspace/bootstrap";
@@ -19,9 +19,14 @@ function codeChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
-function settingsRedirect(request: Request, key: "engine_error" | "engine_message", message: string) {
+function settingsRedirect(
+  request: Request,
+  key: "engine_error" | "engine_message",
+  message: string,
+) {
   const url = new URL("/settings", request.url);
   url.searchParams.set("section", "integrations");
+  url.searchParams.set("panel", "email-accounts");
   url.searchParams.set(key, message);
 
   return NextResponse.redirect(url);
@@ -30,7 +35,7 @@ function settingsRedirect(request: Request, key: "engine_error" | "engine_messag
 export async function GET(request: Request) {
   const supabase = await createServerSupabaseClient();
   const {
-    data: { user }
+    data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
@@ -49,7 +54,7 @@ export async function GET(request: Request) {
     return settingsRedirect(
       request,
       "engine_error",
-      "Google OAuth is not configured. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and NEXT_PUBLIC_APP_URL."
+      "Google OAuth is not configured. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and NEXT_PUBLIC_APP_URL.",
     );
   }
 
@@ -62,23 +67,25 @@ export async function GET(request: Request) {
     provider: GOOGLE_PROVIDER,
     state_hash: hashOAuthState(state),
     scopes: [...GOOGLE_WORKSPACE_SCOPES],
-    redirect_path: "/settings?section=integrations",
+    redirect_path: "/settings?section=integrations&panel=email-accounts",
     code_verifier: verifier,
     expires_at: expiresAt,
     metadata: {
-      source: "settings.google_connect"
-    }
+      source: "settings.google_connect",
+    },
   });
 
   if (error) {
     return settingsRedirect(
       request,
       "engine_error",
-      `Unable to start Google OAuth. Apply the latest migration first. ${error.message}`
+      `Unable to start Google OAuth. Apply the latest migration first. ${error.message}`,
     );
   }
 
-  const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  const authorizationUrl = new URL(
+    "https://accounts.google.com/o/oauth2/v2/auth",
+  );
   authorizationUrl.searchParams.set("client_id", config.clientId);
   authorizationUrl.searchParams.set("redirect_uri", config.redirectUri);
   authorizationUrl.searchParams.set("response_type", "code");

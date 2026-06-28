@@ -8,6 +8,7 @@ import {
   enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
   openKyroBillingPortalAction,
+  resetStripePaymentsSetupAction,
   startKyroBillingSetupAction,
   autosavePronunciationEntryAction,
   createPronunciationEntryAction,
@@ -649,6 +650,29 @@ function GoogleIntegrationSettings({
 
   return (
     <>
+      <div className="integration-provider-setup-bar">
+        <div>
+          <strong>
+            {hasConnectedAccount ? "Google connected" : "Connect Google"}
+          </strong>
+          <span>
+            {hasConnectedAccount
+              ? "Reconnect if Gmail, Drive, or Calendar permissions need refreshing."
+              : "Connect once, then Kyro can use Gmail and Drive through policies."}
+          </span>
+        </div>
+        {canConnect ? (
+          <Link
+            className="primary-button compact link-button"
+            href="/integrations/google/start"
+          >
+            {hasConnectedAccount ? "Reconnect Google" : "Connect Google"}
+          </Link>
+        ) : (
+          <span className="pill warning">Setup required</span>
+        )}
+      </div>
+
       <div className="integration-summary-grid">
         <article className="setting-card">
           <SettingCardHeading
@@ -760,24 +784,6 @@ function GoogleIntegrationSettings({
       ) : (
         <p className="empty-copy">No Google account is connected yet.</p>
       )}
-
-      <div className="settings-footer">
-        <span>
-          Connect once, then Kyro can use Gmail and Drive through policies.
-        </span>
-        {canConnect && !hasConnectedAccount ? (
-          <Link
-            className="primary-button compact link-button"
-            href="/integrations/google/start"
-          >
-            Connect Google
-          </Link>
-        ) : (
-          !hasConnectedAccount && (
-            <span className="pill warning">Setup required</span>
-          )
-        )}
-      </div>
     </>
   );
 }
@@ -793,6 +799,29 @@ function MicrosoftIntegrationSettings({
 
   return (
     <>
+      <div className="integration-provider-setup-bar">
+        <div>
+          <strong>
+            {hasConnectedAccount ? "Outlook connected" : "Connect Outlook"}
+          </strong>
+          <span>
+            {hasConnectedAccount
+              ? "Reconnect if Outlook permissions need refreshing."
+              : "Connect once, then Kyro can send and read Outlook email through the same policies."}
+          </span>
+        </div>
+        {canConnect ? (
+          <Link
+            className="primary-button compact link-button"
+            href="/integrations/microsoft/start"
+          >
+            {hasConnectedAccount ? "Reconnect Outlook" : "Connect Outlook"}
+          </Link>
+        ) : (
+          <span className="pill warning">Setup required</span>
+        )}
+      </div>
+
       <div className="integration-summary-grid">
         <article className="setting-card">
           <SettingCardHeading
@@ -898,25 +927,6 @@ function MicrosoftIntegrationSettings({
       ) : (
         <p className="empty-copy">No Outlook account is connected yet.</p>
       )}
-
-      <div className="settings-footer">
-        <span>
-          Connect once, then Kyro can send Outlook email through the same
-          policies.
-        </span>
-        {canConnect && !hasConnectedAccount ? (
-          <Link
-            className="primary-button compact link-button"
-            href="/integrations/microsoft/start"
-          >
-            Connect Outlook
-          </Link>
-        ) : (
-          !hasConnectedAccount && (
-            <span className="pill warning">Setup required</span>
-          )
-        )}
-      </div>
     </>
   );
 }
@@ -983,10 +993,6 @@ function TwilioTelephonySettings({
   const supportingPhoneNumbers = activeVoiceSmsNumber
     ? overview.numbers.filter((number) => number.id !== activeVoiceSmsNumber.id)
     : overview.numbers;
-  const operatingCountry =
-    generalSettings.businessProfile.operatingCountry ||
-    operatingCountryForPhoneRegion(generalSettings.defaultPhoneRegion) ||
-    "your selected country";
   const phoneRegion =
     operatingCountryPhoneRegion(
       generalSettings.businessProfile.operatingCountry,
@@ -994,6 +1000,110 @@ function TwilioTelephonySettings({
 
   return (
     <>
+      <section className="setting-card phone-number-enable-card assistant-number-card">
+        <SettingCardHeading
+          info={
+            <>
+              This is the public assistant-facing number customers can call or
+              message. It receives SMS, sends SMS, receives calls, and makes
+              assistant calls via Vapi when the matching Vapi number is
+              configured.
+            </>
+          }
+        >
+          Phone and SMS assistant number
+        </SettingCardHeading>
+        {activeVoiceSmsNumber ? (
+          <div className="phone-number-active-panel">
+            <div>
+              <strong>{activeVoiceSmsNumber.phoneNumber}</strong>
+              <span>
+                {[
+                  "Public assistant number",
+                  activeVoiceSmsNumber.friendlyName,
+                  activeVoiceSmsNumber.countryCode,
+                  "SMS + voice enabled",
+                ]
+                  .filter(Boolean)
+                  .join(" - ")}
+              </span>
+            </div>
+            <div className="phone-number-active-actions">
+              <span className="pill success">Enabled</span>
+              <form
+                action={disconnectWorkspacePhoneSmsAction}
+                className="phone-number-disconnect-form"
+              >
+                <input
+                  name="phoneNumberId"
+                  type="hidden"
+                  value={activeVoiceSmsNumber.id}
+                />
+                <button className="text-button danger" type="submit">
+                  Disconnect
+                </button>
+              </form>
+            </div>
+          </div>
+        ) : (
+          <form
+            action={enableWorkspacePhoneSmsAction}
+            className="settings-form"
+          >
+            <p className="empty-copy">
+              No public assistant number is active yet. Enable one before using
+              customer-facing SMS or phone assistant flows. A one-time{" "}
+              <strong>US$6</strong> setup charge will be added to the usage
+              ledger when the number is assigned.
+            </p>
+            {availableNumbers.length > 0 ? (
+              <div className="phone-number-choice-list">
+                {availableNumbers.map((number, index) => (
+                  <label className="phone-number-choice" key={number.id}>
+                    <input
+                      defaultChecked={index === 0}
+                      name="phoneNumberId"
+                      type="radio"
+                      value={number.id}
+                    />
+                    <span>
+                      <strong>{number.phoneNumber}</strong>
+                      <small>
+                        {[
+                          number.friendlyName,
+                          number.region,
+                          number.countryCode,
+                          number.vapiPhoneNumberId ? "Vapi linked" : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" - ")}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="form-alert">
+                No available {phoneRegion} voice-and-SMS numbers are in the Kyro
+                pool yet.
+              </p>
+            )}
+            <div className="settings-footer compact-settings-footer">
+              <span>
+                Once assigned, this becomes the workspace&apos;s public
+                assistant number.
+              </span>
+              <SettingsSubmitButton
+                disabled={availableNumbers.length === 0}
+                pendingLabel="Enabling..."
+              >
+                Enable phone and SMS
+              </SettingsSubmitButton>
+            </div>
+          </form>
+        )}
+      </section>
+
       <div className="integration-summary-grid">
         <article className="setting-card sms-readiness-card">
           <SettingCardHeading
@@ -1125,109 +1235,6 @@ function TwilioTelephonySettings({
         </p>
       ) : null}
 
-      <section className="setting-card phone-number-enable-card">
-        <SettingCardHeading
-          info={
-            <>
-              This assigns one Kyro-owned Twilio number to the workspace. It can
-              receive SMS, send SMS, receive calls, and make assistant calls via
-              Vapi when the matching Vapi number is configured.
-            </>
-          }
-        >
-          Phone and SMS assistant number
-        </SettingCardHeading>
-        {activeVoiceSmsNumber ? (
-          <div className="phone-number-active-panel">
-            <div>
-              <strong>{activeVoiceSmsNumber.phoneNumber}</strong>
-              <span>
-                {[
-                  activeVoiceSmsNumber.friendlyName,
-                  activeVoiceSmsNumber.countryCode,
-                  "SMS + voice enabled",
-                ]
-                  .filter(Boolean)
-                  .join(" - ")}
-              </span>
-            </div>
-            <div className="phone-number-active-actions">
-              <span className="pill">Enabled</span>
-              <form
-                action={disconnectWorkspacePhoneSmsAction}
-                className="phone-number-disconnect-form"
-              >
-                <input
-                  name="phoneNumberId"
-                  type="hidden"
-                  value={activeVoiceSmsNumber.id}
-                />
-                <button className="text-button danger" type="submit">
-                  Disconnect
-                </button>
-              </form>
-            </div>
-          </div>
-        ) : (
-          <form
-            action={enableWorkspacePhoneSmsAction}
-            className="settings-form"
-          >
-            <p className="empty-copy">
-              Enable inbound and outbound SMS plus inbound and outbound phone
-              calls by choosing an available {operatingCountry} number. A
-              one-time <strong>US$6</strong> setup charge will be added to the
-              usage ledger when the number is assigned.
-            </p>
-            {availableNumbers.length > 0 ? (
-              <div className="phone-number-choice-list">
-                {availableNumbers.map((number, index) => (
-                  <label className="phone-number-choice" key={number.id}>
-                    <input
-                      defaultChecked={index === 0}
-                      name="phoneNumberId"
-                      type="radio"
-                      value={number.id}
-                    />
-                    <span>
-                      <strong>{number.phoneNumber}</strong>
-                      <small>
-                        {[
-                          number.friendlyName,
-                          number.region,
-                          number.countryCode,
-                          number.vapiPhoneNumberId ? "Vapi linked" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" - ")}
-                      </small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <p className="form-alert">
-                No available {phoneRegion} voice-and-SMS numbers are in the Kyro
-                pool yet. Add one to <code>workspace_phone_numbers</code> with{" "}
-                <code>status = available</code> and no workspace owner.
-              </p>
-            )}
-            <div className="settings-footer compact-settings-footer">
-              <span>
-                Once assigned, the number is reserved to this workspace and will
-                not be offered to another account.
-              </span>
-              <SettingsSubmitButton
-                disabled={availableNumbers.length === 0}
-                pendingLabel="Enabling..."
-              >
-                Enable phone and SMS
-              </SettingsSubmitButton>
-            </div>
-          </form>
-        )}
-      </section>
-
       {supportingPhoneNumbers.length > 0 ? (
         <div className="usage-ledger compact">
           {supportingPhoneNumbers.map((number) => (
@@ -1300,9 +1307,54 @@ function StripePaymentsSettings({
 }>) {
   const account = overview.account;
   const ready = account?.status === "active";
+  const setupAvailable = overview.migrationReady && overview.configured;
+  const resetAvailable = Boolean(account?.provider_account_id && !ready);
 
   return (
     <>
+      <section
+        className={`integration-provider-setup-bar stripe-setup-bar ${
+          ready ? "ready" : "blocked"
+        }`}
+      >
+        <div>
+          <strong>
+            {ready
+              ? "Stripe payments are active"
+              : account?.provider_account_id
+                ? "Finish Stripe setup"
+                : "Set up Stripe payments"}
+          </strong>
+          <span>
+            {ready
+              ? "Kyro can create customer payment links and track payment status."
+              : "Payments cannot be used until Stripe setup is complete."}
+          </span>
+        </div>
+        <div className="integration-provider-setup-actions">
+          <form action={connectStripePaymentsAction}>
+            <SettingsSubmitButton
+              disabled={!setupAvailable}
+              pendingLabel="Opening..."
+            >
+              {account?.provider_account_id
+                ? "Continue Stripe setup"
+                : "Set up Stripe payments"}
+            </SettingsSubmitButton>
+          </form>
+          {resetAvailable ? (
+            <form action={resetStripePaymentsSetupAction}>
+              <SettingsSubmitButton
+                className="secondary-button compact danger"
+                pendingLabel="Resetting..."
+              >
+                Reset setup
+              </SettingsSubmitButton>
+            </form>
+          ) : null}
+        </div>
+      </section>
+
       <div className="integration-summary-grid">
         <article className="setting-card">
           <SettingCardHeading
@@ -1384,41 +1436,6 @@ function StripePaymentsSettings({
           </p>
         ) : null}
       </section>
-
-      <section className="setting-card phone-number-enable-card">
-        <SettingCardHeading
-          info={
-            <>
-              This uses Stripe Connect so customer payments can settle to the
-              workspace&apos;s payout account while Kyro records links and
-              payment status.
-            </>
-          }
-        >
-          Customer payment setup
-        </SettingCardHeading>
-        <form action={connectStripePaymentsAction} className="settings-form">
-          <p className="empty-copy">
-            Connect Stripe to let Kyro generate customer payment links and track
-            whether invoices, quotes, and follow-ups have been paid.
-          </p>
-          <div className="settings-footer compact-settings-footer">
-            <span>
-              {ready
-                ? "Stripe is ready for customer payment links."
-                : "Stripe may ask for business and payout details."}
-            </span>
-            <SettingsSubmitButton
-              disabled={!overview.migrationReady || !overview.configured}
-              pendingLabel="Opening..."
-            >
-              {account?.provider_account_id
-                ? "Continue Stripe setup"
-                : "Connect Stripe payments"}
-            </SettingsSubmitButton>
-          </div>
-        </form>
-      </section>
     </>
   );
 }
@@ -1459,6 +1476,12 @@ function providerConnectedAccountsAnchor(
   return provider === "google"
     ? "google-connected-email-accounts"
     : "microsoft-connected-email-accounts";
+}
+
+function providerEmailSettingsHref(
+  provider: EmailProviderConnection["provider"],
+) {
+  return `/settings?section=integrations&panel=email-accounts#${providerConnectedAccountsAnchor(provider)}`;
 }
 
 function connectionTime(connection: ProviderConnection | null) {
@@ -1775,17 +1798,27 @@ function EmailSyncHealthPanel({
           <h3>{health.title}</h3>
           <p>{health.detail}</p>
         </div>
-        <span
-          className={`pill ${
-            health.tone === "success"
-              ? "success"
-              : health.tone === "warning"
-                ? "warning"
-                : ""
-          }`}
-        >
-          {inboundSyncModeLabel(settings.syncMode)}
-        </span>
+        <div className="email-sync-health-actions">
+          <span
+            className={`pill ${
+              health.tone === "success"
+                ? "success"
+                : health.tone === "warning"
+                  ? "warning"
+                  : ""
+            }`}
+          >
+            {inboundSyncModeLabel(settings.syncMode)}
+          </span>
+          {connected.length === 0 ? (
+            <Link
+              className="primary-button compact link-button"
+              href="/settings?section=integrations&panel=email-accounts"
+            >
+              Set up email
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <div className="email-sync-status-grid">
@@ -1863,7 +1896,7 @@ function EmailSyncHealthPanel({
                 {needsReconnect ? (
                   <Link
                     className="pill warning link-pill"
-                    href={`#${providerConnectedAccountsAnchor(connection.provider)}`}
+                    href={providerEmailSettingsHref(connection.provider)}
                   >
                     Reconnect
                   </Link>
@@ -3401,7 +3434,9 @@ function WorkspaceIntegrationsSettings({
         </ProviderDetails>
       ) : null}
 
-      {activePanel === "google" && googleOverview ? (
+      {activePanel === "email-accounts" &&
+      googleOverview &&
+      microsoftOverview ? (
         <>
           <section className="integration-choice-panel">
             <div>
@@ -3441,31 +3476,28 @@ function WorkspaceIntegrationsSettings({
           >
             <GoogleIntegrationSettings overview={googleOverview} />
           </ProviderDetails>
+          <ProviderDetails
+            description={
+              microsoftConnection
+                ? connectionName(microsoftConnection, "Outlook account")
+                : anyConnected
+                  ? "Optional if you want to switch from Gmail to Outlook"
+                  : "Outlook and Microsoft 365 email sending"
+            }
+            forceOpen
+            isCurrent={currentProvider === "microsoft"}
+            label="Microsoft Outlook"
+            provider="Microsoft"
+            status={providerChoiceStatus({
+              anyConnected,
+              connected: microsoftConnected,
+              needsReconnect: microsoftNeedsReconnect,
+              status: microsoftStatus,
+            })}
+          >
+            <MicrosoftIntegrationSettings overview={microsoftOverview} />
+          </ProviderDetails>
         </>
-      ) : null}
-
-      {activePanel === "microsoft" && microsoftOverview ? (
-        <ProviderDetails
-          description={
-            microsoftConnection
-              ? connectionName(microsoftConnection, "Outlook account")
-              : anyConnected
-                ? "Optional if you want to switch from Gmail to Outlook"
-                : "Outlook and Microsoft 365 email sending"
-          }
-          forceOpen
-          isCurrent={currentProvider === "microsoft"}
-          label="Microsoft Outlook"
-          provider="Microsoft"
-          status={providerChoiceStatus({
-            anyConnected,
-            connected: microsoftConnected,
-            needsReconnect: microsoftNeedsReconnect,
-            status: microsoftStatus,
-          })}
-        >
-          <MicrosoftIntegrationSettings overview={microsoftOverview} />
-        </ProviderDetails>
       ) : null}
     </div>
   );

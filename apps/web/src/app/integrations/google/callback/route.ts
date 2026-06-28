@@ -3,9 +3,12 @@ import {
   GOOGLE_SERVICE,
   GOOGLE_WORKSPACE_SCOPES,
   getGoogleOAuthConfig,
-  hashOAuthState
+  hashOAuthState,
 } from "../../../../lib/integrations/google";
-import { encryptIntegrationTokenSet, hasIntegrationTokenEncryptionKey } from "../../../../lib/integrations/token-vault";
+import {
+  encryptIntegrationTokenSet,
+  hasIntegrationTokenEncryptionKey,
+} from "../../../../lib/integrations/token-vault";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import { NextResponse } from "next/server";
@@ -29,9 +32,14 @@ type GoogleUserInfo = {
   sub?: string;
 };
 
-function settingsRedirect(request: Request, key: "engine_error" | "engine_message", message: string) {
+function settingsRedirect(
+  request: Request,
+  key: "engine_error" | "engine_message",
+  message: string,
+) {
   const url = new URL("/settings", request.url);
   url.searchParams.set("section", "integrations");
+  url.searchParams.set("panel", "email-accounts");
   url.searchParams.set(key, message);
 
   return NextResponse.redirect(url);
@@ -50,7 +58,7 @@ function scopesFromToken(token: GoogleTokenResponse) {
 async function exchangeGoogleCode({
   code,
   codeVerifier,
-  redirectUri
+  redirectUri,
 }: {
   code: string;
   codeVerifier: string | null;
@@ -67,7 +75,7 @@ async function exchangeGoogleCode({
     client_secret: config.clientSecret,
     code,
     grant_type: "authorization_code",
-    redirect_uri: redirectUri
+    redirect_uri: redirectUri,
   });
 
   if (codeVerifier) {
@@ -77,25 +85,30 @@ async function exchangeGoogleCode({
   const response = await fetch("https://oauth2.googleapis.com/token", {
     body,
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    method: "POST"
+    method: "POST",
   });
   const token = (await response.json()) as GoogleTokenResponse;
 
   if (!response.ok || token.error || !token.access_token) {
-    throw new Error(token.error_description ?? token.error ?? "Google token exchange failed.");
+    throw new Error(
+      token.error_description ?? token.error ?? "Google token exchange failed.",
+    );
   }
 
   return token;
 }
 
 async function getGoogleUserInfo(accessToken: string): Promise<GoogleUserInfo> {
-  const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
+  const response = await fetch(
+    "https://openidconnect.googleapis.com/v1/userinfo",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
 
   if (!response.ok) {
     return {};
@@ -108,7 +121,7 @@ async function upsertGmailChannel({
   accountEmail,
   connectionId,
   supabase,
-  workspaceId
+  workspaceId,
 }: {
   accountEmail: string | null;
   connectionId: string;
@@ -128,8 +141,8 @@ async function upsertGmailChannel({
       service: "gmail",
       connectionId,
       externalSendEnabled: true,
-      dryRunUntilEnabled: false
-    }
+      dryRunUntilEnabled: false,
+    },
   };
   const { data: existingChannel, error: existingError } = await supabase
     .from("channels")
@@ -139,7 +152,9 @@ async function upsertGmailChannel({
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to inspect Gmail channel: ${existingError.message}`);
+    throw new Error(
+      `Unable to inspect Gmail channel: ${existingError.message}`,
+    );
   }
 
   if (existingChannel) {
@@ -163,7 +178,9 @@ async function upsertGmailChannel({
     .single();
 
   if (error || !channel) {
-    throw new Error(`Unable to create Gmail channel: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create Gmail channel: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   return String(channel.id);
@@ -177,28 +194,40 @@ export async function GET(request: Request) {
   const config = getGoogleOAuthConfig();
 
   if (googleError) {
-    return settingsRedirect(request, "engine_error", `Google OAuth was cancelled: ${googleError}`);
+    return settingsRedirect(
+      request,
+      "engine_error",
+      `Google OAuth was cancelled: ${googleError}`,
+    );
   }
 
   if (!code || !state) {
-    return settingsRedirect(request, "engine_error", "Google OAuth returned without a code.");
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Google OAuth returned without a code.",
+    );
   }
 
   if (!config) {
-    return settingsRedirect(request, "engine_error", "Google OAuth is not configured.");
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Google OAuth is not configured.",
+    );
   }
 
   if (!hasIntegrationTokenEncryptionKey()) {
     return settingsRedirect(
       request,
       "engine_error",
-      "Set INTEGRATION_TOKEN_ENCRYPTION_KEY before connecting Google."
+      "Set INTEGRATION_TOKEN_ENCRYPTION_KEY before connecting Google.",
     );
   }
 
   const supabase = await createServerSupabaseClient();
   const {
-    data: { user }
+    data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
@@ -216,23 +245,34 @@ export async function GET(request: Request) {
     return settingsRedirect(
       request,
       "engine_error",
-      stateError?.message ?? "Google OAuth state was not found."
+      stateError?.message ?? "Google OAuth state was not found.",
     );
   }
 
   if (oauthState.user_id !== user.id) {
-    return settingsRedirect(request, "engine_error", "Google OAuth user did not match this session.");
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Google OAuth user did not match this session.",
+    );
   }
 
-  if (oauthState.consumed_at || new Date(String(oauthState.expires_at)).getTime() < Date.now()) {
-    return settingsRedirect(request, "engine_error", "Google OAuth state has expired.");
+  if (
+    oauthState.consumed_at ||
+    new Date(String(oauthState.expires_at)).getTime() < Date.now()
+  ) {
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Google OAuth state has expired.",
+    );
   }
 
   try {
     const token = await exchangeGoogleCode({
       code,
       codeVerifier: textValue(oauthState.code_verifier),
-      redirectUri: config.redirectUri
+      redirectUri: config.redirectUri,
     });
     const profile = await getGoogleUserInfo(token.access_token!);
     const accountEmail = textValue(profile.email);
@@ -247,7 +287,7 @@ export async function GET(request: Request) {
       obtainedAt: now.toISOString(),
       refreshToken: token.refresh_token ?? null,
       scopes,
-      tokenType: token.token_type ?? null
+      tokenType: token.token_type ?? null,
     });
     const accessTokenExpiresAt =
       typeof token.expires_in === "number"
@@ -272,25 +312,27 @@ export async function GET(request: Request) {
           last_connected_at: now.toISOString(),
           last_error: null,
           metadata: {
-            source: "google_oauth_callback"
-          }
+            source: "google_oauth_callback",
+          },
         },
         {
-          onConflict: "workspace_id,provider,connection_key"
-        }
+          onConflict: "workspace_id,provider,connection_key",
+        },
       )
       .select("id")
       .single();
 
     if (connectionError || !connection) {
-      throw new Error(connectionError?.message ?? "Unable to save Google connection.");
+      throw new Error(
+        connectionError?.message ?? "Unable to save Google connection.",
+      );
     }
 
     await upsertGmailChannel({
       accountEmail,
       connectionId: String(connection.id),
       supabase,
-      workspaceId: String(oauthState.workspace_id)
+      workspaceId: String(oauthState.workspace_id),
     });
 
     await supabase
@@ -310,16 +352,20 @@ export async function GET(request: Request) {
         provider: GOOGLE_PROVIDER,
         scopes,
         service: GOOGLE_SERVICE,
-        status: "connected"
-      }
+        status: "connected",
+      },
     });
 
-    return settingsRedirect(request, "engine_message", "Google Workspace connected.");
+    return settingsRedirect(
+      request,
+      "engine_message",
+      "Google Workspace connected.",
+    );
   } catch (error) {
     return settingsRedirect(
       request,
       "engine_error",
-      error instanceof Error ? error.message : "Google OAuth callback failed."
+      error instanceof Error ? error.message : "Google OAuth callback failed.",
     );
   }
 }

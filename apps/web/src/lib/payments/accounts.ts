@@ -168,7 +168,9 @@ export async function createStripeConnectOnboardingLink({
       .eq("id", existing.id);
 
     if (error) {
-      throw new Error(`Unable to update Stripe payment account: ${error.message}`);
+      throw new Error(
+        `Unable to update Stripe payment account: ${error.message}`,
+      );
     }
   } else {
     const { error } = await supabase
@@ -176,7 +178,9 @@ export async function createStripeConnectOnboardingLink({
       .insert(accountPayload);
 
     if (error) {
-      throw new Error(`Unable to create Stripe payment account: ${error.message}`);
+      throw new Error(
+        `Unable to create Stripe payment account: ${error.message}`,
+      );
     }
   }
 
@@ -193,6 +197,52 @@ export async function createStripeConnectOnboardingLink({
     .eq("provider", STRIPE_PROVIDER);
 
   return accountLink.url;
+}
+
+export async function resetWorkspaceStripePaymentAccount({
+  supabase,
+  workspaceId,
+}: {
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data: account, error: loadError } = await supabase
+    .from("workspace_payment_accounts")
+    .select("id,status")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", STRIPE_PROVIDER)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (loadError) {
+    throw new Error(
+      `Unable to load Stripe payment account: ${loadError.message}`,
+    );
+  }
+
+  if (!account) {
+    return false;
+  }
+
+  if ((account as { status?: string }).status === "active") {
+    throw new Error(
+      "Stripe payments are already active. Disconnecting an active payout account needs a manual support flow.",
+    );
+  }
+
+  const { error: deleteError } = await supabase
+    .from("workspace_payment_accounts")
+    .delete()
+    .eq("id", (account as { id: string }).id)
+    .eq("workspace_id", workspaceId)
+    .eq("provider", STRIPE_PROVIDER);
+
+  if (deleteError) {
+    throw new Error(`Unable to reset Stripe setup: ${deleteError.message}`);
+  }
+
+  return true;
 }
 
 export async function createPaymentRequestCheckoutLink({
@@ -237,15 +287,18 @@ export async function createPaymentRequestCheckoutLink({
     .maybeSingle();
 
   if (accountError) {
-    throw new Error(`Unable to load Stripe payment account: ${accountError.message}`);
+    throw new Error(
+      `Unable to load Stripe payment account: ${accountError.message}`,
+    );
   }
 
   if (!account?.provider_account_id || account.status !== "active") {
     throw new Error("Stripe payments are not active for this workspace yet.");
   }
 
-  const normalizedCurrency =
-    (currency || account.default_currency || "AUD").trim().toUpperCase();
+  const normalizedCurrency = (currency || account.default_currency || "AUD")
+    .trim()
+    .toUpperCase();
   const { data: requestRow, error: insertError } = await supabase
     .from("payment_requests")
     .insert({

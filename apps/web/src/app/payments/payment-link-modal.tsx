@@ -59,7 +59,8 @@ export function PaymentLinkModal({
   const [created, setCreated] = useState<CreatedPaymentLink | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const selectedContact = contacts.find((contact) => contact.id === contactId) ?? null;
+  const selectedContact =
+    contacts.find((contact) => contact.id === contactId) ?? null;
   const filteredContacts = useMemo(() => {
     const search = contactSearch.trim().toLowerCase();
 
@@ -86,8 +87,8 @@ export function PaymentLinkModal({
   );
   const amountTooLow = totalCents < 50;
   const disabledReason = !paymentLinksReady
-    ? paymentLinkDisabledReason ??
-      "Connect Stripe payments in Settings before creating customer payment links."
+    ? (paymentLinkDisabledReason ??
+      "Connect Stripe payments in Settings before creating customer payment links.")
     : amountTooLow
       ? `Add at least ${amountFromCents(50, currency)} in line items before creating a payment link.`
       : null;
@@ -128,14 +129,15 @@ export function PaymentLinkModal({
             description: line.description,
             quantity: Math.max(1, Math.round(Number(line.quantity) || 1)),
           })),
-          newContact: contactId || !isEnteringNewContact
-            ? null
-            : {
-                company: newContactCompany,
-                email: newContactEmail,
-                name: newContactName,
-                phone: newContactPhone,
-              },
+          newContact:
+            contactId || !isEnteringNewContact
+              ? null
+              : {
+                  company: newContactCompany,
+                  email: newContactEmail,
+                  name: newContactName,
+                  phone: newContactPhone,
+                },
           notifyChannels: [
             notifyEmail ? "email" : null,
             notifySms ? "sms" : null,
@@ -152,9 +154,11 @@ export function PaymentLinkModal({
         },
         method: "POST",
       });
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string; paymentRequestId?: string; url?: string | null }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        paymentRequestId?: string;
+        url?: string | null;
+      } | null;
 
       if (!response.ok) {
         throw new Error(payload?.error ?? "Unable to create payment link.");
@@ -179,7 +183,9 @@ export function PaymentLinkModal({
     <>
       <button
         className="primary-action-button payments-link-trigger"
+        disabled={!paymentLinksReady}
         onClick={() => setIsOpen(true)}
+        title={!paymentLinksReady ? (disabledReason ?? undefined) : undefined}
         type="button"
       >
         Create payment link
@@ -255,14 +261,16 @@ export function PaymentLinkModal({
                           >
                             <strong>{contact.label}</strong>
                             <span>
-                              {[contact.email, contact.phone].filter(Boolean).join(" - ") ||
-                                "CRM contact"}
+                              {[contact.email, contact.phone]
+                                .filter(Boolean)
+                                .join(" - ") || "CRM contact"}
                             </span>
                           </button>
                         ))
                       ) : (
                         <p className="payments-contact-empty">
-                          No matching contacts. Use Enter new to add one for this payment.
+                          No matching contacts. Use Enter new to add one for
+                          this payment.
                         </p>
                       )}
                     </div>
@@ -292,19 +300,39 @@ export function PaymentLinkModal({
                 <>
                   <label>
                     <span>Name</span>
-                    <input value={newContactName} onChange={(event) => setNewContactName(event.target.value)} />
+                    <input
+                      value={newContactName}
+                      onChange={(event) =>
+                        setNewContactName(event.target.value)
+                      }
+                    />
                   </label>
                   <label>
                     <span>Company</span>
-                    <input value={newContactCompany} onChange={(event) => setNewContactCompany(event.target.value)} />
+                    <input
+                      value={newContactCompany}
+                      onChange={(event) =>
+                        setNewContactCompany(event.target.value)
+                      }
+                    />
                   </label>
                   <label>
                     <span>Email</span>
-                    <input value={newContactEmail} onChange={(event) => setNewContactEmail(event.target.value)} />
+                    <input
+                      value={newContactEmail}
+                      onChange={(event) =>
+                        setNewContactEmail(event.target.value)
+                      }
+                    />
                   </label>
                   <label>
                     <span>Phone</span>
-                    <input value={newContactPhone} onChange={(event) => setNewContactPhone(event.target.value)} />
+                    <input
+                      value={newContactPhone}
+                      onChange={(event) =>
+                        setNewContactPhone(event.target.value)
+                      }
+                    />
                   </label>
                 </>
               ) : null}
@@ -313,7 +341,9 @@ export function PaymentLinkModal({
                 <input
                   placeholder="Optional"
                   value={recipientBusinessName}
-                  onChange={(event) => setRecipientBusinessName(event.target.value)}
+                  onChange={(event) =>
+                    setRecipientBusinessName(event.target.value)
+                  }
                 />
               </label>
               <label>
@@ -356,27 +386,35 @@ export function PaymentLinkModal({
                     aria-label="Item description"
                     placeholder="Description"
                     value={line.description}
-                    onChange={(event) => updateLine(index, { description: event.target.value })}
+                    onChange={(event) =>
+                      updateLine(index, { description: event.target.value })
+                    }
                   />
                   <input
                     aria-label="Quantity"
                     inputMode="decimal"
                     placeholder="Qty"
                     value={line.quantity}
-                    onChange={(event) => updateLine(index, { quantity: event.target.value })}
+                    onChange={(event) =>
+                      updateLine(index, { quantity: event.target.value })
+                    }
                   />
                   <input
                     aria-label="Amount"
                     inputMode="decimal"
                     placeholder="Amount"
                     value={line.amount}
-                    onChange={(event) => updateLine(index, { amount: event.target.value })}
+                    onChange={(event) =>
+                      updateLine(index, { amount: event.target.value })
+                    }
                   />
                   <button
                     className="subtle-button"
                     disabled={lines.length === 1}
                     onClick={() =>
-                      setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))
+                      setLines((current) =>
+                        current.filter((_, lineIndex) => lineIndex !== index),
+                      )
                     }
                     type="button"
                   >
@@ -424,9 +462,7 @@ export function PaymentLinkModal({
             <footer className="payments-modal-footer">
               <div className="payments-modal-footer-status">
                 <strong>{amountFromCents(totalCents, currency)}</strong>
-                {disabledReason ? (
-                  <span>{disabledReason}</span>
-                ) : null}
+                {disabledReason ? <span>{disabledReason}</span> : null}
               </div>
               <button
                 className="primary-action-button"
