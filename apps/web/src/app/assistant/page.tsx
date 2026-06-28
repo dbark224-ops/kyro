@@ -51,7 +51,7 @@ export default async function AssistantPage({
     .eq("workspace_id", workspace.id)
     .eq("source", "generated_image")
     .order("created_at", { ascending: false })
-    .limit(8);
+    .limit(24);
   const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
   const promptSuggestionsPromise = getAssistantPromptSuggestionState({
     supabase,

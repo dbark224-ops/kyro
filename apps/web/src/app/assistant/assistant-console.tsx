@@ -201,6 +201,7 @@ export function AssistantConsole({
   const [expandedImage, setExpandedImage] = useState<GeneratedImage | null>(
     null,
   );
+  const [isGeneratedFilesOpen, setIsGeneratedFilesOpen] = useState(false);
   const visibleOptimisticMessage = useMemo(
     () =>
       optimisticMessage &&
@@ -253,6 +254,11 @@ export function AssistantConsole({
         }));
       }
     });
+  };
+
+  const openGeneratedImage = (image: GeneratedImage) => {
+    setIsGeneratedFilesOpen(false);
+    setExpandedImage(image);
   };
 
   const startOutboundCall = (request: OutboundCallRequestBlock["request"]) => {
@@ -952,11 +958,6 @@ export function AssistantConsole({
 
         {state.error ? <p className="form-alert error">{state.error}</p> : null}
 
-        <AssistantRecentImageStrip
-          images={recentImages}
-          onOpenImage={(image) => setExpandedImage(image)}
-        />
-
         <div className="assistant-suggestions">
           {quickPrompts.map((prompt) => (
             <button
@@ -1085,11 +1086,23 @@ export function AssistantConsole({
           state={previewState}
         />
       ) : (
-        <AssistantExternalActivityPane
-          items={externalActivityItems}
-          onOpenPreview={openResourcePreview}
-        />
+        <div className="assistant-activity-rail">
+          <AssistantGeneratedFilesLauncher
+            images={recentImages}
+            onOpen={() => setIsGeneratedFilesOpen(true)}
+          />
+          <AssistantExternalActivityPane
+            items={externalActivityItems}
+            onOpenPreview={openResourcePreview}
+          />
+        </div>
       )}
+      <AssistantGeneratedFilesModal
+        images={recentImages}
+        isOpen={isGeneratedFilesOpen}
+        onClose={() => setIsGeneratedFilesOpen(false)}
+        onOpenImage={openGeneratedImage}
+      />
       <AssistantImageLightbox
         disabled={isAssistantGenerating}
         image={expandedImage}
@@ -1419,53 +1432,163 @@ function AssistantImageLightbox({
   );
 }
 
-function AssistantRecentImageStrip({
+function AssistantGeneratedFilesLauncher({
   images,
+  onOpen,
+}: {
+  images: AssistantRecentImage[];
+  onOpen: () => void;
+}) {
+  const previewImages = images.slice(0, 3);
+
+  return (
+    <button
+      className="assistant-generated-files-launcher"
+      disabled={images.length === 0}
+      onClick={onOpen}
+      type="button"
+    >
+      <span className="assistant-generated-files-launcher-copy">
+        <span className="eyebrow">Generated files</span>
+        <strong>
+          {images.length > 0
+            ? `${images.length} assistant file${images.length === 1 ? "" : "s"}`
+            : "No generated files yet"}
+        </strong>
+      </span>
+      <span
+        aria-hidden="true"
+        className={
+          previewImages.length > 0
+            ? "assistant-generated-files-stack"
+            : "assistant-generated-files-stack empty"
+        }
+      >
+        {previewImages.length > 0 ? (
+          previewImages.map((image) => (
+            <span className="assistant-generated-files-thumb" key={image.fileId}>
+              <Image
+                alt=""
+                fill
+                sizes="44px"
+                src={image.href}
+                unoptimized
+              />
+            </span>
+          ))
+        ) : (
+          <span />
+        )}
+      </span>
+    </button>
+  );
+}
+
+function AssistantGeneratedFilesModal({
+  images,
+  isOpen,
+  onClose,
   onOpenImage,
 }: {
   images: AssistantRecentImage[];
+  isOpen: boolean;
+  onClose: () => void;
   onOpenImage: (image: GeneratedImage) => void;
 }) {
-  if (images.length === 0) {
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
     return null;
   }
 
   return (
-    <section className="assistant-recent-media" aria-label="Recent generated images">
-      <div className="assistant-recent-media-header">
-        <div>
-          <p className="eyebrow">Recent media</p>
-          <strong>Generated images</strong>
-        </div>
-        <Link className="text-button" href="/files?kind=generated">
-          View all
-        </Link>
-      </div>
-      <div className="assistant-recent-media-strip">
-        {images.map((image) => (
-          <article className="assistant-recent-media-card" key={image.fileId}>
-            <button
-              aria-label={`Open ${image.filename}`}
-              className="assistant-recent-media-thumb"
-              onClick={() => onOpenImage(image)}
-              type="button"
-            >
-              <Image
-                alt={image.alt}
-                fill
-                sizes="96px"
-                src={image.href}
-                unoptimized
-              />
-            </button>
-            <div>
-              <strong>{image.filename}</strong>
-              <span>{formatDate(image.createdAt)}</span>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
+    <div
+      aria-label="Assistant generated files"
+      aria-modal="true"
+      className="assistant-generated-files-modal"
+      role="dialog"
+    >
+      <button
+        aria-label="Close generated files"
+        className="assistant-generated-files-backdrop"
+        onClick={onClose}
+        type="button"
+      />
+      <article className="assistant-generated-files-panel">
+        <header className="assistant-generated-files-header">
+          <div>
+            <p className="eyebrow">Generated files</p>
+            <h2>Assistant media</h2>
+          </div>
+          <button
+            className="assistant-generated-files-close"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </header>
+
+        {images.length > 0 ? (
+          <div className="assistant-generated-files-grid">
+            {images.map((image) => (
+              <article className="assistant-generated-file-card" key={image.fileId}>
+                <button
+                  aria-label={`Open ${image.filename}`}
+                  className="assistant-generated-file-preview"
+                  onClick={() => onOpenImage(image)}
+                  type="button"
+                >
+                  <Image
+                    alt={image.alt}
+                    fill
+                    sizes="(max-width: 760px) 42vw, 180px"
+                    src={image.href}
+                    unoptimized
+                  />
+                </button>
+                <div className="assistant-generated-file-copy">
+                  <strong title={image.filename}>{image.filename}</strong>
+                  <span>{formatDate(image.createdAt)}</span>
+                </div>
+                <div className="assistant-generated-file-actions">
+                  <a href={image.downloadHref}>Download</a>
+                  <button onClick={() => onOpenImage(image)} type="button">
+                    Open
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="assistant-generated-files-empty">
+            <strong>No generated assistant files yet.</strong>
+            <span>Images Kyro creates from assistant chat will appear here.</span>
+          </div>
+        )}
+
+        <footer className="assistant-generated-files-footer">
+          <span>{images.length} recent shown</span>
+          <Link href="/files?kind=generated" onClick={onClose}>
+            View all in Files
+          </Link>
+        </footer>
+      </article>
+    </div>
   );
 }
 
