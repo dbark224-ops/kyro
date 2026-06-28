@@ -8034,6 +8034,30 @@ button:disabled {
   gap: 12px;
 }
 
+.settings-autosave-status-row {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 18px;
+}
+
+.settings-autosave-status {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.settings-autosave-status.saving {
+  color: var(--cyan);
+}
+
+.settings-autosave-status.saved {
+  color: var(--success);
+}
+
+.settings-autosave-status.error {
+  color: var(--pink);
+}
+
 .outbound-composer-form textarea {
   min-height: 150px;
 }

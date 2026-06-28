@@ -622,6 +622,65 @@ async function saveInboundEmailPolicyUpdate({
   return savedPolicy;
 }
 
+function inboundEmailSettingsFromForm(
+  formData: FormData,
+  beforeSettings: InboundEmailSettings,
+) {
+  const syncMode = formString(formData, "inboundSyncMode");
+
+  if (
+    !INBOUND_EMAIL_SYNC_MODES.includes(
+      syncMode as InboundEmailSettings["syncMode"],
+    )
+  ) {
+    return {
+      error: "Inbound email sync mode is invalid.",
+      settings: null,
+    };
+  }
+
+  const pollIntervalMinutes =
+    formInteger(formData, "inboundPollIntervalMinutes") ??
+    DEFAULT_INBOUND_EMAIL_SETTINGS.pollIntervalMinutes;
+
+  if (
+    !INBOUND_EMAIL_POLL_INTERVALS.includes(
+      pollIntervalMinutes as 5 | 15 | 30 | 60,
+    )
+  ) {
+    return {
+      error: "Inbound email poll interval is invalid.",
+      settings: null,
+    };
+  }
+
+  return {
+    error: null,
+    settings: normalizeInboundEmailSettings({
+      ...beforeSettings,
+      actionInstructions: formString(formData, "inboundActionInstructions"),
+      autoPromoteActionable: true,
+      includeAwarenessEvents: formBoolean(
+        formData,
+        "inboundIncludeAwarenessEvents",
+      ),
+      lookbackDays:
+        formInteger(formData, "inboundLookbackDays") ??
+        DEFAULT_INBOUND_EMAIL_SETTINGS.lookbackDays,
+      maxMessagesPerSync:
+        formInteger(formData, "inboundMaxMessagesPerSync") ??
+        DEFAULT_INBOUND_EMAIL_SETTINGS.maxMessagesPerSync,
+      pollIntervalMinutes,
+      quietHoursEnabled: formBoolean(formData, "inboundQuietHoursEnabled"),
+      quietHoursEnd: formString(formData, "inboundQuietHoursEnd"),
+      quietHoursMode: "paused",
+      quietHoursStart: formString(formData, "inboundQuietHoursStart"),
+      syncMode,
+      timeZone: beforeSettings.timeZone,
+    }),
+  };
+}
+
 export async function updateCommunicationSettingsAction(formData: FormData) {
   const settingsFocusRaw = formString(formData, "settingsFocus");
   const settingsFocus =
@@ -1277,36 +1336,6 @@ export async function disconnectIntegrationAction(formData: FormData) {
 }
 
 export async function updateInboundEmailSettingsAction(formData: FormData) {
-  const syncMode = formString(formData, "inboundSyncMode");
-
-  if (
-    !INBOUND_EMAIL_SYNC_MODES.includes(
-      syncMode as InboundEmailSettings["syncMode"],
-    )
-  ) {
-    redirectWithSectionMessage(
-      "integrations",
-      "engine_error",
-      "Inbound email sync mode is invalid.",
-    );
-  }
-
-  const pollIntervalMinutes =
-    formInteger(formData, "inboundPollIntervalMinutes") ??
-    DEFAULT_INBOUND_EMAIL_SETTINGS.pollIntervalMinutes;
-
-  if (
-    !INBOUND_EMAIL_POLL_INTERVALS.includes(
-      pollIntervalMinutes as 5 | 15 | 30 | 60,
-    )
-  ) {
-    redirectWithSectionMessage(
-      "integrations",
-      "engine_error",
-      "Inbound email poll interval is invalid.",
-    );
-  }
-
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const { data: beforePolicy, error: beforeError } = await supabase
     .from("workspace_policies")
@@ -1324,28 +1353,15 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
   }
 
   const beforeSettings = normalizeInboundEmailSettings(beforePolicy?.settings);
-  const settings = normalizeInboundEmailSettings({
-    ...beforeSettings,
-    actionInstructions: formString(formData, "inboundActionInstructions"),
-    autoPromoteActionable: true,
-    includeAwarenessEvents: formBoolean(
-      formData,
-      "inboundIncludeAwarenessEvents",
-    ),
-    lookbackDays:
-      formInteger(formData, "inboundLookbackDays") ??
-      DEFAULT_INBOUND_EMAIL_SETTINGS.lookbackDays,
-    maxMessagesPerSync:
-      formInteger(formData, "inboundMaxMessagesPerSync") ??
-      DEFAULT_INBOUND_EMAIL_SETTINGS.maxMessagesPerSync,
-    pollIntervalMinutes,
-    quietHoursEnabled: formBoolean(formData, "inboundQuietHoursEnabled"),
-    quietHoursEnd: formString(formData, "inboundQuietHoursEnd"),
-    quietHoursMode: "paused",
-    quietHoursStart: formString(formData, "inboundQuietHoursStart"),
-    syncMode,
-    timeZone: beforeSettings.timeZone,
-  });
+  const parsed = inboundEmailSettingsFromForm(formData, beforeSettings);
+
+  if (parsed.error || !parsed.settings) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      parsed.error ?? "Inbound email settings are invalid.",
+    );
+  }
 
   const { data: savedPolicy, error: saveError } = await supabase
     .from("workspace_policies")
@@ -1353,7 +1369,7 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
       {
         workspace_id: workspace.id,
         policy_type: INBOUND_EMAIL_POLICY_TYPE,
-        settings,
+        settings: parsed.settings,
       },
       {
         onConflict: "workspace_id,policy_type",
@@ -1378,7 +1394,7 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
     entityType: "workspace_policy",
     entityId: String(savedPolicy.id),
     before: beforePolicy ? { settings: beforePolicy.settings } : null,
-    after: { settings },
+    after: { settings: parsed.settings },
   });
 
   revalidatePath("/settings");
@@ -1388,6 +1404,92 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
     "engine_message",
     "Inbound email settings saved.",
   );
+}
+
+export async function autosaveInboundEmailSettingsAction(formData: FormData) {
+  try {
+    const { supabase, user, workspace } = await requireWorkspaceContext();
+    const { data: beforePolicy, error: beforeError } = await supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+      .maybeSingle();
+
+    if (beforeError) {
+      return { ok: false, message: beforeError.message };
+    }
+
+    const beforeSettings = normalizeInboundEmailSettings(
+      beforePolicy?.settings,
+    );
+    const parsed = inboundEmailSettingsFromForm(formData, beforeSettings);
+
+    if (parsed.error || !parsed.settings) {
+      return {
+        ok: false,
+        message: parsed.error ?? "Inbound email settings are invalid.",
+      };
+    }
+
+    if (
+      beforePolicy &&
+      JSON.stringify(beforeSettings) === JSON.stringify(parsed.settings)
+    ) {
+      return { ok: true, message: "Already saved." };
+    }
+
+    const { data: savedPolicy, error: saveError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          workspace_id: workspace.id,
+          policy_type: INBOUND_EMAIL_POLICY_TYPE,
+          settings: parsed.settings,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+    if (saveError || !savedPolicy) {
+      return {
+        ok: false,
+        message: saveError?.message ?? "Unable to save inbound email settings.",
+      };
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "inbound_email_settings.autosaved",
+      entityType: "workspace_policy",
+      entityId: String(savedPolicy.id),
+      before: beforePolicy ? { settings: beforeSettings } : null,
+      after: { settings: parsed.settings },
+      metadata: { source: "settings_autosave" },
+    });
+
+    revalidatePath("/settings");
+    revalidatePath("/inbox");
+
+    return {
+      ok: true,
+      message: "Saved.",
+      savedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to save inbound email settings.",
+    };
+  }
 }
 
 async function loadInboundEmailPolicyForSenderRule() {

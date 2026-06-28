@@ -12,6 +12,7 @@ import {
   resetStripePaymentsSetupAction,
   startKyroBillingSetupAction,
   autosavePronunciationEntryAction,
+  autosaveInboundEmailSettingsAction,
   createPronunciationEntryAction,
   ignorePronunciationEntryAction,
   removeInboundEmailSenderRuleSettingsAction,
@@ -20,10 +21,10 @@ import {
   updateDashboardTutorialTestModeAction,
   updateCommunicationSettingsAction,
   updateGeneralSettingsAction,
-  updateInboundEmailSettingsAction,
   updateVoiceSettingsAction,
   upsertInboundEmailSenderRuleSettingsAction,
 } from "./actions";
+import { InboundEmailAutosaveForm } from "./inbound-email-autosave-form";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
 import { EscalationSettingsEditor } from "./escalation-settings-editor";
@@ -2982,7 +2983,10 @@ function InboundEmailSyncSettings({
         summary={operationalSummary}
       />
 
-      <form action={updateInboundEmailSettingsAction} className="settings-form">
+      <InboundEmailAutosaveForm
+        action={autosaveInboundEmailSettingsAction}
+        className="settings-form"
+      >
         <div className="settings-grid">
           <label className="setting-card">
             <SettingCardHeading
@@ -3150,11 +3154,11 @@ function InboundEmailSyncSettings({
         <div className="settings-footer">
           <span>
             Action rules decide what becomes CRM. Personal or noisy mail stays
-            out unless it clearly affects the business.
+            out unless it clearly affects the business. Changes save
+            automatically.
           </span>
-          <SettingsSubmitButton>Save inbound rules</SettingsSubmitButton>
         </div>
-      </form>
+      </InboundEmailAutosaveForm>
 
       <SenderRulesLauncher rules={settings.senderRules} />
       {showSenderRules ? (
