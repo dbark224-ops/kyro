@@ -1891,6 +1891,8 @@ a {
 }
 
 .auth-trial-summary {
+  display: grid;
+  gap: 8px;
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, transparent);
   border-radius: var(--radius-control);
   background:
@@ -1909,15 +1911,15 @@ a {
 }
 
 .auth-trial-summary h3 {
-  font-size: clamp(1.1rem, 2vw, 1.35rem);
-  line-height: 1.1;
+  font-size: clamp(1.18rem, 2vw, 1.42rem);
+  line-height: 1.16;
 }
 
 .auth-trial-summary p:not(.eyebrow) {
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.32;
-  max-width: 760px;
+  font-size: 0.98rem;
+  line-height: 1.52;
+  max-width: none;
 }
 
 .auth-stripe-note {
