@@ -3668,7 +3668,10 @@ function VoiceSettingsDetail({
 
             <div className="settings-grid phone-assistant-style-grid">
               <label className="setting-card compact-setting-card">
-                <SettingCardHeading info="This controls the broad feel of Kyro's assistant prompt for inbound, voicemail overflow, and outbound calls.">
+                <SettingCardHeading
+                  info="This controls the broad feel of Kyro's assistant prompt for inbound, voicemail overflow, and outbound calls."
+                  infoPlacement="right"
+                >
                   Call style
                 </SettingCardHeading>
                 <select
