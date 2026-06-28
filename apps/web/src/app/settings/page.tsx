@@ -2888,7 +2888,7 @@ function GeneralSettingsDetail({
 
       <div className="settings-footer">
         {activeBusinessPanel === "service-area" ? null : (
-          <SettingsSubmitButton>Save business profile</SettingsSubmitButton>
+          <SettingsSubmitButton>Save</SettingsSubmitButton>
         )}
       </div>
     </form>
