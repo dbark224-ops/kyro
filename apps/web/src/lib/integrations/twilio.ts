@@ -4,13 +4,12 @@ import {
   normalizeContactPhoneForRegion,
   type PhoneRegion,
 } from "../crm/identity";
+import { applyUsageMarkup, usageMarkupRate } from "../usage/pricing";
 
 export const TWILIO_PROVIDER = "twilio";
 export const TWILIO_SMS_SERVICE = "programmable_messaging";
 export const TWILIO_SMS_WEBHOOK_PATH = "/api/integrations/twilio/sms";
 export const TWILIO_STATUS_WEBHOOK_PATH = "/api/integrations/twilio/status";
-
-const DEFAULT_SMS_MARKUP_RATE = 0.25;
 
 type TwilioConfig = {
   accountSid: string;
@@ -128,9 +127,7 @@ function webhookUrl(path: string) {
 function tableMissing(error: { code?: string; message?: string } | null) {
   return (
     error?.code === "42P01" ||
-    Boolean(
-      error?.message?.toLowerCase().includes("workspace_phone_numbers"),
-    )
+    Boolean(error?.message?.toLowerCase().includes("workspace_phone_numbers"))
   );
 }
 
@@ -146,7 +143,10 @@ function smsComplianceTableMissing(
   );
 }
 
-function normalizePhoneNumber(value: string, defaultRegion: PhoneRegion = "AU") {
+function normalizePhoneNumber(
+  value: string,
+  defaultRegion: PhoneRegion = "AU",
+) {
   return normalizeContactPhoneForRegion(value, defaultRegion) ?? value.trim();
 }
 
@@ -200,12 +200,10 @@ async function getSmsComplianceSummary(
   const rows = (data ?? []) as Array<{ consent_status?: string | null }>;
 
   return {
-    blockedRecipients: rows.filter(
-      (row) => row.consent_status === "blocked",
-    ).length,
-    optedOutRecipients: rows.filter(
-      (row) => row.consent_status === "opted_out",
-    ).length,
+    blockedRecipients: rows.filter((row) => row.consent_status === "blocked")
+      .length,
+    optedOutRecipients: rows.filter((row) => row.consent_status === "opted_out")
+      .length,
     staffInternalRecipients: rows.filter(
       (row) => row.consent_status === "staff_internal",
     ).length,
@@ -409,11 +407,8 @@ export function telephonyUsageCost(input: {
           ? numberValue(process.env.TWILIO_VOICE_UNIT_COST_USD)
           : numberValue(process.env.TWILIO_NUMBER_MONTHLY_COST_USD);
   const providerCost = Math.max(0, input.providerPrice ?? envCost ?? 0);
-  const markup = Math.max(
-    0,
-    numberValue(process.env.TWILIO_MARKUP_RATE) ?? DEFAULT_SMS_MARKUP_RATE,
-  );
-  const customerCharge = providerCost * (1 + markup);
+  const markup = usageMarkupRate("TWILIO_MARKUP_RATE");
+  const customerCharge = applyUsageMarkup(providerCost, markup);
 
   return {
     cost: providerCost,
@@ -593,7 +588,10 @@ export function validateTwilioWebhookSignature(input: {
 
   const payload = Object.keys(input.params)
     .sort()
-    .reduce((current, key) => `${current}${key}${input.params[key]}`, input.url);
+    .reduce(
+      (current, key) => `${current}${key}${input.params[key]}`,
+      input.url,
+    );
   const expected = createHmac("sha1", authToken)
     .update(payload)
     .digest("base64");

@@ -1,7 +1,7 @@
 import { createUsageEvent } from "@kyro/api";
 import type { UsageEventCreate, UsageType } from "@kyro/contracts";
+import { applyUsageMarkup, roundUsageMoney, usageMarkupRate } from "./pricing";
 
-const DEFAULT_MARKUP_RATE = 0.25;
 const PRICE_SOURCE = "openai_api_pricing_2026_05_24";
 const IMAGE_PRICE_SOURCE = "openai_api_pricing_2026_05_27";
 const WEB_SEARCH_NON_REASONING_COST_PER_1K_CALLS = 25;
@@ -166,18 +166,54 @@ const OPENAI_TEXT_MODEL_PRICES: Array<{
   match: string;
   price: ModelPrice;
 }> = [
-  { match: "gpt-5.5-pro", price: { inputPer1M: 30, cachedInputPer1M: null, outputPer1M: 180 } },
-  { match: "gpt-5.5", price: { inputPer1M: 5, cachedInputPer1M: 0.5, outputPer1M: 30 } },
-  { match: "gpt-5.4-pro", price: { inputPer1M: 30, cachedInputPer1M: null, outputPer1M: 180 } },
-  { match: "gpt-5.4-mini", price: { inputPer1M: 0.75, cachedInputPer1M: 0.075, outputPer1M: 4.5 } },
-  { match: "gpt-5.4-nano", price: { inputPer1M: 0.2, cachedInputPer1M: 0.02, outputPer1M: 1.25 } },
-  { match: "gpt-5.4", price: { inputPer1M: 2.5, cachedInputPer1M: 0.25, outputPer1M: 15 } },
-  { match: "gpt-4.1-mini", price: { inputPer1M: 0.4, cachedInputPer1M: 0.1, outputPer1M: 1.6 } },
-  { match: "gpt-4.1-nano", price: { inputPer1M: 0.1, cachedInputPer1M: 0.025, outputPer1M: 0.4 } },
-  { match: "gpt-4.1", price: { inputPer1M: 2, cachedInputPer1M: 0.5, outputPer1M: 8 } },
-  { match: "o4-mini", price: { inputPer1M: 1.1, cachedInputPer1M: 0.275, outputPer1M: 4.4 } },
-  { match: "o3-mini", price: { inputPer1M: 1.1, cachedInputPer1M: 0.55, outputPer1M: 4.4 } },
-  { match: "o3", price: { inputPer1M: 2, cachedInputPer1M: 0.5, outputPer1M: 8 } },
+  {
+    match: "gpt-5.5-pro",
+    price: { inputPer1M: 30, cachedInputPer1M: null, outputPer1M: 180 },
+  },
+  {
+    match: "gpt-5.5",
+    price: { inputPer1M: 5, cachedInputPer1M: 0.5, outputPer1M: 30 },
+  },
+  {
+    match: "gpt-5.4-pro",
+    price: { inputPer1M: 30, cachedInputPer1M: null, outputPer1M: 180 },
+  },
+  {
+    match: "gpt-5.4-mini",
+    price: { inputPer1M: 0.75, cachedInputPer1M: 0.075, outputPer1M: 4.5 },
+  },
+  {
+    match: "gpt-5.4-nano",
+    price: { inputPer1M: 0.2, cachedInputPer1M: 0.02, outputPer1M: 1.25 },
+  },
+  {
+    match: "gpt-5.4",
+    price: { inputPer1M: 2.5, cachedInputPer1M: 0.25, outputPer1M: 15 },
+  },
+  {
+    match: "gpt-4.1-mini",
+    price: { inputPer1M: 0.4, cachedInputPer1M: 0.1, outputPer1M: 1.6 },
+  },
+  {
+    match: "gpt-4.1-nano",
+    price: { inputPer1M: 0.1, cachedInputPer1M: 0.025, outputPer1M: 0.4 },
+  },
+  {
+    match: "gpt-4.1",
+    price: { inputPer1M: 2, cachedInputPer1M: 0.5, outputPer1M: 8 },
+  },
+  {
+    match: "o4-mini",
+    price: { inputPer1M: 1.1, cachedInputPer1M: 0.275, outputPer1M: 4.4 },
+  },
+  {
+    match: "o3-mini",
+    price: { inputPer1M: 1.1, cachedInputPer1M: 0.55, outputPer1M: 4.4 },
+  },
+  {
+    match: "o3",
+    price: { inputPer1M: 2, cachedInputPer1M: 0.5, outputPer1M: 8 },
+  },
 ];
 
 function envValue(key: string) {
@@ -224,14 +260,8 @@ function clampTokenCount(value: number, max: number) {
   return Math.min(Math.max(0, Math.trunc(value)), Math.max(0, Math.trunc(max)));
 }
 
-function roundMoney(value: number) {
-  return Number(value.toFixed(8));
-}
-
 function markupRate() {
-  const parsed = numberEnv("OPENAI_LLM_MARKUP_RATE") ?? numberEnv("USAGE_MARKUP_RATE");
-
-  return parsed ?? DEFAULT_MARKUP_RATE;
+  return usageMarkupRate("OPENAI_LLM_MARKUP_RATE");
 }
 
 function modelPrice(model: string) {
@@ -277,8 +307,8 @@ function modelPrice(model: string) {
   }
 
   const normalized = model.trim().toLowerCase();
-  const catalog = OPENAI_TEXT_MODEL_PRICES.find(({ match }) =>
-    normalized === match || normalized.startsWith(`${match}-`),
+  const catalog = OPENAI_TEXT_MODEL_PRICES.find(
+    ({ match }) => normalized === match || normalized.startsWith(`${match}-`),
   );
 
   if (catalog) {
@@ -315,7 +345,10 @@ function unitCostFor(input: {
       return pricing.price.cachedInputPer1M ?? pricing.price.inputPer1M;
     }
 
-    if (input.usageType === "llm_output_tokens" || input.usageType === "llm_reasoning_tokens") {
+    if (
+      input.usageType === "llm_output_tokens" ||
+      input.usageType === "llm_reasoning_tokens"
+    ) {
       return pricing.price.outputPer1M;
     }
 
@@ -329,10 +362,7 @@ function unitCostFor(input: {
   };
 }
 
-function realtimeUnitCostFor(input: {
-  model: string;
-  usageType: UsageType;
-}) {
+function realtimeUnitCostFor(input: { model: string; usageType: UsageType }) {
   const prefix = modelEnvPrefix(input.model);
   const key = (() => {
     if (input.usageType === "realtime_audio_input_tokens") {
@@ -366,7 +396,8 @@ function realtimeUnitCostFor(input: {
   };
   const modelSpecific = numberEnv(`OPENAI_${prefix}_${key}_COST_PER_1M`);
   const generic = numberEnv(`OPENAI_REALTIME_${key}_COST_PER_1M`);
-  const per1M = modelSpecific ?? generic ?? defaults[key] ?? defaults.TEXT_INPUT;
+  const per1M =
+    modelSpecific ?? generic ?? defaults[key] ?? defaults.TEXT_INPUT;
   const normalizedModel = input.model.trim().toLowerCase();
   const source =
     modelSpecific !== null
@@ -434,7 +465,9 @@ function imageUnitCostFor(input: {
 function imageTokenPriceFor(model: string) {
   const prefix = modelEnvPrefix(model);
   const envPrice: ImageTokenPrice | null = (() => {
-    const textInput = numberEnv(`OPENAI_${prefix}_IMAGE_TEXT_INPUT_COST_PER_1M`);
+    const textInput = numberEnv(
+      `OPENAI_${prefix}_IMAGE_TEXT_INPUT_COST_PER_1M`,
+    );
     const cachedTextInput = numberEnv(
       `OPENAI_${prefix}_IMAGE_CACHED_TEXT_INPUT_COST_PER_1M`,
     );
@@ -528,7 +561,8 @@ function imageTokenUsageCostFor(input: {
     0,
     input.usage.imageInputTokens - input.usage.cachedImageInputTokens,
   );
-  const textInputCost = (billableTextInputTokens * price.textInputPer1M) / 1_000_000;
+  const textInputCost =
+    (billableTextInputTokens * price.textInputPer1M) / 1_000_000;
   const cachedTextInputCost =
     (input.usage.cachedTextInputTokens *
       (price.cachedTextInputPer1M ?? price.textInputPer1M)) /
@@ -547,13 +581,13 @@ function imageTokenUsageCostFor(input: {
     priceEstimated: pricing.estimated || input.usage.estimated,
     priceSource: pricing.source,
     tokenCostBreakdown: {
-      cachedImageInputCost: roundMoney(cachedImageInputCost),
-      cachedTextInputCost: roundMoney(cachedTextInputCost),
-      imageInputCost: roundMoney(imageInputCost),
-      imageOutputCost: roundMoney(imageOutputCost),
-      textInputCost: roundMoney(textInputCost),
+      cachedImageInputCost: roundUsageMoney(cachedImageInputCost),
+      cachedTextInputCost: roundUsageMoney(cachedTextInputCost),
+      imageInputCost: roundUsageMoney(imageInputCost),
+      imageOutputCost: roundUsageMoney(imageOutputCost),
+      textInputCost: roundUsageMoney(textInputCost),
     },
-    unitCost: roundMoney(
+    unitCost: roundUsageMoney(
       textInputCost +
         cachedTextInputCost +
         imageInputCost +
@@ -592,8 +626,8 @@ function priceQuantity(quantity: number, unitCost: number) {
   const markup = markupRate();
 
   return {
-    costSnapshot: roundMoney(cost),
-    customerChargeSnapshot: roundMoney(cost * (1 + markup)),
+    costSnapshot: roundUsageMoney(cost),
+    customerChargeSnapshot: roundUsageMoney(applyUsageMarkup(cost, markup)),
     markupSnapshot: markup,
     unitCostSnapshot: unitCost,
   };
@@ -617,13 +651,19 @@ export function openAiUsageFromResponse(
   } = {},
 ): OpenAiTokenUsage {
   const usage = objectRecord(objectRecord(payload).usage);
-  const rawInputTokens = numberValue(usage.input_tokens) ?? numberValue(usage.prompt_tokens);
-  const rawOutputTokens = numberValue(usage.output_tokens) ?? numberValue(usage.completion_tokens);
+  const rawInputTokens =
+    numberValue(usage.input_tokens) ?? numberValue(usage.prompt_tokens);
+  const rawOutputTokens =
+    numberValue(usage.output_tokens) ?? numberValue(usage.completion_tokens);
   const inputTokens = Math.trunc(
-    rawInputTokens ?? fallback.inputTokens ?? estimateTokens(fallback.prompt ?? ""),
+    rawInputTokens ??
+      fallback.inputTokens ??
+      estimateTokens(fallback.prompt ?? ""),
   );
   const outputTokens = Math.trunc(
-    rawOutputTokens ?? fallback.outputTokens ?? estimateTokens(fallback.text ?? ""),
+    rawOutputTokens ??
+      fallback.outputTokens ??
+      estimateTokens(fallback.text ?? ""),
   );
   const totalTokens = Math.trunc(
     numberValue(usage.total_tokens) ?? inputTokens + outputTokens,
@@ -701,10 +741,13 @@ export function openAiImageUsageFromResponse(
     rawInputTokens ?? (rawTextInputTokens ?? 0) + (rawImageInputTokens ?? 0),
   );
   const outputTokens = Math.trunc(rawOutputTokens ?? 0);
-  const hasTokenSplit = rawTextInputTokens !== null || rawImageInputTokens !== null;
+  const hasTokenSplit =
+    rawTextInputTokens !== null || rawImageInputTokens !== null;
   const textInputTokens = clampTokenCount(
     rawTextInputTokens ??
-      (hasTokenSplit ? Math.max(0, inputTokens - (rawImageInputTokens ?? 0)) : inputTokens),
+      (hasTokenSplit
+        ? Math.max(0, inputTokens - (rawImageInputTokens ?? 0))
+        : inputTokens),
     inputTokens,
   );
   const imageInputTokens = clampTokenCount(
@@ -779,7 +822,8 @@ export function openAiRealtimeUsageFromResponse(
     inputTokens,
   );
   const inputTextTokens = clampTokenCount(
-    numberValue(inputDetails.text_tokens) ?? Math.max(0, inputTokens - inputAudioTokens),
+    numberValue(inputDetails.text_tokens) ??
+      Math.max(0, inputTokens - inputAudioTokens),
     inputTokens,
   );
   const cachedAudioTokens = clampTokenCount(
@@ -787,7 +831,8 @@ export function openAiRealtimeUsageFromResponse(
     inputAudioTokens,
   );
   const cachedTextTokens = clampTokenCount(
-    numberValue(cachedDetails.text_tokens) ?? Math.max(0, cachedInputTokens - cachedAudioTokens),
+    numberValue(cachedDetails.text_tokens) ??
+      Math.max(0, cachedInputTokens - cachedAudioTokens),
     inputTextTokens,
   );
   const outputAudioTokens = clampTokenCount(
@@ -814,7 +859,9 @@ export function openAiRealtimeUsageFromResponse(
     reasoningTokens,
     textInputTokens: Math.max(0, inputTextTokens - cachedTextTokens),
     textOutputTokens,
-    totalTokens: Math.trunc(numberValue(usage.total_tokens) ?? inputTokens + outputTokens),
+    totalTokens: Math.trunc(
+      numberValue(usage.total_tokens) ?? inputTokens + outputTokens,
+    ),
   };
 }
 
@@ -832,7 +879,11 @@ export function buildRealtimeUsageEvents(input: {
   usage: OpenAiRealtimeTokenUsage;
 }): UsageEventDraft[] {
   const rows: UsageEventDraft[] = [];
-  const add = (usageType: UsageType, quantity: number, metadata: JsonObject) => {
+  const add = (
+    usageType: UsageType,
+    quantity: number,
+    metadata: JsonObject,
+  ) => {
     if (quantity <= 0) {
       return;
     }
@@ -911,7 +962,11 @@ export function buildLlmUsageEvents(input: {
   const service = input.service ?? "llm";
   const common = input.context;
   const rows: UsageEventDraft[] = [];
-  const add = (usageType: UsageType, quantity: number, metadata: JsonObject) => {
+  const add = (
+    usageType: UsageType,
+    quantity: number,
+    metadata: JsonObject,
+  ) => {
     if (quantity <= 0) {
       return;
     }
@@ -1089,8 +1144,8 @@ export function buildOpenAiImageGenerationUsageEvent(input: {
 export function usageEventTotals(events: UsageEventDraft[]) {
   return events.reduce(
     (totals, event) => ({
-      costSnapshot: roundMoney(totals.costSnapshot + event.costSnapshot),
-      customerChargeSnapshot: roundMoney(
+      costSnapshot: roundUsageMoney(totals.costSnapshot + event.costSnapshot),
+      customerChargeSnapshot: roundUsageMoney(
         totals.customerChargeSnapshot + event.customerChargeSnapshot,
       ),
     }),

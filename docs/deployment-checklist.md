@@ -37,6 +37,9 @@ Required for the current product:
 
 Optional until those integrations are enabled:
 
+- `KYRO_USAGE_MARKUP_RATE`: default cost-plus margin applied to metered provider
+  usage when no provider-specific markup override is set. Defaults to `0.25`
+  (`25%`). `USAGE_MARKUP_RATE` remains supported as the legacy alias.
 - `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_SIZE`, and `OPENAI_IMAGE_QUALITY` if production wants image-generation defaults beyond the app defaults. Kyro currently defaults to `gpt-image-2`, high quality, and `auto` size, with prompt-aware landscape/portrait/square overrides only when the user explicitly asks for a format. `OPENAI_IMAGE_COST_PER_IMAGE` is only a fallback when provider image token usage is unavailable; production can also override token prices with `OPENAI_IMAGE_TEXT_INPUT_COST_PER_1M`, `OPENAI_IMAGE_INPUT_COST_PER_1M`, and `OPENAI_IMAGE_OUTPUT_COST_PER_1M` or model-specific `OPENAI_<MODEL>_IMAGE_*` keys.
 - `GOOGLE_MAPS_API_KEY`
 - `GOOGLE_ADDRESS_VALIDATION_API_KEY` if using a separate key from Places
@@ -44,7 +47,8 @@ Optional until those integrations are enabled:
   `GOOGLE_PLACES_AUTOCOMPLETE_COST_PER_1K_CALLS`,
   `GOOGLE_PLACES_DETAILS_COST_PER_1K_CALLS`,
   `GOOGLE_ADDRESS_VALIDATION_COST_PER_1K_CALLS`,
-  `GOOGLE_API_COST_PER_1K_CALLS`, and `GOOGLE_API_MARKUP_RATE`
+  `GOOGLE_API_COST_PER_1K_CALLS`, and `GOOGLE_API_MARKUP_RATE`.
+  Leave provider-specific markup vars blank to use `KYRO_USAGE_MARKUP_RATE`.
 - `MICROSOFT_CLIENT_ID`
 - `MICROSOFT_CLIENT_SECRET`
 - `MICROSOFT_TENANT_ID`
@@ -55,6 +59,7 @@ Optional until those integrations are enabled:
 - optional SMS/voice pricing overrides: `TWILIO_SMS_OUTBOUND_UNIT_COST_USD`,
   `TWILIO_SMS_INBOUND_UNIT_COST_USD`, `TWILIO_VOICE_UNIT_COST_USD`,
   `TWILIO_NUMBER_MONTHLY_COST_USD`, and `TWILIO_MARKUP_RATE`
+  Leave `TWILIO_MARKUP_RATE` blank to use `KYRO_USAGE_MARKUP_RATE`.
 - `VAPI_API_KEY`
 - `VAPI_WEBHOOK_SECRET`
 - `VAPI_TOOL_SECRET`

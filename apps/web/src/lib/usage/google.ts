@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { toUsageEventRow, type UsageEventDraft } from "./openai";
+import {
+  applyUsageMarkup,
+  roundUsageMoney,
+  usageMarkupRate,
+  usageNumberEnv,
+} from "./pricing";
 
-const DEFAULT_MARKUP_RATE = 0.25;
 const PRICE_SOURCE = "google_maps_platform_pricing_2026_06_29";
 
 type GoogleApiUsageKind =
@@ -18,32 +23,8 @@ type GoogleApiUsageInput = {
   workspaceId: string;
 };
 
-function envValue(key: string) {
-  return process.env[key]?.trim() ?? "";
-}
-
-function numberEnv(key: string) {
-  const raw = envValue(key);
-
-  if (!raw) {
-    return null;
-  }
-
-  const value = Number(raw);
-
-  return Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function roundMoney(value: number) {
-  return Number(value.toFixed(8));
-}
-
 function markupRate() {
-  return (
-    numberEnv("GOOGLE_API_MARKUP_RATE") ??
-    numberEnv("USAGE_MARKUP_RATE") ??
-    DEFAULT_MARKUP_RATE
-  );
+  return usageMarkupRate("GOOGLE_API_MARKUP_RATE");
 }
 
 function modelForKind(kind: GoogleApiUsageKind) {
@@ -83,8 +64,8 @@ function defaultCostPer1K(kind: GoogleApiUsageKind) {
 }
 
 function unitCostFor(kind: GoogleApiUsageKind) {
-  const specific = numberEnv(envKeyForKind(kind));
-  const generic = numberEnv("GOOGLE_API_COST_PER_1K_CALLS");
+  const specific = usageNumberEnv(envKeyForKind(kind));
+  const generic = usageNumberEnv("GOOGLE_API_COST_PER_1K_CALLS");
   const costPer1K = specific ?? generic ?? defaultCostPer1K(kind);
 
   return {
@@ -107,9 +88,9 @@ export function buildGoogleApiUsageEvent(
   const markup = markupRate();
 
   return {
-    costSnapshot: roundMoney(cost),
+    costSnapshot: roundUsageMoney(cost),
     currency: "USD",
-    customerChargeSnapshot: roundMoney(cost * (1 + markup)),
+    customerChargeSnapshot: roundUsageMoney(applyUsageMarkup(cost, markup)),
     markupSnapshot: markup,
     metadata: {
       ...input.metadata,

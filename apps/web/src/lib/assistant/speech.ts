@@ -2,6 +2,11 @@ import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
+  applyUsageMarkup,
+  roundUsageMoney,
+  usageMarkupRate,
+} from "../usage/pricing";
+import {
   getActivePronunciationEntries,
   pronunciationGuideText,
   type AssistantPronunciationEntry,
@@ -13,7 +18,6 @@ const DEFAULT_TTS_VOICE = "ballad";
 const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 1;
 const MIN_USABLE_TTS_SPEED = 1;
-const DEFAULT_MARKUP_RATE = 0.25;
 const OPENAI_PRICE_SOURCE = "openai_api_pricing_2026_05_24";
 const OPENAI_TTS_AUDIO_TOKENS_PER_SECOND = 20;
 const DEFAULT_TTS_INSTRUCTIONS =
@@ -81,7 +85,9 @@ function openAiTtsModel() {
 
 function openAiTtsVoice(voiceSettings: VoiceSettings) {
   return (
-    voiceSettings.openAiVoice || envValue("OPENAI_TTS_VOICE") || DEFAULT_TTS_VOICE
+    voiceSettings.openAiVoice ||
+    envValue("OPENAI_TTS_VOICE") ||
+    DEFAULT_TTS_VOICE
   );
 }
 
@@ -104,9 +110,7 @@ function openAiTtsInstructions(entries: AssistantPronunciationEntry[]) {
 }
 
 function openAiTtsMarkupRate() {
-  const parsed = Number(envValue("OPENAI_TTS_MARKUP_RATE"));
-
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
+  return usageMarkupRate("OPENAI_TTS_MARKUP_RATE");
 }
 
 function openAiTtsSpeed() {
@@ -175,9 +179,7 @@ function elevenLabsApiKey() {
 }
 
 function elevenLabsTtsMarkupRate() {
-  const parsed = Number(envValue("ELEVENLABS_TTS_MARKUP_RATE"));
-
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
+  return usageMarkupRate("ELEVENLABS_TTS_MARKUP_RATE");
 }
 
 function elevenLabsTtsUnitCostPerCharacter() {
@@ -483,7 +485,9 @@ async function synthesizeOpenAiSpeech(
     speed,
     usage: {
       costSnapshot: pricing.cost,
-      customerChargeSnapshot: Number((pricing.cost * (1 + markup)).toFixed(8)),
+      customerChargeSnapshot: roundUsageMoney(
+        applyUsageMarkup(pricing.cost, markup),
+      ),
       markupSnapshot: markup,
       priceEstimated: pricing.priceEstimated,
       priceSource: pricing.priceSource,
@@ -562,7 +566,7 @@ async function synthesizeElevenLabsSpeech(
     speed,
     usage: {
       costSnapshot: cost,
-      customerChargeSnapshot: Number((cost * (1 + markup)).toFixed(8)),
+      customerChargeSnapshot: roundUsageMoney(applyUsageMarkup(cost, markup)),
       markupSnapshot: markup,
       priceEstimated: false,
       priceSource: "elevenlabs_pricing_env",
@@ -596,7 +600,11 @@ export async function synthesizeAssistantSpeech({
   const speech =
     voiceSettings.provider === "elevenlabs"
       ? await synthesizeElevenLabsSpeech(input, voiceSettings)
-      : await synthesizeOpenAiSpeech(input, pronunciationEntries, voiceSettings);
+      : await synthesizeOpenAiSpeech(
+          input,
+          pronunciationEntries,
+          voiceSettings,
+        );
 
   const { error: usageError } = await supabase.from("usage_events").insert(
     toUsageEventRow({

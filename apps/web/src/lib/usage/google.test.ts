@@ -7,6 +7,7 @@ const priceEnvKeys = [
   "GOOGLE_ADDRESS_VALIDATION_COST_PER_1K_CALLS",
   "GOOGLE_API_COST_PER_1K_CALLS",
   "GOOGLE_API_MARKUP_RATE",
+  "KYRO_USAGE_MARKUP_RATE",
   "GOOGLE_PLACES_AUTOCOMPLETE_COST_PER_1K_CALLS",
   "GOOGLE_PLACES_DETAILS_COST_PER_1K_CALLS",
   "USAGE_MARKUP_RATE",
@@ -72,6 +73,22 @@ describe("Google usage metering", () => {
         event.metadata?.priceSource,
         "env:GOOGLE_PLACES_DETAILS_COST_PER_1K_CALLS",
       );
+    });
+  });
+
+  it("uses the global Kyro usage markup when no Google-specific markup is set", () => {
+    withoutPriceEnv(() => {
+      process.env.GOOGLE_API_COST_PER_1K_CALLS = "10";
+      process.env.KYRO_USAGE_MARKUP_RATE = "0.3";
+
+      const event = buildGoogleApiUsageEvent({
+        kind: "places_autocomplete",
+        workspaceId: "22222222-2222-4222-8222-222222222222",
+      });
+
+      assert.equal(event.costSnapshot, 0.01);
+      assert.equal(event.customerChargeSnapshot, 0.013);
+      assert.equal(event.markupSnapshot, 0.3);
     });
   });
 });

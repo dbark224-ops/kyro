@@ -1071,16 +1071,17 @@ OLLAMA_TIMEOUT_MS=60000
 OLLAMA_NUM_PREDICT=320
 OLLAMA_THINK=false
 OPENAI_API_KEY=
+KYRO_USAGE_MARKUP_RATE=0.25
 OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 OPENAI_STT_PROMPT=
 OPENAI_STT_UNIT_COST_PER_MINUTE_USD=0.003
-OPENAI_STT_MARKUP_RATE=0.25
+OPENAI_STT_MARKUP_RATE=
 OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_TTS_FORMAT=wav
 OPENAI_TTS_SPEED=1
 OPENAI_TTS_INSTRUCTIONS=
 OPENAI_TTS_UNIT_COST_PER_SECOND_USD=
-OPENAI_TTS_MARKUP_RATE=0.25
+OPENAI_TTS_MARKUP_RATE=
 ```
 
 OpenAI voice settings expose only voices supported by the realtime voice path, currently `alloy`, `ash`, `ballad`,
@@ -1225,6 +1226,12 @@ Purpose:
 - link ledger rows back to the most useful source where possible, such as an AI run's conversation, an action target, a contact, or a quote draft,
 - expose read-only billable usage totals by monthly, weekly, or custom period through `/api/billing/usage`,
 - show the current pricing posture without connecting payment collection.
+
+Each usage row stores the provider cost snapshot, markup snapshot, and customer
+charge snapshot at the time the event is created. `KYRO_USAGE_MARKUP_RATE` is the
+global cost-plus margin knob, with provider-specific markup env vars reserved
+for deliberate exceptions. Changing the margin affects new rows only, preserving
+historical billing auditability.
 
 Usage visibility is now incorporated into Settings. `/usage` redirects to
 `/settings?section=usage`. The usage area is read-only and customer-facing: the main

@@ -20,6 +20,7 @@ const priceEnvKeys = [
   "OPENAI_LLM_CACHED_INPUT_COST_PER_1M",
   "OPENAI_LLM_OUTPUT_COST_PER_1M",
   "OPENAI_LLM_MARKUP_RATE",
+  "KYRO_USAGE_MARKUP_RATE",
   "USAGE_MARKUP_RATE",
   "OPENAI_WEB_SEARCH_COST_PER_1K_CALLS",
   "OPENAI_IMAGE_COST_PER_IMAGE",
@@ -155,6 +156,23 @@ describe("OpenAI usage metering", () => {
       assert.equal(event.costSnapshot, 0.025);
     }));
 
+  it("uses the global Kyro usage markup when no OpenAI-specific markup is set", () =>
+    withoutPriceEnv(() => {
+      process.env.OPENAI_WEB_SEARCH_COST_PER_1K_CALLS = "20";
+      process.env.KYRO_USAGE_MARKUP_RATE = "0.4";
+
+      const event = buildOpenAiWebSearchCallUsageEvent({
+        context: {
+          workspaceId: "22222222-2222-4222-8222-222222222222",
+        },
+        model: "gpt-4.1-mini",
+      });
+
+      assert.equal(event.costSnapshot, 0.02);
+      assert.equal(event.customerChargeSnapshot, 0.028);
+      assert.equal(event.markupSnapshot, 0.4);
+    }));
+
   it("normalizes OpenAI image generation usage into text, image, and output token buckets", () => {
     const usage = openAiImageUsageFromResponse({
       usage: {
@@ -210,7 +228,10 @@ describe("OpenAI usage metering", () => {
       assert.equal(event.quantity, 1);
       assert.equal(event.unit, "image");
       assert.equal(event.costSnapshot, 0.04484);
-      assert.equal(event.metadata?.usagePricingMethod, "provider_image_token_usage");
+      assert.equal(
+        event.metadata?.usagePricingMethod,
+        "provider_image_token_usage",
+      );
       assert.equal(event.metadata?.priceEstimated, false);
       assert.deepEqual(event.metadata?.imageUsage, {
         cachedImageInputTokens: 0,
@@ -296,7 +317,10 @@ describe("OpenAI usage metering", () => {
           ["realtime_reasoning_tokens", 20],
         ],
       );
-      assert.equal(toUsageEventRows(events)[0].provider_usage_id, "resp_realtime_123");
+      assert.equal(
+        toUsageEventRows(events)[0].provider_usage_id,
+        "resp_realtime_123",
+      );
       assert.equal(usageEventTotals(events).costSnapshot, 0.04796);
     }));
 });

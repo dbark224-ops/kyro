@@ -2,13 +2,17 @@ import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
+  applyUsageMarkup,
+  roundUsageMoney,
+  usageMarkupRate,
+} from "../usage/pricing";
+import {
   getActivePronunciationEntries,
   pronunciationGuideText,
   type AssistantPronunciationEntry,
 } from "./pronunciation";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
-const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_STT_PROMPT =
   "This audio is a voice note inside Kyro, an AI assistant for a trades CRM. The assistant is named Kyro, pronounced like Cairo. When the speaker addresses the assistant, transcribe variants such as Cairo, Kiro, Kyra, Cara, Kara, or Chiro as Kyro. Common product words include CRM, quote, invoice, inbox, lead, customer, tradie, Gmail, Outlook, Supabase, and Ollama.";
 const DEFAULT_UNIT_COSTS_PER_MINUTE: Record<string, number> = {
@@ -50,9 +54,7 @@ function sttModel() {
 }
 
 function sttMarkupRate() {
-  const parsed = Number(envValue("OPENAI_STT_MARKUP_RATE"));
-
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
+  return usageMarkupRate("OPENAI_STT_MARKUP_RATE");
 }
 
 function sttPrompt(entries: AssistantPronunciationEntry[]) {
@@ -236,7 +238,7 @@ export async function transcribeAssistantAudio({
   const unitCost = sttUnitCostPerMinute(model);
   const markup = sttMarkupRate();
   const cost = Number((durationMinutes * unitCost).toFixed(8));
-  const customerCharge = Number((cost * (1 + markup)).toFixed(8));
+  const customerCharge = roundUsageMoney(applyUsageMarkup(cost, markup));
 
   const { error: usageError } = await supabase.from("usage_events").insert(
     toUsageEventRow({
