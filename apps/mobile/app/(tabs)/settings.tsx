@@ -178,6 +178,8 @@ type VoiceDraft = {
   phoneAgentVerbosity: string;
   phoneAgentVoicemailOverflowEnabled: boolean;
 };
+type MobileVoiceSettings =
+  MobileSettingsResponse["settings"]["voice"];
 type PronunciationEntry =
   MobileSettingsResponse["pronunciationEntries"][number];
 type SettingsAccount = MobileSettingsResponse["account"];
@@ -293,6 +295,21 @@ const vapiVoiceOptionsFallback: MobileSettingsResponse["options"]["vapiVoices"] 
       voiceId: "hmMWXCj9K7N5mCPcRkfC",
     },
   ];
+
+const defaultVoiceDraft: VoiceDraft = {
+  elevenLabsVoicePresetId: "female_australian",
+  openAiVoice: "ballad",
+  outboundVoicePronunciationPolicy: "balanced",
+  phoneAgentDemeanor: "friendly_direct",
+  phoneAgentEnabled: false,
+  phoneAgentEscalationMode: "request_callback",
+  phoneAgentHumourLevel: "light",
+  phoneAgentInboundEnabled: true,
+  phoneAgentOutboundEnabled: true,
+  phoneAgentUserNumbers: [],
+  phoneAgentVerbosity: "concise",
+  phoneAgentVoicemailOverflowEnabled: false,
+};
 
 const emptySignature: MobileEmailSignatureSettings = {
   logoContentBase64: "",
@@ -577,20 +594,8 @@ export default function SettingsScreen() {
       manualSignatureText: "",
       useSeparateAiSignature: false,
     });
-  const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>({
-    elevenLabsVoicePresetId: "female_australian",
-    openAiVoice: "ballad",
-    outboundVoicePronunciationPolicy: "balanced",
-    phoneAgentDemeanor: "friendly_direct",
-    phoneAgentEnabled: false,
-    phoneAgentEscalationMode: "request_callback",
-    phoneAgentHumourLevel: "light",
-    phoneAgentInboundEnabled: true,
-    phoneAgentOutboundEnabled: true,
-    phoneAgentUserNumbers: [],
-    phoneAgentVerbosity: "balanced",
-    phoneAgentVoicemailOverflowEnabled: true,
-  });
+  const [voiceDraft, setVoiceDraft] =
+    useState<VoiceDraft>(defaultVoiceDraft);
   const queryClient = useQueryClient();
   const settingsQueryOptions = mobileSettingsQueryOptions(session);
   const queryKey = settingsQueryOptions.queryKey;
@@ -684,22 +689,7 @@ export default function SettingsScreen() {
       useSeparateAiSignature:
         data.settings.communication.useSeparateAiSignature,
     });
-    setVoiceDraft({
-      elevenLabsVoicePresetId: data.settings.voice.elevenLabsVoicePresetId,
-      openAiVoice: data.settings.voice.openAiVoice,
-      outboundVoicePronunciationPolicy:
-        data.settings.voice.outboundVoicePronunciationPolicy,
-      phoneAgentDemeanor: data.settings.voice.phoneAgentDemeanor,
-      phoneAgentEnabled: data.settings.voice.phoneAgentEnabled,
-      phoneAgentEscalationMode: data.settings.voice.phoneAgentEscalationMode,
-      phoneAgentHumourLevel: data.settings.voice.phoneAgentHumourLevel,
-      phoneAgentInboundEnabled: data.settings.voice.phoneAgentInboundEnabled,
-      phoneAgentOutboundEnabled: data.settings.voice.phoneAgentOutboundEnabled,
-      phoneAgentUserNumbers: data.settings.voice.phoneAgentUserNumbers,
-      phoneAgentVerbosity: data.settings.voice.phoneAgentVerbosity,
-      phoneAgentVoicemailOverflowEnabled:
-        data.settings.voice.phoneAgentVoicemailOverflowEnabled,
-    });
+    setVoiceDraft(normalizeVoiceDraft(data.settings.voice));
   }, [data]);
 
   useEffect(() => {
@@ -2962,15 +2952,17 @@ function VoiceSettingsPanel({
   onChange: (draft: VoiceDraft) => void;
   onSave: () => void;
 }) {
+  const voiceSettings = normalizeMobileVoiceSettings(data.settings.voice);
+  const optionSets = data.options ?? ({} as MobileSettingsResponse["options"]);
   const baseVapiVoiceOptions =
-    data.options.vapiVoices?.length > 0
-      ? data.options.vapiVoices
+    optionSets.vapiVoices?.length > 0
+      ? optionSets.vapiVoices
       : vapiVoiceOptionsFallback;
   const savedVapiVoiceOption = {
-    accent: data.settings.voice.elevenLabsVoiceAccent || "Vapi",
-    id: data.settings.voice.elevenLabsVoicePresetId,
-    label: data.settings.voice.elevenLabsVoiceLabel || "Saved Vapi voice",
-    voiceId: data.settings.voice.elevenLabsVoiceId,
+    accent: voiceSettings.elevenLabsVoiceAccent || "Vapi",
+    id: voiceSettings.elevenLabsVoicePresetId,
+    label: voiceSettings.elevenLabsVoiceLabel || "Saved Vapi voice",
+    voiceId: voiceSettings.elevenLabsVoiceId,
   };
   const vapiVoiceOptions =
     savedVapiVoiceOption.id &&
@@ -3015,7 +3007,11 @@ function VoiceSettingsPanel({
             onChange={(outboundVoicePronunciationPolicy) =>
               onChange({ ...draft, outboundVoicePronunciationPolicy })
             }
-            options={data.options.outboundVoicePronunciationPolicies}
+            options={
+              optionSets.outboundVoicePronunciationPolicies?.length
+                ? optionSets.outboundVoicePronunciationPolicies
+                : ["balanced"]
+            }
             value={draft.outboundVoicePronunciationPolicy}
           />
         </SettingField>
@@ -3073,7 +3069,10 @@ function VoiceSettingsPanel({
             onChange={(phoneAgentDemeanor) =>
               onChange({ ...draft, phoneAgentDemeanor })
             }
-            options={(data.options.phoneAgentDemeanors ?? []).map((value) => ({
+            options={voiceOptionValues(
+              optionSets.phoneAgentDemeanors,
+              draft.phoneAgentDemeanor,
+            ).map((value) => ({
               label: formatLabel(value),
               value,
             }))}
@@ -3086,12 +3085,13 @@ function VoiceSettingsPanel({
             onChange={(phoneAgentVerbosity) =>
               onChange({ ...draft, phoneAgentVerbosity })
             }
-            options={(data.options.phoneAgentVerbosities ?? []).map(
-              (value) => ({
-                label: formatLabel(value),
-                value,
-              }),
-            )}
+            options={voiceOptionValues(
+              optionSets.phoneAgentVerbosities,
+              draft.phoneAgentVerbosity,
+            ).map((value) => ({
+              label: formatLabel(value),
+              value,
+            }))}
             value={draft.phoneAgentVerbosity}
           />
         </SettingField>
@@ -3101,12 +3101,13 @@ function VoiceSettingsPanel({
             onChange={(phoneAgentHumourLevel) =>
               onChange({ ...draft, phoneAgentHumourLevel })
             }
-            options={(data.options.phoneAgentHumourLevels ?? []).map(
-              (value) => ({
-                label: formatLabel(value),
-                value,
-              }),
-            )}
+            options={voiceOptionValues(
+              optionSets.phoneAgentHumourLevels,
+              draft.phoneAgentHumourLevel,
+            ).map((value) => ({
+              label: formatLabel(value),
+              value,
+            }))}
             value={draft.phoneAgentHumourLevel}
           />
         </SettingField>
@@ -3116,12 +3117,13 @@ function VoiceSettingsPanel({
             onChange={(phoneAgentEscalationMode) =>
               onChange({ ...draft, phoneAgentEscalationMode })
             }
-            options={(data.options.phoneAgentEscalationModes ?? []).map(
-              (value) => ({
-                label: formatLabel(value),
-                value,
-              }),
-            )}
+            options={voiceOptionValues(
+              optionSets.phoneAgentEscalationModes,
+              draft.phoneAgentEscalationMode,
+            ).map((value) => ({
+              label: formatLabel(value),
+              value,
+            }))}
             value={draft.phoneAgentEscalationMode}
           />
         </SettingField>
@@ -3142,7 +3144,7 @@ function VoiceSettingsPanel({
             placeholderTextColor={colors.muted}
             style={[styles.input, styles.textAreaSmall]}
             textAlignVertical="top"
-            value={draft.phoneAgentUserNumbers.join("\n")}
+            value={(draft.phoneAgentUserNumbers ?? []).join("\n")}
           />
         </SettingField>
         <SaveFooter
@@ -3156,7 +3158,7 @@ function VoiceSettingsPanel({
         <SectionHeader
           action={
             <StatusPill
-              label={`${data.pronunciationEntries.length} entries`}
+              label={`${data.pronunciationEntries?.length ?? 0} entries`}
               tone="cyan"
             />
           }
@@ -6641,6 +6643,113 @@ function normalizeMobileBusinessProfile(
       source.workingHoursSchedule,
     ),
   };
+}
+
+function normalizeMobileVoiceSettings(
+  value: Partial<MobileVoiceSettings> | null | undefined,
+): MobileVoiceSettings {
+  const fallbackVapiVoice =
+    vapiVoiceOptionsFallback.find(
+      (voice) => voice.id === defaultVoiceDraft.elevenLabsVoicePresetId,
+    ) ?? vapiVoiceOptionsFallback[0];
+
+  return {
+    elevenLabsVoiceAccent:
+      typeof value?.elevenLabsVoiceAccent === "string"
+        ? value.elevenLabsVoiceAccent
+        : (fallbackVapiVoice?.accent ?? "Australian"),
+    elevenLabsVoiceId:
+      typeof value?.elevenLabsVoiceId === "string"
+        ? value.elevenLabsVoiceId
+        : (fallbackVapiVoice?.voiceId ?? ""),
+    elevenLabsVoiceLabel:
+      typeof value?.elevenLabsVoiceLabel === "string"
+        ? value.elevenLabsVoiceLabel
+        : (fallbackVapiVoice?.label ?? "Female - Australian"),
+    elevenLabsVoicePresetId:
+      typeof value?.elevenLabsVoicePresetId === "string" &&
+      value.elevenLabsVoicePresetId.trim()
+        ? value.elevenLabsVoicePresetId
+        : defaultVoiceDraft.elevenLabsVoicePresetId,
+    openAiVoice:
+      typeof value?.openAiVoice === "string"
+        ? value.openAiVoice
+        : defaultVoiceDraft.openAiVoice,
+    outboundVoicePronunciationPolicy:
+      typeof value?.outboundVoicePronunciationPolicy === "string"
+        ? value.outboundVoicePronunciationPolicy
+        : defaultVoiceDraft.outboundVoicePronunciationPolicy,
+    phoneAgentDemeanor:
+      typeof value?.phoneAgentDemeanor === "string"
+        ? value.phoneAgentDemeanor
+        : defaultVoiceDraft.phoneAgentDemeanor,
+    phoneAgentEnabled:
+      typeof value?.phoneAgentEnabled === "boolean"
+        ? value.phoneAgentEnabled
+        : defaultVoiceDraft.phoneAgentEnabled,
+    phoneAgentEscalationMode:
+      typeof value?.phoneAgentEscalationMode === "string"
+        ? value.phoneAgentEscalationMode
+        : defaultVoiceDraft.phoneAgentEscalationMode,
+    phoneAgentHumourLevel:
+      typeof value?.phoneAgentHumourLevel === "string"
+        ? value.phoneAgentHumourLevel
+        : defaultVoiceDraft.phoneAgentHumourLevel,
+    phoneAgentInboundEnabled:
+      typeof value?.phoneAgentInboundEnabled === "boolean"
+        ? value.phoneAgentInboundEnabled
+        : defaultVoiceDraft.phoneAgentInboundEnabled,
+    phoneAgentOutboundEnabled:
+      typeof value?.phoneAgentOutboundEnabled === "boolean"
+        ? value.phoneAgentOutboundEnabled
+        : defaultVoiceDraft.phoneAgentOutboundEnabled,
+    phoneAgentUserNumbers: Array.isArray(value?.phoneAgentUserNumbers)
+      ? value.phoneAgentUserNumbers.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : defaultVoiceDraft.phoneAgentUserNumbers,
+    phoneAgentVerbosity:
+      typeof value?.phoneAgentVerbosity === "string"
+        ? value.phoneAgentVerbosity
+        : defaultVoiceDraft.phoneAgentVerbosity,
+    phoneAgentVoicemailOverflowEnabled:
+      typeof value?.phoneAgentVoicemailOverflowEnabled === "boolean"
+        ? value.phoneAgentVoicemailOverflowEnabled
+        : defaultVoiceDraft.phoneAgentVoicemailOverflowEnabled,
+    provider:
+      typeof value?.provider === "string" && value.provider
+        ? value.provider
+        : "vapi",
+  };
+}
+
+function normalizeVoiceDraft(
+  value: Partial<MobileVoiceSettings> | null | undefined,
+): VoiceDraft {
+  const settings = normalizeMobileVoiceSettings(value);
+
+  return {
+    elevenLabsVoicePresetId: settings.elevenLabsVoicePresetId,
+    openAiVoice: settings.openAiVoice,
+    outboundVoicePronunciationPolicy:
+      settings.outboundVoicePronunciationPolicy,
+    phoneAgentDemeanor: settings.phoneAgentDemeanor,
+    phoneAgentEnabled: settings.phoneAgentEnabled,
+    phoneAgentEscalationMode: settings.phoneAgentEscalationMode,
+    phoneAgentHumourLevel: settings.phoneAgentHumourLevel,
+    phoneAgentInboundEnabled: settings.phoneAgentInboundEnabled,
+    phoneAgentOutboundEnabled: settings.phoneAgentOutboundEnabled,
+    phoneAgentUserNumbers: settings.phoneAgentUserNumbers,
+    phoneAgentVerbosity: settings.phoneAgentVerbosity,
+    phoneAgentVoicemailOverflowEnabled:
+      settings.phoneAgentVoicemailOverflowEnabled,
+  };
+}
+
+function voiceOptionValues(options: string[] | undefined, activeValue: string) {
+  const values = options?.length ? options : [activeValue];
+
+  return values.includes(activeValue) ? values : [activeValue, ...values];
 }
 
 function normalizeBusinessHoursSchedule(
