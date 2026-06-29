@@ -58,6 +58,9 @@ const optional = [
   "VAPI_WEBHOOK_SECRET",
   "VAPI_TOOL_SECRET",
   "STRIPE_SECRET_KEY",
+  "RESEND_API_KEY",
+  "WAITLIST_NOTIFICATION_EMAIL",
+  "WAITLIST_NOTIFICATION_FROM",
 ];
 
 function present(key) {
