@@ -27,7 +27,7 @@ import type { ReactNode } from "react";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
   { label: "Assistant", href: "/assistant", icon: "assistant", primary: true },
-  { label: "Vapi Voice", href: "/voice-vapi", icon: "voice" },
+  { label: "Voice assistant", href: "/voice-vapi", icon: "voice" },
   { label: "Inbox", href: "/inbox", icon: "inbox" },
   { label: "CRM", href: "/contacts", icon: "crm" },
   { label: "Files", href: "/files", icon: "files" },
@@ -41,9 +41,15 @@ const bottomNavItems = ["Dashboard", "Assistant", "Inbox", "Settings"]
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
 const preloadRoutes = navItems
   .filter((item) =>
-    ["Dashboard", "Assistant", "Inbox", "CRM", "Files", "Payments", "Activity"].includes(
-      item.label,
-    ),
+    [
+      "Dashboard",
+      "Assistant",
+      "Inbox",
+      "CRM",
+      "Files",
+      "Payments",
+      "Activity",
+    ].includes(item.label),
   )
   .map((item) => item.href);
 const USAGE_COST_CACHE_TTL_MS = 30_000;
@@ -149,8 +155,11 @@ async function loadUsageInternalCostPillData() {
       (current, row) => {
         const currency = textValue(row.currency);
         const provider =
-          convertDisplayMoney(numberValue(row.cost_snapshot), currency, settings)
-            ?.amount ?? 0;
+          convertDisplayMoney(
+            numberValue(row.cost_snapshot),
+            currency,
+            settings,
+          )?.amount ?? 0;
         const customer =
           convertDisplayMoney(
             numberValue(row.customer_charge_snapshot),
@@ -244,17 +253,18 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       return null;
     }
 
-    const [settings, weeklyUsageSummary, monthlyUsageSummary] = await Promise.all([
-      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
-        () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
-      ),
-      getBillableUsageSummary(supabase, workspace.id, {
-        period: "weekly",
-      }).catch(() => null),
-      getBillableUsageSummary(supabase, workspace.id, {
-        period: "monthly",
-      }).catch(() => null),
-    ]);
+    const [settings, weeklyUsageSummary, monthlyUsageSummary] =
+      await Promise.all([
+        getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+          () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+        ),
+        getBillableUsageSummary(supabase, workspace.id, {
+          period: "weekly",
+        }).catch(() => null),
+        getBillableUsageSummary(supabase, workspace.id, {
+          period: "monthly",
+        }).catch(() => null),
+      ]);
 
     const weeklyAmount = (weeklyUsageSummary?.totals ?? []).reduce<number>(
       (total, item) => total + item.customerCharge,
@@ -277,7 +287,11 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
         monthlyCurrency,
         settings,
       ),
-      usageWeekLabel: formatDisplayMoney(weeklyAmount, weeklyCurrency, settings),
+      usageWeekLabel: formatDisplayMoney(
+        weeklyAmount,
+        weeklyCurrency,
+        settings,
+      ),
       userEmail: user.email?.trim() ?? "Signed in",
       workspaceName: workspace.name,
     };
@@ -286,41 +300,43 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
   }
 });
 
-const loadFloatingAssistantData = cache(async function loadFloatingAssistantData() {
-  if (!hasSupabaseEnv()) {
-    return null;
-  }
-
-  try {
-    const supabase = await createServerSupabaseClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+const loadFloatingAssistantData = cache(
+  async function loadFloatingAssistantData() {
+    if (!hasSupabaseEnv()) {
       return null;
     }
 
-    const workspace = await getPrimaryWorkspace(supabase);
+    try {
+      const supabase = await createServerSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    if (!workspace) {
+      if (!user) {
+        return null;
+      }
+
+      const workspace = await getPrimaryWorkspace(supabase);
+
+      if (!workspace) {
+        return null;
+      }
+
+      const assistantState = await getAssistantThreadState({
+        supabase,
+        user,
+        workspace,
+      });
+
+      return {
+        assistantState,
+        workspaceName: workspace.name,
+      };
+    } catch {
       return null;
     }
-
-    const assistantState = await getAssistantThreadState({
-      supabase,
-      user,
-      workspace,
-    });
-
-    return {
-      assistantState,
-      workspaceName: workspace.name,
-    };
-  } catch {
-    return null;
-  }
-});
+  },
+);
 
 async function SidebarUsageCard() {
   const data = await loadWorkspaceChromeData();
@@ -381,9 +397,7 @@ async function AppNavLinks({
           key={item.label}
         >
           <span
-            className={
-              isMobile ? "mobile-bottom-link-inner" : "nav-link-inner"
-            }
+            className={isMobile ? "mobile-bottom-link-inner" : "nav-link-inner"}
           >
             <AppShellIcon name={item.icon} />
             <span>{item.label}</span>
@@ -414,7 +428,10 @@ async function WorkspaceAccountChip() {
         </span>
       </summary>
       <div className="workspace-account-menu-panel">
-        <SmartPrefetchLink className="workspace-account-menu-item" href="/settings">
+        <SmartPrefetchLink
+          className="workspace-account-menu-item"
+          href="/settings"
+        >
           Settings
         </SmartPrefetchLink>
         <form action={signOutAction}>
@@ -459,7 +476,10 @@ function AppShellIcon({
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
         <path {...common} d="M5 6.5h10M5 10h7M5 13.5h5" />
-        <path {...common} d="M4 3.5h12a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 13.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 12V5A1.5 1.5 0 0 1 4 3.5Z" />
+        <path
+          {...common}
+          d="M4 3.5h12a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 13.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 12V5A1.5 1.5 0 0 1 4 3.5Z"
+        />
       </svg>
     );
   }
@@ -467,7 +487,10 @@ function AppShellIcon({
   if (name === "voice") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
-        <path {...common} d="M10 13.5a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v4.5a3 3 0 0 0 3 3Z" />
+        <path
+          {...common}
+          d="M10 13.5a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v4.5a3 3 0 0 0 3 3Z"
+        />
         <path {...common} d="M5 10.5a5 5 0 0 0 10 0M10 15v2.5M7.5 17.5h5" />
       </svg>
     );
@@ -476,7 +499,10 @@ function AppShellIcon({
   if (name === "crm") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
-        <path {...common} d="M10 10.25a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4 15.75a6 6 0 0 1 12 0" />
+        <path
+          {...common}
+          d="M10 10.25a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4 15.75a6 6 0 0 1 12 0"
+        />
       </svg>
     );
   }
@@ -484,7 +510,10 @@ function AppShellIcon({
   if (name === "inbox") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
-        <path {...common} d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5V14A1.5 1.5 0 0 1 16 15.5H4A1.5 1.5 0 0 1 2.5 14V6A1.5 1.5 0 0 1 4 4.5Z" />
+        <path
+          {...common}
+          d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5V14A1.5 1.5 0 0 1 16 15.5H4A1.5 1.5 0 0 1 2.5 14V6A1.5 1.5 0 0 1 4 4.5Z"
+        />
         <path {...common} d="M3 8.5h4l1.25 2h3.5l1.25-2H17" />
       </svg>
     );
@@ -493,7 +522,10 @@ function AppShellIcon({
   if (name === "files") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
-        <path {...common} d="M6 3.5h5l3 3V16A1.5 1.5 0 0 1 12.5 17.5h-7A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z" />
+        <path
+          {...common}
+          d="M6 3.5h5l3 3V16A1.5 1.5 0 0 1 12.5 17.5h-7A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z"
+        />
         <path {...common} d="M11 3.5V7h3.5M7 10.5h6M7 13h4" />
       </svg>
     );
@@ -520,7 +552,10 @@ function AppShellIcon({
   if (name === "reports") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
-        <path {...common} d="M5 3.5h8l2.5 2.5V16A1.5 1.5 0 0 1 14 17.5H5.5A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z" />
+        <path
+          {...common}
+          d="M5 3.5h8l2.5 2.5V16A1.5 1.5 0 0 1 14 17.5H5.5A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z"
+        />
         <path {...common} d="M13 3.5V6h2.5M7 13.5V10M10 13.5V7.5M13 13.5v-2" />
       </svg>
     );
@@ -537,8 +572,14 @@ function AppShellIcon({
   if (name === "settings") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
-        <path {...common} d="M10 7.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z" />
-        <path {...common} d="M10 2.75v1.5M10 15.75v1.5M4.88 4.88l1.06 1.06M14.06 14.06l1.06 1.06M2.75 10h1.5M15.75 10h1.5M4.88 15.12l1.06-1.06M14.06 5.94l1.06-1.06" />
+        <path
+          {...common}
+          d="M10 7.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z"
+        />
+        <path
+          {...common}
+          d="M10 2.75v1.5M10 15.75v1.5M4.88 4.88l1.06 1.06M14.06 14.06l1.06 1.06M2.75 10h1.5M15.75 10h1.5M4.88 15.12l1.06-1.06M14.06 5.94l1.06-1.06"
+        />
       </svg>
     );
   }
@@ -546,7 +587,10 @@ function AppShellIcon({
   if (name === "dashboard") {
     return (
       <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
-        <path {...common} d="M3.5 3.5h5v5h-5zM11.5 3.5h5v8h-5zM3.5 11.5h5v5h-5zM11.5 14.5h5v2h-5z" />
+        <path
+          {...common}
+          d="M3.5 3.5h5v5h-5zM11.5 3.5h5v8h-5zM3.5 11.5h5v5h-5zM11.5 14.5h5v2h-5z"
+        />
       </svg>
     );
   }
@@ -568,7 +612,13 @@ export function AppFrame({
   topControls?: ReactNode;
 }>) {
   const activeHref = navItems.find((item) => item.label === active)?.href;
-  const fitFoldPages = new Set(["Activity", "CRM", "Files", "Inbox", "Payments"]);
+  const fitFoldPages = new Set([
+    "Activity",
+    "CRM",
+    "Files",
+    "Inbox",
+    "Payments",
+  ]);
   const workspaceClassName = [
     "workspace",
     fitFoldPages.has(active) ? "workspace-fit-fold" : null,
@@ -610,7 +660,11 @@ export function AppFrame({
           </form>
         </div>
       </details>
-      <aside className="sidebar" aria-label="Primary navigation" data-tour="side-panel">
+      <aside
+        className="sidebar"
+        aria-label="Primary navigation"
+        data-tour="side-panel"
+      >
         <SmartPrefetchLink
           aria-label="Go to Dashboard"
           className="brand-lockup"

@@ -1786,7 +1786,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
   ) {
     redirectVoiceSettingsMessage(
       "engine_error",
-      "Vapi voice option is invalid.",
+      "Voice assistant option is invalid.",
     );
   }
 

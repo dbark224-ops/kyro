@@ -76,17 +76,17 @@ export default async function VapiVoicePage({
   }
 
   return (
-    <AppFrame active="Vapi Voice">
+    <AppFrame active="Voice assistant">
       <div className="voice-page-shell">
         <header className="topbar voice-topbar">
           <div>
             <p className="eyebrow">{workspace.name}</p>
-            <h1>Vapi Voice</h1>
+            <h1>Voice assistant</h1>
           </div>
           <div className="topbar-right">
             <section
               className="metric-grid"
-              aria-label="Vapi voice context metrics"
+              aria-label="Voice assistant context metrics"
             >
               <article className="metric-card cyan">
                 <p>Inbox</p>

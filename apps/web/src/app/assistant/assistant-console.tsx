@@ -913,9 +913,7 @@ export function AssistantConsole({
             <div className={`assistant-turn ${message.role}`} key={message.id}>
               <article className={`assistant-message ${message.role}`}>
                 <div className="assistant-message-meta">
-                  <strong>
-                    {assistantMessageAuthorLabel(message)}
-                  </strong>
+                  <strong>{assistantMessageAuthorLabel(message)}</strong>
                   {message.createdAt ? (
                     <time
                       dateTime={message.createdAt}
@@ -1123,10 +1121,7 @@ function AssistantImageLightbox({
   disabled: boolean;
   image: GeneratedImage | null;
   onClose: () => void;
-  onSubmitEdit: (
-    prompt: string,
-    attachments: AssistantAttachment[],
-  ) => void;
+  onSubmitEdit: (prompt: string, attachments: AssistantAttachment[]) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageElementRef = useRef<HTMLImageElement>(null);
@@ -1466,14 +1461,11 @@ function AssistantGeneratedFilesLauncher({
       >
         {previewImages.length > 0 ? (
           previewImages.map((image) => (
-            <span className="assistant-generated-files-thumb" key={image.fileId}>
-              <Image
-                alt=""
-                fill
-                sizes="44px"
-                src={image.href}
-                unoptimized
-              />
+            <span
+              className="assistant-generated-files-thumb"
+              key={image.fileId}
+            >
+              <Image alt="" fill sizes="44px" src={image.href} unoptimized />
             </span>
           ))
         ) : (
@@ -1546,7 +1538,10 @@ function AssistantGeneratedFilesModal({
         {images.length > 0 ? (
           <div className="assistant-generated-files-grid">
             {images.map((image) => (
-              <article className="assistant-generated-file-card" key={image.fileId}>
+              <article
+                className="assistant-generated-file-card"
+                key={image.fileId}
+              >
                 <button
                   aria-label={`Open ${image.filename}`}
                   className="assistant-generated-file-preview"
@@ -1577,7 +1572,9 @@ function AssistantGeneratedFilesModal({
         ) : (
           <div className="assistant-generated-files-empty">
             <strong>No generated assistant files yet.</strong>
-            <span>Images Kyro creates from assistant chat will appear here.</span>
+            <span>
+              Images Kyro creates from assistant chat will appear here.
+            </span>
           </div>
         )}
 
@@ -1728,7 +1725,10 @@ function looksLikePendingImageRequest(
     return true;
   }
 
-  if (hasImageAttachment && (hasGenerationVerb || hasEditVerb || hasVisualNoun)) {
+  if (
+    hasImageAttachment &&
+    (hasGenerationVerb || hasEditVerb || hasVisualNoun)
+  ) {
     return true;
   }
 
@@ -2137,9 +2137,7 @@ function AssistantExternalActivityPane({
                     </time>
                   </div>
                   {item.subject ? (
-                    <p className="assistant-activity-subject">
-                      {item.subject}
-                    </p>
+                    <p className="assistant-activity-subject">{item.subject}</p>
                   ) : null}
                   <p
                     className={`assistant-activity-preview${
@@ -2431,30 +2429,28 @@ function isOptimisticMessageSaved(
     optimisticMessage.content,
   );
 
-  return messages.some(
-    (message) => {
-      if (message.role !== "user" || message.id === optimisticMessage.id) {
-        return false;
-      }
+  return messages.some((message) => {
+    if (message.role !== "user" || message.id === optimisticMessage.id) {
+      return false;
+    }
 
-      const persistedAtMs = Date.parse(message.createdAt ?? "");
+    const persistedAtMs = Date.parse(message.createdAt ?? "");
 
-      if (
-        Number.isFinite(persistedAtMs) &&
-        persistedAtMs < optimisticMessage.submittedAtMs - 2000
-      ) {
-        return false;
-      }
+    if (
+      Number.isFinite(persistedAtMs) &&
+      persistedAtMs < optimisticMessage.submittedAtMs - 2000
+    ) {
+      return false;
+    }
 
-      const persistedContent = normalizeAssistantMessageContent(message.content);
+    const persistedContent = normalizeAssistantMessageContent(message.content);
 
-      return (
-        persistedContent === optimisticContent ||
-        persistedContent.startsWith(optimisticContent) ||
-        optimisticContent.startsWith(persistedContent)
-      );
-    },
-  );
+    return (
+      persistedContent === optimisticContent ||
+      persistedContent.startsWith(optimisticContent) ||
+      optimisticContent.startsWith(persistedContent)
+    );
+  });
 }
 
 function normalizeAssistantMessageContent(content: string) {
@@ -2466,8 +2462,7 @@ function generatedImageBlocksForMessage(
 ): GeneratedImageBlock[] {
   const structuredBlocks =
     message.uiBlocks?.filter(
-      (block): block is GeneratedImageBlock =>
-        block.type === "generated_image",
+      (block): block is GeneratedImageBlock => block.type === "generated_image",
     ) ?? [];
 
   if (structuredBlocks.length > 0) {
@@ -2496,9 +2491,8 @@ function legacyGeneratedImageBlockFromContent(
       href: match[2],
       label: match[1],
     }))
-    .filter(
-      (link): link is { fileId: string; href: string; label: string } =>
-        Boolean(link.fileId && link.href && link.label),
+    .filter((link): link is { fileId: string; href: string; label: string } =>
+      Boolean(link.fileId && link.href && link.label),
     );
 
   const imageLink = links.find(
@@ -2665,7 +2659,9 @@ function parseAssistantFileLine(fileLine: string) {
 
   const name = value.slice(0, metadataStart).trim();
   const metadata = value.slice(metadataStart + 2, -1);
-  const [contentType, sizeLabel] = metadata.split(",").map((part) => part.trim());
+  const [contentType, sizeLabel] = metadata
+    .split(",")
+    .map((part) => part.trim());
 
   return {
     contentType: contentType || null,
@@ -3761,7 +3757,7 @@ function VoiceCallPreview({
             ))}
           </div>
         ) : (
-          <p className="empty-copy">No Vapi events recorded yet.</p>
+          <p className="empty-copy">No voice events recorded yet.</p>
         )}
       </PreviewPanel>
     </div>

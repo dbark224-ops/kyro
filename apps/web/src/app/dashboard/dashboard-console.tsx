@@ -198,9 +198,9 @@ const widgetDefinitions: Record<DashboardWidgetKey, WidgetDefinition> = {
     title: "Top contacts",
   },
   vapi_voice: {
-    description: "Live embedded Vapi voice runtime.",
+    description: "Live embedded voice assistant.",
     key: "vapi_voice",
-    title: "Vapi voice",
+    title: "Voice assistant",
   },
   work_queue: {
     description: "Priority conversations and next actions.",
@@ -304,15 +304,18 @@ function loadSavedLayout() {
     const parsed = JSON.parse(raw) as Partial<DashboardLayoutConfig>;
 
     return {
-      bottom: Array.isArray(parsed.bottom) && parsed.bottom.length === 3
-        ? (parsed.bottom as DashboardLayoutConfig["bottom"])
-        : DEFAULT_LAYOUT.bottom,
-      middle: Array.isArray(parsed.middle) && parsed.middle.length === 3
-        ? (parsed.middle as DashboardLayoutConfig["middle"])
-        : DEFAULT_LAYOUT.middle,
-      top: Array.isArray(parsed.top) && parsed.top.length === 4
-        ? (parsed.top as DashboardLayoutConfig["top"])
-        : DEFAULT_LAYOUT.top,
+      bottom:
+        Array.isArray(parsed.bottom) && parsed.bottom.length === 3
+          ? (parsed.bottom as DashboardLayoutConfig["bottom"])
+          : DEFAULT_LAYOUT.bottom,
+      middle:
+        Array.isArray(parsed.middle) && parsed.middle.length === 3
+          ? (parsed.middle as DashboardLayoutConfig["middle"])
+          : DEFAULT_LAYOUT.middle,
+      top:
+        Array.isArray(parsed.top) && parsed.top.length === 4
+          ? (parsed.top as DashboardLayoutConfig["top"])
+          : DEFAULT_LAYOUT.top,
     };
   } catch {
     return DEFAULT_LAYOUT;
@@ -652,7 +655,11 @@ function MiniAssistantWidget({
         }}
         ref={formRef}
       >
-        <input name="threadId" type="hidden" value={assistantState.threadId ?? ""} />
+        <input
+          name="threadId"
+          type="hidden"
+          value={assistantState.threadId ?? ""}
+        />
         <input name="inputSource" type="hidden" value="typed" />
         <div className="dashboard-mini-assistant-actions">
           <input
@@ -662,7 +669,11 @@ function MiniAssistantWidget({
             type="text"
             value={draft}
           />
-          <button className="primary-button" disabled={pending || !draft.trim()} type="submit">
+          <button
+            className="primary-button"
+            disabled={pending || !draft.trim()}
+            type="submit"
+          >
             {pending ? "..." : "Send"}
           </button>
         </div>
@@ -708,7 +719,9 @@ function renderWidget({
             <select
               aria-label="Work queue filter"
               onChange={(event) =>
-                onWorkQueueFilterChange(event.target.value as DashboardQueueFilter)
+                onWorkQueueFilterChange(
+                  event.target.value as DashboardQueueFilter,
+                )
               }
               value={workQueueFilter}
             >
@@ -723,7 +736,11 @@ function renderWidget({
         />
         <div className="dashboard-work-queue">
           {items.map((item) => (
-            <Link className="dashboard-work-item" href={item.href} key={item.id}>
+            <Link
+              className="dashboard-work-item"
+              href={item.href}
+              key={item.id}
+            >
               <div className="dashboard-work-item-head">
                 <div className="dashboard-work-item-title">
                   <time dateTime={item.lastMessageAt ?? undefined}>
@@ -735,7 +752,9 @@ function renderWidget({
                   {item.nextActionLabel}
                 </span>
               </div>
-              <small>{compactSnippet(item.preview ?? item.nextActionLabel, 82)}</small>
+              <small>
+                {compactSnippet(item.preview ?? item.nextActionLabel, 82)}
+              </small>
             </Link>
           ))}
           {items.length === 0 ? (
@@ -751,10 +770,7 @@ function renderWidget({
 
   if (key === "assistant") {
     return (
-      <MiniAssistantWidget
-        initialState={initialAssistantState}
-        key={key}
-      />
+      <MiniAssistantWidget initialState={initialAssistantState} key={key} />
     );
   }
 
@@ -774,7 +790,9 @@ function renderWidget({
             <select
               aria-label="Activity filter"
               onChange={(event) =>
-                onActivityFilterChange(event.target.value as DashboardActivityFilter)
+                onActivityFilterChange(
+                  event.target.value as DashboardActivityFilter,
+                )
               }
               value={activityFilter}
             >
@@ -805,7 +823,9 @@ function renderWidget({
             </Link>
           ))}
           {items.length === 0 ? (
-            <p className="empty-copy">Nothing matches that activity filter yet.</p>
+            <p className="empty-copy">
+              Nothing matches that activity filter yet.
+            </p>
           ) : null}
           <Link className="dashboard-widget-footer-link" href="/activity">
             View all activity
@@ -819,7 +839,10 @@ function renderWidget({
     const items = timeFilteredDocuments(data, timeframe);
 
     return (
-      <section className="dashboard-widget dashboard-widget-documents" key={key}>
+      <section
+        className="dashboard-widget dashboard-widget-documents"
+        key={key}
+      >
         <DashboardWidgetHeader
           action={
             <Link className="filter-pill" href="/files">
@@ -850,22 +873,34 @@ function renderWidget({
       {
         detail: "Settled this week",
         label: "Paid this week",
-        value: formatCents(data.payments.paidThisWeekCents, data.payments.currency),
+        value: formatCents(
+          data.payments.paidThisWeekCents,
+          data.payments.currency,
+        ),
       },
       {
         detail: "Settled this month",
         label: "Paid this month",
-        value: formatCents(data.payments.paidThisMonthCents, data.payments.currency),
+        value: formatCents(
+          data.payments.paidThisMonthCents,
+          data.payments.currency,
+        ),
       },
       {
         detail: `${formatCount(data.payments.outstandingCount)} open`,
         label: "Outstanding",
-        value: formatCents(data.payments.outstandingAmountCents, data.payments.currency),
+        value: formatCents(
+          data.payments.outstandingAmountCents,
+          data.payments.currency,
+        ),
       },
       {
         detail: `${formatCount(data.payments.overdueCount)} past due`,
         label: "Overdue",
-        value: formatCents(data.payments.overdueAmountCents, data.payments.currency),
+        value: formatCents(
+          data.payments.overdueAmountCents,
+          data.payments.currency,
+        ),
       },
     ];
 
@@ -900,14 +935,18 @@ function renderWidget({
         />
         <div className="dashboard-compact-contact-grid">
           {items.map((item) => (
-              <DashboardCompactContactItem
-                href={item.href}
-                key={item.id}
-                label={item.label}
-                meta={item.messageCount > 0 ? `${formatCount(item.messageCount)} msgs` : null}
-                subtitle={compactSnippet(item.sublabel, 38)}
-              />
-            ))}
+            <DashboardCompactContactItem
+              href={item.href}
+              key={item.id}
+              label={item.label}
+              meta={
+                item.messageCount > 0
+                  ? `${formatCount(item.messageCount)} msgs`
+                  : null
+              }
+              subtitle={compactSnippet(item.sublabel, 38)}
+            />
+          ))}
         </div>
       </section>
     );
@@ -917,9 +956,16 @@ function renderWidget({
     const items = timeFilteredContacts(data.suppliers, timeframe);
 
     return (
-      <section className="dashboard-widget dashboard-widget-suppliers" key={key}>
+      <section
+        className="dashboard-widget dashboard-widget-suppliers"
+        key={key}
+      >
         <DashboardWidgetHeader
-          action={<Link className="filter-pill" href="/contacts">Open CRM</Link>}
+          action={
+            <Link className="filter-pill" href="/contacts">
+              Open CRM
+            </Link>
+          }
           description="Quick access to supplier relationships."
           title="Suppliers"
         />
@@ -930,7 +976,11 @@ function renderWidget({
                 href={item.href}
                 key={item.id}
                 label={item.label}
-                meta={item.messageCount > 0 ? `${formatCount(item.messageCount)} msgs` : null}
+                meta={
+                  item.messageCount > 0
+                    ? `${formatCount(item.messageCount)} msgs`
+                    : null
+                }
                 subtitle={compactSnippet(item.sublabel, 38)}
               />
             ))
@@ -955,8 +1005,9 @@ function renderWidget({
         <div className="dashboard-placeholder">
           <strong>Calendar surface coming next.</strong>
           <p>
-            We will wire scheduling, site visits, and due reminders into a dedicated
-            calendar tab, then surface the most useful slice of it here.
+            We will wire scheduling, site visits, and due reminders into a
+            dedicated calendar tab, then surface the most useful slice of it
+            here.
           </p>
         </div>
       </section>
@@ -971,11 +1022,11 @@ function renderWidget({
             Open full voice
           </Link>
         }
-        description="Embedded Vapi runtime for quick hands-free use."
-        title="Vapi voice"
+        description="Embedded voice assistant for quick hands-free use."
+        title="Voice assistant"
       />
       <div className="dashboard-vapi-widget">
-        <iframe src="/voice-vapi?embed=1" title="Kyro Vapi voice widget" />
+        <iframe src="/voice-vapi?embed=1" title="Kyro voice assistant widget" />
       </div>
     </section>
   );
@@ -1012,7 +1063,10 @@ export function DashboardConsole({
         <div className="dashboard-command-title">
           <h1>Dashboard</h1>
         </div>
-        <div className="dashboard-command-actions" data-tour="dashboard-customise">
+        <div
+          className="dashboard-command-actions"
+          data-tour="dashboard-customise"
+        >
           <button
             className="secondary-button compact"
             onClick={() => setCustomizeOpen((current) => !current)}
@@ -1064,17 +1118,21 @@ export function DashboardConsole({
                   Top slot {index + 1}
                   <select
                     onChange={(event) => {
-                      const nextTop = [...layout.top] as DashboardLayoutConfig["top"];
+                      const nextTop = [
+                        ...layout.top,
+                      ] as DashboardLayoutConfig["top"];
                       nextTop[index] = event.target.value as DashboardMetricKey;
                       updateLayout({ ...layout, top: nextTop });
                     }}
                     value={selected}
                   >
-                    {Object.entries(metricDefinitions).map(([key, definition]) => (
-                      <option key={key} value={key}>
-                        {definition.label}
-                      </option>
-                    ))}
+                    {Object.entries(metricDefinitions).map(
+                      ([key, definition]) => (
+                        <option key={key} value={key}>
+                          {definition.label}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </label>
               ))}
@@ -1087,17 +1145,22 @@ export function DashboardConsole({
                   Middle slot {index + 1}
                   <select
                     onChange={(event) => {
-                      const nextMiddle = [...layout.middle] as DashboardLayoutConfig["middle"];
-                      nextMiddle[index] = event.target.value as DashboardWidgetKey;
+                      const nextMiddle = [
+                        ...layout.middle,
+                      ] as DashboardLayoutConfig["middle"];
+                      nextMiddle[index] = event.target
+                        .value as DashboardWidgetKey;
                       updateLayout({ ...layout, middle: nextMiddle });
                     }}
                     value={selected}
                   >
-                    {Object.entries(widgetDefinitions).map(([key, definition]) => (
-                      <option key={key} value={key}>
-                        {definition.title}
-                      </option>
-                    ))}
+                    {Object.entries(widgetDefinitions).map(
+                      ([key, definition]) => (
+                        <option key={key} value={key}>
+                          {definition.title}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </label>
               ))}
@@ -1110,17 +1173,22 @@ export function DashboardConsole({
                   Bottom slot {index + 1}
                   <select
                     onChange={(event) => {
-                      const nextBottom = [...layout.bottom] as DashboardLayoutConfig["bottom"];
-                      nextBottom[index] = event.target.value as DashboardWidgetKey;
+                      const nextBottom = [
+                        ...layout.bottom,
+                      ] as DashboardLayoutConfig["bottom"];
+                      nextBottom[index] = event.target
+                        .value as DashboardWidgetKey;
                       updateLayout({ ...layout, bottom: nextBottom });
                     }}
                     value={selected}
                   >
-                    {Object.entries(widgetDefinitions).map(([key, definition]) => (
-                      <option key={key} value={key}>
-                        {definition.title}
-                      </option>
-                    ))}
+                    {Object.entries(widgetDefinitions).map(
+                      ([key, definition]) => (
+                        <option key={key} value={key}>
+                          {definition.title}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </label>
               ))}
@@ -1140,7 +1208,10 @@ export function DashboardConsole({
 
       {!customizeOpen ? (
         <>
-          <section className="dashboard-stat-grid" data-tour="dashboard-metrics">
+          <section
+            className="dashboard-stat-grid"
+            data-tour="dashboard-metrics"
+          >
             {layout.top.map((metricKey) => {
               const definition = metricDefinitions[metricKey];
 

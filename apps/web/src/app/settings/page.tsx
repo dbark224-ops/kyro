@@ -1008,8 +1008,7 @@ function TwilioTelephonySettings({
             <>
               This is the public assistant-facing number customers can call or
               message. It receives SMS, sends SMS, receives calls, and makes
-              assistant calls via Vapi when the matching Vapi number is
-              configured.
+              assistant calls when the matching voice number is configured.
             </>
           }
         >
@@ -1075,7 +1074,7 @@ function TwilioTelephonySettings({
                           number.friendlyName,
                           number.region,
                           number.countryCode,
-                          number.vapiPhoneNumberId ? "Vapi linked" : null,
+                          number.vapiPhoneNumberId ? "Voice linked" : null,
                         ]
                           .filter(Boolean)
                           .join(" - ")}
@@ -3940,7 +3939,7 @@ function VoicemailOverflowSettings({
             >
               {voicemailBackendReady
                 ? "Ready for forwarded calls"
-                : "Needs Vapi assistant or linked number"}
+                : "Needs voice assistant or linked number"}
             </strong>
           </div>
         </div>
@@ -4053,7 +4052,7 @@ function VoicemailOverflowSettings({
                     {[
                       number.friendlyName,
                       number.countryCode,
-                      number.vapiPhoneNumberId ? "Vapi linked" : null,
+                      number.vapiPhoneNumberId ? "Voice linked" : null,
                     ]
                       .filter(Boolean)
                       .join(" - ")}
@@ -4123,7 +4122,7 @@ function DeveloperSettingsDetail({
     },
     {
       ready: Boolean(voicemailNumber?.vapiPhoneNumberId),
-      title: "Linked Vapi number",
+      title: "Linked voice number",
       value: voicemailNumber?.vapiPhoneNumberId ?? "Missing",
     },
     {
@@ -4295,7 +4294,7 @@ function DeveloperSettingsDetail({
           </div>
           <div className="settings-grid">
             <label className="setting-card">
-              <SettingCardHeading info="Legacy browser voice and generated-playback voice. Hidden while the Vapi voice assistant is the user-facing voice runtime.">
+              <SettingCardHeading info="Legacy browser voice and generated-playback voice. Hidden while the voice assistant is the user-facing voice runtime.">
                 OpenAI assistant voice
               </SettingCardHeading>
               <select
@@ -4311,7 +4310,7 @@ function DeveloperSettingsDetail({
             </label>
 
             <label className="setting-card">
-              <SettingCardHeading info="Pronunciation policy for customer-facing voice replies. The shared pronunciation list is used by Vapi too.">
+              <SettingCardHeading info="Pronunciation policy for customer-facing voice replies. The shared pronunciation list is used by the voice assistant too.">
                 Outbound voice pronunciation
               </SettingCardHeading>
               <select
@@ -4479,7 +4478,7 @@ function DeveloperSettingsDetail({
             ))}
           </div>
           <p className="empty-copy">
-            Assistant-selection proof is stored on each Vapi call under
+            Assistant-selection proof is stored on each voice call under
             voice_calls.metadata.assistantSelection after the assistant-request
             and webhook events return.
           </p>

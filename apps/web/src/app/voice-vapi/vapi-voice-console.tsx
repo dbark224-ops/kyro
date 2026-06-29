@@ -220,8 +220,8 @@ export function VapiVoiceConsole({
     useState<ConnectionState>("idle");
   const [status, setStatus] = useState(
     session.configured
-      ? "Ready for Vapi voice."
-      : `Add ${session.missing.join(", ")} to enable Vapi voice.`,
+      ? "Ready for voice assistant."
+      : `Add ${session.missing.join(", ")} to enable voice assistant.`,
   );
   const [error, setError] = useState<string | null>(initialState.error ?? null);
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -746,7 +746,7 @@ export function VapiVoiceConsole({
       ) {
         assistantDraftIdRef.current = null;
         assistantDraftRef.current = "";
-        appendStartTrace("Ignored repeated Vapi starter message");
+        appendStartTrace("Ignored repeated voice starter message");
         return;
       }
 
@@ -791,7 +791,9 @@ export function VapiVoiceConsole({
           lastAssistantFinalizedContentRef.current = merged;
           assistantDraftIdRef.current = null;
           assistantDraftRef.current = "";
-          appendStartTrace("Merged expanded assistant transcript from Vapi");
+          appendStartTrace(
+            "Merged expanded assistant transcript from voice stream",
+          );
           return;
         }
 
@@ -804,7 +806,7 @@ export function VapiVoiceConsole({
         assistantDraftIdRef.current = null;
         assistantDraftRef.current = "";
         appendStartTrace(
-          "Ignored duplicate assistant turn from Vapi event stream",
+          "Ignored duplicate assistant turn from voice event stream",
         );
         return;
       }
@@ -848,7 +850,7 @@ export function VapiVoiceConsole({
       appendStartTrace(
         Date.now() - lastAssistantSpeechAtRef.current < 12_000
           ? "Assistant turn finalized after audio started"
-          : "Assistant turn finalized from Vapi text stream",
+          : "Assistant turn finalized from voice text stream",
       );
       void persistVapiTurn(clean, uiBlocks);
     },
@@ -922,7 +924,7 @@ export function VapiVoiceConsole({
         const uiBlocks = extractVapiToolUiBlocks(message);
 
         if (uiBlocks.length > 0) {
-          applyToolUiBlocks(uiBlocks, "Vapi tool result");
+          applyToolUiBlocks(uiBlocks, "Voice tool result");
         }
 
         window.setTimeout(() => void fetchPendingToolUiBlocks(), 400);
@@ -937,8 +939,8 @@ export function VapiVoiceConsole({
         if (callStatus) {
           appendStartTrace(
             endedReason
-              ? `Vapi status: ${callStatus} (${endedReason})`
-              : `Vapi status: ${callStatus}`,
+              ? `Voice status: ${callStatus} (${endedReason})`
+              : `Voice status: ${callStatus}`,
           );
         }
 
@@ -1134,7 +1136,7 @@ export function VapiVoiceConsole({
     } catch (error) {
       stopVoiceLevelMeter();
       throw new Error(
-        `Microphone permission is required before Vapi can start: ${errorMessage(error)}`,
+        `Microphone permission is required before voice can start: ${errorMessage(error)}`,
       );
     }
   }, [stopVoiceLevelMeter]);
@@ -1157,12 +1159,12 @@ export function VapiVoiceConsole({
     setLiveTranscript("");
     stopVoiceLevelMeter();
     setConnectionState("idle");
-    setStatus("Vapi voice stopped.");
+    setStatus("Voice assistant stopped.");
   }, [clearAssistantFinalizeTimer, persistVapiTurn, stopVoiceLevelMeter]);
 
   const startVapi = useCallback(async () => {
     if (!session.configured || !session.publicKey || !session.assistantId) {
-      setError(`Vapi voice is missing ${session.missing.join(", ")}.`);
+      setError(`Voice assistant is missing ${session.missing.join(", ")}.`);
       return;
     }
 
@@ -1190,16 +1192,16 @@ export function VapiVoiceConsole({
       });
       vapi.on("call-start-success", (event) => {
         callIdRef.current = textValue(event.callId);
-        appendStartTrace("Vapi call start succeeded");
+        appendStartTrace("Voice call start succeeded");
       });
       vapi.on("call-start-failed", (event) => {
         const message = errorMessage(event);
 
         lastStartErrorRef.current = message;
-        appendStartTrace(`Vapi call start failed: ${message}`);
+        appendStartTrace(`Voice call start failed: ${message}`);
         setError(message);
         setConnectionState("idle");
-        setStatus(`Vapi voice error: ${message}`);
+        setStatus(`Voice assistant error: ${message}`);
         stopVoiceLevelMeter();
       });
       vapi.on("call-start-progress", (event) => {
@@ -1254,10 +1256,10 @@ export function VapiVoiceConsole({
         const message = errorMessage(nextError);
 
         lastStartErrorRef.current = message;
-        appendStartTrace(`Vapi runtime error: ${message}`);
+        appendStartTrace(`Voice runtime error: ${message}`);
         setError(message);
         setConnectionState("idle");
-        setStatus(`Vapi voice error: ${message}`);
+        setStatus(`Voice assistant error: ${message}`);
         stopVoiceLevelMeter();
       });
 
@@ -1268,7 +1270,7 @@ export function VapiVoiceConsole({
       );
 
       if (!call && hasVoiceOverride(overrides)) {
-        setStatus("Retrying with Vapi fallback voice...");
+        setStatus("Retrying with fallback voice...");
         call = await vapi.start(
           session.assistantId,
           withoutVoiceOverride(overrides) as Parameters<Vapi["start"]>[1],
@@ -1282,7 +1284,7 @@ export function VapiVoiceConsole({
       if (!call) {
         const message =
           lastStartErrorRef.current ??
-          "Vapi did not return a live call. Check browser microphone permission, Vapi account credits, and assistant voice/provider configuration.";
+          "The voice assistant did not return a live call. Check browser microphone permission and voice assistant configuration.";
 
         setConnectionState("idle");
         setStatus(message);
@@ -1309,7 +1311,7 @@ export function VapiVoiceConsole({
       appendStartTrace(`Start threw: ${message}`);
       setError(message);
       setConnectionState("idle");
-      setStatus(`Unable to start Vapi voice: ${message}`);
+      setStatus(`Unable to start voice assistant: ${message}`);
       stopVoiceLevelMeter();
     }
   }, [
@@ -1369,15 +1371,17 @@ export function VapiVoiceConsole({
   return (
     <section
       className={previewTarget ? "voice-console has-preview" : "voice-console"}
-      aria-label="Vapi voice assistant"
+      aria-label="Voice assistant"
     >
       <div className="voice-console-main">
         <section
           className="voice-control-panel"
-          aria-label="Vapi voice controls"
+          aria-label="Voice assistant controls"
         >
           <button
-            aria-label={isConnected ? "Stop Vapi voice" : "Start Vapi voice"}
+            aria-label={
+              isConnected ? "Stop voice assistant" : "Start voice assistant"
+            }
             aria-pressed={isConnected}
             className={[
               "voice-orb",
@@ -2457,7 +2461,7 @@ function errorMessage(value: unknown) {
 
   const serialized = safeJson(value);
 
-  return serialized ?? directMessage ?? "Vapi voice failed.";
+  return serialized ?? directMessage ?? "Voice assistant failed.";
 }
 
 function safeJson(value: unknown) {
