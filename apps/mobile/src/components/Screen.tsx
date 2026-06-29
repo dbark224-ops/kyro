@@ -16,6 +16,7 @@ type ScreenMetric = {
 type Props = {
   children: ReactNode;
   compactHeaderAccessory?: ReactNode;
+  compactHeaderEmphasis?: boolean;
   compactHeaderLabel?: string | null;
   eyebrow?: string | null;
   headerLabel?: string;
@@ -23,6 +24,7 @@ type Props = {
   scrollEnabled?: boolean;
   showTopBar?: boolean;
   title: string;
+  titleScale?: "default" | "compact";
 };
 
 function sessionLabel(
@@ -47,13 +49,15 @@ function sessionLabel(
 export function Screen({
   children,
   compactHeaderAccessory,
+  compactHeaderEmphasis = false,
   compactHeaderLabel,
   eyebrow,
   headerLabel,
   metrics = [],
   scrollEnabled = true,
   showTopBar = true,
-  title
+  title,
+  titleScale = "default"
 }: Props) {
   const { status, user } = useAuthSession();
 
@@ -87,20 +91,52 @@ export function Screen({
           <View style={styles.heroHeader}>
             <View style={styles.titleBlock}>
               {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
-              <Text style={styles.title}>{title}</Text>
+              <Text
+                style={[
+                  styles.title,
+                  titleScale === "compact" ? styles.titleCompact : null
+                ]}
+              >
+                {title}
+              </Text>
             </View>
             {!showTopBar && compactHeaderLabel ? (
-              <View style={styles.compactHeaderStack}>
+              <View
+                style={[
+                  styles.compactHeaderStack,
+                  compactHeaderEmphasis ? styles.compactHeaderStackEmphasis : null
+                ]}
+              >
                 <View style={styles.compactBusinessMark}>
-                  <Text numberOfLines={1} style={styles.compactBusinessLabel}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.compactBusinessLabel,
+                      compactHeaderEmphasis
+                        ? styles.compactBusinessLabelEmphasis
+                        : null
+                    ]}
+                  >
                     {compactHeaderLabel}
                   </Text>
-                  <Text style={styles.compactBusinessSeparator}>|</Text>
+                  <Text
+                    style={[
+                      styles.compactBusinessSeparator,
+                      compactHeaderEmphasis
+                        ? styles.compactBusinessSeparatorEmphasis
+                        : null
+                    ]}
+                  >
+                    |
+                  </Text>
                   <Image
                     accessibilityIgnoresInvertColors
                     resizeMode="contain"
                     source={require("../../assets/kyro-icon.png")}
-                    style={styles.compactBusinessLogo}
+                    style={[
+                      styles.compactBusinessLogo,
+                      compactHeaderEmphasis ? styles.compactBusinessLogoEmphasis : null
+                    ]}
                   />
                 </View>
                 {compactHeaderAccessory}
@@ -151,9 +187,17 @@ const styles = StyleSheet.create({
     textAlign: "right",
     textTransform: "uppercase"
   },
+  compactBusinessLabelEmphasis: {
+    fontSize: 15,
+    lineHeight: 18
+  },
   compactBusinessLogo: {
     height: 16,
     width: 16
+  },
+  compactBusinessLogoEmphasis: {
+    height: 19,
+    width: 19
   },
   compactBusinessMark: {
     alignItems: "center",
@@ -167,11 +211,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800"
   },
+  compactBusinessSeparatorEmphasis: {
+    fontSize: 15,
+    lineHeight: 18
+  },
   compactHeaderStack: {
     alignItems: "flex-end",
     flexShrink: 1,
     gap: 8,
     maxWidth: "54%"
+  },
+  compactHeaderStackEmphasis: {
+    maxWidth: "48%"
   },
   eyebrow: {
     color: colors.cyan,
@@ -214,6 +265,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0,
     lineHeight: 35
+  },
+  titleCompact: {
+    fontSize: 25,
+    lineHeight: 29
   },
   titleBlock: {
     flexShrink: 0,

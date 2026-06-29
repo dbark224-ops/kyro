@@ -260,10 +260,12 @@ export default function DashboardScreen() {
 
   return (
     <Screen
+      compactHeaderEmphasis
       compactHeaderLabel={commandCenter?.workspace.name}
       scrollEnabled={!isCustomizeDragLocked}
       showTopBar={false}
       title="Dashboard"
+      titleScale="compact"
     >
       <View style={styles.toolbar}>
         <SegmentedControl

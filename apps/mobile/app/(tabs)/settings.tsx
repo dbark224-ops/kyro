@@ -177,6 +177,7 @@ type VoiceDraft = {
 };
 type PronunciationEntry =
   MobileSettingsResponse["pronunciationEntries"][number];
+type SettingsAccount = MobileSettingsResponse["account"];
 type DeviceContactImportType =
   | "builder"
   | "client"
@@ -553,6 +554,7 @@ export default function SettingsScreen() {
     enabled: status === "signed-in",
   });
   const data = settings.data;
+  const account = data ? settingsAccount(data, user?.email) : null;
   const isSettingsLoading =
     status === "loading" || (status === "signed-in" && settings.isLoading);
   const saveSettings = useMutation({
@@ -723,6 +725,7 @@ export default function SettingsScreen() {
 
               {selectedSection === "general" ? (
                 <GeneralSettingsPanel
+                  account={account ?? fallbackSettingsAccount(user?.email)}
                   data={data}
                   disabled={saveSettings.isPending}
                   draft={generalDraft}
@@ -852,10 +855,10 @@ export default function SettingsScreen() {
               {message ? <Text style={styles.message}>{message}</Text> : null}
 
               <AccountSessionCard
-                emailVerified={data.account.emailVerified}
+                emailVerified={account?.emailVerified}
                 onSignOut={handleSignOut}
                 status={status}
-                userEmail={data.account.email ?? user?.email}
+                userEmail={account?.email ?? user?.email}
               />
             </>
           )}
@@ -1251,6 +1254,7 @@ function AccountSessionCard({
 }
 
 function GeneralSettingsPanel({
+  account,
   data,
   disabled,
   draft,
@@ -1259,6 +1263,7 @@ function GeneralSettingsPanel({
   onSave,
   resendingVerification,
 }: {
+  account: SettingsAccount;
   data: MobileSettingsResponse;
   disabled: boolean;
   draft: GeneralDraft;
@@ -1267,7 +1272,7 @@ function GeneralSettingsPanel({
   onSave: () => void;
   resendingVerification: boolean;
 }) {
-  const verificationRequired = data.account.verificationRequired;
+  const verificationRequired = account.verificationRequired;
   const saveDisabled = disabled || verificationRequired;
   const updateProfile = (
     key: keyof GeneralDraft["businessProfile"],
@@ -1286,7 +1291,7 @@ function GeneralSettingsPanel({
     <>
       {verificationRequired ? (
         <EmailVerificationNotice
-          email={data.account.email}
+          email={account.email}
           onResend={onResendVerification}
           resending={resendingVerification}
         />
@@ -6311,6 +6316,29 @@ function visibleSectionsForGroup(
   return group.sections.filter(
     (section) => section !== "developer" || data.developer.enabled,
   );
+}
+
+function settingsAccount(
+  data: MobileSettingsResponse,
+  fallbackEmail?: string | null,
+): SettingsAccount {
+  const account = (data as Partial<MobileSettingsResponse>).account;
+
+  return {
+    email: account?.email ?? fallbackEmail ?? null,
+    emailVerified: account?.emailVerified ?? true,
+    supabaseEmailConfirmed: account?.supabaseEmailConfirmed ?? true,
+    verificationRequired: account?.verificationRequired ?? false,
+  };
+}
+
+function fallbackSettingsAccount(fallbackEmail?: string | null): SettingsAccount {
+  return {
+    email: fallbackEmail ?? null,
+    emailVerified: true,
+    supabaseEmailConfirmed: true,
+    verificationRequired: false,
+  };
 }
 
 function settingsGroupDetail(
