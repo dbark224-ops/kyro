@@ -487,11 +487,11 @@ const sectionItems: SettingsSectionItem[] = [
     title: "Report generator",
   },
   {
-    detail: "Message, AI, audit, and usage events",
-    eyebrow: "Activity",
+    detail: "Messages, actions, AI, routing, and usage events",
+    eyebrow: "Timeline",
     icon: Activity,
     section: "activity",
-    title: "Activity",
+    title: "Workspace timeline",
   },
   {
     detail: "Inbound and outbound customer comms",
@@ -560,11 +560,11 @@ const settingsGroups: SettingsGroupItem[] = [
     title: "Payments",
   },
   {
-    detail: "Activity history and internal tools",
+    detail: "Internal tools",
     icon: Activity,
     id: "insight_tools",
-    sections: ["activity", "developer"],
-    title: "Activity & tools",
+    sections: ["developer"],
+    title: "Developer tools",
   },
 ];
 
@@ -887,6 +887,7 @@ export default function SettingsScreen() {
               {selectedSection === "usage" ? (
                 <UsageSettingsPanel
                   data={data}
+                  onOpenActivity={() => setSelectedSection("activity")}
                   onOpenCommunicationsLog={() => setSelectedSection("logs")}
                   onOpenLedger={() => setSelectedSection("usage_ledger")}
                 />
@@ -3606,10 +3607,12 @@ function pronunciationEntryPill(entry: PronunciationEntry) {
 
 function UsageSettingsPanel({
   data,
+  onOpenActivity,
   onOpenCommunicationsLog,
   onOpenLedger,
 }: {
   data: MobileSettingsResponse;
+  onOpenActivity: () => void;
   onOpenCommunicationsLog: () => void;
   onOpenLedger: () => void;
 }) {
@@ -3744,6 +3747,26 @@ function UsageSettingsPanel({
             <Text style={styles.rowTitle}>Inbound and outbound comms</Text>
             <Text style={styles.rowCopy}>
               Review sync, email, SMS, and outbound communication traces.
+            </Text>
+          </View>
+          <ChevronRight color={colors.muted} size={18} />
+        </Pressable>
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader eyebrow="Timeline" title="Workspace timeline" />
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenActivity}
+          style={({ pressed }) => [
+            styles.inlineActionRow,
+            pressed ? styles.pressed : null,
+          ]}
+        >
+          <View style={styles.inlineActionCopy}>
+            <Text style={styles.rowTitle}>Activity across the workspace</Text>
+            <Text style={styles.rowCopy}>
+              Review messages, actions, audit entries, AI runs, routing, and usage.
             </Text>
           </View>
           <ChevronRight color={colors.muted} size={18} />
@@ -4209,8 +4232,8 @@ function ActivitySettingsPanel() {
         action={
           <StatusPill label={`${visibleItems.length} shown`} tone="cyan" />
         }
-        eyebrow="Activity"
-        title="Workspace activity"
+        eyebrow="Workspace timeline"
+        title="Messages, actions, AI, and usage"
       />
       <ToolsDataState
         error={tools.error}
@@ -4238,7 +4261,7 @@ function ActivitySettingsPanel() {
             </View>
           ) : (
             <Text style={styles.emptyCopy}>
-              No activity matches this filter.
+              No workspace timeline activity matches this filter.
             </Text>
           )}
         </>
