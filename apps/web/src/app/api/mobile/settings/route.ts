@@ -11,6 +11,7 @@ import {
   getVoiceSettings,
   normalizeVoiceSettings,
 } from "../../../../lib/assistant/voice-settings";
+import { createClient } from "@supabase/supabase-js";
 import {
   PRONUNCIATION_CATEGORIES,
   PRONUNCIATION_STATUSES,
@@ -22,6 +23,13 @@ import {
   updatePronunciationEntry,
   upsertPronunciationEntry,
 } from "../../../../lib/assistant/pronunciation";
+import {
+  friendlyEmailVerificationSendError,
+  isKyroEmailVerified,
+  isSupabaseEmailConfirmed,
+  markKyroEmailVerificationStarted,
+  sendKyroEmailVerification,
+} from "../../../../lib/auth/email-verification";
 import {
   DISPLAY_CURRENCIES,
   displayCurrencySourceLabel,
@@ -41,6 +49,7 @@ import {
   GOOGLE_GMAIL_READ_SCOPE,
   getGoogleIntegrationOverview,
 } from "../../../../lib/integrations/google";
+import { getSupabaseEnv } from "../../../../lib/env";
 import {
   INBOUND_EMAIL_POLL_INTERVALS,
   INBOUND_EMAIL_POLICY_TYPE,
@@ -59,9 +68,11 @@ import {
   getMicrosoftIntegrationOverview,
 } from "../../../../lib/integrations/microsoft";
 import {
+  MobileApiError,
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
+import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 import {
   getUsageReport,
   normalizeUsageWindow,
@@ -153,6 +164,27 @@ export async function PATCH(request: Request) {
   }
 }
 
+export async function POST(request: Request) {
+  try {
+    const context = await requireMobileWorkspaceContext(request);
+    const payload = objectRecord(await request.json().catch(() => null));
+    const operation = textValue(payload.operation);
+
+    if (operation !== "resend_email_verification") {
+      throw new MobileApiError("Choose a supported settings action.", 400);
+    }
+
+    await resendEmailVerification(context, request);
+
+    return Response.json({
+      ...(await buildSettingsResponse(context)),
+      message: "Verification email sent. Check your inbox.",
+    });
+  } catch (error) {
+    return mobileErrorResponse(error);
+  }
+}
+
 async function buildSettingsResponse(
   { supabase, user, workspace }: MobileContext,
   usageWindow = normalizeUsageWindow("30d"),
@@ -208,6 +240,12 @@ async function buildSettingsResponse(
   const latestSync = inboundSummary.syncRuns[0] ?? null;
 
   return {
+    account: {
+      email: user.email ?? null,
+      emailVerified: isKyroEmailVerified(user),
+      supabaseEmailConfirmed: isSupabaseEmailConfirmed(user),
+      verificationRequired: !isKyroEmailVerified(user),
+    },
     connections,
     integrations: {
       google: {
@@ -411,7 +449,15 @@ async function updateGeneralSettings(
   context: MobileContext,
   updates: Record<string, unknown>,
 ) {
-  const { supabase, workspace } = context;
+  const { supabase, user, workspace } = context;
+
+  if (!isKyroEmailVerified(user)) {
+    throw new MobileApiError(
+      "Verify your email before editing Business Profile settings.",
+      403,
+    );
+  }
+
   const [beforeGeneral, beforeInbound] = await Promise.all([
     loadPolicy(context, WORKSPACE_GENERAL_POLICY_TYPE),
     loadPolicy(context, INBOUND_EMAIL_POLICY_TYPE),
@@ -936,6 +982,52 @@ async function updatePronunciationSettings(
     entityId: entry.id,
     entityType: "assistant_pronunciation",
     workspaceId: workspace.id,
+  });
+}
+
+async function resendEmailVerification(
+  context: MobileContext,
+  request: Request,
+) {
+  const { user } = context;
+  const email = user.email?.trim();
+
+  if (!email) {
+    throw new MobileApiError("This account does not have an email address.", 400);
+  }
+
+  if (isKyroEmailVerified(user)) {
+    return;
+  }
+
+  const authSupabase = createMobilePublicSupabaseClient();
+  const { error } = await sendKyroEmailVerification({
+    email,
+    fallbackOrigin: request.headers.get("origin"),
+    nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
+    nextPath: "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+    supabase: authSupabase,
+  });
+
+  if (error) {
+    throw new MobileApiError(
+      friendlyEmailVerificationSendError(error.message),
+      400,
+    );
+  }
+
+  const serviceSupabase = createServiceSupabaseClient();
+  await markKyroEmailVerificationStarted({ serviceSupabase, user });
+}
+
+function createMobilePublicSupabaseClient() {
+  const { supabaseAnonKey, supabaseUrl } = getSupabaseEnv();
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
   });
 }
 

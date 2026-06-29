@@ -829,6 +829,12 @@ export type MobileDashboardCommandCenter = {
 };
 
 export type MobileSettingsResponse = {
+  account: {
+    email: string | null;
+    emailVerified: boolean;
+    supabaseEmailConfirmed: boolean;
+    verificationRequired: boolean;
+  };
   connections: Array<{
     accountEmail: string | null;
     accountName: string | null;

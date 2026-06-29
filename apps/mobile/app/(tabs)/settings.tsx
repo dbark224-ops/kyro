@@ -581,6 +581,25 @@ export default function SettingsScreen() {
       setMessage(nextData.message ?? "Settings saved.");
     },
   });
+  const resendVerification = useMutation({
+    mutationFn: () =>
+      kyroApiFetch<MobileSettingsResponse>("/api/mobile/settings", {
+        body: { operation: "resend_email_verification" },
+        method: "POST",
+        session,
+      }),
+    onError: (error) => {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to send verification email.",
+      );
+    },
+    onSuccess: (nextData) => {
+      queryClient.setQueryData(queryKey, nextData);
+      setMessage(nextData.message ?? "Verification email sent.");
+    },
+  });
 
   useEffect(() => {
     if (!data) {
@@ -708,12 +727,14 @@ export default function SettingsScreen() {
                   disabled={saveSettings.isPending}
                   draft={generalDraft}
                   onChange={setGeneralDraft}
+                  onResendVerification={() => resendVerification.mutate()}
                   onSave={() =>
                     saveSettings.mutate({
                       section: "general",
                       settings: generalDraft,
                     })
                   }
+                  resendingVerification={resendVerification.isPending}
                 />
               ) : null}
 
@@ -831,9 +852,10 @@ export default function SettingsScreen() {
               {message ? <Text style={styles.message}>{message}</Text> : null}
 
               <AccountSessionCard
+                emailVerified={data.account.emailVerified}
                 onSignOut={handleSignOut}
                 status={status}
-                userEmail={user?.email}
+                userEmail={data.account.email ?? user?.email}
               />
             </>
           )}
@@ -1171,10 +1193,12 @@ function SettingsDetailTransition({
 }
 
 function AccountSessionCard({
+  emailVerified,
   onSignOut,
   status,
   userEmail,
 }: {
+  emailVerified?: boolean;
   onSignOut: () => void;
   status: ReturnType<typeof useAuthSession>["status"];
   userEmail?: string;
@@ -1189,8 +1213,20 @@ function AccountSessionCard({
           </Text>
         </View>
         <StatusPill
-          label={status === "signed-in" ? "Active" : "Signed out"}
-          tone={status === "signed-in" ? "green" : "neutral"}
+          label={
+            status === "signed-in"
+              ? emailVerified === false
+                ? "Verify email"
+                : "Active"
+              : "Signed out"
+          }
+          tone={
+            status === "signed-in"
+              ? emailVerified === false
+                ? "warning"
+                : "green"
+              : "neutral"
+          }
         />
       </View>
       {status === "signed-in" ? (
@@ -1219,14 +1255,20 @@ function GeneralSettingsPanel({
   disabled,
   draft,
   onChange,
+  onResendVerification,
   onSave,
+  resendingVerification,
 }: {
   data: MobileSettingsResponse;
   disabled: boolean;
   draft: GeneralDraft;
   onChange: (draft: GeneralDraft) => void;
+  onResendVerification: () => void;
   onSave: () => void;
+  resendingVerification: boolean;
 }) {
+  const verificationRequired = data.account.verificationRequired;
+  const saveDisabled = disabled || verificationRequired;
   const updateProfile = (
     key: keyof GeneralDraft["businessProfile"],
     value: string | boolean | number | null,
@@ -1242,6 +1284,14 @@ function GeneralSettingsPanel({
 
   return (
     <>
+      {verificationRequired ? (
+        <EmailVerificationNotice
+          email={data.account.email}
+          onResend={onResendVerification}
+          resending={resendingVerification}
+        />
+      ) : null}
+
       <SectionCard>
         <SectionHeader
           action={<StatusPill label="Profile" tone="cyan" />}
@@ -1453,13 +1503,52 @@ function GeneralSettingsPanel({
           />
         </SettingField>
         <SaveFooter
-          disabled={disabled}
+          disabled={saveDisabled}
           label="Save business profile"
           onPress={onSave}
           text={`Currency uses ${data.settings.general.displayCurrencySourceLabel}.`}
         />
       </SectionCard>
     </>
+  );
+}
+
+function EmailVerificationNotice({
+  email,
+  onResend,
+  resending,
+}: {
+  email: string | null;
+  onResend: () => void;
+  resending: boolean;
+}) {
+  return (
+    <SectionCard>
+      <SectionHeader
+        action={<StatusPill label="Required" tone="warning" />}
+        eyebrow="Email verification"
+        title="Verify before editing"
+      />
+      <Text style={styles.rowCopy}>
+        Check {email ?? "your account email"} to unlock Business Profile
+        changes.
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        disabled={resending}
+        onPress={onResend}
+        style={({ pressed }) => [
+          styles.iconButton,
+          pressed ? styles.pressed : null,
+          resending ? styles.disabledButton : null,
+        ]}
+      >
+        <Mail color={colors.text} size={18} />
+        <Text style={styles.iconButtonText}>
+          {resending ? "Sending..." : "Resend verification email"}
+        </Text>
+      </Pressable>
+    </SectionCard>
   );
 }
 
@@ -1912,7 +2001,7 @@ function IntegrationsSettingsPanel({
             value={inboundDraft.actionInstructions}
           />
         </SettingField>
-        <LatestInboundSummary data={data} />
+        <EmailSyncHealthSummary data={data} />
         <SenderRulesManager data={data} disabled={disabled} />
         <SaveFooter
           disabled={disabled}
@@ -5838,34 +5927,198 @@ function FileImagePreviewModal({
   );
 }
 
-function LatestInboundSummary({ data }: { data: MobileSettingsResponse }) {
+function EmailSyncHealthSummary({ data }: { data: MobileSettingsResponse }) {
   const latestSync = data.status.latestSync;
-  const latestDecision = data.status.latestInboundDecision;
+  const connectedConnections = data.connections.filter(
+    (connection) => connection.status === "connected",
+  );
+  const health = emailSyncHealthStatus(data);
+  const lastSuccessfulSync = latestConnectionTimestamp(
+    connectedConnections,
+    "lastSyncAt",
+  );
+  const lastCheckAttempt = latestConnectionTimestamp(
+    connectedConnections,
+    "lastCheckedAt",
+  );
 
   return (
-    <View style={styles.summaryStrip}>
-      <View style={styles.summaryItem}>
-        <Text style={styles.summaryLabel}>Last sync</Text>
-        <Text style={styles.summaryValue}>
-          {formatDate(latestSync?.createdAt)}
-        </Text>
-        <Text style={styles.summaryMeta}>
-          {latestSync
-            ? `${latestSync.promotedMessages} promoted - ${latestSync.errors} errors`
-            : "No sync runs yet"}
-        </Text>
+    <View style={styles.nestedPanel}>
+      <View style={styles.rowHeader}>
+        <View style={styles.flexOne}>
+          <Text style={styles.summaryLabel}>Sync health</Text>
+          <Text style={styles.summaryValue}>{health.title}</Text>
+          <Text style={styles.summaryMeta}>{health.detail}</Text>
+        </View>
+        <StatusPill label={health.pill} tone={health.tone} />
       </View>
-      <View style={styles.summaryItem}>
-        <Text style={styles.summaryLabel}>Latest email</Text>
-        <Text style={styles.summaryValue} numberOfLines={1}>
-          {latestDecision?.subject ?? "None recorded"}
-        </Text>
-        <Text style={styles.summaryMeta}>
-          {latestDecision?.status ?? "No inbound decision yet"}
-        </Text>
+      <View style={styles.summaryStrip}>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Last successful</Text>
+          <Text style={styles.summaryValue}>
+            {formatDate(lastSuccessfulSync)}
+          </Text>
+        </View>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Last check</Text>
+          <Text style={styles.summaryValue}>
+            {formatDate(lastCheckAttempt)}
+          </Text>
+        </View>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Next sync</Text>
+          <Text style={styles.summaryValue} numberOfLines={1}>
+            {nextEmailSyncLabel(data)}
+          </Text>
+        </View>
       </View>
+      {connectedConnections.length ? (
+        connectedConnections.slice(0, 3).map((connection) => (
+          <View key={connection.id} style={styles.compactStatusRow}>
+            <View style={styles.flexOne}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {connection.providerLabel}{" "}
+                {connection.accountEmail ?? connection.accountName ?? ""}
+              </Text>
+              <Text style={styles.rowMeta} numberOfLines={1}>
+                {connection.lastError
+                  ? connection.lastError
+                  : connection.readReady
+                    ? "Read scope ready"
+                    : "Read scope missing"}
+              </Text>
+            </View>
+            <StatusPill
+              label={connection.needsReconnect ? "Reconnect" : "Ready"}
+              tone={connection.needsReconnect ? "warning" : "green"}
+            />
+          </View>
+        ))
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => openWebSettingsPanel("email-accounts")}
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed ? styles.pressed : null,
+          ]}
+        >
+          <ExternalLink color={colors.text} size={18} />
+          <Text style={styles.iconButtonText}>Set up email</Text>
+        </Pressable>
+      )}
+      {latestSync ? (
+        <Text style={styles.summaryMeta}>
+          Latest run: {latestSync.promotedMessages} promoted,{" "}
+          {latestSync.errors} errors.
+        </Text>
+      ) : null}
     </View>
   );
+}
+
+function emailSyncHealthStatus(data: MobileSettingsResponse): {
+  detail: string;
+  pill: string;
+  title: string;
+  tone: "cyan" | "green" | "neutral" | "purple" | "warning";
+} {
+  const connectedConnections = data.connections.filter(
+    (connection) => connection.status === "connected",
+  );
+
+  if (!connectedConnections.length) {
+    return {
+      detail: "Connect Gmail or Outlook before automatic inbound checks can run.",
+      pill: "Setup",
+      title: "Set up email",
+      tone: "warning",
+    };
+  }
+
+  if (data.status.reconnectNeededCount) {
+    return {
+      detail: `${data.status.reconnectNeededCount} connected account needs a fresh read permission grant.`,
+      pill: "Reconnect",
+      title: "Reconnect needed",
+      tone: "warning",
+    };
+  }
+
+  if (connectedConnections.some((connection) => connection.lastError)) {
+    return {
+      detail: "A recent account check reported an error. Review the affected account below.",
+      pill: "Check",
+      title: "Last check needs attention",
+      tone: "warning",
+    };
+  }
+
+  if (data.settings.inboundEmail.syncMode === "paused") {
+    return {
+      detail: "Inbound email sync is paused for this workspace.",
+      pill: "Paused",
+      title: "Paused",
+      tone: "neutral",
+    };
+  }
+
+  if (data.settings.inboundEmail.syncMode === "manual_only") {
+    return {
+      detail: "Kyro will only check inbound email when triggered manually.",
+      pill: "Manual",
+      title: "Manual checks only",
+      tone: "purple",
+    };
+  }
+
+  return {
+    detail: "Automatic inbound email checks are configured for connected accounts.",
+    pill: "Ready",
+    title: "Automatic sync ready",
+    tone: "green",
+  };
+}
+
+function latestConnectionTimestamp(
+  connections: MobileSettingsResponse["connections"],
+  key: "lastCheckedAt" | "lastSyncAt",
+) {
+  return connections
+    .map((connection) => connection[key])
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
+
+function nextEmailSyncLabel(data: MobileSettingsResponse) {
+  const syncMode = data.settings.inboundEmail.syncMode;
+
+  if (!data.status.connectedAccountCount) {
+    return "Set up email";
+  }
+
+  if (syncMode === "paused") {
+    return "Paused";
+  }
+
+  if (syncMode === "manual_only") {
+    return "Manual only";
+  }
+
+  return `Every ${data.settings.inboundEmail.pollIntervalMinutes} min`;
+}
+
+function openWebSettingsPanel(panel: string) {
+  const baseUrl = mobileEnv.kyroApiBaseUrl;
+
+  if (!baseUrl) {
+    return;
+  }
+
+  const url = new URL("/settings", baseUrl);
+  url.searchParams.set("section", "integrations");
+  url.searchParams.set("panel", panel);
+  Linking.openURL(url.toString()).catch(() => undefined);
 }
 
 function SettingField({
@@ -7299,6 +7552,9 @@ const styles = StyleSheet.create({
     minHeight: 42,
     paddingHorizontal: 14,
   },
+  disabledButton: {
+    opacity: 0.55,
+  },
   iconButtonText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
@@ -7797,6 +8053,23 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "700",
+  },
+  compactStatusRow: {
+    alignItems: "center",
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingTop: 10,
+  },
+  flexOne: {
+    flex: 1,
+  },
+  rowHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
   },
   summaryStrip: {
     backgroundColor: colors.surfaceSoft,
