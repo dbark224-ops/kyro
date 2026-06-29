@@ -48,6 +48,7 @@ export type WorkspaceBusinessProfileSettings = {
   businessAddress: string;
   businessName: string;
   contactHours: string;
+  contactHoursSchedule: BusinessHoursScheduleSettings;
   emergencyJobsEnabled: boolean;
   industry: string;
   logoContentBase64: string;
@@ -65,7 +66,47 @@ export type WorkspaceBusinessProfileSettings = {
   staffCount: number | null;
   travelRadiusKm: number | null;
   workingHours: string;
+  workingHoursSchedule: BusinessHoursScheduleSettings;
 };
+
+export const BUSINESS_HOUR_DAYS = [
+  { key: "monday", label: "Monday", shortLabel: "Mon" },
+  { key: "tuesday", label: "Tuesday", shortLabel: "Tue" },
+  { key: "wednesday", label: "Wednesday", shortLabel: "Wed" },
+  { key: "thursday", label: "Thursday", shortLabel: "Thu" },
+  { key: "friday", label: "Friday", shortLabel: "Fri" },
+  { key: "saturday", label: "Saturday", shortLabel: "Sat" },
+  { key: "sunday", label: "Sunday", shortLabel: "Sun" },
+  { key: "holidays", label: "Holidays", shortLabel: "Holidays" },
+] as const;
+
+export type BusinessHourDayKey = (typeof BUSINESS_HOUR_DAYS)[number]["key"];
+
+export type BusinessHoursDaySettings = {
+  day: BusinessHourDayKey;
+  enabled: boolean;
+  endTime: string;
+  startTime: string;
+};
+
+export type BusinessHoursScheduleSettings = {
+  days: BusinessHoursDaySettings[];
+  notes: string;
+};
+
+function defaultBusinessHoursSchedule(): BusinessHoursScheduleSettings {
+  return {
+    days: BUSINESS_HOUR_DAYS.map((day) => ({
+      day: day.key,
+      enabled: ["monday", "tuesday", "wednesday", "thursday", "friday"].includes(
+        day.key,
+      ),
+      endTime: "16:00",
+      startTime: "07:00",
+    })),
+    notes: "",
+  };
+}
 
 export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfileSettings =
   {
@@ -75,6 +116,7 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     businessAddress: "",
     businessName: "",
     contactHours: "",
+    contactHoursSchedule: defaultBusinessHoursSchedule(),
     emergencyJobsEnabled: false,
     industry: "",
     logoContentBase64: "",
@@ -92,6 +134,7 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
     staffCount: null,
     travelRadiusKm: null,
     workingHours: "",
+    workingHoursSchedule: defaultBusinessHoursSchedule(),
   };
 
 export const DEFAULT_WORKSPACE_GENERAL_SETTINGS: WorkspaceGeneralSettings = {
@@ -181,6 +224,59 @@ function normalizeHexColor(value: unknown, fallback: string) {
   return color && /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
 
+function normalizeBusinessHourDayKey(
+  value: unknown,
+  fallback: BusinessHourDayKey,
+): BusinessHourDayKey {
+  const key = textValue(value);
+
+  return BUSINESS_HOUR_DAYS.some((day) => day.key === key)
+    ? (key as BusinessHourDayKey)
+    : fallback;
+}
+
+function normalizeTimeValue(value: unknown, fallback: string) {
+  const time = textValue(value);
+
+  return time && /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : fallback;
+}
+
+function normalizeBusinessHoursSchedule(
+  value: unknown,
+  fallback = defaultBusinessHoursSchedule(),
+): BusinessHoursScheduleSettings {
+  const settings = objectRecord(value);
+  const rows = Array.isArray(settings.days) ? settings.days : [];
+  const fallbackDays = new Map(fallback.days.map((day) => [day.day, day]));
+  const inputDays = new Map(
+    rows.map((row, index) => {
+      const record = objectRecord(row);
+      const fallbackDay = BUSINESS_HOUR_DAYS[index]?.key ?? "monday";
+      const key = normalizeBusinessHourDayKey(record.day, fallbackDay);
+
+      return [key, record] as const;
+    }),
+  );
+
+  return {
+    days: BUSINESS_HOUR_DAYS.map((day) => {
+      const input = inputDays.get(day.key) ?? {};
+      const fallbackDay = fallbackDays.get(day.key);
+
+      return {
+        day: day.key,
+        enabled: booleanValue(input.enabled, fallbackDay?.enabled ?? false),
+        endTime: normalizeTimeValue(input.endTime, fallbackDay?.endTime ?? "16:00"),
+        startTime: normalizeTimeValue(
+          input.startTime,
+          fallbackDay?.startTime ?? "07:00",
+        ),
+      };
+    }),
+    notes: cappedTextValue(settings.notes, fallback.notes, 600),
+  };
+}
+
 function clampLogoWidth(value: unknown, fallback: number) {
   const parsed = numberValue(value) ?? fallback;
 
@@ -233,6 +329,10 @@ export function normalizeWorkspaceBusinessProfileSettings(
       settings.contactHours,
       fallback.contactHours ?? defaultSettings.contactHours,
       600,
+    ),
+    contactHoursSchedule: normalizeBusinessHoursSchedule(
+      settings.contactHoursSchedule,
+      fallback.contactHoursSchedule ?? defaultSettings.contactHoursSchedule,
     ),
     emergencyJobsEnabled: booleanValue(
       settings.emergencyJobsEnabled,
@@ -312,6 +412,10 @@ export function normalizeWorkspaceBusinessProfileSettings(
       settings.workingHours,
       fallback.workingHours ?? defaultSettings.workingHours,
       800,
+    ),
+    workingHoursSchedule: normalizeBusinessHoursSchedule(
+      settings.workingHoursSchedule,
+      fallback.workingHoursSchedule ?? defaultSettings.workingHoursSchedule,
     ),
   };
 }

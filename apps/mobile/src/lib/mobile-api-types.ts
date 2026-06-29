@@ -10,6 +10,28 @@ export type MobileMetrics = {
   readyQuotes: number;
 };
 
+export type MobileBusinessHourDayKey =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday"
+  | "holidays";
+
+export type MobileBusinessHoursDaySettings = {
+  day: MobileBusinessHourDayKey;
+  enabled: boolean;
+  endTime: string;
+  startTime: string;
+};
+
+export type MobileBusinessHoursScheduleSettings = {
+  days: MobileBusinessHoursDaySettings[];
+  notes: string;
+};
+
 export type AssistantLink = {
   href: string;
   label: string;
@@ -909,6 +931,7 @@ export type MobileSettingsResponse = {
         businessAddress: string;
         businessName: string;
         contactHours: string;
+        contactHoursSchedule: MobileBusinessHoursScheduleSettings;
         emergencyJobsEnabled: boolean;
         industry: string;
         logoContentBase64: string;
@@ -926,6 +949,7 @@ export type MobileSettingsResponse = {
         staffCount: number | null;
         travelRadiusKm: number | null;
         workingHours: string;
+        workingHoursSchedule: MobileBusinessHoursScheduleSettings;
       };
       defaultPhoneRegion: string;
       displayCurrency: string;

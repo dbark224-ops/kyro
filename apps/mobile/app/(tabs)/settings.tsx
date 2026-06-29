@@ -82,6 +82,9 @@ import {
 } from "@/lib/mobile-query";
 import type {
   MobileActivityLogItem,
+  MobileBusinessHourDayKey,
+  MobileBusinessHoursDaySettings,
+  MobileBusinessHoursScheduleSettings,
   MobileContactImportResponse,
   MobileDocumentsResponse,
   MobileDocumentTemplate,
@@ -301,6 +304,46 @@ const emptySignature: MobileEmailSignatureSettings = {
   text: "",
 };
 
+const businessHourDays: Array<{
+  key: MobileBusinessHourDayKey;
+  label: string;
+  shortLabel: string;
+}> = [
+  { key: "monday", label: "Monday", shortLabel: "Mon" },
+  { key: "tuesday", label: "Tuesday", shortLabel: "Tue" },
+  { key: "wednesday", label: "Wednesday", shortLabel: "Wed" },
+  { key: "thursday", label: "Thursday", shortLabel: "Thu" },
+  { key: "friday", label: "Friday", shortLabel: "Fri" },
+  { key: "saturday", label: "Saturday", shortLabel: "Sat" },
+  { key: "sunday", label: "Sunday", shortLabel: "Sun" },
+  { key: "holidays", label: "Holidays", shortLabel: "Holidays" },
+];
+
+const timeOptions = Array.from({ length: 48 }, (_, index) => {
+  const hours = Math.floor(index / 2);
+  const minutes = index % 2 === 0 ? "00" : "30";
+  const value = `${String(hours).padStart(2, "0")}:${minutes}`;
+
+  return {
+    label: formatTimeLabel(value),
+    value,
+  };
+});
+
+function defaultBusinessHoursSchedule(): MobileBusinessHoursScheduleSettings {
+  return {
+    days: businessHourDays.map((day) => ({
+      day: day.key,
+      enabled: ["monday", "tuesday", "wednesday", "thursday", "friday"].includes(
+        day.key,
+      ),
+      endTime: "16:00",
+      startTime: "07:00",
+    })),
+    notes: "",
+  };
+}
+
 const emptyBusinessProfile: MobileSettingsResponse["settings"]["general"]["businessProfile"] =
   {
     brandAccentColor: "#ec3c96",
@@ -309,6 +352,7 @@ const emptyBusinessProfile: MobileSettingsResponse["settings"]["general"]["busin
     businessAddress: "",
     businessName: "",
     contactHours: "",
+    contactHoursSchedule: defaultBusinessHoursSchedule(),
     emergencyJobsEnabled: false,
     industry: "",
     logoContentBase64: "",
@@ -326,6 +370,7 @@ const emptyBusinessProfile: MobileSettingsResponse["settings"]["general"]["busin
     staffCount: null,
     travelRadiusKm: null,
     workingHours: "",
+    workingHoursSchedule: defaultBusinessHoursSchedule(),
   };
 
 type SettingsSectionItem = {
@@ -610,7 +655,7 @@ export default function SettingsScreen() {
 
     setGeneralDraft({
       businessProfile:
-        data.settings.general.businessProfile ?? emptyBusinessProfile,
+        normalizeMobileBusinessProfile(data.settings.general.businessProfile),
       defaultPhoneRegion: data.settings.general.defaultPhoneRegion ?? "AU",
       displayCurrency: data.settings.general.displayCurrency,
       timeZone: data.settings.general.timeZone,
@@ -924,10 +969,6 @@ function SettingsLoadingState() {
                     tone={tone}
                     width={index === 1 ? "46%" : "56%"}
                   />
-                  <SkeletonLine
-                    height={10}
-                    width={index === 2 ? "84%" : "68%"}
-                  />
                 </View>
                 <ChevronRight color={colors.muted} size={18} />
               </View>
@@ -957,7 +998,6 @@ function SettingsMenu({
   data: MobileSettingsResponse;
   onSelect: (group: SettingsGroup) => void;
 }) {
-  const { lockMode } = useAppLock();
   const visibleGroups = settingsGroups
     .map((group) => ({
       ...group,
@@ -971,8 +1011,6 @@ function SettingsMenu({
       <View style={styles.settingsRowGroup}>
         {visibleGroups.map((group, index) => (
           <SettingsGroupRow
-            appLockMode={lockMode}
-            data={data}
             group={group}
             isLast={index === visibleGroups.length - 1}
             key={group.id}
@@ -995,7 +1033,6 @@ function SettingsGroupMenu({
   onBack: () => void;
   onSelect: (section: SettingsSection) => void;
 }) {
-  const { lockMode } = useAppLock();
   const group = settingsGroups.find((candidate) => candidate.id === groupId);
   const visibleItems = group
     ? visibleSectionsForGroup(group, data)
@@ -1034,8 +1071,6 @@ function SettingsGroupMenu({
         <View style={styles.settingsRowGroup}>
           {visibleItems.map((item, index) => (
             <SettingsMenuRow
-              appLockMode={lockMode}
-              data={data}
               isLast={index === visibleItems.length - 1}
               item={item}
               key={item.section}
@@ -1049,14 +1084,10 @@ function SettingsGroupMenu({
 }
 
 function SettingsGroupRow({
-  appLockMode,
-  data,
   group,
   isLast,
   onPress,
 }: {
-  appLockMode: AppLockMode;
-  data: MobileSettingsResponse;
   group: SettingsGroupItem;
   isLast: boolean;
   onPress: () => void;
@@ -1074,9 +1105,6 @@ function SettingsGroupRow({
       </View>
       <View style={styles.settingsRowMain}>
         <Text style={styles.settingsRowTitle}>{group.title}</Text>
-        <Text style={styles.settingsRowDetail} numberOfLines={1}>
-          {settingsGroupDetail(group, data, appLockMode)}
-        </Text>
       </View>
       <ChevronRight color={colors.muted} size={18} />
     </Pressable>
@@ -1084,14 +1112,10 @@ function SettingsGroupRow({
 }
 
 function SettingsMenuRow({
-  appLockMode,
-  data,
   isLast,
   item,
   onPress,
 }: {
-  appLockMode: AppLockMode;
-  data: MobileSettingsResponse;
   isLast: boolean;
   item: (typeof sectionItems)[number];
   onPress: () => void;
@@ -1109,9 +1133,6 @@ function SettingsMenuRow({
       </View>
       <View style={styles.settingsRowMain}>
         <Text style={styles.settingsRowTitle}>{item.title}</Text>
-        <Text style={styles.settingsRowDetail} numberOfLines={1}>
-          {settingsMenuDetail(item.section, data, appLockMode) ?? item.detail}
-        </Text>
       </View>
       <ChevronRight color={colors.muted} size={18} />
     </Pressable>
@@ -1274,15 +1295,42 @@ function GeneralSettingsPanel({
 }) {
   const verificationRequired = account.verificationRequired;
   const saveDisabled = disabled || verificationRequired;
-  const updateProfile = (
-    key: keyof GeneralDraft["businessProfile"],
-    value: string | boolean | number | null,
+  const updateProfile = <K extends keyof GeneralDraft["businessProfile"]>(
+    key: K,
+    value: GeneralDraft["businessProfile"][K],
   ) => {
     onChange({
       ...draft,
       businessProfile: {
         ...draft.businessProfile,
         [key]: value,
+      },
+    });
+  };
+  const updateServiceArea = (serviceArea: string) => {
+    onChange({
+      ...draft,
+      businessProfile: {
+        ...draft.businessProfile,
+        serviceArea,
+        servicePostcodes: "",
+        serviceSuburbs: "",
+      },
+    });
+  };
+  const updateBusinessHoursSchedule = (
+    key: "contactHoursSchedule" | "workingHoursSchedule",
+    schedule: MobileBusinessHoursScheduleSettings,
+  ) => {
+    const summary = businessHoursScheduleSummary(schedule);
+    const textKey = key === "workingHoursSchedule" ? "workingHours" : "contactHours";
+
+    onChange({
+      ...draft,
+      businessProfile: {
+        ...draft.businessProfile,
+        [key]: schedule,
+        [textKey]: summary,
       },
     });
   };
@@ -1411,65 +1459,28 @@ function GeneralSettingsPanel({
           title="Service area"
         />
         <SettingField label="Service area">
-          <TextInput
-            editable={!disabled}
-            onChangeText={(serviceArea) =>
-              updateProfile("serviceArea", serviceArea)
-            }
-            placeholder="Brisbane northside, Moreton Bay..."
-            placeholderTextColor={colors.muted}
-            style={[styles.input, styles.textAreaSmall]}
-            multiline
+          <ServiceAreaTagInput
+            disabled={disabled}
+            onChange={updateServiceArea}
             value={draft.businessProfile.serviceArea}
           />
         </SettingField>
-        <SettingField label="Suburbs">
-          <TextInput
-            editable={!disabled}
-            onChangeText={(serviceSuburbs) =>
-              updateProfile("serviceSuburbs", serviceSuburbs)
-            }
-            placeholder="Stafford, Kedron, Chermside"
-            placeholderTextColor={colors.muted}
-            style={[styles.input, styles.textAreaSmall]}
-            multiline
-            value={draft.businessProfile.serviceSuburbs}
-          />
-        </SettingField>
-        <SettingField label="Postcodes">
-          <TextInput
-            editable={!disabled}
-            onChangeText={(servicePostcodes) =>
-              updateProfile("servicePostcodes", servicePostcodes)
-            }
-            placeholder="4053, 4032"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            value={draft.businessProfile.servicePostcodes}
-          />
-        </SettingField>
         <SettingField label="Working hours">
-          <TextInput
-            editable={!disabled}
-            onChangeText={(workingHours) =>
-              updateProfile("workingHours", workingHours)
+          <BusinessHoursEditor
+            disabled={disabled}
+            onChange={(schedule) =>
+              updateBusinessHoursSchedule("workingHoursSchedule", schedule)
             }
-            placeholder="Mon-Fri, 7:00am-4:00pm"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            value={draft.businessProfile.workingHours}
+            schedule={draft.businessProfile.workingHoursSchedule}
           />
         </SettingField>
         <SettingField label="Contact hours">
-          <TextInput
-            editable={!disabled}
-            onChangeText={(contactHours) =>
-              updateProfile("contactHours", contactHours)
+          <BusinessHoursEditor
+            disabled={disabled}
+            onChange={(schedule) =>
+              updateBusinessHoursSchedule("contactHoursSchedule", schedule)
             }
-            placeholder="When Kyro should expect responses"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            value={draft.businessProfile.contactHours}
+            schedule={draft.businessProfile.contactHoursSchedule}
           />
         </SettingField>
         <SwitchRow
@@ -1515,6 +1526,268 @@ function GeneralSettingsPanel({
         />
       </SectionCard>
     </>
+  );
+}
+
+type MobileAddressSuggestion = {
+  description: string;
+  mainText: string;
+  placeId: string;
+  secondaryText: string | null;
+};
+
+function ServiceAreaTagInput({
+  disabled,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const { session } = useAuthSession();
+  const [draft, setDraft] = useState("");
+  const [suggestions, setSuggestions] = useState<MobileAddressSuggestion[]>([]);
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sessionToken = useRef(
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const tags = splitTags(value);
+  const query = draft.trim();
+
+  useEffect(() => {
+    if (disabled || !session || query.length < 3) {
+      setBusy(false);
+      setLookupMessage(null);
+      setSuggestions([]);
+      return;
+    }
+
+    let cancelled = false;
+    setBusy(true);
+    setLookupMessage(null);
+
+    const timer = setTimeout(() => {
+      kyroApiFetch<{
+        data: MobileAddressSuggestion[];
+        unavailable?: boolean;
+      }>("/api/mobile/addresses/autocomplete", {
+        query: {
+          q: query,
+          sessionToken: sessionToken.current,
+          type: "regions",
+        },
+        session,
+      })
+        .then((payload) => {
+          if (cancelled) {
+            return;
+          }
+
+          setSuggestions(payload.data ?? []);
+          setLookupMessage(
+            payload.unavailable ? "Address lookup is unavailable." : null,
+          );
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSuggestions([]);
+            setLookupMessage("Address lookup is unavailable.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setBusy(false);
+          }
+        });
+    }, 260);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [disabled, query, session]);
+
+  const commitTags = (nextValues: string[]) => {
+    const nextTags = dedupeTextValues([...tags, ...nextValues]);
+
+    onChange(nextTags.join(", "));
+    setDraft("");
+    setLookupMessage(null);
+    setSuggestions([]);
+  };
+  const removeTag = (tag: string) => {
+    onChange(tags.filter((item) => item !== tag).join(", "));
+  };
+
+  return (
+    <View style={styles.tagControl}>
+      <View style={[styles.tagInputBox, disabled ? styles.disabled : null]}>
+        <View style={styles.tagPillList}>
+          {tags.map((tag) => (
+            <View key={tag} style={styles.tagPill}>
+              <Text numberOfLines={1} style={styles.tagPillText}>
+                {tag}
+              </Text>
+              <Pressable
+                accessibilityLabel={`Remove ${tag}`}
+                accessibilityRole="button"
+                disabled={disabled}
+                onPress={() => removeTag(tag)}
+                style={styles.tagRemoveButton}
+              >
+                <X color={colors.muted} size={12} strokeWidth={2.5} />
+              </Pressable>
+            </View>
+          ))}
+          <TextInput
+            autoCapitalize="words"
+            editable={!disabled}
+            onChangeText={(text) => {
+              if (/[,;\n]/.test(text)) {
+                commitTags(splitTags(text));
+                return;
+              }
+
+              setDraft(text);
+            }}
+            onSubmitEditing={() => commitTags(splitTags(draft))}
+            placeholder={tags.length ? "Add another area" : "Add service area"}
+            placeholderTextColor={colors.muted}
+            returnKeyType="done"
+            style={styles.tagTextInput}
+            value={draft}
+          />
+        </View>
+      </View>
+
+      {suggestions.length ? (
+        <View style={styles.suggestionMenu}>
+          {suggestions.slice(0, 5).map((suggestion) => (
+            <Pressable
+              accessibilityRole="button"
+              key={suggestion.placeId || suggestion.description}
+              onPress={() =>
+                commitTags([
+                  suggestion.mainText ||
+                    suggestion.description ||
+                    suggestion.secondaryText ||
+                    "",
+                ])
+              }
+              style={styles.suggestionRow}
+            >
+              <View style={styles.settingsRowMain}>
+                <Text numberOfLines={1} style={styles.suggestionTitle}>
+                  {suggestion.mainText || suggestion.description}
+                </Text>
+                {suggestion.secondaryText ? (
+                  <Text numberOfLines={1} style={styles.suggestionMeta}>
+                    {suggestion.secondaryText}
+                  </Text>
+                ) : null}
+              </View>
+              <ChevronRight color={colors.cyan} size={16} />
+            </Pressable>
+          ))}
+          <Text style={styles.googleAttribution}>Powered by Google</Text>
+        </View>
+      ) : null}
+      {busy ? <Text style={styles.lookupMeta}>Searching areas...</Text> : null}
+      {lookupMessage ? (
+        <Text style={styles.lookupMeta}>{lookupMessage}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function BusinessHoursEditor({
+  disabled,
+  onChange,
+  schedule,
+}: {
+  disabled: boolean;
+  onChange: (schedule: MobileBusinessHoursScheduleSettings) => void;
+  schedule: MobileBusinessHoursScheduleSettings;
+}) {
+  const normalized = normalizeBusinessHoursSchedule(schedule);
+  const updateDay = (
+    dayKey: MobileBusinessHourDayKey,
+    changes: Partial<MobileBusinessHoursDaySettings>,
+  ) => {
+    onChange({
+      ...normalized,
+      days: normalized.days.map((day) =>
+        day.day === dayKey ? { ...day, ...changes } : day,
+      ),
+    });
+  };
+
+  return (
+    <View style={styles.hoursEditor}>
+      <View style={styles.hoursSummaryBox}>
+        <Text style={styles.rowMeta}>Current</Text>
+        <Text numberOfLines={3} style={styles.hoursSummaryText}>
+          {businessHoursScheduleSummary(normalized)}
+        </Text>
+      </View>
+      {normalized.days.map((day) => {
+        const meta =
+          businessHourDays.find((candidate) => candidate.key === day.day) ??
+          businessHourDays[0];
+
+        return (
+          <View key={day.day} style={styles.hoursDayRow}>
+            <View style={styles.hoursDayHeader}>
+              <Text style={styles.hoursDayLabel}>{meta.label}</Text>
+              <Switch
+                disabled={disabled}
+                onValueChange={(enabled) => updateDay(day.day, { enabled })}
+                thumbColor={day.enabled ? colors.text : colors.muted}
+                trackColor={{
+                  false: colors.line,
+                  true: "rgba(81, 229, 255, 0.48)",
+                }}
+                value={day.enabled}
+              />
+            </View>
+            <View
+              style={[
+                styles.hoursTimeRow,
+                !day.enabled ? styles.hoursTimeRowDisabled : null,
+              ]}
+            >
+              <ReportDropdown
+                compact
+                disabled={disabled || !day.enabled}
+                label={`${meta.label} start`}
+                onChange={(startTime) => updateDay(day.day, { startTime })}
+                options={timeOptions}
+                value={day.startTime}
+              />
+              <ReportDropdown
+                compact
+                disabled={disabled || !day.enabled}
+                label={`${meta.label} end`}
+                onChange={(endTime) => updateDay(day.day, { endTime })}
+                options={timeOptions}
+                value={day.endTime}
+              />
+            </View>
+          </View>
+        );
+      })}
+      <TextInput
+        editable={!disabled}
+        multiline
+        onChangeText={(notes) => onChange({ ...normalized, notes })}
+        placeholder="Notes for Kyro"
+        placeholderTextColor={colors.muted}
+        style={[styles.input, styles.textAreaSmall]}
+        value={normalized.notes}
+      />
+    </View>
   );
 }
 
@@ -3595,11 +3868,15 @@ function ReportsSettingsPanel() {
 }
 
 function ReportDropdown({
+  compact = false,
+  disabled = false,
   label,
   onChange,
   options,
   value,
 }: {
+  compact?: boolean;
+  disabled?: boolean;
   label: string;
   onChange: (value: string) => void;
   options: Array<{ description?: string; label: string; value: string }>;
@@ -3612,8 +3889,13 @@ function ReportDropdown({
     <>
       <Pressable
         accessibilityRole="button"
+        disabled={disabled}
         onPress={() => setOpen(true)}
-        style={styles.dropdownButton}
+        style={[
+          styles.dropdownButton,
+          compact ? styles.dropdownButtonCompact : null,
+          disabled ? styles.disabled : null,
+        ]}
       >
         <Text numberOfLines={1} style={styles.dropdownValue}>
           {active?.label ?? formatLabel(value)}
@@ -6341,98 +6623,155 @@ function fallbackSettingsAccount(fallbackEmail?: string | null): SettingsAccount
   };
 }
 
-function settingsGroupDetail(
-  group: SettingsGroupItem,
-  data: MobileSettingsResponse,
-  appLockMode: AppLockMode,
-) {
-  if (group.id === "app_account") {
-    return `${appLockModeLabel(appLockMode)} - ${data.usage.totals.displayCustomerCharge}`;
-  }
+function normalizeMobileBusinessProfile(
+  value:
+    | MobileSettingsResponse["settings"]["general"]["businessProfile"]
+    | null
+    | undefined,
+): MobileSettingsResponse["settings"]["general"]["businessProfile"] {
+  const source = value ?? emptyBusinessProfile;
 
-  if (group.id === "workspace") {
-    const savedVoice =
-      data.settings.voice.elevenLabsVoiceLabel ||
-      (data.settings.voice.elevenLabsVoicePresetId
-        ? formatLabel(data.settings.voice.elevenLabsVoicePresetId)
-        : "Vapi");
-
-    return `${data.settings.general.displayCurrency} - ${savedVoice}`;
-  }
-
-  if (group.id === "communication") {
-    return `${data.status.connectedAccountCount} connected - ${inboundSyncModeLabel(
-      data.settings.inboundEmail.syncMode,
-    )}`;
-  }
-
-  if (group.id === "document_generator") {
-    return `${data.usage.totals.displayCustomerCharge} - quotes, reports, files`;
-  }
-
-  const pageCount = visibleSectionsForGroup(group, data).length;
-
-  return `${pageCount} page${pageCount === 1 ? "" : "s"} - activity and tools`;
+  return {
+    ...emptyBusinessProfile,
+    ...source,
+    contactHoursSchedule: normalizeBusinessHoursSchedule(
+      source.contactHoursSchedule,
+    ),
+    workingHoursSchedule: normalizeBusinessHoursSchedule(
+      source.workingHoursSchedule,
+    ),
+  };
 }
 
-function settingsMenuDetail(
-  section: SettingsSection,
-  data: MobileSettingsResponse,
-  appLockMode: AppLockMode,
+function normalizeBusinessHoursSchedule(
+  value: Partial<MobileBusinessHoursScheduleSettings> | null | undefined,
+): MobileBusinessHoursScheduleSettings {
+  const fallback = defaultBusinessHoursSchedule();
+  const inputDays = new Map(
+    Array.isArray(value?.days)
+      ? value.days.map((day, index) => {
+          const fallbackDay = fallback.days[index] ?? fallback.days[0];
+          const normalizedDay = normalizeBusinessHourDayKey(
+            day.day,
+            fallbackDay.day,
+          );
+
+          return [normalizedDay, day] as const;
+        })
+      : [],
+  );
+
+  return {
+    days: businessHourDays.map((day) => {
+      const fallbackDay =
+        fallback.days.find((candidate) => candidate.day === day.key) ??
+        fallback.days[0];
+      const input = inputDays.get(day.key);
+
+      return {
+        day: day.key,
+        enabled:
+          typeof input?.enabled === "boolean"
+            ? input.enabled
+            : fallbackDay.enabled,
+        endTime: normalizeBusinessTime(input?.endTime, fallbackDay.endTime),
+        startTime: normalizeBusinessTime(
+          input?.startTime,
+          fallbackDay.startTime,
+        ),
+      };
+    }),
+    notes: typeof value?.notes === "string" ? value.notes : "",
+  };
+}
+
+function normalizeBusinessHourDayKey(
+  value: unknown,
+  fallback: MobileBusinessHourDayKey,
+): MobileBusinessHourDayKey {
+  return businessHourDays.some((day) => day.key === value)
+    ? (value as MobileBusinessHourDayKey)
+    : fallback;
+}
+
+function normalizeBusinessTime(value: unknown, fallback: string) {
+  return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+    ? value
+    : fallback;
+}
+
+function businessHoursScheduleSummary(
+  schedule: MobileBusinessHoursScheduleSettings,
 ) {
-  if (section === "general") {
-    return `${data.settings.general.timeZone} - ${data.settings.general.displayCurrency}`;
-  }
+  const normalized = normalizeBusinessHoursSchedule(schedule);
+  const groups = new Map<string, string[]>();
 
-  if (section === "integrations") {
-    return `${data.status.connectedAccountCount} connected - ${inboundSyncModeLabel(
-      data.settings.inboundEmail.syncMode,
+  normalized.days
+    .filter((day) => day.enabled)
+    .forEach((day) => {
+      const key = `${day.startTime}-${day.endTime}`;
+      const label =
+        businessHourDays.find((candidate) => candidate.key === day.day)
+          ?.shortLabel ?? day.day;
+
+      groups.set(key, [...(groups.get(key) ?? []), label]);
+    });
+
+  const summary = Array.from(groups.entries()).map(([range, labels]) => {
+    const [start, end] = range.split("-");
+
+    return `${labels.join(", ")}: ${formatTimeLabel(start)} to ${formatTimeLabel(
+      end,
     )}`;
+  });
+  const notes = normalized.notes.trim();
+
+  return [...summary, notes ? `Notes: ${notes}` : null]
+    .filter((item): item is string => Boolean(item))
+    .join("; ") || "Not set";
+}
+
+function splitTags(value: string | null | undefined) {
+  return dedupeTextValues(
+    (value ?? "")
+      .split(/[,;\n]/)
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
+}
+
+function dedupeTextValues(values: string[]) {
+  const seen = new Set<string>();
+  const next: string[] = [];
+
+  values.forEach((value) => {
+    const normalized = value.trim();
+    const key = normalized.toLowerCase();
+
+    if (!normalized || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    next.push(normalized);
+  });
+
+  return next;
+}
+
+function formatTimeLabel(value: string) {
+  const [hoursText, minutesText] = value.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return value;
   }
 
-  if (section === "security") {
-    return appLockModeLabel(appLockMode);
-  }
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHours = hours % 12 || 12;
 
-  if (section === "voice") {
-    const savedVoice =
-      data.settings.voice.elevenLabsVoiceLabel ||
-      (data.settings.voice.elevenLabsVoicePresetId
-        ? formatLabel(data.settings.voice.elevenLabsVoicePresetId)
-        : "Vapi");
-
-    return `${savedVoice} voice`;
-  }
-
-  if (section === "contact_sync") {
-    return "Import selected phone contacts";
-  }
-
-  if (section === "document_generator") {
-    return "Quote drafts, templates, PDFs";
-  }
-
-  if (section === "files") {
-    return "Generated images, PDFs, email files";
-  }
-
-  if (section === "reports") {
-    return "Workspace summaries and PDF reports";
-  }
-
-  if (section === "activity") {
-    return "Messages, AI, audit, and usage log";
-  }
-
-  if (section === "logs") {
-    return "Inbound and outbound operation traces";
-  }
-
-  if (section === "developer") {
-    return "Health checks and internal tools";
-  }
-
-  return `${data.usage.totals.events} events - ${data.usage.totals.displayCustomerCharge}`;
+  return `${displayHours}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
 function appLockModeLabel(mode: AppLockMode) {
@@ -7367,6 +7706,10 @@ const styles = StyleSheet.create({
     minHeight: 46,
     paddingHorizontal: 12,
   },
+  dropdownButtonCompact: {
+    flex: 1,
+    minWidth: 0,
+  },
   dropdownOption: {
     alignItems: "center",
     borderBottomColor: colors.line,
@@ -7411,6 +7754,58 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 14,
     fontWeight: "900",
+  },
+  googleAttribution: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "800",
+    textAlign: "right",
+    textTransform: "uppercase",
+  },
+  hoursDayHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  hoursDayLabel: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  hoursDayRow: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: 8,
+    padding: 10,
+  },
+  hoursEditor: {
+    gap: 9,
+  },
+  hoursSummaryBox: {
+    backgroundColor: "rgba(81, 229, 255, 0.06)",
+    borderColor: "rgba(81, 229, 255, 0.22)",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: 4,
+    padding: 10,
+  },
+  hoursSummaryText: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  hoursTimeRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  hoursTimeRowDisabled: {
+    opacity: 0.48,
   },
   backButton: {
     alignItems: "center",
@@ -7609,6 +8004,12 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 12,
     paddingVertical: 10,
+  },
+  lookupMeta: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 11,
+    fontWeight: "700",
   },
   message: {
     color: colors.green,
@@ -8114,6 +8515,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
   },
+  suggestionMenu: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: 2,
+    padding: 8,
+  },
+  suggestionMeta: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  suggestionRow: {
+    alignItems: "center",
+    borderBottomColor: colors.line,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 44,
+    paddingVertical: 7,
+  },
+  suggestionTitle: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   switchRow: {
     alignItems: "center",
     borderBottomColor: colors.line,
@@ -8127,6 +8557,59 @@ const styles = StyleSheet.create({
   },
   textAreaSmall: {
     minHeight: 86,
+  },
+  tagControl: {
+    gap: 7,
+  },
+  tagInputBox: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    minHeight: 48,
+    padding: 8,
+  },
+  tagPill: {
+    alignItems: "center",
+    backgroundColor: "rgba(81, 229, 255, 0.09)",
+    borderColor: "rgba(81, 229, 255, 0.34)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    maxWidth: "100%",
+    minHeight: 30,
+    paddingLeft: 10,
+    paddingRight: 7,
+  },
+  tagPillList: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  tagPillText: {
+    color: colors.text,
+    flexShrink: 1,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  tagRemoveButton: {
+    alignItems: "center",
+    height: 22,
+    justifyContent: "center",
+    width: 22,
+  },
+  tagTextInput: {
+    color: colors.text,
+    flexGrow: 1,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "800",
+    minHeight: 32,
+    minWidth: 128,
+    padding: 0,
   },
   toolSkeletonList: {
     gap: 8,

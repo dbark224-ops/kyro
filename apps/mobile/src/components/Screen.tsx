@@ -1,5 +1,13 @@
-import type { ReactNode } from "react";
-import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  Image,
+  Keyboard,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandLockup } from "./BrandLockup";
@@ -60,6 +68,25 @@ export function Screen({
   titleScale = "default"
 }: Props) {
   const { status, user } = useAuthSession();
+  const [keyboardPadding, setKeyboardPadding] = useState(0);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardPadding(Math.max(0, event.endCoordinates.height - 58));
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardPadding(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
@@ -81,8 +108,10 @@ export function Screen({
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          !showTopBar ? styles.contentWithoutTopBar : null
+          !showTopBar ? styles.contentWithoutTopBar : null,
+          keyboardPadding ? { paddingBottom: 28 + keyboardPadding } : null
         ]}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
         scrollEnabled={scrollEnabled}
         showsVerticalScrollIndicator={false}
