@@ -494,11 +494,11 @@ const sectionItems: SettingsSectionItem[] = [
     title: "Activity",
   },
   {
-    detail: "Inbound and outbound operational traces",
-    eyebrow: "Log",
+    detail: "Inbound and outbound customer comms",
+    eyebrow: "Comms",
     icon: Activity,
     section: "logs",
-    title: "Operational log",
+    title: "Communications log",
   },
   {
     detail: "Health, smoke checks, and internal tools",
@@ -539,10 +539,10 @@ const settingsGroups: SettingsGroupItem[] = [
     title: "Business profile",
   },
   {
-    detail: "Email providers, phone numbers, outbound rules, and traces",
+    detail: "Email providers, phone numbers, and outbound rules",
     icon: Mail,
     id: "communication",
-    sections: ["integrations", "phone_sms", "logs"],
+    sections: ["integrations", "phone_sms"],
     title: "Communication",
   },
   {
@@ -887,6 +887,7 @@ export default function SettingsScreen() {
               {selectedSection === "usage" ? (
                 <UsageSettingsPanel
                   data={data}
+                  onOpenCommunicationsLog={() => setSelectedSection("logs")}
                   onOpenLedger={() => setSelectedSection("usage_ledger")}
                 />
               ) : null}
@@ -3605,9 +3606,11 @@ function pronunciationEntryPill(entry: PronunciationEntry) {
 
 function UsageSettingsPanel({
   data,
+  onOpenCommunicationsLog,
   onOpenLedger,
 }: {
   data: MobileSettingsResponse;
+  onOpenCommunicationsLog: () => void;
   onOpenLedger: () => void;
 }) {
   const { session } = useAuthSession();
@@ -3721,6 +3724,26 @@ function UsageSettingsPanel({
             <Text style={styles.rowTitle}>Open detailed ledger</Text>
             <Text style={styles.rowCopy}>
               Loads event history only when you need it.
+            </Text>
+          </View>
+          <ChevronRight color={colors.muted} size={18} />
+        </Pressable>
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader eyebrow="Communications" title="Communications log" />
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenCommunicationsLog}
+          style={({ pressed }) => [
+            styles.inlineActionRow,
+            pressed ? styles.pressed : null,
+          ]}
+        >
+          <View style={styles.inlineActionCopy}>
+            <Text style={styles.rowTitle}>Inbound and outbound comms</Text>
+            <Text style={styles.rowCopy}>
+              Review sync, email, SMS, and outbound communication traces.
             </Text>
           </View>
           <ChevronRight color={colors.muted} size={18} />
@@ -4272,8 +4295,8 @@ function OperationalLogSettingsPanel() {
         action={
           <StatusPill label={`${visibleItems.length} shown`} tone="cyan" />
         }
-        eyebrow="Operational log"
-        title="Inbound and outbound"
+        eyebrow="Communications log"
+        title="Inbound and outbound comms"
       />
       <ToolsDataState
         error={tools.error}
@@ -4306,7 +4329,9 @@ function OperationalLogSettingsPanel() {
               ))}
             </View>
           ) : (
-            <Text style={styles.emptyCopy}>No operational log rows match.</Text>
+            <Text style={styles.emptyCopy}>
+              No communications log rows match.
+            </Text>
           )}
         </>
       ) : null}
