@@ -22,10 +22,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({ data: place });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to load place details.";
-
-    return NextResponse.json({ error: message }, { status: 400 });
+  } catch {
+    return NextResponse.json({ data: null, unavailable: true });
   }
 }

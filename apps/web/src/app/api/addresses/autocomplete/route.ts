@@ -2,6 +2,7 @@ import {
   autocompleteAddresses,
   type GoogleAutocompletePrimaryType,
 } from "../../../../lib/addresses/google";
+import { developerAccessEnabled } from "../../../../lib/auth/developer-access";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
 import { NextResponse, type NextRequest } from "next/server";
@@ -20,9 +21,11 @@ export async function GET(request: NextRequest) {
   const input = request.nextUrl.searchParams.get("q") ?? "";
   const sessionToken = request.nextUrl.searchParams.get("sessionToken");
   const type = primaryType(request.nextUrl.searchParams.get("type"));
+  let showProviderErrors = false;
 
   try {
-    const { supabase, workspace } = await requireWorkspaceContext();
+    const { supabase, user, workspace } = await requireWorkspaceContext();
+    showProviderErrors = developerAccessEnabled(user);
     const generalSettings = await getWorkspaceGeneralSettings(
       supabase,
       workspace.id,
@@ -36,6 +39,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ data: suggestions });
   } catch (error) {
+    if (!showProviderErrors) {
+      return NextResponse.json({ data: [], unavailable: true });
+    }
+
     const message =
       error instanceof Error
         ? error.message

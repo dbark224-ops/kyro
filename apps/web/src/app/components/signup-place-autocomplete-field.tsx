@@ -127,6 +127,7 @@ export function SignupPlaceAutocompleteField({
         const payload = (await response.json()) as {
           data?: AddressSuggestion[];
           error?: string;
+          unavailable?: boolean;
         };
 
         if (!response.ok) {
@@ -179,7 +180,18 @@ export function SignupPlaceAutocompleteField({
       const payload = (await response.json()) as {
         data?: StructuredAddress;
         error?: string;
+        unavailable?: boolean;
       };
+
+      if (payload.unavailable) {
+        setSelectedPlace(null);
+        updateValue(suggestion.mainText || suggestion.description);
+        setSuggestions([]);
+        setShouldSearch(false);
+        setStatus("idle");
+        sessionTokenRef.current = newSessionToken();
+        return;
+      }
 
       if (!response.ok || !payload.data) {
         throw new Error(payload.error ?? "Unable to load location details.");
@@ -248,7 +260,11 @@ export function SignupPlaceAutocompleteField({
           <span className="address-autocomplete-spinner" aria-hidden="true" />
         ) : null}
         {isOpen ? (
-          <span className="address-autocomplete-menu" id={listId} role="listbox">
+          <span
+            className="address-autocomplete-menu"
+            id={listId}
+            role="listbox"
+          >
             {suggestions.map((suggestion) => (
               <button
                 key={suggestion.placeId}
@@ -288,7 +304,11 @@ export function SignupPlaceAutocompleteField({
         type="hidden"
         value={hiddenFields.formatted}
       />
-      <input name={`${name}Locality`} type="hidden" value={hiddenFields.locality} />
+      <input
+        name={`${name}Locality`}
+        type="hidden"
+        value={hiddenFields.locality}
+      />
       <input
         name={`${name}AdministrativeArea`}
         type="hidden"
@@ -304,7 +324,11 @@ export function SignupPlaceAutocompleteField({
         type="hidden"
         value={hiddenFields.countryCode}
       />
-      <input name={`${name}Latitude`} type="hidden" value={hiddenFields.latitude} />
+      <input
+        name={`${name}Latitude`}
+        type="hidden"
+        value={hiddenFields.latitude}
+      />
       <input
         name={`${name}Longitude`}
         type="hidden"

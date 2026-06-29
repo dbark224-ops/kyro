@@ -44,12 +44,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({ data: suggestions });
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Unable to search Google locations.";
-
-    return NextResponse.json({ error: message }, { status: 400 });
+  } catch {
+    return NextResponse.json({ data: [], unavailable: true });
   }
 }

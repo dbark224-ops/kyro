@@ -114,6 +114,7 @@ export function AddressAutocompleteField({
         const payload = (await response.json()) as {
           data?: AddressSuggestion[];
           error?: string;
+          unavailable?: boolean;
         };
 
         if (!response.ok) {
@@ -167,7 +168,18 @@ export function AddressAutocompleteField({
       const payload = (await response.json()) as {
         data?: StructuredAddress;
         error?: string;
+        unavailable?: boolean;
       };
+
+      if (payload.unavailable) {
+        setSelectedAddress(null);
+        updateValue(suggestion.description);
+        setSuggestions([]);
+        setShouldSearch(false);
+        setStatus("idle");
+        sessionTokenRef.current = newSessionToken();
+        return;
+      }
 
       if (!response.ok || !payload.data) {
         throw new Error(payload.error ?? "Unable to load address details.");
