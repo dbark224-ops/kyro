@@ -1,5 +1,23 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
+
+const satoshi = localFont({
+  display: "swap",
+  src: [
+    {
+      path: "./fonts/Satoshi-Variable.woff2",
+      style: "normal",
+      weight: "300 900",
+    },
+    {
+      path: "./fonts/Satoshi-VariableItalic.woff2",
+      style: "italic",
+      weight: "300 900",
+    },
+  ],
+  variable: "--font-satoshi",
+});
 
 export const metadata: Metadata = {
   title: "Kyro",
@@ -17,7 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html className={satoshi.variable} lang="en">
       <body>{children}</body>
     </html>
   );
