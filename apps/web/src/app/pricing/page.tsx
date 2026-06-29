@@ -5,7 +5,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Pricing | Kyro",
   description:
-    "Kyro pricing is metered usage with early access handled through the waitlist and typical early users expected around $100 - $150 per month AUD.",
+    "Kyro pricing is metered usage with early access handled through the waitlist and typical early users expected around $150 - $200 per month AUD.",
 };
 
 const pricingCards = [
@@ -27,7 +27,7 @@ const pricingCards = [
     name: "Typical monthly cost",
     price: (
       <>
-        <span className="marketing-price-range">$100 - $150</span>
+        <span className="marketing-price-range">$150 - $200</span>
         <span className="marketing-price-term">per month AUD</span>
       </>
     ),
