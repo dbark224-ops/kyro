@@ -88,10 +88,20 @@ export async function POST(request: NextRequest) {
     const beforeSettings = normalizeWorkspaceGeneralSettings(
       beforeResult.data?.settings,
     );
+    const profilePatch =
+      payload.name === "businessServiceArea"
+        ? {
+            serviceArea: nextValue,
+            servicePostcodes: "",
+            serviceSuburbs: "",
+          }
+        : {
+            [field.key]: nextValue,
+          };
     const businessProfile = normalizeWorkspaceBusinessProfileSettings(
       {
         ...beforeSettings.businessProfile,
-        [field.key]: nextValue,
+        ...profilePatch,
       },
       {
         businessName: workspace.name,

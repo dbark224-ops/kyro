@@ -465,7 +465,6 @@ function redirectWithSettingsMessage(
 const GENERAL_SETTINGS_PANELS = [
   "business",
   "public-details",
-  "service-area",
   "availability",
   "branding-logo",
   "email-signature",

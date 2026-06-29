@@ -2390,6 +2390,28 @@ function EmailVerificationSettingsNotice({
   );
 }
 
+function mergedServiceAreaValue(
+  profile: WorkspaceGeneralSettings["businessProfile"],
+) {
+  const seen = new Set<string>();
+
+  return [profile.serviceArea, profile.serviceSuburbs, profile.servicePostcodes]
+    .flatMap((value) => (value ?? "").split(/[\n,]+/))
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.toLowerCase();
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    })
+    .join(", ");
+}
+
 function GeneralSettingsDetail({
   activePanel,
   communicationSettings,
@@ -2419,7 +2441,6 @@ function GeneralSettingsDetail({
     "";
   const activeBusinessPanel =
     activePanel === "public-details" ||
-    activePanel === "service-area" ||
     activePanel === "availability" ||
     activePanel === "branding-logo" ||
     activePanel === "email-signature" ||
@@ -2433,11 +2454,10 @@ function GeneralSettingsDetail({
     condition ? undefined : hiddenPanelStyle;
   const showCoreProfile = activeBusinessPanel === "business";
   const showPublicDetails = activeBusinessPanel === "public-details";
-  const showServiceArea = activeBusinessPanel === "service-area";
   const showAvailability = activeBusinessPanel === "availability";
-  const showCorePanel =
-    showCoreProfile || showPublicDetails || showServiceArea || showAvailability;
+  const showCorePanel = showCoreProfile || showPublicDetails || showAvailability;
   const emailVerificationPending = !emailVerified;
+  const serviceAreaValue = mergedServiceAreaValue(profile);
 
   return (
     <form
@@ -2514,6 +2534,24 @@ function GeneralSettingsDetail({
               </select>
             </label>
 
+            <div
+              className="setting-card service-area-tag-card"
+              style={visibleWhen(showCoreProfile)}
+            >
+              <SettingCardHeading info="Areas, suburbs, towns, postcodes, or plain-English notes Kyro can use when qualifying jobs. Press Enter after each entry.">
+                Service area
+              </SettingCardHeading>
+              <TagInputField
+                ariaLabel="Service area"
+                autoSubmit={showCoreProfile}
+                autoSaveEndpoint="/api/settings/business-profile-tags"
+                autocompleteType="regions"
+                defaultValue={serviceAreaValue}
+                name="businessServiceArea"
+                placeholder="Brisbane southside, Logan, Ipswich, 4121..."
+              />
+            </div>
+
             <label
               className="setting-card setting-card-compact-input"
               style={visibleWhen(showPublicDetails)}
@@ -2568,60 +2606,6 @@ function GeneralSettingsDetail({
                 label=""
                 name="businessAddress"
                 placeholder="Start typing a business address..."
-              />
-            </div>
-
-            <div
-              className="setting-card service-area-tag-card"
-              style={visibleWhen(showServiceArea)}
-            >
-              <SettingCardHeading info="Plain-English operating area Kyro can reference when qualifying jobs. Press Enter after each area.">
-                Service area
-              </SettingCardHeading>
-              <TagInputField
-                ariaLabel="Service area"
-                autoSubmit={showServiceArea}
-                autoSaveEndpoint="/api/settings/business-profile-tags"
-                autocompleteType="regions"
-                defaultValue={profile.serviceArea}
-                name="businessServiceArea"
-                placeholder="Brisbane southside, Logan, Ipswich..."
-              />
-            </div>
-
-            <div
-              className="setting-card service-area-tag-card"
-              style={visibleWhen(showServiceArea)}
-            >
-              <SettingCardHeading info="Useful for matching and explaining whether a job is likely inside the normal service area. Press Enter after each suburb.">
-                Suburbs serviced
-              </SettingCardHeading>
-              <TagInputField
-                ariaLabel="Suburbs serviced"
-                autoSubmit={showServiceArea}
-                autoSaveEndpoint="/api/settings/business-profile-tags"
-                autocompleteType="regions"
-                defaultValue={profile.serviceSuburbs}
-                name="businessServiceSuburbs"
-                placeholder="Holland Park West, Mount Gravatt..."
-              />
-            </div>
-
-            <div
-              className="setting-card service-area-tag-card"
-              style={visibleWhen(showServiceArea)}
-            >
-              <SettingCardHeading info="Optional postcode list. Press Enter after each postcode.">
-                Postcodes serviced
-              </SettingCardHeading>
-              <TagInputField
-                ariaLabel="Postcodes serviced"
-                autoSubmit={showServiceArea}
-                autoSaveEndpoint="/api/settings/business-profile-tags"
-                autocompleteType="regions"
-                defaultValue={profile.servicePostcodes}
-                name="businessServicePostcodes"
-                placeholder="4121, 4122, 4101..."
               />
             </div>
 
@@ -2939,9 +2923,7 @@ function GeneralSettingsDetail({
         </section>
 
         <div className="settings-footer">
-          {activeBusinessPanel === "service-area" ? null : (
-            <SettingsSubmitButton>Save</SettingsSubmitButton>
-          )}
+          <SettingsSubmitButton>Save</SettingsSubmitButton>
         </div>
       </fieldset>
     </form>

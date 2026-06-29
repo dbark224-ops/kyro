@@ -130,13 +130,6 @@ export function buildSettingsNestedItems({
         title: "Public details",
       },
       {
-        detail: "Suburbs, postcodes, travel range, and country",
-        href: settingsPanelHref("general", "service-area", activeWindow),
-        key: "service-area",
-        selected: selectedPanel === "service-area",
-        title: "Service area",
-      },
-      {
         detail: "Working hours and standard availability",
         href: settingsPanelHref("general", "availability", activeWindow),
         key: "availability",
