@@ -4970,6 +4970,16 @@ function KyroBillingSettingsDetail({
   const trialEndsAt = billingOverview.settings.trialEndsAt
     ? formatDate(billingOverview.settings.trialEndsAt)
     : null;
+  const cardDisplay = billingOverview.defaultPaymentMethod;
+  const cardBrand = cardDisplay?.brand
+    ? cardDisplay.brand.replace(/_/g, " ").toUpperCase()
+    : "Card";
+  const cardExpiry =
+    cardDisplay?.expMonth && cardDisplay.expYear
+      ? `${String(cardDisplay.expMonth).padStart(2, "0")}/${String(
+          cardDisplay.expYear,
+        ).slice(-2)}`
+      : null;
 
   return (
     <section className="panel embedded-panel kyro-billing-card standalone">
@@ -4995,6 +5005,20 @@ function KyroBillingSettingsDetail({
         <div className="kyro-billing-fact">
           <span>Trial ends</span>
           <strong>{trialEndsAt}</strong>
+        </div>
+      ) : null}
+      {cardDisplay?.last4 ? (
+        <div className="kyro-billing-fact">
+          <span>Saved card</span>
+          <strong>
+            {cardBrand} ending {cardDisplay.last4}
+            {cardExpiry ? ` - ${cardExpiry}` : ""}
+          </strong>
+        </div>
+      ) : billingReady ? (
+        <div className="kyro-billing-fact">
+          <span>Saved card</span>
+          <strong>Ready</strong>
         </div>
       ) : null}
       {!billingOverview.configured ? (

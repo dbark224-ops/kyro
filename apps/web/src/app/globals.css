@@ -8557,7 +8557,7 @@ button:disabled {
 }
 
 .availability-day-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
 }
 
 .availability-day-column {
@@ -8569,16 +8569,13 @@ button:disabled {
 
 .availability-day-row {
   display: grid;
-  grid-template-columns: minmax(96px, 1fr) minmax(104px, 112px) minmax(
-      104px,
-      112px
-    );
-  gap: 8px;
+  grid-template-columns: minmax(84px, 1fr) repeat(2, minmax(88px, 96px));
+  gap: 6px;
   align-items: end;
   border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--surface) 72%, var(--background));
-  padding: 7px;
+  padding: 6px;
 }
 
 .availability-day-row label {
@@ -8613,7 +8610,7 @@ button:disabled {
   width: 100%;
   min-width: 0;
   min-height: 34px;
-  padding: 6px 7px;
+  padding: 6px 5px;
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
 }

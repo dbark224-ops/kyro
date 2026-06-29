@@ -63,6 +63,17 @@ export type StripePaymentIntent = {
   status?: string | null;
 };
 
+export type StripePaymentMethod = {
+  card?: {
+    brand?: string | null;
+    exp_month?: number | null;
+    exp_year?: number | null;
+    last4?: string | null;
+  } | null;
+  id: string;
+  type?: string | null;
+};
+
 export type StripeBillingPortalSession = {
   id: string;
   url: string;
@@ -121,7 +132,9 @@ export function getStripeConfig(): StripeConfig {
 export function stripeWebhookUrl() {
   const appUrl = getStripeConfig().appUrl;
 
-  return appUrl ? `${appUrl.replace(/\/$/, "")}/api/integrations/stripe/webhook` : null;
+  return appUrl
+    ? `${appUrl.replace(/\/$/, "")}/api/integrations/stripe/webhook`
+    : null;
 }
 
 function appendFormData(
@@ -149,13 +162,21 @@ function nestedFormData(
     } else if (Array.isArray(item)) {
       item.forEach((entry, index) => {
         if (entry && typeof entry === "object") {
-          nestedFormData(entry as Record<string, unknown>, `${formKey}[${index}]`, form);
+          nestedFormData(
+            entry as Record<string, unknown>,
+            `${formKey}[${index}]`,
+            form,
+          );
         } else {
           appendFormData(form, `${formKey}[${index}]`, entry as string);
         }
       });
     } else {
-      appendFormData(form, formKey, item as string | number | boolean | null | undefined);
+      appendFormData(
+        form,
+        formKey,
+        item as string | number | boolean | null | undefined,
+      );
     }
   }
 
@@ -192,12 +213,14 @@ export async function stripeApiRequest<T>(
   }
 
   const response = await fetch(`https://api.stripe.com${path}`, init);
-  const payload = (await response.json().catch(() => null)) as
-    | { error?: { message?: string } }
-    | null;
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { message?: string };
+  } | null;
 
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? `Stripe request failed (${response.status}).`);
+    throw new Error(
+      payload?.error?.message ?? `Stripe request failed (${response.status}).`,
+    );
   }
 
   return payload as T;
@@ -351,6 +374,12 @@ export async function retrieveStripeSetupIntent(setupIntentId: string) {
   );
 }
 
+export async function retrieveStripePaymentMethod(paymentMethodId: string) {
+  return stripeApiRequest<StripePaymentMethod>(
+    `/v1/payment_methods/${encodeURIComponent(paymentMethodId)}`,
+  );
+}
+
 export async function createStripeBillingPortalSession({
   customerId,
   returnUrl,
@@ -418,7 +447,9 @@ export async function createStripeCheckoutSession({
   successUrl: string;
 }) {
   const applicationFeeAmount =
-    platformFeeBps > 0 ? Math.round((amountCents * platformFeeBps) / 10_000) : 0;
+    platformFeeBps > 0
+      ? Math.round((amountCents * platformFeeBps) / 10_000)
+      : 0;
   const checkoutLineItems =
     lineItems && lineItems.length > 0
       ? lineItems
@@ -429,14 +460,14 @@ export async function createStripeCheckoutSession({
     {
       cancel_url: cancelUrl,
       line_items: checkoutLineItems.map((lineItem) => ({
-          price_data: {
-            currency: currency.toLowerCase(),
-            product_data: {
-              name: lineItem.description.slice(0, 120),
-            },
-            unit_amount: lineItem.amountCents,
+        price_data: {
+          currency: currency.toLowerCase(),
+          product_data: {
+            name: lineItem.description.slice(0, 120),
           },
-          quantity: lineItem.quantity,
+          unit_amount: lineItem.amountCents,
+        },
+        quantity: lineItem.quantity,
       })),
       metadata,
       mode: "payment",

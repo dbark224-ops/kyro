@@ -6,6 +6,7 @@ import {
   createStripeSetupCheckoutSession,
   createStripeSetupIntent,
   getStripeConfig,
+  retrieveStripePaymentMethod,
 } from "../payments/stripe";
 
 export const KYRO_USER_BILLING_POLICY_TYPE = "kyro_user_billing";
@@ -32,6 +33,12 @@ export type KyroUserBillingSettings = {
 export type KyroUserBillingOverview = {
   appUrlConfigured: boolean;
   configured: boolean;
+  defaultPaymentMethod: {
+    brand: string | null;
+    expMonth: number | null;
+    expYear: number | null;
+    last4: string | null;
+  } | null;
   publishableKeyConfigured: boolean;
   settings: KyroUserBillingSettings;
   setupReady: boolean;
@@ -54,7 +61,9 @@ function boolValue(value: unknown) {
   return value === true;
 }
 
-function normalizeSettings(settings: Record<string, unknown> | null): KyroUserBillingSettings {
+function normalizeSettings(
+  settings: Record<string, unknown> | null,
+): KyroUserBillingSettings {
   const setupStatus = textValue(settings?.setupStatus);
 
   return {
@@ -63,7 +72,9 @@ function normalizeSettings(settings: Record<string, unknown> | null): KyroUserBi
     lastStripeEventId: textValue(settings?.lastStripeEventId),
     setupCompletedAt: textValue(settings?.setupCompletedAt),
     setupStatus:
-      setupStatus === "pending" || setupStatus === "ready" ? setupStatus : "not_started",
+      setupStatus === "pending" || setupStatus === "ready"
+        ? setupStatus
+        : "not_started",
     stripeCustomerId: textValue(settings?.stripeCustomerId),
     stripePaymentMethodId: textValue(settings?.stripePaymentMethodId),
     stripeSetupIntentId: textValue(settings?.stripeSetupIntentId),
@@ -117,13 +128,37 @@ export async function getKyroUserBillingOverview(
   const config = getStripeConfig();
   const row = await loadPolicy(supabase, workspaceId);
   const settings = normalizeSettings(row?.settings ?? null);
+  const defaultPaymentMethod =
+    config.configured && settings.stripePaymentMethodId
+      ? await retrieveStripePaymentMethod(settings.stripePaymentMethodId)
+          .then((paymentMethod) =>
+            paymentMethod.card
+              ? {
+                  brand: textValue(paymentMethod.card.brand),
+                  expMonth:
+                    typeof paymentMethod.card.exp_month === "number"
+                      ? paymentMethod.card.exp_month
+                      : null,
+                  expYear:
+                    typeof paymentMethod.card.exp_year === "number"
+                      ? paymentMethod.card.exp_year
+                      : null,
+                  last4: textValue(paymentMethod.card.last4),
+                }
+              : null,
+          )
+          .catch(() => null)
+      : null;
 
   return {
     appUrlConfigured: Boolean(config.appUrl),
     configured: config.configured,
+    defaultPaymentMethod,
     publishableKeyConfigured: Boolean(config.publishableKey),
     settings,
-    setupReady: Boolean(settings.stripeCustomerId && settings.defaultPaymentMethodReady),
+    setupReady: Boolean(
+      settings.stripeCustomerId && settings.defaultPaymentMethodReady,
+    ),
     webhookConfigured: config.webhookConfigured,
   };
 }
@@ -148,7 +183,9 @@ export async function createKyroUserBillingSetupUrl({
   }
 
   if (!user.email) {
-    throw new Error("Your account needs an email address before billing can be set up.");
+    throw new Error(
+      "Your account needs an email address before billing can be set up.",
+    );
   }
 
   const existing = await getKyroUserBillingOverview(supabase, workspace.id);
@@ -229,7 +266,9 @@ export async function createKyroUserBillingSetupIntent({
   }
 
   if (!user.email) {
-    throw new Error("Your account needs an email address before billing can be set up.");
+    throw new Error(
+      "Your account needs an email address before billing can be set up.",
+    );
   }
 
   const existing = await getKyroUserBillingOverview(supabase, workspace.id);
