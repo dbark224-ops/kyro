@@ -5,15 +5,15 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Pricing | Kyro",
   description:
-    "Kyro pricing is metered usage with a two-week free trial and typical early users expected around $100 - $150 per month AUD.",
+    "Kyro pricing is metered usage with early access handled through the waitlist and typical early users expected around $100 - $150 per month AUD.",
 };
 
 const pricingCards = [
   {
     description:
-      "Use Kyro with real enquiries, replies, quote drafts, and customer memory before paying.",
-    name: "Trial",
-    price: "Two weeks free",
+      "Join the waitlist now. Early access customers will be invited into onboarding as capacity opens.",
+    name: "Early access",
+    price: "Waitlist first",
   },
   {
     description:
@@ -37,7 +37,7 @@ const pricingCards = [
 export default function PricingPage() {
   return (
     <MarketingPageShell
-      copy="Start with two weeks free. After that, Kyro is billed on metered usage, so light users are not forced into heavy fixed plans."
+      copy="Kyro is opening through a waitlist first. When onboarding opens, billing will be based on metered usage, so light users are not forced into heavy fixed plans."
       eyebrow="Pricing"
       title="No plans. Just usage."
     >
@@ -66,10 +66,10 @@ export default function PricingPage() {
       </section>
 
       <section className="marketing-final-cta compact">
-        <p className="marketing-eyebrow">Two-week trial</p>
-        <h2>Try the assistant with real customer work before the meter starts.</h2>
-        <Link className="marketing-button" href="/sign-in">
-          Start two-week trial
+        <p className="marketing-eyebrow">Early access</p>
+        <h2>Join the waitlist before self-serve onboarding opens.</h2>
+        <Link className="marketing-button" href="/waitlist">
+          Join waitlist
         </Link>
       </section>
     </MarketingPageShell>

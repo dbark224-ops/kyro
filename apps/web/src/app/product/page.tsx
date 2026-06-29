@@ -66,10 +66,10 @@ export default function ProductPage() {
       </section>
 
       <section className="marketing-final-cta compact">
-        <p className="marketing-eyebrow">Try the workflow</p>
-        <h2>Put the assistant in front of real customer work.</h2>
-        <Link className="marketing-button" href="/sign-in">
-          Start two-week trial
+        <p className="marketing-eyebrow">Early access</p>
+        <h2>Join the waitlist before self-serve onboarding opens.</h2>
+        <Link className="marketing-button" href="/waitlist">
+          Join waitlist
         </Link>
       </section>
     </MarketingPageShell>

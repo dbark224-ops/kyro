@@ -108,8 +108,8 @@ export default function MarketingHomePage() {
             calls, quotes, customer memory, and next steps.
           </p>
           <div className="marketing-cta-row">
-            <Link className="marketing-button" href="/sign-in">
-              Start two-week trial
+            <Link className="marketing-button" href="/waitlist">
+              Join waitlist
             </Link>
             <Link className="marketing-button secondary" href="/product">
               See product
@@ -198,10 +198,10 @@ export default function MarketingHomePage() {
       </section>
 
       <section className="marketing-final-cta">
-        <p className="marketing-eyebrow">AI assistant workspace</p>
+        <p className="marketing-eyebrow">Early access</p>
         <h2>Give every enquiry somewhere intelligent to land.</h2>
-        <Link className="marketing-button" href="/sign-in">
-          Start two-week trial
+        <Link className="marketing-button" href="/waitlist">
+          Join waitlist
         </Link>
       </section>
 

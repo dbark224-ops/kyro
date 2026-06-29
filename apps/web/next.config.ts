@@ -7,6 +7,15 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "12mb"
     }
   },
+  async redirects() {
+    return [
+      {
+        destination: "/waitlist",
+        permanent: false,
+        source: "/create-account",
+      },
+    ];
+  },
   transpilePackages: [
     "@kyro/ai",
     "@kyro/api",

@@ -36,11 +36,8 @@ export function MarketingHeader({
       </nav>
 
       <div className="marketing-actions">
-        <Link className="marketing-link" href="/sign-in">
-          Sign in
-        </Link>
-        <Link className="marketing-button small" href="/sign-in">
-          Start two-week trial
+        <Link className="marketing-button small" href="/waitlist">
+          Join waitlist
         </Link>
       </div>
     </header>
@@ -67,6 +64,7 @@ export function MarketingFooter() {
       <nav aria-label="Footer navigation">
         <Link href="/product">Product</Link>
         <Link href="/pricing">Pricing</Link>
+        <Link href="/waitlist">Waitlist</Link>
         <Link href="/about">About</Link>
         <Link href="/contact">Contact</Link>
         <Link href="/legal/privacy">Privacy</Link>

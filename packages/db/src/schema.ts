@@ -59,6 +59,36 @@ export const users = pgTable("users", {
     .notNull(),
 });
 
+export const waitlistSignups = pgTable(
+  "waitlist_signups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    normalizedEmail: text("normalized_email").notNull(),
+    phone: text("phone"),
+    businessName: text("business_name").notNull(),
+    industry: text("industry").notNull(),
+    location: text("location").notNull(),
+    serviceArea: text("service_area"),
+    adminFocus: text("admin_focus").notNull(),
+    enquiryVolume: text("enquiry_volume"),
+    notes: text("notes"),
+    source: text("source").notNull().default("website"),
+    status: text("status").notNull().default("new"),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    waitlistSignupsEmailIdx: uniqueIndex(
+      "waitlist_signups_normalized_email_idx",
+    ).on(table.normalizedEmail),
+    waitlistSignupsStatusCreatedIdx: index(
+      "waitlist_signups_status_created_idx",
+    ).on(table.status, table.createdAt),
+  }),
+);
+
 export const workspaces = pgTable("workspaces", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
