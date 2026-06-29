@@ -1,5 +1,6 @@
 import { AppFrame } from "../components/app-frame";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
+import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { AutoSubmitControl } from "./auto-submit-control";
 import {
   disconnectIntegrationAction,
@@ -9,7 +10,6 @@ import {
   enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
   openKyroBillingPortalAction,
-  resetStripePaymentsSetupAction,
   startKyroBillingSetupAction,
   autosavePronunciationEntryAction,
   autosaveInboundEmailSettingsAction,
@@ -114,7 +114,9 @@ import { PHONE_REGION_OPTIONS } from "../../lib/crm/identity";
 import Link from "next/link";
 import { SettingsShell } from "./settings-shell";
 import { SettingsSubmitButton } from "./settings-submit-button";
+import { StripeResetButton } from "./stripe-reset-button";
 import {
+  settingsPanelHref,
   usageWindowHref,
   type IntegrationSettingsPanel,
 } from "./settings-navigation";
@@ -1344,14 +1346,7 @@ function StripePaymentsSettings({
             </SettingsSubmitButton>
           </form>
           {resetAvailable ? (
-            <form action={resetStripePaymentsSetupAction}>
-              <SettingsSubmitButton
-                className="secondary-button compact danger"
-                pendingLabel="Resetting..."
-              >
-                Reset setup
-              </SettingsSubmitButton>
-            </form>
+            <StripeResetButton />
           ) : null}
         </div>
       </section>
@@ -1786,12 +1781,12 @@ function EmailSyncHealthPanel({
         </div>
         {connected.length === 0 ? (
           <div className="email-sync-health-actions">
-            <Link
+            <SmartPrefetchLink
               className="primary-button compact link-button"
-              href="/settings?section=integrations&panel=email-accounts"
+              href={settingsPanelHref("integrations", "email-accounts")}
             >
               Set up email
-            </Link>
+            </SmartPrefetchLink>
           </div>
         ) : null}
       </div>

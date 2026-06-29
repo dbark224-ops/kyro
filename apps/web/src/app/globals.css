@@ -8935,6 +8935,25 @@ button:disabled {
   font-weight: 750;
 }
 
+.stripe-reset-control {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.stripe-reset-status {
+  max-width: 240px;
+  color: color-mix(in srgb, var(--text) 74%, var(--muted));
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.stripe-reset-status.error {
+  color: color-mix(in srgb, var(--pink) 82%, var(--text));
+}
+
 @keyframes kyro-spin-centered {
   to {
     transform: rotate(360deg);
