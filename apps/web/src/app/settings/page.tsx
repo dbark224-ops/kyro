@@ -2782,7 +2782,10 @@ function GeneralSettingsDetail({
             />
 
             <label className="setting-card settings-textarea">
-              <SettingCardHeading info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect.">
+              <SettingCardHeading
+                info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect."
+                infoPlacement="right"
+              >
                 Brand style notes
               </SettingCardHeading>
               <textarea
