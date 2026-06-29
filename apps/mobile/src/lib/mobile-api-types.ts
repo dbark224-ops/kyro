@@ -1129,6 +1129,14 @@ export type MobileUsageLedgerRow = {
   userName: string;
 };
 
+export type MobileUsageLedgerResponse = {
+  activeWindow: string;
+  generatedAt: string;
+  ledger: MobileUsageLedgerRow[];
+  totals: MobileSettingsResponse["usage"]["totals"];
+  windows: string[];
+};
+
 export type MobileWorkspaceToolOption = {
   description?: string;
   label: string;

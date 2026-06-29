@@ -26,6 +26,7 @@ export type KyroApiRoute =
   | "/api/mobile/reports/pdf"
   | "/api/mobile/settings"
   | "/api/mobile/settings/pronunciation-preview"
+  | "/api/mobile/usage-ledger"
   | "/api/mobile/workspace-tools";
 
 export type KyroApiOptions = Omit<RequestInit, "body" | "headers"> & {

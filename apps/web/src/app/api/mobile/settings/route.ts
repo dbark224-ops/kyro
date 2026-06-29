@@ -376,26 +376,7 @@ async function buildSettingsResponse(
     usage: {
       activeWindow: usageReport.activeWindow,
       generatedAt: usageReport.generatedAt,
-      ledger: usageReport.ledger.slice(0, 60).map((row) => ({
-        createdAt: row.createdAt,
-        currency: row.currency,
-        customerCharge: row.customerCharge,
-        displayCustomerCharge: formatDisplayMoney(
-          row.customerCharge,
-          row.currency,
-          general,
-        ),
-        id: row.id,
-        model: row.model,
-        provider: row.provider,
-        quantity: row.quantity,
-        service: row.service,
-        sourceLabel: row.sourceLabel,
-        sourceMeta: row.sourceMeta,
-        taskLabel: row.taskLabel,
-        unit: row.unit,
-        userName: row.userName,
-      })),
+      ledger: [],
       providerBreakdown: usageReport.providerBreakdown
         .slice(0, 6)
         .map((row) => ({

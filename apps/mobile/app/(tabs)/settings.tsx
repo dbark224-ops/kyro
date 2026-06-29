@@ -78,6 +78,7 @@ import {
   mobilePaymentsQueryOptions,
   mobileQueryKeys,
   mobileSettingsQueryOptions,
+  mobileUsageLedgerQueryOptions,
   mobileWorkspaceToolsQueryOptions,
 } from "@/lib/mobile-query";
 import type {
@@ -97,6 +98,7 @@ import type {
   MobilePaymentsResponse,
   MobileReportPreview,
   MobileSettingsResponse,
+  MobileUsageLedgerResponse,
   MobileWorkspaceToolsResponse,
 } from "@/lib/mobile-api-types";
 import type {
@@ -124,7 +126,8 @@ type SettingsSection =
   | "security"
   | "stripe"
   | "voice"
-  | "usage";
+  | "usage"
+  | "usage_ledger";
 type SettingsGroup =
   | "app_account"
   | "workspace"
@@ -511,6 +514,13 @@ const sectionItems: SettingsSectionItem[] = [
     section: "usage",
     title: "Usage and billing",
   },
+  {
+    detail: "Detailed usage event history",
+    eyebrow: "Usage",
+    icon: Activity,
+    section: "usage_ledger",
+    title: "Usage ledger",
+  },
 ];
 
 const settingsGroups: SettingsGroupItem[] = [
@@ -873,7 +883,14 @@ export default function SettingsScreen() {
               ) : null}
 
               {selectedSection === "usage" ? (
-                <UsageSettingsPanel data={data} />
+                <UsageSettingsPanel
+                  data={data}
+                  onOpenLedger={() => setSelectedSection("usage_ledger")}
+                />
+              ) : null}
+
+              {selectedSection === "usage_ledger" ? (
+                <UsageLedgerSettingsPanel data={data} />
               ) : null}
             </SettingsDetailTransition>
           ) : selectedGroup ? (
@@ -904,7 +921,12 @@ export default function SettingsScreen() {
 }
 
 function shouldShowSettingsHeaderUsage(section: SettingsSection | null) {
-  return section !== "reports" && section !== "activity" && section !== "logs";
+  return (
+    section !== "reports" &&
+    section !== "activity" &&
+    section !== "logs" &&
+    section !== "usage_ledger"
+  );
 }
 
 function SettingsHeaderUsageChip({
@@ -3546,7 +3568,13 @@ function pronunciationEntryPill(entry: PronunciationEntry) {
     : "Auto pronunciation";
 }
 
-function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
+function UsageSettingsPanel({
+  data,
+  onOpenLedger,
+}: {
+  data: MobileSettingsResponse;
+  onOpenLedger: () => void;
+}) {
   const { session } = useAuthSession();
   const [usageWindow, setUsageWindow] = useState(data.usage.activeWindow);
   const usage = useQuery({
@@ -3641,23 +3669,86 @@ function UsageSettingsPanel({ data }: { data: MobileSettingsResponse }) {
       <SectionCard>
         <SectionHeader
           action={
-            <StatusPill
-              label={`${activeData.usage.ledger.length}`}
-              tone="cyan"
-            />
+            <StatusPill label={`${activeData.usage.totals.events}`} tone="cyan" />
           }
           eyebrow="Ledger"
-          title="Usage events"
+          title="Usage ledger"
         />
-        {usage.error ? (
-          <Text style={styles.message}>
-            {usage.error instanceof Error
-              ? usage.error.message
-              : "Unable to load ledger."}
-          </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenLedger}
+          style={({ pressed }) => [
+            styles.inlineActionRow,
+            pressed ? styles.pressed : null,
+          ]}
+        >
+          <View style={styles.inlineActionCopy}>
+            <Text style={styles.rowTitle}>Open detailed ledger</Text>
+            <Text style={styles.rowCopy}>
+              Loads event history only when you need it.
+            </Text>
+          </View>
+          <ChevronRight color={colors.muted} size={18} />
+        </Pressable>
+      </SectionCard>
+    </>
+  );
+}
+
+function UsageLedgerSettingsPanel({ data }: { data: MobileSettingsResponse }) {
+  const { session } = useAuthSession();
+  const [usageWindow, setUsageWindow] = useState(data.usage.activeWindow);
+  const usage = useQuery(mobileUsageLedgerQueryOptions(session, usageWindow));
+  const ledgerData: MobileUsageLedgerResponse | null = usage.data ?? null;
+  const windows = ledgerData?.windows.length
+    ? ledgerData.windows
+    : data.usage.windows;
+
+  return (
+    <>
+      <SectionCard>
+        <SectionHeader
+          action={
+            ledgerData ? (
+              <StatusPill label={`${ledgerData.ledger.length}`} tone="cyan" />
+            ) : null
+          }
+          eyebrow="Usage"
+          title="Usage ledger"
+        />
+        <SettingField label="Window">
+          <OptionChips
+            onChange={setUsageWindow}
+            options={windows}
+            value={usageWindow}
+          />
+        </SettingField>
+        {ledgerData ? (
+          <View style={styles.usageHero}>
+            <Text style={styles.usageLabel}>Usage charge</Text>
+            <Text style={styles.usageValue}>
+              {ledgerData.totals.displayCustomerCharge}
+            </Text>
+            <Text style={styles.rowCopy}>
+              {ledgerData.totals.events} ledger events - generated{" "}
+              {formatDate(ledgerData.generatedAt)}
+            </Text>
+          </View>
         ) : null}
-        {activeData.usage.ledger.length ? (
-          activeData.usage.ledger.map((row) => (
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader eyebrow="Events" title="Detailed history" />
+        {usage.isLoading ? (
+          <DataState loading title="Loading usage ledger" />
+        ) : usage.error ? (
+          <DataState
+            error={usage.error}
+            loading={false}
+            title="Loading usage ledger"
+          />
+        ) : ledgerData?.ledger.length ? (
+          ledgerData.ledger.map((row) => (
             <ListRow
               key={row.id}
               right={
@@ -8573,6 +8664,21 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 15,
     fontWeight: "900",
+  },
+  inlineActionRow: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 12,
+  },
+  inlineActionCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
   },
   summaryItem: {
     flex: 1,

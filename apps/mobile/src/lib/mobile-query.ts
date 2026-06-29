@@ -16,6 +16,7 @@ import type {
   MobilePaymentsResponse,
   MobileQuoteDraftDetailResponse,
   MobileSettingsResponse,
+  MobileUsageLedgerResponse,
   MobileWorkspaceToolsResponse
 } from "./mobile-api-types";
 
@@ -33,6 +34,7 @@ export const mobileQueryStaleTime = {
   inboxConversation: 60 * 1000,
   payments: 60 * 1000,
   settings: 2 * 60 * 1000,
+  usageLedger: 60 * 1000,
   workspaceTools: 60 * 1000
 } as const;
 
@@ -62,6 +64,8 @@ export const mobileQueryKeys = {
   ) => ["mobile-inbox-conversation", userId, conversationId] as const,
   payments: (userId?: string | null) => ["mobile-payments", userId] as const,
   settings: (userId?: string | null) => ["mobile-settings", userId] as const,
+  usageLedger: (userId?: string | null, usageWindow?: string | null) =>
+    ["mobile-usage-ledger", userId, usageWindow] as const,
   workspaceTools: (userId?: string | null) =>
     ["mobile-workspace-tools", userId] as const
 };
@@ -230,6 +234,22 @@ export function mobileSettingsQueryOptions(session?: Session | null) {
       kyroApiFetch<MobileSettingsResponse>("/api/mobile/settings", { session }),
     queryKey: mobileQueryKeys.settings(session?.user.id),
     staleTime: mobileQueryStaleTime.settings
+  };
+}
+
+export function mobileUsageLedgerQueryOptions(
+  session?: Session | null,
+  usageWindow?: string | null
+) {
+  return {
+    enabled: Boolean(session),
+    queryFn: () =>
+      kyroApiFetch<MobileUsageLedgerResponse>("/api/mobile/usage-ledger", {
+        query: { usageWindow },
+        session
+      }),
+    queryKey: mobileQueryKeys.usageLedger(session?.user.id, usageWindow),
+    staleTime: mobileQueryStaleTime.usageLedger
   };
 }
 
