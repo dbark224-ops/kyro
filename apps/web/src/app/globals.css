@@ -578,8 +578,15 @@
 .marketing-subhero h1 {
   margin: 0;
   font-size: 5.8rem;
-  font-weight: 900;
   line-height: 0.95;
+}
+
+.marketing-hero h1 {
+  font-weight: 650;
+}
+
+.marketing-subhero h1 {
+  font-weight: 900;
 }
 
 .marketing-hero-copy > p,
