@@ -25,6 +25,7 @@ function splitTags(value: string | null | undefined) {
 export function TagInputField({
   ariaLabel,
   autoSubmit = false,
+  autoSaveEndpoint,
   autocompleteType,
   defaultValue,
   name,
@@ -32,6 +33,7 @@ export function TagInputField({
 }: Readonly<{
   ariaLabel: string;
   autoSubmit?: boolean;
+  autoSaveEndpoint?: string;
   autocompleteType?: "cities" | "regions";
   defaultValue?: string | null;
   name: string;
@@ -39,7 +41,11 @@ export function TagInputField({
 }>) {
   const [tags, setTags] = useState(() => splitTags(defaultValue));
   const [draft, setDraft] = useState("");
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "error"
+  >("idle");
   const [submitVersion, setSubmitVersion] = useState(0);
+  const [saveVersion, setSaveVersion] = useState(0);
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [suggestionStatus, setSuggestionStatus] = useState<
     "idle" | "loading" | "error"
@@ -47,10 +53,16 @@ export function TagInputField({
   const [suggestionMessage, setSuggestionMessage] = useState("");
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const fieldRef = useRef<HTMLDivElement>(null);
+  const saveControllerRef = useRef<AbortController | null>(null);
   const sessionTokenRef = useRef(crypto.randomUUID());
+  const tagsRef = useRef(tags);
 
   useEffect(() => {
-    if (!autoSubmit || submitVersion === 0) {
+    tagsRef.current = tags;
+  }, [tags]);
+
+  useEffect(() => {
+    if (!autoSubmit || autoSaveEndpoint || submitVersion === 0) {
       return;
     }
 
@@ -63,7 +75,53 @@ export function TagInputField({
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, [autoSubmit, submitVersion, tags]);
+  }, [autoSaveEndpoint, autoSubmit, submitVersion, tags]);
+
+  useEffect(() => {
+    if (!autoSubmit || !autoSaveEndpoint || saveVersion === 0) {
+      return;
+    }
+
+    saveControllerRef.current?.abort();
+    const controller = new AbortController();
+    saveControllerRef.current = controller;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await fetch(autoSaveEndpoint, {
+          body: JSON.stringify({
+            name,
+            value: tagsRef.current.join(", "),
+          }),
+          headers: {
+            "content-type": "application/json",
+          },
+          method: "POST",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to save changes.");
+        }
+
+        if (!controller.signal.aborted) {
+          setSaveStatus("idle");
+        }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        console.error(error);
+        setSaveStatus("error");
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [autoSaveEndpoint, autoSubmit, name, saveVersion]);
 
   useEffect(() => {
     if (!autocompleteType) {
@@ -135,6 +193,12 @@ export function TagInputField({
 
   function queueAutoSubmit() {
     if (autoSubmit) {
+      if (autoSaveEndpoint) {
+        setSaveStatus("saving");
+        setSaveVersion((current) => current + 1);
+        return;
+      }
+
       setSubmitVersion((current) => current + 1);
     }
   }
@@ -268,6 +332,11 @@ export function TagInputField({
       {suggestionMessage ? (
         <small className="address-autocomplete-message">
           {suggestionMessage}
+        </small>
+      ) : null}
+      {saveStatus === "error" ? (
+        <small className="settings-tag-save-status" role="status">
+          Unable to save this list. Try again in a moment.
         </small>
       ) : null}
     </div>

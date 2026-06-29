@@ -8927,6 +8927,14 @@ button:disabled {
   outline: none;
 }
 
+.settings-tag-save-status {
+  display: block;
+  margin-top: 6px;
+  color: color-mix(in srgb, var(--pink) 82%, var(--text));
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
 @keyframes kyro-spin-centered {
   to {
     transform: rotate(360deg);

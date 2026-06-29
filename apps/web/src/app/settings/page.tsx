@@ -2581,6 +2581,7 @@ function GeneralSettingsDetail({
               <TagInputField
                 ariaLabel="Service area"
                 autoSubmit={showServiceArea}
+                autoSaveEndpoint="/api/settings/business-profile-tags"
                 autocompleteType="regions"
                 defaultValue={profile.serviceArea}
                 name="businessServiceArea"
@@ -2598,6 +2599,7 @@ function GeneralSettingsDetail({
               <TagInputField
                 ariaLabel="Suburbs serviced"
                 autoSubmit={showServiceArea}
+                autoSaveEndpoint="/api/settings/business-profile-tags"
                 autocompleteType="regions"
                 defaultValue={profile.serviceSuburbs}
                 name="businessServiceSuburbs"
@@ -2615,6 +2617,7 @@ function GeneralSettingsDetail({
               <TagInputField
                 ariaLabel="Postcodes serviced"
                 autoSubmit={showServiceArea}
+                autoSaveEndpoint="/api/settings/business-profile-tags"
                 autocompleteType="regions"
                 defaultValue={profile.servicePostcodes}
                 name="businessServicePostcodes"
