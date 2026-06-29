@@ -2,13 +2,18 @@ import { z } from "zod";
 
 export const uuidSchema = z.string().uuid();
 
-export const workspaceRoleSchema = z.enum(["owner", "admin", "operator", "viewer"]);
+export const workspaceRoleSchema = z.enum([
+  "owner",
+  "admin",
+  "operator",
+  "viewer",
+]);
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;
 
 export const outboundApprovalModeSchema = z.enum([
   "require_approval",
   "auto_send_trusted",
-  "auto_send_all_eligible"
+  "auto_send_all_eligible",
 ]);
 export type OutboundApprovalMode = z.infer<typeof outboundApprovalModeSchema>;
 
@@ -19,7 +24,7 @@ export const actionStatusSchema = z.enum([
   "executing",
   "completed",
   "failed",
-  "cancelled"
+  "cancelled",
 ]);
 export type ActionStatus = z.infer<typeof actionStatusSchema>;
 
@@ -37,7 +42,7 @@ export const actionTypeSchema = z.enum([
   "generate_document",
   "attach_file",
   "generate_image",
-  "edit_image"
+  "edit_image",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -51,7 +56,7 @@ export const modelTaskTypeSchema = z.enum([
   "image_generation",
   "embedding",
   "speech_to_text",
-  "text_to_speech"
+  "text_to_speech",
 ]);
 export type ModelTaskType = z.infer<typeof modelTaskTypeSchema>;
 
@@ -70,6 +75,7 @@ export const usageTypeSchema = z.enum([
   "realtime_audio_output_tokens",
   "realtime_reasoning_tokens",
   "embedding_tokens",
+  "provider_api_calls",
   "web_search_calls",
   "image_generation",
   "speech_to_text_minutes",
@@ -78,14 +84,14 @@ export const usageTypeSchema = z.enum([
   "sms_segments",
   "voice_minutes",
   "document_pages",
-  "storage_bytes"
+  "storage_bytes",
 ]);
 export type UsageType = z.infer<typeof usageTypeSchema>;
 
 export const workspaceSummarySchema = z.object({
   id: uuidSchema,
   name: z.string().min(1),
-  slug: z.string().min(1)
+  slug: z.string().min(1),
 });
 export type WorkspaceSummary = z.infer<typeof workspaceSummarySchema>;
 
@@ -96,7 +102,7 @@ export const modelRouteRequestSchema = z.object({
   riskLevel: modelRiskLevelSchema,
   requiredCapabilities: z.array(z.string()).default([]),
   latencyTargetMs: z.number().int().positive().optional(),
-  estimatedInputTokens: z.number().int().nonnegative().optional()
+  estimatedInputTokens: z.number().int().nonnegative().optional(),
 });
 export type ModelRouteRequest = z.infer<typeof modelRouteRequestSchema>;
 
@@ -105,7 +111,7 @@ export const modelRouteDecisionSchema = z.object({
   model: z.string().min(1),
   reason: z.string().min(1),
   fallbackProvider: z.string().optional(),
-  fallbackModel: z.string().optional()
+  fallbackModel: z.string().optional(),
 });
 export type ModelRouteDecision = z.infer<typeof modelRouteDecisionSchema>;
 
@@ -130,6 +136,6 @@ export const usageEventCreateSchema = z.object({
   costSnapshot: z.number().nonnegative(),
   customerChargeSnapshot: z.number().nonnegative(),
   currency: z.string().length(3),
-  metadata: z.record(z.string(), z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type UsageEventCreate = z.infer<typeof usageEventCreateSchema>;

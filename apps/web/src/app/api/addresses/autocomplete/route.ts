@@ -3,6 +3,7 @@ import {
   type GoogleAutocompletePrimaryType,
 } from "../../../../lib/addresses/google";
 import { developerAccessEnabled } from "../../../../lib/auth/developer-access";
+import { recordGoogleApiUsage } from "../../../../lib/usage/google";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
 import { NextResponse, type NextRequest } from "next/server";
@@ -35,6 +36,23 @@ export async function GET(request: NextRequest) {
       primaryType: type,
       region: generalSettings.defaultPhoneRegion,
       sessionToken,
+    });
+
+    recordGoogleApiUsage(supabase, {
+      kind: "places_autocomplete",
+      metadata: {
+        resultCount: suggestions.length,
+        searchType: type,
+        sourceRoute: "api.addresses.autocomplete",
+      },
+      userId: user.id,
+      workspaceId: workspace.id,
+    }).catch((usageError) => {
+      console.error(
+        usageError instanceof Error
+          ? usageError.message
+          : "Unable to record Google autocomplete usage.",
+      );
     });
 
     return NextResponse.json({ data: suggestions });

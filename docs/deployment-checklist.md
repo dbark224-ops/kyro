@@ -40,6 +40,11 @@ Optional until those integrations are enabled:
 - `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_SIZE`, and `OPENAI_IMAGE_QUALITY` if production wants image-generation defaults beyond the app defaults. Kyro currently defaults to `gpt-image-2`, high quality, and `auto` size, with prompt-aware landscape/portrait/square overrides only when the user explicitly asks for a format. `OPENAI_IMAGE_COST_PER_IMAGE` is only a fallback when provider image token usage is unavailable; production can also override token prices with `OPENAI_IMAGE_TEXT_INPUT_COST_PER_1M`, `OPENAI_IMAGE_INPUT_COST_PER_1M`, and `OPENAI_IMAGE_OUTPUT_COST_PER_1M` or model-specific `OPENAI_<MODEL>_IMAGE_*` keys.
 - `GOOGLE_MAPS_API_KEY`
 - `GOOGLE_ADDRESS_VALIDATION_API_KEY` if using a separate key from Places
+- optional Google Maps usage-pricing overrides:
+  `GOOGLE_PLACES_AUTOCOMPLETE_COST_PER_1K_CALLS`,
+  `GOOGLE_PLACES_DETAILS_COST_PER_1K_CALLS`,
+  `GOOGLE_ADDRESS_VALIDATION_COST_PER_1K_CALLS`,
+  `GOOGLE_API_COST_PER_1K_CALLS`, and `GOOGLE_API_MARKUP_RATE`
 - `MICROSOFT_CLIENT_ID`
 - `MICROSOFT_CLIENT_SECRET`
 - `MICROSOFT_TENANT_ID`

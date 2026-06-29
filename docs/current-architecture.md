@@ -1213,6 +1213,9 @@ Purpose:
   text input, audio input, cached input, text output, audio output, and reasoning tokens,
 - record OpenAI web-search tool calls separately from token usage so tool fees do not
   disappear inside the token meter,
+- record authenticated Google Maps address lookups as `provider_api_calls` rows
+  for Places autocomplete, place details, and Address Validation, with env
+  pricing overrides for per-1K-call costs and markup,
 - estimate OpenAI text-to-speech cost from the current text-input/audio-output rate card when direct usage is not returned,
 - filter usage by today, 7 days, 30 days, or all time,
 - break usage down first by business task and then by provider/model/service,

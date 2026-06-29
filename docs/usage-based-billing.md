@@ -175,6 +175,15 @@ Current OpenAI metering behaviour:
   events, preferring Vapi/Twilio provider cost when supplied and falling back to
   `TWILIO_VOICE_UNIT_COST_USD`-style minute pricing. UI number purchase and final
   voice billing reconciliation remain future hardening.
+- Authenticated Google Maps address lookups record `provider_api_calls` rows with
+  provider `google` and service `google_maps`. Places autocomplete, place details,
+  and Address Validation have separate per-1K-call defaults with optional overrides
+  through `GOOGLE_PLACES_AUTOCOMPLETE_COST_PER_1K_CALLS`,
+  `GOOGLE_PLACES_DETAILS_COST_PER_1K_CALLS`,
+  `GOOGLE_ADDRESS_VALIDATION_COST_PER_1K_CALLS`, or generic
+  `GOOGLE_API_COST_PER_1K_CALLS`. `GOOGLE_API_MARKUP_RATE` falls back to
+  `USAGE_MARKUP_RATE` or `25%`. Pre-account signup autocomplete is not recorded in
+  the workspace ledger because no workspace exists yet.
 - Local Ollama/stub usage is still metered with token counts where available, but
   provider cost and customer charge are `0` because there is no provider invoice.
 
