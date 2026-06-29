@@ -2388,12 +2388,14 @@ function IntegrationsSettingsPanel({
 }
 
 function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
-  const voiceNumbers = data.phoneSms.numbers.filter(
+  const phoneSms = normalizePhoneSmsSettingsData(data);
+  const voiceNumbers = phoneSms.numbers.filter(
     (number) => number.capabilities.voice,
   ).length;
-  const smsNumbers = data.phoneSms.numbers.filter(
+  const smsNumbers = phoneSms.numbers.filter(
     (number) => number.capabilities.sms,
   ).length;
+  const defaultPhoneRegion = data.settings.general.defaultPhoneRegion || "AU";
 
   return (
     <>
@@ -2401,8 +2403,8 @@ function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
         <SectionHeader
           action={
             <StatusPill
-              label={data.phoneSms.configured ? "Enabled" : "Not assigned"}
-              tone={data.phoneSms.configured ? "green" : "neutral"}
+              label={phoneSms.configured ? "Enabled" : "Not assigned"}
+              tone={phoneSms.configured ? "green" : "neutral"}
             />
           }
           eyebrow="Phone and SMS"
@@ -2420,8 +2422,8 @@ function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
             <Text style={styles.summaryMeta}>text-capable numbers</Text>
           </View>
         </View>
-        {data.phoneSms.numbers.length ? (
-          data.phoneSms.numbers.map((number) => (
+        {phoneSms.numbers.length ? (
+          phoneSms.numbers.map((number) => (
             <ListRow
               key={number.id}
               right={
@@ -2463,7 +2465,7 @@ function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
         <SectionHeader
           action={
             <StatusPill
-              label={data.settings.general.defaultPhoneRegion}
+              label={defaultPhoneRegion}
               tone="purple"
             />
           }
@@ -2479,13 +2481,44 @@ function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
         </ListRow>
         <ListRow>
           <Text style={styles.rowTitle}>Default phone region</Text>
-          <Text style={styles.rowCopy}>
-            {data.settings.general.defaultPhoneRegion}
-          </Text>
+          <Text style={styles.rowCopy}>{defaultPhoneRegion}</Text>
         </ListRow>
       </SectionCard>
     </>
   );
+}
+
+function normalizePhoneSmsSettingsData(data: MobileSettingsResponse) {
+  const phoneSms =
+    data.phoneSms as
+      | MobileSettingsResponse["phoneSms"]
+      | null
+      | undefined;
+  const numbers = Array.isArray(phoneSms?.numbers) ? phoneSms.numbers : [];
+
+  return {
+    configured: Boolean(phoneSms?.configured && numbers.length),
+    numbers: numbers.map((number, index) => ({
+      capabilities: {
+        mms: Boolean(number.capabilities?.mms),
+        sms: Boolean(number.capabilities?.sms),
+        voice: Boolean(number.capabilities?.voice),
+      },
+      countryCode: number.countryCode ?? null,
+      currency: number.currency || "USD",
+      friendlyName: number.friendlyName ?? null,
+      id: number.id || `${number.phoneNumber || "phone"}-${index}`,
+      monthlyCostSnapshot: Number.isFinite(number.monthlyCostSnapshot)
+        ? number.monthlyCostSnapshot
+        : 0,
+      normalizedPhone: number.normalizedPhone ?? null,
+      phoneNumber: number.phoneNumber || number.normalizedPhone || "Unknown number",
+      providerPhoneNumberId: number.providerPhoneNumberId ?? null,
+      region: number.region ?? null,
+      status: number.status || "active",
+      vapiPhoneNumberId: number.vapiPhoneNumberId ?? null,
+    })),
+  };
 }
 
 function SenderRulesManager({
