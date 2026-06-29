@@ -81,6 +81,7 @@ export default function CrmScreen() {
 
   return (
     <Screen
+      compactHeaderEmphasis
       compactHeaderLabel={
         contactProfile.data?.workspace.name ?? data?.workspace.name ?? "Workspace"
       }
@@ -103,6 +104,7 @@ export default function CrmScreen() {
       }
       showTopBar={false}
       title={contactId ? "Profile" : "CRM"}
+      titleScale="compact"
     >
       {isCrmLoading ? (
         <CrmLoadingState />

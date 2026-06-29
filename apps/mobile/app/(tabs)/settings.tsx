@@ -736,6 +736,7 @@ export default function SettingsScreen() {
 
   return (
     <Screen
+      compactHeaderEmphasis
       compactHeaderAccessory={
         data && shouldShowSettingsHeaderUsage(selectedSection) ? (
           <SettingsHeaderUsageChip
@@ -747,6 +748,7 @@ export default function SettingsScreen() {
       compactHeaderLabel={data?.workspace.name ?? "Workspace"}
       showTopBar={false}
       title="Settings"
+      titleScale="compact"
     >
       {isSettingsLoading ? (
         <SettingsLoadingState />

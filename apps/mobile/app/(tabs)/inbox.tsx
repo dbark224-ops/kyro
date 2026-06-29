@@ -113,6 +113,7 @@ export default function InboxScreen() {
 
   return (
     <Screen
+      compactHeaderEmphasis
       compactHeaderLabel={
         conversationDetail.data?.workspace.name ?? data?.workspace.name ?? "Workspace"
       }
@@ -127,6 +128,7 @@ export default function InboxScreen() {
       }
       showTopBar={false}
       title={conversationId ? "Conversation" : "Inbox"}
+      titleScale="compact"
     >
       {isInboxLoading ? (
         <InboxLoadingState />

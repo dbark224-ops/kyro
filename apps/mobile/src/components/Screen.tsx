@@ -132,46 +132,48 @@ export function Screen({
             {!showTopBar && compactHeaderLabel ? (
               <View
                 style={[
-                  styles.compactHeaderStack,
-                  compactHeaderEmphasis ? styles.compactHeaderStackEmphasis : null
+                  styles.compactBusinessMark,
+                  compactHeaderEmphasis ? styles.compactBusinessMarkEmphasis : null
                 ]}
               >
-                <View style={styles.compactBusinessMark}>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.compactBusinessLabel,
-                      compactHeaderEmphasis
-                        ? styles.compactBusinessLabelEmphasis
-                        : null
-                    ]}
-                  >
-                    {compactHeaderLabel}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.compactBusinessSeparator,
-                      compactHeaderEmphasis
-                        ? styles.compactBusinessSeparatorEmphasis
-                        : null
-                    ]}
-                  >
-                    |
-                  </Text>
-                  <Image
-                    accessibilityIgnoresInvertColors
-                    resizeMode="contain"
-                    source={require("../../assets/kyro-icon.png")}
-                    style={[
-                      styles.compactBusinessLogo,
-                      compactHeaderEmphasis ? styles.compactBusinessLogoEmphasis : null
-                    ]}
-                  />
-                </View>
-                {compactHeaderAccessory}
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.compactBusinessLabel,
+                    compactHeaderEmphasis
+                      ? styles.compactBusinessLabelEmphasis
+                      : null
+                  ]}
+                >
+                  {compactHeaderLabel}
+                </Text>
+                <Text
+                  style={[
+                    styles.compactBusinessSeparator,
+                    compactHeaderEmphasis
+                      ? styles.compactBusinessSeparatorEmphasis
+                      : null
+                  ]}
+                >
+                  |
+                </Text>
+                <Image
+                  accessibilityIgnoresInvertColors
+                  resizeMode="contain"
+                  source={require("../../assets/kyro-icon.png")}
+                  style={[
+                    styles.compactBusinessLogo,
+                    compactHeaderEmphasis ? styles.compactBusinessLogoEmphasis : null
+                  ]}
+                />
               </View>
             ) : null}
           </View>
+          {!showTopBar && compactHeaderAccessory ? (
+            <View style={styles.compactHeaderAccessoryRow}>
+              {compactHeaderAccessory}
+            </View>
+          ) : null}
           {metrics.length ? (
             <ScrollView
               contentContainerStyle={styles.metrics}
@@ -232,7 +234,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 7,
-    flexShrink: 1
+    flexShrink: 1,
+    maxWidth: "54%"
+  },
+  compactBusinessMarkEmphasis: {
+    maxWidth: "48%"
   },
   compactBusinessSeparator: {
     color: colors.line,
@@ -244,14 +250,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 18
   },
-  compactHeaderStack: {
-    alignItems: "flex-end",
-    flexShrink: 1,
-    gap: 8,
-    maxWidth: "54%"
-  },
-  compactHeaderStackEmphasis: {
-    maxWidth: "48%"
+  compactHeaderAccessoryRow: {
+    alignItems: "flex-end"
   },
   eyebrow: {
     color: colors.cyan,
