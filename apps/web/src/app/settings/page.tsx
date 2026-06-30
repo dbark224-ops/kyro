@@ -2359,20 +2359,12 @@ function BusinessLogoEditor({
   );
 }
 
-function EmailVerificationSettingsNotice({
-  userEmail,
-}: Readonly<{
-  userEmail: string;
-}>) {
+function EmailVerificationSettingsNotice() {
   return (
     <section className="email-verification-notice">
       <div>
         <p className="eyebrow">Email verification required</p>
         <h3>Check your inbox to unlock these settings</h3>
-        <p>
-          Kyro has saved this workspace, but Business Profile settings stay
-          read-only until {userEmail || "your account email"} is verified.
-        </p>
       </div>
       <SettingsSubmitButton
         className="secondary-button compact"
@@ -2462,7 +2454,7 @@ function GeneralSettingsDetail({
     >
       <input name="settingsPanel" type="hidden" value={activeBusinessPanel} />
       {emailVerificationPending ? (
-        <EmailVerificationSettingsNotice userEmail={userEmail} />
+        <EmailVerificationSettingsNotice />
       ) : null}
       <fieldset
         className={
