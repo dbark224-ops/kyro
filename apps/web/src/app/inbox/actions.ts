@@ -387,6 +387,62 @@ async function cancelStalePlanActions(
   return cancelledActions.length;
 }
 
+async function cancelIgnoredConversationActions(
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"],
+  workspaceId: string,
+  userId: string,
+  conversationId: string,
+) {
+  const now = new Date().toISOString();
+  const { data: cancelledActions, error } = await supabase
+    .from("actions")
+    .update({
+      status: "cancelled",
+      result: {
+        cancelledAt: now,
+        cancelledReason: "user_ignored_notification",
+      },
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "conversation")
+    .eq("target_id", conversationId)
+    .in("type", [
+      "draft_reply",
+      "ask_missing_info",
+      "book_site_visit",
+      "create_quote_draft",
+      "schedule_follow_up",
+    ])
+    .in("status", ["pending_approval", "approved"])
+    .select("id,type,status,target_type,target_id");
+
+  if (error) {
+    throw new Error(`Unable to ignore pending actions: ${error.message}`);
+  }
+
+  for (const action of cancelledActions ?? []) {
+    await insertAuditLog(supabase, {
+      workspaceId,
+      actorType: "user",
+      actorId: userId,
+      action: "action.cancelled_due_to_ignored_notification",
+      entityType: "action",
+      entityId: String(action.id),
+      after: {
+        status: "cancelled",
+        type: action.type,
+      },
+      metadata: {
+        conversationId,
+        previousTargetId: action.target_id,
+        previousTargetType: action.target_type,
+      },
+    });
+  }
+
+  return cancelledActions?.length ?? 0;
+}
+
 function conversationPath(conversationId: string) {
   return `/inbox/${encodeURIComponent(conversationId)}`;
 }
@@ -2805,6 +2861,97 @@ export async function updateConversationStatusAction(formData: FormData) {
     conversationId,
     "engine_message",
     "Conversation status updated.",
+  );
+}
+
+export async function ignoreConversationNotificationAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const redirectTo = formString(formData, "redirectTo");
+
+  if (!conversationId) {
+    redirect("/inbox?engine_error=Conversation id is required.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: conversation, error: loadError } = await supabase
+    .from("conversations")
+    .select("id,status")
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (loadError) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      loadError.message,
+      redirectTo,
+    );
+  }
+
+  if (!conversation) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "Conversation was not found.",
+      redirectTo,
+    );
+  }
+
+  const beforeStatus = String(conversation.status);
+  const cancelledActionCount = await cancelIgnoredConversationActions(
+    supabase,
+    workspace.id,
+    user.id,
+    conversationId,
+  );
+
+  if (beforeStatus !== "resolved") {
+    const { error: updateError } = await supabase
+      .from("conversations")
+      .update({
+        status: "resolved",
+      })
+      .eq("workspace_id", workspace.id)
+      .eq("id", conversationId);
+
+    if (updateError) {
+      redirectWithConversationMessage(
+        conversationId,
+        "engine_error",
+        updateError.message,
+        redirectTo,
+      );
+    }
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "conversation.notification_ignored",
+    entityType: "conversation",
+    entityId: conversationId,
+    before: {
+      status: beforeStatus,
+    },
+    after: {
+      cancelledActionCount,
+      status: "resolved",
+    },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  revalidatePath(
+    safeRedirectPath(redirectTo, "/inbox").split("?")[0] || "/inbox",
+  );
+  redirectWithConversationMessage(
+    conversationId,
+    "engine_message",
+    "Notification ignored.",
+    redirectTo,
   );
 }
 

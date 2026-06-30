@@ -2980,6 +2980,23 @@ textarea:focus {
   color: var(--muted);
 }
 
+.nav-notification-badge {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #ff355f 60%, var(--line));
+  border-radius: var(--radius-pill);
+  background: #ff355f;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1;
+  margin-left: auto;
+  padding: 0 5px;
+  box-shadow: 0 8px 18px rgb(255 53 95 / 0.26);
+}
+
 .workspace {
   min-width: 0;
   padding: 28px;
@@ -3176,6 +3193,12 @@ h2 {
 .secondary-button.danger {
   border: 1px solid color-mix(in srgb, var(--pink) 48%, var(--line));
   background: color-mix(in srgb, var(--pink) 12%, transparent);
+  color: color-mix(in srgb, var(--pink) 72%, var(--text));
+}
+
+.secondary-button.subtle {
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--pink));
+  background: color-mix(in srgb, var(--surface) 86%, var(--pink) 8%);
   color: color-mix(in srgb, var(--pink) 72%, var(--text));
 }
 
@@ -5007,8 +5030,27 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   color: var(--muted);
+}
+
+.assistant-preview-status-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.inbox-ignore-notification-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+.inbox-ignore-notification-form .secondary-button {
+  min-height: 30px;
+  white-space: nowrap;
 }
 
 .assistant-preview-grid {
@@ -15472,6 +15514,10 @@ button:disabled {
   gap: 10px;
 }
 
+.nav-link-inner {
+  width: 100%;
+}
+
 .app-shell-icon {
   width: 16px;
   height: 16px;
@@ -15703,6 +15749,188 @@ button:disabled {
 
 .workspace-account-menu-item.danger {
   color: color-mix(in srgb, var(--pink) 72%, var(--text));
+}
+
+.notification-menu {
+  position: relative;
+}
+
+.notification-bell {
+  position: relative;
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 12px 34px rgb(0 0 0 / 0.12);
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.notification-bell::-webkit-details-marker {
+  display: none;
+}
+
+.notification-bell::marker {
+  content: "";
+}
+
+.notification-bell svg {
+  width: 18px;
+  height: 18px;
+}
+
+.notification-bell.has-items,
+.notification-bell:hover,
+.notification-menu[open] .notification-bell {
+  border-color: color-mix(in srgb, var(--cyan) 58%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
+  color: var(--text);
+}
+
+.notification-bell:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cyan) 70%, transparent);
+  outline-offset: 3px;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 2px solid var(--background);
+  border-radius: var(--radius-pill);
+  background: #ff355f;
+  color: #fff;
+  font-size: 0.64rem;
+  font-weight: 950;
+  line-height: 1;
+  padding: 0 5px;
+  box-shadow: 0 8px 18px rgb(255 53 95 / 0.28);
+}
+
+.notification-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 82;
+  display: grid;
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(560px, calc(100dvh - 88px));
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--cyan) 32%, var(--line));
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cyan) 10%, transparent),
+      transparent 54%
+    ),
+    color-mix(in srgb, var(--surface) 98%, #000 2%);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.2);
+  padding: 10px;
+}
+
+.notification-menu-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 2px 2px 10px;
+}
+
+.notification-menu-header div {
+  display: grid;
+  gap: 2px;
+}
+
+.notification-menu-header strong {
+  font-size: 0.9rem;
+}
+
+.notification-menu-header span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.notification-menu-header > span {
+  display: inline-grid;
+  min-width: 26px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #ff355f 46%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, #ff355f 12%, transparent);
+  color: color-mix(in srgb, #ff355f 80%, var(--text));
+  font-weight: 950;
+}
+
+.notification-menu-list {
+  display: grid;
+  gap: 7px;
+}
+
+.notification-menu-item {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 34%, var(--surface));
+  color: var(--text);
+  padding: 10px;
+  text-decoration: none;
+}
+
+.notification-menu-item:hover,
+.notification-menu-item:focus-visible {
+  border-color: color-mix(in srgb, var(--cyan) 46%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
+  outline: none;
+}
+
+.notification-source,
+.notification-menu-item span,
+.notification-menu-item small,
+.notification-empty {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.notification-menu-item strong {
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.notification-source {
+  color: color-mix(in srgb, var(--cyan) 72%, var(--muted));
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.notification-empty {
+  margin: 0;
+  padding: 8px 2px;
+}
+
+.notification-view-all {
+  justify-self: start;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .dev-top-controls {

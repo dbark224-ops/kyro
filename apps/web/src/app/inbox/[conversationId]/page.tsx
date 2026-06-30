@@ -3,6 +3,7 @@ import {
   createManualFollowUpAction,
   createConversationAppointmentAction,
   regenerateAiPlanAction,
+  ignoreConversationNotificationAction,
   sendDraftReplyAction,
   updateInquiryFactsAction,
   updateConversationStatusAction,
@@ -171,6 +172,10 @@ function safeConversationStatus(status: string) {
   return CONVERSATION_STATUS_OPTIONS.some((option) => option.value === status)
     ? status
     : "open";
+}
+
+function canIgnoreConversation(status: string) {
+  return status !== "resolved" && status !== "replied";
 }
 
 function channelLabel(
@@ -777,6 +782,22 @@ export default async function ConversationReviewPage({
               Update
             </button>
           </form>
+          {canIgnoreConversation(review.conversation.status) ? (
+            <form
+              action={ignoreConversationNotificationAction}
+              className="status-form inbox-ignore-notification-form"
+            >
+              <input
+                name="conversationId"
+                type="hidden"
+                value={conversationId}
+              />
+              <input name="redirectTo" type="hidden" value={redirectTo} />
+              <button className="secondary-button compact subtle" type="submit">
+                Ignore
+              </button>
+            </form>
+          ) : null}
           <Link className="secondary-button link-button" href="/inbox" prefetch>
             Back to inbox
           </Link>

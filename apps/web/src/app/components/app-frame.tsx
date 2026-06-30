@@ -20,6 +20,10 @@ import { KYRO_USER_BILLING_POLICY_TYPE } from "../../lib/billing/kyro-user-billi
 import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
 import type { BillableUsageSummary } from "../../lib/billing/usage-summary";
 import { hasSupabaseEnv } from "../../lib/env";
+import {
+  EMPTY_NOTIFICATION_SUMMARY,
+  getNotificationSummary,
+} from "../../lib/notifications/queries";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { usageWindowStart } from "../../lib/usage/queries";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
@@ -301,25 +305,35 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       return null;
     }
 
-    const [settings, weeklyUsageSummary, monthlyUsageSummary, billingPolicy] =
-      await Promise.all([
-        getWorkspaceGeneralSettings(supabase, workspace.id).catch(
-          () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
-        ),
-        getBillableUsageSummary(supabase, workspace.id, {
-          period: "weekly",
-        }).catch(() => null),
-        getBillableUsageSummary(supabase, workspace.id, {
-          period: "monthly",
-        }).catch(() => null),
-        loadKyroBillingPolicySettings(supabase, workspace.id).catch(() => null),
-      ]);
+    const [
+      settings,
+      weeklyUsageSummary,
+      monthlyUsageSummary,
+      billingPolicy,
+      notificationSummary,
+    ] = await Promise.all([
+      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+        () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+      ),
+      getBillableUsageSummary(supabase, workspace.id, {
+        period: "weekly",
+      }).catch(() => null),
+      getBillableUsageSummary(supabase, workspace.id, {
+        period: "monthly",
+      }).catch(() => null),
+      loadKyroBillingPolicySettings(supabase, workspace.id).catch(() => null),
+      getNotificationSummary(supabase, workspace.id).catch(
+        () => EMPTY_NOTIFICATION_SUMMARY,
+      ),
+    ]);
 
     const now = new Date();
     const trialStartedAt = validDate(
       optionalTextValue(billingPolicy?.trialStartedAt),
     );
-    const trialEndsAt = validDate(optionalTextValue(billingPolicy?.trialEndsAt));
+    const trialEndsAt = validDate(
+      optionalTextValue(billingPolicy?.trialEndsAt),
+    );
     const isFreeTrialActive = Boolean(trialEndsAt && trialEndsAt > now);
     const trialUsageSummary =
       isFreeTrialActive && trialStartedAt && trialStartedAt < now
@@ -345,6 +359,7 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       isDeveloper: developerAccessEnabled(user),
       isFreeTrialActive,
       initials: initialsFor(workspace.name),
+      notificationSummary,
       trialUsageLabel: formatDisplayMoney(trialAmount, trialCurrency, settings),
       usageMonthLabel: formatDisplayMoney(
         monthlyAmount,
@@ -444,6 +459,29 @@ async function SidebarUsageCard() {
   );
 }
 
+function notificationCountLabel(count: number) {
+  return count > 99 ? "99+" : String(count);
+}
+
+function formatNotificationTime(value: string | null) {
+  if (!value) {
+    return "Now";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Now";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
 async function AppNavLinks({
   active,
   items = navItems,
@@ -457,6 +495,7 @@ async function AppNavLinks({
   const visibleNavItems = items.filter(
     (item) => item.label !== "Developer" || data?.isDeveloper,
   );
+  const inboxActionCount = data?.notificationSummary.inboxActionCount ?? 0;
 
   return (
     <>
@@ -477,10 +516,104 @@ async function AppNavLinks({
           >
             <AppShellIcon name={item.icon} />
             <span>{item.label}</span>
+            {item.label === "Inbox" && inboxActionCount > 0 ? (
+              <span
+                aria-label={`${inboxActionCount} inbox items need action`}
+                className="nav-notification-badge"
+              >
+                {notificationCountLabel(inboxActionCount)}
+              </span>
+            ) : null}
           </span>
         </SmartPrefetchLink>
       ))}
     </>
+  );
+}
+
+async function NotificationBell() {
+  const data = await loadWorkspaceChromeData();
+
+  if (!data) {
+    return null;
+  }
+
+  const summary = data.notificationSummary ?? EMPTY_NOTIFICATION_SUMMARY;
+  const total = summary.total;
+
+  return (
+    <details className="notification-menu">
+      <summary
+        aria-label={
+          total > 0
+            ? `${total} notifications need action`
+            : "No notifications need action"
+        }
+        className={`notification-bell ${total > 0 ? "has-items" : ""}`}
+      >
+        <svg aria-hidden="true" viewBox="0 0 20 20">
+          <path
+            d="M5.5 8.5a4.5 4.5 0 1 1 9 0c0 3 1.25 4.25 2 5H3.5c.75-.75 2-2 2-5Z"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M8.25 16a1.9 1.9 0 0 0 3.5 0"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.8"
+          />
+        </svg>
+        {total > 0 ? (
+          <span className="notification-badge">
+            {notificationCountLabel(total)}
+          </span>
+        ) : null}
+      </summary>
+      <div className="notification-menu-panel">
+        <div className="notification-menu-header">
+          <div>
+            <strong>Notifications</strong>
+            <span>Unresolved work that needs attention</span>
+          </div>
+          <span>{notificationCountLabel(total)}</span>
+        </div>
+
+        {summary.items.length > 0 ? (
+          <div className="notification-menu-list">
+            {summary.items.map((item) => (
+              <SmartPrefetchLink
+                className="notification-menu-item"
+                href={item.href}
+                key={`${item.source}-${item.id}`}
+              >
+                <span className="notification-source">Inbox</span>
+                <strong>{item.title}</strong>
+                <span>{item.detail}</span>
+                <small>{formatNotificationTime(item.timestamp)}</small>
+              </SmartPrefetchLink>
+            ))}
+          </div>
+        ) : (
+          <p className="notification-empty">
+            Nothing needs attention right now.
+          </p>
+        )}
+
+        {total > summary.items.length ? (
+          <SmartPrefetchLink
+            className="notification-view-all"
+            href="/inbox?sort=action"
+          >
+            View all inbox alerts
+          </SmartPrefetchLink>
+        ) : null}
+      </div>
+    </details>
   );
 }
 
@@ -778,6 +911,9 @@ export function AppFrame({
               <UsageInternalCostPills />
             </Suspense>
             <TutorialLauncher />
+            <Suspense fallback={null}>
+              <NotificationBell />
+            </Suspense>
             <ThemeModeControl />
             <TextScaleControl />
             <Suspense fallback={null}>

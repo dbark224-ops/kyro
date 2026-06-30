@@ -25,6 +25,7 @@ import { requireWorkspaceContext } from "../../lib/workspace/context";
 import {
   createMockOutboundMessageAction,
   createConversationAppointmentAction,
+  ignoreConversationNotificationAction,
   promoteSkippedEmailToWorkItemAction,
   retryOutboundDeliveryAction,
   sendDraftReplyAction,
@@ -596,6 +597,31 @@ function previewActionExecuteLabel(
   return "Execute";
 }
 
+function canIgnoreConversation(status: string) {
+  return status !== "resolved" && status !== "replied";
+}
+
+function IgnoreConversationNotificationButton({
+  conversationId,
+  redirectTo,
+}: {
+  conversationId: string;
+  redirectTo: string;
+}) {
+  return (
+    <form
+      action={ignoreConversationNotificationAction}
+      className="inbox-ignore-notification-form"
+    >
+      <input name="conversationId" type="hidden" value={conversationId} />
+      <input name="redirectTo" type="hidden" value={redirectTo} />
+      <button className="secondary-button compact subtle" type="submit">
+        Ignore
+      </button>
+    </form>
+  );
+}
+
 function isReplySendAction(action: ConversationReview["actions"][number]) {
   return (
     action.type === "draft_reply" || action.type === "send_outbound_message"
@@ -1149,12 +1175,20 @@ function InboxSplitPreview({
 
       <div className="assistant-preview-body">
         <div className="assistant-preview-status-row">
-          <span className="pill">
-            {formatLabel(profile.conversation.status)}
-          </span>
-          <span>
-            Last message {formatDate(profile.conversation.lastMessageAt)}
-          </span>
+          <div className="assistant-preview-status-copy">
+            <span className="pill">
+              {formatLabel(profile.conversation.status)}
+            </span>
+            <span>
+              Last message {formatDate(profile.conversation.lastMessageAt)}
+            </span>
+          </div>
+          {canIgnoreConversation(profile.conversation.status) ? (
+            <IgnoreConversationNotificationButton
+              conversationId={profile.conversation.id}
+              redirectTo={redirectTo}
+            />
+          ) : null}
         </div>
 
         <div className="assistant-preview-grid two-column">
