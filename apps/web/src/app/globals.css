@@ -11503,6 +11503,23 @@ button:disabled {
   justify-content: flex-end;
 }
 
+.manual-sync-footer {
+  padding-right: clamp(72px, 7vw, 120px);
+}
+
+.manual-sync-submit-button {
+  display: inline-flex;
+  min-width: fit-content;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.manual-sync-submit-button[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.82;
+}
+
 .settings-submit-button {
   display: inline-flex;
   min-width: fit-content;
@@ -14573,6 +14590,10 @@ button:disabled {
   .settings-footer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .manual-sync-footer {
+    padding-right: 0;
   }
 
   .skeleton-row {

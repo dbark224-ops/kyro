@@ -7,11 +7,14 @@ export function ManualSyncSubmitButton() {
 
   return (
     <button
-      aria-live="polite"
-      className="secondary-button compact"
+      aria-busy={pending}
+      className="secondary-button compact manual-sync-submit-button"
       disabled={pending}
       type="submit"
     >
+      {pending ? (
+        <span className="settings-submit-spinner" aria-hidden="true" />
+      ) : null}
       {pending ? "Checking inbox..." : "Check inbox now"}
     </button>
   );

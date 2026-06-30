@@ -3153,7 +3153,10 @@ function InboundEmailSyncSettings({
         <SenderRulesSettings rules={settings.senderRules} />
       ) : null}
 
-      <form action={syncInboundEmailNowAction} className="settings-footer">
+      <form
+        action={syncInboundEmailNowAction}
+        className="settings-footer manual-sync-footer"
+      >
         <span>
           Manual check uses the same sync path the assistant can call during a
           conversation.
