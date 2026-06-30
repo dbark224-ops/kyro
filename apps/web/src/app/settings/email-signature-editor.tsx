@@ -178,13 +178,14 @@ export function EmailSignatureEditor({
 
   const handleLogoWidthChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      const width = clampLogoWidth(Number(event.currentTarget.value));
+      const target = event.currentTarget;
+      const width = clampLogoWidth(Number(target.value));
 
       setDraft((current) => ({
         ...current,
         logoWidthPx: width,
       }));
-      scheduleSave(event.currentTarget, 450);
+      scheduleSave(target, 450);
     },
     [scheduleSave],
   );
@@ -240,12 +241,14 @@ export function EmailSignatureEditor({
         <textarea
           name={`${namePrefix}Text`}
           onBlur={handleTextBlur}
-          onChange={(event) =>
+          onChange={(event) => {
+            const text = event.currentTarget.value;
+
             setDraft((current) => ({
               ...current,
-              text: event.currentTarget.value,
-            }))
-          }
+              text,
+            }));
+          }}
           placeholder={"Cheers, Dave\nKyro Plumbing\n0400 000 000"}
           value={draft.text}
         />
@@ -279,6 +282,8 @@ export function EmailSignatureEditor({
             name={`${namePrefix}LogoUrl`}
             onBlur={handleLogoUrlBlur}
             onChange={(event) => {
+              const logoUrl = event.currentTarget.value;
+
               setLocalLogoPreviewUrl((current) => {
                 if (current) {
                   URL.revokeObjectURL(current);
@@ -292,7 +297,7 @@ export function EmailSignatureEditor({
                 logoContentType: "",
                 logoFilename: "",
                 logoSizeBytes: 0,
-                logoUrl: event.currentTarget.value,
+                logoUrl,
               }));
             }}
             placeholder="https://example.com/logo.png"
