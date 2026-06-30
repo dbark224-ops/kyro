@@ -118,6 +118,10 @@ export function EscalationSettingsEditor({
           <div>
             <p className="eyebrow">Escalation behaviour</p>
             <h3>When urgent escalation is triggered</h3>
+            <p>
+              Steps run in order; delay is measured from the original urgent
+              trigger, and later steps stop once the issue is acknowledged.
+            </p>
           </div>
           <button
             className="secondary-button compact"
