@@ -4,6 +4,7 @@ import {
   URGENT_ESCALATION_TRIGGER_DEFINITIONS,
   WORKPLACE_CONTACT_CHANNELS,
   type UrgentEscalationSettings,
+  type UrgentEscalationHoursMode,
   type UrgentEscalationStepSettings,
   type WorkplaceContactChannel,
   type WorkplaceContactSettings,
@@ -47,6 +48,14 @@ export function EscalationSettingsEditor({
   const [stepRows, setStepRows] = useState<UrgentEscalationStepSettings[]>(
     escalation.steps.length ? escalation.steps : [emptyStep()],
   );
+  const [hoursMode, setHoursMode] = useState<UrgentEscalationHoursMode>(
+    escalation.hoursMode,
+  );
+  const [customDays, setCustomDays] = useState(escalation.customDays);
+  const [customStartTime, setCustomStartTime] = useState(
+    escalation.customStartTime,
+  );
+  const [customEndTime, setCustomEndTime] = useState(escalation.customEndTime);
 
   const escalationContacts = useMemo(
     () =>
@@ -147,8 +156,11 @@ export function EscalationSettingsEditor({
           <label className="setting-card">
             <strong>Escalation hours</strong>
             <select
-              defaultValue={escalation.hoursMode}
               name="urgentEscalationHoursMode"
+              onChange={(event) =>
+                setHoursMode(event.target.value as UrgentEscalationHoursMode)
+              }
+              value={hoursMode}
             >
               <option value="always">Always</option>
               <option value="business_hours">Business hours only</option>
@@ -156,30 +168,55 @@ export function EscalationSettingsEditor({
               <option value="custom">Custom hours</option>
             </select>
           </label>
-          <label className="setting-card">
-            <strong>Custom days</strong>
-            <input
-              defaultValue={escalation.customDays}
-              name="urgentEscalationCustomDays"
-              placeholder="Every day, Weekdays, Saturday..."
-            />
-          </label>
-          <label className="setting-card">
-            <strong>Custom start</strong>
-            <input
-              defaultValue={escalation.customStartTime}
-              name="urgentEscalationCustomStartTime"
-              placeholder="5:00 PM"
-            />
-          </label>
-          <label className="setting-card">
-            <strong>Custom end</strong>
-            <input
-              defaultValue={escalation.customEndTime}
-              name="urgentEscalationCustomEndTime"
-              placeholder="7:00 AM"
-            />
-          </label>
+          {hoursMode === "custom" ? (
+            <>
+              <label className="setting-card">
+                <strong>Custom days</strong>
+                <input
+                  name="urgentEscalationCustomDays"
+                  onChange={(event) => setCustomDays(event.target.value)}
+                  placeholder="Every day, Weekdays, Saturday..."
+                  value={customDays}
+                />
+              </label>
+              <label className="setting-card">
+                <strong>Custom start</strong>
+                <input
+                  name="urgentEscalationCustomStartTime"
+                  onChange={(event) => setCustomStartTime(event.target.value)}
+                  placeholder="5:00 PM"
+                  value={customStartTime}
+                />
+              </label>
+              <label className="setting-card">
+                <strong>Custom end</strong>
+                <input
+                  name="urgentEscalationCustomEndTime"
+                  onChange={(event) => setCustomEndTime(event.target.value)}
+                  placeholder="7:00 AM"
+                  value={customEndTime}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <input
+                name="urgentEscalationCustomDays"
+                type="hidden"
+                value={customDays}
+              />
+              <input
+                name="urgentEscalationCustomStartTime"
+                type="hidden"
+                value={customStartTime}
+              />
+              <input
+                name="urgentEscalationCustomEndTime"
+                type="hidden"
+                value={customEndTime}
+              />
+            </>
+          )}
         </div>
 
         <div className="escalation-step-list">
