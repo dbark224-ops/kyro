@@ -80,6 +80,7 @@ import { mobileEnv } from "@/lib/env";
 import {
   mobileDocumentQuoteQueryOptions,
   mobileDocumentsQueryOptions,
+  mobileCrmQueryOptions,
   mobileFilePreviewQueryOptions,
   mobileFilesQueryOptions,
   mobilePaymentsQueryOptions,
@@ -89,6 +90,7 @@ import {
   mobileWorkspaceToolsQueryOptions,
 } from "@/lib/mobile-query";
 import type {
+  ContactListItem,
   MobileActivityLogItem,
   MobileBusinessHourDayKey,
   MobileBusinessHoursDaySettings,
@@ -5854,6 +5856,7 @@ function StripeSettingsPanel() {
 }
 
 type QuoteEditorDraft = {
+  contactId: string;
   customerCompany: string;
   customerEmail: string;
   customerName: string;
@@ -6414,6 +6417,7 @@ function QuoteDraftForm({
   templates: MobileDocumentTemplate[];
 }) {
   const [draft, setDraft] = useState(initialDraft);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
   useEffect(() => {
     setDraft(initialDraft);
@@ -6486,38 +6490,48 @@ function QuoteDraftForm({
           />
         </SettingField>
       </View>
-      <View style={styles.twoColumn}>
-        <SettingField label="Customer">
-          <TextInput
-            editable={!busy}
-            onChangeText={(customerName) =>
-              setDraft({ ...draft, customerName })
-            }
-            style={styles.input}
-            value={draft.customerName}
-          />
-        </SettingField>
-        <SettingField label="Email">
-          <TextInput
-            autoCapitalize="none"
-            editable={!busy}
-            keyboardType="email-address"
-            onChangeText={(customerEmail) =>
-              setDraft({ ...draft, customerEmail })
-            }
-            style={styles.input}
-            value={draft.customerEmail}
-          />
-        </SettingField>
-      </View>
-      <SettingField label="Address">
-        <TextInput
-          editable={!busy}
-          onChangeText={(jobAddress) => setDraft({ ...draft, jobAddress })}
-          style={styles.input}
-          value={draft.jobAddress}
-        />
+      <SettingField label="Customer">
+        <View style={styles.customerSelectorControl}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => setCustomerPickerOpen(true)}
+            style={[
+              styles.customerSelectorButton,
+              busy ? styles.disabled : null,
+            ]}
+          >
+            <View style={styles.settingsRowMain}>
+              <Text numberOfLines={1} style={styles.rowTitle}>
+                {quoteCustomerLabel(draft)}
+              </Text>
+              <Text numberOfLines={2} style={styles.rowMeta}>
+                {quoteCustomerMeta(draft)}
+              </Text>
+            </View>
+            <ChevronRight color={colors.cyan} size={19} />
+          </Pressable>
+          {hasQuoteCustomer(draft) ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => setDraft(clearQuoteCustomer(draft))}
+              style={styles.iconButton}
+            >
+              <Text style={styles.iconButtonText}>Clear</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </SettingField>
+      <QuoteCustomerPickerModal
+        onClose={() => setCustomerPickerOpen(false)}
+        onSelect={(customer) => {
+          setDraft(applyQuoteCustomer(draft, customer));
+          setCustomerPickerOpen(false);
+        }}
+        selectedContactId={draft.contactId}
+        visible={customerPickerOpen}
+      />
       <SettingField label="Line items">
         <TextInput
           editable={!busy}
@@ -6557,6 +6571,356 @@ function QuoteDraftForm({
         </ActionButton>
       </View>
     </SectionCard>
+  );
+}
+
+type QuoteCustomerSelection = {
+  address: string | null;
+  company: string | null;
+  email: string | null;
+  id: string | null;
+  name: string | null;
+  phone: string | null;
+};
+
+function QuoteCustomerPickerModal({
+  onClose,
+  onSelect,
+  selectedContactId,
+  visible,
+}: {
+  onClose: () => void;
+  onSelect: (customer: QuoteCustomerSelection) => void;
+  selectedContactId: string;
+  visible: boolean;
+}) {
+  const { session, status } = useAuthSession();
+  const queryClient = useQueryClient();
+  const [mode, setMode] = useState<"crm" | "manual">("crm");
+  const [search, setSearch] = useState("");
+  const [manual, setManual] = useState({
+    address: "",
+    company: "",
+    email: "",
+    name: "",
+    phone: "",
+  });
+  const crmOptions = mobileCrmQueryOptions(session);
+  const crm = useQuery({
+    ...crmOptions,
+    enabled: visible && status === "signed-in",
+  });
+  const createCustomer = useMutation({
+    mutationFn: () => {
+      const customer = {
+        address: manual.address,
+        company: manual.company,
+        email: manual.email,
+        id: [
+          manual.name,
+          manual.email,
+          manual.phone,
+          manual.company,
+          manual.address,
+        ]
+          .filter(Boolean)
+          .join(":"),
+        name: manual.name,
+        phone: manual.phone,
+      };
+
+      if (!hasManualCustomerDetails(customer)) {
+        return Promise.resolve<MobileContactImportResponse>({
+          created: 0,
+          importedContacts: [],
+          message: "No customer details added.",
+          skipped: 0,
+          updated: 0,
+          workspace: crm.data?.workspace ?? {
+            id: "",
+            name: "",
+            slug: "",
+          },
+        });
+      }
+
+      return kyroApiFetch<MobileContactImportResponse>(
+        "/api/mobile/crm/import-contacts",
+        {
+          body: {
+            contactType: "client",
+            contacts: [customer],
+          },
+          method: "POST",
+          session,
+        },
+      );
+    },
+    onSuccess: (response) => {
+      const imported = response.importedContacts[0];
+
+      if (imported) {
+        onSelect({
+          address: imported.address,
+          company: imported.company,
+          email: imported.email,
+          id: imported.id,
+          name: imported.name,
+          phone: imported.phone,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: mobileQueryKeys.crm(session?.user.id),
+        });
+      } else {
+        onSelect({
+          address: emptyTextToNull(manual.address),
+          company: emptyTextToNull(manual.company),
+          email: emptyTextToNull(manual.email),
+          id: null,
+          name: emptyTextToNull(manual.name),
+          phone: emptyTextToNull(manual.phone),
+        });
+      }
+
+      setManual({ address: "", company: "", email: "", name: "", phone: "" });
+      setMode("crm");
+    },
+  });
+  const searchText = search.trim().toLowerCase();
+  const contacts = (crm.data?.contacts ?? [])
+    .filter((contact) =>
+      searchText
+        ? [
+            contact.name,
+            contact.company,
+            contact.email,
+            contact.phone,
+            contact.address,
+            contact.searchableText,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(searchText)
+        : true,
+    )
+    .slice(0, 40);
+
+  useEffect(() => {
+    if (!visible) {
+      setSearch("");
+      setMode("crm");
+    }
+  }, [visible]);
+
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onClose}
+      transparent
+      visible={visible}
+    >
+      <Pressable
+        accessibilityRole="button"
+        onPress={onClose}
+        style={styles.dropdownBackdrop}
+      >
+        <Pressable style={styles.customerPickerSheet}>
+          <View style={styles.pronunciationEditorHeader}>
+            <View style={styles.settingsRowMain}>
+              <Text style={styles.dropdownTitle}>Customer</Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close customer selector"
+              accessibilityRole="button"
+              onPress={onClose}
+              style={styles.pronunciationIconButton}
+            >
+              <X color={colors.muted} size={18} />
+            </Pressable>
+          </View>
+
+          <View style={styles.segmentedControl}>
+            {(["crm", "manual"] as const).map((item) => {
+              const active = mode === item;
+
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  key={item}
+                  onPress={() => setMode(item)}
+                  style={[
+                    styles.segmentButton,
+                    active ? styles.segmentButtonActive : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentButtonText,
+                      active ? styles.segmentButtonTextActive : null,
+                    ]}
+                  >
+                    {item === "crm" ? "CRM" : "New"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {mode === "crm" ? (
+            <>
+              <TextInput
+                autoCapitalize="none"
+                onChangeText={setSearch}
+                placeholder="Search customers"
+                placeholderTextColor={colors.muted}
+                style={styles.input}
+                value={search}
+              />
+              <DataState
+                error={crm.error}
+                loading={crm.isLoading}
+                title="Loading CRM"
+              />
+              <ScrollView
+                contentContainerStyle={styles.customerPickerList}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {contacts.length ? (
+                  contacts.map((contact) => (
+                    <CustomerPickerContactRow
+                      contact={contact}
+                      key={contact.id}
+                      onPress={() =>
+                        onSelect(quoteCustomerFromContact(contact))
+                      }
+                      selected={contact.id === selectedContactId}
+                    />
+                  ))
+                ) : (
+                  <Text style={styles.emptyCopy}>
+                    No CRM customers match that search.
+                  </Text>
+                )}
+              </ScrollView>
+            </>
+          ) : (
+            <ScrollView
+              contentContainerStyle={styles.customerPickerList}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <SettingField label="Name">
+                <TextInput
+                  onChangeText={(name) => setManual({ ...manual, name })}
+                  placeholder="Customer name"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
+                  value={manual.name}
+                />
+              </SettingField>
+              <SettingField label="Company">
+                <TextInput
+                  onChangeText={(company) => setManual({ ...manual, company })}
+                  placeholder="Optional"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
+                  value={manual.company}
+                />
+              </SettingField>
+              <SettingField label="Email">
+                <TextInput
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  onChangeText={(email) => setManual({ ...manual, email })}
+                  placeholder="Optional"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
+                  value={manual.email}
+                />
+              </SettingField>
+              <SettingField label="Phone">
+                <TextInput
+                  keyboardType="phone-pad"
+                  onChangeText={(phone) => setManual({ ...manual, phone })}
+                  placeholder="Optional"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
+                  value={manual.phone}
+                />
+              </SettingField>
+              <SettingField label="Address">
+                <TextInput
+                  onChangeText={(address) => setManual({ ...manual, address })}
+                  placeholder="Optional"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
+                  value={manual.address}
+                />
+              </SettingField>
+              <View style={styles.actionRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={createCustomer.isPending}
+                  onPress={() => createCustomer.mutate()}
+                  style={[
+                    styles.saveButton,
+                    styles.actionRowButton,
+                    createCustomer.isPending ? styles.disabled : null,
+                  ]}
+                >
+                  <Text style={styles.saveButtonText}>
+                    {createCustomer.isPending ? "Saving" : "Use customer"}
+                  </Text>
+                </Pressable>
+              </View>
+              <DataState
+                error={createCustomer.error}
+                loading={false}
+                title="Saving customer"
+              />
+            </ScrollView>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function CustomerPickerContactRow({
+  contact,
+  onPress,
+  selected,
+}: {
+  contact: ContactListItem;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[
+        styles.customerPickerRow,
+        selected ? styles.customerPickerRowActive : null,
+      ]}
+    >
+      <View style={styles.settingsRowMain}>
+        <Text numberOfLines={1} style={styles.rowTitle}>
+          {contactListLabel(contact)}
+        </Text>
+        <Text numberOfLines={1} style={styles.rowMeta}>
+          {[contact.email, contact.phone, contact.address]
+            .filter(Boolean)
+            .join(" - ") || "No contact details"}
+        </Text>
+      </View>
+      <ChevronRight
+        color={selected ? colors.background : colors.cyan}
+        size={18}
+      />
+    </Pressable>
   );
 }
 
@@ -7774,8 +8138,110 @@ function fileMatchesMobileFilter(
   return file.kind === filter;
 }
 
+function quoteCustomerFromContact(
+  contact: ContactListItem,
+): QuoteCustomerSelection {
+  return {
+    address: contact.address,
+    company: contact.company,
+    email: contact.email,
+    id: contact.id,
+    name: contact.name,
+    phone: contact.phone,
+  };
+}
+
+function applyQuoteCustomer(
+  draft: QuoteEditorDraft,
+  customer: QuoteCustomerSelection,
+): QuoteEditorDraft {
+  return {
+    ...draft,
+    contactId: customer.id ?? "",
+    customerCompany: customer.company ?? "",
+    customerEmail: customer.email ?? "",
+    customerName: customer.name ?? customer.company ?? "",
+    customerPhone: customer.phone ?? "",
+    jobAddress: customer.address ?? draft.jobAddress,
+  };
+}
+
+function clearQuoteCustomer(draft: QuoteEditorDraft): QuoteEditorDraft {
+  return {
+    ...draft,
+    contactId: "",
+    customerCompany: "",
+    customerEmail: "",
+    customerName: "",
+    customerPhone: "",
+    jobAddress: "",
+  };
+}
+
+function hasQuoteCustomer(draft: QuoteEditorDraft) {
+  return Boolean(
+    draft.contactId ||
+    draft.customerName ||
+    draft.customerCompany ||
+    draft.customerEmail ||
+    draft.customerPhone ||
+    draft.jobAddress,
+  );
+}
+
+function quoteCustomerLabel(draft: QuoteEditorDraft) {
+  return (
+    draft.customerName ||
+    draft.customerCompany ||
+    draft.customerEmail ||
+    draft.customerPhone ||
+    draft.jobAddress ||
+    "Choose customer"
+  );
+}
+
+function quoteCustomerMeta(draft: QuoteEditorDraft) {
+  return (
+    [draft.customerEmail, draft.customerPhone, draft.jobAddress]
+      .filter(Boolean)
+      .join(" - ") || "Select from CRM or add a new customer"
+  );
+}
+
+function contactListLabel(contact: ContactListItem) {
+  return (
+    contact.name ??
+    contact.company ??
+    contact.email ??
+    contact.phone ??
+    contact.address ??
+    "Unnamed contact"
+  );
+}
+
+function emptyTextToNull(value: string) {
+  return value.trim() ? value.trim() : null;
+}
+
+function hasManualCustomerDetails(customer: {
+  address: string;
+  company: string;
+  email: string;
+  name: string;
+  phone: string;
+}) {
+  return Boolean(
+    customer.address.trim() ||
+    customer.company.trim() ||
+    customer.email.trim() ||
+    customer.name.trim() ||
+    customer.phone.trim(),
+  );
+}
+
 function quoteDraftPayload(draft: QuoteEditorDraft) {
   return {
+    contactId: draft.contactId || null,
     customerCompany: draft.customerCompany,
     customerEmail: draft.customerEmail,
     customerName: draft.customerName,
@@ -7797,6 +8263,7 @@ function quoteDraftFromTemplate(
   documentKind: "invoice" | "quote" = "quote",
 ): QuoteEditorDraft {
   return {
+    contactId: "",
     customerCompany: "",
     customerEmail: "",
     customerName: "",
@@ -7827,6 +8294,7 @@ function quoteDraftFromDetail(
       : {};
 
   return {
+    contactId: quote.contact?.id ?? "",
     customerCompany: stringDraftValue(quoteMetadata.customerCompany),
     customerEmail: stringDraftValue(
       quoteMetadata.customerEmail ?? quote.contact?.email,
@@ -8709,6 +9177,53 @@ const styles = StyleSheet.create({
   contactSyncRowSelected: {
     borderColor: colors.cyan,
   },
+  customerPickerList: {
+    gap: 8,
+    paddingBottom: 6,
+  },
+  customerPickerRow: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 58,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  customerPickerRowActive: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.cyan,
+  },
+  customerPickerSheet: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    maxHeight: "86%",
+    padding: 14,
+  },
+  customerSelectorButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 58,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  customerSelectorControl: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
   disabled: {
     opacity: 0.52,
   },
@@ -9390,6 +9905,34 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 15,
     fontWeight: "900",
+  },
+  segmentedControl: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    padding: 4,
+  },
+  segmentButton: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    flex: 1,
+    minHeight: 34,
+    justifyContent: "center",
+  },
+  segmentButtonActive: {
+    backgroundColor: colors.text,
+  },
+  segmentButtonText: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  segmentButtonTextActive: {
+    color: colors.background,
   },
   reportRow: {
     backgroundColor: colors.surfaceSoft,

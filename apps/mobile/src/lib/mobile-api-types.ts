@@ -634,6 +634,9 @@ export type MobileCrmResponse = {
 export type MobileContactImportResponse = {
   created: number;
   importedContacts: Array<{
+    address: string | null;
+    company: string | null;
+    contactType: string | null;
     email: string | null;
     id: string;
     name: string | null;

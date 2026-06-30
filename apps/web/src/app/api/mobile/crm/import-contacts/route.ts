@@ -60,6 +60,7 @@ function normalizeImportContact(value: unknown): ImportContact | null {
   const email = normalizeEmail(contact.email);
   const phone = textValue(contact.phone);
   const company = textValue(contact.company);
+  const address = textValue(contact.address);
   const firstName = textValue(contact.firstName);
   const lastName = textValue(contact.lastName);
   const name =
@@ -67,14 +68,17 @@ function normalizeImportContact(value: unknown): ImportContact | null {
     textValue([firstName, lastName].filter(Boolean).join(" "));
   const id =
     textValue(contact.id) ??
-    [name, email, phone, company].filter(Boolean).join(":").toLowerCase();
+    [name, email, phone, company, address]
+      .filter(Boolean)
+      .join(":")
+      .toLowerCase();
 
-  if (!name && !email && !phone && !company) {
+  if (!name && !email && !phone && !company && !address) {
     return null;
   }
 
   return {
-    address: textValue(contact.address),
+    address,
     company,
     email,
     firstName,
@@ -92,7 +96,10 @@ function dedupeImportContacts(contacts: ImportContact[]) {
     const key =
       contact.email ??
       normalizePhone(contact.phone) ??
-      [contact.name, contact.company].filter(Boolean).join("|").toLowerCase() ??
+      [contact.name, contact.company, contact.address]
+        .filter(Boolean)
+        .join("|")
+        .toLowerCase() ??
       contact.id;
 
     if (seen.has(key)) {
@@ -104,7 +111,11 @@ function dedupeImportContacts(contacts: ImportContact[]) {
   });
 }
 
-function contactImportTag(contact: ImportContact, userId: string, importedAt: string) {
+function contactImportTag(
+  contact: ImportContact,
+  userId: string,
+  importedAt: string,
+) {
   return {
     deviceContactId: contact.id,
     importedAt,
@@ -175,7 +186,7 @@ function findExistingContact(
 
   const phoneKey = normalizePhone(contact.phone);
 
-  return phoneKey ? byPhone.get(phoneKey) ?? null : null;
+  return phoneKey ? (byPhone.get(phoneKey) ?? null) : null;
 }
 
 export async function POST(request: Request) {
@@ -223,6 +234,9 @@ export async function POST(request: Request) {
 
     const importedAt = new Date().toISOString();
     const importedContacts: Array<{
+      address: string | null;
+      company: string | null;
+      contactType: string | null;
       email: string | null;
       id: string;
       name: string | null;
@@ -247,6 +261,9 @@ export async function POST(request: Request) {
         if (!update) {
           skipped += 1;
           importedContacts.push({
+            address: existing.address,
+            company: existing.company,
+            contactType: existing.contact_type,
             email: existing.email,
             id: existing.id,
             name: existing.name,
@@ -261,7 +278,7 @@ export async function POST(request: Request) {
           .update(update)
           .eq("workspace_id", workspace.id)
           .eq("id", existing.id)
-          .select("id,name,email,phone")
+          .select("id,name,email,phone,company,contact_type,address")
           .single();
 
         if (updateError || !after) {
@@ -270,6 +287,9 @@ export async function POST(request: Request) {
 
         updated += 1;
         importedContacts.push({
+          address: after.address ? String(after.address) : null,
+          company: after.company ? String(after.company) : null,
+          contactType: after.contact_type ? String(after.contact_type) : null,
           email: after.email ? String(after.email) : null,
           id: String(after.id),
           name: after.name ? String(after.name) : null,
@@ -293,7 +313,7 @@ export async function POST(request: Request) {
       const { data: after, error: insertError } = await supabase
         .from("contacts")
         .insert(insert)
-        .select("id,name,email,phone")
+        .select("id,name,email,phone,company,contact_type,address")
         .single();
 
       if (insertError || !after) {
@@ -302,6 +322,9 @@ export async function POST(request: Request) {
 
       created += 1;
       importedContacts.push({
+        address: after.address ? String(after.address) : null,
+        company: after.company ? String(after.company) : null,
+        contactType: after.contact_type ? String(after.contact_type) : null,
         email: after.email ? String(after.email) : null,
         id: String(after.id),
         name: after.name ? String(after.name) : null,
