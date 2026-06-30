@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   FileText,
   MailWarning,
+  Paperclip,
   RefreshCw,
   Search,
   Send,
@@ -386,6 +387,7 @@ function ConversationDetailScreen({
   const [quoteDraftId, setQuoteDraftId] = useState<string | null>(null);
   const [signatureVariant, setSignatureVariant] = useState("manual");
   const [subject, setSubject] = useState("");
+  const [showQuoteAttachments, setShowQuoteAttachments] = useState(false);
   const [isContextExpanded, setIsContextExpanded] = useState(false);
   const detailQueryKey = [
     "mobile-inbox-conversation",
@@ -579,44 +581,6 @@ function ConversationDetailScreen({
       </SectionCard>
 
       <SectionCard>
-        <SectionHeader title="Workflow" />
-        <View style={styles.workflowStatusGrid}>
-          {conversationStatusOptions.map((option) => (
-            <Pressable
-              accessibilityRole="button"
-              disabled={runAction.isPending || latestStatus === option.value}
-              key={option.value}
-              onPress={() =>
-                runAction.mutate({
-                  operation: "update_status",
-                  status: option.value,
-                })
-              }
-              style={({ pressed }) => [
-                styles.workflowStatusButton,
-                latestStatus === option.value
-                  ? styles.workflowStatusButtonActive
-                  : null,
-                pressed ? styles.pressed : null,
-                runAction.isPending ? styles.disabled : null,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.workflowStatusText,
-                  latestStatus === option.value
-                    ? styles.workflowStatusTextActive
-                    : null,
-                ]}
-              >
-                {option.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </SectionCard>
-
-      <SectionCard>
         <SectionHeader eyebrow="Thread" title="Messages" />
         {detail.messages.length ? (
           <View style={styles.messageThread}>
@@ -669,13 +633,44 @@ function ConversationDetailScreen({
           }))}
           value={channelType}
         />
-        <TextInput
-          onChangeText={setSubject}
-          placeholder="Subject"
-          placeholderTextColor={colors.muted}
-          style={styles.detailInput}
-          value={subject}
-        />
+        <View style={styles.subjectRow}>
+          <TextInput
+            onChangeText={setSubject}
+            placeholder="Subject"
+            placeholderTextColor={colors.muted}
+            style={[styles.detailInput, styles.subjectInput]}
+            value={subject}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              if (detail.quoteDrafts.length) {
+                setShowQuoteAttachments((current) => !current);
+              } else {
+                setMessage("No generated files are available to attach yet.");
+              }
+            }}
+            style={({ pressed }) => [
+              styles.attachButton,
+              quoteDraftId ? styles.attachButtonActive : null,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <Paperclip
+              color={quoteDraftId ? colors.background : colors.text}
+              size={17}
+              strokeWidth={2.4}
+            />
+            <Text
+              style={[
+                styles.attachButtonText,
+                quoteDraftId ? styles.attachButtonTextActive : null,
+              ]}
+            >
+              {quoteDraftId ? "1" : "Attach"}
+            </Text>
+          </Pressable>
+        </View>
         <TextInput
           multiline
           onChangeText={setBody}
@@ -685,9 +680,9 @@ function ConversationDetailScreen({
           textAlignVertical="top"
           value={body}
         />
-        {detail.quoteDrafts.length ? (
+        {showQuoteAttachments && detail.quoteDrafts.length ? (
           <View style={styles.quoteDraftStack}>
-            <Text style={styles.filterLabel}>Attach quote</Text>
+            <Text style={styles.filterLabel}>Attach file</Text>
             {detail.quoteDrafts.map((quoteDraft) => (
               <Pressable
                 accessibilityRole="button"
@@ -1160,13 +1155,6 @@ function ConversationActionCard({
 
 type InboxTimeFilter = "all" | "today" | "week" | "older";
 
-const conversationStatusOptions = [
-  { label: "Open", value: "open" },
-  { label: "Drafted", value: "reply_drafted" },
-  { label: "Replied", value: "replied" },
-  { label: "Resolved", value: "resolved" },
-];
-
 const statusFilterOptions = [
   { label: "All", value: "all" },
   { label: "Needs reply", value: "needs_reply" },
@@ -1560,6 +1548,31 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "800",
+  },
+  attachButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  attachButtonActive: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.surfaceStrong,
+  },
+  attachButtonText: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  attachButtonTextActive: {
+    color: colors.background,
   },
   backButton: {
     alignItems: "center",
@@ -2058,6 +2071,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
   },
+  subjectInput: {
+    flex: 1,
+    minWidth: 0,
+  },
+  subjectRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+  },
   topMeta: {
     alignItems: "center",
     flexDirection: "row",
@@ -2079,33 +2101,5 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "900",
-  },
-  workflowStatusButton: {
-    alignItems: "center",
-    borderColor: colors.line,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexGrow: 1,
-    justifyContent: "center",
-    minHeight: 34,
-    paddingHorizontal: 10,
-  },
-  workflowStatusButtonActive: {
-    backgroundColor: colors.surfaceStrong,
-    borderColor: colors.surfaceStrong,
-  },
-  workflowStatusGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  workflowStatusText: {
-    color: colors.muted,
-    fontFamily: typography.fontFamily,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  workflowStatusTextActive: {
-    color: colors.background,
   },
 });
