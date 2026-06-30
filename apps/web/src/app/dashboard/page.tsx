@@ -3,6 +3,7 @@ import { DashboardTour } from "./dashboard-tour";
 import { AppFrame } from "../components/app-frame";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import type { AssistantThreadState } from "../../lib/assistant/types";
+import { isKyroEmailVerified } from "../../lib/auth/email-verification";
 import { getDashboardCommandCenterData } from "../../lib/dashboard/queries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 
@@ -42,7 +43,9 @@ export default async function DashboardPage() {
     <AppFrame active="Dashboard">
       <DashboardConsole
         data={data}
+        emailVerified={isKyroEmailVerified(user)}
         initialAssistantState={buildWelcomeState(threadState)}
+        userEmail={user.email ?? ""}
       />
       <DashboardTour />
     </AppFrame>

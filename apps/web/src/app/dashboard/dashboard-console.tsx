@@ -17,7 +17,9 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 
 type DashboardConsoleProps = {
   data: DashboardCommandCenterData;
+  emailVerified: boolean;
   initialAssistantState: AssistantThreadState;
+  userEmail: string;
 };
 
 type DashboardMetricKey =
@@ -1032,9 +1034,82 @@ function renderWidget({
   );
 }
 
+function DashboardEmailVerificationNotice({
+  userEmail,
+}: Readonly<{
+  userEmail: string;
+}>) {
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
+    "idle",
+  );
+  const [message, setMessage] = useState("");
+
+  const resendVerification = async () => {
+    if (!userEmail || status === "sending") {
+      return;
+    }
+
+    setStatus("sending");
+    setMessage("");
+
+    const response = await fetch("/api/auth/resend-verification", {
+      body: JSON.stringify({ email: userEmail }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }).catch(() => null);
+
+    const payload = (await response?.json().catch(() => null)) as
+      | { error?: string; ok?: boolean }
+      | null;
+
+    if (!response?.ok || payload?.error) {
+      setStatus("error");
+      setMessage(payload?.error ?? "Kyro could not send that email right now.");
+      return;
+    }
+
+    setStatus("sent");
+    setMessage("Verification email sent.");
+  };
+
+  return (
+    <section className="dashboard-email-verification-notice">
+      <div>
+        <p className="eyebrow">Email verification required</p>
+        <strong>Check your inbox to finish setup</strong>
+        <span>
+          Some settings stay read-only until {userEmail || "your email"} is
+          verified.
+        </span>
+        {message ? (
+          <span
+            className={
+              status === "error"
+                ? "dashboard-verification-message is-error"
+                : "dashboard-verification-message"
+            }
+          >
+            {message}
+          </span>
+        ) : null}
+      </div>
+      <button
+        className="secondary-button compact"
+        disabled={status === "sending" || !userEmail}
+        onClick={resendVerification}
+        type="button"
+      >
+        {status === "sending" ? "Sending..." : "Resend"}
+      </button>
+    </section>
+  );
+}
+
 export function DashboardConsole({
   data,
+  emailVerified,
   initialAssistantState,
+  userEmail,
 }: DashboardConsoleProps) {
   const [timeframe, setTimeframe] = useState<DashboardTimeframe>("today");
   const [activityFilter, setActivityFilter] =
@@ -1063,6 +1138,9 @@ export function DashboardConsole({
         <div className="dashboard-command-title">
           <h1>Dashboard</h1>
         </div>
+        {!emailVerified ? (
+          <DashboardEmailVerificationNotice userEmail={userEmail} />
+        ) : null}
         <div
           className="dashboard-command-actions"
           data-tour="dashboard-customise"
