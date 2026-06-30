@@ -103,6 +103,8 @@ import {
   type QuoteTemplate,
 } from "../../lib/documents/templates";
 import {
+  DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+  type BusinessHoursScheduleSettings,
   type WorkplaceContactSettings,
   type WorkspaceGeneralSettings,
 } from "../../lib/workspace/general-settings";
@@ -112,7 +114,7 @@ import {
   operatingCountryPhoneRegion,
 } from "../../lib/workspace/operating-countries";
 import { type WorkspacePhoneNumberPoolRow } from "../../lib/voice/phone-number-pool";
-import { PHONE_REGION_OPTIONS } from "../../lib/crm/identity";
+import { PHONE_REGION_OPTIONS, type PhoneRegion } from "../../lib/crm/identity";
 import Link from "next/link";
 import { SettingsShell } from "./settings-shell";
 import { SettingsSubmitButton } from "./settings-submit-button";
@@ -2829,8 +2831,10 @@ function GeneralSettingsDetail({
           style={visibleWhen(activeBusinessPanel === "workplace-contacts")}
         >
           <WorkplaceContactsEditor
+            businessWorkingHoursSchedule={profile.workingHoursSchedule}
             contacts={profile.workplaceContacts}
             defaultEmail={userEmail}
+            defaultPhoneRegion={settings.defaultPhoneRegion}
             description="These workplace contacts are used to recognize internal callers and decide who Kyro can alert when calls need a human."
             title="Workplace contacts"
           />
@@ -3542,6 +3546,8 @@ function CommunicationSettingsDetail({
 function VoiceSettingsDetail({
   activePanel,
   assignedPhoneNumbers,
+  businessWorkingHoursSchedule,
+  defaultPhoneRegion,
   pronunciationEntries,
   workplaceContacts,
   userEmail,
@@ -3549,6 +3555,8 @@ function VoiceSettingsDetail({
 }: Readonly<{
   activePanel?: string | null;
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
+  businessWorkingHoursSchedule: BusinessHoursScheduleSettings;
+  defaultPhoneRegion: PhoneRegion;
   pronunciationEntries: AssistantPronunciationEntry[];
   workplaceContacts: WorkplaceContactSettings[];
   userEmail: string;
@@ -3769,8 +3777,10 @@ function VoiceSettingsDetail({
             value={voiceSettings.vapiOutboundAssistantId ?? ""}
           />
           <WorkplaceContactsEditor
+            businessWorkingHoursSchedule={businessWorkingHoursSchedule}
             contacts={workplaceContacts}
             defaultEmail={userEmail}
+            defaultPhoneRegion={defaultPhoneRegion}
             description="These workplace contacts are used to recognize internal callers and decide who Kyro can alert when calls need a human."
             title="User and team contacts"
           />
@@ -5183,6 +5193,15 @@ export default async function SettingsPage({
         <VoiceSettingsDetail
           activePanel={selectedPanel}
           assignedPhoneNumbers={assignedPhoneNumbers}
+          businessWorkingHoursSchedule={
+            generalSettings?.businessProfile.workingHoursSchedule ??
+            DEFAULT_WORKSPACE_GENERAL_SETTINGS.businessProfile
+              .workingHoursSchedule
+          }
+          defaultPhoneRegion={
+            generalSettings?.defaultPhoneRegion ??
+            DEFAULT_WORKSPACE_GENERAL_SETTINGS.defaultPhoneRegion
+          }
           pronunciationEntries={pronunciationEntries}
           userEmail={user.email ?? ""}
           workplaceContacts={workplaceContactsWithVoiceNumbers(

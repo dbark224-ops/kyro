@@ -64,6 +64,7 @@ import {
 } from "../../lib/integrations/microsoft";
 import {
   DEFAULT_PHONE_REGION,
+  normalizeContactPhoneForRegion,
   normalizePhoneRegion,
   PHONE_REGION_OPTIONS,
 } from "../../lib/crm/identity";
@@ -219,9 +220,7 @@ function workplaceContactChannelFromForm(
     : "sms";
 }
 
-function workplaceContactsFromForm(
-  formData: FormData,
-): WorkplaceContactSettings[] {
+function workplaceContactsFromForm(formData: FormData): WorkplaceContactSettings[] {
   const ids = formStringList(formData, "workplaceContactId");
   const names = formStringList(formData, "workplaceContactName");
   const roles = formStringList(formData, "workplaceContactRole");
@@ -247,6 +246,9 @@ function workplaceContactsFromForm(
     formData,
     "workplaceContactPreferredChannel",
   );
+  const phoneRegion = normalizePhoneRegion(
+    formString(formData, "workplaceContactPhoneRegion"),
+  );
 
   return ids
     .map((id, index) => ({
@@ -255,11 +257,16 @@ function workplaceContactsFromForm(
       id: id || `contact-${index + 1}`,
       name: names[index] || "",
       notes: notes[index] || "",
-      phoneNumber: phones[index] || "",
+      phoneNumber:
+        normalizeContactPhoneForRegion(phones[index] || "", phoneRegion) ?? "",
       preferredChannel: workplaceContactChannelFromForm(
         preferredChannels[index] || "sms",
       ),
-      privatePhoneNumber: privatePhones[index] || "",
+      privatePhoneNumber:
+        normalizeContactPhoneForRegion(
+          privatePhones[index] || "",
+          phoneRegion,
+        ) ?? "",
       receivesEscalations: receivesEscalations[index] !== "false",
       role: roles[index] || "",
       tradeSpecialty: specialties[index] || "",

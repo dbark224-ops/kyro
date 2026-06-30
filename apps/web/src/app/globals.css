@@ -9342,7 +9342,7 @@ button:disabled {
 }
 
 .workplace-contact-field-label,
-.workplace-contact-time-range label > span {
+.workplace-contact-schedule-row label > span {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 850;
@@ -9350,27 +9350,59 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.workplace-contact-day-options {
+.workplace-contact-schedule-field {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 5px;
+  min-width: 0;
+  gap: 8px;
 }
 
-.workplace-contact-day-options label {
+.workplace-contact-schedule-header {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workplace-contact-schedule-header .text-button {
+  min-height: 0;
+  padding: 0;
+}
+
+.workplace-contact-schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.workplace-contact-schedule-row {
+  display: grid;
+  grid-template-columns: minmax(76px, 1fr) repeat(2, minmax(116px, 126px));
+  align-items: end;
+  gap: 6px;
   border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 32%, var(--surface));
-  color: var(--text);
-  font-size: 0.74rem;
-  font-weight: 850;
   padding: 6px;
 }
 
-.workplace-contact-day-options input[type="checkbox"] {
+.workplace-contact-schedule-row label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.workplace-contact-schedule-day {
+  display: flex !important;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.workplace-contact-schedule-row input[type="checkbox"] {
   width: 13px;
   min-height: 13px;
   height: 13px;
@@ -9378,32 +9410,21 @@ button:disabled {
   padding: 0;
 }
 
-.workplace-contact-time-range {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.workplace-contact-time-range label {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
-}
-
-.workplace-contact-time-range input[type="time"] {
+.workplace-contact-schedule-row input[type="time"] {
   width: 100%;
-  min-width: 0;
+  min-width: 108px;
   font-size: 0.82rem;
+  padding-inline: 7px;
 }
 
 .workplace-contact-form-grid.locked input:disabled,
 .workplace-contact-form-grid.locked select:disabled,
 .workplace-contact-form-grid.locked textarea:disabled,
 .workplace-contact-form-grid.locked
-  .workplace-contact-day-options
+  .workplace-contact-schedule-row
   input:disabled,
 .workplace-contact-form-grid.locked
-  .workplace-contact-time-range
+  .workplace-contact-schedule-row
   input:disabled {
   border-color: color-mix(in srgb, var(--line) 74%, transparent);
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
@@ -9415,6 +9436,10 @@ button:disabled {
 @container workplace-contact (max-width: 860px) {
   .workplace-contact-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workplace-contact-schedule-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -9446,6 +9471,10 @@ button:disabled {
   .workplace-contact-form-actions .text-button {
     justify-self: stretch;
     width: 100%;
+  }
+
+  .workplace-contact-schedule-row {
+    grid-template-columns: 1fr;
   }
 
   .workplace-contact-form-actions {

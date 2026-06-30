@@ -1,16 +1,25 @@
 "use client";
 
 import {
+  BUSINESS_HOUR_DAYS,
   WORKPLACE_CONTACT_CHANNELS,
+  type BusinessHoursDaySettings,
+  type BusinessHoursScheduleSettings,
   type WorkplaceContactChannel,
   type WorkplaceContactSettings,
 } from "../../lib/workspace/general-settings";
+import {
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
+} from "../../lib/crm/identity";
 import { useState } from "react";
 
 type WorkplaceContactsEditorProps = {
   addLabel?: string;
+  businessWorkingHoursSchedule: BusinessHoursScheduleSettings;
   contacts: WorkplaceContactSettings[];
   defaultEmail: string;
+  defaultPhoneRegion: PhoneRegion;
   description?: string;
   eyebrow?: string;
   onContactsChange?: (contacts: WorkplaceContactSettings[]) => void;
@@ -44,6 +53,34 @@ const WORKPLACE_ACTIVE_DAY_OPTIONS = [
 
 type WorkplaceActiveDayKey =
   (typeof WORKPLACE_ACTIVE_DAY_OPTIONS)[number]["key"];
+
+const PHONE_PLACEHOLDER_BY_REGION: Partial<Record<PhoneRegion, string>> = {
+  AU: "0400 000 000",
+  CA: "(555) 123-4567",
+  GB: "07123 456789",
+  IE: "085 123 4567",
+  NZ: "021 123 4567",
+  US: "(555) 123-4567",
+};
+
+const PRIVATE_PHONE_PLACEHOLDER_BY_REGION: Partial<Record<PhoneRegion, string>> =
+  {
+    AU: "+61 400 000 000",
+    CA: "+1 555 123 4567",
+    GB: "+44 7123 456789",
+    IE: "+353 85 123 4567",
+    NZ: "+64 21 123 4567",
+    US: "+1 555 123 4567",
+  };
+
+const WORKPLACE_DAY_KEY_BY_BUSINESS_DAY = new Map(
+  BUSINESS_HOUR_DAYS.map((day) => [
+    day.key,
+    WORKPLACE_ACTIVE_DAY_OPTIONS.find(
+      (option) => option.label === day.shortLabel,
+    )?.key ?? day.shortLabel,
+  ]),
+);
 
 function nextId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -146,12 +183,6 @@ function activeDayKeys(value: string) {
   return keys;
 }
 
-function formatActiveDays(keys: Set<WorkplaceActiveDayKey>) {
-  return WORKPLACE_ACTIVE_DAY_OPTIONS.filter((option) => keys.has(option.key))
-    .map((option) => option.key)
-    .join(", ");
-}
-
 function timeInputValue(value: string) {
   const trimmed = value.trim();
   const match = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
@@ -202,18 +233,193 @@ function workingHoursRange(value: string) {
   };
 }
 
-function formatWorkingHours(start: string, end: string) {
-  if (start && end) {
-    return `${start} to ${end}`;
+function formatScheduleSummary(days: BusinessHoursDaySettings[]) {
+  const enabledDays = days.filter((day) => day.enabled);
+
+  if (!enabledDays.length) {
+    return "";
   }
 
-  return start || end || "";
+  const grouped = enabledDays.reduce<Map<string, BusinessHoursDaySettings[]>>(
+    (groups, day) => {
+      const key = `${day.startTime}-${day.endTime}`;
+      const current = groups.get(key) ?? [];
+
+      groups.set(key, [...current, day]);
+      return groups;
+    },
+    new Map(),
+  );
+
+  return Array.from(grouped.values())
+    .map((group) => {
+      const firstDay = group[0];
+      const labels = group
+        .map(
+          (day) =>
+            BUSINESS_HOUR_DAYS.find((option) => option.key === day.day)
+              ?.shortLabel ?? day.day,
+        )
+        .join(", ");
+
+      return firstDay
+        ? `${labels}: ${firstDay.startTime} to ${firstDay.endTime}`
+        : labels;
+    })
+    .join("; ");
+}
+
+function activeDaysFromSchedule(days: BusinessHoursDaySettings[]) {
+  return days
+    .filter((day) => day.enabled)
+    .map(
+      (day) =>
+        WORKPLACE_DAY_KEY_BY_BUSINESS_DAY.get(day.day) ??
+        BUSINESS_HOUR_DAYS.find((option) => option.key === day.day)
+          ?.shortLabel ??
+        day.day,
+    )
+    .join(", ");
+}
+
+function scheduleFromSummary(
+  value: string,
+  businessDefault: BusinessHoursScheduleSettings,
+) {
+  const segments = value
+    .split(";")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (!segments.length || !value.includes(":")) {
+    return null;
+  }
+
+  const parsedDays = new Map<
+    BusinessHoursDaySettings["day"],
+    Pick<BusinessHoursDaySettings, "endTime" | "startTime">
+  >();
+
+  segments.forEach((segment) => {
+    const separatorIndex = segment.indexOf(":");
+
+    if (separatorIndex < 0) {
+      return;
+    }
+
+    const dayText = segment.slice(0, separatorIndex);
+    const timeText = segment.slice(separatorIndex + 1);
+    const range = workingHoursRange(timeText);
+
+    if (!range.start || !range.end) {
+      return;
+    }
+
+    BUSINESS_HOUR_DAYS.forEach((day) => {
+      const workplaceKey =
+        WORKPLACE_DAY_KEY_BY_BUSINESS_DAY.get(day.key) ?? day.shortLabel;
+      const aliases =
+        WORKPLACE_ACTIVE_DAY_OPTIONS.find(
+          (option) => option.key === workplaceKey,
+        )?.aliases ?? [];
+      const normalizedDayText = dayText.toLowerCase();
+      const matchesDay =
+        normalizedDayText.includes(day.shortLabel.toLowerCase()) ||
+        aliases.some((alias) => normalizedDayText.includes(alias));
+
+      if (matchesDay) {
+        parsedDays.set(day.key, {
+          endTime: range.end,
+          startTime: range.start,
+        });
+      }
+    });
+  });
+
+  if (!parsedDays.size) {
+    return null;
+  }
+
+  return BUSINESS_HOUR_DAYS.map((day) => {
+    const parsed = parsedDays.get(day.key);
+    const fallbackDay =
+      businessDefault.days.find((candidate) => candidate.day === day.key) ??
+      ({
+        day: day.key,
+        enabled: false,
+        endTime: "16:00",
+        startTime: "07:00",
+      } satisfies BusinessHoursDaySettings);
+
+    return {
+      day: day.key,
+      enabled: Boolean(parsed),
+      endTime: parsed?.endTime ?? fallbackDay.endTime,
+      startTime: parsed?.startTime ?? fallbackDay.startTime,
+    };
+  });
+}
+
+function contactScheduleFromValues(
+  contact: WorkplaceContactSettings | undefined,
+  businessDefault: BusinessHoursScheduleSettings,
+): BusinessHoursDaySettings[] {
+  const parsedSchedule = scheduleFromSummary(
+    contact?.workingHours ?? "",
+    businessDefault,
+  );
+
+  if (parsedSchedule) {
+    return parsedSchedule;
+  }
+
+  const activeDays = activeDayKeys(contact?.activeDays ?? "");
+  const hoursRange = workingHoursRange(contact?.workingHours ?? "");
+  const hasContactAvailability =
+    activeDays.size > 0 || Boolean(hoursRange.start || hoursRange.end);
+
+  return BUSINESS_HOUR_DAYS.map((day) => {
+    const fallbackDay =
+      businessDefault.days.find((candidate) => candidate.day === day.key) ??
+      ({
+        day: day.key,
+        enabled: ["monday", "tuesday", "wednesday", "thursday", "friday"].includes(
+          day.key,
+        ),
+        endTime: "16:00",
+        startTime: "07:00",
+      } satisfies BusinessHoursDaySettings);
+    const workplaceKey =
+      WORKPLACE_DAY_KEY_BY_BUSINESS_DAY.get(day.key) ?? day.shortLabel;
+    const enabled = hasContactAvailability
+      ? activeDays.has(workplaceKey as WorkplaceActiveDayKey)
+      : fallbackDay.enabled;
+
+    return {
+      day: day.key,
+      enabled,
+      endTime: hoursRange.end || fallbackDay.endTime,
+      startTime: hoursRange.start || fallbackDay.startTime,
+    };
+  });
+}
+
+function phonePlaceholder(defaultPhoneRegion: PhoneRegion) {
+  return PHONE_PLACEHOLDER_BY_REGION[defaultPhoneRegion] ?? "+1 555 123 4567";
+}
+
+function privatePhonePlaceholder(defaultPhoneRegion: PhoneRegion) {
+  return (
+    PRIVATE_PHONE_PLACEHOLDER_BY_REGION[defaultPhoneRegion] ?? "+1 555 123 4567"
+  );
 }
 
 export function WorkplaceContactsEditor({
   addLabel = "Add contact",
+  businessWorkingHoursSchedule,
   contacts,
   defaultEmail,
+  defaultPhoneRegion,
   description = "Add internal people such as the owner, PA, tradies, or fallback contacts. These are not customer CRM records.",
   eyebrow = "Workplace contacts",
   onContactsChange,
@@ -296,40 +502,43 @@ export function WorkplaceContactsEditor({
   };
   const isEditingSelectedContact =
     Boolean(selectedContact) && selectedContact.id === editableContactId;
-  const selectedActiveDays = activeDayKeys(selectedContact?.activeDays ?? "");
-  const selectedWorkingHours = workingHoursRange(
-    selectedContact?.workingHours ?? "",
+  const selectedSchedule = contactScheduleFromValues(
+    selectedContact,
+    businessWorkingHoursSchedule,
   );
+  const phoneInputPlaceholder = phonePlaceholder(defaultPhoneRegion);
+  const privatePhoneInputPlaceholder =
+    privatePhonePlaceholder(defaultPhoneRegion);
 
-  function toggleSelectedActiveDay(
-    dayKey: WorkplaceActiveDayKey,
-    checked: boolean,
+  function updateSelectedSchedule(
+    dayKey: BusinessHoursDaySettings["day"],
+    updates: Partial<BusinessHoursDaySettings>,
   ) {
-    const nextDays = new Set(selectedActiveDays);
-
-    if (checked) {
-      nextDays.add(dayKey);
-    } else {
-      nextDays.delete(dayKey);
-    }
-
-    updateSelectedContact({ activeDays: formatActiveDays(nextDays) });
-  }
-
-  function updateSelectedWorkingHours(field: "start" | "end", value: string) {
-    const nextRange = {
-      ...selectedWorkingHours,
-      [field]: value,
-    };
+    const nextSchedule = selectedSchedule.map((day) =>
+      day.day === dayKey ? { ...day, ...updates } : day,
+    );
 
     updateSelectedContact({
-      workingHours: formatWorkingHours(nextRange.start, nextRange.end),
+      activeDays: activeDaysFromSchedule(nextSchedule),
+      workingHours: formatScheduleSummary(nextSchedule),
+    });
+  }
+
+  function resetSelectedScheduleToBusinessDefault() {
+    updateSelectedContact({
+      activeDays: activeDaysFromSchedule(businessWorkingHoursSchedule.days),
+      workingHours: formatScheduleSummary(businessWorkingHoursSchedule.days),
     });
   }
 
   return (
     <section className="workplace-contact-editor">
       <input name="workplaceContactsSubmitted" type="hidden" value="on" />
+      <input
+        name="workplaceContactPhoneRegion"
+        type="hidden"
+        value={defaultPhoneRegion}
+      />
       <div hidden>
         {rows.map((contact) => (
           <span key={contact.id}>
@@ -559,12 +768,22 @@ export function WorkplaceContactsEditor({
                 Phone
                 <input
                   disabled={!isEditingSelectedContact}
+                  onBlur={(event) => {
+                    const normalized = normalizeContactPhoneForRegion(
+                      event.currentTarget.value,
+                      defaultPhoneRegion,
+                    );
+
+                    if (normalized) {
+                      updateSelectedContact({ phoneNumber: normalized });
+                    }
+                  }}
                   onChange={(event) =>
                     updateSelectedContact({
                       phoneNumber: event.currentTarget.value,
                     })
                   }
-                  placeholder="+61 400 000 000"
+                  placeholder={phoneInputPlaceholder}
                   type="tel"
                   value={selectedContact.phoneNumber}
                 />
@@ -573,12 +792,22 @@ export function WorkplaceContactsEditor({
                 Private escalation number
                 <input
                   disabled={!isEditingSelectedContact}
+                  onBlur={(event) => {
+                    const normalized = normalizeContactPhoneForRegion(
+                      event.currentTarget.value,
+                      defaultPhoneRegion,
+                    );
+
+                    if (normalized) {
+                      updateSelectedContact({ privatePhoneNumber: normalized });
+                    }
+                  }}
                   onChange={(event) =>
                     updateSelectedContact({
                       privatePhoneNumber: event.currentTarget.value,
                     })
                   }
-                  placeholder="Optional private number"
+                  placeholder={`Optional private number, e.g. ${privatePhoneInputPlaceholder}`}
                   type="tel"
                   value={selectedContact.privatePhoneNumber}
                 />
@@ -590,7 +819,20 @@ export function WorkplaceContactsEditor({
                   onChange={(event) =>
                     updateSelectedContact({ email: event.currentTarget.value })
                   }
-                  placeholder={defaultEmail || "person@example.com"}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Tab" &&
+                      defaultEmail &&
+                      !event.currentTarget.value.trim()
+                    ) {
+                      updateSelectedContact({ email: defaultEmail });
+                    }
+                  }}
+                  placeholder={
+                    defaultEmail
+                      ? `${defaultEmail} - press Tab to fill`
+                      : "person@example.com"
+                  }
                   type="email"
                   value={selectedContact.email}
                 />
@@ -621,62 +863,71 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.vehicleRegistration}
                 />
               </label>
-              <div className="workplace-contact-availability-field workplace-contact-field-wide">
-                <span className="workplace-contact-field-label">
-                  Active days
-                </span>
-                <div className="workplace-contact-day-options">
-                  {WORKPLACE_ACTIVE_DAY_OPTIONS.map((option) => (
-                    <label key={option.key}>
-                      <input
-                        checked={selectedActiveDays.has(option.key)}
-                        disabled={!isEditingSelectedContact}
-                        onChange={(event) =>
-                          toggleSelectedActiveDay(
-                            option.key,
-                            event.currentTarget.checked,
-                          )
-                        }
-                        type="checkbox"
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                  ))}
+              <div className="workplace-contact-schedule-field full-row">
+                <div className="workplace-contact-schedule-header">
+                  <span className="workplace-contact-field-label">
+                    Active days and working hours
+                  </span>
+                  <button
+                    className="text-button"
+                    disabled={!isEditingSelectedContact}
+                    onClick={resetSelectedScheduleToBusinessDefault}
+                    type="button"
+                  >
+                    Set to business default
+                  </button>
                 </div>
-              </div>
-              <div className="workplace-contact-availability-field workplace-contact-field-wide">
-                <span className="workplace-contact-field-label">
-                  Working hours
-                </span>
-                <div className="workplace-contact-time-range">
-                  <label>
-                    <span>Start</span>
-                    <input
-                      disabled={!isEditingSelectedContact}
-                      onChange={(event) =>
-                        updateSelectedWorkingHours(
-                          "start",
-                          event.currentTarget.value,
-                        )
-                      }
-                      type="time"
-                      value={selectedWorkingHours.start}
-                    />
-                  </label>
-                  <label>
-                    <span>End</span>
-                    <input
-                      disabled={!isEditingSelectedContact}
-                      onChange={(event) =>
-                        updateSelectedWorkingHours(
-                          "end",
-                          event.currentTarget.value,
-                        )
-                      }
-                      type="time"
-                      value={selectedWorkingHours.end}
-                    />
-                  </label>
+                <div className="workplace-contact-schedule-grid">
+                  {selectedSchedule.map((day) => {
+                    const dayLabel =
+                      BUSINESS_HOUR_DAYS.find(
+                        (option) => option.key === day.day,
+                      )?.shortLabel ?? day.day;
+
+                    return (
+                      <div className="workplace-contact-schedule-row" key={day.day}>
+                        <label className="workplace-contact-schedule-day">
+                          <input
+                            checked={day.enabled}
+                            disabled={!isEditingSelectedContact}
+                            onChange={(event) =>
+                              updateSelectedSchedule(day.day, {
+                                enabled: event.currentTarget.checked,
+                              })
+                            }
+                            type="checkbox"
+                          />
+                          <span>{dayLabel}</span>
+                        </label>
+                        <label>
+                          <span>Start</span>
+                          <input
+                            disabled={!isEditingSelectedContact || !day.enabled}
+                            onChange={(event) =>
+                              updateSelectedSchedule(day.day, {
+                                startTime: event.currentTarget.value,
+                              })
+                            }
+                            type="time"
+                            value={day.startTime}
+                          />
+                        </label>
+                        <label>
+                          <span>End</span>
+                          <input
+                            disabled={!isEditingSelectedContact || !day.enabled}
+                            onChange={(event) =>
+                              updateSelectedSchedule(day.day, {
+                                endTime: event.currentTarget.value,
+                              })
+                            }
+                            type="time"
+                            value={day.endTime}
+                          />
+                        </label>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <label className="workplace-contact-field-wide">
