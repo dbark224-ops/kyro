@@ -6,12 +6,19 @@ import {
   Settings,
   UsersRound,
   Waves,
-  type LucideIcon
+  type LucideIcon,
 } from "lucide-react-native";
-import { Pressable, StyleSheet, Text, View, type ColorValue } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ColorValue,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useVapiCall } from "@/features/assistant/vapi-call-context";
+import { useAppearance } from "@/features/appearance/appearance-context";
 import { useAuthSession } from "@/features/auth/auth-context";
 import { MobileDataWarmup } from "@/features/performance/MobileDataWarmup";
 import { colors, radii, typography } from "@/theme";
@@ -19,7 +26,7 @@ import { colors, radii, typography } from "@/theme";
 function tabIcon(Icon: LucideIcon) {
   return function TabIcon({
     color,
-    focused
+    focused,
   }: {
     color: ColorValue;
     focused: boolean;
@@ -36,6 +43,7 @@ function tabIcon(Icon: LucideIcon) {
 
 export default function TabLayout() {
   const { status } = useAuthSession();
+  const appearance = useAppearance();
 
   if (status === "loading") {
     return <View style={styles.loadingShell} />;
@@ -51,29 +59,29 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: colors.text,
-          tabBarInactiveTintColor: colors.muted,
+          tabBarActiveTintColor: appearance.colors.text,
+          tabBarInactiveTintColor: appearance.colors.muted,
           tabBarItemStyle: {
             borderRadius: 8,
             marginHorizontal: 2,
             paddingBottom: 6,
-            paddingTop: 2
+            paddingTop: 2,
           },
           tabBarLabelStyle: {
             fontFamily: typography.fontFamily,
-            fontSize: 11,
-            fontWeight: "800"
+            fontSize: appearance.scaleFont(11),
+            fontWeight: "800",
           },
           tabBarStyle: {
-            backgroundColor: colors.surface,
-            borderColor: colors.line,
+            backgroundColor: appearance.colors.surface,
+            borderColor: appearance.colors.line,
             borderTopWidth: 1,
             elevation: 0,
             height: 72,
             paddingBottom: 12,
             paddingHorizontal: 8,
-            paddingTop: 4
-          }
+            paddingTop: 4,
+          },
         }}
       >
         <Tabs.Screen name="index" options={{ href: null }} />
@@ -81,35 +89,35 @@ export default function TabLayout() {
           name="dashboard"
           options={{
             tabBarIcon: tabIcon(LayoutDashboard),
-            title: "Dashboard"
+            title: "Dashboard",
           }}
         />
         <Tabs.Screen
           name="assistant"
           options={{
             tabBarIcon: tabIcon(Bot),
-            title: "Assistant"
+            title: "Assistant",
           }}
         />
         <Tabs.Screen
           name="inbox"
           options={{
             tabBarIcon: tabIcon(Inbox),
-            title: "Inbox"
+            title: "Inbox",
           }}
         />
         <Tabs.Screen
           name="crm"
           options={{
             tabBarIcon: tabIcon(UsersRound),
-            title: "CRM"
+            title: "CRM",
           }}
         />
         <Tabs.Screen
           name="settings"
           options={{
             tabBarIcon: tabIcon(Settings),
-            title: "Settings"
+            title: "Settings",
           }}
         />
       </Tabs>
@@ -122,6 +130,7 @@ function PersistentVapiCallIndicator() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const vapi = useVapiCall();
+  const appearance = useAppearance();
 
   if (!vapi.isConnected) {
     return null;
@@ -134,17 +143,21 @@ function PersistentVapiCallIndicator() {
       onPress={() =>
         router.push({
           pathname: "/assistant",
-          params: { mode: "vapi" }
+          params: { mode: "vapi" },
         })
       }
       style={({ pressed }) => [
         styles.voiceIndicator,
         { top: insets.top + 8 },
-        pressed ? styles.voiceIndicatorPressed : null
+        pressed ? styles.voiceIndicatorPressed : null,
       ]}
     >
       <View style={styles.voiceIndicatorIcon}>
-        <Waves color={colors.background} size={15} strokeWidth={2.8} />
+        <Waves
+          color={appearance.colors.background}
+          size={15}
+          strokeWidth={2.8}
+        />
       </View>
       <Text numberOfLines={1} style={styles.voiceIndicatorText}>
         {vapi.connectionState === "speaking" ? "Speaking" : "Live"}
@@ -156,7 +169,7 @@ function PersistentVapiCallIndicator() {
 const styles = StyleSheet.create({
   loadingShell: {
     backgroundColor: colors.background,
-    flex: 1
+    flex: 1,
   },
   voiceIndicator: {
     alignItems: "center",
@@ -172,7 +185,7 @@ const styles = StyleSheet.create({
     paddingRight: 11,
     position: "absolute",
     right: 14,
-    zIndex: 40
+    zIndex: 40,
   },
   voiceIndicatorIcon: {
     alignItems: "center",
@@ -180,10 +193,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     height: 24,
     justifyContent: "center",
-    width: 24
+    width: 24,
   },
   voiceIndicatorPressed: {
-    opacity: 0.76
+    opacity: 0.76,
   },
   voiceIndicatorText: {
     color: colors.text,
@@ -191,6 +204,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
     maxWidth: 62,
-    textTransform: "uppercase"
-  }
+    textTransform: "uppercase",
+  },
 });

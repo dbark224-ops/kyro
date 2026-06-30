@@ -6,14 +6,14 @@ import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
 import { useEffect } from "react";
 
+import { useAppearance } from "@/features/appearance/appearance-context";
 import { AppProviders } from "@/providers/app-providers";
-import { colors } from "@/theme";
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Manrope: require("../assets/fonts/Manrope-VariableFont_wght.ttf")
+    Manrope: require("../assets/fonts/Manrope-VariableFont_wght.ttf"),
   });
 
   useEffect(() => {
@@ -28,15 +28,23 @@ export default function RootLayout() {
 
   return (
     <AppProviders>
-      <Stack
-        screenOptions={{
-          contentStyle: { backgroundColor: colors.background },
-          headerShown: false
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="sign-in" options={{ title: "Sign in" }} />
-      </Stack>
+      <RootStack />
     </AppProviders>
+  );
+}
+
+function RootStack() {
+  const { colors } = useAppearance();
+
+  return (
+    <Stack
+      screenOptions={{
+        contentStyle: { backgroundColor: colors.background },
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="sign-in" options={{ title: "Sign in" }} />
+    </Stack>
   );
 }

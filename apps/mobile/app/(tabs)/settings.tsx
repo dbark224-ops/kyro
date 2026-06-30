@@ -23,9 +23,11 @@ import {
   LogOut,
   Mail,
   Mic2,
+  Palette,
   Plus,
   ShieldCheck,
   Trash2,
+  Type,
   Upload,
   Users,
   Volume2,
@@ -64,6 +66,11 @@ import {
   StatusPill,
 } from "@/components/ui";
 import { useAuthSession } from "@/features/auth/auth-context";
+import {
+  useAppearance,
+  type AppearanceMode,
+  type AppTextSize,
+} from "@/features/appearance/appearance-context";
 import {
   useAppLock,
   type AppLockMode,
@@ -119,6 +126,7 @@ type SettingsSection =
   | "phone_sms"
   | "contact_sync"
   | "activity"
+  | "appearance"
   | "developer"
   | "logs"
   | "payments"
@@ -181,8 +189,7 @@ type VoiceDraft = {
   phoneAgentVerbosity: string;
   phoneAgentVoicemailOverflowEnabled: boolean;
 };
-type MobileVoiceSettings =
-  MobileSettingsResponse["settings"]["voice"];
+type MobileVoiceSettings = MobileSettingsResponse["settings"]["voice"];
 type PronunciationEntry =
   MobileSettingsResponse["pronunciationEntries"][number];
 type SettingsAccount = MobileSettingsResponse["account"];
@@ -350,9 +357,13 @@ function defaultBusinessHoursSchedule(): MobileBusinessHoursScheduleSettings {
   return {
     days: businessHourDays.map((day) => ({
       day: day.key,
-      enabled: ["monday", "tuesday", "wednesday", "thursday", "friday"].includes(
-        day.key,
-      ),
+      enabled: [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+      ].includes(day.key),
       endTime: "16:00",
       startTime: "07:00",
     })),
@@ -432,6 +443,13 @@ const sectionItems: SettingsSectionItem[] = [
     icon: ShieldCheck,
     section: "security",
     title: "App unlock",
+  },
+  {
+    detail: "Theme and text size",
+    eyebrow: "Appearance",
+    icon: Palette,
+    section: "appearance",
+    title: "Appearance",
   },
   {
     detail: "Realtime voice and pronunciation",
@@ -524,7 +542,7 @@ const settingsGroups: SettingsGroupItem[] = [
     detail: "Sign-in, app lock, usage, and billing",
     icon: LockKeyhole,
     id: "app_account",
-    sections: ["security", "usage"],
+    sections: ["security", "appearance", "usage"],
     title: "App & account",
   },
   {
@@ -600,8 +618,7 @@ export default function SettingsScreen() {
       manualSignatureText: "",
       useSeparateAiSignature: false,
     });
-  const [voiceDraft, setVoiceDraft] =
-    useState<VoiceDraft>(defaultVoiceDraft);
+  const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>(defaultVoiceDraft);
   const queryClient = useQueryClient();
   const settingsQueryOptions = mobileSettingsQueryOptions(session);
   const queryKey = settingsQueryOptions.queryKey;
@@ -665,8 +682,9 @@ export default function SettingsScreen() {
     }
 
     setGeneralDraft({
-      businessProfile:
-        normalizeMobileBusinessProfile(data.settings.general.businessProfile),
+      businessProfile: normalizeMobileBusinessProfile(
+        data.settings.general.businessProfile,
+      ),
       defaultPhoneRegion: data.settings.general.defaultPhoneRegion ?? "AU",
       displayCurrency: data.settings.general.displayCurrency,
       timeZone: data.settings.general.timeZone,
@@ -813,6 +831,10 @@ export default function SettingsScreen() {
 
               {selectedSection === "security" ? (
                 <SecuritySettingsPanel />
+              ) : null}
+
+              {selectedSection === "appearance" ? (
+                <AppearanceSettingsPanel />
               ) : null}
 
               {selectedSection === "voice" ? (
@@ -1353,7 +1375,8 @@ function GeneralSettingsPanel({
     schedule: MobileBusinessHoursScheduleSettings,
   ) => {
     const summary = businessHoursScheduleSummary(schedule);
-    const textKey = key === "workingHoursSchedule" ? "workingHours" : "contactHours";
+    const textKey =
+      key === "workingHoursSchedule" ? "workingHours" : "contactHours";
 
     onChange({
       ...draft,
@@ -1730,7 +1753,9 @@ function AddressAutocompleteInput({
           <Text style={styles.googleAttribution}>Powered by Google</Text>
         </View>
       ) : null}
-      {busy ? <Text style={styles.lookupMeta}>Searching addresses...</Text> : null}
+      {busy ? (
+        <Text style={styles.lookupMeta}>Searching addresses...</Text>
+      ) : null}
       {selectingPlaceId ? (
         <Text style={styles.lookupMeta}>Verifying address...</Text>
       ) : null}
@@ -2809,12 +2834,7 @@ function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
 
       <SectionCard>
         <SectionHeader
-          action={
-            <StatusPill
-              label={defaultPhoneRegion}
-              tone="purple"
-            />
-          }
+          action={<StatusPill label={defaultPhoneRegion} tone="purple" />}
           eyebrow="Routing"
           title="Defaults"
         />
@@ -2835,11 +2855,10 @@ function PhoneSmsSettingsPanel({ data }: { data: MobileSettingsResponse }) {
 }
 
 function normalizePhoneSmsSettingsData(data: MobileSettingsResponse) {
-  const phoneSms =
-    data.phoneSms as
-      | MobileSettingsResponse["phoneSms"]
-      | null
-      | undefined;
+  const phoneSms = data.phoneSms as
+    | MobileSettingsResponse["phoneSms"]
+    | null
+    | undefined;
   const numbers = Array.isArray(phoneSms?.numbers) ? phoneSms.numbers : [];
 
   return {
@@ -2858,7 +2877,8 @@ function normalizePhoneSmsSettingsData(data: MobileSettingsResponse) {
         ? number.monthlyCostSnapshot
         : 0,
       normalizedPhone: number.normalizedPhone ?? null,
-      phoneNumber: number.phoneNumber || number.normalizedPhone || "Unknown number",
+      phoneNumber:
+        number.phoneNumber || number.normalizedPhone || "Unknown number",
       providerPhoneNumberId: number.providerPhoneNumberId ?? null,
       region: number.region ?? null,
       status: number.status || "active",
@@ -3105,6 +3125,173 @@ function SignatureEditor({
       </Pressable>
     </View>
   );
+}
+
+function AppearanceSettingsPanel() {
+  const appearance = useAppearance();
+  const [message, setMessage] = useState<string | null>(null);
+
+  const chooseTheme = async (mode: AppearanceMode) => {
+    setMessage(null);
+    await appearance.saveMode(mode);
+    setMessage(`${appearanceModeLabel(mode)} saved on this device.`);
+  };
+
+  const chooseTextSize = async (textSize: AppTextSize) => {
+    setMessage(null);
+    await appearance.saveTextSize(textSize);
+    setMessage(`${appTextSizeLabel(textSize)} text saved on this device.`);
+  };
+
+  return (
+    <>
+      <SectionCard>
+        <SectionHeader
+          action={
+            <StatusPill
+              label={appearanceModeLabel(appearance.mode)}
+              tone="cyan"
+            />
+          }
+          eyebrow="Appearance"
+          title="Theme"
+        />
+        <AppearanceOption
+          active={appearance.mode === "default"}
+          description="Use Kyro's standard mobile appearance."
+          icon={Palette}
+          onPress={() => void chooseTheme("default")}
+          title="Default"
+        />
+        <AppearanceOption
+          active={appearance.mode === "light"}
+          description="Use a lighter app shell."
+          icon={Palette}
+          onPress={() => void chooseTheme("light")}
+          title="Light"
+        />
+        <AppearanceOption
+          active={appearance.mode === "dark"}
+          description="Use Kyro's dark interface."
+          icon={Palette}
+          onPress={() => void chooseTheme("dark")}
+          title="Dark"
+        />
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader
+          action={
+            <StatusPill
+              label={appTextSizeLabel(appearance.textSize)}
+              tone="purple"
+            />
+          }
+          eyebrow="Accessibility"
+          title="Text size"
+        />
+        <AppearanceOption
+          active={appearance.textSize === "compact"}
+          description="Slightly smaller text where the mobile shell supports it."
+          icon={Type}
+          onPress={() => void chooseTextSize("compact")}
+          title="Compact"
+        />
+        <AppearanceOption
+          active={appearance.textSize === "default"}
+          description="The current Kyro mobile text size."
+          icon={Type}
+          onPress={() => void chooseTextSize("default")}
+          title="Default"
+        />
+        <AppearanceOption
+          active={appearance.textSize === "large"}
+          description="Slightly larger text for easier scanning."
+          icon={Type}
+          onPress={() => void chooseTextSize("large")}
+          title="Large"
+        />
+        {message ? <Text style={styles.message}>{message}</Text> : null}
+      </SectionCard>
+    </>
+  );
+}
+
+function AppearanceOption({
+  active,
+  description,
+  icon: Icon,
+  onPress,
+  title,
+}: {
+  active: boolean;
+  description: string;
+  icon: typeof Palette;
+  onPress: () => void;
+  title: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.securityMode,
+        active ? styles.securityModeActive : null,
+        pressed ? styles.pressed : null,
+      ]}
+    >
+      <View style={styles.securityModeIcon}>
+        <Icon
+          color={active ? colors.background : colors.text}
+          size={18}
+          strokeWidth={2.4}
+        />
+      </View>
+      <View style={styles.settingsRowMain}>
+        <Text
+          style={[
+            styles.settingsRowTitle,
+            active ? styles.securityModeTitleActive : null,
+          ]}
+        >
+          {title}
+        </Text>
+        <Text
+          style={[
+            styles.settingsRowDetail,
+            active ? styles.securityModeDetailActive : null,
+          ]}
+        >
+          {description}
+        </Text>
+      </View>
+      {active ? <Check color={colors.background} size={17} /> : null}
+    </Pressable>
+  );
+}
+
+function appearanceModeLabel(mode: AppearanceMode) {
+  if (mode === "light") {
+    return "Light";
+  }
+
+  if (mode === "dark") {
+    return "Dark";
+  }
+
+  return "Default";
+}
+
+function appTextSizeLabel(textSize: AppTextSize) {
+  if (textSize === "compact") {
+    return "Compact";
+  }
+
+  if (textSize === "large") {
+    return "Large";
+  }
+
+  return "Default";
 }
 
 function SecuritySettingsPanel() {
@@ -4054,7 +4241,10 @@ function UsageSettingsPanel({
       <SectionCard>
         <SectionHeader
           action={
-            <StatusPill label={`${activeData.usage.totals.events}`} tone="cyan" />
+            <StatusPill
+              label={`${activeData.usage.totals.events}`}
+              tone="cyan"
+            />
           }
           eyebrow="Ledger"
           title="Usage ledger"
@@ -4110,7 +4300,8 @@ function UsageSettingsPanel({
           <View style={styles.inlineActionCopy}>
             <Text style={styles.rowTitle}>Activity across the workspace</Text>
             <Text style={styles.rowCopy}>
-              Review messages, actions, audit entries, AI runs, routing, and usage.
+              Review messages, actions, audit entries, AI runs, routing, and
+              usage.
             </Text>
           </View>
           <ChevronRight color={colors.muted} size={18} />
@@ -6836,7 +7027,8 @@ function emailSyncHealthStatus(data: MobileSettingsResponse): {
 
   if (!connectedConnections.length) {
     return {
-      detail: "Connect Gmail or Outlook before automatic inbound checks can run.",
+      detail:
+        "Connect Gmail or Outlook before automatic inbound checks can run.",
       pill: "Setup",
       title: "Set up email",
       tone: "warning",
@@ -6854,7 +7046,8 @@ function emailSyncHealthStatus(data: MobileSettingsResponse): {
 
   if (connectedConnections.some((connection) => connection.lastError)) {
     return {
-      detail: "A recent account check reported an error. Review the affected account below.",
+      detail:
+        "A recent account check reported an error. Review the affected account below.",
       pill: "Check",
       title: "Last check needs attention",
       tone: "warning",
@@ -6880,7 +7073,8 @@ function emailSyncHealthStatus(data: MobileSettingsResponse): {
   }
 
   return {
-    detail: "Automatic inbound email checks are configured for connected accounts.",
+    detail:
+      "Automatic inbound email checks are configured for connected accounts.",
     pill: "Ready",
     title: "Automatic sync ready",
     tone: "green",
@@ -7134,7 +7328,9 @@ function settingsAccount(
   };
 }
 
-function fallbackSettingsAccount(fallbackEmail?: string | null): SettingsAccount {
+function fallbackSettingsAccount(
+  fallbackEmail?: string | null,
+): SettingsAccount {
   return {
     email: fallbackEmail ?? null,
     emailVerified: true,
@@ -7249,8 +7445,7 @@ function normalizeVoiceDraft(
   return {
     elevenLabsVoicePresetId: settings.elevenLabsVoicePresetId,
     openAiVoice: settings.openAiVoice,
-    outboundVoicePronunciationPolicy:
-      settings.outboundVoicePronunciationPolicy,
+    outboundVoicePronunciationPolicy: settings.outboundVoicePronunciationPolicy,
     phoneAgentDemeanor: settings.phoneAgentDemeanor,
     phoneAgentEnabled: settings.phoneAgentEnabled,
     phoneAgentEscalationMode: settings.phoneAgentEscalationMode,
@@ -7353,9 +7548,11 @@ function businessHoursScheduleSummary(
   });
   const notes = normalized.notes.trim();
 
-  return [...summary, notes ? `Notes: ${notes}` : null]
-    .filter((item): item is string => Boolean(item))
-    .join("; ") || "Not set";
+  return (
+    [...summary, notes ? `Notes: ${notes}` : null]
+      .filter((item): item is string => Boolean(item))
+      .join("; ") || "Not set"
+  );
 }
 
 function splitTags(value: string | null | undefined) {

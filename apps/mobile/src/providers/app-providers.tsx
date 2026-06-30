@@ -3,10 +3,11 @@ import { useState, type ReactNode } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { VapiCallProvider } from "@/features/assistant/vapi-call-context";
+import { AppearanceProvider } from "@/features/appearance/appearance-context";
 import { AuthProvider } from "@/features/auth/auth-context";
 import {
   AppLockGate,
-  AppLockProvider
+  AppLockProvider,
 } from "@/features/security/app-lock-context";
 import { mobileQueryGcTime } from "@/lib/mobile-query";
 
@@ -20,22 +21,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
             refetchOnReconnect: true,
             refetchOnWindowFocus: false,
             retry: 1,
-            staleTime: 1000 * 60
-          }
-        }
-      })
+            staleTime: 1000 * 60,
+          },
+        },
+      }),
   );
 
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <AppLockProvider>
-            <VapiCallProvider>
-              <AppLockGate>{children}</AppLockGate>
-            </VapiCallProvider>
-          </AppLockProvider>
-        </AuthProvider>
+        <AppearanceProvider>
+          <AuthProvider>
+            <AppLockProvider>
+              <VapiCallProvider>
+                <AppLockGate>{children}</AppLockGate>
+              </VapiCallProvider>
+            </AppLockProvider>
+          </AuthProvider>
+        </AppearanceProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
   );

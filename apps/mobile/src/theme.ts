@@ -1,4 +1,4 @@
-export const colors = {
+export const darkColors = {
   background: "#08090d",
   cyan: "#51e5ff",
   green: "#8ef3c5",
@@ -10,27 +10,46 @@ export const colors = {
   surfaceSoft: "#0d0f16",
   surfaceStrong: "#f6f7fb",
   text: "#f6f7fb",
-  warning: "#ffd166"
+  warning: "#ffd166",
 };
+
+export const lightColors = {
+  background: "#f6f7fb",
+  cyan: "#0894ad",
+  green: "#17895f",
+  line: "#d8dce7",
+  muted: "#626978",
+  pink: "#c41d73",
+  purple: "#6d45d8",
+  surface: "#ffffff",
+  surfaceSoft: "#eef1f7",
+  surfaceStrong: "#08090d",
+  text: "#08090d",
+  warning: "#9a6a00",
+};
+
+export const colors = darkColors;
+
+export type KyroColorPalette = typeof darkColors;
 
 export const radii = {
   sm: 6,
   md: 8,
-  pill: 999
+  pill: 999,
 };
 
 export const typography = {
-  fontFamily: "Manrope"
+  fontFamily: "Manrope",
 };
 
 export const spacing = {
   pageX: 16,
-  pageY: 14
+  pageY: 14,
 };
 
 export const shadow = {
   shadowColor: "#000000",
   shadowOffset: { height: 18, width: 0 },
   shadowOpacity: 0.28,
-  shadowRadius: 28
+  shadowRadius: 28,
 };

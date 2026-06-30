@@ -6,12 +6,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandLockup } from "./BrandLockup";
 import { MetricTile, StatusPill } from "./ui";
+import { useAppearance } from "@/features/appearance/appearance-context";
 import { useAuthSession } from "@/features/auth/auth-context";
 import { colors, spacing, typography } from "@/theme";
 
@@ -37,7 +38,7 @@ type Props = {
 
 function sessionLabel(
   status: ReturnType<typeof useAuthSession>["status"],
-  email?: string
+  email?: string,
 ) {
   if (status === "signed-in") {
     return email ?? "Signed in";
@@ -65,9 +66,10 @@ export function Screen({
   scrollEnabled = true,
   showTopBar = true,
   title,
-  titleScale = "default"
+  titleScale = "default",
 }: Props) {
   const { status, user } = useAuthSession();
+  const appearance = useAppearance();
   const [keyboardPadding, setKeyboardPadding] = useState(0);
 
   useEffect(() => {
@@ -89,12 +91,27 @@ export function Screen({
   }, []);
 
   return (
-    <SafeAreaView edges={["top"]} style={styles.safeArea}>
+    <SafeAreaView
+      edges={["top"]}
+      style={[
+        styles.safeArea,
+        { backgroundColor: appearance.colors.background },
+      ]}
+    >
       {showTopBar ? (
         <View style={styles.top}>
           <BrandLockup />
           {headerLabel ? (
-            <Text numberOfLines={1} style={styles.headerLabel}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.headerLabel,
+                {
+                  color: appearance.colors.cyan,
+                  fontSize: appearance.scaleFont(12),
+                },
+              ]}
+            >
               {headerLabel}
             </Text>
           ) : (
@@ -109,7 +126,7 @@ export function Screen({
         contentContainerStyle={[
           styles.content,
           !showTopBar ? styles.contentWithoutTopBar : null,
-          keyboardPadding ? { paddingBottom: 28 + keyboardPadding } : null
+          keyboardPadding ? { paddingBottom: 28 + keyboardPadding } : null,
         ]}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
@@ -119,11 +136,32 @@ export function Screen({
         <View style={styles.hero}>
           <View style={styles.heroHeader}>
             <View style={styles.titleBlock}>
-              {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
+              {eyebrow ? (
+                <Text
+                  style={[
+                    styles.eyebrow,
+                    {
+                      color: appearance.colors.cyan,
+                      fontSize: appearance.scaleFont(11),
+                    },
+                  ]}
+                >
+                  {eyebrow}
+                </Text>
+              ) : null}
               <Text
                 style={[
                   styles.title,
-                  titleScale === "compact" ? styles.titleCompact : null
+                  titleScale === "compact" ? styles.titleCompact : null,
+                  {
+                    color: appearance.colors.text,
+                    fontSize: appearance.scaleFont(
+                      titleScale === "compact" ? 25 : 32,
+                    ),
+                    lineHeight: appearance.scaleFont(
+                      titleScale === "compact" ? 29 : 35,
+                    ),
+                  },
                 ]}
               >
                 {title}
@@ -133,7 +171,9 @@ export function Screen({
               <View
                 style={[
                   styles.compactBusinessMark,
-                  compactHeaderEmphasis ? styles.compactBusinessMarkEmphasis : null
+                  compactHeaderEmphasis
+                    ? styles.compactBusinessMarkEmphasis
+                    : null,
                 ]}
               >
                 <Text
@@ -142,7 +182,16 @@ export function Screen({
                     styles.compactBusinessLabel,
                     compactHeaderEmphasis
                       ? styles.compactBusinessLabelEmphasis
-                      : null
+                      : null,
+                    {
+                      color: appearance.colors.cyan,
+                      fontSize: appearance.scaleFont(
+                        compactHeaderEmphasis ? 15 : 13,
+                      ),
+                      lineHeight: appearance.scaleFont(
+                        compactHeaderEmphasis ? 18 : 16,
+                      ),
+                    },
                   ]}
                 >
                   {compactHeaderLabel}
@@ -152,7 +201,16 @@ export function Screen({
                     styles.compactBusinessSeparator,
                     compactHeaderEmphasis
                       ? styles.compactBusinessSeparatorEmphasis
-                      : null
+                      : null,
+                    {
+                      color: appearance.colors.line,
+                      fontSize: appearance.scaleFont(
+                        compactHeaderEmphasis ? 15 : 13,
+                      ),
+                      lineHeight: appearance.scaleFont(
+                        compactHeaderEmphasis ? 18 : 16,
+                      ),
+                    },
                   ]}
                 >
                   |
@@ -163,7 +221,9 @@ export function Screen({
                   source={require("../../assets/kyro-icon.png")}
                   style={[
                     styles.compactBusinessLogo,
-                    compactHeaderEmphasis ? styles.compactBusinessLogoEmphasis : null
+                    compactHeaderEmphasis
+                      ? styles.compactBusinessLogoEmphasis
+                      : null,
                   ]}
                 />
               </View>
@@ -203,10 +263,10 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 28,
     paddingHorizontal: spacing.pageX,
-    paddingTop: 8
+    paddingTop: 8,
   },
   contentWithoutTopBar: {
-    paddingTop: 16
+    paddingTop: 16,
   },
   compactBusinessLabel: {
     color: colors.cyan,
@@ -216,58 +276,58 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0,
     textAlign: "right",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   compactBusinessLabelEmphasis: {
     fontSize: 15,
-    lineHeight: 18
+    lineHeight: 18,
   },
   compactBusinessLogo: {
     height: 16,
-    width: 16
+    width: 16,
   },
   compactBusinessLogoEmphasis: {
     height: 19,
-    width: 19
+    width: 19,
   },
   compactBusinessMark: {
     alignItems: "center",
     flexDirection: "row",
     gap: 7,
     flexShrink: 1,
-    maxWidth: "54%"
+    maxWidth: "54%",
   },
   compactBusinessMarkEmphasis: {
-    maxWidth: "48%"
+    maxWidth: "48%",
   },
   compactBusinessSeparator: {
     color: colors.line,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   compactBusinessSeparatorEmphasis: {
     fontSize: 15,
-    lineHeight: 18
+    lineHeight: 18,
   },
   compactHeaderAccessoryRow: {
-    alignItems: "flex-end"
+    alignItems: "flex-end",
   },
   eyebrow: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   hero: {
-    gap: 12
+    gap: 12,
   },
   heroHeader: {
     alignItems: "center",
     flexDirection: "row",
     gap: 12,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   headerLabel: {
     color: colors.cyan,
@@ -277,15 +337,15 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     maxWidth: 190,
     textAlign: "right",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   metrics: {
     gap: 8,
-    paddingRight: spacing.pageX
+    paddingRight: spacing.pageX,
   },
   safeArea: {
     backgroundColor: colors.background,
-    flex: 1
+    flex: 1,
   },
   title: {
     color: colors.text,
@@ -293,21 +353,21 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: "900",
     letterSpacing: 0,
-    lineHeight: 35
+    lineHeight: 35,
   },
   titleCompact: {
     fontSize: 25,
-    lineHeight: 29
+    lineHeight: 29,
   },
   titleBlock: {
     flexShrink: 0,
-    gap: 5
+    gap: 5,
   },
   top: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: spacing.pageX,
-    paddingVertical: spacing.pageY
-  }
+    paddingVertical: spacing.pageY,
+  },
 });
