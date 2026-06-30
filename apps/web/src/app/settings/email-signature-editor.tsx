@@ -55,6 +55,16 @@ function clampLogoWidth(value: number) {
   return Math.max(32, Math.min(240, Math.round(value)));
 }
 
+function formatLogoSize(sizeBytes: number) {
+  if (!sizeBytes) {
+    return "";
+  }
+
+  return sizeBytes >= 1024
+    ? `${Math.round(sizeBytes / 1024)} KB`
+    : `${sizeBytes} B`;
+}
+
 export function EmailSignatureEditor({
   autosave = false,
   description,
@@ -65,6 +75,9 @@ export function EmailSignatureEditor({
   const abortRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [localLogoPreviewUrl, setLocalLogoPreviewUrl] = useState("");
+  const [logoWidthInput, setLogoWidthInput] = useState(() =>
+    String(signature.logoWidthPx),
+  );
   const [draft, setDraft] = useState<SignatureDraft>(() => ({
     logoContentBase64: signature.logoContentBase64,
     logoContentType: signature.logoContentType,
@@ -78,6 +91,17 @@ export function EmailSignatureEditor({
     () => localLogoPreviewUrl || logoSrc(draft),
     [draft, localLogoPreviewUrl],
   );
+  const logoStatusLabel = localLogoPreviewUrl
+    ? "Selected logo"
+    : previewLogoSrc
+      ? "Current logo"
+      : "No logo uploaded";
+  const logoMeta = [
+    draft.logoFilename || (draft.logoUrl ? "Logo URL fallback" : ""),
+    formatLogoSize(draft.logoSizeBytes),
+  ]
+    .filter(Boolean)
+    .join(" - ");
 
   const save = useCallback(
     (target: HTMLInputElement | HTMLTextAreaElement) => {
@@ -179,15 +203,38 @@ export function EmailSignatureEditor({
   const handleLogoWidthChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const target = event.currentTarget;
-      const width = clampLogoWidth(Number(target.value));
+      const rawWidth = target.value;
+      const width = Number(rawWidth);
 
+      setLogoWidthInput(rawWidth);
+
+      if (Number.isFinite(width) && width >= 32 && width <= 240) {
+        setDraft((current) => ({
+          ...current,
+          logoWidthPx: Math.round(width),
+        }));
+        scheduleSave(target, 450);
+      }
+    },
+    [scheduleSave],
+  );
+
+  const handleLogoWidthBlur = useCallback(
+    (event: FocusEvent<HTMLInputElement>) => {
+      const target = event.currentTarget;
+      const parsedWidth = Number(target.value);
+      const width = Number.isFinite(parsedWidth)
+        ? clampLogoWidth(parsedWidth)
+        : draft.logoWidthPx;
+
+      setLogoWidthInput(String(width));
       setDraft((current) => ({
         ...current,
         logoWidthPx: width,
       }));
-      scheduleSave(target, 450);
+      scheduleSave(target);
     },
-    [scheduleSave],
+    [draft.logoWidthPx, scheduleSave],
   );
 
   useEffect(() => {
@@ -231,6 +278,11 @@ export function EmailSignatureEditor({
         type="hidden"
         value={draft.logoSizeBytes}
       />
+      <input
+        name={`${namePrefix}LogoWidthPx`}
+        type="hidden"
+        value={draft.logoWidthPx}
+      />
       <div>
         <p className="eyebrow">{title}</p>
         <p>{description}</p>
@@ -266,6 +318,20 @@ export function EmailSignatureEditor({
           >
             Logo file
           </SettingCardHeading>
+          <div className="signature-logo-file-preview">
+            {previewLogoSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt=""
+                src={previewLogoSrc}
+                style={{ width: Math.min(draft.logoWidthPx, 96) }}
+              />
+            ) : null}
+            <span>
+              <strong>{logoStatusLabel}</strong>
+              {logoMeta ? <small>{logoMeta}</small> : null}
+            </span>
+          </div>
           <input
             accept="image/*"
             name={`${namePrefix}LogoFile`}
@@ -313,11 +379,11 @@ export function EmailSignatureEditor({
           <input
             max={240}
             min={32}
-            name={`${namePrefix}LogoWidthPx`}
+            onBlur={handleLogoWidthBlur}
             onChange={handleLogoWidthChange}
             step={4}
             type="number"
-            value={draft.logoWidthPx}
+            value={logoWidthInput}
           />
         </label>
       </div>

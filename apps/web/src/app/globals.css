@@ -11334,6 +11334,50 @@ button:disabled {
   background: color-mix(in srgb, var(--cyan) 18%, var(--background));
 }
 
+.signature-logo-file-preview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 20%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--cyan) 5%, transparent);
+  padding: 8px;
+}
+
+.signature-logo-file-preview img {
+  display: block;
+  height: auto;
+  max-width: 96px;
+  max-height: 42px;
+  object-fit: contain;
+}
+
+.signature-logo-file-preview span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.signature-logo-file-preview strong,
+.signature-logo-file-preview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signature-logo-file-preview strong {
+  color: var(--text);
+  font-size: 0.8125rem;
+}
+
+.signature-logo-file-preview small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 .signature-editor {
   display: grid;
   gap: 12px;
