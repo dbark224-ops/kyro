@@ -1134,7 +1134,13 @@ export function DashboardConsole({
 
   return (
     <section className="dashboard-command-centre">
-      <header className="dashboard-command-header">
+      <header
+        className={
+          emailVerified
+            ? "dashboard-command-header"
+            : "dashboard-command-header has-verification-notice"
+        }
+      >
         <div className="dashboard-command-title">
           <h1>Dashboard</h1>
         </div>
