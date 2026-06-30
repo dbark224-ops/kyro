@@ -544,7 +544,7 @@ function ConversationDetailScreen({
           <View style={styles.contextExpanded}>
             <FactColumn
               facts={[
-                ["Conversation", detail.title],
+                ["Title", detail.title],
                 [
                   "Address",
                   detail.contact?.address ??
