@@ -15446,12 +15446,12 @@ button:disabled {
   width: 100%;
   margin-top: 0;
   margin-right: auto;
-  border: 1px solid var(--dashboard-verification-red);
+  border: 1px solid rgba(255, 255, 255, 0.82);
   border-radius: var(--radius-control);
-  background: #ffffff;
+  background: color-mix(in srgb, var(--surface) 36%, transparent);
   color: var(--dashboard-verification-red);
   padding: 8px 10px;
-  box-shadow: 0 10px 28px rgba(220, 38, 38, 0.12);
+  box-shadow: 0 10px 28px rgba(255, 255, 255, 0.06);
 }
 
 .dashboard-email-verification-notice .eyebrow,
@@ -15497,17 +15497,17 @@ button:disabled {
   min-height: 28px;
   padding-block: 6px;
   border-color: var(--dashboard-verification-red);
-  background: var(--dashboard-verification-red);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--dashboard-verification-red) 12%, transparent);
+  color: var(--dashboard-verification-red);
   white-space: nowrap;
 }
 
 .dashboard-verification-message {
-  color: #991b1b;
+  color: #ef4444;
 }
 
 .dashboard-verification-message.is-error {
-  color: #7f1d1d;
+  color: #f87171;
 }
 
 .dashboard-command-actions {
