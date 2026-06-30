@@ -15407,10 +15407,25 @@ button:disabled {
   line-height: 1.45;
 }
 
+.sidebar-usage-trial-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  border: 1px solid color-mix(in srgb, var(--cyan) 46%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--cyan) 12%, transparent);
+  color: color-mix(in srgb, var(--cyan) 78%, var(--text));
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
 .sidebar-usage-link {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  justify-self: start;
   width: fit-content;
   border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--line));
   border-radius: var(--radius-pill);
@@ -15420,7 +15435,9 @@ button:disabled {
   font-weight: 850;
   line-height: 1;
   padding: 7px 10px;
-  text-decoration: none;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .sidebar-usage-link:hover,
@@ -15429,8 +15446,6 @@ button:disabled {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--text);
   outline: none;
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .sidebar > form {

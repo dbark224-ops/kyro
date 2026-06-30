@@ -16,7 +16,9 @@ import {
   formatDisplayMoney,
   formatCurrencyAmount,
 } from "../../lib/billing/display-currency";
+import { KYRO_USER_BILLING_POLICY_TYPE } from "../../lib/billing/kyro-user-billing";
 import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
+import type { BillableUsageSummary } from "../../lib/billing/usage-summary";
 import { hasSupabaseEnv } from "../../lib/env";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { usageWindowStart } from "../../lib/usage/queries";
@@ -101,6 +103,51 @@ function numberValue(value: unknown) {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "USD";
+}
+
+function optionalTextValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function recordValue(value: unknown) {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function validDate(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function totalCustomerCharge(summary: BillableUsageSummary | null) {
+  return (summary?.totals ?? []).reduce<number>(
+    (total, item) => total + item.customerCharge,
+    0,
+  );
+}
+
+async function loadKyroBillingPolicySettings(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  workspaceId: string,
+) {
+  const { data, error } = await supabase
+    .from("workspace_policies")
+    .select("settings")
+    .eq("workspace_id", workspaceId)
+    .eq("policy_type", KYRO_USER_BILLING_POLICY_TYPE)
+    .maybeSingle();
+
+  if (error) {
+    return null;
+  }
+
+  return recordValue(data?.settings);
 }
 
 async function loadUsageInternalCostPillData() {
@@ -254,7 +301,7 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       return null;
     }
 
-    const [settings, weeklyUsageSummary, monthlyUsageSummary] =
+    const [settings, weeklyUsageSummary, monthlyUsageSummary, billingPolicy] =
       await Promise.all([
         getWorkspaceGeneralSettings(supabase, workspace.id).catch(
           () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
@@ -265,24 +312,40 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
         getBillableUsageSummary(supabase, workspace.id, {
           period: "monthly",
         }).catch(() => null),
+        loadKyroBillingPolicySettings(supabase, workspace.id).catch(() => null),
       ]);
 
-    const weeklyAmount = (weeklyUsageSummary?.totals ?? []).reduce<number>(
-      (total, item) => total + item.customerCharge,
-      0,
+    const now = new Date();
+    const trialStartedAt = validDate(
+      optionalTextValue(billingPolicy?.trialStartedAt),
     );
-    const monthlyAmount = (monthlyUsageSummary?.totals ?? []).reduce<number>(
-      (total, item) => total + item.customerCharge,
-      0,
-    );
+    const trialEndsAt = validDate(optionalTextValue(billingPolicy?.trialEndsAt));
+    const isFreeTrialActive = Boolean(trialEndsAt && trialEndsAt > now);
+    const trialUsageSummary =
+      isFreeTrialActive && trialStartedAt && trialStartedAt < now
+        ? await getBillableUsageSummary(supabase, workspace.id, {
+            end: now.toISOString(),
+            period: "custom",
+            start: trialStartedAt.toISOString(),
+          }).catch(() => null)
+        : null;
+    const weeklyAmount = totalCustomerCharge(weeklyUsageSummary);
+    const monthlyAmount = totalCustomerCharge(monthlyUsageSummary);
+    const trialAmount = totalCustomerCharge(trialUsageSummary);
     const weeklyCurrency =
       weeklyUsageSummary?.totals[0]?.currency ?? settings.displayCurrency;
     const monthlyCurrency =
       monthlyUsageSummary?.totals[0]?.currency ?? settings.displayCurrency;
+    const trialCurrency =
+      trialUsageSummary?.totals[0]?.currency ??
+      monthlyUsageSummary?.totals[0]?.currency ??
+      settings.displayCurrency;
 
     return {
       isDeveloper: developerAccessEnabled(user),
+      isFreeTrialActive,
       initials: initialsFor(workspace.name),
+      trialUsageLabel: formatDisplayMoney(trialAmount, trialCurrency, settings),
       usageMonthLabel: formatDisplayMoney(
         monthlyAmount,
         monthlyCurrency,
@@ -350,15 +413,27 @@ async function SidebarUsageCard() {
     <section className="sidebar-usage-card">
       <p className="eyebrow">Usage</p>
       <div className="sidebar-usage-metrics">
-        <div>
-          <span>This week</span>
-          <strong>{data.usageWeekLabel}</strong>
-        </div>
-        <div>
-          <span>This month</span>
-          <strong>{data.usageMonthLabel}</strong>
-        </div>
+        {data.isFreeTrialActive ? (
+          <div>
+            <span>Free trial usage</span>
+            <strong>{data.trialUsageLabel}</strong>
+          </div>
+        ) : (
+          <>
+            <div>
+              <span>This week</span>
+              <strong>{data.usageWeekLabel}</strong>
+            </div>
+            <div>
+              <span>This month</span>
+              <strong>{data.usageMonthLabel}</strong>
+            </div>
+          </>
+        )}
       </div>
+      {data.isFreeTrialActive ? (
+        <span className="sidebar-usage-trial-pill">Free during trial</span>
+      ) : null}
       <SmartPrefetchLink
         className="sidebar-usage-link"
         href="/settings?section=usage"
