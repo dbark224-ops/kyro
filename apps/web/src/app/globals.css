@@ -15610,16 +15610,18 @@ button:disabled {
 .dashboard-command-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "title actions";
+  grid-template-areas:
+    "title ."
+    "notice actions";
   align-items: start;
   gap: 8px 18px;
-  min-height: 56px;
+  min-height: 102px;
 }
 
 .dashboard-command-header.has-verification-notice {
   grid-template-areas:
-    "title actions"
-    "notice notice";
+    "title ."
+    "notice actions";
 }
 
 .dashboard-command-title {
@@ -15627,6 +15629,12 @@ button:disabled {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.dashboard-command-header:not(.has-verification-notice)::after {
+  content: "";
+  grid-area: notice;
+  min-height: 36px;
 }
 
 .dashboard-command-header h1 {
@@ -17990,8 +17998,8 @@ button:disabled {
 
   .dashboard-command-header.has-verification-notice {
     grid-template-areas:
-      "title actions"
-      "notice notice";
+      "title ."
+      "notice actions";
   }
 
   .dashboard-email-verification-notice {
@@ -18345,8 +18353,8 @@ button:disabled {
   }
 
   html:has(.app-shell) .dashboard-command-header {
-    min-height: 48px;
-    gap: 14px;
+    min-height: 96px;
+    gap: 8px 14px;
   }
 
   html:has(.app-shell) .dashboard-command-header h1 {
@@ -18355,7 +18363,8 @@ button:disabled {
 
   html:has(.app-shell) .dashboard-command-actions {
     gap: 8px;
-    padding-top: 44px;
+    align-self: center;
+    padding-top: 0;
   }
 
   html:has(.app-shell) .dashboard-stat-grid,
