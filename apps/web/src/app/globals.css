@@ -10742,6 +10742,12 @@ button:disabled {
   margin: 0;
 }
 
+.sender-rules-launcher .setting-card-heading,
+.sender-rules-modal-header .setting-card-heading {
+  width: fit-content;
+  justify-content: flex-start;
+}
+
 .sender-rules-launcher p:not(.eyebrow) {
   color: var(--muted);
   font-size: 0.84rem;
