@@ -10,7 +10,7 @@ import {
   Send,
   SlidersHorizontal,
   Sparkles,
-  X
+  X,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -19,7 +19,7 @@ import { DataState } from "@/components/DataState";
 import {
   SkeletonIcon,
   SkeletonLine,
-  SkeletonPill
+  SkeletonPill,
 } from "@/components/LoadingSkeleton";
 import { Screen } from "@/components/Screen";
 import { SectionCard, SectionHeader, StatusPill } from "@/components/ui";
@@ -31,12 +31,12 @@ import type {
   MobileInboxConversationDetail,
   MobileInboxReplyDraftResponse,
   MobileInboxReplyResponse,
-  MobileInboxResponse
+  MobileInboxResponse,
 } from "@/lib/mobile-api-types";
 import { kyroApiFetch } from "@/lib/kyro-api";
 import {
   mobileInboxConversationQueryOptions,
-  mobileInboxQueryOptions
+  mobileInboxQueryOptions,
 } from "@/lib/mobile-query";
 import { colors, radii, typography } from "@/theme";
 
@@ -45,6 +45,7 @@ export default function InboxScreen() {
     conversationId?: string;
     filter?: string;
     quoteDraftId?: string;
+    review?: string;
   }>();
   const router = useRouter();
   const { session, status } = useAuthSession();
@@ -54,14 +55,15 @@ export default function InboxScreen() {
   const [listMessage, setListMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(
-    params.filter ?? "all"
+    params.filter ?? "all",
   );
   const [timeFilter, setTimeFilter] = useState<InboxTimeFilter>("all");
   const conversationId =
     typeof params.conversationId === "string" ? params.conversationId : null;
+  const isSkippedReviewOpen = params.review === "skipped";
   const inbox = useQuery({
     ...mobileInboxQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const conversationDetail = useQuery({
     ...mobileInboxConversationQueryOptions(session, conversationId),
@@ -77,57 +79,77 @@ export default function InboxScreen() {
       filterItems(data?.items ?? [], {
         searchQuery,
         statusFilter,
-        timeFilter
+        timeFilter,
       }),
-    [data?.items, searchQuery, statusFilter, timeFilter]
+    [data?.items, searchQuery, statusFilter, timeFilter],
   );
   const promoteSkippedEmail = useMutation({
     mutationFn: (eventId: string) =>
       kyroApiFetch<MobileInboxResponse>("/api/mobile/inbox", {
         body: {
           eventId,
-          operation: "promote_skipped_email"
+          operation: "promote_skipped_email",
         },
         method: "PATCH",
-        session
+        session,
       }),
     onError: (error) => {
       setListMessage(
         error instanceof Error
           ? error.message
-          : "Unable to promote skipped email."
+          : "Unable to promote skipped email.",
       );
     },
     onSuccess: (result) => {
       setListMessage(result.message ?? "Skipped email promoted.");
       queryClient.setQueryData(
         mobileInboxQueryOptions(session).queryKey,
-        result
+        result,
       );
 
       if (result.promotedConversationId) {
         router.setParams({ conversationId: result.promotedConversationId });
       }
-    }
+    },
   });
 
   return (
     <Screen
       compactHeaderEmphasis
       compactHeaderLabel={
-        conversationDetail.data?.workspace.name ?? data?.workspace.name ?? "Workspace"
+        conversationDetail.data?.workspace.name ??
+        data?.workspace.name ??
+        "Workspace"
       }
       metrics={
-        data && !conversationId
+        data && !conversationId && !isSkippedReviewOpen
           ? [
-              { label: "Needs reply", tone: "cyan", value: String(data.counts.needsReply) },
-              { label: "Ready quote", tone: "pink", value: String(data.counts.readyToQuote) },
-              { label: "Resolved", tone: "purple", value: String(data.counts.resolved) }
+              {
+                label: "Needs reply",
+                tone: "cyan",
+                value: String(data.counts.needsReply),
+              },
+              {
+                label: "Ready quote",
+                tone: "pink",
+                value: String(data.counts.readyToQuote),
+              },
+              {
+                label: "Resolved",
+                tone: "purple",
+                value: String(data.counts.resolved),
+              },
             ]
           : []
       }
       showTopBar={false}
-      title={conversationId ? "Conversation" : "Inbox"}
+      title={
+        conversationId
+          ? "Conversation"
+          : isSkippedReviewOpen
+            ? "Skipped"
+            : "Inbox"
+      }
       titleScale="compact"
     >
       {isInboxLoading ? (
@@ -146,9 +168,18 @@ export default function InboxScreen() {
           onBack={() => router.setParams({ conversationId: undefined })}
         />
       ) : null}
+      {data && isSkippedReviewOpen ? (
+        <SkippedEmailReviewScreen
+          data={data}
+          isPending={promoteSkippedEmail.isPending}
+          listMessage={listMessage}
+          onBack={() => router.setParams({ review: undefined })}
+          onPromote={(eventId) => promoteSkippedEmail.mutate(eventId)}
+        />
+      ) : null}
       {data ? (
         <>
-          {!conversationId && params.quoteDraftId ? (
+          {!conversationId && !isSkippedReviewOpen && params.quoteDraftId ? (
             <SectionCard style={styles.selectedCard}>
               <SectionHeader
                 action={<StatusPill label="Document" tone="pink" />}
@@ -162,163 +193,172 @@ export default function InboxScreen() {
             </SectionCard>
           ) : null}
 
-          {!conversationId ? (
+          {!conversationId && !isSkippedReviewOpen ? (
             <>
-          {listMessage ? <Text style={styles.messageText}>{listMessage}</Text> : null}
-          <View style={styles.controlsRow}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setIsSearchOpen(true)}
-              style={[
-                styles.searchBox,
-                isSearchOpen ? styles.searchBoxExpanded : styles.searchBoxCompact
-              ]}
-            >
-              <Search color={colors.muted} size={18} />
-              {isSearchOpen ? (
-                <>
-                  <TextInput
-                    autoFocus
-                    onChangeText={setSearchQuery}
-                    placeholder="Search"
-                    placeholderTextColor={colors.muted}
-                    style={styles.searchInput}
-                    value={searchQuery}
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      setSearchQuery("");
-                      setIsSearchOpen(false);
-                    }}
-                    style={styles.iconButtonSmall}
-                  >
-                    <X color={colors.muted} size={15} />
-                  </Pressable>
-                </>
+              {listMessage ? (
+                <Text style={styles.messageText}>{listMessage}</Text>
               ) : null}
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setIsFilterOpen((current) => !current)}
-              style={({ pressed }) => [
-                styles.filterButton,
-                hasActiveFilters(statusFilter, timeFilter)
-                  ? styles.filterButtonActive
-                  : null,
-                pressed ? styles.pressed : null
-              ]}
-            >
-              <SlidersHorizontal
-                color={
-                  hasActiveFilters(statusFilter, timeFilter)
-                    ? colors.background
-                    : colors.text
-                }
-                size={18}
-              />
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  hasActiveFilters(statusFilter, timeFilter)
-                    ? styles.filterButtonTextActive
-                    : null
-                ]}
-              >
-                Filter
-              </Text>
-            </Pressable>
-          </View>
-          {isFilterOpen ? (
-            <SectionCard style={styles.filterMenu}>
-              <FilterGroup
-                label="Status"
-                options={statusFilterOptions}
-                value={statusFilter}
-                onChange={(value) => {
-                  setStatusFilter(value);
-                  router.setParams({
-                    filter: value === "all" ? undefined : value
-                  });
-                }}
-              />
-              <FilterGroup
-                label="Time"
-                options={timeFilterOptions}
-                value={timeFilter}
-                onChange={setTimeFilter}
-              />
-            </SectionCard>
-          ) : null}
-
-          <SectionCard>
-            <SectionHeader
-              title={listTitle(statusFilter, timeFilter, searchQuery)}
-            />
-            {filteredItems.length > 0 ? (
-              filteredItems.map((item) => (
+              <View style={styles.controlsRow}>
                 <Pressable
                   accessibilityRole="button"
-                  key={item.id}
-                  onPress={() => router.setParams({ conversationId: item.id })}
-                  onPressIn={() => {
-                    void queryClient.prefetchQuery(
-                      mobileInboxConversationQueryOptions(session, item.id)
-                    );
-                  }}
-                  style={({ pressed }) => [
-                    pressed ? styles.pressed : null
+                  onPress={() => setIsSearchOpen(true)}
+                  style={[
+                    styles.searchBox,
+                    isSearchOpen
+                      ? styles.searchBoxExpanded
+                      : styles.searchBoxCompact,
                   ]}
                 >
-                  <View style={styles.conversationCard}>
-                    <View style={styles.conversationTopLine}>
-                      <Text numberOfLines={1} style={styles.contact}>
-                        {item.contactName ?? item.leadTitle ?? "Conversation"}
-                      </Text>
-                      <View style={styles.topMeta}>
-                        <StatusPill
-                          label={item.nextActionLabel}
-                          tone={bucketTone(item.workflowBucket)}
-                        />
-                        <Text style={styles.age}>{formatRelative(item.lastMessageAt)}</Text>
-                      </View>
-                    </View>
-                    <Text
-                      ellipsizeMode="tail"
-                      numberOfLines={2}
-                      style={styles.preview}
-                    >
-                      {item.latestBody ?? item.latestSubject ?? item.status}
-                    </Text>
-                  </View>
+                  <Search color={colors.muted} size={18} />
+                  {isSearchOpen ? (
+                    <>
+                      <TextInput
+                        autoFocus
+                        onChangeText={setSearchQuery}
+                        placeholder="Search"
+                        placeholderTextColor={colors.muted}
+                        style={styles.searchInput}
+                        value={searchQuery}
+                      />
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          setSearchQuery("");
+                          setIsSearchOpen(false);
+                        }}
+                        style={styles.iconButtonSmall}
+                      >
+                        <X color={colors.muted} size={15} />
+                      </Pressable>
+                    </>
+                  ) : null}
                 </Pressable>
-              ))
-            ) : (
-              <Text style={styles.emptyText}>No conversations returned yet.</Text>
-            )}
-          </SectionCard>
-          {data.skippedEmails.items.length ? (
-            <SectionCard>
-              <SectionHeader
-                action={
-                  <StatusPill
-                    label={`${data.skippedEmails.last24HoursCount} today`}
-                    tone="pink"
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setIsFilterOpen((current) => !current)}
+                  style={({ pressed }) => [
+                    styles.filterButton,
+                    hasActiveFilters(statusFilter, timeFilter)
+                      ? styles.filterButtonActive
+                      : null,
+                    pressed ? styles.pressed : null,
+                  ]}
+                >
+                  <SlidersHorizontal
+                    color={
+                      hasActiveFilters(statusFilter, timeFilter)
+                        ? colors.background
+                        : colors.text
+                    }
+                    size={18}
                   />
-                }
-                title="Skipped email review"
-              />
-              {data.skippedEmails.items.slice(0, 5).map((email) => (
-                <SkippedEmailCard
-                  email={email}
-                  isPending={promoteSkippedEmail.isPending}
-                  key={email.id}
-                  onPromote={() => promoteSkippedEmail.mutate(email.id)}
+                  <Text
+                    style={[
+                      styles.filterButtonText,
+                      hasActiveFilters(statusFilter, timeFilter)
+                        ? styles.filterButtonTextActive
+                        : null,
+                    ]}
+                  >
+                    Filter
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!data.skippedEmails.items.length}
+                  onPress={() => router.setParams({ review: "skipped" })}
+                  style={({ pressed }) => [
+                    styles.skippedReviewButton,
+                    pressed ? styles.pressed : null,
+                    !data.skippedEmails.items.length ? styles.disabled : null,
+                  ]}
+                >
+                  <MailWarning color={colors.text} size={17} />
+                  <Text style={styles.skippedReviewButtonText}>Skipped</Text>
+                  {data.skippedEmails.items.length ? (
+                    <View style={styles.skippedReviewBadge}>
+                      <Text style={styles.skippedReviewBadgeText}>
+                        {data.skippedEmails.items.length}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              </View>
+              {isFilterOpen ? (
+                <SectionCard style={styles.filterMenu}>
+                  <FilterGroup
+                    label="Status"
+                    options={statusFilterOptions}
+                    value={statusFilter}
+                    onChange={(value) => {
+                      setStatusFilter(value);
+                      router.setParams({
+                        filter: value === "all" ? undefined : value,
+                      });
+                    }}
+                  />
+                  <FilterGroup
+                    label="Time"
+                    options={timeFilterOptions}
+                    value={timeFilter}
+                    onChange={setTimeFilter}
+                  />
+                </SectionCard>
+              ) : null}
+
+              <SectionCard>
+                <SectionHeader
+                  title={listTitle(statusFilter, timeFilter, searchQuery)}
                 />
-              ))}
-            </SectionCard>
-          ) : null}
+                {filteredItems.length > 0 ? (
+                  filteredItems.map((item) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      key={item.id}
+                      onPress={() =>
+                        router.setParams({ conversationId: item.id })
+                      }
+                      onPressIn={() => {
+                        void queryClient.prefetchQuery(
+                          mobileInboxConversationQueryOptions(session, item.id),
+                        );
+                      }}
+                      style={({ pressed }) => [pressed ? styles.pressed : null]}
+                    >
+                      <View style={styles.conversationCard}>
+                        <View style={styles.conversationTopLine}>
+                          <Text numberOfLines={1} style={styles.contact}>
+                            {item.contactName ??
+                              item.leadTitle ??
+                              "Conversation"}
+                          </Text>
+                          <View style={styles.topMeta}>
+                            <StatusPill
+                              label={item.nextActionLabel}
+                              tone={bucketTone(item.workflowBucket)}
+                            />
+                            <Text style={styles.age}>
+                              {formatRelative(item.lastMessageAt)}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text
+                          ellipsizeMode="tail"
+                          numberOfLines={2}
+                          style={styles.preview}
+                        >
+                          {item.latestBody ?? item.latestSubject ?? item.status}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>
+                    No conversations returned yet.
+                  </Text>
+                )}
+              </SectionCard>
             </>
           ) : null}
         </>
@@ -330,7 +370,7 @@ export default function InboxScreen() {
 function ConversationDetailScreen({
   conversationId,
   detail,
-  onBack
+  onBack,
 }: {
   conversationId: string;
   detail?: MobileInboxConversationDetail;
@@ -350,7 +390,7 @@ function ConversationDetailScreen({
   const detailQueryKey = [
     "mobile-inbox-conversation",
     session?.user.id,
-    conversationId
+    conversationId,
   ];
   const generateDraft = useMutation({
     mutationFn: () =>
@@ -359,17 +399,19 @@ function ConversationDetailScreen({
         {
           body: { prompt: draftPrompt },
           method: "POST",
-          session
-        }
+          session,
+        },
       ),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to generate reply.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to generate reply.",
+      );
     },
     onSuccess: (draft) => {
       setBody(draft.body);
       setSubject(draft.subject);
       setMessage("Draft inserted. Give it a quick check before sending.");
-    }
+    },
   });
   const sendReply = useMutation({
     mutationFn: () =>
@@ -382,14 +424,16 @@ function ConversationDetailScreen({
             channelType,
             includeSignature,
             signatureVariant,
-            subject
+            subject,
           },
           method: "POST",
-          session
-        }
+          session,
+        },
       ),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to send reply.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to send reply.",
+      );
     },
     onSuccess: (result) => {
       setBody("");
@@ -398,9 +442,9 @@ function ConversationDetailScreen({
       setQuoteDraftId(null);
       queryClient.setQueryData(detailQueryKey, result.detail);
       void queryClient.invalidateQueries({
-        queryKey: ["mobile-inbox", session?.user.id]
+        queryKey: ["mobile-inbox", session?.user.id],
       });
-    }
+    },
   });
   const runAction = useMutation({
     mutationFn: ({
@@ -408,7 +452,7 @@ function ConversationDetailScreen({
       body: draftBody,
       operation,
       status: nextStatus,
-      subject: draftSubject
+      subject: draftSubject,
     }: {
       actionId?: string;
       body?: string;
@@ -424,22 +468,24 @@ function ConversationDetailScreen({
             body: draftBody,
             operation,
             status: nextStatus,
-            subject: draftSubject
+            subject: draftSubject,
           },
           method: "PATCH",
-          session
-        }
+          session,
+        },
       ),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to run action.");
+      setMessage(
+        error instanceof Error ? error.message : "Unable to run action.",
+      );
     },
     onSuccess: (result) => {
       setMessage(result.message);
       queryClient.setQueryData(detailQueryKey, result.detail);
       void queryClient.invalidateQueries({
-        queryKey: ["mobile-inbox", session?.user.id]
+        queryKey: ["mobile-inbox", session?.user.id],
       });
-    }
+    },
   });
 
   useEffect(() => {
@@ -459,7 +505,11 @@ function ConversationDetailScreen({
 
   return (
     <>
-      <Pressable accessibilityRole="button" onPress={onBack} style={styles.backButton}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onBack}
+        style={styles.backButton}
+      >
         <ChevronLeft color={colors.text} size={20} />
         <Text style={styles.backButtonText}>Inbox</Text>
       </Pressable>
@@ -473,13 +523,18 @@ function ConversationDetailScreen({
           <FactColumn
             facts={[
               ["Name", detail.contact?.name ?? detail.contact?.company ?? null],
-              ["Email", detail.contact?.email ?? null]
+              ["Email", detail.contact?.email ?? null],
             ]}
           />
           <FactColumn
             facts={[
-              ["Service", detail.lead?.serviceType ?? detail.inquiryFacts?.jobType ?? null],
-              ["Phone", detail.contact?.phone ?? null]
+              [
+                "Service",
+                detail.lead?.serviceType ??
+                  detail.inquiryFacts?.jobType ??
+                  null,
+              ],
+              ["Phone", detail.contact?.phone ?? null],
             ]}
           />
         </View>
@@ -488,15 +543,23 @@ function ConversationDetailScreen({
             <FactColumn
               facts={[
                 ["Conversation", detail.title],
-                ["Address", detail.contact?.address ?? detail.inquiryFacts?.address ?? null],
-                ["Last", formatDate(detail.conversation.lastMessageAt)]
+                [
+                  "Address",
+                  detail.contact?.address ??
+                    detail.inquiryFacts?.address ??
+                    null,
+                ],
+                ["Last", formatDate(detail.conversation.lastMessageAt)],
               ]}
             />
             <FactColumn
               facts={[
                 ["Priority", formatLabel(detail.lead?.priority ?? null)],
                 ["Next", detail.lead?.nextStep ?? null],
-                ["Missing", detail.inquiryFacts?.missingInfo.join(", ") ?? null]
+                [
+                  "Missing",
+                  detail.inquiryFacts?.missingInfo.join(", ") ?? null,
+                ],
               ]}
             />
           </View>
@@ -506,7 +569,7 @@ function ConversationDetailScreen({
           onPress={() => setIsContextExpanded((current) => !current)}
           style={({ pressed }) => [
             styles.expandButton,
-            pressed ? styles.pressed : null
+            pressed ? styles.pressed : null,
           ]}
         >
           <Text style={styles.expandButtonText}>
@@ -526,7 +589,7 @@ function ConversationDetailScreen({
               onPress={() =>
                 runAction.mutate({
                   operation: "update_status",
-                  status: option.value
+                  status: option.value,
                 })
               }
               style={({ pressed }) => [
@@ -535,7 +598,7 @@ function ConversationDetailScreen({
                   ? styles.workflowStatusButtonActive
                   : null,
                 pressed ? styles.pressed : null,
-                runAction.isPending ? styles.disabled : null
+                runAction.isPending ? styles.disabled : null,
               ]}
             >
               <Text
@@ -543,7 +606,7 @@ function ConversationDetailScreen({
                   styles.workflowStatusText,
                   latestStatus === option.value
                     ? styles.workflowStatusTextActive
-                    : null
+                    : null,
                 ]}
               >
                 {option.label}
@@ -564,12 +627,16 @@ function ConversationDetailScreen({
                   styles.messageBubble,
                   item.direction === "outbound"
                     ? styles.messageBubbleOutbound
-                    : styles.messageBubbleInbound
+                    : styles.messageBubbleInbound,
                 ]}
               >
                 <View style={styles.messageMetaRow}>
-                  <Text style={styles.messageRole}>{formatLabel(item.direction)}</Text>
-                  <Text style={styles.rowMeta}>{formatDate(item.createdAt)}</Text>
+                  <Text style={styles.messageRole}>
+                    {formatLabel(item.direction)}
+                  </Text>
+                  <Text style={styles.rowMeta}>
+                    {formatDate(item.createdAt)}
+                  </Text>
                 </View>
                 {item.subject ? (
                   <Text style={styles.messageSubject}>{item.subject}</Text>
@@ -587,7 +654,9 @@ function ConversationDetailScreen({
 
       <SectionCard>
         <SectionHeader
-          action={<StatusPill label={channelLabel(channelType)} tone="purple" />}
+          action={
+            <StatusPill label={channelLabel(channelType)} tone="purple" />
+          }
           eyebrow="Reply"
           title="Respond"
         />
@@ -596,7 +665,7 @@ function ConversationDetailScreen({
           onChange={setChannelType}
           options={detail.allowedChannels.map((channel) => ({
             label: channelLabel(channel),
-            value: channel
+            value: channel,
           }))}
           value={channelType}
         />
@@ -625,7 +694,7 @@ function ConversationDetailScreen({
                 key={quoteDraft.id}
                 onPress={() =>
                   setQuoteDraftId((current) =>
-                    current === quoteDraft.id ? null : quoteDraft.id
+                    current === quoteDraft.id ? null : quoteDraft.id,
                   )
                 }
                 style={({ pressed }) => [
@@ -633,7 +702,7 @@ function ConversationDetailScreen({
                   quoteDraftId === quoteDraft.id
                     ? styles.quoteDraftCardActive
                     : null,
-                  pressed ? styles.pressed : null
+                  pressed ? styles.pressed : null,
                 ]}
               >
                 <FileText color={colors.cyan} size={17} />
@@ -642,7 +711,8 @@ function ConversationDetailScreen({
                     {quoteDraft.title}
                   </Text>
                   <Text numberOfLines={1} style={styles.actionSummary}>
-                    {formatLabel(quoteDraft.status)} · {quoteDraft.lineItemCount} line
+                    {formatLabel(quoteDraft.status)} ·{" "}
+                    {quoteDraft.lineItemCount} line
                     {quoteDraft.lineItemCount === 1 ? "" : "s"}
                   </Text>
                 </View>
@@ -660,7 +730,7 @@ function ConversationDetailScreen({
             onChange={setSignatureVariant}
             options={[
               { label: "User", value: "manual" },
-              { label: "Assistant", value: "ai_generated" }
+              { label: "Assistant", value: "ai_generated" },
             ]}
             value={signatureVariant}
           />
@@ -680,7 +750,10 @@ function ConversationDetailScreen({
             accessibilityRole="button"
             disabled={generateDraft.isPending}
             onPress={() => generateDraft.mutate()}
-            style={[styles.secondaryAction, generateDraft.isPending ? styles.disabled : null]}
+            style={[
+              styles.secondaryAction,
+              generateDraft.isPending ? styles.disabled : null,
+            ]}
           >
             <Sparkles color={colors.text} size={16} />
             <Text style={styles.secondaryActionText}>
@@ -691,7 +764,10 @@ function ConversationDetailScreen({
             accessibilityRole="button"
             disabled={sendReply.isPending || !body.trim()}
             onPress={() => sendReply.mutate()}
-            style={[styles.primaryAction, sendReply.isPending || !body.trim() ? styles.disabled : null]}
+            style={[
+              styles.primaryAction,
+              sendReply.isPending || !body.trim() ? styles.disabled : null,
+            ]}
           >
             <Send color={colors.background} size={16} />
             <Text style={styles.primaryActionText}>
@@ -714,7 +790,7 @@ function ConversationDetailScreen({
                   actionId: action.id,
                   body: values?.body,
                   operation,
-                  subject: values?.subject
+                  subject: values?.subject,
                 })
               }
               onUseDraft={() => {
@@ -745,7 +821,7 @@ function ConversationDetailScreen({
 
 function FactColumn({
   facts,
-  title
+  title,
 }: {
   facts: Array<[string, string | null]>;
   title?: string;
@@ -765,10 +841,66 @@ function FactColumn({
   );
 }
 
+function SkippedEmailReviewScreen({
+  data,
+  isPending,
+  listMessage,
+  onBack,
+  onPromote,
+}: {
+  data: MobileInboxResponse;
+  isPending: boolean;
+  listMessage: string | null;
+  onBack: () => void;
+  onPromote: (eventId: string) => void;
+}) {
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onBack}
+        style={styles.backButton}
+      >
+        <ChevronLeft color={colors.text} size={18} strokeWidth={2.5} />
+        <Text style={styles.backButtonText}>Inbox</Text>
+      </Pressable>
+      {listMessage ? (
+        <Text style={styles.messageText}>{listMessage}</Text>
+      ) : null}
+      <SectionCard>
+        <SectionHeader
+          action={
+            data.skippedEmails.last24HoursCount ? (
+              <StatusPill
+                label={`${data.skippedEmails.last24HoursCount} today`}
+                tone="pink"
+              />
+            ) : null
+          }
+          eyebrow="Email review"
+          title={`${data.skippedEmails.items.length} skipped`}
+        />
+        {data.skippedEmails.items.length ? (
+          data.skippedEmails.items.map((email) => (
+            <SkippedEmailCard
+              email={email}
+              isPending={isPending}
+              key={email.id}
+              onPromote={() => onPromote(email.id)}
+            />
+          ))
+        ) : (
+          <Text style={styles.emptyText}>No skipped emails to review.</Text>
+        )}
+      </SectionCard>
+    </>
+  );
+}
+
 function SkippedEmailCard({
   email,
   isPending,
-  onPromote
+  onPromote,
 }: {
   email: MobileInboxResponse["skippedEmails"]["items"][number];
   isPending: boolean;
@@ -785,13 +917,16 @@ function SkippedEmailCard({
             {email.subject}
           </Text>
           <Text numberOfLines={1} style={styles.actionSummary}>
-            {email.fromEmail ?? "No sender"} · {formatRelative(email.receivedAt ?? email.processedAt)}
+            {email.fromEmail ?? "No sender"} ·{" "}
+            {formatRelative(email.receivedAt ?? email.processedAt)}
           </Text>
         </View>
         {hasReply ? <StatusPill label="Replied" tone="cyan" /> : null}
       </View>
       <Text numberOfLines={2} style={styles.preview}>
-        {email.summary ?? email.reason ?? "Kyro skipped this email before turning it into work."}
+        {email.summary ??
+          email.reason ??
+          "Kyro skipped this email before turning it into work."}
       </Text>
       <View style={styles.skippedMetaRow}>
         <StatusPill label={formatLabel(email.category)} tone="neutral" />
@@ -805,7 +940,7 @@ function SkippedEmailCard({
           style={({ pressed }) => [
             styles.skippedPromoteButton,
             pressed ? styles.pressed : null,
-            isPending ? styles.disabled : null
+            isPending ? styles.disabled : null,
           ]}
         >
           <Text style={styles.skippedPromoteText}>
@@ -818,7 +953,7 @@ function SkippedEmailCard({
 }
 
 function DeliveryRow({
-  delivery
+  delivery,
 }: {
   delivery: MobileInboxConversationDetail["outboundMessages"][number];
 }) {
@@ -831,7 +966,11 @@ function DeliveryRow({
       <View
         style={[
           styles.deliveryIcon,
-          failed ? styles.deliveryIconFailed : sent ? styles.deliveryIconSent : null
+          failed
+            ? styles.deliveryIconFailed
+            : sent
+              ? styles.deliveryIconSent
+              : null,
         ]}
       >
         <Icon
@@ -843,7 +982,8 @@ function DeliveryRow({
       <View style={styles.loadingConversationMain}>
         <View style={styles.deliveryTopLine}>
           <Text numberOfLines={1} style={styles.actionTitle}>
-            {delivery.subject ?? `${channelLabel(delivery.channelType)} message`}
+            {delivery.subject ??
+              `${channelLabel(delivery.channelType)} message`}
           </Text>
           <StatusPill
             label={formatLabel(delivery.status)}
@@ -855,10 +995,11 @@ function DeliveryRow({
             ([
               delivery.recipient ? `To ${delivery.recipient}` : null,
               delivery.provider ? formatLabel(delivery.provider) : null,
-              delivery.sentAt ? `Sent ${formatDate(delivery.sentAt)}` : null
+              delivery.sentAt ? `Sent ${formatDate(delivery.sentAt)}` : null,
             ]
               .filter(Boolean)
-              .join(" - ") || "Waiting for delivery status.")}
+              .join(" - ") ||
+              "Waiting for delivery status.")}
         </Text>
       </View>
     </View>
@@ -869,13 +1010,13 @@ function ConversationActionCard({
   action,
   isPending,
   onRun,
-  onUseDraft
+  onUseDraft,
 }: {
   action: MobileInboxConversationDetail["actions"][number];
   isPending: boolean;
   onRun: (
     operation: MobileInboxActionOperation,
-    values?: { body?: string; subject?: string }
+    values?: { body?: string; subject?: string },
   ) => void;
   onUseDraft: () => void;
 }) {
@@ -884,7 +1025,7 @@ function ConversationActionCard({
   const isApproved = action.status === "approved";
   const [draftBody, setDraftBody] = useState(action.body ?? "");
   const [draftSubject, setDraftSubject] = useState(
-    action.subject ?? "Thanks for reaching out"
+    action.subject ?? "Thanks for reaching out",
   );
 
   useEffect(() => {
@@ -937,7 +1078,7 @@ function ConversationActionCard({
             style={({ pressed }) => [
               styles.tertiaryAction,
               pressed ? styles.pressed : null,
-              isPending ? styles.disabled : null
+              isPending ? styles.disabled : null,
             ]}
           >
             <Text style={styles.tertiaryActionText}>Use draft</Text>
@@ -950,13 +1091,13 @@ function ConversationActionCard({
             onPress={() =>
               onRun("save_draft", {
                 body: draftBody,
-                subject: draftSubject
+                subject: draftSubject,
               })
             }
             style={({ pressed }) => [
               styles.secondaryAction,
               pressed ? styles.pressed : null,
-              isPending || !draftBody.trim() ? styles.disabled : null
+              isPending || !draftBody.trim() ? styles.disabled : null,
             ]}
           >
             <Text style={styles.secondaryActionText}>Save</Text>
@@ -974,9 +1115,9 @@ function ConversationActionCard({
                 isDraftReply
                   ? {
                       body: draftBody,
-                      subject: draftSubject
+                      subject: draftSubject,
                     }
-                  : undefined
+                  : undefined,
               )
             }
             style={({ pressed }) => [
@@ -984,7 +1125,7 @@ function ConversationActionCard({
               pressed ? styles.pressed : null,
               isPending || (isDraftReply && !draftBody.trim())
                 ? styles.disabled
-                : null
+                : null,
             ]}
           >
             <Text style={styles.primaryActionText}>
@@ -1004,10 +1145,12 @@ function ConversationActionCard({
             style={({ pressed }) => [
               styles.primaryAction,
               pressed ? styles.pressed : null,
-              isPending ? styles.disabled : null
+              isPending ? styles.disabled : null,
             ]}
           >
-            <Text style={styles.primaryActionText}>{actionExecuteLabel(action.type)}</Text>
+            <Text style={styles.primaryActionText}>
+              {actionExecuteLabel(action.type)}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -1021,7 +1164,7 @@ const conversationStatusOptions = [
   { label: "Open", value: "open" },
   { label: "Drafted", value: "reply_drafted" },
   { label: "Replied", value: "replied" },
-  { label: "Resolved", value: "resolved" }
+  { label: "Resolved", value: "resolved" },
 ];
 
 const statusFilterOptions = [
@@ -1031,14 +1174,14 @@ const statusFilterOptions = [
   { label: "Ready to quote", value: "ready_to_quote" },
   { label: "Missing info", value: "missing_info" },
   { label: "Documents", value: "documents" },
-  { label: "Resolved", value: "resolved" }
+  { label: "Resolved", value: "resolved" },
 ];
 
 const timeFilterOptions: Array<{ label: string; value: InboxTimeFilter }> = [
   { label: "Any time", value: "all" },
   { label: "Today", value: "today" },
   { label: "This week", value: "week" },
-  { label: "Older", value: "older" }
+  { label: "Older", value: "older" },
 ];
 
 function InboxLoadingState() {
@@ -1056,7 +1199,7 @@ function InboxLoadingState() {
             key={`${tone}-${index}`}
             style={[
               styles.loadingConversationRow,
-              index === 3 ? styles.loadingRowLast : null
+              index === 3 ? styles.loadingRowLast : null,
             ]}
           >
             <View style={styles.loadingConversationMain}>
@@ -1092,7 +1235,7 @@ function FilterGroup<T extends string>({
   label,
   onChange,
   options,
-  value
+  value,
 }: {
   label: string;
   onChange: (value: T) => void;
@@ -1110,13 +1253,13 @@ function FilterGroup<T extends string>({
             onPress={() => onChange(option.value)}
             style={[
               styles.filterChip,
-              value === option.value ? styles.filterChipActive : null
+              value === option.value ? styles.filterChipActive : null,
             ]}
           >
             <Text
               style={[
                 styles.filterChipText,
-                value === option.value ? styles.filterChipTextActive : null
+                value === option.value ? styles.filterChipTextActive : null,
               ]}
             >
               {option.label}
@@ -1133,12 +1276,12 @@ function filterItems(
   {
     searchQuery,
     statusFilter,
-    timeFilter
+    timeFilter,
   }: {
     searchQuery: string;
     statusFilter: string;
     timeFilter: InboxTimeFilter;
-  }
+  },
 ) {
   const query = normalizeSearchText(searchQuery);
   const numericQuery = normalizeNumericSearch(searchQuery);
@@ -1166,7 +1309,7 @@ function filterItems(
       item.nextActionLabel,
       item.searchableText,
       item.status,
-      item.workflowBucket
+      item.workflowBucket,
     ]
       .filter(Boolean)
       .join(" ");
@@ -1246,7 +1389,7 @@ function hasActiveFilters(statusFilter: string, timeFilter: InboxTimeFilter) {
 function listTitle(
   statusFilter: string,
   timeFilter: InboxTimeFilter,
-  searchQuery: string
+  searchQuery: string,
 ) {
   if (searchQuery.trim()) {
     return "Search results";
@@ -1254,8 +1397,8 @@ function listTitle(
 
   if (statusFilter !== "all") {
     return (
-      statusFilterOptions.find((option) => option.value === statusFilter)?.label ??
-      "Filtered conversations"
+      statusFilterOptions.find((option) => option.value === statusFilter)
+        ?.label ?? "Filtered conversations"
     );
   }
 
@@ -1286,7 +1429,10 @@ function formatRelative(value: string | null) {
     return "-";
   }
 
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - new Date(value).getTime()) / 60000),
+  );
 
   if (minutes < 60) {
     return `${minutes}m`;
@@ -1312,7 +1458,7 @@ function formatDate(value: string | null) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    month: "short"
+    month: "short",
   }).format(date);
 }
 
@@ -1354,26 +1500,26 @@ function actionExecuteLabel(type: string) {
 
 const styles = StyleSheet.create({
   actionBodyInput: {
-    minHeight: 96
+    minHeight: 96,
   },
   actionButtonRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   actionCard: {
     borderBottomColor: colors.line,
     borderBottomWidth: 1,
     gap: 12,
-    paddingBottom: 13
+    paddingBottom: 13,
   },
   actionDraftEditor: {
-    gap: 9
+    gap: 9,
   },
   actionHeader: {
     alignItems: "flex-start",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   actionInput: {
     backgroundColor: colors.surfaceSoft,
@@ -1386,7 +1532,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     minHeight: 40,
     paddingHorizontal: 11,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   actionRow: {
     alignItems: "center",
@@ -1394,26 +1540,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 10,
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   actionSummary: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "700",
-    lineHeight: 17
+    lineHeight: 17,
   },
   actionTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   age: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   backButton: {
     alignItems: "center",
@@ -1421,13 +1567,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 4,
     marginBottom: -2,
-    paddingVertical: 4
+    paddingVertical: 4,
   },
   backButtonText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   contact: {
     color: colors.text,
@@ -1435,12 +1581,12 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 15,
     fontWeight: "900",
-    minWidth: 0
+    minWidth: 0,
   },
   controlsRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 9
+    gap: 9,
   },
   conversationCard: {
     borderBottomColor: colors.line,
@@ -1448,35 +1594,35 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 76,
     paddingBottom: 12,
-    paddingTop: 2
+    paddingTop: 2,
   },
   conversationTopLine: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   contextColumns: {
     flexDirection: "row",
-    gap: 12
+    gap: 12,
   },
   contextExpanded: {
     borderTopColor: colors.line,
     borderTopWidth: 1,
     flexDirection: "row",
     gap: 12,
-    paddingTop: 12
+    paddingTop: 12,
   },
   contextEyebrow: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   contextHeader: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   detailInput: {
     backgroundColor: colors.surfaceSoft,
@@ -1489,7 +1635,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     minHeight: 44,
     paddingHorizontal: 12,
-    paddingVertical: 10
+    paddingVertical: 10,
   },
   deliveryIcon: {
     alignItems: "center",
@@ -1499,15 +1645,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 34,
     justifyContent: "center",
-    width: 34
+    width: 34,
   },
   deliveryIconFailed: {
     backgroundColor: "rgba(236, 46, 153, 0.1)",
-    borderColor: "rgba(236, 46, 153, 0.32)"
+    borderColor: "rgba(236, 46, 153, 0.32)",
   },
   deliveryIconSent: {
     backgroundColor: "rgba(81, 229, 255, 0.1)",
-    borderColor: "rgba(81, 229, 255, 0.32)"
+    borderColor: "rgba(81, 229, 255, 0.32)",
   },
   deliveryRow: {
     alignItems: "flex-start",
@@ -1515,21 +1661,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 10,
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   deliveryTopLine: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8
+    gap: 8,
   },
   disabled: {
-    opacity: 0.45
+    opacity: 0.45,
   },
   emptyText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "600"
+    fontWeight: "600",
   },
   expandButton: {
     alignSelf: "flex-start",
@@ -1537,27 +1683,27 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
     paddingHorizontal: 10,
-    paddingVertical: 6
+    paddingVertical: 6,
   },
   expandButtonText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   draftPromptInput: {
-    minHeight: 72
+    minHeight: 72,
   },
   factColumn: {
     flex: 1,
     gap: 9,
-    minWidth: 0
+    minWidth: 0,
   },
   factColumnTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   factLabel: {
     color: colors.muted,
@@ -1565,12 +1711,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
-    width: 56
+    width: 56,
   },
   factRow: {
     alignItems: "flex-start",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   factValue: {
     color: colors.text,
@@ -1578,7 +1724,7 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "700",
-    lineHeight: 18
+    lineHeight: 18,
   },
   filterButton: {
     alignItems: "center",
@@ -1589,73 +1735,73 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     minHeight: 44,
-    paddingHorizontal: 13
+    paddingHorizontal: 13,
   },
   filterButtonActive: {
     backgroundColor: colors.surfaceStrong,
-    borderColor: colors.surfaceStrong
+    borderColor: colors.surfaceStrong,
   },
   filterButtonText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   filterButtonTextActive: {
-    color: colors.background
+    color: colors.background,
   },
   filterChip: {
     borderColor: colors.line,
     borderRadius: radii.pill,
     borderWidth: 1,
     paddingHorizontal: 10,
-    paddingVertical: 7
+    paddingVertical: 7,
   },
   filterChipActive: {
     backgroundColor: colors.surfaceStrong,
-    borderColor: colors.surfaceStrong
+    borderColor: colors.surfaceStrong,
   },
   filterChipText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   filterChipTextActive: {
-    color: colors.background
+    color: colors.background,
   },
   filterGroup: {
-    gap: 8
+    gap: 8,
   },
   filterLabel: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   filterMenu: {
-    gap: 13
+    gap: 13,
   },
   filterOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   iconButtonSmall: {
     alignItems: "center",
     height: 30,
     justifyContent: "center",
-    width: 30
+    width: 30,
   },
   loadingConversationMain: {
     flex: 1,
     gap: 8,
-    minWidth: 0
+    minWidth: 0,
   },
   loadingConversationMeta: {
     alignItems: "flex-end",
-    gap: 8
+    gap: 8,
   },
   loadingConversationRow: {
     alignItems: "center",
@@ -1664,75 +1810,75 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     minHeight: 78,
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   loadingHeadingRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8
+    gap: 8,
   },
   loadingHintRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 12
+    gap: 12,
   },
   loadingRowLast: {
     borderBottomWidth: 0,
-    paddingBottom: 0
+    paddingBottom: 0,
   },
   loadingSelectedHint: {
-    borderColor: "rgba(81, 229, 255, 0.2)"
+    borderColor: "rgba(81, 229, 255, 0.2)",
   },
   messageBody: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
     fontWeight: "600",
-    lineHeight: 20
+    lineHeight: 20,
   },
   messageBubble: {
     borderRadius: radii.md,
     gap: 7,
-    padding: 12
+    padding: 12,
   },
   messageBubbleInbound: {
     alignSelf: "stretch",
     backgroundColor: "rgba(81, 229, 255, 0.06)",
     borderLeftColor: colors.cyan,
-    borderLeftWidth: 2
+    borderLeftWidth: 2,
   },
   messageBubbleOutbound: {
     alignSelf: "flex-end",
     backgroundColor: "rgba(246, 247, 251, 0.08)",
-    maxWidth: "92%"
+    maxWidth: "92%",
   },
   messageMetaRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   messageRole: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   messageSubject: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   messageText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "800",
-    lineHeight: 17
+    lineHeight: 17,
   },
   messageThread: {
-    gap: 10
+    gap: 10,
   },
   primaryAction: {
     alignItems: "center",
@@ -1742,16 +1888,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "center",
-    minHeight: 44
+    minHeight: 44,
   },
   primaryActionText: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pressed: {
-    opacity: 0.78
+    opacity: 0.78,
   },
   preview: {
     color: colors.muted,
@@ -1759,7 +1905,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     lineHeight: 18,
-    width: "100%"
+    width: "100%",
   },
   quoteDraftCard: {
     alignItems: "center",
@@ -1771,30 +1917,30 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 54,
     paddingHorizontal: 11,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   quoteDraftCardActive: {
-    borderColor: "rgba(81, 229, 255, 0.62)"
+    borderColor: "rgba(81, 229, 255, 0.62)",
   },
   quoteDraftStack: {
-    gap: 8
+    gap: 8,
   },
   replyActionRow: {
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   replyInput: {
-    minHeight: 126
+    minHeight: 126,
   },
   replyOptionsRow: {
-    gap: 10
+    gap: 10,
   },
   rowMeta: {
     color: colors.muted,
     flexShrink: 0,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   searchBox: {
     alignItems: "center",
@@ -1805,22 +1951,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 44,
-    paddingHorizontal: 13
+    paddingHorizontal: 13,
   },
   searchBoxCompact: {
     justifyContent: "center",
     paddingHorizontal: 0,
-    width: 44
+    width: 44,
   },
   searchBoxExpanded: {
-    flex: 1
+    flex: 1,
   },
   searchInput: {
     color: colors.text,
     flex: 1,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   secondaryAction: {
     alignItems: "center",
@@ -1832,37 +1978,37 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "center",
-    minHeight: 44
+    minHeight: 44,
   },
   secondaryActionText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   selectedCard: {
-    borderColor: "rgba(81, 229, 255, 0.45)"
+    borderColor: "rgba(81, 229, 255, 0.45)",
   },
   selectedRow: {
     backgroundColor: "rgba(81, 229, 255, 0.06)",
-    borderRadius: radii.md
+    borderRadius: radii.md,
   },
   skippedEmailCard: {
     borderBottomColor: colors.line,
     borderBottomWidth: 1,
     gap: 10,
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   skippedEmailHeader: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 9
+    gap: 9,
   },
   skippedMetaRow: {
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   skippedPromoteButton: {
     alignItems: "center",
@@ -1870,19 +2016,53 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
     minHeight: 28,
-    paddingHorizontal: 10
+    paddingHorizontal: 10,
   },
   skippedPromoteText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
+  },
+  skippedReviewBadge: {
+    alignItems: "center",
+    backgroundColor: "rgba(236, 46, 153, 0.18)",
+    borderColor: "rgba(236, 46, 153, 0.36)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    height: 22,
+    justifyContent: "center",
+    minWidth: 22,
+    paddingHorizontal: 6,
+  },
+  skippedReviewBadgeText: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  skippedReviewButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    minHeight: 44,
+    paddingHorizontal: 11,
+  },
+  skippedReviewButtonText: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
   },
   topMeta: {
     alignItems: "center",
     flexDirection: "row",
     flexShrink: 0,
-    gap: 7
+    gap: 7,
   },
   tertiaryAction: {
     alignItems: "center",
@@ -1892,13 +2072,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     minHeight: 38,
-    paddingHorizontal: 12
+    paddingHorizontal: 12,
   },
   tertiaryActionText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   workflowStatusButton: {
     alignItems: "center",
@@ -1908,24 +2088,24 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     minHeight: 34,
-    paddingHorizontal: 10
+    paddingHorizontal: 10,
   },
   workflowStatusButtonActive: {
     backgroundColor: colors.surfaceStrong,
-    borderColor: colors.surfaceStrong
+    borderColor: colors.surfaceStrong,
   },
   workflowStatusGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   workflowStatusText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   workflowStatusTextActive: {
-    color: colors.background
-  }
+    color: colors.background,
+  },
 });
