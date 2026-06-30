@@ -110,6 +110,11 @@
 }
 
 .marketing-route-loading {
+  --marketing-bg: var(--background);
+  --marketing-panel: var(--surface);
+  --marketing-text: var(--text);
+  --marketing-muted: var(--muted);
+  --marketing-line: var(--line);
   display: grid;
   min-height: 100svh;
   place-items: center;
@@ -136,19 +141,19 @@
 .marketing-route-loading-field span:nth-child(1) {
   top: 36%;
   left: 50%;
-  background: rgb(81 229 255 / 0.34);
+  background: color-mix(in srgb, var(--cyan) 32%, transparent);
 }
 
 .marketing-route-loading-field span:nth-child(2) {
   top: 44%;
   left: 58%;
-  background: rgb(236 54 141 / 0.28);
+  background: color-mix(in srgb, var(--pink) 28%, transparent);
 }
 
 .marketing-route-loading-field span:nth-child(3) {
   top: 58%;
   left: 46%;
-  background: rgb(142 243 197 / 0.2);
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
 }
 
 .marketing-route-loading-panel {
@@ -2858,6 +2863,14 @@ textarea:focus {
 }
 
 .app-route-loading {
+  background:
+    radial-gradient(
+      circle at 50% 30%,
+      color-mix(in srgb, var(--cyan) 8%, transparent),
+      transparent 36%
+    ),
+    var(--background);
+  color: var(--text);
   display: grid;
   min-height: calc(100vh - 118px);
   min-height: calc(100dvh - 118px);
