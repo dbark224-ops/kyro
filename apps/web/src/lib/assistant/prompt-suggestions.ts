@@ -6,6 +6,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 
 export const DEFAULT_ASSISTANT_PROMPT_SUGGESTIONS = [
   "Show me leads needing reply",
@@ -577,6 +578,11 @@ async function recordSuggestionGenerationUsage({
   }
 
   const aiRunId = String(aiRun.id);
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
   const usageEvents = buildLlmUsageEvents({
     context: {
       aiRunId,
@@ -587,6 +593,7 @@ async function recordSuggestionGenerationUsage({
       providerUsageId: generation.providerUsageId,
       sourceId: aiRunId,
       sourceType: "ai_run",
+      usageMarkupRate,
       userId,
       workspaceId: workspace.id,
     },

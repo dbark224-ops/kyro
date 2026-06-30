@@ -11,6 +11,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../../../../../lib/usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
 import { getApiWorkspaceContext } from "../../../../../lib/workspace/api-context";
 import { revalidatePath } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
@@ -107,6 +108,11 @@ export async function POST(request: NextRequest) {
   let usageRecorded = false;
 
   if (assistantTranscript && provider === "openai" && realtimeUsage) {
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspace.id,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
     const usageEvents = buildRealtimeUsageEvents({
       context: {
         metadata: {
@@ -117,6 +123,7 @@ export async function POST(request: NextRequest) {
           userMessageId,
         },
         providerUsageId: responseId,
+        usageMarkupRate,
         userId: user.id,
         workspaceId: workspace.id,
       },

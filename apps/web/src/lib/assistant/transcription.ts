@@ -4,8 +4,8 @@ import { insertAuditLog } from "../engine/event-action-audit";
 import {
   applyUsageMarkup,
   roundUsageMoney,
-  usageMarkupRate,
 } from "../usage/pricing";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   getActivePronunciationEntries,
   pronunciationGuideText,
@@ -51,10 +51,6 @@ function openAiApiKey() {
 
 function sttModel() {
   return envValue("OPENAI_STT_MODEL") || DEFAULT_STT_MODEL;
-}
-
-function sttMarkupRate() {
-  return usageMarkupRate("OPENAI_STT_MARKUP_RATE");
 }
 
 function sttPrompt(entries: AssistantPronunciationEntry[]) {
@@ -236,7 +232,11 @@ export async function transcribeAssistantAudio({
   const text = normalizeKyroAssistantName(rawText);
   const durationMinutes = durationMinutesForBilling(durationMs);
   const unitCost = sttUnitCostPerMinute(model);
-  const markup = sttMarkupRate();
+  const markup = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    "OPENAI_STT_MARKUP_RATE",
+  );
   const cost = Number((durationMinutes * unitCost).toFixed(8));
   const customerCharge = roundUsageMoney(applyUsageMarkup(cost, markup));
 

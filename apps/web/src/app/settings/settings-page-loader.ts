@@ -108,6 +108,7 @@ export async function loadSettingsPageData(
   const needsGeneralSettings =
     selectedSection === "general" ||
     selectedSection === "usage" ||
+    (selectedSection === "developer" && isDeveloperAccount) ||
     (selectedSection === "integrations" &&
       activeIntegrationPanel === "phone-sms");
   const needsCommunicationSettings =

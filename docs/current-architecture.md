@@ -1229,9 +1229,12 @@ Purpose:
 
 Each usage row stores the provider cost snapshot, markup snapshot, and customer
 charge snapshot at the time the event is created. `KYRO_USAGE_MARKUP_RATE` is the
-global cost-plus margin knob, with provider-specific markup env vars reserved
-for deliberate exceptions. Changing the margin affects new rows only, preserving
-historical billing auditability.
+global cost-plus margin default, with provider-specific markup env vars reserved
+for deliberate exceptions. Workspaces can also carry an account-specific
+`workspace_general.usageMarkupRate`; that value wins over provider-specific env
+markup and lets Kyro grandfather early accounts or raise margins for newer
+signups. Changing any margin affects new rows only, preserving historical billing
+auditability.
 
 Usage visibility is now incorporated into Settings. `/usage` redirects to
 `/settings?section=usage`. The usage area is read-only and customer-facing: the main

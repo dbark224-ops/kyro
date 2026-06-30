@@ -14,6 +14,7 @@ import {
   normalizePhoneRegion,
   type PhoneRegion,
 } from "../crm/identity";
+import { normalizeUsageMarkupRate, usageMarkupRate } from "../usage/pricing";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const WORKSPACE_GENERAL_POLICY_TYPE = "workspace_general";
@@ -25,6 +26,7 @@ export type WorkspaceGeneralSettings = {
   exchangeRateProvider: DisplayCurrencyProvider;
   exchangeRateUpdatedAt: string | null;
   timeZone: string;
+  usageMarkupRate: number;
 };
 
 export type WorkspaceBusinessProfileSettings = {
@@ -320,6 +322,7 @@ export const DEFAULT_WORKSPACE_GENERAL_SETTINGS: WorkspaceGeneralSettings = {
   businessProfile: DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS,
   defaultPhoneRegion: DEFAULT_PHONE_REGION,
   timeZone: defaultTimeZone(),
+  usageMarkupRate: usageMarkupRate(),
 };
 
 function defaultTimeZone() {
@@ -864,6 +867,11 @@ export function normalizeWorkspaceGeneralSettings(
       settings.timeZone,
       fallback.timeZone ?? DEFAULT_WORKSPACE_GENERAL_SETTINGS.timeZone,
     ),
+    usageMarkupRate:
+      normalizeUsageMarkupRate(
+        settings.usageMarkupRate,
+        fallback.usageMarkupRate ?? null,
+      ) ?? DEFAULT_WORKSPACE_GENERAL_SETTINGS.usageMarkupRate,
   };
 }
 

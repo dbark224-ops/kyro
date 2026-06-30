@@ -24,6 +24,7 @@ import {
   DEFAULT_WORKSPACE_GENERAL_SETTINGS,
   getWorkspaceGeneralSettings,
 } from "../workspace/general-settings";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
@@ -533,7 +534,7 @@ function durationSeconds(payload: Record<string, unknown>) {
   return duration > 1000 ? Math.round(duration / 1000) : Math.round(duration);
 }
 
-function callCost(payload: Record<string, unknown>) {
+function callCost(payload: Record<string, unknown>, markupRate?: number | null) {
   const message = vapiMessage(payload);
   const call = vapiCall(payload);
   const cost =
@@ -543,6 +544,7 @@ function callCost(payload: Record<string, unknown>) {
   const usage = telephonyUsageCost({
     direction: callDirection(payload),
     kind: "voice_call",
+    markupRate,
     providerPrice: cost,
   });
 
@@ -1569,7 +1571,14 @@ export async function upsertVoiceCallFromVapiEvent(
   const transcript = callTranscript(payload);
   const summary = callSummary(payload);
   const recordingUrl = callRecordingUrl(payload);
-  const cost = callCost(payload);
+  const cost = callCost(
+    payload,
+    await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspaceId,
+      "TWILIO_MARKUP_RATE",
+    ),
+  );
   const duration = durationSeconds(payload);
   const status = statusFromEvent(event);
   const endedReason = firstText(

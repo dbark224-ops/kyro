@@ -19,6 +19,7 @@ import {
   usageEventTotals,
   type OpenAiTokenUsage,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 
 export type AiRunItem = {
   id: string;
@@ -1098,6 +1099,11 @@ export async function runStubAiTriage(
       inputTokens,
       outputTokens,
     });
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspaceId,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
   const usageEvents = buildLlmUsageEvents({
     context: {
       aiRunId,
@@ -1108,6 +1114,7 @@ export async function runStubAiTriage(
       providerUsageId: triageDecision.providerUsageId,
       sourceId: aiRunId,
       sourceType: "ai_run",
+      usageMarkupRate,
       userId: user.id,
       workspaceId,
     },

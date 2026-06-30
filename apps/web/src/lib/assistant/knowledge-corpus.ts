@@ -690,6 +690,8 @@ Provider/API cost and gross-margin snapshots are still recorded in \`usage_event
 
 Usage charges are stored in the ledger's original currency for billing auditability, currently USD for OpenAI usage. The Settings usage screen displays those values through the workspace display currency preference. The usage ledger CSV export includes both the display amount and the stored amount so it remains useful for customer review and later billing reconciliation.
 
+Kyro billing margin is cost-plus. \`KYRO_USAGE_MARKUP_RATE\` is the global default, but each workspace can store \`workspace_general.usageMarkupRate\` as an account-specific decimal margin. The workspace margin wins over provider-specific markup env vars for future usage rows only, so early accounts can be grandfathered while newer signups use a different margin.
+
 For OpenAI model calls, Kyro uses the token usage returned by OpenAI where available.
 It tracks uncached input tokens, cached input tokens, visible output tokens, and reasoning
 tokens separately. Web-search tool calls are also counted separately from the normal token
@@ -1989,6 +1991,7 @@ Realtime voice usage is priced separately so audio tokens do not get blended int
 costs; OpenAI text-to-speech uses a pricing-derived estimate when direct audio token usage
 is unavailable. Unknown text models fall back to the configured/default low-cost model
 price and mark the row as price-estimated in metadata.
+Each new usage row snapshots the provider cost, markup, and customer charge. The active workspace-specific \`usageMarkupRate\` wins over provider-specific markup env vars; global/provider env changes and Developer settings margin changes affect future rows only.
 
 The default phone region is used only when a user or inbound/manual capture gives
 Kyro a bare local number without a country code. Explicit international numbers

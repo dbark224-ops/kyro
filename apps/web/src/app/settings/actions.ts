@@ -42,6 +42,7 @@ import {
   DISPLAY_CURRENCIES,
   normalizeDisplayCurrency,
 } from "../../lib/billing/display-currency";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
   INBOUND_EMAIL_POLICY_TYPE,
@@ -104,6 +105,7 @@ import {
   releaseWorkspacePhoneNumberToPool,
   type WorkspacePhoneNumberPoolRow,
 } from "../../lib/voice/phone-number-pool";
+import { normalizeUsageMarkupRate } from "../../lib/usage/pricing";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -2967,5 +2969,80 @@ export async function updateDashboardTutorialTestModeAction(
     forceShow
       ? "Dashboard tutorial preview mode is on. The tour will appear whenever the Dashboard loads until you turn this off."
       : "Dashboard tutorial preview mode is off. The tour will only appear for first-time workspaces.",
+  );
+}
+
+export async function updateWorkspaceUsageMarkupRateAction(
+  formData: FormData,
+) {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+
+  if (!developerAccessEnabled(user)) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      "Developer access is required to change workspace pricing.",
+    );
+  }
+
+  const markupPercent = Number(formString(formData, "usageMarkupPercent"));
+  const nextMarkupRate = normalizeUsageMarkupRate(
+    Number.isFinite(markupPercent) ? markupPercent / 100 : null,
+    null,
+  );
+
+  if (nextMarkupRate === null) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      "Enter a valid usage margin percentage.",
+    );
+  }
+
+  const beforeSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const afterSettings = normalizeWorkspaceGeneralSettings({
+    ...beforeSettings,
+    usageMarkupRate: nextMarkupRate,
+  });
+  const { data: savedPolicy, error } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
+        settings: afterSettings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (error || !savedPolicy) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      error?.message ?? "Unable to save usage margin.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorId: user.id,
+    actorType: "user",
+    action: "workspace_usage_margin.updated",
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+    before: { usageMarkupRate: beforeSettings.usageMarkupRate },
+    after: { usageMarkupRate: afterSettings.usageMarkupRate },
+  });
+
+  revalidatePath("/settings");
+  redirectWithSectionMessage(
+    "developer",
+    "engine_message",
+    `Usage margin set to ${Math.round(afterSettings.usageMarkupRate * 10000) / 100}%. Future usage events will use this workspace rate.`,
   );
 }

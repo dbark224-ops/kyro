@@ -20,6 +20,7 @@ import {
   syncInboundEmailNowAction,
   updateDashboardTutorialTestModeAction,
   updateCommunicationSettingsAction,
+  updateWorkspaceUsageMarkupRateAction,
   updateGeneralSettingsAction,
   updateVoiceSettingsAction,
   upsertInboundEmailSenderRuleSettingsAction,
@@ -4086,11 +4087,13 @@ function DeveloperSettingsDetail({
   assignedPhoneNumbers,
   billingEngineOverview,
   dashboardTutorialForceShow,
+  generalSettings,
   voiceSettings,
 }: Readonly<{
   assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   billingEngineOverview: KyroBillingEngineOverview;
   dashboardTutorialForceShow: boolean;
+  generalSettings: WorkspaceGeneralSettings;
   voiceSettings: VoiceSettings;
 }>) {
   const voiceNumbers = assignedPhoneNumbers.filter(
@@ -4211,6 +4214,46 @@ function DeveloperSettingsDetail({
             </SettingsSubmitButton>
           </form>
         </div>
+      </article>
+
+      <article className="panel embedded-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Pricing control</p>
+            <h2>Workspace usage margin</h2>
+          </div>
+          <span className="pill">Developer only</span>
+        </div>
+        <p className="empty-copy">
+          Sets the margin used when future provider usage is converted from cost
+          price to customer charge for this workspace.
+        </p>
+        <form
+          action={updateWorkspaceUsageMarkupRateAction}
+          className="developer-reset-form"
+        >
+          <label className="setting-card compact-setting-card">
+            <SettingCardHeading info="A value of 25 means Kyro charges provider cost plus 25%. Existing usage rows and issued invoices are not recalculated.">
+              Usage margin (%)
+            </SettingCardHeading>
+            <input
+              defaultValue={String(
+                Math.round(generalSettings.usageMarkupRate * 10000) / 100,
+              )}
+              max="1000"
+              min="0"
+              name="usageMarkupPercent"
+              step="0.01"
+              type="number"
+            />
+          </label>
+          <SettingsSubmitButton
+            className="secondary-button compact"
+            pendingLabel="Saving..."
+          >
+            Save margin
+          </SettingsSubmitButton>
+        </form>
       </article>
 
       <form action={updateVoiceSettingsAction} className="settings-form">
@@ -5290,6 +5333,7 @@ export default async function SettingsPage({
       </SettingsDetailShell>
     ) : selectedSection === "developer" &&
       isDeveloperAccount &&
+      generalSettings &&
       voiceSettings &&
       kyroBillingEngineOverview ? (
       <SettingsDetailShell
@@ -5300,6 +5344,7 @@ export default async function SettingsPage({
           assignedPhoneNumbers={assignedPhoneNumbers}
           billingEngineOverview={kyroBillingEngineOverview}
           dashboardTutorialForceShow={dashboardTutorialState.forceShow}
+          generalSettings={generalSettings}
           voiceSettings={voiceSettings}
         />
       </SettingsDetailShell>

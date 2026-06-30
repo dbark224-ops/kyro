@@ -6,6 +6,7 @@ import {
   usageMarkupRate,
   usageNumberEnv,
 } from "./pricing";
+import { resolveWorkspaceUsageMarkupRate } from "./workspace-markup";
 
 const PRICE_SOURCE = "google_maps_platform_pricing_2026_06_29";
 
@@ -16,6 +17,7 @@ type GoogleApiUsageKind =
 
 type GoogleApiUsageInput = {
   kind: GoogleApiUsageKind;
+  markupRate?: number | null;
   metadata?: Record<string, unknown>;
   sourceId?: string | null;
   sourceType?: string | null;
@@ -85,7 +87,7 @@ export function buildGoogleApiUsageEvent(
 ): UsageEventDraft {
   const unit = unitCostFor(input.kind);
   const cost = unit.unitCost;
-  const markup = markupRate();
+  const markup = input.markupRate ?? markupRate();
 
   return {
     costSnapshot: roundUsageMoney(cost),
@@ -116,9 +118,23 @@ export async function recordGoogleApiUsage(
   supabase: SupabaseClient,
   input: GoogleApiUsageInput,
 ) {
+  const markupRateOverride =
+    input.markupRate ??
+    (await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      input.workspaceId,
+      "GOOGLE_API_MARKUP_RATE",
+    ));
   const { error } = await supabase
     .from("usage_events")
-    .insert(toUsageEventRow(buildGoogleApiUsageEvent(input)));
+    .insert(
+      toUsageEventRow(
+        buildGoogleApiUsageEvent({
+          ...input,
+          markupRate: markupRateOverride,
+        }),
+      ),
+    );
 
   if (error) {
     throw new Error(`Unable to record Google API usage: ${error.message}`);

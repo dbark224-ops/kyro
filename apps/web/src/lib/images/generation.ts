@@ -8,6 +8,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 
 const GENERATED_IMAGE_BUCKET =
   process.env.KYRO_FILE_STORAGE_BUCKET?.trim() || "kyro-files";
@@ -584,6 +585,11 @@ export async function generateKyroImage({
     }
 
     const fileId = String(file.id);
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspace.id,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
     const usageEvent = buildOpenAiImageGenerationUsageEvent({
       context: {
         aiRunId,
@@ -594,6 +600,7 @@ export async function generateKyroImage({
         providerUsageId,
         sourceId: aiRunId,
         sourceType: "ai_run",
+        usageMarkupRate,
         userId: user.id,
         workspaceId: workspace.id,
       },

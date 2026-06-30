@@ -82,6 +82,10 @@ const OPENAI_IMAGE_TOKEN_MODEL_PRICES: Array<{
 
 type JsonObject = Record<string, unknown>;
 
+type UsagePricingContext = {
+  usageMarkupRate?: number | null;
+};
+
 type ModelPrice = {
   cachedInputPer1M: number | null;
   inputPer1M: number;
@@ -621,9 +625,13 @@ function imageUsageCostFor(input: {
   };
 }
 
-function priceQuantity(quantity: number, unitCost: number) {
+function priceQuantity(
+  quantity: number,
+  unitCost: number,
+  usageMarkupRateOverride?: number | null,
+) {
   const cost = quantity * unitCost;
-  const markup = markupRate();
+  const markup = usageMarkupRateOverride ?? markupRate();
 
   return {
     costSnapshot: roundUsageMoney(cost),
@@ -874,7 +882,7 @@ export function buildRealtimeUsageEvents(input: {
     sourceType?: string | null;
     userId?: string | null;
     workspaceId: string;
-  };
+  } & UsagePricingContext;
   model: string;
   usage: OpenAiRealtimeTokenUsage;
 }): UsageEventDraft[] {
@@ -889,7 +897,11 @@ export function buildRealtimeUsageEvents(input: {
     }
 
     const unit = realtimeUnitCostFor({ model: input.model, usageType });
-    const price = priceQuantity(quantity, unit.unitCost);
+    const price = priceQuantity(
+      quantity,
+      unit.unitCost,
+      input.context.usageMarkupRate,
+    );
 
     rows.push({
       aiRunId: input.context.aiRunId ?? undefined,
@@ -952,7 +964,7 @@ export function buildLlmUsageEvents(input: {
     userId?: string | null;
     workflowRunId?: string | null;
     workspaceId: string;
-  };
+  } & UsagePricingContext;
   model: string;
   provider?: string;
   service?: string;
@@ -972,7 +984,7 @@ export function buildLlmUsageEvents(input: {
     }
 
     const unit = unitCostFor({ model: input.model, provider, usageType });
-    const price = priceQuantity(quantity, unit.unitCost);
+    const price = priceQuantity(quantity, unit.unitCost, common.usageMarkupRate);
 
     rows.push({
       actionId: common.actionId ?? undefined,
@@ -1033,7 +1045,7 @@ export function buildOpenAiWebSearchCallUsageEvent(input: {
     sourceType?: string | null;
     userId?: string | null;
     workspaceId: string;
-  };
+  } & UsagePricingContext;
   model: string;
 }): UsageEventDraft {
   const normalizedModel = input.model.trim().toLowerCase();
@@ -1044,7 +1056,7 @@ export function buildOpenAiWebSearchCallUsageEvent(input: {
     : WEB_SEARCH_NON_REASONING_COST_PER_1K_CALLS;
   const unitCost =
     (numberEnv("OPENAI_WEB_SEARCH_COST_PER_1K_CALLS") ?? defaultPer1K) / 1000;
-  const price = priceQuantity(1, unitCost);
+  const price = priceQuantity(1, unitCost, input.context.usageMarkupRate);
 
   return {
     aiRunId: input.context.aiRunId ?? undefined,
@@ -1080,7 +1092,7 @@ export function buildOpenAiImageGenerationUsageEvent(input: {
     sourceType?: string | null;
     userId?: string | null;
     workspaceId: string;
-  };
+  } & UsagePricingContext;
   editMode: boolean;
   model: string;
   providerUsage?: OpenAiImageUsage | null;
@@ -1093,7 +1105,7 @@ export function buildOpenAiImageGenerationUsageEvent(input: {
     quality: input.quality,
     size: input.size,
   });
-  const price = priceQuantity(1, unit.unitCost);
+  const price = priceQuantity(1, unit.unitCost, input.context.usageMarkupRate);
   const usage = input.providerUsage ?? null;
 
   return {

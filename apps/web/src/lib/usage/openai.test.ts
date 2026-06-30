@@ -173,6 +173,24 @@ describe("OpenAI usage metering", () => {
       assert.equal(event.markupSnapshot, 0.4);
     }));
 
+  it("lets workspace usage markup override OpenAI env markup", () =>
+    withoutPriceEnv(() => {
+      process.env.OPENAI_WEB_SEARCH_COST_PER_1K_CALLS = "20";
+      process.env.OPENAI_LLM_MARKUP_RATE = "0.75";
+
+      const event = buildOpenAiWebSearchCallUsageEvent({
+        context: {
+          usageMarkupRate: 0.1,
+          workspaceId: "22222222-2222-4222-8222-222222222222",
+        },
+        model: "gpt-4.1-mini",
+      });
+
+      assert.equal(event.costSnapshot, 0.02);
+      assert.equal(event.customerChargeSnapshot, 0.022);
+      assert.equal(event.markupSnapshot, 0.1);
+    }));
+
   it("normalizes OpenAI image generation usage into text, image, and output token buckets", () => {
     const usage = openAiImageUsageFromResponse({
       usage: {

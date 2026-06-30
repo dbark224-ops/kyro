@@ -91,4 +91,21 @@ describe("Google usage metering", () => {
       assert.equal(event.markupSnapshot, 0.3);
     });
   });
+
+  it("lets workspace usage markup override Google env markup", () => {
+    withoutPriceEnv(() => {
+      process.env.GOOGLE_API_COST_PER_1K_CALLS = "10";
+      process.env.GOOGLE_API_MARKUP_RATE = "0.8";
+
+      const event = buildGoogleApiUsageEvent({
+        kind: "places_autocomplete",
+        markupRate: 0.1,
+        workspaceId: "22222222-2222-4222-8222-222222222222",
+      });
+
+      assert.equal(event.costSnapshot, 0.01);
+      assert.equal(event.customerChargeSnapshot, 0.011);
+      assert.equal(event.markupSnapshot, 0.1);
+    });
+  });
 });

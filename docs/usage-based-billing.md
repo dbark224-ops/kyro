@@ -173,11 +173,18 @@ Current OpenAI metering behaviour:
   `TWILIO_MARKUP_RATE`, and `GOOGLE_API_MARKUP_RATE` are optional deliberate
   exceptions; leave them blank when the global Kyro margin should apply across
   the board.
+- Workspace-specific usage margin lives on `workspace_policies.workspace_general`
+  as `usageMarkupRate` (decimal, so `0.25` means 25%). The workspace value wins
+  over provider-specific env markup and is used for future usage rows only.
+  New workspace bootstrap persists the current global default so older accounts
+  can be grandfathered manually from the hidden Developer settings margin
+  control while newer signups can use a higher margin.
 - Twilio SMS records `outbound_sms` and `inbound_sms` rows with provider `twilio`
   and service `sms`. Outbound rows use Twilio-returned message price when available,
   otherwise `TWILIO_SMS_OUTBOUND_UNIT_COST_USD`; inbound rows use
-  `TWILIO_SMS_INBOUND_UNIT_COST_USD`. `TWILIO_MARKUP_RATE` controls the SMS markup
-  snapshot only when set; otherwise the global Kyro usage margin applies.
+  `TWILIO_SMS_INBOUND_UNIT_COST_USD`. Workspace margin controls the SMS markup
+  snapshot when set; otherwise `TWILIO_MARKUP_RATE` or the global Kyro usage
+  margin applies.
 - Phone-number rental has a pricing seam through `TWILIO_NUMBER_MONTHLY_COST_USD`.
   Vapi/Twilio voice calls record `voice_call` usage rows from completed call
   events, preferring Vapi/Twilio provider cost when supplied and falling back to
@@ -189,8 +196,9 @@ Current OpenAI metering behaviour:
   through `GOOGLE_PLACES_AUTOCOMPLETE_COST_PER_1K_CALLS`,
   `GOOGLE_PLACES_DETAILS_COST_PER_1K_CALLS`,
   `GOOGLE_ADDRESS_VALIDATION_COST_PER_1K_CALLS`, or generic
-  `GOOGLE_API_COST_PER_1K_CALLS`. `GOOGLE_API_MARKUP_RATE` controls the Google
-  markup only when set; otherwise the global Kyro usage margin applies.
+  `GOOGLE_API_COST_PER_1K_CALLS`. Workspace margin controls the Google markup
+  when set; otherwise `GOOGLE_API_MARKUP_RATE` or the global Kyro usage margin
+  applies.
   Pre-account signup autocomplete is not recorded in the workspace ledger because
   no workspace exists yet.
 - Local Ollama/stub usage is still metered with token counts where available, but

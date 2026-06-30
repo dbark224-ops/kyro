@@ -59,6 +59,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { getUsageReport } from "../usage/queries";
 import {
   conversationToAssistantLink,
@@ -2145,6 +2146,11 @@ async function webSearchCommand({
     }
 
     const aiRunId = String(aiRun.id);
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspace.id,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
     const usageEvents = [
       ...(search.tokenUsage
         ? buildLlmUsageEvents({
@@ -2158,6 +2164,7 @@ async function webSearchCommand({
               providerUsageId: search.providerUsageId,
               sourceId: aiRunId,
               sourceType: "ai_run",
+              usageMarkupRate,
               userId: user.id,
               workspaceId: workspace.id,
             },
@@ -2179,6 +2186,7 @@ async function webSearchCommand({
                 providerUsageId: search.providerUsageId,
                 sourceId: aiRunId,
                 sourceType: "ai_run",
+                usageMarkupRate,
                 userId: user.id,
                 workspaceId: workspace.id,
               },
@@ -4144,6 +4152,11 @@ async function documentTemplateControlCommand({
     );
   }
 
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
   const usageEvents = buildLlmUsageEvents({
     context: {
       metadata: {
@@ -4151,6 +4164,7 @@ async function documentTemplateControlCommand({
         templateKey: template.key,
       },
       providerUsageId: revision.usage.providerUsageId,
+      usageMarkupRate,
       userId: user.id,
       workspaceId: workspace.id,
     },

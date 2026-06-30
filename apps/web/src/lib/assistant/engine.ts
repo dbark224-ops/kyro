@@ -9,6 +9,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { resolveAssistantCommand } from "./commands";
 import { runAssistantModel } from "./providers";
 import {
@@ -250,6 +251,11 @@ export async function runAssistantTurn({
     );
   }
 
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
   const usageEvents = [
     ...(toolPlan.tokenUsage
       ? buildLlmUsageEvents({
@@ -263,6 +269,7 @@ export async function runAssistantTurn({
             providerUsageId: toolPlan.providerUsageId,
             sourceId: aiRunId,
             sourceType: "ai_run",
+            usageMarkupRate,
             userId: user.id,
             workspaceId: workspace.id,
           },
@@ -286,6 +293,7 @@ export async function runAssistantTurn({
         providerUsageId: modelOutput.providerUsageId,
         sourceId: aiRunId,
         sourceType: "ai_run",
+        usageMarkupRate,
         userId: user.id,
         workspaceId: workspace.id,
       },
@@ -305,6 +313,7 @@ export async function runAssistantTurn({
           providerUsageId: modelOutput.providerUsageId,
           sourceId: aiRunId,
           sourceType: "ai_run",
+          usageMarkupRate,
           userId: user.id,
           workspaceId: workspace.id,
         },

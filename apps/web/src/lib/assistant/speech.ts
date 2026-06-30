@@ -6,6 +6,7 @@ import {
   roundUsageMoney,
   usageMarkupRate,
 } from "../usage/pricing";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   getActivePronunciationEntries,
   pronunciationGuideText,
@@ -429,6 +430,7 @@ async function synthesizeOpenAiSpeech(
   input: string,
   pronunciationEntries: AssistantPronunciationEntry[],
   voiceSettings: VoiceSettings,
+  usageMarkupRateOverride?: number | null,
 ): Promise<ProviderSpeechResult> {
   const apiKey = openAiApiKey();
 
@@ -473,7 +475,7 @@ async function synthesizeOpenAiSpeech(
   );
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
   const pricing = openAiTtsCost({ estimatedSeconds, model, text: input });
-  const markup = openAiTtsMarkupRate();
+  const markup = usageMarkupRateOverride ?? openAiTtsMarkupRate();
 
   return {
     audio,
@@ -503,6 +505,7 @@ async function synthesizeOpenAiSpeech(
 async function synthesizeElevenLabsSpeech(
   input: string,
   voiceSettings: VoiceSettings,
+  usageMarkupRateOverride?: number | null,
 ): Promise<ProviderSpeechResult> {
   const apiKey = elevenLabsApiKey();
 
@@ -551,7 +554,7 @@ async function synthesizeElevenLabsSpeech(
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
   const quantity = input.length;
   const unitCost = elevenLabsTtsUnitCostPerCharacter();
-  const markup = elevenLabsTtsMarkupRate();
+  const markup = usageMarkupRateOverride ?? elevenLabsTtsMarkupRate();
   const cost = Number((quantity * unitCost).toFixed(8));
 
   return {
@@ -597,13 +600,25 @@ export async function synthesizeAssistantSpeech({
   const pronunciationEntries =
     pronunciationEntriesOverride ??
     (await getActivePronunciationEntries(supabase, workspace.id));
+  const usageMarkupRateOverride = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    voiceSettings.provider === "elevenlabs"
+      ? "ELEVENLABS_TTS_MARKUP_RATE"
+      : "OPENAI_TTS_MARKUP_RATE",
+  );
   const speech =
     voiceSettings.provider === "elevenlabs"
-      ? await synthesizeElevenLabsSpeech(input, voiceSettings)
+      ? await synthesizeElevenLabsSpeech(
+          input,
+          voiceSettings,
+          usageMarkupRateOverride,
+        )
       : await synthesizeOpenAiSpeech(
           input,
           pronunciationEntries,
           voiceSettings,
+          usageMarkupRateOverride,
         );
 
   const { error: usageError } = await supabase.from("usage_events").insert(

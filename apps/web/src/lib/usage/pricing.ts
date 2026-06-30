@@ -1,4 +1,5 @@
 export const DEFAULT_USAGE_MARKUP_RATE = 0.25;
+export const MAX_USAGE_MARKUP_RATE = 10;
 
 export function usageNumberEnv(key: string) {
   const raw = process.env[key]?.trim();
@@ -26,6 +27,24 @@ export function usageMarkupRate(...overrideKeys: string[]) {
     usageNumberEnv("USAGE_MARKUP_RATE") ??
     DEFAULT_USAGE_MARKUP_RATE
   );
+}
+
+export function normalizeUsageMarkupRate(
+  value: unknown,
+  fallback: number | null = null,
+) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : null;
+
+  if (parsed === null || !Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+
+  return Math.min(parsed, MAX_USAGE_MARKUP_RATE);
 }
 
 export function applyUsageMarkup(cost: number, markupRate: number) {

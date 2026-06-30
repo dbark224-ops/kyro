@@ -13,6 +13,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../../../../lib/usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../../../../lib/usage/workspace-markup";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
 
 type ReplyDraftRequest = {
@@ -419,10 +420,16 @@ export async function POST(request: Request) {
 
     const startedAt = Date.now();
     const draft = await runOpenAiReplyDraft(context);
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspace.id,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
     const usageEvents = buildLlmUsageEvents({
       context: {
         metadata: { source: context.source },
         providerUsageId: draft.usage.providerUsageId,
+        usageMarkupRate,
         userId: user.id,
         workspaceId: workspace.id,
       },

@@ -18,6 +18,7 @@ import {
 } from "../../../../../lib/communication/sms-compliance";
 import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
 import { createOutboundVoiceCall } from "../../../../../lib/voice/calls";
+import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
 import {
   looksLikeOutboundCallRequest,
   resolveOutboundCallRequest,
@@ -177,6 +178,11 @@ async function recordInboundSmsUsage(
   const usage = telephonyUsageCost({
     direction: "inbound",
     kind: "sms",
+    markupRate: await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      input.workspaceId,
+      "TWILIO_MARKUP_RATE",
+    ),
   });
 
   await supabase.from("usage_events").insert({

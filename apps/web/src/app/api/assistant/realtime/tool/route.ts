@@ -11,6 +11,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../../../../../lib/usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
 import {
   syncInboundEmail,
   type InboundEmailProvider,
@@ -112,10 +113,16 @@ export async function POST(request: Request) {
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
         });
+      const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+        supabase,
+        workspace.id,
+        "OPENAI_LLM_MARKUP_RATE",
+      );
       const usageEvents = buildLlmUsageEvents({
         context: {
           metadata: { source: "realtime_web_search_tool" },
           providerUsageId: result.providerUsageId,
+          usageMarkupRate,
           userId: user.id,
           workspaceId: workspace.id,
         },
@@ -135,6 +142,7 @@ export async function POST(request: Request) {
             context: {
               metadata: { source: "realtime_web_search_tool" },
               providerUsageId: result.providerUsageId,
+              usageMarkupRate,
               userId: user.id,
               workspaceId: workspace.id,
             },

@@ -395,6 +395,7 @@ export async function findOrCreateTwilioSmsChannel(
 export function telephonyUsageCost(input: {
   direction: "inbound" | "outbound";
   kind: "sms" | "number_rental" | "voice_call";
+  markupRate?: number | null;
   providerPrice?: number | null;
   providerCurrency?: string | null;
 }) {
@@ -407,7 +408,7 @@ export function telephonyUsageCost(input: {
           ? numberValue(process.env.TWILIO_VOICE_UNIT_COST_USD)
           : numberValue(process.env.TWILIO_NUMBER_MONTHLY_COST_USD);
   const providerCost = Math.max(0, input.providerPrice ?? envCost ?? 0);
-  const markup = usageMarkupRate("TWILIO_MARKUP_RATE");
+  const markup = input.markupRate ?? usageMarkupRate("TWILIO_MARKUP_RATE");
   const customerCharge = applyUsageMarkup(providerCost, markup);
 
   return {

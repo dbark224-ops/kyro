@@ -144,7 +144,8 @@ export function createWorkspaceBootstrapDefaults(input: WorkspaceBootstrapInput)
           displayCurrency: defaults.currency,
           exchangeRateProvider: "placeholder_static",
           exchangeRateUpdatedAt: null,
-          timeZone: "UTC"
+          timeZone: "UTC",
+          usageMarkupRate: 0.25
         }
       },
       {

@@ -6,6 +6,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 
 export const PRONUNCIATION_CATEGORIES = [
   "person",
@@ -799,6 +800,11 @@ async function enrichPronunciationCandidatesWithAliases({
       prompt,
       text: content,
     });
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspaceId,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
     const usageEvents = buildLlmUsageEvents({
       context: {
         metadata: {
@@ -807,6 +813,7 @@ async function enrichPronunciationCandidatesWithAliases({
           sourceId,
         },
         providerUsageId: openAiProviderUsageId(payload),
+        usageMarkupRate,
         userId: user.id,
         workspaceId,
       },

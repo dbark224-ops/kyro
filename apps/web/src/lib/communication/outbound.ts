@@ -35,6 +35,7 @@ import {
   assertSmsSendAllowed,
   recordSmsRecipientPreference,
 } from "./sms-compliance";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const SCHEDULED_PROCESS_LIMIT = 25;
@@ -1936,6 +1937,11 @@ async function deliverOutboundQueueItem(
           ? telephonyUsageCost({
               direction: "outbound",
               kind: "sms",
+              markupRate: await resolveWorkspaceUsageMarkupRate(
+                supabase,
+                activeRow.workspace_id,
+                "TWILIO_MARKUP_RATE",
+              ),
               providerCurrency: twilioSmsResult?.priceUnit,
               providerPrice: twilioSmsResult?.price
                 ? Math.abs(twilioSmsResult.price)

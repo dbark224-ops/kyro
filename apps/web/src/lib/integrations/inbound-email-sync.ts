@@ -12,6 +12,7 @@ import {
   usageEventTotals,
   type OpenAiTokenUsage,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   GOOGLE_GMAIL_READ_SCOPE,
   GOOGLE_PROVIDER,
@@ -862,6 +863,11 @@ async function recordClassifierUsage({
   user: User;
   workspaceId: string;
 }) {
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspaceId,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
   const usageEvents = buildLlmUsageEvents({
     context: {
       aiRunId,
@@ -869,6 +875,7 @@ async function recordClassifierUsage({
       providerUsageId,
       sourceId: aiRunId,
       sourceType: "ai_run",
+      usageMarkupRate,
       userId: user.id,
       workspaceId,
     },

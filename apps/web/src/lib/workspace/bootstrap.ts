@@ -1,5 +1,10 @@
 import { createWorkspaceBootstrapDefaults, type WorkspaceBootstrapInput } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { usageMarkupRate } from "../usage/pricing";
+import {
+  WORKSPACE_GENERAL_POLICY_TYPE,
+  normalizeWorkspaceGeneralSettings,
+} from "./general-settings";
 
 export type WorkspaceSummary = {
   id: string;
@@ -119,7 +124,13 @@ export async function createWorkspaceBootstrap(
     defaults.policies.map((policy) => ({
       workspace_id: workspaceId,
       policy_type: policy.policyType,
-      settings: policy.settings
+      settings:
+        policy.policyType === WORKSPACE_GENERAL_POLICY_TYPE
+          ? normalizeWorkspaceGeneralSettings({
+              ...policy.settings,
+              usageMarkupRate: usageMarkupRate(),
+            })
+          : policy.settings
     }))
   );
 

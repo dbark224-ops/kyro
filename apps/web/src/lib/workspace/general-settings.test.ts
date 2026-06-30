@@ -15,6 +15,27 @@ describe("workspace general settings", () => {
     assert.equal(settings.displayCurrency, "AUD");
     assert.equal(settings.timeZone, "Australia/Brisbane");
     assert.equal(settings.exchangeRateProvider, "placeholder_static");
+    assert.equal(typeof settings.usageMarkupRate, "number");
+  });
+
+  it("normalizes account-level usage markup", () => {
+    const settings = normalizeWorkspaceGeneralSettings(
+      {
+        usageMarkupRate: "0.12",
+      },
+      {
+        usageMarkupRate: 0.35,
+      },
+    );
+
+    assert.equal(settings.usageMarkupRate, 0.12);
+    assert.equal(
+      normalizeWorkspaceGeneralSettings(
+        { usageMarkupRate: "not-real" },
+        { usageMarkupRate: 0.35 },
+      ).usageMarkupRate,
+      0.35,
+    );
   });
 
   it("falls back when currency or timezone are invalid", () => {
