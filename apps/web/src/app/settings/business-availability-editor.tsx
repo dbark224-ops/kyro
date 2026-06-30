@@ -302,7 +302,7 @@ export function BusinessAvailabilityEditor({
         title="Working hours"
       />
       <SchedulePicker
-        description="When customers can expect a response from the business or Kyro."
+        description="When customers can expect a response from the business."
         namePrefix="businessContactHours"
         onChange={setContactSchedule}
         schedule={contactSchedule}
