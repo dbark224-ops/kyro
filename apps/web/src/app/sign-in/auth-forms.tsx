@@ -219,10 +219,6 @@ export function SignInForm({ action }: { action: ServerAction }) {
         />
       </label>
       <PasswordField autoComplete="current-password" />
-      <div className="auth-verification-row">
-        <span>Need a new verification email?</span>
-        <ResendVerificationControl email={email} label="Resend" />
-      </div>
       <label className="auth-remember-row">
         <input
           name="rememberUser"
