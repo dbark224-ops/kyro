@@ -4,6 +4,7 @@ import { GlobalSearch } from "./global-search";
 import { RoutePreloader } from "./route-preloader";
 import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
+import { ThemeModeControl } from "./theme-mode-control";
 import { TutorialLauncher } from "./tutorial-launcher";
 import { signOutAction } from "../auth/actions";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
@@ -701,6 +702,7 @@ export function AppFrame({
               <UsageInternalCostPills />
             </Suspense>
             <TutorialLauncher />
+            <ThemeModeControl />
             <TextScaleControl />
             <Suspense fallback={null}>
               <LlmDevStatusPill />

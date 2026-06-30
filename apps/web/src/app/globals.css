@@ -1480,6 +1480,28 @@
   }
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: #f7f8fb;
+  --surface: #ffffff;
+  --surface-strong: #111114;
+  --text: #111114;
+  --muted: #676b75;
+  --line: #e7e8ee;
+  --shadow: 0 24px 80px rgb(17 17 20 / 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #08090d;
+  --surface: #111219;
+  --surface-strong: #f6f7fb;
+  --text: #f6f7fb;
+  --muted: #a0a4af;
+  --line: #262833;
+  --shadow: 0 24px 80px rgb(0 0 0 / 0.32);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -2729,6 +2751,48 @@ textarea:focus {
   font-weight: 900;
   min-width: 33px;
   text-align: center;
+}
+
+.theme-mode-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 0.16);
+  color: var(--text);
+  padding: 4px;
+  white-space: nowrap;
+}
+
+.theme-mode-control button {
+  display: inline-grid;
+  width: 28px;
+  height: 27px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.theme-mode-control button:hover,
+.theme-mode-control button.active {
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--text);
+}
+
+.theme-mode-control svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .sidebar {
@@ -15469,6 +15533,10 @@ button:disabled {
 
   .text-scale-control button {
     min-width: 28px;
+  }
+
+  .theme-mode-control button {
+    width: 26px;
   }
 
   .text-scale-control span {
