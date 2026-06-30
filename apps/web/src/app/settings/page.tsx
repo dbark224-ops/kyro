@@ -58,6 +58,7 @@ import {
   OUTBOUND_CHANNELS,
   REPLY_MESSAGE_LENGTH_OPTIONS,
   type CommunicationSettings,
+  type EmailSignatureSettings,
 } from "../../lib/communication/settings";
 import {
   DISPLAY_CURRENCIES,
@@ -200,6 +201,51 @@ function formatLabel(value: string) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+function defaultAiAssistantSignatureText({
+  businessName,
+  publicPhoneNumber,
+}: {
+  businessName: string;
+  publicPhoneNumber: string;
+}) {
+  return [
+    "Kind Regards, Kyro.",
+    `AI Assistant | ${businessName}`,
+    publicPhoneNumber,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function aiAssistantSignatureForEditor({
+  communicationSettings,
+  defaultPublicPhone,
+  profile,
+  workspaceName,
+}: {
+  communicationSettings: CommunicationSettings;
+  defaultPublicPhone: string;
+  profile: WorkspaceGeneralSettings["businessProfile"];
+  workspaceName: string;
+}): EmailSignatureSettings {
+  const defaultText = defaultAiAssistantSignatureText({
+    businessName: profile.businessName || workspaceName || "Your business",
+    publicPhoneNumber: profile.publicPhoneNumber || defaultPublicPhone,
+  });
+  const aiText = communicationSettings.aiGeneratedSignature.text.trim();
+  const manualText = communicationSettings.manualSignature.text.trim();
+  const shouldUseDefault =
+    !aiText ||
+    (!communicationSettings.useSeparateAiSignature && aiText === manualText);
+
+  return shouldUseDefault
+    ? {
+        ...communicationSettings.aiGeneratedSignature,
+        text: defaultText,
+      }
+    : communicationSettings.aiGeneratedSignature;
 }
 
 function formatMoney(value: number, currency: string) {
@@ -2752,7 +2798,12 @@ function GeneralSettingsDetail({
                 autosave
                 description="Used when Kyro drafts or sends an AI-generated customer reply."
                 namePrefix="aiGeneratedSignature"
-                signature={communicationSettings.aiGeneratedSignature}
+                signature={aiAssistantSignatureForEditor({
+                  communicationSettings,
+                  defaultPublicPhone,
+                  profile,
+                  workspaceName,
+                })}
                 title="AI email signature"
               />
             </EmailSignatureAutosavePanel>
@@ -3154,6 +3205,7 @@ function WorkspaceIntegrationsSettings({
   showSenderRules,
   stripeOverview,
   twilioOverview,
+  workspaceName,
 }: Readonly<{
   activePanel: IntegrationSettingsPanel;
   availablePhoneNumbers: WorkspacePhoneNumberPoolRow[];
@@ -3172,6 +3224,7 @@ function WorkspaceIntegrationsSettings({
   showSenderRules: boolean;
   stripeOverview: WorkspaceStripePaymentOverview | null;
   twilioOverview: TwilioTelephonyOverview | null;
+  workspaceName: string;
 }>) {
   const googleConnections = googleOverview?.connections ?? [];
   const microsoftConnections = microsoftOverview?.connections ?? [];
@@ -3255,7 +3308,12 @@ function WorkspaceIntegrationsSettings({
         >
           <CommunicationSettingsDetail
             communicationSettings={communicationSettings}
+            defaultPublicPhone={
+              generalSettings?.businessProfile.publicPhoneNumber ?? ""
+            }
+            profile={generalSettings?.businessProfile ?? null}
             settingsFocus={settingsFocus}
+            workspaceName={workspaceName}
           />
         </ProviderDetails>
       ) : null}
@@ -3374,11 +3432,28 @@ function WorkspaceIntegrationsSettings({
 
 function CommunicationSettingsDetail({
   communicationSettings,
+  defaultPublicPhone,
+  profile,
   settingsFocus,
+  workspaceName,
 }: Readonly<{
   communicationSettings: CommunicationSettings;
+  defaultPublicPhone: string;
+  profile: WorkspaceGeneralSettings["businessProfile"] | null;
   settingsFocus?: string | null;
+  workspaceName: string;
 }>) {
+  const aiSignature = aiAssistantSignatureForEditor({
+    communicationSettings,
+    defaultPublicPhone,
+    profile: profile ?? {
+      ...DEFAULT_WORKSPACE_GENERAL_SETTINGS.businessProfile,
+      businessName: workspaceName,
+      publicPhoneNumber: defaultPublicPhone,
+    },
+    workspaceName,
+  });
+
   return (
     <form
       action={updateCommunicationSettingsAction}
@@ -3524,7 +3599,7 @@ function CommunicationSettingsDetail({
           <EmailSignatureEditor
             description="Used only when an AI generated reply is sent without the user changing the subject or body."
             namePrefix="aiGeneratedSignature"
-            signature={communicationSettings.aiGeneratedSignature}
+            signature={aiSignature}
             title="AI assistant signature"
           />
 
@@ -5161,6 +5236,7 @@ export default async function SettingsPage({
           generalSettings={generalSettings}
           stripeOverview={stripeOverview}
           twilioOverview={twilioOverview}
+          workspaceName={workspace.name}
         />
       </SettingsDetailShell>
     ) : selectedSection === "usage" &&
