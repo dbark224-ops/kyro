@@ -6,7 +6,7 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
-  type AudioPlayer
+  type AudioPlayer,
 } from "expo-audio";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -24,7 +24,7 @@ import {
   Square,
   Volume2,
   Waves,
-  X
+  X,
 } from "lucide-react-native";
 import {
   memo,
@@ -33,7 +33,7 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState
+  useState,
 } from "react";
 import {
   Animated,
@@ -42,25 +42,26 @@ import {
   Modal,
   Platform,
   Pressable,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   ToastAndroid,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DataState } from "@/components/DataState";
 import {
   AssistantMessageBlocks,
-  type GeneratedImageEditSubmission
+  type GeneratedImageEditSubmission,
 } from "@/features/assistant/AssistantMessageBlocks";
 import { mobileAssistantPromptSuggestions } from "@/features/assistant/prompt-suggestions";
 import {
   mergeVapiTranscriptMessages,
   useVapiCall,
-  voiceLevelToMetering as vapiVoiceLevelToMetering
+  voiceLevelToMetering as vapiVoiceLevelToMetering,
 } from "@/features/assistant/vapi-call-context";
 import { useAuthSession } from "@/features/auth/auth-context";
 import { mobileEnv } from "@/lib/env";
@@ -70,7 +71,7 @@ import {
   mobileAssistantPromptSuggestionsQueryOptions,
   mobileFilesQueryOptions,
   mobileQueryKeys,
-  mobileSettingsQueryOptions
+  mobileSettingsQueryOptions,
 } from "@/lib/mobile-query";
 import type {
   AssistantThreadMessage,
@@ -79,7 +80,7 @@ import type {
   MobileAssistantSpeechPayload,
   MobileAssistantState,
   MobileAssistantVapiSessionResponse,
-  MobileAssistantVoiceTurnResponse
+  MobileAssistantVoiceTurnResponse,
 } from "@/lib/mobile-api-types";
 import { colors, radii, typography } from "@/theme";
 
@@ -121,37 +122,40 @@ const VOICE_RECORDING_OPTIONS = {
   ...RecordingPresets.HIGH_QUALITY,
   bitRate: 96000,
   isMeteringEnabled: true,
-  numberOfChannels: 1
+  numberOfChannels: 1,
 };
 
 const promptAccents = [
   {
     backgroundColor: "rgba(81, 229, 255, 0.1)",
     borderColor: "rgba(81, 229, 255, 0.5)",
-    color: colors.cyan
+    color: colors.cyan,
   },
   {
     backgroundColor: "rgba(236, 54, 141, 0.1)",
     borderColor: "rgba(236, 54, 141, 0.5)",
-    color: colors.pink
+    color: colors.pink,
   },
   {
     backgroundColor: "rgba(139, 92, 246, 0.12)",
     borderColor: "rgba(139, 92, 246, 0.5)",
-    color: colors.purple
-  }
+    color: colors.purple,
+  },
 ];
 
 export default function AssistantScreen() {
   const params = useLocalSearchParams<{ mode?: string | string[] }>();
   const [mode, setMode] = useState<AssistantMode>("text");
   const [draft, setDraft] = useState("");
-  const [attachments, setAttachments] = useState<MobileAssistantAttachment[]>([]);
+  const [attachments, setAttachments] = useState<MobileAssistantAttachment[]>(
+    [],
+  );
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [isAttachmentSheetOpen, setIsAttachmentSheetOpen] = useState(false);
   const [isKyroFilePickerOpen, setIsKyroFilePickerOpen] = useState(false);
-  const [kyroFilePickerMessage, setKyroFilePickerMessage] =
-    useState<string | null>(null);
+  const [kyroFilePickerMessage, setKyroFilePickerMessage] = useState<
+    string | null
+  >(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [showFreshPrompts, setShowFreshPrompts] = useState(false);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
@@ -165,20 +169,20 @@ export default function AssistantScreen() {
   const assistantQueryKey = mobileQueryKeys.assistant(userId);
   const assistant = useQuery({
     ...mobileAssistantQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const promptSuggestionState = useQuery({
     ...mobileAssistantPromptSuggestionsQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const settings = useQuery({
     ...mobileSettingsQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const showDeveloperMetadata = Boolean(settings.data?.developer.enabled);
   const kyroFiles = useQuery({
     ...mobileFilesQueryOptions(session),
-    enabled: status === "signed-in" && isKyroFilePickerOpen
+    enabled: status === "signed-in" && isKyroFilePickerOpen,
   });
   const attachKyroFile = useMutation({
     mutationFn: async (file: MobileFileItem) => {
@@ -186,10 +190,11 @@ export default function AssistantScreen() {
         "/api/mobile/file-link",
         {
           query: { fileId: file.id },
-          session
-        }
+          session,
+        },
       );
-      const cacheDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      const cacheDirectory =
+        FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
 
       if (!cacheDirectory) {
         throw new Error("Kyro could not prepare that file on this device.");
@@ -198,34 +203,39 @@ export default function AssistantScreen() {
       const localName = safeLocalFilename(link.filename || file.filename);
       const download = await FileSystem.downloadAsync(
         link.url,
-        `${cacheDirectory}kyro-attach-${Date.now()}-${localName}`
+        `${cacheDirectory}kyro-attach-${Date.now()}-${localName}`,
       );
 
       return {
         id: `${Date.now()}-kyro-file-${file.id}`,
-        mimeType: link.contentType || file.contentType || mimeTypeFromUri(file.filename),
+        mimeType:
+          link.contentType ||
+          file.contentType ||
+          mimeTypeFromUri(file.filename),
         name: link.filename || file.filename,
         size: file.sizeBytes,
-        uri: download.uri
+        uri: download.uri,
       } satisfies MobileAssistantAttachment;
     },
     onError: (error) => {
       setKyroFilePickerMessage(
-        error instanceof Error ? error.message : "Unable to attach that Kyro file."
+        error instanceof Error
+          ? error.message
+          : "Unable to attach that Kyro file.",
       );
     },
     onSuccess: (attachment) => {
       appendAttachments([attachment]);
       setKyroFilePickerMessage(null);
       setIsKyroFilePickerOpen(false);
-    }
+    },
   });
   const sendMessage = useMutation({
     mutationFn: ({
       attachments: submissionAttachments,
       inputSource,
       prompt,
-      threadId
+      threadId,
     }: {
       attachments: MobileAssistantAttachment[];
       inputSource: "typed" | "voice";
@@ -239,75 +249,66 @@ export default function AssistantScreen() {
       formData.append("threadId", threadId ?? "");
 
       for (const attachment of submissionAttachments) {
-        formData.append(
-          "assistantFiles",
-          {
-            name: attachment.name,
-            type: attachment.mimeType,
-            uri: attachment.uri
-          } as unknown as Blob
-        );
+        formData.append("assistantFiles", {
+          name: attachment.name,
+          type: attachment.mimeType,
+          uri: attachment.uri,
+        } as unknown as Blob);
       }
 
       return kyroApiFormFetch<MobileAssistantState>(
         "/api/mobile/assistant",
         formData,
-        { session }
+        { session },
       );
     },
     onError: (_error, variables) => {
-      setDraft(variables.prompt);
-      setAttachments(variables.attachments);
+      setDraft((current) => (current.trim() ? current : variables.prompt));
+      setAttachments((current) =>
+        current.length ? current : variables.attachments,
+      );
       setPendingPrompt(null);
     },
     onSuccess: (nextState) => {
       queryClient.setQueryData(assistantQueryKey, nextState);
-      setAttachments([]);
       setAttachmentError(null);
-      setDraft("");
       setPendingPrompt(null);
-    }
+    },
   });
   const sendVoiceTurn = useMutation({
-    mutationFn: ({
-      durationMs,
-      mimeType,
-      name,
-      uri
-    }: VoiceAudioSubmission) => {
+    mutationFn: ({ durationMs, mimeType, name, uri }: VoiceAudioSubmission) => {
       const formData = new FormData();
 
       formData.append("durationMs", String(durationMs));
-      formData.append(
-        "audio",
-        {
-          name,
-          type: mimeType,
-          uri
-        } as unknown as Blob
-      );
+      formData.append("audio", {
+        name,
+        type: mimeType,
+        uri,
+      } as unknown as Blob);
 
       return kyroApiFormFetch<MobileAssistantVoiceTurnResponse>(
         "/api/mobile/assistant/voice-turn",
         formData,
-        { session }
+        { session },
       );
     },
     onError: (error) => {
       setVoiceSpeech(null);
       setVoiceNotice(
-        error instanceof Error ? error.message : "Unable to process voice turn."
+        error instanceof Error
+          ? error.message
+          : "Unable to process voice turn.",
       );
     },
     onSuccess: (result) => {
       queryClient.setQueryData(assistantQueryKey, result.state);
       setVoiceSpeech(result.speech);
       setVoiceNotice(result.speechError);
-    }
+    },
   });
   const messages = useMemo(
     () => (assistant.data?.messages ?? []).filter(hasRenderableMessage),
-    [assistant.data?.messages]
+    [assistant.data?.messages],
   );
   const promptSuggestions = useMemo(
     () =>
@@ -315,13 +316,13 @@ export default function AssistantScreen() {
         messages,
         remoteSuggestions:
           promptSuggestionState.data?.visibleSuggestions ??
-          promptSuggestionState.data?.suggestions
+          promptSuggestionState.data?.suggestions,
       }),
     [
       messages,
       promptSuggestionState.data?.suggestions,
-      promptSuggestionState.data?.visibleSuggestions
-    ]
+      promptSuggestionState.data?.visibleSuggestions,
+    ],
   );
   const isAssistantLoading =
     status === "loading" || (status === "signed-in" && assistant.isLoading);
@@ -341,11 +342,11 @@ export default function AssistantScreen() {
             {
               content: pendingPrompt ?? "",
               id: "pending-user-message",
-              role: "user" as const
-            }
+              role: "user" as const,
+            },
           ]
         : messages,
-    [messages, pendingPrompt, shouldShowPendingPrompt]
+    [messages, pendingPrompt, shouldShowPendingPrompt],
   );
 
   useEffect(() => {
@@ -353,7 +354,10 @@ export default function AssistantScreen() {
       ? params.mode[0]
       : params.mode;
 
-    if (requestedMode && ASSISTANT_MODES.includes(requestedMode as AssistantMode)) {
+    if (
+      requestedMode &&
+      ASSISTANT_MODES.includes(requestedMode as AssistantMode)
+    ) {
       setMode(requestedMode as AssistantMode);
     }
   }, [params.mode]);
@@ -369,16 +373,18 @@ export default function AssistantScreen() {
         }
 
         const [lastActivityAt, suggestionsShownAt] = await Promise.all([
-          SecureStore.getItemAsync(assistantActivityKey(userId)).catch(() => null),
+          SecureStore.getItemAsync(assistantActivityKey(userId)).catch(
+            () => null,
+          ),
           SecureStore.getItemAsync(assistantSuggestionsShownKey(userId)).catch(
-            () => null
-          )
+            () => null,
+          ),
         ]);
         const shouldShow = shouldShowFreshPromptSuggestions({
           lastActivityAt,
           localSuppressedUntil: promptSuppressedUntilRef.current,
           latestThreadActivityAt: latestPersistedThreadActivity(messages),
-          suggestionsShownAt
+          suggestionsShownAt,
         });
 
         if (isActive) {
@@ -388,7 +394,7 @@ export default function AssistantScreen() {
         if (shouldShow) {
           await SecureStore.setItemAsync(
             assistantSuggestionsShownKey(userId),
-            new Date().toISOString()
+            new Date().toISOString(),
           ).catch(() => undefined);
         }
       }
@@ -398,7 +404,7 @@ export default function AssistantScreen() {
       return () => {
         isActive = false;
       };
-    }, [messages, status, userId])
+    }, [messages, status, userId]),
   );
 
   const markAssistantActivity = useCallback(
@@ -412,7 +418,10 @@ export default function AssistantScreen() {
       promptSuppressedUntilRef.current = now + FRESH_PROMPT_INTERVAL_MS;
       setShowFreshPrompts(false);
 
-      if (!options.force && now - lastActivityWriteRef.current < ACTIVITY_WRITE_THROTTLE_MS) {
+      if (
+        !options.force &&
+        now - lastActivityWriteRef.current < ACTIVITY_WRITE_THROTTLE_MS
+      ) {
         return;
       }
 
@@ -421,10 +430,13 @@ export default function AssistantScreen() {
 
       void Promise.all([
         SecureStore.setItemAsync(assistantActivityKey(userId), timestamp),
-        SecureStore.setItemAsync(assistantSuggestionsShownKey(userId), timestamp)
+        SecureStore.setItemAsync(
+          assistantSuggestionsShownKey(userId),
+          timestamp,
+        ),
       ]).catch(() => undefined);
     },
-    [userId]
+    [userId],
   );
 
   const handleDraftChange = useCallback(
@@ -435,7 +447,7 @@ export default function AssistantScreen() {
         markAssistantActivity();
       }
     },
-    [markAssistantActivity]
+    [markAssistantActivity],
   );
 
   const handlePromptPress = useCallback(
@@ -443,7 +455,7 @@ export default function AssistantScreen() {
       markAssistantActivity({ force: true });
       setDraft(prompt);
     },
-    [markAssistantActivity]
+    [markAssistantActivity],
   );
 
   const appendAttachments = useCallback(
@@ -453,25 +465,23 @@ export default function AssistantScreen() {
       }
 
       markAssistantActivity({ force: true });
-      setAttachments((current) =>
-        [...current, ...nextAttachments].slice(0, 8)
-      );
+      setAttachments((current) => [...current, ...nextAttachments].slice(0, 8));
     },
-    [markAssistantActivity]
+    [markAssistantActivity],
   );
 
   const openAttachmentSheet = useCallback(() => {
-    if (sendMessage.isPending || status !== "signed-in") {
+    if (status !== "signed-in") {
       return;
     }
 
     setAttachmentError(null);
     markAssistantActivity();
     setIsAttachmentSheetOpen(true);
-  }, [markAssistantActivity, sendMessage.isPending, status]);
+  }, [markAssistantActivity, status]);
 
   const takePhoto = useCallback(async () => {
-    if (sendMessage.isPending || status !== "signed-in") {
+    if (status !== "signed-in") {
       return;
     }
 
@@ -489,7 +499,7 @@ export default function AssistantScreen() {
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
         mediaTypes: ["images"],
-        quality: 0.9
+        quality: 0.9,
       });
 
       if (result.canceled) {
@@ -499,17 +509,19 @@ export default function AssistantScreen() {
       appendAttachments(
         result.assets
           .filter((asset) => asset.uri)
-          .map((asset, index) => attachmentFromImageAsset(asset, "camera", index))
+          .map((asset, index) =>
+            attachmentFromImageAsset(asset, "camera", index),
+          ),
       );
     } catch (error) {
       setAttachmentError(
-        error instanceof Error ? error.message : "Unable to take that photo."
+        error instanceof Error ? error.message : "Unable to take that photo.",
       );
     }
-  }, [appendAttachments, sendMessage.isPending, status]);
+  }, [appendAttachments, status]);
 
   const selectPhotos = useCallback(async () => {
-    if (sendMessage.isPending || status !== "signed-in") {
+    if (status !== "signed-in") {
       return;
     }
 
@@ -519,7 +531,9 @@ export default function AssistantScreen() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
-      setAttachmentError("Photo library permission is needed to select images.");
+      setAttachmentError(
+        "Photo library permission is needed to select images.",
+      );
       return;
     }
 
@@ -531,7 +545,7 @@ export default function AssistantScreen() {
         mediaTypes: ["images"],
         orderedSelection: true,
         quality: 1,
-        selectionLimit: 8
+        selectionLimit: 8,
       });
 
       if (result.canceled) {
@@ -541,17 +555,21 @@ export default function AssistantScreen() {
       appendAttachments(
         result.assets
           .filter((asset) => asset.uri)
-          .map((asset, index) => attachmentFromImageAsset(asset, "photo", index))
+          .map((asset, index) =>
+            attachmentFromImageAsset(asset, "photo", index),
+          ),
       );
     } catch (error) {
       setAttachmentError(
-        error instanceof Error ? error.message : "Unable to select those photos."
+        error instanceof Error
+          ? error.message
+          : "Unable to select those photos.",
       );
     }
-  }, [appendAttachments, sendMessage.isPending, status]);
+  }, [appendAttachments, status]);
 
   const chooseFiles = useCallback(async () => {
-    if (sendMessage.isPending || status !== "signed-in") {
+    if (status !== "signed-in") {
       return;
     }
 
@@ -560,10 +578,10 @@ export default function AssistantScreen() {
     setKyroFilePickerMessage(null);
     setIsKyroFilePickerOpen(true);
     markAssistantActivity();
-  }, [markAssistantActivity, sendMessage.isPending, status]);
+  }, [markAssistantActivity, status]);
 
   const chooseDeviceFiles = useCallback(async () => {
-    if (sendMessage.isPending || status !== "signed-in") {
+    if (status !== "signed-in") {
       return;
     }
 
@@ -576,7 +594,7 @@ export default function AssistantScreen() {
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: true,
-        type: "*/*"
+        type: "*/*",
       });
 
       if (result.canceled) {
@@ -586,17 +604,19 @@ export default function AssistantScreen() {
       appendAttachments(
         result.assets
           .filter((asset) => asset.uri && asset.name)
-          .map((asset, index) => attachmentFromDocumentAsset(asset, index))
+          .map((asset, index) => attachmentFromDocumentAsset(asset, index)),
       );
     } catch (error) {
       setAttachmentError(
-        error instanceof Error ? error.message : "Unable to attach that file."
+        error instanceof Error ? error.message : "Unable to attach that file.",
       );
     }
-  }, [appendAttachments, sendMessage.isPending, status]);
+  }, [appendAttachments, status]);
 
   const removeAttachment = useCallback((id: string) => {
-    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+    setAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id),
+    );
   }, []);
 
   const submitPrompt = (inputSource: "typed" | "voice" = "typed") => {
@@ -620,7 +640,7 @@ export default function AssistantScreen() {
       attachments: submissionAttachments,
       inputSource,
       prompt,
-      threadId: assistant.data?.threadId ?? null
+      threadId: assistant.data?.threadId ?? null,
     });
   };
 
@@ -643,13 +663,15 @@ export default function AssistantScreen() {
         submission.hasMarkup
           ? "The attached markup image is a transparent red annotation layer showing the requested changes."
           : null,
-        "Use the original generated image as the source/reference. Generate and save the edited image; do not only describe the edit."
+        "Use the original generated image as the source/reference. Generate and save the edited image; do not only describe the edit.",
       ]
         .filter(Boolean)
         .join("\n");
 
       markAssistantActivity({ force: true });
-      setPendingPrompt(buildPendingPromptContent(prompt, submissionAttachments));
+      setPendingPrompt(
+        buildPendingPromptContent(prompt, submissionAttachments),
+      );
       setDraft("");
       setAttachments([]);
       setAttachmentError(null);
@@ -657,15 +679,10 @@ export default function AssistantScreen() {
         attachments: submissionAttachments,
         inputSource: "typed",
         prompt,
-        threadId: assistant.data?.threadId ?? null
+        threadId: assistant.data?.threadId ?? null,
       });
     },
-    [
-      assistant.data?.threadId,
-      markAssistantActivity,
-      sendMessage,
-      status
-    ]
+    [assistant.data?.threadId, markAssistantActivity, sendMessage, status],
   );
   const submitVoiceAudio = useCallback(
     (submission: VoiceAudioSubmission) => {
@@ -683,12 +700,7 @@ export default function AssistantScreen() {
       sendVoiceTurn.mutate(submission);
       return true;
     },
-    [
-      markAssistantActivity,
-      sendMessage.isPending,
-      sendVoiceTurn,
-      status
-    ]
+    [markAssistantActivity, sendMessage.isPending, sendVoiceTurn, status],
   );
 
   return (
@@ -703,7 +715,7 @@ export default function AssistantScreen() {
               colors={[
                 "rgba(81, 229, 255, 0.78)",
                 "rgba(139, 92, 246, 0.68)",
-                "rgba(236, 54, 141, 0.78)"
+                "rgba(236, 54, 141, 0.78)",
               ]}
               end={{ x: 1, y: 1 }}
               start={{ x: 0, y: 0 }}
@@ -717,13 +729,13 @@ export default function AssistantScreen() {
                     onPress={() => setMode(item)}
                     style={[
                       styles.modeOption,
-                      mode === item ? styles.modeOptionActive : null
+                      mode === item ? styles.modeOptionActive : null,
                     ]}
                   >
                     <Text
                       style={[
                         styles.modeText,
-                        mode === item ? styles.modeTextActive : null
+                        mode === item ? styles.modeTextActive : null,
                       ]}
                     >
                       {assistantModeLabel(item)}
@@ -780,7 +792,7 @@ export default function AssistantScreen() {
         </View>
       </KeyboardAvoidingView>
       <AttachmentOptionsSheet
-        disabled={sendMessage.isPending || status !== "signed-in"}
+        disabled={status !== "signed-in"}
         onChooseFile={chooseFiles}
         onClose={() => setIsAttachmentSheetOpen(false)}
         onSelectPhoto={selectPhotos}
@@ -790,7 +802,9 @@ export default function AssistantScreen() {
       <KyroFilePickerModal
         disabled={attachKyroFile.isPending}
         error={kyroFiles.error}
-        files={(kyroFiles.data?.files ?? []).filter((file) => file.kind !== "system")}
+        files={(kyroFiles.data?.files ?? []).filter(
+          (file) => file.kind !== "system",
+        )}
         loading={kyroFiles.isLoading}
         message={kyroFilePickerMessage}
         onAttach={(file) => attachKyroFile.mutate(file)}
@@ -827,7 +841,7 @@ function TextCanvas({
   promptSuggestions,
   showDeveloperMetadata,
   showPromptSuggestions,
-  onSubmit
+  onSubmit,
 }: {
   attachmentError: string | null;
   attachments: MobileAssistantAttachment[];
@@ -845,10 +859,13 @@ function TextCanvas({
   onSubmit: () => void;
 }) {
   const shouldShowPrompts =
-    showPromptSuggestions && promptSuggestions.length > 0 && !draft.trim() && !isSending;
+    showPromptSuggestions &&
+    promptSuggestions.length > 0 &&
+    !draft.trim() &&
+    !isSending;
   const { scrollRef, scrollToLatest } = useAutoScrollToLatest(
     messages.length,
-    isSending
+    isSending,
   );
 
   return (
@@ -886,7 +903,8 @@ function TextCanvas({
           action="send"
           attachmentError={attachmentError}
           attachments={attachments}
-          disabled={isSending}
+          disabled={false}
+          isSending={isSending}
           onAttachPress={onAttachPress}
           onChangeText={onDraftChange}
           onRemoveAttachment={onRemoveAttachment}
@@ -905,7 +923,7 @@ function VoiceCanvas({
   notice,
   onSubmitVoiceAudio,
   showDeveloperMetadata,
-  speech
+  speech,
 }: {
   isProcessing: boolean;
   messages: AssistantThreadMessage[];
@@ -929,14 +947,14 @@ function VoiceCanvas({
   const [isPlayingSpeech, setIsPlayingSpeech] = useState(false);
   const [isVoiceSessionActive, setIsVoiceSessionActive] = useState(false);
   const isRecording = recorderState.isRecording;
-  const displayedNotice = isRecording ? localNotice : localNotice ?? notice;
+  const displayedNotice = isRecording ? localNotice : (localNotice ?? notice);
   const transcriptMessages = useMemo(
     () => messages.slice(-VOICE_TRANSCRIPT_LIMIT),
-    [messages]
+    [messages],
   );
   const { scrollRef, scrollToLatest } = useAutoScrollToLatest(
     transcriptMessages.length,
-    isProcessing || isRecording || isPlayingSpeech
+    isProcessing || isRecording || isPlayingSpeech,
   );
   const voiceState: VoiceState = isRecording
     ? "recording"
@@ -971,7 +989,7 @@ function VoiceCanvas({
         void startRecordingRef.current();
       }, delay);
     },
-    [clearRestartTimer]
+    [clearRestartTimer],
   );
 
   const resetVoiceDetection = useCallback(() => {
@@ -1004,7 +1022,7 @@ function VoiceCanvas({
       await setAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
-        shouldRouteThroughEarpiece: false
+        shouldRouteThroughEarpiece: false,
       });
       await recorder.prepareToRecordAsync();
       recorder.record();
@@ -1012,9 +1030,11 @@ function VoiceCanvas({
       setIsVoiceSessionActive(false);
       sessionActiveRef.current = false;
       setLocalNotice(
-        error instanceof Error ? error.message : "Unable to start recording."
+        error instanceof Error ? error.message : "Unable to start recording.",
       );
-      await setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
+      await setAudioModeAsync({ allowsRecording: false }).catch(
+        () => undefined,
+      );
     }
   }, [
     clearRestartTimer,
@@ -1022,7 +1042,7 @@ function VoiceCanvas({
     isProcessing,
     isRecording,
     recorder,
-    resetVoiceDetection
+    resetVoiceDetection,
   ]);
 
   useEffect(() => {
@@ -1043,14 +1063,14 @@ function VoiceCanvas({
         await setAudioModeAsync({
           allowsRecording: false,
           playsInSilentMode: true,
-          shouldRouteThroughEarpiece: false
+          shouldRouteThroughEarpiece: false,
         });
 
         const afterStopStatus = recorder.getStatus();
         const uri = recorder.uri ?? afterStopStatus.url ?? beforeStopStatus.url;
         const durationMs = Math.max(
           beforeStopStatus.durationMillis,
-          afterStopStatus.durationMillis
+          afterStopStatus.durationMillis,
         );
         resetVoiceDetection();
 
@@ -1084,7 +1104,7 @@ function VoiceCanvas({
           durationMs,
           mimeType: mimeTypeForAudioUri(uri),
           name: voiceRecordingName(uri),
-          uri
+          uri,
         });
 
         if (submitted) {
@@ -1100,9 +1120,11 @@ function VoiceCanvas({
         setIsVoiceSessionActive(false);
         sessionActiveRef.current = false;
         setLocalNotice(
-          error instanceof Error ? error.message : "Unable to stop recording."
+          error instanceof Error ? error.message : "Unable to stop recording.",
         );
-        await setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
+        await setAudioModeAsync({ allowsRecording: false }).catch(
+          () => undefined,
+        );
       }
     },
     [
@@ -1111,8 +1133,8 @@ function VoiceCanvas({
       onSubmitVoiceAudio,
       queueRestart,
       recorder,
-      resetVoiceDetection
-    ]
+      resetVoiceDetection,
+    ],
   );
 
   useEffect(() => {
@@ -1145,7 +1167,7 @@ function VoiceCanvas({
     isVoiceSessionActive,
     recorderState.durationMillis,
     recorderState.metering,
-    stopRecording
+    stopRecording,
   ]);
 
   useEffect(() => {
@@ -1167,7 +1189,7 @@ function VoiceCanvas({
       playerRef.current?.remove();
       const player = createAudioPlayer(
         { uri },
-        { keepAudioSessionActive: false, updateInterval: 250 }
+        { keepAudioSessionActive: false, updateInterval: 250 },
       );
       playerRef.current = player;
       setIsPlayingSpeech(true);
@@ -1179,7 +1201,7 @@ function VoiceCanvas({
             awaitingReplyRef.current = false;
             queueRestart(status.error ? 700 : VOICE_RESTART_DELAY_MS);
           }
-        }
+        },
       );
       player.play();
     }
@@ -1188,7 +1210,7 @@ function VoiceCanvas({
       setIsPlayingSpeech(false);
       awaitingReplyRef.current = false;
       setLocalNotice(
-        error instanceof Error ? error.message : "Unable to play voice reply."
+        error instanceof Error ? error.message : "Unable to play voice reply.",
       );
       queueRestart(700);
     });
@@ -1239,7 +1261,7 @@ function VoiceCanvas({
     isVoiceSessionActive,
     notice,
     queueRestart,
-    speech?.audioBase64
+    speech?.audioBase64,
   ]);
 
   useEffect(
@@ -1249,7 +1271,7 @@ function VoiceCanvas({
       void recorder.stop().catch(() => undefined);
       void setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
     },
-    [clearRestartTimer, recorder]
+    [clearRestartTimer, recorder],
   );
 
   const handleVoicePress = useCallback(() => {
@@ -1281,7 +1303,7 @@ function VoiceCanvas({
     isRecording,
     isVoiceSessionActive,
     startRecording,
-    stopRecording
+    stopRecording,
   ]);
 
   return (
@@ -1314,7 +1336,7 @@ function VoiceCanvas({
         colors={[
           "rgba(81, 229, 255, 0.68)",
           "rgba(139, 92, 246, 0.42)",
-          "rgba(236, 54, 141, 0.68)"
+          "rgba(236, 54, 141, 0.68)",
         ]}
         end={{ x: 1, y: 1 }}
         start={{ x: 0, y: 0 }}
@@ -1323,8 +1345,12 @@ function VoiceCanvas({
         <View style={styles.voiceDock}>
           <View style={styles.voiceDockTop}>
             <View style={styles.voiceCopy}>
-              <Text style={styles.voiceTitle}>{voiceStatusTitle(voiceState)}</Text>
-              <Text style={styles.voiceText}>{voiceStatusText(voiceState)}</Text>
+              <Text style={styles.voiceTitle}>
+                {voiceStatusTitle(voiceState)}
+              </Text>
+              <Text style={styles.voiceText}>
+                {voiceStatusText(voiceState)}
+              </Text>
             </View>
             {isRecording ? (
               <Text style={styles.voiceTimer}>
@@ -1353,11 +1379,15 @@ function VoiceCanvas({
               isVoiceSessionActive || isRecording
                 ? styles.voiceOrbButtonRecording
                 : null,
-              pressed ? styles.pressed : null
+              pressed ? styles.pressed : null,
             ]}
           >
             {isVoiceSessionActive || isRecording ? (
-              <Square color={colors.background} fill={colors.background} size={28} />
+              <Square
+                color={colors.background}
+                fill={colors.background}
+                size={28}
+              />
             ) : isPlayingSpeech ? (
               <Volume2 color={colors.background} size={31} strokeWidth={2.8} />
             ) : (
@@ -1372,7 +1402,7 @@ function VoiceCanvas({
 
 function VapiVoiceCanvas({
   messages,
-  showDeveloperMetadata
+  showDeveloperMetadata,
 }: {
   messages: AssistantThreadMessage[];
   showDeveloperMetadata: boolean;
@@ -1381,13 +1411,13 @@ function VapiVoiceCanvas({
   const transcriptMessages = useMemo(
     () =>
       mergeVapiTranscriptMessages([...messages, ...vapi.localTurns]).slice(
-        -VOICE_TRANSCRIPT_LIMIT
+        -VOICE_TRANSCRIPT_LIMIT,
       ),
-    [messages, vapi.localTurns]
+    [messages, vapi.localTurns],
   );
   const { scrollRef, scrollToLatest } = useAutoScrollToLatest(
     transcriptMessages.length + (vapi.liveTranscript ? 1 : 0),
-    vapi.isConnected
+    vapi.isConnected,
   );
 
   if (vapi.isSessionLoading && !vapi.session) {
@@ -1426,7 +1456,9 @@ function VapiVoiceCanvas({
         ) : null}
         {vapi.sessionError && !vapi.isConnected ? (
           <View style={styles.voiceNotice}>
-            <Text style={styles.voiceNoticeText}>{vapi.sessionError.message}</Text>
+            <Text style={styles.voiceNoticeText}>
+              {vapi.sessionError.message}
+            </Text>
           </View>
         ) : null}
       </ScrollView>
@@ -1435,7 +1467,7 @@ function VapiVoiceCanvas({
         colors={[
           "rgba(81, 229, 255, 0.68)",
           "rgba(139, 92, 246, 0.42)",
-          "rgba(236, 54, 141, 0.68)"
+          "rgba(236, 54, 141, 0.68)",
         ]}
         end={{ x: 1, y: 1 }}
         start={{ x: 0, y: 0 }}
@@ -1447,7 +1479,9 @@ function VapiVoiceCanvas({
               <Text style={styles.voiceTitle}>{vapi.statusLabel}</Text>
               <Text style={styles.voiceText}>{vapi.displayedStatus}</Text>
             </View>
-            {vapi.isConnected ? <Text style={styles.voiceTimer}>Live</Text> : null}
+            {vapi.isConnected ? (
+              <Text style={styles.voiceTimer}>Live</Text>
+            ) : null}
           </View>
           {vapi.isConnected ? (
             <VoiceMeter
@@ -1477,11 +1511,15 @@ function VapiVoiceCanvas({
               styles.voiceOrbButton,
               vapi.isConnected ? styles.voiceOrbButtonRecording : null,
               pressed ? styles.pressed : null,
-              vapi.connectionState === "connecting" ? styles.disabled : null
+              vapi.connectionState === "connecting" ? styles.disabled : null,
             ]}
           >
             {vapi.isConnected ? (
-              <Square color={colors.background} fill={colors.background} size={28} />
+              <Square
+                color={colors.background}
+                fill={colors.background}
+                size={28}
+              />
             ) : (
               <Mic color={colors.background} size={31} strokeWidth={2.8} />
             )}
@@ -1536,7 +1574,7 @@ function AssistantLoadingCanvas() {
 function VoiceMeter({
   active,
   compact = false,
-  level
+  level,
 }: {
   active: boolean;
   compact?: boolean;
@@ -1545,7 +1583,9 @@ function VoiceMeter({
   const normalized = normalizedVoiceLevel(level);
 
   return (
-    <View style={[styles.voiceMeter, compact ? styles.voiceMeterCompact : null]}>
+    <View
+      style={[styles.voiceMeter, compact ? styles.voiceMeterCompact : null]}
+    >
       {[0.32, 0.64, 0.92, 0.55, 0.76].map((weight, index) => (
         <View
           key={`${weight}-${index}`}
@@ -1555,8 +1595,8 @@ function VoiceMeter({
             {
               height: active
                 ? `${Math.max(18, Math.min(100, normalized * 100 * weight + 18))}%`
-                : "24%"
-            }
+                : "24%",
+            },
           ]}
         />
       ))}
@@ -1569,7 +1609,7 @@ type VapiClient = {
   send: (message: unknown) => void;
   start: (
     assistantId?: string,
-    assistantOverrides?: Record<string, unknown>
+    assistantOverrides?: Record<string, unknown>,
   ) => Promise<unknown>;
   stop: () => void;
 };
@@ -1587,7 +1627,7 @@ function loadVapiConstructor(): VapiConstructor {
 function vapiStatusLabel(
   state: VapiConnectionState,
   session: MobileAssistantVapiSessionResponse | null,
-  error: string | null
+  error: string | null,
 ) {
   if (error || session?.configured === false) {
     return "Setup needed";
@@ -1616,15 +1656,17 @@ function normalizedTranscript(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
-const KYRO_ADDRESSING_VARIANTS =
-  "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
+const KYRO_ADDRESSING_VARIANTS = "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
 const KYRO_ADDRESSING_PREFIX =
   "(?:(?:hey|hi|hello|yo|ok|okay|alright|right|so|what'?s up|sup)[,!.?\\s]+){0,4}";
 
 function normalizeKyroAddressedTranscript(value: string) {
   return normalizedTranscript(value).replace(
-    new RegExp(`^(${KYRO_ADDRESSING_PREFIX})(${KYRO_ADDRESSING_VARIANTS})\\b`, "i"),
-    (_match, prefix: string) => `${prefix ?? ""}Kyro`
+    new RegExp(
+      `^(${KYRO_ADDRESSING_PREFIX})(${KYRO_ADDRESSING_VARIANTS})\\b`,
+      "i",
+    ),
+    (_match, prefix: string) => `${prefix ?? ""}Kyro`,
   );
 }
 
@@ -1698,8 +1740,7 @@ function mergeAssistantContent(currentValue: string, incomingValue: string) {
     return incoming;
   }
 
-  const needsSpace =
-    !/\s$/.test(current) && !/^\s|^[,.;:!?)]/.test(incoming);
+  const needsSpace = !/\s$/.test(current) && !/^\s|^[,.;:!?)]/.test(incoming);
 
   return `${current}${needsSpace ? " " : ""}${incoming}`.trim();
 }
@@ -1711,7 +1752,7 @@ function mergeTranscriptMessages(messages: AssistantThreadMessage[]) {
     const existingIndex = merged.findIndex(
       (currentMessage) =>
         currentMessage.role === message.role &&
-        sameVoiceTurn(currentMessage.content, message.content)
+        sameVoiceTurn(currentMessage.content, message.content),
     );
 
     if (existingIndex === -1) {
@@ -1723,7 +1764,7 @@ function mergeTranscriptMessages(messages: AssistantThreadMessage[]) {
 
     merged[existingIndex] = {
       ...existing,
-      content: mergeVoiceTurnContent(existing.content, message.content)
+      content: mergeVoiceTurnContent(existing.content, message.content),
     };
   }
 
@@ -1741,7 +1782,7 @@ function textValue(value: unknown) {
 }
 
 function roleFromVapiMessage(
-  message: Record<string, unknown>
+  message: Record<string, unknown>,
 ): "assistant" | "user" | null {
   const rawRole = (
     textValue(message.role) ??
@@ -1797,7 +1838,7 @@ function textFromModelOutput(value: unknown): string | null {
 
 function lastConversationMessage(
   value: unknown,
-  requiredRole?: "assistant" | "user"
+  requiredRole?: "assistant" | "user",
 ) {
   if (!Array.isArray(value)) {
     return null;
@@ -1893,7 +1934,7 @@ function AssistantTypingIndicator() {
   const dots = useRef([
     new Animated.Value(0),
     new Animated.Value(0),
-    new Animated.Value(0)
+    new Animated.Value(0),
   ]).current;
 
   useEffect(() => {
@@ -1905,17 +1946,17 @@ function AssistantTypingIndicator() {
             duration: 460,
             easing: Easing.inOut(Easing.ease),
             toValue: 1,
-            useNativeDriver: true
+            useNativeDriver: true,
           }),
           Animated.timing(dot, {
             duration: 460,
             easing: Easing.inOut(Easing.ease),
             toValue: 0,
-            useNativeDriver: true
+            useNativeDriver: true,
           }),
-          Animated.delay((dots.length - index - 1) * 160)
-        ])
-      )
+          Animated.delay((dots.length - index - 1) * 160),
+        ]),
+      ),
     );
 
     animations.forEach((animation) => animation.start());
@@ -1933,11 +1974,11 @@ function AssistantTypingIndicator() {
         {dots.map((dot, index) => {
           const opacity = dot.interpolate({
             inputRange: [0, 1],
-            outputRange: [0.35, 1]
+            outputRange: [0.35, 1],
           });
           const translateY = dot.interpolate({
             inputRange: [0, 1],
-            outputRange: [0, -3]
+            outputRange: [0, -3],
           });
 
           return (
@@ -1947,8 +1988,8 @@ function AssistantTypingIndicator() {
                 styles.typingDotFrame,
                 {
                   opacity,
-                  transform: [{ translateY }]
-                }
+                  transform: [{ translateY }],
+                },
               ]}
             >
               <LinearGradient
@@ -1968,7 +2009,7 @@ function AssistantTypingIndicator() {
 function AnimatedPromptSuggestions({
   onPromptPress,
   prompts,
-  visible
+  visible,
 }: {
   onPromptPress: (value: string) => void;
   prompts: string[];
@@ -1987,7 +2028,7 @@ function AnimatedPromptSuggestions({
       duration: 160,
       easing: Easing.out(Easing.cubic),
       toValue: visible ? 1 : 0,
-      useNativeDriver: false
+      useNativeDriver: false,
     }).start(({ finished }) => {
       if (finished && !visible) {
         setShouldRender(false);
@@ -2001,16 +2042,16 @@ function AnimatedPromptSuggestions({
 
   const maxHeight = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, expandedHeight]
+    outputRange: [0, expandedHeight],
   });
   const marginBottom = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 8]
+    outputRange: [0, 8],
   });
   const opacity = progress;
   const translateY = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [8, 0]
+    outputRange: [8, 0],
   });
 
   return (
@@ -2022,8 +2063,8 @@ function AnimatedPromptSuggestions({
           marginBottom,
           maxHeight,
           opacity,
-          transform: [{ translateY }]
-        }
+          transform: [{ translateY }],
+        },
       ]}
     >
       <View style={styles.promptList}>
@@ -2042,8 +2083,8 @@ function AnimatedPromptSuggestions({
                   styles.promptIconFrame,
                   {
                     backgroundColor: accent.backgroundColor,
-                    borderColor: accent.borderColor
-                  }
+                    borderColor: accent.borderColor,
+                  },
                 ]}
               >
                 <Waves color={accent.color} size={18} strokeWidth={2.3} />
@@ -2065,7 +2106,7 @@ function AttachmentOptionsSheet({
   onClose,
   onSelectPhoto,
   onTakePhoto,
-  visible
+  visible,
 }: {
   disabled: boolean;
   onChooseFile: () => void;
@@ -2101,7 +2142,9 @@ function AttachmentOptionsSheet({
           />
           <AttachmentOption
             disabled={disabled}
-            icon={<FileText color={colors.purple} size={18} strokeWidth={2.4} />}
+            icon={
+              <FileText color={colors.purple} size={18} strokeWidth={2.4} />
+            }
             label="Choose file"
             onPress={onChooseFile}
           />
@@ -2120,7 +2163,7 @@ function KyroFilePickerModal({
   onAttach,
   onClose,
   onOpenDeviceFiles,
-  visible
+  visible,
 }: {
   disabled: boolean;
   error: Error | null;
@@ -2158,7 +2201,9 @@ function KyroFilePickerModal({
             </Pressable>
           </View>
 
-          {message ? <Text style={styles.kyroFileMessage}>{message}</Text> : null}
+          {message ? (
+            <Text style={styles.kyroFileMessage}>{message}</Text>
+          ) : null}
           {error ? (
             <Text style={styles.kyroFileMessage}>
               {error.message || "Unable to load Kyro files."}
@@ -2185,11 +2230,15 @@ function KyroFilePickerModal({
                   style={({ pressed }) => [
                     styles.kyroFileRow,
                     pressed ? styles.pressed : null,
-                    disabled ? styles.disabled : null
+                    disabled ? styles.disabled : null,
                   ]}
                 >
                   <View style={styles.kyroFileIcon}>
-                    <FileText color={fileRowTone(file)} size={17} strokeWidth={2.4} />
+                    <FileText
+                      color={fileRowTone(file)}
+                      size={17}
+                      strokeWidth={2.4}
+                    />
                   </View>
                   <View style={styles.kyroFileRowCopy}>
                     <Text numberOfLines={1} style={styles.kyroFileName}>
@@ -2197,7 +2246,9 @@ function KyroFilePickerModal({
                     </Text>
                     <Text numberOfLines={1} style={styles.kyroFileMeta}>
                       {file.sourceLabel}
-                      {formatBytes(file.sizeBytes) ? ` · ${formatBytes(file.sizeBytes)}` : ""}
+                      {formatBytes(file.sizeBytes)
+                        ? ` · ${formatBytes(file.sizeBytes)}`
+                        : ""}
                     </Text>
                   </View>
                 </Pressable>
@@ -2220,11 +2271,13 @@ function KyroFilePickerModal({
               style={({ pressed }) => [
                 styles.deviceFileButton,
                 pressed ? styles.pressed : null,
-                disabled ? styles.disabled : null
+                disabled ? styles.disabled : null,
               ]}
             >
               <FileText color={colors.muted} size={17} strokeWidth={2.4} />
-              <Text style={styles.deviceFileButtonText}>Browse device files</Text>
+              <Text style={styles.deviceFileButtonText}>
+                Browse device files
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -2237,7 +2290,7 @@ function AttachmentOption({
   disabled,
   icon,
   label,
-  onPress
+  onPress,
 }: {
   disabled: boolean;
   icon: ReactNode;
@@ -2252,7 +2305,7 @@ function AttachmentOption({
       style={({ pressed }) => [
         styles.attachmentOption,
         pressed ? styles.pressed : null,
-        disabled ? styles.disabled : null
+        disabled ? styles.disabled : null,
       ]}
     >
       <View style={styles.attachmentOptionIcon}>{icon}</View>
@@ -2265,7 +2318,7 @@ function AttachmentOption({
 
 const VoiceTranscriptTurn = memo(function VoiceTranscriptTurn({
   message,
-  showDeveloperMetadata
+  showDeveloperMetadata,
 }: {
   message: AssistantThreadMessage;
   showDeveloperMetadata: boolean;
@@ -2279,7 +2332,9 @@ const VoiceTranscriptTurn = memo(function VoiceTranscriptTurn({
   return (
     <View style={styles.transcriptTurn}>
       {display.text ? (
-        <Text style={isUser ? styles.transcriptLine : styles.transcriptLineMuted}>
+        <Text
+          style={isUser ? styles.transcriptLine : styles.transcriptLineMuted}
+        >
           {speakerLabel}: {display.text}
         </Text>
       ) : null}
@@ -2301,7 +2356,7 @@ const AssistantTurn = memo(function AssistantTurn({
   isSending,
   message,
   onGeneratedImageEdit,
-  showDeveloperMetadata
+  showDeveloperMetadata,
 }: {
   isSending: boolean;
   message: AssistantThreadMessage;
@@ -2312,7 +2367,9 @@ const AssistantTurn = memo(function AssistantTurn({
   const display = splitAssistantAttachmentContext(message.content);
 
   return (
-    <View style={[styles.turn, isUser ? styles.userTurn : styles.assistantTurn]}>
+    <View
+      style={[styles.turn, isUser ? styles.userTurn : styles.assistantTurn]}
+    >
       <Text style={styles.turnMeta}>
         {isUser ? "You" : providerLabel(message, showDeveloperMetadata)}
       </Text>
@@ -2337,7 +2394,7 @@ const AssistantTurn = memo(function AssistantTurn({
 });
 
 function InlineAttachments({
-  attachments
+  attachments,
 }: {
   attachments: AssistantDisplayAttachment[];
 }) {
@@ -2352,7 +2409,9 @@ function InlineAttachments({
             {attachment.name}
           </Text>
           <Text numberOfLines={1} style={styles.inlineAttachmentMeta}>
-            {[attachment.sizeLabel, attachment.contentType].filter(Boolean).join(" - ")}
+            {[attachment.sizeLabel, attachment.contentType]
+              .filter(Boolean)
+              .join(" - ")}
           </Text>
         </View>
       ))}
@@ -2365,17 +2424,19 @@ function Composer({
   attachmentError,
   attachments,
   disabled,
+  isSending,
   onAttachPress,
   onChangeText,
   onRemoveAttachment,
   onSubmit,
   placeholder,
-  value
+  value,
 }: {
   action: "mic" | "send";
   attachmentError: string | null;
   attachments: MobileAssistantAttachment[];
   disabled: boolean;
+  isSending: boolean;
   onAttachPress: () => void;
   onChangeText: (value: string) => void;
   onRemoveAttachment: (id: string) => void;
@@ -2397,6 +2458,7 @@ function Composer({
         >
           {attachments.map((attachment) => (
             <View key={attachment.id} style={styles.attachmentChip}>
+              <AttachmentPreview attachment={attachment} />
               <View style={styles.attachmentCopy}>
                 <Text numberOfLines={1} style={styles.attachmentName}>
                   {attachment.name}
@@ -2426,7 +2488,7 @@ function Composer({
         colors={[
           "rgba(81, 229, 255, 0.82)",
           "rgba(139, 92, 246, 0.58)",
-          "rgba(236, 54, 141, 0.82)"
+          "rgba(236, 54, 141, 0.82)",
         ]}
         end={{ x: 1, y: 1 }}
         start={{ x: 0, y: 0 }}
@@ -2453,9 +2515,12 @@ function Composer({
           />
           <Pressable
             accessibilityRole="button"
-            disabled={disabled || !canSubmit}
+            disabled={disabled || isSending || !canSubmit}
             onPress={onSubmit}
-            style={[styles.actionButton, disabled || !canSubmit ? styles.disabled : null]}
+            style={[
+              styles.actionButton,
+              disabled || isSending || !canSubmit ? styles.disabled : null,
+            ]}
           >
             <Icon color={colors.background} size={20} strokeWidth={2.6} />
           </Pressable>
@@ -2465,9 +2530,42 @@ function Composer({
   );
 }
 
+function AttachmentPreview({
+  attachment,
+}: {
+  attachment: MobileAssistantAttachment;
+}) {
+  const [hasPreviewError, setHasPreviewError] = useState(false);
+  const isImage = attachment.mimeType.startsWith("image/");
+
+  if (isImage && !hasPreviewError) {
+    return (
+      <Image
+        accessibilityIgnoresInvertColors
+        onError={() => setHasPreviewError(true)}
+        resizeMode="cover"
+        source={{ uri: attachment.uri }}
+        style={styles.attachmentThumbnail}
+      />
+    );
+  }
+
+  const Icon = isImage ? ImageIcon : FileText;
+
+  return (
+    <View style={styles.attachmentThumbnailFallback}>
+      <Icon
+        color={isImage ? colors.pink : colors.cyan}
+        size={17}
+        strokeWidth={2.4}
+      />
+    </View>
+  );
+}
+
 function providerLabel(
   message: AssistantThreadMessage,
-  showDeveloperMetadata: boolean
+  showDeveloperMetadata: boolean,
 ) {
   if (message.provider === "vapi") {
     return showDeveloperMetadata
@@ -2484,7 +2582,7 @@ function providerLabel(
 
 function developerProviderLabel(
   message: AssistantThreadMessage,
-  baseLabel: string
+  baseLabel: string,
 ) {
   const parts = [message.provider, message.model].filter(Boolean);
   const suffix = parts.length ? ` / ${parts.join(" / ")}` : "";
@@ -2500,14 +2598,14 @@ function normalizedPendingPrompt(value: string | null | undefined) {
 function hasRenderableMessage(message: AssistantThreadMessage) {
   return Boolean(
     message.content.trim() ||
-      (message.links?.length ?? 0) > 0 ||
-      (message.uiBlocks?.length ?? 0) > 0
+    (message.links?.length ?? 0) > 0 ||
+    (message.uiBlocks?.length ?? 0) > 0,
   );
 }
 
 function buildPendingPromptContent(
   prompt: string,
-  attachments: MobileAssistantAttachment[]
+  attachments: MobileAssistantAttachment[],
 ) {
   if (attachments.length === 0) {
     return prompt;
@@ -2519,8 +2617,8 @@ function buildPendingPromptContent(
         `File: ${attachment.name} (${attachment.mimeType || "unknown type"}, ${
           attachment.size ?? 0
         } bytes)`,
-        "Content: File selected and will be uploaded to Kyro files."
-      ].join("\n")
+        "Content: File selected and will be uploaded to Kyro files.",
+      ].join("\n"),
     )
     .join("\n\n");
 
@@ -2549,7 +2647,7 @@ function splitAssistantAttachmentContext(content: string): {
     return content.slice(start, end).trim();
   });
   const attachments = uniqueDisplayAttachments(
-    contexts.flatMap(parseAssistantAttachmentContext)
+    contexts.flatMap(parseAssistantAttachmentContext),
   );
 
   return {
@@ -2558,7 +2656,7 @@ function splitAssistantAttachmentContext(content: string): {
       text === "Please review the attached file context." ||
       text === "Please review the stored Kyro attachment context."
         ? ""
-        : text
+        : text,
   };
 }
 
@@ -2568,12 +2666,12 @@ function parseAssistantAttachmentContext(context: string) {
     .map(parseAssistantAttachmentBlock)
     .filter(
       (attachment): attachment is AssistantDisplayAttachment =>
-        attachment !== null
+        attachment !== null,
     );
 }
 
 function parseAssistantAttachmentBlock(
-  block: string
+  block: string,
 ): AssistantDisplayAttachment | null {
   const lines = block.split(/\r?\n/).map((line) => line.trim());
   const fileLine = lines.find((line) => line.startsWith("File: "));
@@ -2598,7 +2696,7 @@ function parseAssistantAttachmentBlock(
     contentType: parsedFile.contentType,
     href,
     name: parsedFile.name,
-    sizeLabel: parsedFile.sizeLabel
+    sizeLabel: parsedFile.sizeLabel,
   };
 }
 
@@ -2610,18 +2708,20 @@ function parseAssistantFileLine(fileLine: string) {
     return {
       contentType: null,
       name: value,
-      sizeLabel: null
+      sizeLabel: null,
     };
   }
 
   const name = value.slice(0, metadataStart).trim();
   const metadata = value.slice(metadataStart + 2, -1);
-  const [contentType, sizeLabel] = metadata.split(",").map((part) => part.trim());
+  const [contentType, sizeLabel] = metadata
+    .split(",")
+    .map((part) => part.trim());
 
   return {
     contentType: contentType || null,
     name,
-    sizeLabel: normalizeAttachmentSizeLabel(sizeLabel)
+    sizeLabel: normalizeAttachmentSizeLabel(sizeLabel),
   };
 }
 
@@ -2646,7 +2746,7 @@ function uniqueDisplayAttachments(attachments: AssistantDisplayAttachment[]) {
     const key = [
       attachment.name.toLowerCase(),
       attachment.contentType?.toLowerCase() ?? "",
-      attachment.sizeLabel ?? ""
+      attachment.sizeLabel ?? "",
     ].join("|");
     const existing = byKey.get(key);
 
@@ -2660,21 +2760,21 @@ function uniqueDisplayAttachments(attachments: AssistantDisplayAttachment[]) {
 
 function attachmentFromDocumentAsset(
   asset: DocumentPicker.DocumentPickerAsset,
-  index: number
+  index: number,
 ): MobileAssistantAttachment {
   return {
     id: `${Date.now()}-file-${index}-${asset.name}`,
     mimeType: asset.mimeType || mimeTypeFromUri(asset.uri),
     name: asset.name || nameFromUri(asset.uri, `file-${index + 1}`),
     size: typeof asset.size === "number" ? asset.size : null,
-    uri: asset.uri
+    uri: asset.uri,
   };
 }
 
 function attachmentFromImageAsset(
   asset: ImagePicker.ImagePickerAsset,
   source: "camera" | "photo",
-  index: number
+  index: number,
 ): MobileAssistantAttachment {
   const mimeType = asset.mimeType || mimeTypeFromUri(asset.uri);
   const fallbackName = `kyro-${source}-${Date.now()}-${index + 1}${extensionFromMime(mimeType)}`;
@@ -2684,7 +2784,7 @@ function attachmentFromImageAsset(
     mimeType,
     name: asset.fileName || nameFromUri(asset.uri, fallbackName),
     size: typeof asset.fileSize === "number" ? asset.fileSize : null,
-    uri: asset.uri
+    uri: asset.uri,
   };
 }
 
@@ -2697,7 +2797,7 @@ function showNativeAttachmentPickerHint(kind: "file" | "photo") {
     kind === "file"
       ? "Android Files is open. Press Back to return to Kyro."
       : "Android photo picker is open. Press Back to return to Kyro.",
-    ToastAndroid.LONG
+    ToastAndroid.LONG,
   );
 }
 
@@ -2789,7 +2889,7 @@ function shouldShowFreshPromptSuggestions({
   lastActivityAt,
   latestThreadActivityAt,
   localSuppressedUntil,
-  suggestionsShownAt
+  suggestionsShownAt,
 }: {
   lastActivityAt: string | null;
   latestThreadActivityAt: string | null;
@@ -2802,8 +2902,7 @@ function shouldShowFreshPromptSuggestions({
   const latestThreadActivityTime = parseStoredTime(latestThreadActivityAt);
   const suggestionsShownTime = parseStoredTime(suggestionsShownAt);
   const hasRecentActivity =
-    activityTime !== null &&
-    nowTime - activityTime < FRESH_PROMPT_INTERVAL_MS;
+    activityTime !== null && nowTime - activityTime < FRESH_PROMPT_INTERVAL_MS;
   const hasRecentThreadActivity =
     latestThreadActivityTime !== null &&
     nowTime - latestThreadActivityTime < FRESH_PROMPT_INTERVAL_MS;
@@ -2834,7 +2933,10 @@ function latestPersistedThreadActivity(messages: AssistantThreadMessage[]) {
   let latestTime: number | null = null;
 
   for (const message of messages) {
-    if (message.id === "assistant-welcome" || message.id === "pending-user-message") {
+    if (
+      message.id === "assistant-welcome" ||
+      message.id === "pending-user-message"
+    ) {
       continue;
     }
 
@@ -2875,7 +2977,7 @@ async function writeSpeechToCache(speech: MobileAssistantSpeechPayload) {
   const fileUri = `${cacheDirectory}kyro-voice-${Date.now()}.${fileExtension}`;
 
   await FileSystem.writeAsStringAsync(fileUri, speech.audioBase64, {
-    encoding: FileSystem.EncodingType.Base64
+    encoding: FileSystem.EncodingType.Base64,
   });
 
   return fileUri;
@@ -3013,14 +3115,14 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     height: 42,
     justifyContent: "center",
-    width: 42
+    width: 42,
   },
   assistantTurn: {
     alignSelf: "flex-start",
     borderLeftColor: colors.cyan,
     borderLeftWidth: 3,
     maxWidth: "92%",
-    paddingLeft: 13
+    paddingLeft: 13,
   },
   attachmentChip: {
     alignItems: "center",
@@ -3032,41 +3134,59 @@ const styles = StyleSheet.create({
     gap: 8,
     maxWidth: 210,
     minHeight: 48,
-    paddingHorizontal: 10,
-    paddingVertical: 8
+    paddingHorizontal: 7,
+    paddingVertical: 8,
   },
   attachmentCopy: {
     flex: 1,
     gap: 2,
-    minWidth: 0
+    minWidth: 0,
   },
   attachmentError: {
     color: colors.warning,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   attachmentMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   attachmentName: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   attachmentRail: {
     gap: 8,
-    paddingRight: 18
+    paddingRight: 18,
   },
   attachmentRemove: {
     alignItems: "center",
     height: 26,
     justifyContent: "center",
-    width: 26
+    width: 26,
+  },
+  attachmentThumbnail: {
+    backgroundColor: colors.background,
+    borderColor: "rgba(246, 247, 251, 0.12)",
+    borderRadius: 7,
+    borderWidth: 1,
+    height: 34,
+    width: 34,
+  },
+  attachmentThumbnailFallback: {
+    alignItems: "center",
+    backgroundColor: "rgba(246, 247, 251, 0.05)",
+    borderColor: "rgba(246, 247, 251, 0.1)",
+    borderRadius: 7,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
   },
   attachmentOption: {
     alignItems: "center",
@@ -3078,10 +3198,10 @@ const styles = StyleSheet.create({
     gap: 9,
     minHeight: 38,
     paddingLeft: 8,
-    paddingRight: 14
+    paddingRight: 14,
   },
   attachmentOptionCopy: {
-    minWidth: 0
+    minWidth: 0,
   },
   attachmentOptionIcon: {
     alignItems: "center",
@@ -3091,17 +3211,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 28,
     justifyContent: "center",
-    width: 28
+    width: 28,
   },
   attachmentOptionLabel: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   attachmentOptionList: {
     alignItems: "flex-start",
-    gap: 7
+    gap: 7,
   },
   attachmentSheetBackdrop: {
     alignItems: "flex-start",
@@ -3109,25 +3229,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
     paddingBottom: 154,
-    paddingHorizontal: 26
+    paddingHorizontal: 26,
   },
   bottomStack: {
     backgroundColor: colors.background,
     gap: 0,
     paddingBottom: 14,
     paddingTop: 12,
-    zIndex: 2
+    zIndex: 2,
   },
   canvas: {
     flex: 1,
     justifyContent: "space-between",
-    overflow: "hidden"
+    overflow: "hidden",
   },
   chatContent: {
     flexGrow: 1,
     gap: 18,
     paddingBottom: 104,
-    paddingTop: 16
+    paddingTop: 16,
   },
   composer: {
     alignItems: "center",
@@ -3137,23 +3257,23 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 58,
     paddingHorizontal: 8,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   composerBlock: {
-    gap: 8
+    gap: 8,
   },
   composerFrame: {
     borderRadius: radii.pill,
-    padding: 1
+    padding: 1,
   },
   composerIcon: {
     alignItems: "center",
     height: 42,
     justifyContent: "center",
-    width: 42
+    width: 42,
   },
   disabled: {
-    opacity: 0.42
+    opacity: 0.42,
   },
   deviceFileButton: {
     alignItems: "center",
@@ -3164,16 +3284,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     minHeight: 39,
-    paddingHorizontal: 13
+    paddingHorizontal: 13,
   },
   deviceFileButtonText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pressed: {
-    opacity: 0.72
+    opacity: 0.72,
   },
   input: {
     color: colors.text,
@@ -3181,7 +3301,7 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 17,
     fontWeight: "500",
-    minHeight: 42
+    minHeight: 42,
   },
   inlineAttachment: {
     backgroundColor: colors.surfaceSoft,
@@ -3191,23 +3311,23 @@ const styles = StyleSheet.create({
     gap: 3,
     minWidth: 150,
     paddingHorizontal: 10,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   inlineAttachmentList: {
     gap: 6,
-    paddingTop: 3
+    paddingTop: 3,
   },
   inlineAttachmentMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   inlineAttachmentName: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   loadingAssistantTurn: {
     alignSelf: "flex-start",
@@ -3216,7 +3336,7 @@ const styles = StyleSheet.create({
     gap: 8,
     maxWidth: "92%",
     paddingLeft: 13,
-    width: "92%"
+    width: "92%",
   },
   loadingComposer: {
     alignItems: "center",
@@ -3226,36 +3346,36 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 58,
     paddingHorizontal: 10,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   loadingComposerFrame: {
     borderColor: "rgba(81, 229, 255, 0.18)",
     borderRadius: radii.pill,
     borderWidth: 1,
-    marginBottom: 14
+    marginBottom: 14,
   },
   loadingComposerIcon: {
     backgroundColor: "rgba(246, 247, 251, 0.1)",
     borderRadius: radii.pill,
     height: 34,
-    width: 34
+    width: 34,
   },
   loadingInputLine: {
     flex: 1,
     height: 13,
-    width: undefined
+    width: undefined,
   },
   loadingSendButton: {
     backgroundColor: "rgba(246, 247, 251, 0.18)",
     borderRadius: radii.pill,
     height: 42,
-    width: 42
+    width: 42,
   },
   loadingStack: {
     flex: 1,
     gap: 22,
     justifyContent: "flex-end",
-    paddingBottom: 30
+    paddingBottom: 30,
   },
   loadingUserTurn: {
     alignSelf: "flex-end",
@@ -3266,16 +3386,16 @@ const styles = StyleSheet.create({
     gap: 9,
     maxWidth: "80%",
     padding: 14,
-    width: "72%"
+    width: "72%",
   },
   keyboard: {
-    flex: 1
+    flex: 1,
   },
   kyroFileBackdrop: {
     backgroundColor: "rgba(0, 0, 0, 0.66)",
     flex: 1,
     justifyContent: "flex-end",
-    padding: 14
+    padding: 14,
   },
   kyroFileClose: {
     alignItems: "center",
@@ -3283,7 +3403,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     height: 42,
     justifyContent: "center",
-    width: 42
+    width: 42,
   },
   kyroFileEmpty: {
     alignItems: "flex-start",
@@ -3291,42 +3411,42 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     gap: 5,
-    padding: 14
+    padding: 14,
   },
   kyroFileEmptyText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "700",
-    lineHeight: 19
+    lineHeight: 19,
   },
   kyroFileEmptyTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   kyroFileEyebrow: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   kyroFileFooter: {
     borderTopColor: colors.line,
     borderTopWidth: 1,
-    paddingTop: 10
+    paddingTop: 10,
   },
   kyroFileHeader: {
     alignItems: "center",
     flexDirection: "row",
     gap: 14,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   kyroFileHeaderCopy: {
     flex: 1,
-    gap: 3
+    gap: 3,
   },
   kyroFileIcon: {
     alignItems: "center",
@@ -3336,30 +3456,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 36,
     justifyContent: "center",
-    width: 36
+    width: 36,
   },
   kyroFileList: {
     gap: 8,
-    paddingVertical: 4
+    paddingVertical: 4,
   },
   kyroFileMessage: {
     color: colors.warning,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "800",
-    lineHeight: 18
+    lineHeight: 18,
   },
   kyroFileMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   kyroFileName: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   kyroFileRow: {
     alignItems: "center",
@@ -3370,12 +3490,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 58,
-    padding: 10
+    padding: 10,
   },
   kyroFileRowCopy: {
     flex: 1,
     gap: 3,
-    minWidth: 0
+    minWidth: 0,
   },
   kyroFileSheet: {
     backgroundColor: colors.surface,
@@ -3384,18 +3504,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 12,
     maxHeight: "78%",
-    padding: 16
+    padding: 16,
   },
   kyroFileSkeleton: {
     backgroundColor: "rgba(246, 247, 251, 0.08)",
     borderRadius: radii.md,
-    height: 58
+    height: 58,
   },
   kyroFileTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 22,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   modeOption: {
     alignItems: "center",
@@ -3403,10 +3523,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 38,
     minWidth: 62,
-    paddingHorizontal: 11
+    paddingHorizontal: 11,
   },
   modeOptionActive: {
-    backgroundColor: colors.surfaceStrong
+    backgroundColor: colors.surfaceStrong,
   },
   modePill: {
     alignSelf: "center",
@@ -3414,30 +3534,30 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     flexDirection: "row",
     gap: 3,
-    padding: 4
+    padding: 4,
   },
   modePillFrame: {
     alignSelf: "center",
     borderRadius: radii.pill,
     paddingBottom: 3,
     paddingHorizontal: 1,
-    paddingTop: 1
+    paddingTop: 1,
   },
   modeText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   modeTextActive: {
-    color: colors.background
+    color: colors.background,
   },
   promptList: {
     alignItems: "flex-end",
-    gap: 5
+    gap: 5,
   },
   promptListShell: {
-    overflow: "hidden"
+    overflow: "hidden",
   },
   promptRow: {
     alignItems: "center",
@@ -3446,7 +3566,7 @@ const styles = StyleSheet.create({
     gap: 9,
     minHeight: 34,
     maxWidth: "68%",
-    paddingLeft: 6
+    paddingLeft: 6,
   },
   promptIconFrame: {
     alignItems: "center",
@@ -3454,21 +3574,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 27,
     justifyContent: "center",
-    width: 27
+    width: 27,
   },
   promptText: {
     color: colors.text,
     flexShrink: 1,
     fontFamily: typography.fontFamily,
     fontSize: 15,
-    fontWeight: "600"
+    fontWeight: "600",
   },
   safeArea: {
     backgroundColor: colors.background,
-    flex: 1
+    flex: 1,
   },
   scrollArea: {
-    flex: 1
+    flex: 1,
   },
   skeletonCard: {
     backgroundColor: "rgba(246, 247, 251, 0.07)",
@@ -3476,49 +3596,49 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     height: 54,
-    width: 128
+    width: 128,
   },
   skeletonCardRow: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 4
+    marginTop: 4,
   },
   skeletonLine: {
     backgroundColor: "rgba(246, 247, 251, 0.12)",
     borderRadius: radii.pill,
-    height: 12
+    height: 12,
   },
   skeletonLong: {
-    width: "86%"
+    width: "86%",
   },
   skeletonMeta: {
     backgroundColor: "rgba(81, 229, 255, 0.26)",
     height: 8,
-    width: 82
+    width: 82,
   },
   skeletonMid: {
-    width: "62%"
+    width: "62%",
   },
   skeletonShort: {
-    width: "42%"
+    width: "42%",
   },
   skeletonUserLine: {
-    width: "88%"
+    width: "88%",
   },
   skeletonUserShort: {
-    width: "56%"
+    width: "56%",
   },
   shell: {
     flex: 1,
     paddingHorizontal: 18,
-    paddingTop: 8
+    paddingTop: 8,
   },
   spacer: {
-    minHeight: 160
+    minHeight: 160,
   },
   topBar: {
     alignItems: "center",
-    minHeight: 48
+    minHeight: 48,
   },
   transcriptChip: {
     backgroundColor: "rgba(81, 229, 255, 0.05)",
@@ -3528,91 +3648,91 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     gap: 4,
-    padding: 12
+    padding: 12,
   },
   typingDot: {
     borderRadius: radii.pill,
     height: 9,
-    width: 9
+    width: 9,
   },
   typingDotFrame: {
     borderRadius: radii.pill,
     height: 12,
     justifyContent: "center",
-    width: 12
+    width: 12,
   },
   typingDots: {
     alignItems: "center",
     flexDirection: "row",
     gap: 5,
-    minHeight: 18
+    minHeight: 18,
   },
   typingTurn: {
     alignItems: "center",
     alignSelf: "flex-start",
     minWidth: 58,
     paddingLeft: 13,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   transcriptChipText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "600",
-    lineHeight: 19
+    lineHeight: 19,
   },
   transcriptChipTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   transcriptContent: {
     flexGrow: 1,
     gap: 14,
     justifyContent: "flex-end",
     paddingBottom: 28,
-    paddingTop: 18
+    paddingTop: 18,
   },
   transcriptEyebrow: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   transcriptLine: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 19,
     fontWeight: "700",
-    lineHeight: 27
+    lineHeight: 27,
   },
   transcriptLineMuted: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 17,
     fontWeight: "600",
-    lineHeight: 25
+    lineHeight: 25,
   },
   transcriptTurn: {
-    gap: 9
+    gap: 9,
   },
   turn: {
-    gap: 5
+    gap: 5,
   },
   turnMeta: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   turnText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 18,
     fontWeight: "600",
-    lineHeight: 27
+    lineHeight: 27,
   },
   userTurn: {
     alignSelf: "flex-end",
@@ -3621,19 +3741,19 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     maxWidth: "88%",
-    padding: 13
+    padding: 13,
   },
   userTurnText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 16,
     fontWeight: "600",
-    lineHeight: 23
+    lineHeight: 23,
   },
   voiceCopy: {
     alignItems: "flex-start",
     flex: 1,
-    gap: 5
+    gap: 5,
   },
   voiceDock: {
     alignItems: "center",
@@ -3642,20 +3762,20 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 14,
     justifyContent: "space-between",
-    padding: 16
+    padding: 16,
   },
   voiceDockFrame: {
     borderRadius: 22,
     height: 248,
     marginBottom: 14,
     marginTop: 12,
-    padding: 1
+    padding: 1,
   },
   voiceDockTop: {
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 12,
-    width: "100%"
+    width: "100%",
   },
   voiceIdleHint: {
     color: colors.muted,
@@ -3664,32 +3784,32 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
     maxWidth: 240,
-    textAlign: "center"
+    textAlign: "center",
   },
   voiceLiveFooter: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-    paddingTop: 3
+    paddingTop: 3,
   },
   voiceLiveMeta: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   voiceLiveText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 19,
     fontWeight: "700",
-    lineHeight: 27
+    lineHeight: 27,
   },
   voiceLiveTime: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   voiceLiveTurn: {
     alignSelf: "flex-start",
@@ -3702,7 +3822,7 @@ const styles = StyleSheet.create({
     gap: 5,
     maxWidth: "86%",
     paddingHorizontal: 12,
-    paddingVertical: 10
+    paddingVertical: 10,
   },
   voiceMeter: {
     alignItems: "center",
@@ -3710,23 +3830,23 @@ const styles = StyleSheet.create({
     gap: 7,
     height: 44,
     justifyContent: "center",
-    width: "100%"
+    width: "100%",
   },
   voiceMeterBar: {
     backgroundColor: colors.cyan,
     borderRadius: radii.pill,
     minHeight: 9,
     opacity: 0.92,
-    width: 8
+    width: 8,
   },
   voiceMeterBarCompact: {
-    width: 5
+    width: 5,
   },
   voiceMeterCompact: {
     gap: 4,
     height: 22,
     justifyContent: "flex-start",
-    width: 58
+    width: 58,
   },
   voiceNotice: {
     alignSelf: "center",
@@ -3735,7 +3855,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   voiceNoticeText: {
     color: colors.muted,
@@ -3743,7 +3863,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 19,
-    textAlign: "center"
+    textAlign: "center",
   },
   voiceOrbButton: {
     alignItems: "center",
@@ -3755,10 +3875,10 @@ const styles = StyleSheet.create({
     shadowOffset: { height: 16, width: 0 },
     shadowOpacity: 0.22,
     shadowRadius: 28,
-    width: 92
+    width: 92,
   },
   voiceOrbButtonRecording: {
-    backgroundColor: colors.pink
+    backgroundColor: colors.pink,
   },
   voiceText: {
     color: colors.muted,
@@ -3766,18 +3886,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     lineHeight: 20,
-    textAlign: "left"
+    textAlign: "left",
   },
   voiceTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 18,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   voiceTimer: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
-  }
+    fontWeight: "900",
+  },
 });
