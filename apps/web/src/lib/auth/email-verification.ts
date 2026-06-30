@@ -43,6 +43,10 @@ function authEmailFromAddress() {
   );
 }
 
+function resendApiKey() {
+  return process.env.RESEND_API_KEY?.trim() || "";
+}
+
 function buildKyroVerificationEmail({
   actionLink,
   email,
@@ -122,7 +126,7 @@ async function sendBrandedKyroVerificationEmail({
   actionLink: string;
   email: string;
 }) {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const apiKey = resendApiKey();
 
   if (!apiKey) {
     return false;
@@ -285,27 +289,33 @@ export async function sendKyroEmailVerification({
     });
   }
 
-  const serviceSupabase = createServiceSupabaseClient();
-  const { data: linkData, error: linkError } =
-    await serviceSupabase.auth.admin.generateLink({
-      email,
-      options: { redirectTo: emailRedirectTo },
-      type: "magiclink",
-    });
+  if (resendApiKey()) {
+    const serviceSupabase = createServiceSupabaseClient();
+    const { data: linkData, error: linkError } =
+      await serviceSupabase.auth.admin.generateLink({
+        email,
+        options: { redirectTo: emailRedirectTo },
+        type: "magiclink",
+      });
 
-  if (!linkError && linkData.properties?.action_link) {
-    const brandedSent = await sendBrandedKyroVerificationEmail({
-      actionLink: linkData.properties.action_link,
-      email,
-    });
+    if (!linkError && linkData.properties?.action_link) {
+      const brandedSent = await sendBrandedKyroVerificationEmail({
+        actionLink: linkData.properties.action_link,
+        email,
+      });
 
-    if (brandedSent) {
-      return { data: null, error: null };
+      if (brandedSent) {
+        return { data: null, error: null };
+      }
     }
-  }
 
-  if (linkError) {
-    console.warn("Kyro could not generate a branded verification link.", linkError);
+    if (linkError) {
+      console.warn("Kyro could not generate a branded verification link.", {
+        message: linkError.message,
+        name: linkError.name,
+        status: linkError.status,
+      });
+    }
   }
 
   return supabase.auth.signInWithOtp({
