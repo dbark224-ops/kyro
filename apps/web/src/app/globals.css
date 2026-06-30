@@ -11266,10 +11266,19 @@ button:disabled {
   padding: 12px;
 }
 
+.email-signature-preview-card {
+  border-color: #d8dee8;
+  background: #ffffff;
+}
+
 .signature-preview-card > strong {
   color: var(--muted);
   font-size: 0.75rem;
   text-transform: uppercase;
+}
+
+.email-signature-preview-card > strong {
+  color: #64748b;
 }
 
 .signature-preview {
@@ -11278,11 +11287,20 @@ button:disabled {
   padding-left: 12px;
 }
 
+.email-signature-preview {
+  color: #111827;
+}
+
 .signature-preview p {
   margin: 0;
   color: var(--text);
   font-size: 0.875rem;
   line-height: 1.45;
+}
+
+.email-signature-preview p,
+.email-signature-preview .muted-copy {
+  color: #111827;
 }
 
 .signature-preview img {

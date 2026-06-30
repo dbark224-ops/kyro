@@ -32,6 +32,8 @@ import { EmergencyWindowEditor } from "./emergency-window-editor";
 import { BusinessAvailabilityEditor } from "./business-availability-editor";
 import { BrandColorPicker } from "./brand-color-picker";
 import { BrandingAutosavePanel } from "./branding-autosave-panel";
+import { EmailSignatureAutosavePanel } from "./email-signature-autosave-panel";
+import { EmailSignatureEditor } from "./email-signature-editor";
 import { WorkplaceContactsEditor } from "./workplace-contacts-editor";
 import { TagInputField } from "./tag-input-field";
 import {
@@ -56,7 +58,6 @@ import {
   OUTBOUND_CHANNELS,
   REPLY_MESSAGE_LENGTH_OPTIONS,
   type CommunicationSettings,
-  type EmailSignatureSettings,
 } from "../../lib/communication/settings";
 import {
   DISPLAY_CURRENCIES,
@@ -326,128 +327,6 @@ function SettingCardHeading({
       <strong>{children}</strong>
       <InfoBubble placement={infoPlacement}>{info}</InfoBubble>
     </div>
-  );
-}
-
-function EmailSignatureEditor({
-  description,
-  namePrefix,
-  signature,
-  title,
-}: Readonly<{
-  description: string;
-  namePrefix: "manualSignature" | "aiGeneratedSignature";
-  signature: EmailSignatureSettings;
-  title: string;
-}>) {
-  const previewLogoSrc = signature.logoContentBase64
-    ? `data:${signature.logoContentType};base64,${signature.logoContentBase64}`
-    : signature.logoUrl;
-
-  return (
-    <section className="signature-editor">
-      <input
-        name={`${namePrefix}LogoContentBase64`}
-        type="hidden"
-        value={signature.logoContentBase64}
-      />
-      <input
-        name={`${namePrefix}LogoContentType`}
-        type="hidden"
-        value={signature.logoContentType}
-      />
-      <input
-        name={`${namePrefix}LogoFilename`}
-        type="hidden"
-        value={signature.logoFilename}
-      />
-      <input
-        name={`${namePrefix}LogoSizeBytes`}
-        type="hidden"
-        value={signature.logoSizeBytes}
-      />
-      <div>
-        <p className="eyebrow">{title}</p>
-        <p>{description}</p>
-      </div>
-
-      <label className="settings-textarea">
-        Signature text
-        <textarea
-          defaultValue={signature.text}
-          name={`${namePrefix}Text`}
-          placeholder={"Cheers, Dave\nKyro Plumbing\n0400 000 000"}
-        />
-      </label>
-
-      <div className="settings-grid">
-        <label className="setting-card">
-          <SettingCardHeading
-            info={
-              <>
-                Upload a small logo, up to 512 KB. This is sent inline with
-                email signatures.
-              </>
-            }
-          >
-            Logo file
-          </SettingCardHeading>
-          <input accept="image/*" name={`${namePrefix}LogoFile`} type="file" />
-        </label>
-
-        <label className="setting-card">
-          <SettingCardHeading info="Optional fallback if no logo file is uploaded.">
-            Logo URL fallback
-          </SettingCardHeading>
-          <input
-            defaultValue={signature.logoUrl}
-            name={`${namePrefix}LogoUrl`}
-            placeholder="https://example.com/logo.png"
-            type="url"
-          />
-        </label>
-
-        <label className="setting-card">
-          <SettingCardHeading info="Width in pixels. Kyro keeps it between 32 and 240.">
-            Logo size
-          </SettingCardHeading>
-          <input
-            defaultValue={signature.logoWidthPx}
-            max={240}
-            min={32}
-            name={`${namePrefix}LogoWidthPx`}
-            step={4}
-            type="number"
-          />
-        </label>
-      </div>
-
-      <div className="signature-preview-card">
-        <strong>Preview</strong>
-        <div className="signature-preview">
-          {signature.text ? (
-            <p>
-              {signature.text.split(/\r?\n/).map((line, index) => (
-                <span key={`${line}-${index}`}>
-                  {line}
-                  <br />
-                </span>
-              ))}
-            </p>
-          ) : (
-            <p className="muted-copy">No signature text yet.</p>
-          )}
-          {previewLogoSrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt="Signature logo preview"
-              src={previewLogoSrc}
-              style={{ width: signature.logoWidthPx }}
-            />
-          ) : null}
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -2841,36 +2720,40 @@ function GeneralSettingsDetail({
               </div>
             </section>
 
-            <input
-              name="businessProfileEmailSignatureSubmitted"
-              type="hidden"
-              value="on"
-            />
-            <EmailSignatureEditor
-              description="Used for manual replies and business-facing email defaults."
-              namePrefix="manualSignature"
-              signature={communicationSettings.manualSignature}
-              title="Human email signature"
-            />
+            <EmailSignatureAutosavePanel>
+              <input
+                name="businessProfileEmailSignatureSubmitted"
+                type="hidden"
+                value="on"
+              />
+              <EmailSignatureEditor
+                autosave
+                description="Used for manual replies and business-facing email defaults."
+                namePrefix="manualSignature"
+                signature={communicationSettings.manualSignature}
+                title="Human email signature"
+              />
 
-            <fieldset className="settings-fieldset compact-checkbox-fieldset">
-              <legend>AI email signature</legend>
-              <label className="compact-checkbox-row">
-                <input
-                  defaultChecked={communicationSettings.useSeparateAiSignature}
-                  name="useSeparateAiSignature"
-                  type="checkbox"
-                />
-                <span>Use a different signature for AI-generated emails</span>
-              </label>
-            </fieldset>
+              <fieldset className="settings-fieldset compact-checkbox-fieldset">
+                <legend>AI email signature</legend>
+                <label className="compact-checkbox-row">
+                  <input
+                    defaultChecked={communicationSettings.useSeparateAiSignature}
+                    name="useSeparateAiSignature"
+                    type="checkbox"
+                  />
+                  <span>Use a different signature for AI-generated emails</span>
+                </label>
+              </fieldset>
 
-            <EmailSignatureEditor
-              description="Used when Kyro drafts or sends an AI-generated customer reply."
-              namePrefix="aiGeneratedSignature"
-              signature={communicationSettings.aiGeneratedSignature}
-              title="AI email signature"
-            />
+              <EmailSignatureEditor
+                autosave
+                description="Used when Kyro drafts or sends an AI-generated customer reply."
+                namePrefix="aiGeneratedSignature"
+                signature={communicationSettings.aiGeneratedSignature}
+                title="AI email signature"
+              />
+            </EmailSignatureAutosavePanel>
           </section>
         ) : null}
 
@@ -2964,9 +2847,11 @@ function GeneralSettingsDetail({
           />
         </section>
 
-        <div className="settings-footer">
-          <SettingsSubmitButton>Save</SettingsSubmitButton>
-        </div>
+        {activeBusinessPanel === "email-signature" ? null : (
+          <div className="settings-footer">
+            <SettingsSubmitButton>Save</SettingsSubmitButton>
+          </div>
+        )}
       </fieldset>
     </form>
   );
