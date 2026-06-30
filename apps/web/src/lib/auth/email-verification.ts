@@ -199,6 +199,26 @@ export function buildKyroEmailVerificationRedirectUrl({
   return callbackUrl.toString();
 }
 
+export function buildKyroEmailVerificationActionUrl({
+  fallbackOrigin,
+  nextPath = "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+  tokenHash,
+  type,
+}: {
+  fallbackOrigin?: string | null;
+  nextPath?: string;
+  tokenHash: string;
+  type: string;
+}) {
+  const callbackUrl = new URL("/auth/callback", getPublicAppUrl(fallbackOrigin));
+
+  callbackUrl.searchParams.set("next", nextPath);
+  callbackUrl.searchParams.set("token_hash", tokenHash);
+  callbackUrl.searchParams.set("type", type);
+
+  return callbackUrl.toString();
+}
+
 export async function markKyroEmailVerificationStarted({
   serviceSupabase,
   user,
@@ -297,9 +317,15 @@ export async function sendKyroEmailVerification({
         type: "magiclink",
       });
 
-    if (!linkError && linkData.properties?.action_link) {
+    if (!linkError && linkData.properties?.hashed_token) {
+      const actionLink = buildKyroEmailVerificationActionUrl({
+        fallbackOrigin,
+        nextPath,
+        tokenHash: linkData.properties.hashed_token,
+        type: linkData.properties.verification_type,
+      });
       const brandedSent = await sendBrandedKyroVerificationEmail({
-        actionLink: linkData.properties.action_link,
+        actionLink,
         email,
       });
 

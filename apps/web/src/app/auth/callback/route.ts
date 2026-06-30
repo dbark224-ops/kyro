@@ -10,6 +10,7 @@ import {
   getPrimaryWorkspace,
 } from "../../../lib/workspace/bootstrap";
 import { NextResponse, type NextRequest } from "next/server";
+import type { EmailOtpType } from "@supabase/supabase-js";
 
 function metadataString(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
@@ -28,11 +29,28 @@ function safeNextPath(value: string | null) {
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
+  const tokenHash = requestUrl.searchParams.get("token_hash");
+  const tokenType = requestUrl.searchParams.get("type");
   const next = safeNextPath(requestUrl.searchParams.get("next"));
 
-  if (code) {
+  if (code || (tokenHash && tokenType)) {
     const supabase = await createServerSupabaseClient();
-    await supabase.auth.exchangeCodeForSession(code);
+    const authResult = code
+      ? await supabase.auth.exchangeCodeForSession(code)
+      : await supabase.auth.verifyOtp({
+          token_hash: tokenHash ?? "",
+          type: tokenType as EmailOtpType,
+        });
+
+    if (authResult.error) {
+      return NextResponse.redirect(
+        new URL(
+          `/sign-in?error=${encodeURIComponent(authResult.error.message)}`,
+          requestUrl.origin,
+        ),
+      );
+    }
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
