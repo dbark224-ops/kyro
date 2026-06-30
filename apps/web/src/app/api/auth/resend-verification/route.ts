@@ -84,8 +84,6 @@ export async function POST(request: Request) {
     email,
     fallbackOrigin: request.headers.get("origin"),
     nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
-    nextPath:
-      "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
     supabase,
   });
 

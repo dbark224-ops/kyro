@@ -3132,6 +3132,44 @@ h2 {
   box-shadow: var(--shadow);
 }
 
+.auth-verified-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: #05070d;
+  color: #f8fbff;
+  padding: 24px;
+}
+
+.auth-verified-panel {
+  display: grid;
+  width: min(440px, 100%);
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.auth-verified-panel img {
+  width: min(220px, 70vw);
+  height: auto;
+}
+
+.auth-verified-panel h1,
+.auth-verified-panel p {
+  margin: 0;
+}
+
+.auth-verified-panel h1 {
+  font-size: clamp(2rem, 7vw, 3rem);
+  line-height: 1;
+}
+
+.auth-verified-panel p:last-child {
+  max-width: 340px;
+  color: #b7c2d5;
+  line-height: 1.5;
+}
+
 .metric-card {
   display: flex;
   min-width: 0;

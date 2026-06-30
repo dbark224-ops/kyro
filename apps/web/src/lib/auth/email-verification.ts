@@ -47,6 +47,10 @@ function resendApiKey() {
   return process.env.RESEND_API_KEY?.trim() || "";
 }
 
+function verificationSendFailure(message: string) {
+  return { data: null, error: new Error(message) };
+}
+
 function buildKyroVerificationEmail({
   actionLink,
   email,
@@ -187,7 +191,7 @@ export function isKyroEmailVerified(user: User) {
 
 export function buildKyroEmailVerificationRedirectUrl({
   fallbackOrigin,
-  nextPath = "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+  nextPath = "/auth/verified",
 }: {
   fallbackOrigin?: string | null;
   nextPath?: string;
@@ -201,7 +205,7 @@ export function buildKyroEmailVerificationRedirectUrl({
 
 export function buildKyroEmailVerificationActionUrl({
   fallbackOrigin,
-  nextPath = "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+  nextPath = "/auth/verified",
   tokenHash,
   type,
 }: {
@@ -308,46 +312,46 @@ export async function sendKyroEmailVerification({
     });
   }
 
-  if (resendApiKey()) {
-    const serviceSupabase = createServiceSupabaseClient();
-    const { data: linkData, error: linkError } =
-      await serviceSupabase.auth.admin.generateLink({
-        email,
-        options: { redirectTo: emailRedirectTo },
-        type: "magiclink",
-      });
-
-    if (!linkError && linkData.properties?.hashed_token) {
-      const actionLink = buildKyroEmailVerificationActionUrl({
-        fallbackOrigin,
-        nextPath,
-        tokenHash: linkData.properties.hashed_token,
-        type: linkData.properties.verification_type,
-      });
-      const brandedSent = await sendBrandedKyroVerificationEmail({
-        actionLink,
-        email,
-      });
-
-      if (brandedSent) {
-        return { data: null, error: null };
-      }
-    }
-
-    if (linkError) {
-      console.warn("Kyro could not generate a branded verification link.", {
-        message: linkError.message,
-        name: linkError.name,
-        status: linkError.status,
-      });
-    }
+  if (!resendApiKey()) {
+    return verificationSendFailure(
+      "Kyro verification email is not configured. Add RESEND_API_KEY in production.",
+    );
   }
 
-  return supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo,
-      shouldCreateUser: false,
-    },
+  const serviceSupabase = createServiceSupabaseClient();
+  const { data: linkData, error: linkError } =
+    await serviceSupabase.auth.admin.generateLink({
+      email,
+      options: { redirectTo: emailRedirectTo },
+      type: "magiclink",
+    });
+
+  if (linkError) {
+    return verificationSendFailure(
+      `Kyro could not generate a verification link: ${linkError.message}`,
+    );
+  }
+
+  if (!linkData.properties?.hashed_token) {
+    return verificationSendFailure(
+      "Kyro could not generate a verification token.",
+    );
+  }
+
+  const actionLink = buildKyroEmailVerificationActionUrl({
+    fallbackOrigin,
+    nextPath,
+    tokenHash: linkData.properties.hashed_token,
+    type: linkData.properties.verification_type,
   });
+  const brandedSent = await sendBrandedKyroVerificationEmail({
+    actionLink,
+    email,
+  });
+
+  if (!brandedSent) {
+    return verificationSendFailure("Kyro verification email was not sent.");
+  }
+
+  return { data: null, error: null };
 }

@@ -506,8 +506,6 @@ export async function resendEmailVerificationAction() {
   const { error } = await sendKyroEmailVerification({
     email: user.email,
     nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
-    nextPath:
-      "/settings?section=general&engine_message=Email%20verified.%20Settings%20are%20unlocked.",
     supabase,
   });
 
