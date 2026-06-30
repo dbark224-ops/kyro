@@ -224,7 +224,7 @@ export function EscalationSettingsEditor({
                 </select>
               </label>
               <label className="escalation-step-delay">
-                <span>Delay</span>
+                <span>Delay (mins)</span>
                 <input
                   min={0}
                   name="urgentEscalationStepDelayMinutes"
@@ -236,11 +236,6 @@ export function EscalationSettingsEditor({
                   type="number"
                   value={step.delayMinutes}
                 />
-                <small className="escalation-step-delay-copy">
-                  {step.delayMinutes === 0
-                    ? "Immediately"
-                    : `After ${step.delayMinutes} min if unacknowledged`}
-                </small>
               </label>
               <button
                 className="text-button danger escalation-step-remove"
