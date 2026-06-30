@@ -140,6 +140,50 @@ type SettingsPageProps = {
   searchParams?: Promise<SettingsPageQuery>;
 };
 
+const COMMON_WORKSPACE_TIME_ZONES = [
+  "Australia/Sydney",
+  "Australia/Melbourne",
+  "Australia/Brisbane",
+  "Australia/Adelaide",
+  "Australia/Perth",
+  "Australia/Darwin",
+  "Australia/Hobart",
+  "Pacific/Auckland",
+  "Europe/London",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Phoenix",
+  "America/Anchorage",
+  "Pacific/Honolulu",
+  "UTC",
+] as const;
+
+function formatTimeZoneOffset(timeZone: string) {
+  try {
+    const parts = new Intl.DateTimeFormat("en", {
+      timeZone,
+      timeZoneName: "shortOffset",
+    }).formatToParts(new Date());
+    return (
+      parts.find((part) => part.type === "timeZoneName")?.value ?? "GMT"
+    ).replace(/^GMT$/, "GMT+0");
+  } catch {
+    return "GMT";
+  }
+}
+
+function workspaceTimeZoneOptions(currentTimeZone: string) {
+  const options = new Set<string>(COMMON_WORKSPACE_TIME_ZONES);
+  options.add(currentTimeZone);
+
+  return Array.from(options).map((timeZone) => ({
+    label: `${timeZone} (${formatTimeZoneOffset(timeZone)})`,
+    value: timeZone,
+  }));
+}
+
 function isVoicemailOverflowPhoneNumber(number: WorkspacePhoneNumberPoolRow) {
   const purpose =
     number.metadata.voicePurpose ?? number.metadata.purpose ?? null;
@@ -2445,6 +2489,7 @@ function GeneralSettingsDetail({
   const showCorePanel = showCoreProfile || showPublicDetails || showAvailability;
   const emailVerificationPending = !emailVerified;
   const serviceAreaValue = mergedServiceAreaValue(profile);
+  const timeZoneOptions = workspaceTimeZoneOptions(settings.timeZone);
 
   return (
     <form
@@ -2665,11 +2710,16 @@ function GeneralSettingsDetail({
               >
                 Workspace timezone
               </SettingCardHeading>
-              <input
+              <select
                 defaultValue={settings.timeZone}
                 name="workspaceTimeZone"
-                placeholder="Australia/Brisbane"
-              />
+              >
+                {timeZoneOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="setting-card">
               <SettingCardHeading
