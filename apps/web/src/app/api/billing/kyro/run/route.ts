@@ -4,8 +4,8 @@ import {
   runKyroBillingCycle,
 } from "../../../../../lib/billing/kyro-billing-engine";
 import {
-  envSecret,
-  hasValidRequestSecret,
+  envSecrets,
+  hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function expectedSecret() {
-  return envSecret(
+  return envSecrets(
     "KYRO_BILLING_RUN_SECRET",
     "OUTBOUND_DELIVERY_SECRET",
     "CRON_SECRET",
@@ -54,9 +54,9 @@ function chargeDeveloperAccountsEnabled(request: NextRequest) {
 }
 
 async function handle(request: NextRequest) {
-  const secret = expectedSecret();
+  const secrets = expectedSecret();
 
-  if (!secret) {
+  if (secrets.length === 0) {
     return NextResponse.json(
       {
         error:
@@ -67,7 +67,7 @@ async function handle(request: NextRequest) {
   }
 
   if (
-    !hasValidRequestSecret(request, secret, {
+    !hasAnyValidRequestSecret(request, secrets, {
       queryParamNames: ["secret"],
     })
   ) {

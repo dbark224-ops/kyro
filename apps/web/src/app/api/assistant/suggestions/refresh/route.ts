@@ -1,7 +1,7 @@
 import { refreshAssistantPromptSuggestionsForUser } from "../../../../../lib/assistant/prompt-suggestions";
 import {
-  envSecret,
-  hasValidRequestSecret,
+  envSecrets,
+  hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
@@ -27,7 +27,7 @@ type WorkspaceMapEntry = readonly [
 ];
 
 function syncSecret() {
-  return envSecret("ASSISTANT_SUGGESTION_REFRESH_SECRET", "CRON_SECRET");
+  return envSecrets("ASSISTANT_SUGGESTION_REFRESH_SECRET", "CRON_SECRET");
 }
 
 function textValue(value: unknown) {
@@ -45,9 +45,9 @@ function clampLimit(value: string | null) {
 }
 
 async function runScheduledPromptSuggestionRefresh(request: Request) {
-  const expectedSecret = syncSecret();
+  const expectedSecrets = syncSecret();
 
-  if (!expectedSecret) {
+  if (expectedSecrets.length === 0) {
     return Response.json(
       {
         error:
@@ -57,7 +57,7 @@ async function runScheduledPromptSuggestionRefresh(request: Request) {
     );
   }
 
-  if (!hasValidRequestSecret(request, expectedSecret)) {
+  if (!hasAnyValidRequestSecret(request, expectedSecrets)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

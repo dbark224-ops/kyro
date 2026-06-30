@@ -1,20 +1,20 @@
 import { runContactLifecycleReview } from "../../../../../lib/crm/lifecycle-review";
 import {
-  envSecret,
-  hasValidRequestSecret,
+  envSecrets,
+  hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
 function syncSecret() {
-  return envSecret("CRM_LIFECYCLE_REVIEW_SECRET", "CRON_SECRET");
+  return envSecrets("CRM_LIFECYCLE_REVIEW_SECRET", "CRON_SECRET");
 }
 
 async function runScheduledLifecycleReview(request: Request) {
-  const expectedSecret = syncSecret();
+  const expectedSecrets = syncSecret();
 
-  if (!expectedSecret) {
+  if (expectedSecrets.length === 0) {
     return Response.json(
       {
         error: "CRM_LIFECYCLE_REVIEW_SECRET or CRON_SECRET is not configured.",
@@ -23,7 +23,7 @@ async function runScheduledLifecycleReview(request: Request) {
     );
   }
 
-  if (!hasValidRequestSecret(request, expectedSecret)) {
+  if (!hasAnyValidRequestSecret(request, expectedSecrets)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

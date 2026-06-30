@@ -19,6 +19,12 @@ export function envSecret(...keys: string[]) {
   return "";
 }
 
+export function envSecrets(...keys: string[]) {
+  return keys
+    .map((key) => process.env[key]?.trim() ?? "")
+    .filter((value) => value.length > 0);
+}
+
 export function requestBearerToken(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const match = authorization.match(/^Bearer\s+(.+)$/i);
@@ -83,4 +89,14 @@ export function hasValidRequestSecret(
   options?: RequestSecretOptions,
 ) {
   return secretMatches(requestSecret(request, options), expected);
+}
+
+export function hasAnyValidRequestSecret(
+  request: Request,
+  expectedSecrets: readonly string[],
+  options?: RequestSecretOptions,
+) {
+  const provided = requestSecret(request, options);
+
+  return expectedSecrets.some((expected) => secretMatches(provided, expected));
 }

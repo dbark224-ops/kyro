@@ -254,12 +254,13 @@ function formatMoney(value: number, currency: string) {
   return formatCurrencyAmount(value, currency);
 }
 
-function formatDate(value: string) {
+function formatDate(value: string, timeZone?: string) {
   return new Intl.DateTimeFormat("en", {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
     month: "short",
+    timeZone,
   }).format(new Date(value));
 }
 
@@ -1772,12 +1773,16 @@ function EmailSyncHealthPanel({
       <div className="email-sync-status-grid">
         <article>
           <span>Last successful sync</span>
-          <strong>{lastSyncAt ? formatDate(lastSyncAt) : "Never"}</strong>
+          <strong>
+            {lastSyncAt ? formatDate(lastSyncAt, settings.timeZone) : "Never"}
+          </strong>
         </article>
         <article>
           <span>Last check attempt</span>
           <strong>
-            {lastCheckedAt ? formatDate(lastCheckedAt) : "Not yet"}
+            {lastCheckedAt
+              ? formatDate(lastCheckedAt, settings.timeZone)
+              : "Not yet"}
           </strong>
         </article>
         <article>
@@ -1902,9 +1907,11 @@ function inboundDecisionLabel(decision: InboundEmailDecisionItem) {
 function InboundEmailOperationsPanel({
   showTrace,
   summary,
+  timeZone,
 }: Readonly<{
   showTrace: boolean;
   summary: InboundEmailOperationalSummary;
+  timeZone: string;
 }>) {
   const recordCount = summary.syncRuns.length + summary.decisions.length;
 
@@ -1932,15 +1939,19 @@ function InboundEmailOperationsPanel({
         <span>{summary.decisions.length} email decisions</span>
       </div>
 
-      {showTrace ? <InboundEmailTraceModal summary={summary} /> : null}
+      {showTrace ? (
+        <InboundEmailTraceModal summary={summary} timeZone={timeZone} />
+      ) : null}
     </section>
   );
 }
 
 function InboundEmailTraceModal({
   summary,
+  timeZone,
 }: Readonly<{
   summary: InboundEmailOperationalSummary;
+  timeZone: string;
 }>) {
   const recordCount = summary.syncRuns.length + summary.decisions.length;
 
@@ -1989,7 +2000,7 @@ function InboundEmailTraceModal({
                         <span>{syncRunSummary(run)}</span>
                       </div>
                       <time dateTime={run.createdAt}>
-                        {formatDate(run.createdAt)}
+                        {formatDate(run.createdAt, timeZone)}
                       </time>
                     </div>
                   ))}
@@ -2025,7 +2036,10 @@ function InboundEmailTraceModal({
                       <time
                         dateTime={decision.processedAt ?? decision.createdAt}
                       >
-                        {formatDate(decision.processedAt ?? decision.createdAt)}
+                        {formatDate(
+                          decision.processedAt ?? decision.createdAt,
+                          timeZone,
+                        )}
                       </time>
                     </div>
                   ))}
@@ -2954,6 +2968,7 @@ function InboundEmailSyncSettings({
       <InboundEmailOperationsPanel
         showTrace={showInboundTrace}
         summary={operationalSummary}
+        timeZone={settings.timeZone}
       />
 
       <InboundEmailAutosaveForm

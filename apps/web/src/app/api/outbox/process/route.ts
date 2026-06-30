@@ -1,14 +1,14 @@
 import { processDueOutboundMessages } from "../../../../lib/communication/outbound";
 import {
-  envSecret,
-  hasValidRequestSecret,
+  envSecrets,
+  hasAnyValidRequestSecret,
 } from "../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
 function syncSecret() {
-  return envSecret(
+  return envSecrets(
     "OUTBOUND_DELIVERY_SECRET",
     "INBOUND_EMAIL_SYNC_SECRET",
     "CRON_SECRET",
@@ -16,9 +16,9 @@ function syncSecret() {
 }
 
 async function runOutboxProcessor(request: Request) {
-  const expectedSecret = syncSecret();
+  const expectedSecrets = syncSecret();
 
-  if (!expectedSecret) {
+  if (expectedSecrets.length === 0) {
     return Response.json(
       {
         error:
@@ -28,7 +28,7 @@ async function runOutboxProcessor(request: Request) {
     );
   }
 
-  if (!hasValidRequestSecret(request, expectedSecret)) {
+  if (!hasAnyValidRequestSecret(request, expectedSecrets)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

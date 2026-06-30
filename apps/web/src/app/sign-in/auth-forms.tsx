@@ -48,8 +48,7 @@ type PasswordFieldProps = {
 function FieldHelp({ text }: { text: string }) {
   return (
     <span className="auth-field-help" tabIndex={0}>
-      i
-      <span className="auth-field-help-text">{text}</span>
+      i<span className="auth-field-help-text">{text}</span>
     </span>
   );
 }
@@ -140,9 +139,10 @@ function ResendVerificationControl({
       headers: { "Content-Type": "application/json" },
       method: "POST",
     });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; ok?: boolean }
-      | null;
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      ok?: boolean;
+    } | null;
 
     setIsSending(false);
 
@@ -165,9 +165,7 @@ function ResendVerificationControl({
         {isSending ? "Sending..." : label}
       </button>
       {message ? <span className="auth-inline-status">{message}</span> : null}
-      {error ? (
-        <span className="auth-inline-status error">{error}</span>
-      ) : null}
+      {error ? <span className="auth-inline-status error">{error}</span> : null}
     </div>
   );
 }
@@ -279,9 +277,9 @@ function InlineCardSetup({
       headers: { "Content-Type": "application/json" },
       method: "POST",
     });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
 
     if (!response.ok) {
       setIsSaving(false);
@@ -324,11 +322,7 @@ function InlineCardSetup({
   );
 }
 
-function EmailVerificationFinalScreen({
-  setup,
-}: {
-  setup: BillingSetupState;
-}) {
+function EmailVerificationFinalScreen({ setup }: { setup: BillingSetupState }) {
   function continueAfterVerification() {
     window.location.assign(setup.redirectAfterSetup);
   }
@@ -389,8 +383,7 @@ export function CreateAccountForm() {
     useState<BillingSetupState | null>(null);
   const stripePublishableKey = billingSetup?.publishableKey ?? null;
   const stripePromise = useMemo(
-    () =>
-      stripePublishableKey ? loadStripe(stripePublishableKey) : null,
+    () => (stripePublishableKey ? loadStripe(stripePublishableKey) : null),
     [stripePublishableKey],
   );
 
@@ -495,7 +488,8 @@ export function CreateAccountForm() {
       }
 
       if (!field.value.trim()) {
-        nextErrors[fieldName] = `${fieldLabels[fieldName] ?? "This field"} is required.`;
+        nextErrors[fieldName] =
+          `${fieldLabels[fieldName] ?? "This field"} is required.`;
         continue;
       }
 
@@ -640,6 +634,13 @@ export function CreateAccountForm() {
 
   function formPayload(form: HTMLFormElement) {
     const formData = new FormData(form);
+    const timeZone = (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      } catch {
+        return "UTC";
+      }
+    })();
 
     const entries = [
       "businessLocation",
@@ -657,7 +658,11 @@ export function CreateAccountForm() {
       "serviceArea",
     ].map((key) => [key, String(formData.get(key) ?? "").trim()]);
 
-    return Object.fromEntries([...entries, ["trialAcknowledged", "yes"]]);
+    return Object.fromEntries([
+      ...entries,
+      ["timeZone", timeZone],
+      ["trialAcknowledged", "yes"],
+    ]);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -696,7 +701,9 @@ export function CreateAccountForm() {
         <p>{steps[step].copy}</p>
       </div>
 
-      {formError ? <p className="form-alert error compact">{formError}</p> : null}
+      {formError ? (
+        <p className="form-alert error compact">{formError}</p>
+      ) : null}
       {formMessage ? <p className="form-alert compact">{formMessage}</p> : null}
 
       <section className="auth-form-section" hidden={step !== 0}>
@@ -779,7 +786,9 @@ export function CreateAccountForm() {
                   defaultValue="Australia"
                   aria-invalid={Boolean(fieldErrors.mobileCountry)}
                   aria-describedby={
-                    fieldErrors.mobileCountry ? "mobileCountry-error" : undefined
+                    fieldErrors.mobileCountry
+                      ? "mobileCountry-error"
+                      : undefined
                   }
                   onChange={() => clearFieldError("mobileCountry")}
                 >
@@ -851,7 +860,9 @@ export function CreateAccountForm() {
               placeholder="Plumbing, electrical, landscaping..."
               required
               aria-invalid={Boolean(fieldErrors.industry)}
-              aria-describedby={fieldErrors.industry ? "industry-error" : undefined}
+              aria-describedby={
+                fieldErrors.industry ? "industry-error" : undefined
+              }
               onChange={() => clearFieldError("industry")}
             />
             {fieldErrors.industry ? (
@@ -867,7 +878,9 @@ export function CreateAccountForm() {
               required
               defaultValue=""
               aria-invalid={Boolean(fieldErrors.country)}
-              aria-describedby={fieldErrors.country ? "country-error" : undefined}
+              aria-describedby={
+                fieldErrors.country ? "country-error" : undefined
+              }
               onChange={(event) => {
                 setOperatingCountry(event.currentTarget.value);
                 clearFieldError("country");
@@ -928,7 +941,11 @@ export function CreateAccountForm() {
           </label>
         </div>
         {isSubmitting ? (
-          <div className="auth-payment-loading" role="status" aria-live="polite">
+          <div
+            className="auth-payment-loading"
+            role="status"
+            aria-live="polite"
+          >
             <span className="typing-dots" aria-hidden="true">
               <span />
               <span />

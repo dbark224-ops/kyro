@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import {
-  envSecret,
-  hasValidRequestSecret,
+  envSecrets,
+  hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
 import { syncInboundEmail } from "../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
@@ -9,7 +9,7 @@ import { createServiceSupabaseClient } from "../../../../../lib/supabase/service
 export const dynamic = "force-dynamic";
 
 function syncSecret() {
-  return envSecret("INBOUND_EMAIL_SYNC_SECRET", "CRON_SECRET");
+  return envSecrets("INBOUND_EMAIL_SYNC_SECRET", "CRON_SECRET");
 }
 
 function scheduledUser(ownerUserId: string): User {
@@ -17,16 +17,16 @@ function scheduledUser(ownerUserId: string): User {
 }
 
 async function runScheduledSync(request: Request) {
-  const expectedSecret = syncSecret();
+  const expectedSecrets = syncSecret();
 
-  if (!expectedSecret) {
+  if (expectedSecrets.length === 0) {
     return Response.json(
       { error: "INBOUND_EMAIL_SYNC_SECRET or CRON_SECRET is not configured." },
       { status: 501 },
     );
   }
 
-  if (!hasValidRequestSecret(request, expectedSecret)) {
+  if (!hasAnyValidRequestSecret(request, expectedSecrets)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

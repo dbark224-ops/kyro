@@ -1,8 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import {
-  createKyroUserBillingSetupIntent,
-} from "../../../../lib/billing/kyro-user-billing";
+import { createKyroUserBillingSetupIntent } from "../../../../lib/billing/kyro-user-billing";
 import {
   buildKyroEmailVerificationRedirectUrl,
   friendlyEmailVerificationSendError,
@@ -39,6 +37,7 @@ type CreateAccountPayload = {
   password?: string;
   postcode?: string;
   serviceArea?: string;
+  timeZone?: string;
   trialAcknowledged?: string;
 };
 
@@ -58,11 +57,23 @@ type ValidatedCreateAccountPayload =
         password: string;
         postcode: string;
         serviceArea: string;
+        timeZone: string;
       };
     };
 
 function textValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeTimeZone(value: unknown) {
+  const timeZone = textValue(value) || "UTC";
+
+  try {
+    new Intl.DateTimeFormat("en", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "UTC";
+  }
 }
 
 function metadataString(
@@ -188,6 +199,7 @@ function validatePayload(
   const mobileCountry = textValue(payload.mobileCountry);
   const postcode = textValue(payload.postcode);
   const serviceArea = textValue(payload.serviceArea);
+  const timeZone = normalizeTimeZone(payload.timeZone);
   const trialAcknowledged = textValue(payload.trialAcknowledged);
 
   if (!email || !confirmEmail || !password) {
@@ -237,7 +249,8 @@ function validatePayload(
 
   if (trialAcknowledged !== "yes") {
     return {
-      error: "Confirm the two-week trial and billing acknowledgement to continue.",
+      error:
+        "Confirm the two-week trial and billing acknowledgement to continue.",
     };
   }
 
@@ -255,14 +268,15 @@ function validatePayload(
       password,
       postcode,
       serviceArea,
+      timeZone,
     },
   };
 }
 
 export async function POST(request: Request) {
-  const payload = (await request.json().catch(() => null)) as
-    | CreateAccountPayload
-    | null;
+  const payload = (await request
+    .json()
+    .catch(() => null)) as CreateAccountPayload | null;
 
   if (!payload) {
     return errorResponse("Invalid signup request.");
@@ -313,7 +327,9 @@ export async function POST(request: Request) {
   }
 
   if (!data.user) {
-    return errorResponse("Kyro could not create the account. Please try again.");
+    return errorResponse(
+      "Kyro could not create the account. Please try again.",
+    );
   }
 
   if (data.user.identities && data.user.identities.length === 0) {
@@ -323,7 +339,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const bootstrapSupabase = data.session ? supabase : createServiceSupabaseClient();
+  const bootstrapSupabase = data.session
+    ? supabase
+    : createServiceSupabaseClient();
   let workspace;
 
   try {
@@ -339,6 +357,7 @@ export async function POST(request: Request) {
         publicEmail: input.email,
         publicPhoneNumber: input.normalizedMobileNumber,
         serviceArea: input.serviceArea,
+        timeZone: input.timeZone,
       },
     );
   } catch (bootstrapError) {
@@ -374,12 +393,16 @@ export async function POST(request: Request) {
     }
 
     if (data.session) {
-      const { error: verificationEmailError } = await sendKyroEmailVerification({
-        email: input.email,
-        fallbackOrigin: request.headers.get("origin"),
-        nativeConfirmationRequired: !isSupabaseEmailConfirmed(data.user as User),
-        supabase,
-      });
+      const { error: verificationEmailError } = await sendKyroEmailVerification(
+        {
+          email: input.email,
+          fallbackOrigin: request.headers.get("origin"),
+          nativeConfirmationRequired: !isSupabaseEmailConfirmed(
+            data.user as User,
+          ),
+          supabase,
+        },
+      );
 
       if (verificationEmailError) {
         verificationEmailWarning = friendlyEmailVerificationSendError(

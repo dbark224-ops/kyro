@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   envSecret,
+  envSecrets,
+  hasAnyValidRequestSecret,
   hasValidRequestSecret,
   requestBearerToken,
   requestSecret,
@@ -30,10 +32,9 @@ describe("request secret helpers", () => {
       "header-secret",
     );
     assert.equal(
-      requestSecret(
-        request({}, "https://kyro.test/api?secret=query-secret"),
-        { queryParamNames: ["secret"] },
-      ),
+      requestSecret(request({}, "https://kyro.test/api?secret=query-secret"), {
+        queryParamNames: ["secret"],
+      }),
       "query-secret",
     );
   });
@@ -61,6 +62,23 @@ describe("request secret helpers", () => {
     );
   });
 
+  it("validates a request against any expected secret", () => {
+    assert.equal(
+      hasAnyValidRequestSecret(request({ authorization: "Bearer cron" }), [
+        "manual",
+        "cron",
+      ]),
+      true,
+    );
+    assert.equal(
+      hasAnyValidRequestSecret(request({ authorization: "Bearer wrong" }), [
+        "manual",
+        "cron",
+      ]),
+      false,
+    );
+  });
+
   it("returns the first configured environment secret", () => {
     const previousA = process.env.KYRO_TEST_SECRET_A;
     const previousB = process.env.KYRO_TEST_SECRET_B;
@@ -73,6 +91,33 @@ describe("request secret helpers", () => {
         envSecret("KYRO_TEST_SECRET_A", "KYRO_TEST_SECRET_B"),
         "fallback",
       );
+    } finally {
+      if (previousA === undefined) {
+        delete process.env.KYRO_TEST_SECRET_A;
+      } else {
+        process.env.KYRO_TEST_SECRET_A = previousA;
+      }
+
+      if (previousB === undefined) {
+        delete process.env.KYRO_TEST_SECRET_B;
+      } else {
+        process.env.KYRO_TEST_SECRET_B = previousB;
+      }
+    }
+  });
+
+  it("returns every configured environment secret", () => {
+    const previousA = process.env.KYRO_TEST_SECRET_A;
+    const previousB = process.env.KYRO_TEST_SECRET_B;
+
+    process.env.KYRO_TEST_SECRET_A = " primary ";
+    process.env.KYRO_TEST_SECRET_B = " fallback ";
+
+    try {
+      assert.deepEqual(envSecrets("KYRO_TEST_SECRET_A", "KYRO_TEST_SECRET_B"), [
+        "primary",
+        "fallback",
+      ]);
     } finally {
       if (previousA === undefined) {
         delete process.env.KYRO_TEST_SECRET_A;
