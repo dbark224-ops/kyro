@@ -1465,15 +1465,12 @@ function GeneralSettingsPanel({
           />
         </SettingField>
         <SettingField label="Business address">
-          <TextInput
-            editable={!disabled}
-            onChangeText={(businessAddress) =>
+          <AddressAutocompleteInput
+            disabled={disabled}
+            onChange={(businessAddress) =>
               updateProfile("businessAddress", businessAddress)
             }
             placeholder="Office or trading address"
-            placeholderTextColor={colors.muted}
-            style={[styles.input, styles.textAreaSmall]}
-            multiline
             value={draft.businessProfile.businessAddress}
           />
         </SettingField>
@@ -1569,6 +1566,184 @@ type MobileAddressSuggestion = {
   placeId: string;
   secondaryText: string | null;
 };
+type MobileStructuredAddress = {
+  formattedAddress: string | null;
+  validationMessage: string | null;
+  validationStatus: "google_place" | "needs_review" | "validated";
+};
+
+function AddressAutocompleteInput({
+  disabled,
+  onChange,
+  placeholder,
+  value,
+}: {
+  disabled: boolean;
+  onChange: (value: string) => void;
+  placeholder: string;
+  value: string;
+}) {
+  const { session } = useAuthSession();
+  const [suggestions, setSuggestions] = useState<MobileAddressSuggestion[]>([]);
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [selectingPlaceId, setSelectingPlaceId] = useState<string | null>(null);
+  const selectedFormattedAddress = useRef<string | null>(null);
+  const sessionToken = useRef(
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const query = value.trim();
+
+  useEffect(() => {
+    if (
+      disabled ||
+      !session ||
+      query.length < 3 ||
+      selectedFormattedAddress.current === query
+    ) {
+      setBusy(false);
+      setSuggestions([]);
+      return;
+    }
+
+    let cancelled = false;
+    setBusy(true);
+    setLookupMessage(null);
+
+    const timer = setTimeout(() => {
+      kyroApiFetch<{
+        data: MobileAddressSuggestion[];
+        unavailable?: boolean;
+      }>("/api/mobile/addresses/autocomplete", {
+        query: {
+          q: query,
+          sessionToken: sessionToken.current,
+          type: "address",
+        },
+        session,
+      })
+        .then((payload) => {
+          if (cancelled) {
+            return;
+          }
+
+          setSuggestions(payload.data ?? []);
+          setLookupMessage(
+            payload.unavailable ? "Address lookup is unavailable." : null,
+          );
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSuggestions([]);
+            setLookupMessage("Address lookup is unavailable.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setBusy(false);
+          }
+        });
+    }, 260);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [disabled, query, session]);
+
+  const selectSuggestion = (suggestion: MobileAddressSuggestion) => {
+    if (!session) {
+      onChange(suggestion.description);
+      setSuggestions([]);
+      return;
+    }
+
+    setSelectingPlaceId(suggestion.placeId);
+    setLookupMessage(null);
+
+    kyroApiFetch<{
+      data: MobileStructuredAddress | null;
+      unavailable?: boolean;
+    }>("/api/mobile/addresses/place", {
+      query: {
+        placeId: suggestion.placeId,
+        sessionToken: sessionToken.current,
+      },
+      session,
+    })
+      .then((payload) => {
+        const nextValue =
+          payload.data?.formattedAddress || suggestion.description;
+
+        selectedFormattedAddress.current = nextValue;
+        onChange(nextValue);
+        setSuggestions([]);
+        setLookupMessage(payload.data?.validationMessage ?? null);
+        sessionToken.current = `${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2)}`;
+      })
+      .catch(() => {
+        onChange(suggestion.description);
+        setSuggestions([]);
+        setLookupMessage("Address details are unavailable.");
+      })
+      .finally(() => setSelectingPlaceId(null));
+  };
+
+  return (
+    <View style={styles.tagControl}>
+      <TextInput
+        autoCapitalize="words"
+        editable={!disabled}
+        onChangeText={(text) => {
+          selectedFormattedAddress.current = null;
+          onChange(text);
+          setLookupMessage(null);
+        }}
+        placeholder={placeholder}
+        placeholderTextColor={colors.muted}
+        style={[styles.input, styles.textAreaSmall]}
+        multiline
+        value={value}
+      />
+
+      {suggestions.length ? (
+        <View style={styles.suggestionMenu}>
+          {suggestions.slice(0, 5).map((suggestion) => (
+            <Pressable
+              accessibilityRole="button"
+              disabled={Boolean(selectingPlaceId)}
+              key={suggestion.placeId || suggestion.description}
+              onPress={() => selectSuggestion(suggestion)}
+              style={styles.suggestionRow}
+            >
+              <View style={styles.settingsRowMain}>
+                <Text numberOfLines={1} style={styles.suggestionTitle}>
+                  {suggestion.mainText || suggestion.description}
+                </Text>
+                {suggestion.secondaryText ? (
+                  <Text numberOfLines={1} style={styles.suggestionMeta}>
+                    {suggestion.secondaryText}
+                  </Text>
+                ) : null}
+              </View>
+              <ChevronRight color={colors.cyan} size={16} />
+            </Pressable>
+          ))}
+          <Text style={styles.googleAttribution}>Powered by Google</Text>
+        </View>
+      ) : null}
+      {busy ? <Text style={styles.lookupMeta}>Searching addresses...</Text> : null}
+      {selectingPlaceId ? (
+        <Text style={styles.lookupMeta}>Verifying address...</Text>
+      ) : null}
+      {lookupMessage ? (
+        <Text style={styles.lookupMeta}>{lookupMessage}</Text>
+      ) : null}
+    </View>
+  );
+}
 
 function ServiceAreaTagInput({
   disabled,

@@ -26,6 +26,7 @@ type GoogleAutocompletePayload = {
   }>;
 };
 type LegacyAutocompletePayload = {
+  error_message?: string;
   predictions?: Array<{
     description?: string;
     place_id?: string;
@@ -35,6 +36,15 @@ type LegacyAutocompletePayload = {
     };
   }>;
   status?: string;
+};
+type GoogleLocationBias = {
+  circle: {
+    center: {
+      latitude: number;
+      longitude: number;
+    };
+    radius: number;
+  };
 };
 
 const PLACES_AUTOCOMPLETE_URL =
@@ -102,6 +112,7 @@ async function autocompleteAddresses({
       includedPrimaryTypes: googleIncludedPrimaryTypes(primaryType),
       includedRegionCodes: includedRegionCode ? [includedRegionCode] : undefined,
       input,
+      locationBias: googleLocationBias(),
       regionCode: googleRegionCode(region),
       sessionToken: sessionToken || undefined,
     }),
@@ -177,7 +188,9 @@ async function autocompleteAddressesLegacy({
   const payload = (await response.json()) as LegacyAutocompletePayload;
 
   if (payload.status && !["OK", "ZERO_RESULTS"].includes(payload.status)) {
-    throw new Error("Google address autocomplete is unavailable.");
+    throw new Error(
+      payload.error_message || "Google address autocomplete is unavailable.",
+    );
   }
 
   return (payload.predictions ?? [])
@@ -250,6 +263,47 @@ function googleIncludedRegionCode(region?: string | null) {
   const normalized = region?.trim().toUpperCase();
 
   return normalized ? normalized.toLowerCase() : undefined;
+}
+
+function numberEnv(key: string) {
+  const value = process.env[key]?.trim();
+
+  if (!value) {
+    return null;
+  }
+
+  const numeric = Number(value);
+
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function googleLocationBias(): GoogleLocationBias | undefined {
+  const latitude = numberEnv("GOOGLE_MAPS_LOCATION_BIAS_LAT");
+  const longitude = numberEnv("GOOGLE_MAPS_LOCATION_BIAS_LNG");
+  const configuredRadius =
+    numberEnv("GOOGLE_MAPS_LOCATION_BIAS_RADIUS_METERS") ?? 50000;
+
+  if (
+    latitude === null ||
+    longitude === null ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180 ||
+    configuredRadius <= 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    circle: {
+      center: {
+        latitude,
+        longitude,
+      },
+      radius: Math.min(configuredRadius, 50000),
+    },
+  };
 }
 
 function textValue(value: unknown) {

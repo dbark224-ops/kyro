@@ -9,6 +9,7 @@ export type KyroApiRoute =
   | "/api/mobile/assistant/vapi-turn"
   | "/api/mobile/assistant/voice-turn"
   | "/api/mobile/addresses/autocomplete"
+  | "/api/mobile/addresses/place"
   | "/api/mobile/bootstrap"
   | "/api/mobile/crm"
   | "/api/mobile/crm/import-contacts"
