@@ -31,6 +31,7 @@ import { EscalationSettingsEditor } from "./escalation-settings-editor";
 import { EmergencyWindowEditor } from "./emergency-window-editor";
 import { BusinessAvailabilityEditor } from "./business-availability-editor";
 import { BrandColorPicker } from "./brand-color-picker";
+import { BrandingAutosavePanel } from "./branding-autosave-panel";
 import { WorkplaceContactsEditor } from "./workplace-contacts-editor";
 import { TagInputField } from "./tag-input-field";
 import {
@@ -2787,37 +2788,41 @@ function GeneralSettingsDetail({
             </div>
           </section>
 
-          <BusinessLogoEditor profile={profile} />
+          <BrandingAutosavePanel>
+            <BusinessLogoEditor profile={profile} />
 
-          <div className="settings-grid">
-            <BrandColorPicker
-              defaultValue={profile.brandPrimaryColor}
-              info="Primary brand colour for documents, previews, and future generated assets."
-              label="Primary colour"
-              name="businessBrandPrimaryColor"
-            />
-
-            <BrandColorPicker
-              defaultValue={profile.brandAccentColor}
-              info="Accent colour for highlights and secondary visual marks."
-              label="Accent colour"
-              name="businessBrandAccentColor"
-            />
-
-            <label className="setting-card settings-textarea">
-              <SettingCardHeading
-                info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect."
-                infoPlacement="right"
-              >
-                Brand style notes
-              </SettingCardHeading>
-              <textarea
-                defaultValue={profile.brandStyle}
-                name="businessBrandStyle"
-                placeholder="Clean, practical, friendly, no corporate fluff..."
+            <div className="settings-grid">
+              <BrandColorPicker
+                autosave
+                defaultValue={profile.brandPrimaryColor}
+                info="Primary brand colour for documents, previews, and future generated assets."
+                label="Primary colour"
+                name="businessBrandPrimaryColor"
               />
-            </label>
-          </div>
+
+              <BrandColorPicker
+                autosave
+                defaultValue={profile.brandAccentColor}
+                info="Accent colour for highlights and secondary visual marks."
+                label="Accent colour"
+                name="businessBrandAccentColor"
+              />
+
+              <label className="setting-card settings-textarea">
+                <SettingCardHeading
+                  info="Short notes about brand personality, wording style, visual feel, or anything Kyro should respect."
+                  infoPlacement="right"
+                >
+                  Brand style notes
+                </SettingCardHeading>
+                <textarea
+                  defaultValue={profile.brandStyle}
+                  name="businessBrandStyle"
+                  placeholder="Clean, practical, friendly, no corporate fluff..."
+                />
+              </label>
+            </div>
+          </BrandingAutosavePanel>
         </section>
 
         {activeBusinessPanel === "email-signature" && communicationSettings ? (

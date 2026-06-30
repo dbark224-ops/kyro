@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
 import { InfoBubble } from "./info-bubble";
 
 type HsvColor = {
@@ -10,6 +16,7 @@ type HsvColor = {
 };
 
 type BrandColorPickerProps = Readonly<{
+  autosave?: boolean;
   defaultValue: string;
   info: string;
   label: string;
@@ -100,11 +107,14 @@ function hexToHsv(value: string): HsvColor {
 }
 
 export function BrandColorPicker({
+  autosave = false,
   defaultValue,
   info,
   label,
   name,
 }: BrandColorPickerProps) {
+  const didMountRef = useRef(false);
+  const hiddenInputRef = useRef<HTMLInputElement | null>(null);
   const squareRef = useRef<HTMLButtonElement | null>(null);
   const [color, setColor] = useState(() => hexToHsv(defaultValue));
   const hex = useMemo(() => hsvToHex(color), [color]);
@@ -141,9 +151,24 @@ export function BrandColorPicker({
     updateShadeFromPointer(event);
   }
 
+  useEffect(() => {
+    if (!autosave) {
+      return;
+    }
+
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+
+    hiddenInputRef.current?.dispatchEvent(
+      new Event("input", { bubbles: true }),
+    );
+  }, [autosave, hex]);
+
   return (
     <section className="setting-card brand-color-picker">
-      <input name={name} type="hidden" value={hex} />
+      <input name={name} ref={hiddenInputRef} type="hidden" value={hex} />
       <div className="setting-card-heading">
         <strong>{label}</strong>
         <InfoBubble>{info}</InfoBubble>
