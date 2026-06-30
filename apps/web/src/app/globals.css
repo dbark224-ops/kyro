@@ -7110,6 +7110,10 @@ button.voice-card {
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
 }
 
+.inbox-workspace:has(.inbox-preview-transition-shell) {
+  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+}
+
 .crm-workspace {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
@@ -7144,6 +7148,66 @@ button.voice-card {
 
 .inbox-preview-close-button {
   background: color-mix(in srgb, var(--background) 64%, var(--pink) 10%);
+}
+
+.inbox-preview-transition-shell {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.inbox-preview-transition-shell > .inbox-inline-preview {
+  grid-area: 1 / 1;
+}
+
+.inbox-preview-loading-overlay,
+.inbox-preview-loading-panel {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+.inbox-preview-loading-overlay {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  border-radius: var(--radius-panel);
+  border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
+  background: color-mix(in srgb, var(--background) 78%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.inbox-preview-loading-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(320px, calc(100% - 32px));
+  border: 1px solid color-mix(in srgb, var(--cyan) 45%, var(--line));
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface) 92%, var(--cyan) 8%);
+  box-shadow: var(--shadow-soft);
+  padding: 12px 14px;
+}
+
+.inbox-preview-loading-card div {
+  display: grid;
+  gap: 2px;
+}
+
+.inbox-preview-loading-card strong,
+.inbox-preview-loading-card span {
+  line-height: 1.25;
+}
+
+.inbox-preview-loading-card strong {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.inbox-preview-loading-card span {
+  color: var(--muted);
+  font-size: 0.76rem;
 }
 
 .crm-list-panel,
@@ -7698,6 +7762,7 @@ button.voice-card {
 }
 
 .conversation-row {
+  position: relative;
   min-height: 46px;
   grid-template-columns:
     minmax(190px, 260px)
@@ -7708,6 +7773,24 @@ button.voice-card {
   gap: 10px;
   align-items: center;
   padding: 8px 12px 8px 18px;
+}
+
+.conversation-row[aria-busy="true"] {
+  border-color: color-mix(in srgb, var(--cyan) 58%, var(--line));
+}
+
+.conversation-row-loading {
+  position: absolute;
+  right: 12px;
+  bottom: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--cyan);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  pointer-events: none;
 }
 
 .conversation-row .data-main,
@@ -8331,6 +8414,10 @@ button:disabled {
   align-items: stretch;
 }
 
+.attachment-control-row-wide {
+  grid-template-columns: minmax(0, 1fr) minmax(128px, 0.38fr);
+}
+
 .local-attachment-button {
   position: relative;
   display: inline-flex !important;
@@ -8348,6 +8435,32 @@ button:disabled {
     border-color 160ms ease,
     background 160ms ease,
     color 160ms ease;
+}
+
+.local-attachment-button.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.local-attachment-upload-box {
+  width: 100%;
+  gap: 7px;
+  padding-inline: 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.local-attachment-icon {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 62%, var(--line));
+  border-radius: 999px;
+  color: var(--cyan);
+  font-size: 0.82rem;
+  line-height: 1;
 }
 
 .local-attachment-button:hover,

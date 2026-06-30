@@ -2,11 +2,14 @@ import {
   assertActionTransition,
   assertEventTransition,
   getInitialActionStatus,
-  type EventStatus
+  type EventStatus,
 } from "@kyro/api";
 import type { ActionStatus, ActionType } from "@kyro/contracts";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { recordOutboundMessage } from "../communication/outbound";
+import {
+  recordOutboundMessage,
+  type OutboundAttachment,
+} from "../communication/outbound";
 import {
   getCommunicationSettings,
   isOutboundChannel,
@@ -65,6 +68,10 @@ type TransitionAction = {
   result: Record<string, unknown>;
 };
 
+type ExecuteActionOptions = {
+  draftReplyAttachments?: OutboundAttachment[];
+};
+
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -114,7 +121,10 @@ function inferTemplateKey(value: string | null) {
   return "general_service_quote";
 }
 
-export async function insertAuditLog(supabase: SupabaseClient, input: AuditInput) {
+export async function insertAuditLog(
+  supabase: SupabaseClient,
+  input: AuditInput,
+) {
   const { error } = await supabase.from("audit_logs").insert({
     workspace_id: input.workspaceId,
     actor_type: input.actorType,
@@ -124,7 +134,7 @@ export async function insertAuditLog(supabase: SupabaseClient, input: AuditInput
     entity_id: input.entityId ?? null,
     before: input.before ?? null,
     after: input.after ?? null,
-    metadata: input.metadata ?? {}
+    metadata: input.metadata ?? {},
   });
 
   if (error) {
@@ -135,13 +145,13 @@ export async function insertAuditLog(supabase: SupabaseClient, input: AuditInput
 export async function requestStubAction(
   supabase: SupabaseClient,
   user: User,
-  workspaceId: string
+  workspaceId: string,
 ) {
   const idempotencyKey = `manual.stub_action.${crypto.randomUUID()}`;
   const eventPayload = {
     requestedByUserId: user.id,
     actionType: "create_task",
-    reason: "Manual dashboard smoke test"
+    reason: "Manual dashboard smoke test",
   };
 
   const { data: event, error: eventError } = await supabase
@@ -152,13 +162,15 @@ export async function requestStubAction(
       source: "web.dashboard",
       idempotency_key: idempotencyKey,
       payload: eventPayload,
-      status: "pending"
+      status: "pending",
     })
     .select("id,type,status")
     .single();
 
   if (eventError || !event) {
-    throw new Error(`Unable to record event: ${eventError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to record event: ${eventError?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -170,8 +182,8 @@ export async function requestStubAction(
     entityId: String(event.id),
     after: {
       type: event.type,
-      status: event.status
-    }
+      status: event.status,
+    },
   });
 
   const actionType: ActionType = "create_task";
@@ -190,19 +202,21 @@ export async function requestStubAction(
       input: {
         title: "Follow up on new inbound lead",
         eventId: event.id,
-        dryRun: true
+        dryRun: true,
       },
       result: {},
       policy_snapshot: {
         source: "dashboard_smoke_test",
-        mode: "require_approval"
-      }
+        mode: "require_approval",
+      },
     })
     .select("id,type,status")
     .single();
 
   if (actionError || !action) {
-    throw new Error(`Unable to request action: ${actionError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to request action: ${actionError?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -214,20 +228,23 @@ export async function requestStubAction(
     entityId: String(action.id),
     after: {
       type: action.type,
-      status: action.status
+      status: action.status,
     },
     metadata: {
-      eventId: event.id
-    }
+      eventId: event.id,
+    },
   });
 
   return {
     eventId: String(event.id),
-    actionId: String(action.id)
+    actionId: String(action.id),
   };
 }
 
-async function getActionForTransition(supabase: SupabaseClient, actionId: string) {
+async function getActionForTransition(
+  supabase: SupabaseClient,
+  actionId: string,
+) {
   const { data, error } = await supabase
     .from("actions")
     .select("id,workspace_id,status,type,target_type,target_id,input,result")
@@ -235,7 +252,9 @@ async function getActionForTransition(supabase: SupabaseClient, actionId: string
     .single();
 
   if (error || !data) {
-    throw new Error(`Unable to load action: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to load action: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   return {
@@ -246,23 +265,30 @@ async function getActionForTransition(supabase: SupabaseClient, actionId: string
     targetType: data.target_type ? String(data.target_type) : null,
     targetId: data.target_id ? String(data.target_id) : null,
     input: objectRecord(data.input),
-    result: objectRecord(data.result)
+    result: objectRecord(data.result),
   } satisfies TransitionAction;
 }
 
 async function recordDraftReplyOutbound(
   supabase: SupabaseClient,
   user: User,
-  action: TransitionAction
+  action: TransitionAction,
+  attachments: OutboundAttachment[] = [],
 ) {
-  if (action.type !== "draft_reply" || action.targetType !== "conversation" || !action.targetId) {
+  if (
+    action.type !== "draft_reply" ||
+    action.targetType !== "conversation" ||
+    !action.targetId
+  ) {
     return null;
   }
 
   const body = textValue(action.input.body);
 
   if (!body) {
-    throw new Error("Unable to execute draft reply because the reply body is empty.");
+    throw new Error(
+      "Unable to execute draft reply because the reply body is empty.",
+    );
   }
 
   const subject = textValue(action.input.subject) ?? "Thanks for reaching out";
@@ -272,9 +298,18 @@ async function recordDraftReplyOutbound(
     throw new Error(`${channelType} is not a supported outbound channel.`);
   }
 
-  const communicationSettings = await getCommunicationSettings(supabase, action.workspaceId);
-  const signatureVariant = signatureVariantFromActionInput(action.input, "ai_generated");
-  const signature = selectEmailSignature(communicationSettings, signatureVariant);
+  const communicationSettings = await getCommunicationSettings(
+    supabase,
+    action.workspaceId,
+  );
+  const signatureVariant = signatureVariantFromActionInput(
+    action.input,
+    "ai_generated",
+  );
+  const signature = selectEmailSignature(
+    communicationSettings,
+    signatureVariant,
+  );
   const signedBody = buildSignedEmailBody({ body, signature });
 
   const result = await recordOutboundMessage(supabase, {
@@ -286,25 +321,28 @@ async function recordDraftReplyOutbound(
     body: signedBody.bodyText,
     htmlBody: signedBody.htmlBody,
     attachmentQuoteDraftId: textValue(action.input.attachmentQuoteDraftId),
-    attachments: signedBody.inlineAttachments,
+    attachments: [...signedBody.inlineAttachments, ...attachments],
     source: "action.draft_reply",
     actionId: action.id,
     idempotencyKey: `action.${action.id}.draft_reply`,
     settingsSnapshot: {
       ...objectRecord(action.input.settingsSnapshot),
+      localAttachmentCount: attachments.length,
       signatureApplied: signedBody.signatureApplied,
       signatureVariant,
-    }
+    },
   });
 
   await insertAuditLog(supabase, {
     workspaceId: action.workspaceId,
     actorType: "system",
-    action: result.externalSend ? "message.outbound_sent" : "message.outbound_dry_run_recorded",
+    action: result.externalSend
+      ? "message.outbound_sent"
+      : "message.outbound_dry_run_recorded",
     entityType: "message",
     entityId: result.outboundMessageId,
     before: {
-      conversationStatus: result.previousConversationStatus
+      conversationStatus: result.previousConversationStatus,
     },
     after: {
       channelType: result.channelType,
@@ -314,12 +352,12 @@ async function recordDraftReplyOutbound(
       externalSend: result.externalSend,
       conversationId: action.targetId,
       sentTo: result.sentTo,
-      subject: result.subject
+      subject: result.subject,
     },
     metadata: {
       actionId: action.id,
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 
   return result;
@@ -328,9 +366,13 @@ async function recordDraftReplyOutbound(
 async function createQuoteDraftFromAction(
   supabase: SupabaseClient,
   user: User,
-  action: TransitionAction
+  action: TransitionAction,
 ) {
-  if (action.type !== "create_quote_draft" || action.targetType !== "conversation" || !action.targetId) {
+  if (
+    action.type !== "create_quote_draft" ||
+    action.targetType !== "conversation" ||
+    !action.targetId
+  ) {
     return null;
   }
 
@@ -342,11 +384,15 @@ async function createQuoteDraftFromAction(
     .maybeSingle();
 
   if (conversationError) {
-    throw new Error(`Unable to load quote draft conversation: ${conversationError.message}`);
+    throw new Error(
+      `Unable to load quote draft conversation: ${conversationError.message}`,
+    );
   }
 
   if (!conversation) {
-    throw new Error("Unable to create quote draft because the conversation was not found.");
+    throw new Error(
+      "Unable to create quote draft because the conversation was not found.",
+    );
   }
 
   const [contact, lead, savedFacts] = await Promise.all([
@@ -371,19 +417,25 @@ async function createQuoteDraftFromAction(
       .select("job_type,address,preferred_time,urgency,budget,fit,missing_info")
       .eq("workspace_id", action.workspaceId)
       .eq("conversation_id", action.targetId)
-      .maybeSingle()
+      .maybeSingle(),
   ]);
 
   if (contact.error) {
-    throw new Error(`Unable to load quote draft contact context: ${contact.error.message}`);
+    throw new Error(
+      `Unable to load quote draft contact context: ${contact.error.message}`,
+    );
   }
 
   if (lead.error) {
-    throw new Error(`Unable to load quote draft lead context: ${lead.error.message}`);
+    throw new Error(
+      `Unable to load quote draft lead context: ${lead.error.message}`,
+    );
   }
 
   if (savedFacts.error) {
-    throw new Error(`Unable to load quote draft inquiry facts: ${savedFacts.error.message}`);
+    throw new Error(
+      `Unable to load quote draft inquiry facts: ${savedFacts.error.message}`,
+    );
   }
 
   const draftInput = objectRecord(action.input.quoteDraft);
@@ -396,7 +448,8 @@ async function createQuoteDraftFromAction(
   const address =
     textValue(savedFacts.data?.address) ?? textValue(actionFacts.address);
   const preferredTime =
-    textValue(savedFacts.data?.preferred_time) ?? textValue(actionFacts.preferredTime);
+    textValue(savedFacts.data?.preferred_time) ??
+    textValue(actionFacts.preferredTime);
   const budget =
     textValue(savedFacts.data?.budget) ?? textValue(actionFacts.budget);
   const title =
@@ -432,7 +485,8 @@ async function createQuoteDraftFromAction(
         budget,
         customerCompany: textValue(contact.data?.company),
         customerEmail: textValue(contact.data?.email),
-        customerName: textValue(contact.data?.name) ?? textValue(contact.data?.company),
+        customerName:
+          textValue(contact.data?.name) ?? textValue(contact.data?.company),
         customerPhone: textValue(contact.data?.phone),
         source: "action.create_quote_draft",
         requestedByUserId: user.id,
@@ -448,19 +502,23 @@ async function createQuoteDraftFromAction(
               ? jsonTextList(savedFacts.data.missing_info)
               : jsonTextList(actionFacts.missingInfo),
           preferredTime,
-          urgency: textValue(savedFacts.data?.urgency) ?? textValue(actionFacts.urgency)
+          urgency:
+            textValue(savedFacts.data?.urgency) ??
+            textValue(actionFacts.urgency),
         },
         jobAddress: address,
         jobType,
         preferredTime,
         templateKey: inferTemplateKey(jobType),
-      }
+      },
     })
     .select("id,title,status")
     .single();
 
   if (quoteError || !quoteDraft) {
-    throw new Error(`Unable to create quote draft: ${quoteError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create quote draft: ${quoteError?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -473,12 +531,12 @@ async function createQuoteDraftFromAction(
       title: quoteDraft.title,
       status: quoteDraft.status,
       conversationId: action.targetId,
-      leadId: conversation.lead_id ? String(conversation.lead_id) : null
+      leadId: conversation.lead_id ? String(conversation.lead_id) : null,
     },
     metadata: {
       actionId: action.id,
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 
   return {
@@ -486,14 +544,14 @@ async function createQuoteDraftFromAction(
     conversationId: action.targetId,
     dryRun: true,
     externalSend: false,
-    executor: "quote_draft_creator"
+    executor: "quote_draft_creator",
   };
 }
 
 async function recordSendOutboundMessage(
   supabase: SupabaseClient,
   user: User,
-  action: TransitionAction
+  action: TransitionAction,
 ) {
   if (
     action.type !== "send_outbound_message" ||
@@ -512,12 +570,23 @@ async function recordSendOutboundMessage(
   const body = textValue(action.input.body);
 
   if (!body) {
-    throw new Error("Unable to record outbound message because the body is empty.");
+    throw new Error(
+      "Unable to record outbound message because the body is empty.",
+    );
   }
 
-  const communicationSettings = await getCommunicationSettings(supabase, action.workspaceId);
-  const signatureVariant = signatureVariantFromActionInput(action.input, "ai_generated");
-  const signature = selectEmailSignature(communicationSettings, signatureVariant);
+  const communicationSettings = await getCommunicationSettings(
+    supabase,
+    action.workspaceId,
+  );
+  const signatureVariant = signatureVariantFromActionInput(
+    action.input,
+    "ai_generated",
+  );
+  const signature = selectEmailSignature(
+    communicationSettings,
+    signatureVariant,
+  );
   const signedBody = buildSignedEmailBody({ body, signature });
 
   const result = await recordOutboundMessage(supabase, {
@@ -537,17 +606,19 @@ async function recordSendOutboundMessage(
       ...objectRecord(action.input.settingsSnapshot),
       signatureApplied: signedBody.signatureApplied,
       signatureVariant,
-    }
+    },
   });
 
   await insertAuditLog(supabase, {
     workspaceId: action.workspaceId,
     actorType: "system",
-    action: result.externalSend ? "message.outbound_sent" : "message.outbound_dry_run_recorded",
+    action: result.externalSend
+      ? "message.outbound_sent"
+      : "message.outbound_dry_run_recorded",
     entityType: "message",
     entityId: result.outboundMessageId,
     before: {
-      conversationStatus: result.previousConversationStatus
+      conversationStatus: result.previousConversationStatus,
     },
     after: {
       attachmentQuoteDraftId: result.attachmentQuoteDraftId,
@@ -558,24 +629,26 @@ async function recordSendOutboundMessage(
       externalMessageId: result.externalMessageId,
       externalSend: result.externalSend,
       sentTo: result.sentTo,
-      subject: result.subject
+      subject: result.subject,
     },
     metadata: {
       actionId: action.id,
       requestedByUserId: user.id,
-      source: "action.send_outbound_message"
-    }
+      source: "action.send_outbound_message",
+    },
   });
 
   if (result.attachmentQuoteDraftId && result.quoteDraftStatusAfter) {
     await insertAuditLog(supabase, {
       workspaceId: action.workspaceId,
       actorType: "system",
-      action: result.externalSend ? "quote_draft.sent_external" : "quote_draft.sent_dry_run",
+      action: result.externalSend
+        ? "quote_draft.sent_external"
+        : "quote_draft.sent_dry_run",
       entityType: "quote_draft",
       entityId: result.attachmentQuoteDraftId,
       before: {
-        status: result.quoteDraftStatusBefore
+        status: result.quoteDraftStatusBefore,
       },
       after: {
         status: result.quoteDraftStatusAfter,
@@ -584,13 +657,13 @@ async function recordSendOutboundMessage(
         dryRun: result.dryRun,
         externalMessageId: result.externalMessageId,
         externalSend: result.externalSend,
-        outboundMessageId: result.outboundMessageId
+        outboundMessageId: result.outboundMessageId,
       },
       metadata: {
         actionId: action.id,
         requestedByUserId: user.id,
-        source: "action.send_outbound_message"
-      }
+        source: "action.send_outbound_message",
+      },
     });
   }
 
@@ -600,20 +673,25 @@ async function recordSendOutboundMessage(
 async function applyMarkNotFitAction(
   supabase: SupabaseClient,
   user: User,
-  action: TransitionAction
+  action: TransitionAction,
 ) {
   if (action.type !== "mark_not_fit") {
     return null;
   }
 
   const leadId =
-    action.targetType === "lead" && action.targetId ? action.targetId : textValue(action.input.leadId);
+    action.targetType === "lead" && action.targetId
+      ? action.targetId
+      : textValue(action.input.leadId);
 
   if (!leadId) {
-    throw new Error("Unable to mark lead not fit because no lead is attached to the action.");
+    throw new Error(
+      "Unable to mark lead not fit because no lead is attached to the action.",
+    );
   }
 
-  const reason = textValue(action.input.reason) ?? "AI proposed this inquiry is not a fit.";
+  const reason =
+    textValue(action.input.reason) ?? "AI proposed this inquiry is not a fit.";
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .select("id,status,next_step")
@@ -622,18 +700,22 @@ async function applyMarkNotFitAction(
     .maybeSingle();
 
   if (leadError) {
-    throw new Error(`Unable to load lead for not-fit action: ${leadError.message}`);
+    throw new Error(
+      `Unable to load lead for not-fit action: ${leadError.message}`,
+    );
   }
 
   if (!lead) {
-    throw new Error("Unable to mark lead not fit because the lead was not found.");
+    throw new Error(
+      "Unable to mark lead not fit because the lead was not found.",
+    );
   }
 
   const { error: updateError } = await supabase
     .from("leads")
     .update({
       status: "not_fit",
-      next_step: reason
+      next_step: reason,
     })
     .eq("workspace_id", action.workspaceId)
     .eq("id", leadId);
@@ -650,23 +732,23 @@ async function applyMarkNotFitAction(
     entityId: leadId,
     before: {
       status: lead.status,
-      nextStep: lead.next_step
+      nextStep: lead.next_step,
     },
     after: {
       status: "not_fit",
-      nextStep: reason
+      nextStep: reason,
     },
     metadata: {
       actionId: action.id,
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 
   return {
     leadId,
     dryRun: false,
     externalSend: false,
-    executor: "lead_status_update"
+    executor: "lead_status_update",
   };
 }
 
@@ -677,7 +759,7 @@ function buildInternalActionDryRunResult(action: TransitionAction) {
       prompt: textValue(action.input.prompt),
       dryRun: true,
       externalSend: false,
-      executor: "missing_info_prompt"
+      executor: "missing_info_prompt",
     };
   }
 
@@ -687,7 +769,7 @@ function buildInternalActionDryRunResult(action: TransitionAction) {
       preferredTime: textValue(action.input.preferredTime),
       dryRun: true,
       externalSend: false,
-      executor: "site_visit_dry_run"
+      executor: "site_visit_dry_run",
     };
   }
 
@@ -697,7 +779,7 @@ function buildInternalActionDryRunResult(action: TransitionAction) {
       reason: textValue(action.input.reason),
       dryRun: true,
       externalSend: false,
-      executor: "follow_up_dry_run"
+      executor: "follow_up_dry_run",
     };
   }
 
@@ -707,7 +789,7 @@ function buildInternalActionDryRunResult(action: TransitionAction) {
 async function updateConversationWorkflowAfterAction(
   supabase: SupabaseClient,
   user: User,
-  action: TransitionAction
+  action: TransitionAction,
 ) {
   if (action.targetType !== "conversation" || !action.targetId) {
     return;
@@ -716,20 +798,20 @@ async function updateConversationWorkflowAfterAction(
   const workflowUpdate = {
     ask_missing_info: {
       nextStep: "Awaiting customer details",
-      status: "replied"
+      status: "replied",
     },
     book_site_visit: {
       nextStep: "Site visit plan recorded",
-      status: null
+      status: null,
     },
     create_quote_draft: {
       nextStep: "Quote draft created for review",
-      status: null
+      status: null,
     },
     schedule_follow_up: {
       nextStep: "Follow-up reminder recorded",
-      status: "replied"
-    }
+      status: "replied",
+    },
   }[action.type];
 
   if (!workflowUpdate) {
@@ -744,7 +826,9 @@ async function updateConversationWorkflowAfterAction(
     .maybeSingle();
 
   if (conversationError) {
-    throw new Error(`Unable to load conversation workflow target: ${conversationError.message}`);
+    throw new Error(
+      `Unable to load conversation workflow target: ${conversationError.message}`,
+    );
   }
 
   if (!conversation) {
@@ -752,21 +836,24 @@ async function updateConversationWorkflowAfterAction(
   }
 
   const beforeStatus = String(conversation.status);
-  const nextStatus = workflowUpdate.status && beforeStatus !== "resolved"
-    ? workflowUpdate.status
-    : null;
+  const nextStatus =
+    workflowUpdate.status && beforeStatus !== "resolved"
+      ? workflowUpdate.status
+      : null;
 
   if (nextStatus && nextStatus !== beforeStatus) {
     const { error: updateError } = await supabase
       .from("conversations")
       .update({
-        status: nextStatus
+        status: nextStatus,
       })
       .eq("workspace_id", action.workspaceId)
       .eq("id", action.targetId);
 
     if (updateError) {
-      throw new Error(`Unable to update conversation workflow status: ${updateError.message}`);
+      throw new Error(
+        `Unable to update conversation workflow status: ${updateError.message}`,
+      );
     }
 
     await insertAuditLog(supabase, {
@@ -776,16 +863,16 @@ async function updateConversationWorkflowAfterAction(
       entityType: "conversation",
       entityId: action.targetId,
       before: {
-        status: beforeStatus
+        status: beforeStatus,
       },
       after: {
-        status: nextStatus
+        status: nextStatus,
       },
       metadata: {
         actionId: action.id,
         actionType: action.type,
-        requestedByUserId: user.id
-      }
+        requestedByUserId: user.id,
+      },
     });
   }
 
@@ -803,7 +890,9 @@ async function updateConversationWorkflowAfterAction(
     .maybeSingle();
 
   if (leadError) {
-    throw new Error(`Unable to load lead workflow target: ${leadError.message}`);
+    throw new Error(
+      `Unable to load lead workflow target: ${leadError.message}`,
+    );
   }
 
   if (!lead) {
@@ -819,13 +908,15 @@ async function updateConversationWorkflowAfterAction(
   const { error: leadUpdateError } = await supabase
     .from("leads")
     .update({
-      next_step: workflowUpdate.nextStep
+      next_step: workflowUpdate.nextStep,
     })
     .eq("workspace_id", action.workspaceId)
     .eq("id", leadId);
 
   if (leadUpdateError) {
-    throw new Error(`Unable to update lead next step: ${leadUpdateError.message}`);
+    throw new Error(
+      `Unable to update lead next step: ${leadUpdateError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -835,28 +926,32 @@ async function updateConversationWorkflowAfterAction(
     entityType: "lead",
     entityId: leadId,
     before: {
-      nextStep: beforeNextStep
+      nextStep: beforeNextStep,
     },
     after: {
-      nextStep: workflowUpdate.nextStep
+      nextStep: workflowUpdate.nextStep,
     },
     metadata: {
       actionId: action.id,
       actionType: action.type,
       conversationId: action.targetId,
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 }
 
-export async function approveAction(supabase: SupabaseClient, user: User, actionId: string) {
+export async function approveAction(
+  supabase: SupabaseClient,
+  user: User,
+  actionId: string,
+) {
   const action = await getActionForTransition(supabase, actionId);
   assertActionTransition(action.status, "approved");
 
   const after = {
     status: "approved",
     approvedByUserId: user.id,
-    approvedAt: new Date().toISOString()
+    approvedAt: new Date().toISOString(),
   };
 
   const { data: approvedAction, error } = await supabase
@@ -864,7 +959,7 @@ export async function approveAction(supabase: SupabaseClient, user: User, action
     .update({
       status: after.status,
       approved_by_user_id: after.approvedByUserId,
-      approved_at: after.approvedAt
+      approved_at: after.approvedAt,
     })
     .eq("id", action.id)
     .eq("status", action.status)
@@ -887,27 +982,38 @@ export async function approveAction(supabase: SupabaseClient, user: User, action
     entityType: "action",
     entityId: action.id,
     before: {
-      status: action.status
+      status: action.status,
     },
-    after
+    after,
   });
 
-  if (action.type === "draft_reply" && action.targetType === "conversation" && action.targetId) {
+  if (
+    action.type === "draft_reply" &&
+    action.targetType === "conversation" &&
+    action.targetId
+  ) {
     const { error: conversationError } = await supabase
       .from("conversations")
       .update({
-        status: "reply_drafted"
+        status: "reply_drafted",
       })
       .eq("workspace_id", action.workspaceId)
       .eq("id", action.targetId);
 
     if (conversationError) {
-      throw new Error(`Unable to update conversation after approval: ${conversationError.message}`);
+      throw new Error(
+        `Unable to update conversation after approval: ${conversationError.message}`,
+      );
     }
   }
 }
 
-export async function executeAction(supabase: SupabaseClient, user: User, actionId: string) {
+export async function executeAction(
+  supabase: SupabaseClient,
+  user: User,
+  actionId: string,
+  options: ExecuteActionOptions = {},
+) {
   const action = await getActionForTransition(supabase, actionId);
   assertActionTransition(action.status, "executing");
 
@@ -916,7 +1022,7 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
     .from("actions")
     .update({
       status: "executing",
-      executed_at: executingAt
+      executed_at: executingAt,
     })
     .eq("id", action.id)
     .eq("status", action.status)
@@ -924,7 +1030,9 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
     .maybeSingle();
 
   if (executingError) {
-    throw new Error(`Unable to start action execution: ${executingError.message}`);
+    throw new Error(
+      `Unable to start action execution: ${executingError.message}`,
+    );
   }
 
   if (!executingAction) {
@@ -938,23 +1046,40 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
     entityType: "action",
     entityId: action.id,
     before: {
-      status: action.status
+      status: action.status,
     },
     after: {
-      status: "executing"
+      status: "executing",
     },
     metadata: {
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 
   let result: Record<string, unknown>;
 
   try {
-    const draftReplyResult = await recordDraftReplyOutbound(supabase, user, action);
-    const quoteDraftResult = await createQuoteDraftFromAction(supabase, user, action);
-    const outboundMessageResult = await recordSendOutboundMessage(supabase, user, action);
-    const markNotFitResult = await applyMarkNotFitAction(supabase, user, action);
+    const draftReplyResult = await recordDraftReplyOutbound(
+      supabase,
+      user,
+      action,
+      options.draftReplyAttachments ?? [],
+    );
+    const quoteDraftResult = await createQuoteDraftFromAction(
+      supabase,
+      user,
+      action,
+    );
+    const outboundMessageResult = await recordSendOutboundMessage(
+      supabase,
+      user,
+      action,
+    );
+    const markNotFitResult = await applyMarkNotFitAction(
+      supabase,
+      user,
+      action,
+    );
     const internalResult = buildInternalActionDryRunResult(action);
     const actionResult =
       draftReplyResult ??
@@ -972,7 +1097,7 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
       completedAt: new Date().toISOString(),
       note: actionResult?.externalSend
         ? "External send completed through the connected provider."
-        : "No external side effect was performed."
+        : "No external side effect was performed.",
     };
   } catch (error) {
     const failedAt = new Date().toISOString();
@@ -981,14 +1106,14 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
     const failedResult = {
       ...action.result,
       error: errorMessage,
-      failedAt
+      failedAt,
     };
 
     await supabase
       .from("actions")
       .update({
         result: failedResult,
-        status: "failed"
+        status: "failed",
       })
       .eq("id", action.id)
       .eq("status", "executing");
@@ -1000,15 +1125,15 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
       entityType: "action",
       entityId: action.id,
       before: {
-        status: "executing"
+        status: "executing",
       },
       after: {
         result: failedResult,
-        status: "failed"
+        status: "failed",
       },
       metadata: {
-        requestedByUserId: user.id
-      }
+        requestedByUserId: user.id,
+      },
     });
 
     throw error;
@@ -1018,7 +1143,7 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
     .from("actions")
     .update({
       status: "completed",
-      result
+      result,
     })
     .eq("id", action.id)
     .eq("status", "executing")
@@ -1026,7 +1151,9 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
     .maybeSingle();
 
   if (completedError) {
-    throw new Error(`Unable to complete action execution: ${completedError.message}`);
+    throw new Error(
+      `Unable to complete action execution: ${completedError.message}`,
+    );
   }
 
   if (!completedAction) {
@@ -1040,19 +1167,23 @@ export async function executeAction(supabase: SupabaseClient, user: User, action
     entityType: "action",
     entityId: action.id,
     before: {
-      status: "executing"
+      status: "executing",
     },
     after: {
       status: "completed",
-      result
+      result,
     },
     metadata: {
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 }
 
-export async function processNextEvent(supabase: SupabaseClient, user: User, workspaceId: string) {
+export async function processNextEvent(
+  supabase: SupabaseClient,
+  user: User,
+  workspaceId: string,
+) {
   const { data: event, error: loadError } = await supabase
     .from("events")
     .select("id,type,status")
@@ -1077,12 +1208,14 @@ export async function processNextEvent(supabase: SupabaseClient, user: User, wor
   const { error: processingError } = await supabase
     .from("events")
     .update({
-      status: "processing"
+      status: "processing",
     })
     .eq("id", eventId);
 
   if (processingError) {
-    throw new Error(`Unable to mark event processing: ${processingError.message}`);
+    throw new Error(
+      `Unable to mark event processing: ${processingError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -1092,26 +1225,28 @@ export async function processNextEvent(supabase: SupabaseClient, user: User, wor
     entityType: "event",
     entityId: eventId,
     before: {
-      status: eventStatus
+      status: eventStatus,
     },
     after: {
-      status: "processing"
+      status: "processing",
     },
     metadata: {
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 
   const { error: processedError } = await supabase
     .from("events")
     .update({
       status: "processed",
-      processed_at: new Date().toISOString()
+      processed_at: new Date().toISOString(),
     })
     .eq("id", eventId);
 
   if (processedError) {
-    throw new Error(`Unable to mark event processed: ${processedError.message}`);
+    throw new Error(
+      `Unable to mark event processed: ${processedError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -1121,20 +1256,23 @@ export async function processNextEvent(supabase: SupabaseClient, user: User, wor
     entityType: "event",
     entityId: eventId,
     before: {
-      status: "processing"
+      status: "processing",
     },
     after: {
-      status: "processed"
+      status: "processed",
     },
     metadata: {
-      requestedByUserId: user.id
-    }
+      requestedByUserId: user.id,
+    },
   });
 
   return eventId;
 }
 
-export async function getEngineQueues(supabase: SupabaseClient, workspaceId: string) {
+export async function getEngineQueues(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
   const [actions, events, auditLogs] = await Promise.all([
     supabase
       .from("actions")
@@ -1153,7 +1291,7 @@ export async function getEngineQueues(supabase: SupabaseClient, workspaceId: str
       .select("id,action,actor_type,entity_type,created_at")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(5)
+      .limit(5),
   ]);
 
   if (actions.error) {
@@ -1170,7 +1308,12 @@ export async function getEngineQueues(supabase: SupabaseClient, workspaceId: str
 
   return {
     actions: (actions.data ?? [])
-      .filter((action) => !["ask_missing_info", "schedule_follow_up"].includes(String(action.type)))
+      .filter(
+        (action) =>
+          !["ask_missing_info", "schedule_follow_up"].includes(
+            String(action.type),
+          ),
+      )
       .slice(0, 5)
       .map((action) => ({
         id: String(action.id),
@@ -1178,21 +1321,21 @@ export async function getEngineQueues(supabase: SupabaseClient, workspaceId: str
         status: String(action.status) as ActionStatus,
         approvalRequired: Boolean(action.approval_required),
         requestedBy: String(action.requested_by),
-        createdAt: String(action.created_at)
+        createdAt: String(action.created_at),
       })),
     events: (events.data ?? []).map((event) => ({
       id: String(event.id),
       type: String(event.type),
       source: String(event.source),
       status: String(event.status) as EventStatus,
-      createdAt: String(event.created_at)
+      createdAt: String(event.created_at),
     })),
     auditLogs: (auditLogs.data ?? []).map((log) => ({
       id: String(log.id),
       action: String(log.action),
       actorType: String(log.actor_type),
       entityType: String(log.entity_type),
-      createdAt: String(log.created_at)
-    }))
+      createdAt: String(log.created_at),
+    })),
   };
 }

@@ -1097,6 +1097,11 @@ export async function sendDraftReplyAction(formData: FormData) {
     );
   }
 
+  const localAttachments = await readLocalAttachments(
+    formData,
+    conversationId,
+    redirectTo,
+  );
   const { supabase, user, workspace } = await requireWorkspaceContext();
   await assertQuoteDraftBelongsToConversation({
     attachmentQuoteDraftId,
@@ -1159,12 +1164,14 @@ export async function sendDraftReplyAction(formData: FormData) {
   const attachmentChanged =
     (textValue(before.attachmentQuoteDraftId) ?? null) !==
     attachmentQuoteDraftId;
+  const localAttachmentChanged = localAttachments.length > 0;
   const userEditedDraft =
     Boolean(before.userEditedDraft) ||
     Boolean(before.editedByUserId) ||
     subjectChanged ||
     bodyChanged ||
-    attachmentChanged;
+    attachmentChanged ||
+    localAttachmentChanged;
   const signatureVariant = userEditedDraft ? "manual" : "ai_generated";
   const after = {
     ...before,
@@ -1174,6 +1181,10 @@ export async function sendDraftReplyAction(formData: FormData) {
     gmailExternalSendEnabled: true,
     settingsSnapshot: {
       ...objectRecord(before.settingsSnapshot),
+      localAttachmentCount: localAttachments.length,
+      localAttachmentFilenames: localAttachments.map(
+        (attachment) => attachment.filename,
+      ),
       signatureVariant,
       userEditedDraft,
     },
@@ -1225,7 +1236,9 @@ export async function sendDraftReplyAction(formData: FormData) {
 
   try {
     await approveAction(supabase, user, actionId);
-    await executeAction(supabase, user, actionId);
+    await executeAction(supabase, user, actionId, {
+      draftReplyAttachments: localAttachments,
+    });
   } catch (error) {
     redirectWithConversationMessage(
       conversationId,

@@ -32,6 +32,10 @@ import {
   updateDraftReplyAction,
 } from "./actions";
 import { ConversationWorkflowPanel } from "./conversation-workflow-panel";
+import {
+  InboxConversationLink,
+  InboxPreviewTransitionShell,
+} from "./inbox-preview-loading";
 import { InboxSubmitButton } from "./inbox-submit-button";
 import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
@@ -44,7 +48,6 @@ import {
   approveDashboardAction,
   executeDashboardAction,
 } from "../engine/actions";
-import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import Link from "next/link";
 import { MessageAttachmentList } from "../components/message-attachments";
 import type { ReactNode } from "react";
@@ -762,6 +765,7 @@ function InboxDraftReplyAction({
       <form
         action={canEdit ? sendDraftReplyAction : executeDashboardAction}
         className="draft-reply-form"
+        encType="multipart/form-data"
       >
         <input name="actionId" type="hidden" value={action.id} />
         <input name="conversationId" type="hidden" value={conversationId} />
@@ -791,18 +795,40 @@ function InboxDraftReplyAction({
           </label>
           <label>
             Attach
-            <select
-              defaultValue={draftAttachmentId}
-              disabled={!canEdit}
-              name="attachmentQuoteDraftId"
-            >
-              <option value="">No attachment</option>
-              {quoteDrafts.map((quoteDraft) => (
-                <option key={quoteDraft.id} value={quoteDraft.id}>
-                  {quoteDraft.title}
-                </option>
-              ))}
-            </select>
+            <div className="attachment-control-row attachment-control-row-wide">
+              <select
+                defaultValue={draftAttachmentId}
+                disabled={!canEdit}
+                name="attachmentQuoteDraftId"
+              >
+                <option value="">No Kyro file</option>
+                {quoteDrafts.map((quoteDraft) => (
+                  <option key={quoteDraft.id} value={quoteDraft.id}>
+                    {quoteDraft.title}
+                  </option>
+                ))}
+              </select>
+              <label
+                className={
+                  canEdit
+                    ? "local-attachment-button local-attachment-upload-box"
+                    : "local-attachment-button local-attachment-upload-box disabled"
+                }
+                title="Attach local files, up to 5 files and 10 MB total"
+              >
+                <input
+                  aria-label="Attach local files"
+                  disabled={!canEdit}
+                  multiple
+                  name="localAttachments"
+                  type="file"
+                />
+                <span aria-hidden="true" className="local-attachment-icon">
+                  +
+                </span>
+                <span>Upload files</span>
+              </label>
+            </div>
           </label>
         </div>
         <label>
@@ -1658,7 +1684,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       : "";
 
                 return (
-                  <SmartPrefetchLink
+                  <InboxConversationLink
                     className={[
                       "data-row conversation-row",
                       conversation.leadPriority === "high" ||
@@ -1679,6 +1705,9 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       sort: activeSort,
                     })}
                     key={conversation.id}
+                    conversationId={conversation.id}
+                    label={jobType}
+                    selected={isSelected}
                   >
                     <div className="data-main">
                       <div className="conversation-row-title">
@@ -1707,7 +1736,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                         {conversation.nextActionLabel}
                       </span>
                     </div>
-                  </SmartPrefetchLink>
+                  </InboxConversationLink>
                 );
               })
             ) : (
@@ -1779,14 +1808,18 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             sort={activeSort}
           />
         ) : null}
-        {selectedConversationReview ? (
-          <InboxSplitPreview
-            closeHref={closePreviewHref}
-            communicationSettings={communicationSettings!}
-            profile={selectedConversationReview}
-            redirectTo={selectedRedirectHref}
-          />
-        ) : null}
+        <InboxPreviewTransitionShell
+          selectedConversationId={selectedConversationReview?.conversation.id}
+        >
+          {selectedConversationReview ? (
+            <InboxSplitPreview
+              closeHref={closePreviewHref}
+              communicationSettings={communicationSettings!}
+              profile={selectedConversationReview}
+              redirectTo={selectedRedirectHref}
+            />
+          ) : null}
+        </InboxPreviewTransitionShell>
       </section>
     </AppFrame>
   );
