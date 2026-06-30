@@ -56,6 +56,7 @@ function buildKyroVerificationEmail({
 }) {
   const escapedActionLink = escapeHtml(actionLink);
   const escapedEmail = escapeHtml(email);
+  const logoUrl = escapeHtml(`${getPublicAppUrl()}/brand/kyro-email-logo.png`);
   const text = [
     "Verify your Kyro email",
     "",
@@ -75,9 +76,7 @@ function buildKyroVerificationEmail({
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#0d1018;border:1px solid #273244;border-radius:18px;overflow:hidden;">
             <tr>
               <td style="padding:28px 30px 8px;">
-                <div style="font-size:42px;font-weight:800;letter-spacing:0;color:#f8fbff;">
-                  <span style="color:#51E5FF;">Ky</span><span style="color:#a992df;">ro</span><span style="color:#EC368D;">.</span>
-                </div>
+                <img src="${logoUrl}" width="180" height="90" alt="Kyro" style="display:block;width:180px;height:auto;border:0;outline:none;text-decoration:none;">
               </td>
             </tr>
             <tr>
