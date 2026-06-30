@@ -1069,7 +1069,7 @@ export function AssistantConsole({
           ) : null}
         </form>
 
-        <AssistantDevDiagnostics state={state} />
+        {isDeveloperAccount ? <AssistantDevDiagnostics state={state} /> : null}
       </section>
 
       {isPreviewOpen ? (

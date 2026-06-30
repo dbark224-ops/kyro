@@ -614,6 +614,7 @@ export function AppFrame({
 }>) {
   const activeHref = navItems.find((item) => item.label === active)?.href;
   const fitFoldPages = new Set([
+    "Assistant",
     "Activity",
     "CRM",
     "Files",
