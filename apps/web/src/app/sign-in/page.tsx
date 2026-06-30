@@ -67,7 +67,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         <SignInForm action={signInAction} />
 
         <p className="auth-link-row">
-          New to Kyro? <Link href="/waitlist">Join the waitlist</Link>
+          New to Kyro? <Link href="/create-account">Create account</Link>
         </p>
       </section>
     </main>
