@@ -8595,7 +8595,7 @@ button:disabled {
 }
 
 .availability-day-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr));
 }
 
 .availability-day-column {
@@ -8607,8 +8607,8 @@ button:disabled {
 
 .availability-day-row {
   display: grid;
-  grid-template-columns: minmax(84px, 1fr) repeat(2, minmax(88px, 96px));
-  gap: 6px;
+  grid-template-columns: minmax(128px, 1fr) repeat(2, minmax(142px, 150px));
+  gap: 8px;
   align-items: end;
   border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
   border-radius: var(--radius-control);
@@ -8646,9 +8646,9 @@ button:disabled {
 .availability-day-row input[type="time"] {
   box-sizing: border-box;
   width: 100%;
-  min-width: 0;
+  min-width: 132px;
   min-height: 34px;
-  padding: 6px 5px;
+  padding: 6px 8px;
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
 }
