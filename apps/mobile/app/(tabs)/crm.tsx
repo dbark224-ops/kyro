@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
+  ArrowUpDown,
   CheckCircle2,
   ChevronLeft,
   FileText,
   Mail,
   Search,
-  SlidersHorizontal,
   UserPen,
   Users,
-  X
+  X,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -18,20 +18,25 @@ import { DataState } from "@/components/DataState";
 import {
   SkeletonIcon,
   SkeletonLine,
-  SkeletonPill
+  SkeletonPill,
 } from "@/components/LoadingSkeleton";
 import { Screen } from "@/components/Screen";
-import { ListRow, SectionCard, SectionHeader, StatusPill } from "@/components/ui";
+import {
+  ListRow,
+  SectionCard,
+  SectionHeader,
+  StatusPill,
+} from "@/components/ui";
 import { useAuthSession } from "@/features/auth/auth-context";
 import { kyroApiFetch } from "@/lib/kyro-api";
 import type {
   ContactListItem,
   MobileCrmContactProfile,
-  MobileCrmContactProfileResponse
+  MobileCrmContactProfileResponse,
 } from "@/lib/mobile-api-types";
 import {
   mobileCrmContactQueryOptions,
-  mobileCrmQueryOptions
+  mobileCrmQueryOptions,
 } from "@/lib/mobile-query";
 import { colors, radii, typography } from "@/theme";
 
@@ -40,7 +45,8 @@ export default function CrmScreen() {
   const router = useRouter();
   const { session, status } = useAuthSession();
   const queryClient = useQueryClient();
-  const contactId = typeof params.contactId === "string" ? params.contactId : null;
+  const contactId =
+    typeof params.contactId === "string" ? params.contactId : null;
   const [addressQuery, setAddressQuery] = useState("");
   const [contactFilter, setContactFilter] = useState<CrmFilter>("all");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -48,7 +54,7 @@ export default function CrmScreen() {
   const [sortMode, setSortMode] = useState<CrmSort>("recent");
   const crm = useQuery({
     ...mobileCrmQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const contactProfile = useQuery({
     ...mobileCrmContactQueryOptions(session, contactId),
@@ -61,44 +67,64 @@ export default function CrmScreen() {
         addressQuery,
         contactFilter,
         searchQuery,
-        sortMode
+        sortMode,
       }),
-    [addressQuery, contactFilter, data?.contacts, searchQuery, sortMode]
+    [addressQuery, contactFilter, data?.contacts, searchQuery, sortMode],
   );
   const addressSuggestions = useMemo(
     () =>
-      [...new Set((data?.contacts ?? []).map((contact) => contact.address).filter(Boolean))]
+      [
+        ...new Set(
+          (data?.contacts ?? [])
+            .map((contact) => contact.address)
+            .filter(Boolean),
+        ),
+      ]
         .filter((address): address is string => Boolean(address))
         .filter((address) =>
-          address.toLowerCase().includes(addressQuery.trim().toLowerCase())
+          address.toLowerCase().includes(addressQuery.trim().toLowerCase()),
         )
         .slice(0, 4),
-    [addressQuery, data?.contacts]
+    [addressQuery, data?.contacts],
   );
   const isCrmLoading =
     status === "loading" ||
-    (status === "signed-in" && (contactId ? contactProfile.isLoading : crm.isLoading));
+    (status === "signed-in" &&
+      (contactId ? contactProfile.isLoading : crm.isLoading));
 
   return (
     <Screen
       compactHeaderEmphasis
       compactHeaderLabel={
-        contactProfile.data?.workspace.name ?? data?.workspace.name ?? "Workspace"
+        contactProfile.data?.workspace.name ??
+        data?.workspace.name ??
+        "Workspace"
       }
       metrics={
         data && !contactId
           ? [
-              { label: "Contacts", tone: "cyan", value: String(data.contacts.length) },
+              {
+                label: "Contacts",
+                tone: "cyan",
+                value: String(data.contacts.length),
+              },
               {
                 label: "Clients",
                 tone: "pink",
-                value: String(data.contacts.filter((contact) => contact.contactType === "client").length)
+                value: String(
+                  data.contacts.filter(
+                    (contact) => contact.contactType === "client",
+                  ).length,
+                ),
               },
               {
                 label: "Recent",
                 tone: "purple",
-                value: String(data.contacts.filter((contact) => contact.messageCount > 0).length)
-              }
+                value: String(
+                  data.contacts.filter((contact) => contact.messageCount > 0)
+                    .length,
+                ),
+              },
             ]
           : []
       }
@@ -122,7 +148,7 @@ export default function CrmScreen() {
           onOpenConversation={(conversationId) =>
             router.push({
               pathname: "/(tabs)/inbox",
-              params: { conversationId }
+              params: { conversationId },
             })
           }
         />
@@ -131,111 +157,136 @@ export default function CrmScreen() {
         <>
           {!contactId ? (
             <>
-          <View style={styles.controlsRow}>
-            <View style={styles.searchBox}>
-              <Search color={colors.muted} size={18} />
-              <TextInput
-                onChangeText={setSearchQuery}
-                placeholder="Search"
-                placeholderTextColor={colors.muted}
-                style={styles.searchInput}
-                value={searchQuery}
-              />
-              {searchQuery ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setSearchQuery("")}
-                  style={styles.iconButtonSmall}
-                >
-                  <X color={colors.muted} size={15} />
-                </Pressable>
-              ) : null}
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setIsFilterOpen((current) => !current)}
-              style={({ pressed }) => [
-                styles.filterButton,
-                pressed ? styles.pressed : null
-              ]}
-            >
-              <SlidersHorizontal color={colors.text} size={18} />
-            </Pressable>
-          </View>
-          {isFilterOpen ? (
-            <SectionCard style={styles.filterMenu}>
-              <FilterGroup
-                label="Type"
-                onChange={setContactFilter}
-                options={crmFilterOptions}
-                value={contactFilter}
-              />
-              <FilterGroup
-                label="Sort"
-                onChange={setSortMode}
-                options={crmSortOptions}
-                value={sortMode}
-              />
-              <TextInput
-                onChangeText={setAddressQuery}
-                placeholder="Address"
-                placeholderTextColor={colors.muted}
-                style={styles.detailInput}
-                value={addressQuery}
-              />
-              {addressSuggestions.length ? (
-                <View style={styles.suggestionRow}>
-                  {addressSuggestions.map((address) => (
+              <View style={styles.controlsRow}>
+                <View style={styles.searchBox}>
+                  <Search color={colors.muted} size={18} />
+                  <TextInput
+                    onChangeText={setSearchQuery}
+                    placeholder="Search"
+                    placeholderTextColor={colors.muted}
+                    style={styles.searchInput}
+                    value={searchQuery}
+                  />
+                  {searchQuery ? (
                     <Pressable
                       accessibilityRole="button"
-                      key={address}
-                      onPress={() => setAddressQuery(address)}
-                      style={styles.suggestionChip}
+                      onPress={() => setSearchQuery("")}
+                      style={styles.iconButtonSmall}
                     >
-                      <Text numberOfLines={1} style={styles.suggestionText}>
-                        {address}
-                      </Text>
+                      <X color={colors.muted} size={15} />
                     </Pressable>
-                  ))}
+                  ) : null}
                 </View>
-              ) : null}
-            </SectionCard>
-          ) : null}
-
-          <SectionCard>
-            {filteredContacts.length > 0 ? (
-              filteredContacts.map((contact) => (
                 <Pressable
                   accessibilityRole="button"
-                  key={contact.id}
-                  onPress={() => router.setParams({ contactId: contact.id })}
-                  onPressIn={() => {
-                    void queryClient.prefetchQuery(
-                      mobileCrmContactQueryOptions(session, contact.id)
-                    );
-                  }}
+                  accessibilityLabel={`Sort contacts by ${sortLabel(sortMode)}`}
+                  onPress={() => setSortMode(nextSortMode(sortMode))}
                   style={({ pressed }) => [
-                    pressed ? styles.pressed : null
+                    styles.sortButton,
+                    sortMode !== "recent" ? styles.sortButtonActive : null,
+                    pressed ? styles.pressed : null,
                   ]}
                 >
-                  <ListRow
-                    right={<StatusPill label={formatLabel(contact.contactType)} tone="neutral" />}
-                  >
-                    <Text style={styles.name}>
-                      {contact.name ?? contact.company ?? "Unnamed contact"}
-                    </Text>
-                    <Text style={styles.company}>{contact.company ?? contact.email ?? contact.phone ?? "-"}</Text>
-                    <Text style={styles.notes}>
-                      {contact.messageCount} messages
-                      {contact.address ? ` - ${contact.address}` : ""}
-                    </Text>
-                  </ListRow>
+                  <ArrowUpDown
+                    color={
+                      sortMode !== "recent" ? colors.background : colors.text
+                    }
+                    size={18}
+                  />
                 </Pressable>
-              ))
-            ) : (
-              <Text style={styles.emptyText}>No contacts match those filters.</Text>
-            )}
-          </SectionCard>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setIsFilterOpen((current) => !current)}
+                style={({ pressed }) => [
+                  styles.advancedSearchLink,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <Text style={styles.advancedSearchText}>
+                  {isFilterOpen ? "Hide advanced search" : "Advanced search"}
+                </Text>
+              </Pressable>
+              {isFilterOpen ? (
+                <SectionCard style={styles.filterMenu}>
+                  <FilterGroup
+                    label="Type"
+                    onChange={setContactFilter}
+                    options={crmFilterOptions}
+                    value={contactFilter}
+                  />
+                  <TextInput
+                    onChangeText={setAddressQuery}
+                    placeholder="Address"
+                    placeholderTextColor={colors.muted}
+                    style={styles.detailInput}
+                    value={addressQuery}
+                  />
+                  {addressSuggestions.length ? (
+                    <View style={styles.suggestionRow}>
+                      {addressSuggestions.map((address) => (
+                        <Pressable
+                          accessibilityRole="button"
+                          key={address}
+                          onPress={() => setAddressQuery(address)}
+                          style={styles.suggestionChip}
+                        >
+                          <Text numberOfLines={1} style={styles.suggestionText}>
+                            {address}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </SectionCard>
+              ) : null}
+
+              <SectionCard>
+                {filteredContacts.length > 0 ? (
+                  filteredContacts.map((contact) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      key={contact.id}
+                      onPress={() =>
+                        router.setParams({ contactId: contact.id })
+                      }
+                      onPressIn={() => {
+                        void queryClient.prefetchQuery(
+                          mobileCrmContactQueryOptions(session, contact.id),
+                        );
+                      }}
+                      style={({ pressed }) => [pressed ? styles.pressed : null]}
+                    >
+                      <ListRow
+                        right={
+                          <StatusPill
+                            label={formatLabel(contact.contactType)}
+                            tone="neutral"
+                          />
+                        }
+                      >
+                        <Text style={styles.name}>
+                          {contact.name ?? contact.company ?? "Unnamed contact"}
+                        </Text>
+                        <Text style={styles.company}>
+                          {contact.company ??
+                            contact.email ??
+                            contact.phone ??
+                            "-"}
+                        </Text>
+                        <Text style={styles.notes}>
+                          {contact.messageCount} messages
+                          {contact.address ? ` - ${contact.address}` : ""}
+                        </Text>
+                      </ListRow>
+                    </Pressable>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>
+                    No contacts match those filters.
+                  </Text>
+                )}
+              </SectionCard>
             </>
           ) : null}
         </>
@@ -247,7 +298,7 @@ export default function CrmScreen() {
 function ContactProfileScreen({
   onBack,
   onOpenConversation,
-  profile
+  profile,
 }: {
   onBack: () => void;
   onOpenConversation: (conversationId: string) => void;
@@ -259,11 +310,15 @@ function ContactProfileScreen({
   const [isEditing, setIsEditing] = useState(false);
   const [lifecycleReason, setLifecycleReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
-  const detailQueryKey = ["mobile-crm-contact", session?.user.id, profile?.contact.id ?? null];
+  const detailQueryKey = [
+    "mobile-crm-contact",
+    session?.user.id,
+    profile?.contact.id ?? null,
+  ];
   const crmMutation = useMutation({
     mutationFn: ({
       body,
-      contactId
+      contactId,
     }: {
       body: Record<string, unknown>;
       contactId: string;
@@ -273,20 +328,24 @@ function ContactProfileScreen({
         {
           body,
           method: "PATCH",
-          session
-        }
+          session,
+        },
       ),
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Unable to update CRM profile.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to update CRM profile.",
+      );
     },
     onSuccess: (result) => {
       setMessage(result.message);
       setIsEditing(false);
       queryClient.setQueryData(detailQueryKey, result.profile);
       void queryClient.invalidateQueries({
-        queryKey: ["mobile-crm", session?.user.id]
+        queryKey: ["mobile-crm", session?.user.id],
       });
-    }
+    },
   });
 
   useEffect(() => {
@@ -301,7 +360,7 @@ function ContactProfileScreen({
       email: profile.contact.email ?? "",
       name: profile.contact.name ?? "",
       notes: profile.contact.notes ?? "",
-      phone: profile.contact.phone ?? ""
+      phone: profile.contact.phone ?? "",
     });
     setLifecycleReason(profile.contact.lifecycleReason ?? "");
   }, [profile]);
@@ -311,31 +370,34 @@ function ContactProfileScreen({
   }
 
   const contact = profile.contact;
-  const values =
-    editValues ?? {
-      address: contact.address ?? "",
-      company: contact.company ?? "",
-      contactType: contact.contactType,
-      email: contact.email ?? "",
-      name: contact.name ?? "",
-      notes: contact.notes ?? "",
-      phone: contact.phone ?? ""
-    };
+  const values = editValues ?? {
+    address: contact.address ?? "",
+    company: contact.company ?? "",
+    contactType: contact.contactType,
+    email: contact.email ?? "",
+    name: contact.name ?? "",
+    notes: contact.notes ?? "",
+    phone: contact.phone ?? "",
+  };
   const updateEditValue = (key: keyof ContactEditValues, value: string) => {
     setEditValues((current) => ({
       ...(current ?? values),
-      [key]: value
+      [key]: value,
     }));
   };
   const runContactOperation = (body: Record<string, unknown>) =>
     crmMutation.mutate({
       body,
-      contactId: contact.id
+      contactId: contact.id,
     });
 
   return (
     <>
-      <Pressable accessibilityRole="button" onPress={onBack} style={styles.backButton}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onBack}
+        style={styles.backButton}
+      >
         <ChevronLeft color={colors.text} size={20} />
         <Text style={styles.backButtonText}>CRM</Text>
       </Pressable>
@@ -357,7 +419,10 @@ function ContactProfileScreen({
           title={profile.title}
         />
         <View style={styles.profileMetrics}>
-          <MiniMetric label="Messages" value={String(profile.counts.messages)} />
+          <MiniMetric
+            label="Messages"
+            value={String(profile.counts.messages)}
+          />
           <MiniMetric label="Leads" value={String(profile.counts.leads)} />
           <MiniMetric label="Docs" value={String(profile.counts.quoteDrafts)} />
         </View>
@@ -424,13 +489,13 @@ function ContactProfileScreen({
             onPress={() =>
               runContactOperation({
                 ...values,
-                operation: "update_profile"
+                operation: "update_profile",
               })
             }
             style={({ pressed }) => [
               styles.primaryAction,
               pressed ? styles.pressed : null,
-              crmMutation.isPending ? styles.disabled : null
+              crmMutation.isPending ? styles.disabled : null,
             ]}
           >
             <Text style={styles.primaryActionText}>
@@ -459,7 +524,11 @@ function ContactProfileScreen({
             <View key={candidate.id} style={styles.mergeCandidateRow}>
               <View style={styles.rowMain}>
                 <Text style={styles.name}>
-                  {candidate.name ?? candidate.company ?? candidate.email ?? candidate.phone ?? "Contact"}
+                  {candidate.name ??
+                    candidate.company ??
+                    candidate.email ??
+                    candidate.phone ??
+                    "Contact"}
                 </Text>
                 <Text style={styles.notes}>
                   {candidate.matchFields.map(formatLabel).join(", ")}
@@ -471,7 +540,7 @@ function ContactProfileScreen({
                 onPress={() =>
                   runContactOperation({
                     operation: "merge_contact",
-                    sourceContactId: candidate.id
+                    sourceContactId: candidate.id,
                   })
                 }
                 style={styles.smallAction}
@@ -485,9 +554,11 @@ function ContactProfileScreen({
             disabled={crmMutation.isPending}
             onPress={() =>
               runContactOperation({
-                candidateIds: profile.resolutionCandidates.map((candidate) => candidate.id),
+                candidateIds: profile.resolutionCandidates.map(
+                  (candidate) => candidate.id,
+                ),
                 operation: "resolve_conflict",
-                reason: "User dismissed duplicate warning in mobile CRM."
+                reason: "User dismissed duplicate warning in mobile CRM.",
               })
             }
             style={styles.secondaryAction}
@@ -499,7 +570,12 @@ function ContactProfileScreen({
 
       <SectionCard>
         <SectionHeader
-          action={<StatusPill label={formatLabel(contact.lifecycleStage)} tone="purple" />}
+          action={
+            <StatusPill
+              label={formatLabel(contact.lifecycleStage)}
+              tone="purple"
+            />
+          }
           title="Details"
         />
         <FactRows
@@ -510,10 +586,12 @@ function ContactProfileScreen({
             ["Address", contact.address],
             ["Lifecycle", formatLabel(contact.lifecycleStage)],
             ["Source", formatLabel(contact.source ?? contact.lifecycleSource)],
-            ["Updated", formatDate(contact.updatedAt)]
+            ["Updated", formatDate(contact.updatedAt)],
           ]}
         />
-        {contact.notes ? <Text style={styles.notes}>{contact.notes}</Text> : null}
+        {contact.notes ? (
+          <Text style={styles.notes}>{contact.notes}</Text>
+        ) : null}
       </SectionCard>
 
       <SectionCard>
@@ -524,7 +602,7 @@ function ContactProfileScreen({
             runContactOperation({
               lifecycleReason,
               lifecycleStage: stage,
-              operation: "set_lifecycle"
+              operation: "set_lifecycle",
             })
           }
           options={lifecycleOptions}
@@ -586,7 +664,7 @@ function ContactProfileScreen({
                   styles.messageCard,
                   message.direction === "outbound"
                     ? styles.messageOutbound
-                    : styles.messageInbound
+                    : styles.messageInbound,
                 ]}
               >
                 <View style={styles.messageTop}>
@@ -595,7 +673,9 @@ function ContactProfileScreen({
                   </View>
                   <Text style={styles.messageMeta}>
                     {formatLabel(message.direction)} -{" "}
-                    {formatDate(message.receivedAt ?? message.sentAt ?? message.createdAt)}
+                    {formatDate(
+                      message.receivedAt ?? message.sentAt ?? message.createdAt,
+                    )}
                   </Text>
                 </View>
                 {message.subject ? (
@@ -625,7 +705,8 @@ function ContactProfileScreen({
               <View style={styles.rowMain}>
                 <Text style={styles.name}>{quoteDraft.title}</Text>
                 <Text style={styles.notes}>
-                  {formatLabel(quoteDraft.status)} - {quoteDraft.lineItemCount} items
+                  {formatLabel(quoteDraft.status)} - {quoteDraft.lineItemCount}{" "}
+                  items
                 </Text>
               </View>
             </View>
@@ -650,14 +731,21 @@ function ContactProfileScreen({
             <View key={companyContact.id} style={styles.compactRow}>
               <View style={styles.rowMain}>
                 <Text style={styles.name}>
-                  {companyContact.name ?? companyContact.email ?? companyContact.phone ?? "Contact"}
+                  {companyContact.name ??
+                    companyContact.email ??
+                    companyContact.phone ??
+                    "Contact"}
                 </Text>
                 <Text style={styles.notes}>
-                  {[companyContact.email, companyContact.phone].filter(Boolean).join(" - ") ||
-                    "No contact details yet"}
+                  {[companyContact.email, companyContact.phone]
+                    .filter(Boolean)
+                    .join(" - ") || "No contact details yet"}
                 </Text>
               </View>
-              <StatusPill label={formatLabel(companyContact.contactType)} tone="neutral" />
+              <StatusPill
+                label={formatLabel(companyContact.contactType)}
+                tone="neutral"
+              />
             </View>
           ))}
         </SectionCard>
@@ -694,7 +782,7 @@ function FilterGroup<T extends string>({
   label,
   onChange,
   options,
-  value
+  value,
 }: {
   label: string;
   onChange: (value: T) => void;
@@ -712,13 +800,13 @@ function FilterGroup<T extends string>({
             onPress={() => onChange(option.value)}
             style={[
               styles.filterChip,
-              value === option.value ? styles.filterChipActive : null
+              value === option.value ? styles.filterChipActive : null,
             ]}
           >
             <Text
               style={[
                 styles.filterChipText,
-                value === option.value ? styles.filterChipTextActive : null
+                value === option.value ? styles.filterChipTextActive : null,
               ]}
             >
               {option.label}
@@ -745,7 +833,7 @@ function CrmLoadingState() {
               key={`${tone}-${index}`}
               style={[
                 styles.loadingContactRow,
-                index === 4 ? styles.loadingRowLast : null
+                index === 4 ? styles.loadingRowLast : null,
               ]}
             >
               <SkeletonIcon tone={tone} />
@@ -756,7 +844,7 @@ function CrmLoadingState() {
               </View>
               <SkeletonPill width={70} />
             </View>
-          )
+          ),
         )}
       </SectionCard>
     </>
@@ -803,22 +891,38 @@ const contactTypeOptions: Array<{ label: string; value: string }> = [
   { label: "Contractor", value: "contractor" },
   { label: "Builder", value: "builder" },
   { label: "Property manager", value: "property_manager" },
-  { label: "Other", value: "other" }
+  { label: "Other", value: "other" },
 ];
 
 const crmFilterOptions: Array<{ label: string; value: CrmFilter }> = [
   { label: "All", value: "all" },
   ...contactTypeOptions.map((option) => ({
     label: option.label,
-    value: option.value as CrmFilter
-  }))
+    value: option.value as CrmFilter,
+  })),
 ];
 
 const crmSortOptions: Array<{ label: string; value: CrmSort }> = [
   { label: "Recent", value: "recent" },
   { label: "A-Z", value: "alphabetical" },
-  { label: "Messages", value: "messages" }
+  { label: "Messages", value: "messages" },
 ];
+
+function nextSortMode(current: CrmSort): CrmSort {
+  const currentIndex = crmSortOptions.findIndex(
+    (option) => option.value === current,
+  );
+  const nextIndex =
+    currentIndex === -1 ? 0 : (currentIndex + 1) % crmSortOptions.length;
+
+  return crmSortOptions[nextIndex]?.value ?? "recent";
+}
+
+function sortLabel(value: CrmSort) {
+  return (
+    crmSortOptions.find((option) => option.value === value)?.label ?? "Recent"
+  );
+}
 
 const lifecycleOptions = [
   { label: "New", value: "new" },
@@ -826,7 +930,7 @@ const lifecycleOptions = [
   { label: "Lead", value: "lead" },
   { label: "Client", value: "client" },
   { label: "Supplier", value: "supplier" },
-  { label: "Inactive", value: "inactive" }
+  { label: "Inactive", value: "inactive" },
 ];
 
 function filterAndSortContacts(
@@ -835,13 +939,13 @@ function filterAndSortContacts(
     addressQuery,
     contactFilter,
     searchQuery,
-    sortMode
+    sortMode,
   }: {
     addressQuery: string;
     contactFilter: CrmFilter;
     searchQuery: string;
     sortMode: CrmSort;
-  }
+  },
 ) {
   const query = normalizeSearchText(searchQuery);
   const numericQuery = normalizeNumericSearch(searchQuery);
@@ -868,7 +972,7 @@ function filterAndSortContacts(
       contact.notes,
       contact.phone,
       contact.source,
-      contact.searchableText
+      contact.searchableText,
     ]
       .filter(Boolean)
       .join(" ");
@@ -886,7 +990,10 @@ function filterAndSortContacts(
     }
 
     if (sortMode === "messages") {
-      return right.messageCount - left.messageCount || contactRecency(right) - contactRecency(left);
+      return (
+        right.messageCount - left.messageCount ||
+        contactRecency(right) - contactRecency(left)
+      );
     }
 
     return contactRecency(right) - contactRecency(left);
@@ -906,7 +1013,13 @@ function normalizeNumericSearch(value: string) {
 }
 
 function contactDisplayName(contact: ContactListItem) {
-  return contact.name ?? contact.company ?? contact.email ?? contact.phone ?? "Contact";
+  return (
+    contact.name ??
+    contact.company ??
+    contact.email ??
+    contact.phone ??
+    "Contact"
+  );
 }
 
 function contactRecency(contact: ContactListItem) {
@@ -926,29 +1039,41 @@ function formatDate(value: string | null) {
 
   return new Intl.DateTimeFormat(undefined, {
     day: "numeric",
-    month: "short"
+    month: "short",
   }).format(date);
 }
 
 const styles = StyleSheet.create({
+  advancedSearchLink: {
+    alignSelf: "flex-start",
+    marginTop: -2,
+    paddingHorizontal: 2,
+    paddingVertical: 3,
+  },
+  advancedSearchText: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+  },
   backButton: {
     alignItems: "center",
     alignSelf: "flex-start",
     flexDirection: "row",
     gap: 4,
     marginBottom: -2,
-    paddingVertical: 4
+    paddingVertical: 4,
   },
   backButtonText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   controlsRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 9
+    gap: 9,
   },
   compactRow: {
     alignItems: "center",
@@ -957,19 +1082,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 62,
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   company: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   emptyText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "600"
+    fontWeight: "600",
   },
   detailInput: {
     backgroundColor: colors.surfaceSoft,
@@ -982,10 +1107,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     minHeight: 44,
     paddingHorizontal: 12,
-    paddingVertical: 10
+    paddingVertical: 10,
   },
   disabled: {
-    opacity: 0.45
+    opacity: 0.45,
   },
   factLabel: {
     color: colors.muted,
@@ -993,15 +1118,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
     textTransform: "uppercase",
-    width: 76
+    width: 76,
   },
   factRow: {
     alignItems: "flex-start",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   factRows: {
-    gap: 10
+    gap: 10,
   },
   factValue: {
     color: colors.text,
@@ -1009,9 +1134,9 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "700",
-    lineHeight: 18
+    lineHeight: 18,
   },
-  filterButton: {
+  sortButton: {
     alignItems: "center",
     backgroundColor: colors.surface,
     borderColor: colors.line,
@@ -1019,45 +1144,49 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 46,
     justifyContent: "center",
-    width: 46
+    width: 46,
+  },
+  sortButtonActive: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.surfaceStrong,
   },
   filterChip: {
     borderColor: colors.line,
     borderRadius: radii.pill,
     borderWidth: 1,
     paddingHorizontal: 10,
-    paddingVertical: 7
+    paddingVertical: 7,
   },
   filterChipActive: {
     backgroundColor: colors.surfaceStrong,
-    borderColor: colors.surfaceStrong
+    borderColor: colors.surfaceStrong,
   },
   filterChipText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   filterChipTextActive: {
-    color: colors.background
+    color: colors.background,
   },
   filterGroup: {
-    gap: 8
+    gap: 8,
   },
   filterLabel: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   filterMenu: {
-    gap: 12
+    gap: 12,
   },
   filterOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   iconDot: {
     alignItems: "center",
@@ -1067,13 +1196,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 30,
     justifyContent: "center",
-    width: 30
+    width: 30,
   },
   iconButtonSmall: {
     alignItems: "center",
     height: 30,
     justifyContent: "center",
-    width: 30
+    width: 30,
   },
   iconTextButton: {
     alignItems: "center",
@@ -1083,53 +1212,53 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 6,
     minHeight: 30,
-    paddingHorizontal: 10
+    paddingHorizontal: 10,
   },
   iconTextButtonText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   name: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   messageCard: {
     borderBottomColor: colors.line,
     borderBottomWidth: 1,
     gap: 7,
-    paddingBottom: 13
+    paddingBottom: 13,
   },
   messageInbound: {
     borderLeftColor: colors.cyan,
     borderLeftWidth: 2,
-    paddingLeft: 10
+    paddingLeft: 10,
   },
   messageMeta: {
     color: colors.muted,
     flex: 1,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   messageOutbound: {
     borderLeftColor: colors.pink,
     borderLeftWidth: 2,
-    paddingLeft: 10
+    paddingLeft: 10,
   },
   messageSubject: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   messageTop: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8
+    gap: 8,
   },
   miniMetric: {
     backgroundColor: colors.surfaceSoft,
@@ -1140,25 +1269,25 @@ const styles = StyleSheet.create({
     gap: 3,
     minHeight: 48,
     paddingHorizontal: 10,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   miniMetricLabel: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   miniMetricValue: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 17,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   loadingContactMain: {
     flex: 1,
     gap: 8,
-    minWidth: 0
+    minWidth: 0,
   },
   loadingContactRow: {
     alignItems: "center",
@@ -1167,11 +1296,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     minHeight: 78,
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   loadingRowLast: {
     borderBottomWidth: 0,
-    paddingBottom: 0
+    paddingBottom: 0,
   },
   notes: {
     color: colors.muted,
@@ -1179,10 +1308,10 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "600",
-    lineHeight: 18
+    lineHeight: 18,
   },
   notesInput: {
-    minHeight: 96
+    minHeight: 96,
   },
   mergeCandidateRow: {
     alignItems: "center",
@@ -1190,35 +1319,35 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 10,
-    paddingBottom: 10
+    paddingBottom: 10,
   },
   primaryAction: {
     alignItems: "center",
     backgroundColor: colors.surfaceStrong,
     borderRadius: radii.pill,
     justifyContent: "center",
-    minHeight: 44
+    minHeight: 44,
   },
   primaryActionText: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pressed: {
-    opacity: 0.78
+    opacity: 0.78,
   },
   profileHero: {
-    borderColor: "rgba(81, 229, 255, 0.34)"
+    borderColor: "rgba(81, 229, 255, 0.34)",
   },
   profileMetrics: {
     flexDirection: "row",
-    gap: 8
+    gap: 8,
   },
   rowMain: {
     flex: 1,
     gap: 5,
-    minWidth: 0
+    minWidth: 0,
   },
   secondaryAction: {
     alignItems: "center",
@@ -1227,13 +1356,13 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 40
+    minHeight: 40,
   },
   secondaryActionText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   searchBox: {
     alignItems: "center",
@@ -1242,16 +1371,18 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     flexDirection: "row",
+    flex: 1,
     gap: 10,
     minHeight: 46,
-    paddingHorizontal: 13
+    minWidth: 0,
+    paddingHorizontal: 13,
   },
   searchInput: {
     color: colors.text,
     flex: 1,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "700"
+    fontWeight: "700",
   },
   smallAction: {
     alignItems: "center",
@@ -1259,20 +1390,20 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
     minHeight: 30,
-    paddingHorizontal: 10
+    paddingHorizontal: 10,
   },
   smallActionText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   statusMessage: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "800",
-    lineHeight: 17
+    lineHeight: 17,
   },
   suggestionChip: {
     borderColor: colors.line,
@@ -1280,20 +1411,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: "100%",
     paddingHorizontal: 10,
-    paddingVertical: 7
+    paddingVertical: 7,
   },
   suggestionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   suggestionText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   warningCard: {
-    borderColor: "rgba(255, 209, 102, 0.36)"
-  }
+    borderColor: "rgba(255, 209, 102, 0.36)",
+  },
 });
