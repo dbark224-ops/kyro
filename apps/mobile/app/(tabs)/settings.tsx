@@ -939,11 +939,9 @@ export default function SettingsScreen() {
               {message ? <Text style={styles.message}>{message}</Text> : null}
 
               <AccountSessionCard
+                businessProfile={data.settings.general.businessProfile}
                 emailVerified={account?.emailVerified}
                 onSignOut={handleSignOut}
-                onOpenAccountDeletion={() =>
-                  openMobileExternalUrl(mobileEnv.accountDeletionUrl)
-                }
                 status={status}
                 userEmail={account?.email ?? user?.email}
               />
@@ -1282,37 +1280,47 @@ function SettingsDetailTransition({
 }
 
 function AccountSessionCard({
+  businessProfile,
   emailVerified,
-  onOpenAccountDeletion,
   onSignOut,
   status,
   userEmail,
 }: {
+  businessProfile?: MobileSettingsResponse["settings"]["general"]["businessProfile"];
   emailVerified?: boolean;
-  onOpenAccountDeletion: () => void;
   onSignOut: () => void;
   status: ReturnType<typeof useAuthSession>["status"];
   userEmail?: string;
 }) {
+  const isSignedIn = status === "signed-in";
+  const businessName = businessProfile?.businessName?.trim() || "Workspace";
+  const logoUri = businessProfile ? businessLogoUri(businessProfile) : null;
+  const details = [
+    ["Business", businessName],
+    ["Phone", businessProfile?.publicPhoneNumber?.trim() || "-"],
+    ["Address", businessProfile?.businessAddress?.trim() || "-"],
+    ["Email", userEmail || "-"],
+  ];
+
   return (
     <SectionCard>
       <SectionHeader title="Account" />
       <View style={styles.sessionRow}>
         <View style={styles.sessionCopy}>
           <Text style={styles.sessionTitle}>
-            {status === "signed-in" ? userEmail : "No mobile session"}
+            {isSignedIn ? businessName : "No mobile session"}
           </Text>
         </View>
         <StatusPill
           label={
-            status === "signed-in"
+            isSignedIn
               ? emailVerified === false
                 ? "Verify email"
                 : "Active"
               : "Signed out"
           }
           tone={
-            status === "signed-in"
+            isSignedIn
               ? emailVerified === false
                 ? "warning"
                 : "green"
@@ -1320,16 +1328,37 @@ function AccountSessionCard({
           }
         />
       </View>
-      {status === "signed-in" ? (
-        <View style={styles.accountActionStack}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onOpenAccountDeletion}
-            style={styles.iconButton}
-          >
-            <Trash2 color={colors.warning} size={18} />
-            <Text style={styles.iconButtonText}>Delete account</Text>
-          </Pressable>
+      {isSignedIn ? (
+        <>
+          <View style={styles.accountIdentityRow}>
+            <View style={styles.accountLogoFrame}>
+              {logoUri ? (
+                <Image
+                  accessibilityIgnoresInvertColors
+                  source={{ uri: logoUri }}
+                  style={styles.accountLogoImage}
+                />
+              ) : (
+                <Text style={styles.accountLogoFallback}>
+                  {businessName.slice(0, 1).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            <View style={styles.accountDetails}>
+              {details.map(([label, value]) => (
+                <View key={label} style={styles.accountDetailRow}>
+                  <Text style={styles.accountDetailLabel}>{label}</Text>
+                  <Text
+                    ellipsizeMode="tail"
+                    numberOfLines={label === "Address" ? 2 : 1}
+                    style={styles.accountDetailValue}
+                  >
+                    {value}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
           <Pressable
             accessibilityRole="button"
             onPress={onSignOut}
@@ -1338,7 +1367,7 @@ function AccountSessionCard({
             <LogOut color={colors.text} size={18} />
             <Text style={styles.iconButtonText}>Sign out</Text>
           </Pressable>
-        </View>
+        </>
       ) : (
         <ActionButton onPress={() => router.push("/sign-in")}>
           <View style={styles.buttonInner}>
@@ -7441,6 +7470,16 @@ function fallbackSettingsAccount(
   };
 }
 
+function businessLogoUri(
+  businessProfile: MobileSettingsResponse["settings"]["general"]["businessProfile"],
+) {
+  if (businessProfile.logoContentBase64) {
+    return `data:${businessProfile.logoContentType || "image/png"};base64,${businessProfile.logoContentBase64}`;
+  }
+
+  return businessProfile.logoUrl?.trim() || null;
+}
+
 function normalizeMobileBusinessProfile(
   value:
     | MobileSettingsResponse["settings"]["general"]["businessProfile"]
@@ -8524,8 +8563,63 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "space-between",
   },
-  accountActionStack: {
-    gap: 9,
+  accountDetailLabel: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    width: 62,
+  },
+  accountDetailRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
+  },
+  accountDetailValue: {
+    color: colors.text,
+    flex: 1,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  accountDetails: {
+    flex: 1,
+    gap: 7,
+    minWidth: 0,
+  },
+  accountIdentityRow: {
+    alignItems: "flex-start",
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 12,
+    padding: 11,
+  },
+  accountLogoFallback: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  accountLogoFrame: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderColor: colors.line,
+    borderRadius: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 44,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 44,
+  },
+  accountLogoImage: {
+    height: "100%",
+    resizeMode: "cover",
+    width: "100%",
   },
   buttonInner: {
     alignItems: "center",
