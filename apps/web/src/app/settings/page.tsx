@@ -79,6 +79,7 @@ import {
   GOOGLE_GMAIL_SEND_SCOPE,
   GOOGLE_PROVIDER,
   GOOGLE_GMAIL_READ_SCOPE,
+  hasGoogleScope,
   type GoogleIntegrationOverview,
 } from "../../lib/integrations/google";
 import {
@@ -602,6 +603,10 @@ function googlePermissionLabel(scope: string) {
       return "Save Kyro-created files";
     case GOOGLE_CALENDAR_EVENTS_SCOPE:
       return "Create calendar events";
+    case "email":
+      return "Email address";
+    case "profile":
+      return "Google profile";
     default:
       return scopeLabel(scope);
   }
@@ -613,7 +618,8 @@ function googlePermissionActive(
 ) {
   return overview.connections.some(
     (connection) =>
-      connection.status === "connected" && connection.scopes.includes(scope),
+      connection.status === "connected" &&
+      hasGoogleScope(connection.scopes, scope),
   );
 }
 
@@ -1319,9 +1325,7 @@ function StripePaymentsSettings({
                 : "Set up Stripe payments"}
             </SettingsSubmitButton>
           </form>
-          {resetAvailable ? (
-            <StripeResetButton />
-          ) : null}
+          {resetAvailable ? <StripeResetButton /> : null}
         </div>
       </section>
 
@@ -2416,7 +2420,8 @@ function GeneralSettingsDetail({
   const showCoreProfile = activeBusinessPanel === "business";
   const showPublicDetails = activeBusinessPanel === "public-details";
   const showAvailability = activeBusinessPanel === "availability";
-  const showCorePanel = showCoreProfile || showPublicDetails || showAvailability;
+  const showCorePanel =
+    showCoreProfile || showPublicDetails || showAvailability;
   const emailVerificationPending = !emailVerified;
   const serviceAreaValue = mergedServiceAreaValue(profile);
   const timeZoneOptions = workspaceTimeZoneOptions(settings.timeZone);
@@ -2428,9 +2433,7 @@ function GeneralSettingsDetail({
       encType="multipart/form-data"
     >
       <input name="settingsPanel" type="hidden" value={activeBusinessPanel} />
-      {emailVerificationPending ? (
-        <EmailVerificationSettingsNotice />
-      ) : null}
+      {emailVerificationPending ? <EmailVerificationSettingsNotice /> : null}
       <fieldset
         className={
           emailVerificationPending
@@ -2640,10 +2643,7 @@ function GeneralSettingsDetail({
               >
                 Workspace timezone
               </SettingCardHeading>
-              <select
-                defaultValue={settings.timeZone}
-                name="workspaceTimeZone"
-              >
+              <select defaultValue={settings.timeZone} name="workspaceTimeZone">
                 {timeZoneOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -2788,7 +2788,9 @@ function GeneralSettingsDetail({
                 <legend>AI email signature</legend>
                 <label className="compact-checkbox-row">
                   <input
-                    defaultChecked={communicationSettings.useSeparateAiSignature}
+                    defaultChecked={
+                      communicationSettings.useSeparateAiSignature
+                    }
                     name="useSeparateAiSignature"
                     type="checkbox"
                   />

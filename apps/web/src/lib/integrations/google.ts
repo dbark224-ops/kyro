@@ -4,10 +4,18 @@ import { hasIntegrationTokenEncryptionKey } from "./token-vault";
 
 export const GOOGLE_PROVIDER = "google";
 export const GOOGLE_SERVICE = "google_workspace";
-export const GOOGLE_GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
-export const GOOGLE_GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-export const GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-export const GOOGLE_CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+export const GOOGLE_GMAIL_SEND_SCOPE =
+  "https://www.googleapis.com/auth/gmail.send";
+export const GOOGLE_GMAIL_READ_SCOPE =
+  "https://www.googleapis.com/auth/gmail.readonly";
+export const GOOGLE_DRIVE_FILE_SCOPE =
+  "https://www.googleapis.com/auth/drive.file";
+export const GOOGLE_CALENDAR_EVENTS_SCOPE =
+  "https://www.googleapis.com/auth/calendar.events";
+export const GOOGLE_USERINFO_EMAIL_SCOPE =
+  "https://www.googleapis.com/auth/userinfo.email";
+export const GOOGLE_USERINFO_PROFILE_SCOPE =
+  "https://www.googleapis.com/auth/userinfo.profile";
 export const GOOGLE_WORKSPACE_SCOPES = [
   "openid",
   "email",
@@ -15,8 +23,13 @@ export const GOOGLE_WORKSPACE_SCOPES = [
   GOOGLE_GMAIL_SEND_SCOPE,
   GOOGLE_GMAIL_READ_SCOPE,
   GOOGLE_DRIVE_FILE_SCOPE,
-  GOOGLE_CALENDAR_EVENTS_SCOPE
+  GOOGLE_CALENDAR_EVENTS_SCOPE,
 ] as const;
+
+const GOOGLE_SCOPE_ALIASES: Record<string, readonly string[]> = {
+  email: [GOOGLE_USERINFO_EMAIL_SCOPE],
+  profile: [GOOGLE_USERINFO_PROFILE_SCOPE],
+};
 
 export type GoogleIntegrationConnection = {
   id: string;
@@ -53,7 +66,7 @@ export function getGoogleOAuthConfig() {
     appUrl,
     clientId,
     clientSecret,
-    redirectUri: `${appUrl}/integrations/google/callback`
+    redirectUri: `${appUrl}/integrations/google/callback`,
   };
 }
 
@@ -73,7 +86,20 @@ function normalizeScopes(value: unknown): string[] {
     return [];
   }
 
-  return value.filter((scope): scope is string => typeof scope === "string" && scope.length > 0);
+  return value.filter(
+    (scope): scope is string => typeof scope === "string" && scope.length > 0,
+  );
+}
+
+export function hasGoogleScope(
+  scopes: readonly string[],
+  requestedScope: string,
+) {
+  return scopes.some(
+    (scope) =>
+      scope === requestedScope ||
+      GOOGLE_SCOPE_ALIASES[requestedScope]?.includes(scope),
+  );
 }
 
 function objectRecord(value: unknown) {
@@ -92,12 +118,14 @@ function inboundEmailMetadata(value: unknown) {
 
 export async function getGoogleIntegrationOverview(
   supabase: SupabaseClient,
-  workspaceId: string
+  workspaceId: string,
 ): Promise<GoogleIntegrationOverview> {
   const config = getGoogleOAuthConfig();
   const { data, error } = await supabase
     .from("integration_connections")
-    .select("id,account_email,account_name,status,scopes,last_connected_at,last_error,last_sync_at,metadata")
+    .select(
+      "id,account_email,account_name,status,scopes,last_connected_at,last_error,last_sync_at,metadata",
+    )
     .eq("workspace_id", workspaceId)
     .eq("provider", GOOGLE_PROVIDER)
     .order("last_connected_at", { ascending: false });
@@ -110,7 +138,7 @@ export async function getGoogleIntegrationOverview(
       redirectUri: config?.redirectUri ?? null,
       scopes: [...GOOGLE_WORKSPACE_SCOPES],
       connections: [],
-      error: tableMissing(error) ? null : error.message
+      error: tableMissing(error) ? null : error.message,
     };
   }
 
@@ -123,17 +151,31 @@ export async function getGoogleIntegrationOverview(
     connections: (data ?? []).map((connection) => ({
       id: String(connection.id),
       accountEmail:
-        typeof connection.account_email === "string" ? connection.account_email : null,
-      accountName: typeof connection.account_name === "string" ? connection.account_name : null,
+        typeof connection.account_email === "string"
+          ? connection.account_email
+          : null,
+      accountName:
+        typeof connection.account_name === "string"
+          ? connection.account_name
+          : null,
       status: String(connection.status),
       scopes: normalizeScopes(connection.scopes),
       lastConnectedAt:
-        typeof connection.last_connected_at === "string" ? connection.last_connected_at : null,
-      lastError: typeof connection.last_error === "string" ? connection.last_error : null,
-      lastCheckedAt: textValue(inboundEmailMetadata(connection.metadata).lastCheckedAt),
+        typeof connection.last_connected_at === "string"
+          ? connection.last_connected_at
+          : null,
+      lastError:
+        typeof connection.last_error === "string"
+          ? connection.last_error
+          : null,
+      lastCheckedAt: textValue(
+        inboundEmailMetadata(connection.metadata).lastCheckedAt,
+      ),
       lastSyncAt:
-        typeof connection.last_sync_at === "string" ? connection.last_sync_at : null,
+        typeof connection.last_sync_at === "string"
+          ? connection.last_sync_at
+          : null,
     })),
-    error: null
+    error: null,
   };
 }
