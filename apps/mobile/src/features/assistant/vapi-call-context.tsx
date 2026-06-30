@@ -8,21 +8,21 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode
+  type ReactNode,
 } from "react";
 
 import { useAuthSession } from "@/features/auth/auth-context";
 import { kyroApiFetch } from "@/lib/kyro-api";
 import {
   mobileAssistantVapiSessionQueryOptions,
-  mobileQueryKeys
+  mobileQueryKeys,
 } from "@/lib/mobile-query";
 import type {
   AssistantLink,
   AssistantThreadMessage,
   AssistantUiBlock,
   MobileAssistantVapiSessionResponse,
-  MobileAssistantVapiTurnResponse
+  MobileAssistantVapiTurnResponse,
 } from "@/lib/mobile-api-types";
 
 export type VapiConnectionState =
@@ -54,7 +54,7 @@ type VapiClient = {
   send: (message: unknown) => void;
   start: (
     assistantId?: string,
-    assistantOverrides?: Record<string, unknown>
+    assistantOverrides?: Record<string, unknown>,
   ) => Promise<unknown>;
   stop: () => void;
 };
@@ -79,32 +79,32 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
   const assistantQueryKey = mobileQueryKeys.assistant(userId);
   const vapiSessionQuery = useQuery({
     ...mobileAssistantVapiSessionQueryOptions(authSession),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const session = vapiSessionQuery.data ?? null;
   const vapiRef = useRef<VapiClient | null>(null);
   const currentUserTranscriptRef = useRef("");
   const currentAssistantTranscriptRef = useRef("");
   const persistedSignaturesRef = useRef<Set<string>>(new Set());
-  const assistantFinalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const assistantFinalizeTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [connectionState, setConnectionState] =
     useState<VapiConnectionState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [localTurns, setLocalTurns] = useState<AssistantThreadMessage[]>([]);
-  const [statusText, setStatusText] = useState("Ready for Vapi voice.");
+  const [statusText, setStatusText] = useState("Ready for voice.");
   const [voiceLevel, setVoiceLevel] = useState(0);
   const isConnected =
     connectionState === "connecting" ||
     connectionState === "listening" ||
     connectionState === "speaking";
   const setupMissing = session?.missing?.length
-    ? `Missing ${session.missing.join(", ")}.`
+    ? "Voice assistant setup is incomplete."
     : null;
   const setupHint = isExpoGoRuntime
-    ? "Native Vapi calls need a development or standalone build. Expo Go can show this screen, but it cannot run the live Vapi call stack."
+    ? "Live voice calls need a development or standalone build. Expo Go can show this screen, but it cannot run the live voice stack."
     : null;
   const statusLabel = vapiStatusLabel(connectionState, session, error);
   const displayedStatus = error ?? setupMissing ?? statusText;
@@ -112,7 +112,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
     mutationFn: ({
       assistantTranscript,
       threadId,
-      userTranscript
+      userTranscript,
     }: {
       assistantTranscript: string | null;
       threadId: string | null;
@@ -124,15 +124,15 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
           body: {
             assistantTranscript,
             threadId,
-            userTranscript
+            userTranscript,
           },
           method: "POST",
-          session: authSession
-        }
+          session: authSession,
+        },
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: assistantQueryKey });
-    }
+    },
   });
 
   const addLocalTurn = useCallback(
@@ -142,7 +142,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       extras?: {
         links?: AssistantLink[];
         uiBlocks?: AssistantUiBlock[];
-      }
+      },
     ) => {
       const content =
         role === "user"
@@ -160,7 +160,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
           (turn) =>
             turn.role === role &&
             content &&
-            sameVoiceTurn(turn.content, content)
+            sameVoiceTurn(turn.content, content),
         );
 
         if (existingIndex !== -1) {
@@ -170,9 +170,9 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
                   ...turn,
                   content: mergeVoiceTurnContent(turn.content, content),
                   links: mergeAssistantLinks(turn.links, links),
-                  uiBlocks: mergeAssistantUiBlocks(turn.uiBlocks, uiBlocks)
+                  uiBlocks: mergeAssistantUiBlocks(turn.uiBlocks, uiBlocks),
                 }
-              : turn
+              : turn,
           );
         }
 
@@ -189,21 +189,21 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
             model: role === "assistant" ? "vapi-mobile-internal" : undefined,
             provider: role === "assistant" ? "vapi" : undefined,
             role,
-            uiBlocks: uiBlocks.length ? uiBlocks : undefined
-          }
+            uiBlocks: uiBlocks.length ? uiBlocks : undefined,
+          },
         ];
       });
     },
-    []
+    [],
   );
 
   const persistCurrentTurn = useCallback(
     (assistantTranscript?: string) => {
       const userTranscript = normalizedTranscript(
-        currentUserTranscriptRef.current
+        currentUserTranscriptRef.current,
       );
       const assistant = normalizedTranscript(
-        assistantTranscript ?? currentAssistantTranscriptRef.current
+        assistantTranscript ?? currentAssistantTranscriptRef.current,
       );
       const signature = `${session?.threadId ?? "no-thread"}::${userTranscript}::${assistant}`;
 
@@ -221,10 +221,10 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       persistVapiTurn.mutate({
         assistantTranscript: assistant || null,
         threadId: session.threadId,
-        userTranscript: userTranscript || null
+        userTranscript: userTranscript || null,
       });
     },
-    [persistVapiTurn, session?.threadId]
+    [persistVapiTurn, session?.threadId],
   );
 
   const clearAssistantFinalizeTimer = useCallback(() => {
@@ -237,7 +237,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
   const finalizeAssistantTurn = useCallback(
     (rawContent?: string) => {
       const content = normalizedTranscript(
-        rawContent ?? currentAssistantTranscriptRef.current
+        rawContent ?? currentAssistantTranscriptRef.current,
       );
 
       if (!content) {
@@ -250,7 +250,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       persistCurrentTurn(content);
       setStatusText("Listening...");
     },
-    [addLocalTurn, clearAssistantFinalizeTimer, persistCurrentTurn]
+    [addLocalTurn, clearAssistantFinalizeTimer, persistCurrentTurn],
   );
 
   const scheduleAssistantFinalize = useCallback(() => {
@@ -282,7 +282,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
       finalizeAssistantTurn(content);
     },
-    [addLocalTurn, finalizeAssistantTurn]
+    [addLocalTurn, finalizeAssistantTurn],
   );
 
   const handleToolResult = useCallback(
@@ -303,7 +303,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
       addLocalTurn("assistant", content, { links, uiBlocks: blocks });
     },
-    [addLocalTurn]
+    [addLocalTurn],
   );
 
   const handleVapiMessage = useCallback(
@@ -333,7 +333,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
           setStatusText(
             endedReason
               ? `Call ended: ${humanizeVapiReason(endedReason)}`
-              : "Call ended."
+              : "Call ended.",
           );
           setVoiceLevel(0);
           vapiRef.current = null;
@@ -366,7 +366,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
         if (outputText) {
           currentAssistantTranscriptRef.current = mergeAssistantContent(
             currentAssistantTranscriptRef.current,
-            outputText
+            outputText,
           );
         }
 
@@ -412,7 +412,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
         if (lastAssistantMessage) {
           currentAssistantTranscriptRef.current = mergeAssistantContent(
             currentAssistantTranscriptRef.current,
-            lastAssistantMessage.content
+            lastAssistantMessage.content,
           );
         }
       }
@@ -421,8 +421,8 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       handleFinalTranscript,
       handleToolResult,
       persistCurrentTurn,
-      scheduleAssistantFinalize
-    ]
+      scheduleAssistantFinalize,
+    ],
   );
 
   const stopVapi = useCallback(() => {
@@ -432,7 +432,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
     vapiRef.current = null;
     setConnectionState("idle");
     setLiveTranscript("");
-    setStatusText("Vapi voice stopped.");
+    setStatusText("Voice stopped.");
     setVoiceLevel(0);
   }, [clearAssistantFinalizeTimer, persistCurrentTurn]);
 
@@ -443,13 +443,15 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
     if (isExpoGoRuntime) {
       setError(
-        "Vapi voice cannot run inside Expo Go. Use a development build, simulator build, or TestFlight build."
+        "Voice calls cannot run inside Expo Go. Use a development build, simulator build, or TestFlight build.",
       );
       return;
     }
 
     if (!session?.configured || !session.publicKey || !session.assistantId) {
-      setError(`Vapi voice is missing ${session?.missing.join(", ") || "setup"}.`);
+      setError(
+        `Voice assistant setup is missing ${session?.missing.join(", ") || "configuration"}.`,
+      );
       return;
     }
 
@@ -474,7 +476,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
         setError(message);
         setConnectionState("idle");
-        setStatusText(`Vapi voice error: ${message}`);
+        setStatusText(`Voice error: ${message}`);
         vapiRef.current = null;
       });
       vapi.on("call-end", () => {
@@ -497,7 +499,9 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       vapi.on("volume-level", (level: unknown) => {
         const nextLevel = Math.max(0, Math.min(1, Number(level) || 0));
 
-        setVoiceLevel((currentLevel) => Math.max(currentLevel * 0.72, nextLevel));
+        setVoiceLevel((currentLevel) =>
+          Math.max(currentLevel * 0.72, nextLevel),
+        );
       });
       vapi.on("message", handleVapiMessage);
       vapi.on("error", (nextError: unknown) => {
@@ -505,17 +509,17 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
         setError(message);
         setConnectionState("idle");
-        setStatusText(`Vapi voice error: ${message}`);
+        setStatusText(`Voice error: ${message}`);
       });
 
       const call = await vapi.start(
         session.assistantId,
-        session.assistantOverrides
+        session.assistantOverrides,
       );
 
       if (!call) {
         throw new Error(
-          "Vapi did not return a live call. Check the assistant, public key, and native dev build."
+          "Kyro did not return a live voice call. Check the assistant setup and native dev build.",
         );
       }
     } catch (nextError) {
@@ -523,7 +527,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
       setError(message);
       setConnectionState("idle");
-      setStatusText(`Unable to start Vapi voice: ${message}`);
+      setStatusText(`Unable to start voice: ${message}`);
       setVoiceLevel(0);
       vapiRef.current = null;
     }
@@ -532,7 +536,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
     isConnected,
     persistCurrentTurn,
     scheduleAssistantFinalize,
-    session
+    session,
   ]);
 
   useEffect(() => {
@@ -542,7 +546,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       }
 
       setLocalTurns((currentTurns) =>
-        currentTurns.length ? [] : currentTurns
+        currentTurns.length ? [] : currentTurns,
       );
       persistedSignaturesRef.current.clear();
     }
@@ -554,7 +558,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       vapiRef.current?.stop();
       vapiRef.current = null;
     },
-    [clearAssistantFinalizeTimer]
+    [clearAssistantFinalizeTimer],
   );
 
   const value = useMemo<VapiCallContextValue>(
@@ -574,7 +578,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       statusLabel,
       statusText,
       stopVapi,
-      voiceLevel
+      voiceLevel,
     }),
     [
       connectionState,
@@ -591,8 +595,8 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       stopVapi,
       vapiSessionQuery.error,
       vapiSessionQuery.isLoading,
-      voiceLevel
-    ]
+      voiceLevel,
+    ],
   );
 
   return (
@@ -616,14 +620,16 @@ export function voiceLevelToMetering(level: number) {
   return Math.max(-60, Math.min(0, -60 + level * 60));
 }
 
-export function mergeVapiTranscriptMessages(messages: AssistantThreadMessage[]) {
+export function mergeVapiTranscriptMessages(
+  messages: AssistantThreadMessage[],
+) {
   const merged: AssistantThreadMessage[] = [];
 
   for (const message of messages) {
     const existingIndex = merged.findIndex(
       (currentMessage) =>
         currentMessage.role === message.role &&
-        sameVoiceTurn(currentMessage.content, message.content)
+        sameVoiceTurn(currentMessage.content, message.content),
     );
 
     if (existingIndex === -1) {
@@ -637,7 +643,7 @@ export function mergeVapiTranscriptMessages(messages: AssistantThreadMessage[]) 
       ...existing,
       content: mergeVoiceTurnContent(existing.content, message.content),
       links: mergeAssistantLinks(existing.links, message.links),
-      uiBlocks: mergeAssistantUiBlocks(existing.uiBlocks, message.uiBlocks)
+      uiBlocks: mergeAssistantUiBlocks(existing.uiBlocks, message.uiBlocks),
     };
   }
 
@@ -647,7 +653,7 @@ export function mergeVapiTranscriptMessages(messages: AssistantThreadMessage[]) 
 function vapiStatusLabel(
   state: VapiConnectionState,
   session: MobileAssistantVapiSessionResponse | null,
-  error: string | null
+  error: string | null,
 ) {
   if (error || session?.configured === false) {
     return "Setup needed";
@@ -672,15 +678,17 @@ function normalizedTranscript(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
-const KYRO_ADDRESSING_VARIANTS =
-  "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
+const KYRO_ADDRESSING_VARIANTS = "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
 const KYRO_ADDRESSING_PREFIX =
   "(?:(?:hey|hi|hello|yo|ok|okay|alright|right|so|what'?s up|sup)[,!.?\\s]+){0,4}";
 
 function normalizeKyroAddressedTranscript(value: string) {
   return normalizedTranscript(value).replace(
-    new RegExp(`^(${KYRO_ADDRESSING_PREFIX})(${KYRO_ADDRESSING_VARIANTS})\\b`, "i"),
-    (_match, prefix: string) => `${prefix ?? ""}Kyro`
+    new RegExp(
+      `^(${KYRO_ADDRESSING_PREFIX})(${KYRO_ADDRESSING_VARIANTS})\\b`,
+      "i",
+    ),
+    (_match, prefix: string) => `${prefix ?? ""}Kyro`,
   );
 }
 
@@ -754,15 +762,14 @@ function mergeAssistantContent(currentValue: string, incomingValue: string) {
     return incoming;
   }
 
-  const needsSpace =
-    !/\s$/.test(current) && !/^\s|^[,.;:!?)]/.test(incoming);
+  const needsSpace = !/\s$/.test(current) && !/^\s|^[,.;:!?)]/.test(incoming);
 
   return `${current}${needsSpace ? " " : ""}${incoming}`.trim();
 }
 
 function mergeAssistantLinks(
   currentLinks?: AssistantLink[],
-  incomingLinks?: AssistantLink[]
+  incomingLinks?: AssistantLink[],
 ) {
   const merged = [...(currentLinks ?? [])];
 
@@ -777,10 +784,12 @@ function mergeAssistantLinks(
 
 function mergeAssistantUiBlocks(
   currentBlocks?: AssistantUiBlock[],
-  incomingBlocks?: AssistantUiBlock[]
+  incomingBlocks?: AssistantUiBlock[],
 ) {
   const merged = [...(currentBlocks ?? [])];
-  const signatures = new Set(merged.map((block) => safeJson(block) ?? block.type));
+  const signatures = new Set(
+    merged.map((block) => safeJson(block) ?? block.type),
+  );
 
   for (const block of incomingBlocks ?? []) {
     const signature = safeJson(block) ?? block.type;
@@ -805,7 +814,7 @@ function textValue(value: unknown) {
 }
 
 function roleFromVapiMessage(
-  message: Record<string, unknown>
+  message: Record<string, unknown>,
 ): "assistant" | "user" | null {
   const rawRole = (
     textValue(message.role) ??
@@ -861,7 +870,7 @@ function textFromModelOutput(value: unknown): string | null {
 
 function lastConversationMessage(
   value: unknown,
-  requiredRole?: "assistant" | "user"
+  requiredRole?: "assistant" | "user",
 ) {
   if (!Array.isArray(value)) {
     return null;
@@ -892,7 +901,7 @@ function vapiToolResultRecord(message: Record<string, unknown>) {
     objectRecord(message.output),
     objectRecord(message.data),
     objectRecord(message.response),
-    objectRecord(message)
+    objectRecord(message),
   ];
 
   const resultArray = Array.isArray(message.results) ? message.results : [];
@@ -907,7 +916,7 @@ function vapiToolResultRecord(message: Record<string, unknown>) {
   return (
     candidates.find(
       (candidate) =>
-        Array.isArray(candidate.uiBlocks) || Array.isArray(candidate.links)
+        Array.isArray(candidate.uiBlocks) || Array.isArray(candidate.links),
     ) ?? candidates[0]
   );
 }
@@ -930,8 +939,8 @@ function assistantLinksFromUnknown(value: unknown): AssistantLink[] {
       {
         href,
         label,
-        meta: textValue(record.meta)
-      }
+        meta: textValue(record.meta),
+      },
     ];
   });
 }
@@ -986,7 +995,7 @@ function errorMessage(value: unknown) {
     return directMessage;
   }
 
-  return safeJson(value) ?? directMessage ?? "Vapi voice failed.";
+  return safeJson(value) ?? directMessage ?? "Voice assistant failed.";
 }
 
 function vapiStartErrorMessage(value: unknown) {
@@ -998,7 +1007,7 @@ function vapiStartErrorMessage(value: unknown) {
     message.toLowerCase().includes("webrtc") ||
     message.toLowerCase().includes("module")
   ) {
-    return `${message}. Rebuild Kyro with the native Vapi modules included before testing Vapi Voice.`;
+    return `${message}. Rebuild Kyro with the native voice modules included before testing voice calls.`;
   }
 
   return message;

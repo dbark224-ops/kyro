@@ -821,7 +821,7 @@ export default function AssistantScreen() {
 
 function assistantModeLabel(mode: AssistantMode) {
   if (mode === "vapi") {
-    return "Vapi Voice";
+    return "Voice";
   }
 
   return mode === "text" ? "Text" : "Voice";
@@ -1889,7 +1889,7 @@ function errorMessage(value: unknown) {
     return directMessage;
   }
 
-  return safeJson(value) ?? directMessage ?? "Vapi voice failed.";
+  return safeJson(value) ?? directMessage ?? "Voice assistant failed.";
 }
 
 function vapiStartErrorMessage(value: unknown) {
@@ -1901,7 +1901,7 @@ function vapiStartErrorMessage(value: unknown) {
     message.toLowerCase().includes("webrtc") ||
     message.toLowerCase().includes("module")
   ) {
-    return `${message}. Rebuild Kyro with the native Vapi modules included before testing Vapi Voice.`;
+    return `${message}. Rebuild Kyro with the native voice modules included before testing voice calls.`;
   }
 
   return message;
@@ -2325,9 +2325,7 @@ const VoiceTranscriptTurn = memo(function VoiceTranscriptTurn({
 }) {
   const isUser = message.role === "user";
   const display = splitAssistantAttachmentContext(message.content);
-  const speakerLabel = isUser
-    ? "You"
-    : providerLabel(message, showDeveloperMetadata);
+  const speakerLabel = isUser ? "You" : "Kyro";
 
   return (
     <View style={styles.transcriptTurn}>
@@ -2568,16 +2566,10 @@ function providerLabel(
   showDeveloperMetadata: boolean,
 ) {
   if (message.provider === "vapi") {
-    return showDeveloperMetadata
-      ? developerProviderLabel(message, "Kyro - Voice Assistant")
-      : "Kyro - Voice Assistant";
+    return "Kyro - Voice";
   }
 
-  if (!showDeveloperMetadata || !message.provider) {
-    return "Kyro";
-  }
-
-  return developerProviderLabel(message, "Kyro");
+  return "Kyro - Text";
 }
 
 function developerProviderLabel(
