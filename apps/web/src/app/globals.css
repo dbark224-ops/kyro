@@ -15618,8 +15618,8 @@ button:disabled {
 
 .dashboard-command-header.has-verification-notice {
   grid-template-areas:
-    "title ."
-    "notice actions";
+    "title actions"
+    "notice notice";
 }
 
 .dashboard-command-title {
@@ -15726,10 +15726,6 @@ button:disabled {
   margin-left: auto;
   padding-top: 0;
   flex-wrap: wrap;
-}
-
-.dashboard-command-header.has-verification-notice .dashboard-command-actions {
-  align-self: center;
 }
 
 .dashboard-timeframe-select select,
