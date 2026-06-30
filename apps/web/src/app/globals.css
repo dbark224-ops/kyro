@@ -7131,7 +7131,8 @@ button.voice-card {
 
 .inbox-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px) auto;
+  grid-template-columns: minmax(220px, 420px) minmax(160px, 220px) auto;
+  justify-content: start;
   align-items: end;
   gap: 10px;
   margin: 0 0 16px;
@@ -7140,6 +7141,7 @@ button.voice-card {
 .inbox-toolbar label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 800;
@@ -7153,7 +7155,16 @@ button.voice-card {
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 62%, var(--surface));
   color: var(--text);
-  padding: 10px 11px;
+  box-sizing: border-box;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 11px;
+  line-height: 1.2;
+}
+
+.inbox-toolbar .secondary-button {
+  align-self: end;
+  min-height: 38px;
 }
 
 .inbox-workspace {
@@ -7386,7 +7397,8 @@ button.voice-card {
 
 .crm-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.32fr) auto;
+  grid-template-columns: minmax(240px, 440px) minmax(150px, 210px) auto;
+  justify-content: start;
   gap: 8px;
   align-items: end;
   margin: 0 0 12px;
@@ -7397,6 +7409,7 @@ button.voice-card {
 .crm-advanced-grid label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 700;
@@ -7411,6 +7424,15 @@ button.voice-card {
   min-height: 38px;
 }
 
+.crm-toolbar input,
+.crm-toolbar select {
+  box-sizing: border-box;
+  height: 38px;
+  min-height: 38px;
+  padding-block: 0;
+  line-height: 1.2;
+}
+
 .crm-advanced-search {
   height: 0;
   margin-top: -6px;
@@ -7418,7 +7440,7 @@ button.voice-card {
 
 .crm-advanced-search summary {
   position: absolute;
-  top: 0;
+  top: 1px;
   right: 0;
   cursor: pointer;
   list-style: none;
