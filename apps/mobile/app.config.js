@@ -262,7 +262,7 @@ module.exports = {
         "https://kyroassistant.com/account/delete",
       supportUrl:
         process.env.EXPO_PUBLIC_KYRO_SUPPORT_URL ??
-        "https://kyroassistant.com/contact",
+        "https://kyroassistant.com/support",
     },
   },
 };

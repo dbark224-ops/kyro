@@ -69,7 +69,7 @@ export const mobileEnv = {
   supportUrl:
     stringValue(process.env.EXPO_PUBLIC_KYRO_SUPPORT_URL) ||
     stringValue(extra.supportUrl) ||
-    webUrl("/contact"),
+    webUrl("/support"),
   termsOfServiceUrl:
     stringValue(process.env.EXPO_PUBLIC_KYRO_TERMS_URL) ||
     stringValue(extra.termsOfServiceUrl) ||

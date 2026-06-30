@@ -32,8 +32,8 @@ EXPO_PUBLIC_SUPABASE_URL=...
 EXPO_PUBLIC_SUPABASE_ANON_KEY=...
 EXPO_PUBLIC_KYRO_API_BASE_URL=http://10.0.2.2:3001
 EXPO_PUBLIC_KYRO_WEB_BASE_URL=https://kyroassistant.com
-EXPO_PUBLIC_KYRO_PRIVACY_URL=https://kyroassistant.com/privacy
-EXPO_PUBLIC_KYRO_TERMS_URL=https://kyroassistant.com/terms
+EXPO_PUBLIC_KYRO_PRIVACY_URL=https://kyroassistant.com/legal/privacy
+EXPO_PUBLIC_KYRO_TERMS_URL=https://kyroassistant.com/legal/terms
 EXPO_PUBLIC_KYRO_ACCOUNT_DELETION_URL=https://kyroassistant.com/account/delete
 EXPO_PUBLIC_KYRO_SUPPORT_URL=https://kyroassistant.com/support
 ```
