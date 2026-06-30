@@ -9166,6 +9166,15 @@ button:disabled {
   color: var(--text);
 }
 
+.escalation-behaviour-header p:not(.eyebrow) {
+  max-width: 760px;
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
 .workplace-contact-editor {
   container: workplace-contact / inline-size;
   display: grid;
@@ -9551,7 +9560,7 @@ button:disabled {
 }
 
 .escalation-policy-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .escalation-step-row {

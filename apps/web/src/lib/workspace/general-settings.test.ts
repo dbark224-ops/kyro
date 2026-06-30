@@ -82,10 +82,10 @@ describe("workspace general settings", () => {
         step.delayMinutes,
       ]),
       [
-        ["sms", "primary", 0],
-        ["phone", "primary", 5],
-        ["phone", "primary", 10],
-        ["sms", "fallback", 15],
+        ["email", "primary", 0],
+        ["app_notification", "primary", 0],
+        ["sms", "primary", 15],
+        ["phone", "fallback", 60],
       ],
     );
   });
@@ -128,6 +128,7 @@ describe("workspace general settings", () => {
             id: "owner",
             name: " Daryl ",
             preferredChannel: "phone",
+            primaryEscalationContact: "true",
             receivesEscalations: "true",
             role: " Owner ",
           },
@@ -143,6 +144,10 @@ describe("workspace general settings", () => {
     assert.equal(
       settings.businessProfile.workplaceContacts[0]?.preferredChannel,
       "phone",
+    );
+    assert.equal(
+      settings.businessProfile.workplaceContacts[0]?.primaryEscalationContact,
+      true,
     );
     assert.deepEqual(settings.businessProfile.urgentEscalation.triggerKeys, [
       "explicit_urgency",

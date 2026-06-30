@@ -100,6 +100,7 @@ function emptyContact(): WorkplaceContactSettings {
     phoneNumber: "",
     preferredChannel: "sms",
     privatePhoneNumber: "",
+    primaryEscalationContact: false,
     receivesEscalations: true,
     role: "",
     tradeSpecialty: "",
@@ -111,7 +112,27 @@ function emptyContact(): WorkplaceContactSettings {
 export function ensureWorkplaceContactRows(
   contacts: WorkplaceContactSettings[],
 ) {
-  return contacts.length ? contacts : [emptyContact()];
+  return ensurePrimaryEscalationContact(
+    contacts.length ? contacts : [emptyContact()],
+  );
+}
+
+function ensurePrimaryEscalationContact(contacts: WorkplaceContactSettings[]) {
+  const primaryIndex = contacts.findIndex(
+    (contact) => contact.primaryEscalationContact,
+  );
+  const fallbackPrimaryIndex = contacts.findIndex(
+    (contact) => contact.receivesEscalations,
+  );
+  const selectedPrimaryIndex =
+    primaryIndex >= 0 ? primaryIndex : fallbackPrimaryIndex;
+
+  return contacts.map((contact, index) => ({
+    ...contact,
+    primaryEscalationContact: index === selectedPrimaryIndex,
+    receivesEscalations:
+      index === selectedPrimaryIndex ? true : contact.receivesEscalations,
+  }));
 }
 
 function contactLabel(contact: WorkplaceContactSettings, index: number) {
@@ -495,8 +516,17 @@ export function WorkplaceContactsEditor({
     commitRows((currentRows) =>
       currentRows.map((contact) =>
         contact.id === selectedContact.id
-          ? { ...contact, ...updates }
-          : contact,
+          ? {
+              ...contact,
+              ...updates,
+              receivesEscalations:
+                updates.primaryEscalationContact === true
+                  ? true
+                  : updates.receivesEscalations ?? contact.receivesEscalations,
+            }
+          : updates.primaryEscalationContact === true
+            ? { ...contact, primaryEscalationContact: false }
+            : contact,
       ),
     );
   };
@@ -599,6 +629,11 @@ export function WorkplaceContactsEditor({
               value={String(contact.receivesEscalations)}
             />
             <input
+              name="workplaceContactPrimaryEscalationContact"
+              type="hidden"
+              value={String(contact.primaryEscalationContact)}
+            />
+            <input
               name="workplaceContactNotes"
               type="hidden"
               value={contact.notes}
@@ -665,7 +700,11 @@ export function WorkplaceContactsEditor({
                   >
                     <span>
                       <strong>{contactLabel(contact, rowIndex)}</strong>
-                      <small>{contactMetaLine(contact)}</small>
+                      <small>
+                        {contact.primaryEscalationContact
+                          ? `Primary escalation - ${contactMetaLine(contact)}`
+                          : contactMetaLine(contact)}
+                      </small>
                     </span>
                     <em>
                       {contactDetailCount(contact)}
@@ -945,6 +984,21 @@ export function WorkplaceContactsEditor({
                   <option value="true">Can receive escalations</option>
                   <option value="false">Do not escalate to this person</option>
                 </select>
+              </label>
+              <label className="compact-checkbox-row workplace-contact-primary-toggle full-row">
+                <input
+                  checked={selectedContact.primaryEscalationContact}
+                  disabled={!isEditingSelectedContact}
+                  onChange={(event) => {
+                    if (event.currentTarget.checked) {
+                      updateSelectedContact({
+                        primaryEscalationContact: true,
+                      });
+                    }
+                  }}
+                  type="checkbox"
+                />
+                <span>Primary escalation contact</span>
               </label>
               <label className="full-row">
                 Notes

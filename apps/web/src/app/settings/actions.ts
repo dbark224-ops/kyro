@@ -242,6 +242,10 @@ function workplaceContactsFromForm(formData: FormData): WorkplaceContactSettings
     formData,
     "workplaceContactReceivesEscalations",
   );
+  const primaryEscalationContacts = formStringList(
+    formData,
+    "workplaceContactPrimaryEscalationContact",
+  );
   const preferredChannels = formStringList(
     formData,
     "workplaceContactPreferredChannel",
@@ -267,6 +271,8 @@ function workplaceContactsFromForm(formData: FormData): WorkplaceContactSettings
           privatePhones[index] || "",
           phoneRegion,
         ) ?? "",
+      primaryEscalationContact:
+        primaryEscalationContacts[index] === "true",
       receivesEscalations: receivesEscalations[index] !== "false",
       role: roles[index] || "",
       tradeSpecialty: specialties[index] || "",
@@ -281,6 +287,22 @@ function workplaceContactsFromForm(formData: FormData): WorkplaceContactSettings
         contact.role ||
         contact.tradeSpecialty,
     );
+}
+
+function workplaceContactsWithPrimaryEscalationContact(
+  contacts: WorkplaceContactSettings[],
+  primaryContactId: string,
+) {
+  if (!primaryContactId) {
+    return contacts;
+  }
+
+  return contacts.map((contact) => ({
+    ...contact,
+    primaryEscalationContact: contact.id === primaryContactId,
+    receivesEscalations:
+      contact.id === primaryContactId ? true : contact.receivesEscalations,
+  }));
 }
 
 function phoneAgentUserNumberDetailsFromWorkplaceContacts(
@@ -975,6 +997,14 @@ export async function updateGeneralSettingsAction(formData: FormData) {
   const beforeCommunicationSettings = normalizeCommunicationSettings(
     beforeCommunicationResult.data?.settings,
   );
+  const submittedWorkplaceContacts = workplaceContactsFromForm(formData);
+  const workplaceContacts =
+    formString(formData, "settingsPanel") === "urgent-escalation"
+      ? workplaceContactsWithPrimaryEscalationContact(
+          submittedWorkplaceContacts,
+          formString(formData, "urgentEscalationPrimaryContactId"),
+        )
+      : submittedWorkplaceContacts;
   const businessProfile = normalizeWorkspaceBusinessProfileSettings(
     {
       ...beforeGeneralSettings.businessProfile,
@@ -1038,7 +1068,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
           .map((value) => (typeof value === "string" ? value.trim() : ""))
           .filter(Boolean),
       },
-      workplaceContacts: workplaceContactsFromForm(formData),
+      workplaceContacts,
       workingHours: formString(formData, "businessWorkingHours"),
       workingHoursSchedule: formJson(formData, "businessWorkingHoursSchedule"),
     },

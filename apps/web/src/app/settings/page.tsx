@@ -329,6 +329,7 @@ function workplaceContactsWithVoiceNumbers(
         phoneNumber: row.phoneNumber,
         preferredChannel: "sms",
         privatePhoneNumber: "",
+        primaryEscalationContact: false,
         receivesEscalations: true,
         role: row.role ?? "",
         tradeSpecialty: "",

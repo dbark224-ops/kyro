@@ -48,6 +48,11 @@ export function EscalationSettingsEditor({
   const [stepRows, setStepRows] = useState<UrgentEscalationStepSettings[]>(
     escalation.steps.length ? escalation.steps : [emptyStep()],
   );
+  const [primaryContactId, setPrimaryContactId] = useState(
+    contacts.find((contact) => contact.primaryEscalationContact)?.id ??
+      contacts[0]?.id ??
+      "",
+  );
   const [hoursMode, setHoursMode] = useState<UrgentEscalationHoursMode>(
     escalation.hoursMode,
   );
@@ -66,6 +71,21 @@ export function EscalationSettingsEditor({
       ),
     [contacts],
   );
+  const primaryContact =
+    contacts.find((contact) => contact.id === primaryContactId) ??
+    contacts.find((contact) => contact.primaryEscalationContact) ??
+    contacts[0] ??
+    null;
+  const primaryContactLabel = primaryContact
+    ? contactLabel(primaryContact, contacts.indexOf(primaryContact))
+    : "Primary escalation contact";
+  const fallbackContact =
+    escalationContacts.find((contact) => contact.id !== primaryContact?.id) ??
+    escalationContacts[0] ??
+    null;
+  const fallbackContactLabel = fallbackContact
+    ? contactLabel(fallbackContact, contacts.indexOf(fallbackContact))
+    : "Fallback escalation contact";
 
   const updateStep = (
     index: number,
@@ -80,6 +100,11 @@ export function EscalationSettingsEditor({
 
   return (
     <div className="escalation-settings-stack">
+      <input
+        name="urgentEscalationPrimaryContactId"
+        type="hidden"
+        value={primaryContactId}
+      />
       <section className="integration-choice-panel escalation-trigger-intro">
         <div>
           <p className="eyebrow">Urgent escalation</p>
@@ -156,6 +181,23 @@ export function EscalationSettingsEditor({
               type="checkbox"
             />
             <span className="settings-switch" aria-hidden="true" />
+          </label>
+          <label className="setting-card">
+            <strong>Primary escalation contact</strong>
+            <select
+              disabled={contacts.length === 0}
+              onChange={(event) => setPrimaryContactId(event.target.value)}
+              value={primaryContactId}
+            >
+              {contacts.length === 0 ? (
+                <option value="">No workplace contacts yet</option>
+              ) : null}
+              {contacts.map((contact, contactIndex) => (
+                <option key={contact.id} value={contact.id}>
+                  {contactLabel(contact, contactIndex)}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="setting-card">
             <strong>Escalation hours</strong>
@@ -255,8 +297,12 @@ export function EscalationSettingsEditor({
                   }
                   value={step.contactId}
                 >
-                  <option value="primary">Primary escalation contact</option>
-                  <option value="fallback">Fallback escalation contact</option>
+                  <option value="primary">
+                    Primary escalation contact - {primaryContactLabel}
+                  </option>
+                  <option value="fallback">
+                    Fallback escalation contact - {fallbackContactLabel}
+                  </option>
                   {escalationContacts.map((contact, contactIndex) => (
                     <option key={contact.id} value={contact.id}>
                       {contactLabel(contact, contactIndex)}

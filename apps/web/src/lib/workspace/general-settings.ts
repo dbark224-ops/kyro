@@ -107,6 +107,7 @@ export type WorkplaceContactSettings = {
   phoneNumber: string;
   preferredChannel: WorkplaceContactChannel;
   privatePhoneNumber: string;
+  primaryEscalationContact: boolean;
   receivesEscalations: boolean;
   role: string;
   tradeSpecialty: string;
@@ -281,28 +282,28 @@ export const DEFAULT_WORKSPACE_BUSINESS_PROFILE_SETTINGS: WorkspaceBusinessProfi
       requireAcknowledgement: true,
       steps: [
         {
-          channel: "sms",
+          channel: "email",
           contactId: "primary",
           delayMinutes: 0,
+          id: "default-email-primary",
+        },
+        {
+          channel: "app_notification",
+          contactId: "primary",
+          delayMinutes: 0,
+          id: "default-app-primary",
+        },
+        {
+          channel: "sms",
+          contactId: "primary",
+          delayMinutes: 15,
           id: "default-sms-primary",
         },
         {
           channel: "phone",
-          contactId: "primary",
-          delayMinutes: 5,
-          id: "default-call-primary",
-        },
-        {
-          channel: "phone",
-          contactId: "primary",
-          delayMinutes: 10,
-          id: "default-call-primary-repeat",
-        },
-        {
-          channel: "sms",
           contactId: "fallback",
-          delayMinutes: 15,
-          id: "default-sms-fallback",
+          delayMinutes: 60,
+          id: "default-call-fallback",
         },
       ],
       triggerKeys: URGENT_ESCALATION_TRIGGER_DEFINITIONS.filter(
@@ -498,7 +499,7 @@ function normalizeWorkplaceContactChannel(
 function normalizeWorkplaceContacts(value: unknown): WorkplaceContactSettings[] {
   const rows = Array.isArray(value) ? value : [];
 
-  return rows
+  const contacts = rows
     .slice(0, 12)
     .map((row, index) => {
       const record = objectRecord(row);
@@ -514,6 +515,10 @@ function normalizeWorkplaceContacts(value: unknown): WorkplaceContactSettings[] 
           record.preferredChannel,
         ),
         privatePhoneNumber: cappedTextValue(record.privatePhoneNumber, "", 80),
+        primaryEscalationContact: booleanValue(
+          record.primaryEscalationContact,
+          false,
+        ),
         receivesEscalations: booleanValue(record.receivesEscalations, true),
         role: cappedTextValue(record.role, "", 120),
         tradeSpecialty: cappedTextValue(record.tradeSpecialty, "", 160),
@@ -529,6 +534,21 @@ function normalizeWorkplaceContacts(value: unknown): WorkplaceContactSettings[] 
         contact.role ||
         contact.tradeSpecialty,
     );
+  const primaryIndex = contacts.findIndex(
+    (contact) => contact.primaryEscalationContact,
+  );
+  const fallbackPrimaryIndex = contacts.findIndex(
+    (contact) => contact.receivesEscalations,
+  );
+  const selectedPrimaryIndex =
+    primaryIndex >= 0 ? primaryIndex : fallbackPrimaryIndex;
+
+  return contacts.map((contact, index) => ({
+    ...contact,
+    primaryEscalationContact: index === selectedPrimaryIndex,
+    receivesEscalations:
+      index === selectedPrimaryIndex ? true : contact.receivesEscalations,
+  }));
 }
 
 function normalizeEscalationTriggerKeys(
@@ -568,7 +588,7 @@ function normalizeEscalationSteps(value: unknown): UrgentEscalationStepSettings[
   const rows = Array.isArray(value) ? value : [];
 
   return rows
-    .slice(0, 8)
+    .slice(0, 20)
     .map((row, index) => {
       const record = objectRecord(row);
       const delayMinutes = numberValue(record.delayMinutes);
