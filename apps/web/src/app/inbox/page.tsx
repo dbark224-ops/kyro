@@ -41,6 +41,11 @@ import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
+import {
+  SkippedEmailCloseLink,
+  SkippedEmailDialogToggleLink,
+  SkippedEmailDialogTransitionShell,
+} from "./skipped-email-dialog-transition";
 import { SkippedEmailReplyDetails } from "./skipped-email-reply-details";
 import { SkippedEmailSenderRuleControls } from "./skipped-email-sender-rule-controls";
 import {
@@ -352,9 +357,9 @@ function SkippedEmailDialog({
           </div>
           <div className="skipped-email-dialog-actions">
             <span className="pill">{last24HoursCount} last 24h</span>
-            <Link className="text-button" href={closeHref} prefetch={false}>
+            <SkippedEmailCloseLink className="text-button" href={closeHref}>
               Close
-            </Link>
+            </SkippedEmailCloseLink>
           </div>
         </div>
 
@@ -1574,8 +1579,8 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       sortedConversations.length,
                     )} of ${sortedConversations.length}`}
               </span>
-              <Link
-                aria-label={`Filtered-out emails, ${skippedEmailLast24HoursCount} from the last 24 hours`}
+              <SkippedEmailDialogToggleLink
+                ariaLabel={`Filtered-out emails, ${skippedEmailLast24HoursCount} from the last 24 hours`}
                 className={
                   showSkippedEmail
                     ? "secondary-button compact link-button active"
@@ -1586,11 +1591,11 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     ? skippedEmailCloseHref
                     : skippedEmailOpenHref
                 }
-                prefetch={false}
+                isOpen={showSkippedEmail}
               >
                 Filtered-out emails{" "}
                 <span>{skippedEmailLast24HoursCount} last 24h</span>
-              </Link>
+              </SkippedEmailDialogToggleLink>
             </div>
           </div>
 
@@ -1794,20 +1799,24 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             </nav>
           ) : null}
         </section>
-        {showSkippedEmail ? (
-          <SkippedEmailDialog
-            closeHref={skippedEmailCloseHref}
-            emails={skippedEmailSummaryItems}
-            filter={activeFilter}
-            inboxSearchQuery={searchQuery}
-            last24HoursCount={skippedEmailLast24HoursCount}
-            replyRedirectHref={skippedEmailOpenHref}
-            selectedConversationId={selectedConversationReview?.conversation.id}
-            senderRules={inboundEmailSettings?.senderRules ?? []}
-            skippedSearchQuery={skippedSearchQuery}
-            sort={activeSort}
-          />
-        ) : null}
+        <SkippedEmailDialogTransitionShell showSkippedEmail={showSkippedEmail}>
+          {showSkippedEmail ? (
+            <SkippedEmailDialog
+              closeHref={skippedEmailCloseHref}
+              emails={skippedEmailSummaryItems}
+              filter={activeFilter}
+              inboxSearchQuery={searchQuery}
+              last24HoursCount={skippedEmailLast24HoursCount}
+              replyRedirectHref={skippedEmailOpenHref}
+              selectedConversationId={
+                selectedConversationReview?.conversation.id
+              }
+              senderRules={inboundEmailSettings?.senderRules ?? []}
+              skippedSearchQuery={skippedSearchQuery}
+              sort={activeSort}
+            />
+          ) : null}
+        </SkippedEmailDialogTransitionShell>
         <InboxPreviewTransitionShell
           selectedConversationId={selectedConversationReview?.conversation.id}
         >

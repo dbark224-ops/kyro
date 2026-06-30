@@ -6384,6 +6384,15 @@ button.voice-card {
   padding: 3px 7px;
 }
 
+.inbox-work-queue-actions .secondary-button .settings-submit-spinner {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+}
+
 .secondary-button.active {
   background: color-mix(in srgb, var(--cyan) 16%, transparent);
 }
@@ -6417,6 +6426,57 @@ button.voice-card {
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
   overflow: hidden;
   padding: 16px;
+}
+
+.skipped-email-dialog-loading {
+  gap: 14px;
+}
+
+.skipped-email-loading-card {
+  display: inline-flex;
+  width: fit-content;
+  max-width: min(420px, 100%);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 38%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--cyan) 8%, transparent);
+  padding: 12px 14px;
+}
+
+.skipped-email-loading-card div {
+  display: grid;
+  gap: 2px;
+}
+
+.skipped-email-loading-card strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.skipped-email-loading-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.skipped-email-loading-list {
+  display: grid;
+  gap: 8px;
+}
+
+.skipped-email-loading-list span {
+  display: block;
+  height: 58px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--surface) 72%, var(--background)),
+    color-mix(in srgb, var(--cyan) 10%, var(--surface)),
+    color-mix(in srgb, var(--surface) 72%, var(--background))
+  );
+  background-size: 220% 100%;
+  animation: skipped-email-loading-sheen 1.2s ease-in-out infinite;
 }
 
 .skipped-email-panel-heading {
@@ -14136,6 +14196,16 @@ button:disabled {
 @keyframes settings-loading-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes skipped-email-loading-sheen {
+  0% {
+    background-position: 120% 50%;
+  }
+
+  100% {
+    background-position: -120% 50%;
   }
 }
 
