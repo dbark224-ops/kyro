@@ -339,16 +339,12 @@ const businessHourDays: Array<{
   { key: "holidays", label: "Holidays", shortLabel: "Holidays" },
 ];
 
-const timeOptions = Array.from({ length: 48 }, (_, index) => {
-  const hours = Math.floor(index / 2);
-  const minutes = index % 2 === 0 ? "00" : "30";
-  const value = `${String(hours).padStart(2, "0")}:${minutes}`;
-
-  return {
-    label: formatTimeLabel(value),
-    value,
-  };
-});
+const hourWheelOptions = Array.from({ length: 24 }, (_, hour) =>
+  String(hour).padStart(2, "0"),
+);
+const minuteWheelOptions = Array.from({ length: 12 }, (_, index) =>
+  String(index * 5).padStart(2, "0"),
+);
 
 function defaultBusinessHoursSchedule(): MobileBusinessHoursScheduleSettings {
   return {
@@ -1967,20 +1963,16 @@ function BusinessHoursEditor({
                 !day.enabled ? styles.hoursTimeRowDisabled : null,
               ]}
             >
-              <ReportDropdown
-                compact
+              <TimeWheelPicker
                 disabled={disabled || !day.enabled}
                 label={`${meta.label} start`}
                 onChange={(startTime) => updateDay(day.day, { startTime })}
-                options={timeOptions}
                 value={day.startTime}
               />
-              <ReportDropdown
-                compact
+              <TimeWheelPicker
                 disabled={disabled || !day.enabled}
                 label={`${meta.label} end`}
                 onChange={(endTime) => updateDay(day.day, { endTime })}
-                options={timeOptions}
                 value={day.endTime}
               />
             </View>
@@ -1998,6 +1990,165 @@ function BusinessHoursEditor({
       />
     </View>
   );
+}
+
+function TimeWheelPicker({
+  disabled,
+  label,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draftHour, setDraftHour] = useState(() => timeParts(value).hour);
+  const [draftMinute, setDraftMinute] = useState(() => timeParts(value).minute);
+
+  const openPicker = () => {
+    const parts = timeParts(value);
+
+    setDraftHour(parts.hour);
+    setDraftMinute(parts.minute);
+    setOpen(true);
+  };
+  const commit = () => {
+    onChange(`${draftHour}:${draftMinute}`);
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        disabled={disabled}
+        onPress={openPicker}
+        style={[
+          styles.dropdownButton,
+          styles.dropdownButtonCompact,
+          disabled ? styles.disabled : null,
+        ]}
+      >
+        <Text numberOfLines={1} style={styles.dropdownValue}>
+          {formatTimeLabel(value)}
+        </Text>
+        <ChevronRight color={colors.muted} size={18} />
+      </Pressable>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+        transparent
+        visible={open}
+      >
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setOpen(false)}
+          style={styles.dropdownBackdrop}
+        >
+          <Pressable style={styles.timeWheelSheet}>
+            <Text style={styles.dropdownTitle}>{label}</Text>
+            <Text style={styles.timeWheelPreview}>
+              {formatTimeLabel(`${draftHour}:${draftMinute}`)}
+            </Text>
+            <View style={styles.timeWheelColumns}>
+              <TimeWheelColumn
+                label="Hour"
+                onChange={setDraftHour}
+                options={hourWheelOptions}
+                value={draftHour}
+              />
+              <Text style={styles.timeWheelColon}>:</Text>
+              <TimeWheelColumn
+                label="Minute"
+                onChange={setDraftMinute}
+                options={minuteWheelOptions}
+                value={draftMinute}
+              />
+            </View>
+            <View style={styles.timeWheelActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setOpen(false)}
+                style={styles.iconButton}
+              >
+                <Text style={styles.iconButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={commit}
+                style={styles.saveButton}
+              >
+                <Text style={styles.saveButtonText}>Set time</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
+function TimeWheelColumn({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: string[];
+  value: string;
+}) {
+  return (
+    <View style={styles.timeWheelColumn}>
+      <Text style={styles.timeWheelLabel}>{label}</Text>
+      <ScrollView
+        contentContainerStyle={styles.timeWheelScrollContent}
+        showsVerticalScrollIndicator={false}
+        style={styles.timeWheelScroll}
+      >
+        {options.map((option) => {
+          const selected = option === value;
+
+          return (
+            <Pressable
+              accessibilityRole="button"
+              key={option}
+              onPress={() => onChange(option)}
+              style={[
+                styles.timeWheelOption,
+                selected ? styles.timeWheelOptionActive : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.timeWheelOptionText,
+                  selected ? styles.timeWheelOptionTextActive : null,
+                ]}
+              >
+                {option}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+function timeParts(value: string) {
+  const [rawHour, rawMinute] = normalizeBusinessTime(value, "09:00").split(":");
+  const numericMinute = Number(rawMinute);
+  const roundedMinute = Number.isFinite(numericMinute)
+    ? Math.min(55, Math.max(0, Math.round(numericMinute / 5) * 5))
+    : 0;
+
+  return {
+    hour: rawHour,
+    minute: String(roundedMinute).padStart(2, "0"),
+  };
 }
 
 function EmailVerificationNotice({
@@ -8282,6 +8433,79 @@ const styles = StyleSheet.create({
   },
   hoursTimeRowDisabled: {
     opacity: 0.48,
+  },
+  timeWheelActions: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+    paddingTop: 8,
+  },
+  timeWheelColon: {
+    alignSelf: "center",
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 24,
+    fontWeight: "900",
+    paddingTop: 22,
+  },
+  timeWheelColumn: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  timeWheelColumns: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  timeWheelLabel: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  timeWheelOption: {
+    alignItems: "center",
+    borderRadius: radii.md,
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  timeWheelOptionActive: {
+    backgroundColor: colors.text,
+  },
+  timeWheelOptionText: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  timeWheelOptionTextActive: {
+    color: colors.background,
+  },
+  timeWheelPreview: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  timeWheelScroll: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    maxHeight: 210,
+  },
+  timeWheelScrollContent: {
+    padding: 6,
+  },
+  timeWheelSheet: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
   },
   backButton: {
     alignItems: "center",
