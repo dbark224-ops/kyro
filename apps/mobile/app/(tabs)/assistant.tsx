@@ -2565,11 +2565,12 @@ function providerLabel(
   message: AssistantThreadMessage,
   showDeveloperMetadata: boolean,
 ) {
-  if (message.provider === "vapi") {
-    return "Kyro - Voice";
-  }
+  const baseLabel =
+    message.provider === "vapi" ? "Kyro - Voice Assistant" : "Kyro - Text";
 
-  return "Kyro - Text";
+  return showDeveloperMetadata
+    ? developerProviderLabel(message, baseLabel)
+    : baseLabel;
 }
 
 function developerProviderLabel(

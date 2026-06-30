@@ -123,6 +123,7 @@ type SettingsSection =
   | "files"
   | "general"
   | "integrations"
+  | "legal"
   | "phone_sms"
   | "contact_sync"
   | "activity"
@@ -452,6 +453,13 @@ const sectionItems: SettingsSectionItem[] = [
     title: "Appearance",
   },
   {
+    detail: "Privacy, terms, support, account deletion",
+    eyebrow: "Legal",
+    icon: ShieldCheck,
+    section: "legal",
+    title: "Legal & support",
+  },
+  {
     detail: "Realtime voice and pronunciation",
     eyebrow: "Voice",
     icon: Mic2,
@@ -542,7 +550,7 @@ const settingsGroups: SettingsGroupItem[] = [
     detail: "Sign-in, app lock, usage, and billing",
     icon: LockKeyhole,
     id: "app_account",
-    sections: ["security", "appearance", "usage"],
+    sections: ["security", "appearance", "legal", "usage"],
     title: "App & account",
   },
   {
@@ -837,6 +845,8 @@ export default function SettingsScreen() {
                 <AppearanceSettingsPanel />
               ) : null}
 
+              {selectedSection === "legal" ? <LegalSettingsPanel /> : null}
+
               {selectedSection === "voice" ? (
                 <VoiceSettingsPanel
                   data={data}
@@ -931,6 +941,9 @@ export default function SettingsScreen() {
               <AccountSessionCard
                 emailVerified={account?.emailVerified}
                 onSignOut={handleSignOut}
+                onOpenAccountDeletion={() =>
+                  openMobileExternalUrl(mobileEnv.accountDeletionUrl)
+                }
                 status={status}
                 userEmail={account?.email ?? user?.email}
               />
@@ -1270,11 +1283,13 @@ function SettingsDetailTransition({
 
 function AccountSessionCard({
   emailVerified,
+  onOpenAccountDeletion,
   onSignOut,
   status,
   userEmail,
 }: {
   emailVerified?: boolean;
+  onOpenAccountDeletion: () => void;
   onSignOut: () => void;
   status: ReturnType<typeof useAuthSession>["status"];
   userEmail?: string;
@@ -1306,14 +1321,24 @@ function AccountSessionCard({
         />
       </View>
       {status === "signed-in" ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={onSignOut}
-          style={styles.iconButton}
-        >
-          <LogOut color={colors.text} size={18} />
-          <Text style={styles.iconButtonText}>Sign out</Text>
-        </Pressable>
+        <View style={styles.accountActionStack}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onOpenAccountDeletion}
+            style={styles.iconButton}
+          >
+            <Trash2 color={colors.warning} size={18} />
+            <Text style={styles.iconButtonText}>Delete account</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onSignOut}
+            style={styles.iconButton}
+          >
+            <LogOut color={colors.text} size={18} />
+            <Text style={styles.iconButtonText}>Sign out</Text>
+          </Pressable>
+        </View>
       ) : (
         <ActionButton onPress={() => router.push("/sign-in")}>
           <View style={styles.buttonInner}>
@@ -1323,6 +1348,75 @@ function AccountSessionCard({
         </ActionButton>
       )}
     </SectionCard>
+  );
+}
+
+function LegalSettingsPanel() {
+  return (
+    <>
+      <SectionCard>
+        <SectionHeader eyebrow="Legal" title="Policies" />
+        <LegalLinkRow
+          icon={ShieldCheck}
+          label="Privacy policy"
+          onPress={() => openMobileExternalUrl(mobileEnv.privacyPolicyUrl)}
+        />
+        <LegalLinkRow
+          icon={FileText}
+          label="Terms of service"
+          onPress={() => openMobileExternalUrl(mobileEnv.termsOfServiceUrl)}
+        />
+        <LegalLinkRow
+          icon={Mail}
+          label="Support"
+          onPress={() => openMobileExternalUrl(mobileEnv.supportUrl)}
+        />
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader eyebrow="Account" title="Account deletion" />
+        <Text style={styles.legalBody}>
+          Account deletion opens Kyro on the web so you can verify the request
+          and remove your account/workspace data through the dedicated flow.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => openMobileExternalUrl(mobileEnv.accountDeletionUrl)}
+          style={styles.destructiveLinkButton}
+        >
+          <Trash2 color={colors.warning} size={18} strokeWidth={2.4} />
+          <Text style={styles.destructiveLinkText}>Open account deletion</Text>
+          <ExternalLink color={colors.muted} size={16} strokeWidth={2.3} />
+        </Pressable>
+      </SectionCard>
+    </>
+  );
+}
+
+function LegalLinkRow({
+  icon: Icon,
+  label,
+  onPress,
+}: {
+  icon: typeof ShieldCheck;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="link"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.legalLinkRow,
+        pressed ? styles.pressed : null,
+      ]}
+    >
+      <View style={styles.settingsRowIcon}>
+        <Icon color={colors.text} size={18} strokeWidth={2.3} />
+      </View>
+      <Text style={styles.settingsRowTitle}>{label}</Text>
+      <ExternalLink color={colors.muted} size={16} strokeWidth={2.3} />
+    </Pressable>
   );
 }
 
@@ -7122,6 +7216,14 @@ function openWebSettingsPanel(panel: string) {
   Linking.openURL(url.toString()).catch(() => undefined);
 }
 
+function openMobileExternalUrl(url: string) {
+  if (!url) {
+    return;
+  }
+
+  Linking.openURL(url).catch(() => undefined);
+}
+
 function SettingField({
   children,
   label,
@@ -8422,6 +8524,9 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "space-between",
   },
+  accountActionStack: {
+    gap: 9,
+  },
   buttonInner: {
     alignItems: "center",
     flexDirection: "row",
@@ -8879,6 +8984,41 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "900",
+  },
+  destructiveLinkButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255, 209, 102, 0.08)",
+    borderColor: "rgba(255, 209, 102, 0.26)",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 9,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: 12,
+  },
+  destructiveLinkText: {
+    color: colors.text,
+    flexShrink: 1,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  legalBody: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+  },
+  legalLinkRow: {
+    alignItems: "center",
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 58,
+    paddingVertical: 9,
   },
   nestedPanel: {
     backgroundColor: "rgba(255, 255, 255, 0.025)",

@@ -31,9 +31,16 @@ Set the Expo public env vars before testing auth or live API calls:
 EXPO_PUBLIC_SUPABASE_URL=...
 EXPO_PUBLIC_SUPABASE_ANON_KEY=...
 EXPO_PUBLIC_KYRO_API_BASE_URL=http://10.0.2.2:3001
+EXPO_PUBLIC_KYRO_WEB_BASE_URL=https://kyroassistant.com
+EXPO_PUBLIC_KYRO_PRIVACY_URL=https://kyroassistant.com/privacy
+EXPO_PUBLIC_KYRO_TERMS_URL=https://kyroassistant.com/terms
+EXPO_PUBLIC_KYRO_ACCOUNT_DELETION_URL=https://kyroassistant.com/account/delete
+EXPO_PUBLIC_KYRO_SUPPORT_URL=https://kyroassistant.com/support
 ```
 
 Only publishable Supabase values belong in the mobile app. Never put `SUPABASE_SERVICE_ROLE_KEY`, provider secrets, cron secrets, or integration encryption keys in Expo public env vars.
+
+The legal/support URLs are surfaced on the sign-in screen and Settings -> App & account -> Legal & support. If a specific URL is not supplied, the app falls back to the same path on `EXPO_PUBLIC_KYRO_WEB_BASE_URL` or `EXPO_PUBLIC_KYRO_API_BASE_URL`.
 
 ## What Is Scaffolded
 
@@ -44,13 +51,13 @@ Only publishable Supabase values belong in the mobile app. Never put `SUPABASE_S
 - TanStack Query provider for future server state.
 - A small typed Kyro API client for backend route calls.
 - Dashboard, Assistant, Inbox, CRM, and Settings wired to mobile backend routes.
-- Assistant tab mode toggle for Text, Voice, and Vapi Voice interaction surfaces.
+- Assistant tab mode toggle for Text and Voice interaction surfaces.
 
-Voice mode uses the mobile assistant voice-turn route. Vapi Voice uses the Vapi React Native SDK and fetches its assistant/public-key session from the Kyro backend, so Vapi keys stay server-side.
+Voice mode uses the native voice SDK and fetches its assistant/public-key session from the Kyro backend, so voice provider keys stay server-side.
 
-## Vapi Voice Development Build
+## Voice Development Build
 
-The Vapi React Native SDK needs native WebRTC modules and will not run inside Expo Go. Use a development build when testing the Vapi Voice tab:
+The native voice SDK needs WebRTC modules and will not run inside Expo Go. Use a development build when testing the Voice tab:
 
 ```bash
 set EXPO_USE_DEV_CLIENT=1
@@ -83,9 +90,8 @@ The EAS config lives in `apps/mobile/eas.json` so the cloud builder uses the Exp
 ## App Unlock
 
 Kyro keeps the Supabase session persisted with SecureStore, then places a local
-unlock gate in front of the app. On devices with enrolled biometrics, the first
-saved-session default is biometric unlock. On emulators or devices without
-biometrics, Kyro falls back to no app lock so local testing does not get trapped.
+unlock gate in front of the app. The saved-session default is no app lock, but
+the first-run prompt lets the user choose biometrics, passcode, or no app lock.
 
 Change the mode in Settings -> App unlock:
 

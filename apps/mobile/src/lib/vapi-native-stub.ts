@@ -9,7 +9,7 @@ export default class VapiNativeStub {
 
   async start() {
     throw new Error(
-      "Vapi Voice cannot run inside Expo Go. Use a development build, simulator build, or TestFlight build."
+      "Voice calls cannot run inside Expo Go. Use a development build, simulator build, or TestFlight build.",
     );
   }
 

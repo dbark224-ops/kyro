@@ -5,17 +5,19 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandLockup } from "@/components/BrandLockup";
 import { useAuthSession } from "@/features/auth/auth-context";
+import { mobileEnv } from "@/lib/env";
 import { getRememberDevicePreference } from "@/lib/supabase";
 import { colors, radii, spacing, typography } from "@/theme";
 
@@ -61,7 +63,9 @@ export default function SignInScreen() {
       await signInWithPassword(email.trim(), password, { rememberDevice });
       router.replace("/dashboard");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Sign in failed.");
+      setError(
+        nextError instanceof Error ? nextError.message : "Sign in failed.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -86,7 +90,7 @@ export default function SignInScreen() {
               colors={[
                 "rgba(81, 229, 255, 0.76)",
                 "rgba(139, 92, 246, 0.42)",
-                "rgba(236, 54, 141, 0.72)"
+                "rgba(236, 54, 141, 0.72)",
               ]}
               end={{ x: 1, y: 1 }}
               start={{ x: 0, y: 0 }}
@@ -134,7 +138,7 @@ export default function SignInScreen() {
                     onPress={() => setShowPassword((value) => !value)}
                     style={({ pressed }) => [
                       styles.passwordToggle,
-                      pressed ? styles.pressed : null
+                      pressed ? styles.pressed : null,
                     ]}
                   >
                     {showPassword ? (
@@ -151,13 +155,13 @@ export default function SignInScreen() {
                   onPress={() => setRememberDevice((value) => !value)}
                   style={({ pressed }) => [
                     styles.rememberRow,
-                    pressed ? styles.pressed : null
+                    pressed ? styles.pressed : null,
                   ]}
                 >
                   <View
                     style={[
                       styles.checkbox,
-                      rememberDevice ? styles.checkboxChecked : null
+                      rememberDevice ? styles.checkboxChecked : null,
                     ]}
                   >
                     {rememberDevice ? (
@@ -168,7 +172,9 @@ export default function SignInScreen() {
                       />
                     ) : null}
                   </View>
-                  <Text style={styles.rememberText}>Remember me on this device</Text>
+                  <Text style={styles.rememberText}>
+                    Remember me on this device
+                  </Text>
                 </Pressable>
 
                 {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -180,13 +186,16 @@ export default function SignInScreen() {
                   style={({ pressed }) => [
                     styles.submitPressable,
                     pressed && !isDisabled ? styles.pressed : null,
-                    isDisabled ? styles.disabled : null
+                    isDisabled ? styles.disabled : null,
                   ]}
                 >
                   <LinearGradient
                     colors={
                       isDisabled
-                        ? ["rgba(246, 247, 251, 0.7)", "rgba(246, 247, 251, 0.7)"]
+                        ? [
+                            "rgba(246, 247, 251, 0.7)",
+                            "rgba(246, 247, 251, 0.7)",
+                          ]
                         : [colors.text, "rgba(81, 229, 255, 0.88)"]
                     }
                     end={{ x: 1, y: 0 }}
@@ -194,7 +203,10 @@ export default function SignInScreen() {
                     style={styles.submitButton}
                   >
                     {isSubmitting ? (
-                      <ActivityIndicator color={colors.background} size="small" />
+                      <ActivityIndicator
+                        color={colors.background}
+                        size="small"
+                      />
                     ) : (
                       <Text style={styles.submitText}>Sign in</Text>
                     )}
@@ -203,10 +215,34 @@ export default function SignInScreen() {
               </View>
             </LinearGradient>
 
+            <View style={styles.legalLinks}>
+              <LegalLink label="Privacy" url={mobileEnv.privacyPolicyUrl} />
+              <Text style={styles.legalSeparator}>|</Text>
+              <LegalLink label="Terms" url={mobileEnv.termsOfServiceUrl} />
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+function LegalLink({ label, url }: { label: string; url: string }) {
+  return (
+    <Pressable
+      accessibilityRole="link"
+      disabled={!url}
+      onPress={() => {
+        if (url) {
+          Linking.openURL(url).catch(() => undefined);
+        }
+      }}
+      style={({ pressed }) => [pressed ? styles.pressed : null]}
+    >
+      <Text style={[styles.legalLink, !url ? styles.disabled : null]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -217,19 +253,19 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10
+    paddingVertical: 10,
   },
   alertText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "800",
-    lineHeight: 19
+    lineHeight: 19,
   },
   content: {
     flex: 1,
     gap: 18,
-    justifyContent: "center"
+    justifyContent: "center",
   },
   checkbox: {
     alignItems: "center",
@@ -238,38 +274,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 22,
     justifyContent: "center",
-    width: 22
+    width: 22,
   },
   checkboxChecked: {
     backgroundColor: colors.cyan,
-    borderColor: colors.cyan
+    borderColor: colors.cyan,
   },
   disabled: {
-    opacity: 0.52
+    opacity: 0.52,
   },
   error: {
     color: colors.pink,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "800",
-    lineHeight: 19
+    lineHeight: 19,
   },
   eyebrow: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   form: {
     backgroundColor: "rgba(17, 18, 25, 0.98)",
     borderRadius: 13,
     gap: 12,
-    padding: 14
+    padding: 14,
   },
   formFrame: {
     borderRadius: 14,
-    padding: 1
+    padding: 1,
   },
   input: {
     backgroundColor: colors.surfaceSoft,
@@ -281,19 +317,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     minHeight: 52,
-    paddingHorizontal: 14
+    paddingHorizontal: 14,
   },
   keyboard: {
-    flex: 1
+    flex: 1,
+  },
+  legalLink: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  legalLinks: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+    justifyContent: "center",
+  },
+  legalSeparator: {
+    color: colors.line,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
   },
   pressed: {
-    opacity: 0.75
+    opacity: 0.75,
   },
   passwordField: {
-    position: "relative"
+    position: "relative",
   },
   passwordInput: {
-    paddingRight: 52
+    paddingRight: 52,
   },
   passwordToggle: {
     alignItems: "center",
@@ -302,7 +356,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 6,
     top: 6,
-    width: 42
+    width: 42,
   },
   rememberRow: {
     alignItems: "center",
@@ -310,39 +364,39 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 9,
     minHeight: 34,
-    paddingRight: 8
+    paddingRight: 8,
   },
   rememberText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "800"
+    fontWeight: "800",
   },
   safeArea: {
     backgroundColor: colors.background,
-    flex: 1
+    flex: 1,
   },
   shell: {
     flex: 1,
     paddingBottom: 18,
     paddingHorizontal: spacing.pageX,
-    paddingTop: spacing.pageY
+    paddingTop: spacing.pageY,
   },
   submitButton: {
     alignItems: "center",
     borderRadius: radii.md,
     justifyContent: "center",
-    minHeight: 52
+    minHeight: 52,
   },
   submitPressable: {
     borderRadius: radii.md,
-    overflow: "hidden"
+    overflow: "hidden",
   },
   submitText: {
     color: colors.background,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   title: {
     color: colors.text,
@@ -350,9 +404,9 @@ const styles = StyleSheet.create({
     fontSize: 40,
     fontWeight: "900",
     letterSpacing: 0,
-    lineHeight: 44
+    lineHeight: 44,
   },
   titleBlock: {
-    gap: 7
-  }
+    gap: 7,
+  },
 });

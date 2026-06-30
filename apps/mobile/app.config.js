@@ -2,7 +2,7 @@ const {
   withAndroidManifest,
   withAppBuildGradle,
   withDangerousMod,
-  withGradleProperties
+  withGradleProperties,
 } = require("@expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
@@ -13,7 +13,7 @@ const DAILY_FOREGROUND_SERVICE =
 
 const upsertGradleProperty = (properties, key, value) => {
   const existing = properties.find(
-    (property) => property.type === "property" && property.key === key
+    (property) => property.type === "property" && property.key === key,
   );
 
   if (existing) {
@@ -28,7 +28,7 @@ const withAndroidNativePackagingFixes = (config) => {
     upsertGradleProperty(
       gradleConfig.modResults,
       "expo.useLegacyPackaging",
-      "false"
+      "false",
     );
 
     return gradleConfig;
@@ -37,7 +37,7 @@ const withAndroidNativePackagingFixes = (config) => {
   return withAppBuildGradle(config, (gradleConfig) => {
     gradleConfig.modResults.contents = gradleConfig.modResults.contents.replace(
       /\nandroid\.packagingOptions\.jniLibs\.useLegacyPackaging\s*=\s*true\s*\n?/g,
-      "\n"
+      "\n",
     );
 
     return gradleConfig;
@@ -51,21 +51,21 @@ const withFinalAndroidNativePackagingCleanup = (config) =>
       const appBuildGradlePath = path.join(
         modConfig.modRequest.platformProjectRoot,
         "app",
-        "build.gradle"
+        "build.gradle",
       );
       const androidManifestPath = path.join(
         modConfig.modRequest.platformProjectRoot,
         "app",
         "src",
         "main",
-        "AndroidManifest.xml"
+        "AndroidManifest.xml",
       );
 
       if (fs.existsSync(appBuildGradlePath)) {
         const contents = fs.readFileSync(appBuildGradlePath, "utf8");
         const cleaned = contents.replace(
           /\nandroid\.packagingOptions\.jniLibs\.useLegacyPackaging\s*=\s*true\s*\n?/g,
-          "\n"
+          "\n",
         );
 
         if (cleaned !== contents) {
@@ -99,7 +99,7 @@ const withFinalAndroidNativePackagingCleanup = (config) =>
       }
 
       return modConfig;
-    }
+    },
   ]);
 
 const withFinalAndroidManifestCleanup = (config) =>
@@ -145,7 +145,7 @@ module.exports = {
     splash: {
       image: "./assets/kyro-logo.png",
       resizeMode: "contain",
-      backgroundColor: "#08090d"
+      backgroundColor: "#08090d",
     },
     assetBundlePatterns: ["**/*"],
     ios: {
@@ -154,21 +154,22 @@ module.exports = {
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         NSCameraUsageDescription:
-          "Kyro uses the camera when you start native voice and attachment flows.",
+          "Kyro uses the camera when you take a photo to attach to an assistant message.",
         NSContactsUsageDescription:
           "Kyro uses contacts so you can choose people to import into CRM.",
         NSFaceIDUsageDescription:
           "Kyro uses Face ID to unlock your saved workspace session.",
         NSMicrophoneUsageDescription:
           "Kyro uses the microphone when you talk to the voice assistant.",
-        UIBackgroundModes: ["voip"]
-      }
+        NSPhotoLibraryUsageDescription:
+          "Kyro uses your photo library when you choose images to attach to the assistant.",
+      },
     },
     android: {
       package: "ai.kyro.mobile",
       adaptiveIcon: {
         foregroundImage: "./assets/kyro-icon.png",
-        backgroundColor: "#08090d"
+        backgroundColor: "#08090d",
       },
       permissions: [
         "android.permission.ACCESS_NETWORK_STATE",
@@ -179,12 +180,10 @@ module.exports = {
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.INTERNET",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_CONTACTS",
         "android.permission.RECORD_AUDIO",
-        "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.WAKE_LOCK"
-      ]
+        "android.permission.WAKE_LOCK",
+      ],
     },
     plugins: [
       "expo-router",
@@ -194,16 +193,16 @@ module.exports = {
         "expo-contacts",
         {
           contactsPermission:
-            "Kyro uses contacts so you can choose people to import into CRM."
-        }
+            "Kyro uses contacts so you can choose people to import into CRM.",
+        },
       ],
       "expo-sharing",
       [
         "expo-local-authentication",
         {
           faceIDPermission:
-            "Kyro uses Face ID to unlock your saved workspace session."
-        }
+            "Kyro uses Face ID to unlock your saved workspace session.",
+        },
       ],
       [
         "expo-image-picker",
@@ -211,16 +210,16 @@ module.exports = {
           cameraPermission:
             "Kyro uses the camera when you take a photo for the assistant.",
           photosPermission:
-            "Kyro uses your photo library when you attach images to the assistant."
-        }
+            "Kyro uses your photo library when you attach images to the assistant.",
+        },
       ],
       [
         "expo-audio",
         {
           microphonePermission:
             "Kyro uses the microphone when you talk to the voice assistant.",
-          recordAudioAndroid: true
-        }
+          recordAudioAndroid: true,
+        },
       ],
       "@config-plugins/react-native-webrtc",
       withAndroidNativePackagingFixes,
@@ -231,27 +230,39 @@ module.exports = {
         "expo-build-properties",
         {
           android: {
-            minSdkVersion: 24
+            minSdkVersion: 24,
           },
           ios: {
-            deploymentTarget: "16.4"
-          }
-        }
-      ]
+            deploymentTarget: "16.4",
+          },
+        },
+      ],
     ],
     experiments: {
-      typedRoutes: true
+      typedRoutes: true,
     },
     extra: {
       eas: {
         projectId:
-          process.env.EXPO_PROJECT_ID ??
-          "78a1249a-94e0-4333-a978-6f3251303457"
+          process.env.EXPO_PROJECT_ID ?? "78a1249a-94e0-4333-a978-6f3251303457",
       },
       useDevClient: IS_DEV_CLIENT,
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? "",
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "",
-      kyroApiBaseUrl: process.env.EXPO_PUBLIC_KYRO_API_BASE_URL ?? ""
-    }
-  }
+      kyroApiBaseUrl: process.env.EXPO_PUBLIC_KYRO_API_BASE_URL ?? "",
+      webBaseUrl: process.env.EXPO_PUBLIC_KYRO_WEB_BASE_URL ?? "",
+      privacyPolicyUrl:
+        process.env.EXPO_PUBLIC_KYRO_PRIVACY_URL ??
+        "https://kyroassistant.com/legal/privacy",
+      termsOfServiceUrl:
+        process.env.EXPO_PUBLIC_KYRO_TERMS_URL ??
+        "https://kyroassistant.com/legal/terms",
+      accountDeletionUrl:
+        process.env.EXPO_PUBLIC_KYRO_ACCOUNT_DELETION_URL ??
+        "https://kyroassistant.com/account/delete",
+      supportUrl:
+        process.env.EXPO_PUBLIC_KYRO_SUPPORT_URL ??
+        "https://kyroassistant.com/contact",
+    },
+  },
 };
