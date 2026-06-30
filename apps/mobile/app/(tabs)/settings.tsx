@@ -940,6 +940,8 @@ function SettingsHeaderUsageChip({
   onPress: () => void;
   value: string;
 }) {
+  const displayValue = formatHeaderUsageValue(value);
+
   return (
     <Pressable
       accessibilityLabel="Open usage and billing"
@@ -950,12 +952,28 @@ function SettingsHeaderUsageChip({
         pressed ? styles.pressed : null,
       ]}
     >
-      <Text numberOfLines={1} style={styles.headerUsageValue}>
-        {value}
-      </Text>
+      <Text style={styles.headerUsageValue}>{displayValue}</Text>
       <Text style={styles.headerUsageLabel}>Usage</Text>
     </Pressable>
   );
+}
+
+function formatHeaderUsageValue(value: string) {
+  const match = value.match(/-?\d+(?:,\d{3})*(?:\.\d+)?/);
+
+  if (!match) {
+    return value;
+  }
+
+  const amount = Number(match[0].replace(/,/g, ""));
+
+  if (!Number.isFinite(amount)) {
+    return value;
+  }
+
+  return `${value.slice(0, match.index)}${amount.toFixed(2)}${value.slice(
+    (match.index ?? 0) + match[0].length,
+  )}`;
 }
 
 function SettingsLoadingState() {
@@ -8244,7 +8262,6 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: "900",
     lineHeight: 22,
-    maxWidth: 86,
   },
   iconButton: {
     alignItems: "center",
