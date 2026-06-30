@@ -86,6 +86,9 @@ Production auth email is sent through Supabase Auth using the configured SMTP
 provider. Kyro currently uses Resend for this path.
 
 - Configure Supabase Auth SMTP with the production Resend credentials.
+- Configure `RESEND_API_KEY` and `KYRO_AUTH_EMAIL_FROM` in Vercel Production so
+  Kyro's in-app resend buttons can send the same branded verification format
+  when Supabase already considers the user signed in.
 - Set the Supabase Site URL to `https://kyroassistant.com`.
 - Add redirect URLs for `https://kyroassistant.com/**`; localhost redirects are
   only for local development.
