@@ -3041,6 +3041,12 @@ textarea:focus {
   padding-top: 20px;
 }
 
+@media (min-width: 761px) {
+  .workspace-fit-fold .inbox-topbar.page-topbar-tight .topbar-right {
+    padding-top: 32px;
+  }
+}
+
 .workspace-fit-fold .files-topbar {
   margin-bottom: 6px;
 }
