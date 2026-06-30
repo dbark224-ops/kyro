@@ -13859,6 +13859,12 @@ button:disabled {
   min-height: 160px;
 }
 
+.draft-reply-form .reply-generator textarea {
+  height: 38px;
+  min-height: 38px;
+  resize: none;
+}
+
 .draft-reply-form input[readonly],
 .draft-reply-form textarea[readonly] {
   color: var(--muted);
