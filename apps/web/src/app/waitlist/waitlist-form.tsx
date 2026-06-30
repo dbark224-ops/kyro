@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 type FieldErrors = Record<string, string>;
 
@@ -48,6 +48,28 @@ export function WaitlistForm() {
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [canSubmitCurrentStep, setCanSubmitCurrentStep] = useState(true);
+  const submitGuardTimeoutRef = useRef<number | null>(null);
+
+  function moveToStep(index: number) {
+    if (submitGuardTimeoutRef.current !== null) {
+      window.clearTimeout(submitGuardTimeoutRef.current);
+      submitGuardTimeoutRef.current = null;
+    }
+
+    if (index === steps.length - 1) {
+      setCanSubmitCurrentStep(false);
+      submitGuardTimeoutRef.current = window.setTimeout(() => {
+        setCanSubmitCurrentStep(true);
+        submitGuardTimeoutRef.current = null;
+      }, 450);
+    } else {
+      setCanSubmitCurrentStep(true);
+    }
+
+    clearStepErrors(index);
+    setStep(index);
+  }
 
   function clearFieldError(name: string) {
     setFieldErrors((current) => {
@@ -57,6 +79,18 @@ export function WaitlistForm() {
 
       const next = { ...current };
       delete next[name];
+      return next;
+    });
+  }
+
+  function clearStepErrors(index: number) {
+    setFieldErrors((current) => {
+      const next = { ...current };
+
+      for (const fieldName of steps[index]?.fields ?? []) {
+        delete next[fieldName];
+      }
+
       return next;
     });
   }
@@ -107,7 +141,7 @@ export function WaitlistForm() {
 
   function goToStep(index: number, form: HTMLFormElement | null) {
     if (index <= step) {
-      setStep(index);
+      moveToStep(index);
       return;
     }
 
@@ -115,7 +149,7 @@ export function WaitlistForm() {
       return;
     }
 
-    setStep(index);
+    moveToStep(index);
   }
 
   function goToNextStep(event: FormEvent<HTMLButtonElement>) {
@@ -125,11 +159,17 @@ export function WaitlistForm() {
       return;
     }
 
-    setStep((current) => Math.min(current + 1, steps.length - 1));
+    const nextStep = Math.min(step + 1, steps.length - 1);
+
+    moveToStep(nextStep);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!canSubmitCurrentStep) {
+      return;
+    }
 
     const form = event.currentTarget;
     const allFields = steps.flatMap((item) => item.fields);
@@ -405,7 +445,11 @@ export function WaitlistForm() {
             Next
           </button>
         ) : (
-          <button className="primary-button" disabled={isSubmitting} type="submit">
+          <button
+            className="primary-button"
+            disabled={isSubmitting || !canSubmitCurrentStep}
+            type="submit"
+          >
             {isSubmitting ? "Joining..." : "Join waitlist"}
           </button>
         )}
