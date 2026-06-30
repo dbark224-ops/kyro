@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv } from "../env";
+import { requestBearerToken } from "../http/request-secret";
 import { createServerSupabaseClient } from "../supabase/server";
 import { getPrimaryWorkspace, type WorkspaceSummary } from "./bootstrap";
 
@@ -10,20 +11,8 @@ export type ApiWorkspaceContext = {
   workspace: WorkspaceSummary;
 };
 
-function bearerToken(request: NextRequest) {
-  const authorization = request.headers.get("authorization") ?? "";
-
-  if (!authorization.toLowerCase().startsWith("bearer ")) {
-    return null;
-  }
-
-  const token = authorization.slice("bearer ".length).trim();
-
-  return token || null;
-}
-
 export async function createApiSupabaseClient(request: NextRequest) {
-  const token = bearerToken(request);
+  const token = requestBearerToken(request);
 
   if (!token) {
     return createServerSupabaseClient();

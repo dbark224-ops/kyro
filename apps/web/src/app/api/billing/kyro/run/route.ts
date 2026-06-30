@@ -3,28 +3,21 @@ import {
   chargeDueKyroInvoices,
   runKyroBillingCycle,
 } from "../../../../../lib/billing/kyro-billing-engine";
+import {
+  envSecret,
+  hasValidRequestSecret,
+} from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function expectedSecret() {
-  return (
-    process.env.KYRO_BILLING_RUN_SECRET?.trim() ??
-    process.env.OUTBOUND_DELIVERY_SECRET?.trim() ??
-    process.env.CRON_SECRET?.trim() ??
-    null
+  return envSecret(
+    "KYRO_BILLING_RUN_SECRET",
+    "OUTBOUND_DELIVERY_SECRET",
+    "CRON_SECRET",
   );
-}
-
-function bearerToken(request: NextRequest) {
-  const authorization = request.headers.get("authorization") ?? "";
-
-  if (authorization.toLowerCase().startsWith("bearer ")) {
-    return authorization.slice("bearer ".length).trim();
-  }
-
-  return request.nextUrl.searchParams.get("secret")?.trim() ?? null;
 }
 
 function autoChargeEnabled(request: NextRequest) {
@@ -73,7 +66,11 @@ async function handle(request: NextRequest) {
     );
   }
 
-  if (bearerToken(request) !== secret) {
+  if (
+    !hasValidRequestSecret(request, secret, {
+      queryParamNames: ["secret"],
+    })
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

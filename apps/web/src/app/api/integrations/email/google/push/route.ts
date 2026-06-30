@@ -1,4 +1,8 @@
 import type { User } from "@supabase/supabase-js";
+import {
+  envSecret,
+  hasValidRequestSecret,
+} from "../../../../../../lib/http/request-secret";
 import { GOOGLE_PROVIDER } from "../../../../../../lib/integrations/google";
 import { syncInboundEmail } from "../../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../../lib/supabase/service";
@@ -14,22 +18,11 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function requestSecret(request: Request) {
-  const authorization = request.headers.get("authorization") ?? "";
-
-  if (authorization.toLowerCase().startsWith("bearer ")) {
-    return authorization.slice("bearer ".length).trim();
-  }
-
-  return request.headers.get("x-kyro-sync-secret")?.trim() ?? "";
-}
-
 function expectedSecret() {
-  return (
-    process.env.INBOUND_EMAIL_PUSH_SECRET?.trim() ??
-    process.env.INBOUND_EMAIL_SYNC_SECRET?.trim() ??
-    process.env.CRON_SECRET?.trim() ??
-    ""
+  return envSecret(
+    "INBOUND_EMAIL_PUSH_SECRET",
+    "INBOUND_EMAIL_SYNC_SECRET",
+    "CRON_SECRET",
   );
 }
 
@@ -73,7 +66,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (requestSecret(request) !== secret) {
+  if (!hasValidRequestSecret(request, secret)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

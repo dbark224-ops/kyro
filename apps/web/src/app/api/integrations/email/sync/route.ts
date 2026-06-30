@@ -1,25 +1,15 @@
 import type { User } from "@supabase/supabase-js";
+import {
+  envSecret,
+  hasValidRequestSecret,
+} from "../../../../../lib/http/request-secret";
 import { syncInboundEmail } from "../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
 function syncSecret() {
-  return (
-    process.env.INBOUND_EMAIL_SYNC_SECRET?.trim() ??
-    process.env.CRON_SECRET?.trim() ??
-    ""
-  );
-}
-
-function requestSecret(request: Request) {
-  const authorization = request.headers.get("authorization") ?? "";
-
-  if (authorization.toLowerCase().startsWith("bearer ")) {
-    return authorization.slice("bearer ".length).trim();
-  }
-
-  return request.headers.get("x-kyro-sync-secret")?.trim() ?? "";
+  return envSecret("INBOUND_EMAIL_SYNC_SECRET", "CRON_SECRET");
 }
 
 function scheduledUser(ownerUserId: string): User {
@@ -36,7 +26,7 @@ async function runScheduledSync(request: Request) {
     );
   }
 
-  if (requestSecret(request) !== expectedSecret) {
+  if (!hasValidRequestSecret(request, expectedSecret)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

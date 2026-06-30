@@ -175,7 +175,7 @@ const widgetDefinitions: Record<DashboardWidgetKey, WidgetDefinition> = {
     title: "Assistant",
   },
   calendar: {
-    description: "Placeholder until the Calendar tab is built.",
+    description: "Upcoming scheduling, site visits, and reminders.",
     key: "calendar",
     title: "Calendar",
   },
@@ -185,7 +185,7 @@ const widgetDefinitions: Record<DashboardWidgetKey, WidgetDefinition> = {
     title: "Document generation",
   },
   payments: {
-    description: "Billing placeholder for customer collections and Kyro usage.",
+    description: "Customer collections and Kyro usage.",
     key: "payments",
     title: "Payments",
   },
@@ -1000,16 +1000,15 @@ function renderWidget({
     return (
       <section className="dashboard-widget placeholder" key={key}>
         <DashboardWidgetHeader
-          action={<span className="filter-pill">Placeholder</span>}
-          description="Calendar tab still needs building."
+          action={<span className="filter-pill">Upcoming</span>}
+          description="Scheduling, site visits, and due reminders."
           title="Calendar"
         />
         <div className="dashboard-placeholder">
-          <strong>Calendar surface coming next.</strong>
+          <strong>Scheduling view is being prepared.</strong>
           <p>
-            We will wire scheduling, site visits, and due reminders into a
-            dedicated calendar tab, then surface the most useful slice of it
-            here.
+            Site visits, due reminders, and calendar writeback will appear here
+            once scheduling is connected.
           </p>
         </div>
       </section>

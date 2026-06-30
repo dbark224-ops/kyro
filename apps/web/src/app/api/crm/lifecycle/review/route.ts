@@ -1,24 +1,14 @@
 import { runContactLifecycleReview } from "../../../../../lib/crm/lifecycle-review";
+import {
+  envSecret,
+  hasValidRequestSecret,
+} from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
 function syncSecret() {
-  return (
-    process.env.CRM_LIFECYCLE_REVIEW_SECRET?.trim() ||
-    process.env.CRON_SECRET?.trim() ||
-    ""
-  );
-}
-
-function requestSecret(request: Request) {
-  const authorization = request.headers.get("authorization") ?? "";
-
-  if (authorization.toLowerCase().startsWith("bearer ")) {
-    return authorization.slice("bearer ".length).trim();
-  }
-
-  return request.headers.get("x-kyro-sync-secret")?.trim() ?? "";
+  return envSecret("CRM_LIFECYCLE_REVIEW_SECRET", "CRON_SECRET");
 }
 
 async function runScheduledLifecycleReview(request: Request) {
@@ -33,7 +23,7 @@ async function runScheduledLifecycleReview(request: Request) {
     );
   }
 
-  if (requestSecret(request) !== expectedSecret) {
+  if (!hasValidRequestSecret(request, expectedSecret)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
