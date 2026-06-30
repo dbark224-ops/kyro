@@ -5082,6 +5082,18 @@ h2 {
   align-items: center;
 }
 
+.outbound-delivery-row {
+  min-height: 36px;
+  padding-bottom: 8px;
+}
+
+.outbound-delivery-row strong,
+.outbound-delivery-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assistant-preview-row > div {
   display: grid;
   min-width: 0;
@@ -5097,6 +5109,46 @@ h2 {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.manual-reply-disclosure {
+  gap: 0;
+}
+
+.manual-reply-disclosure summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.manual-reply-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.manual-reply-disclosure summary > div {
+  display: grid;
+  gap: 3px;
+}
+
+.manual-reply-disclosure summary span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.manual-reply-disclosure summary > span::after {
+  content: " v";
+}
+
+.manual-reply-disclosure[open] {
+  gap: 12px;
+}
+
+.manual-reply-disclosure[open] summary > span::after {
+  content: " ^";
 }
 
 .assistant-preview-list.compact .assistant-preview-row:last-child,
@@ -6959,8 +7011,12 @@ button.voice-card {
 }
 
 .reply-generator .secondary-button {
+  display: inline-flex;
   min-height: 38px;
   align-self: end;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .reply-generator-status {
@@ -13638,6 +13694,12 @@ button:disabled {
   gap: 10px;
 }
 
+.draft-reply-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .draft-reply-form textarea {
   min-height: 160px;
 }
@@ -13650,6 +13712,13 @@ button:disabled {
 
 .draft-reply-form button {
   width: fit-content;
+}
+
+.inbox-submit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .secondary-action-list {
@@ -15326,6 +15395,10 @@ button:disabled {
     overflow-wrap: anywhere;
     font-size: 1.125rem;
     line-height: 1.15;
+  }
+
+  .draft-reply-field-row {
+    grid-template-columns: 1fr;
   }
 
   .assistant-preview-header .button-row,

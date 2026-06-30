@@ -9,6 +9,7 @@ import {
   updateDraftReplyAction,
 } from "../actions";
 import { ConversationWorkflowPanel } from "../conversation-workflow-panel";
+import { InboxSubmitButton } from "../inbox-submit-button";
 import { MessageWorkflowControls } from "../message-workflow-controls";
 import { ReplyGenerator } from "../reply-generator";
 import {
@@ -22,6 +23,11 @@ import {
   getConversationReview,
   type ConversationReview,
 } from "../../../lib/crm/queries";
+import {
+  formatLeadTitle,
+  formatServiceType,
+  titleCaseBusinessText,
+} from "../../../lib/crm/display";
 import {
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   formatDisplayMoney,
@@ -704,6 +710,13 @@ export default async function ConversationReviewPage({
   );
   const redirectTo = `/inbox/${conversationId}`;
   const timeline = buildTimeline(review);
+  const displayLeadTitle = formatLeadTitle(
+    review.lead?.title,
+    review.contact?.name,
+  );
+  const displayLeadService =
+    formatServiceType(review.lead?.serviceType) ??
+    titleCaseBusinessText(review.lead?.source);
   const draftReplyActions = review.actions.filter(
     (action) => action.type === "draft_reply",
   );
@@ -737,7 +750,7 @@ export default async function ConversationReviewPage({
       <header className="topbar inquiry-topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>
-          <h1>{review.lead?.title ?? "Inquiry review"}</h1>
+          <h1>{displayLeadTitle ?? "Inquiry review"}</h1>
         </div>
         <div className="topbar-actions inquiry-actions">
           <div className="compact-metrics" aria-label="Inquiry counters">
@@ -825,11 +838,7 @@ export default async function ConversationReviewPage({
           <div className="summary-title">
             <div>
               <p className="eyebrow">Lead</p>
-              <h2>
-                {review.lead?.serviceType ??
-                  review.lead?.source ??
-                  "General inquiry"}
-              </h2>
+              <h2>{displayLeadService ?? "General inquiry"}</h2>
             </div>
             <span className={profileNeedsReview ? "pill warning" : "pill"}>
               {profileNeedsReview
@@ -1273,6 +1282,8 @@ export default async function ConversationReviewPage({
                 draftReplyActions.map((action) => {
                   const draftSubject = textValue(action.input.subject) ?? "";
                   const draftBody = textValue(action.input.body) ?? "";
+                  const draftAttachmentId =
+                    textValue(action.input.attachmentQuoteDraftId) ?? "";
                   const canEdit = action.status === "pending_approval";
 
                   return (
@@ -1309,15 +1320,35 @@ export default async function ConversationReviewPage({
                           type="hidden"
                           value={redirectTo}
                         />
-                        <label>
-                          Subject
-                          <input
-                            defaultValue={draftSubject}
-                            name="subject"
-                            readOnly={!canEdit}
-                            type="text"
-                          />
-                        </label>
+                        <div className="draft-reply-field-row">
+                          <label>
+                            Subject
+                            <input
+                              defaultValue={draftSubject}
+                              name="subject"
+                              readOnly={!canEdit}
+                              type="text"
+                            />
+                          </label>
+                          <label>
+                            Attach
+                            <select
+                              defaultValue={draftAttachmentId}
+                              disabled={!canEdit}
+                              name="attachmentQuoteDraftId"
+                            >
+                              <option value="">No attachment</option>
+                              {review.quoteDrafts.map((quoteDraft) => (
+                                <option
+                                  key={quoteDraft.id}
+                                  value={quoteDraft.id}
+                                >
+                                  {quoteDraft.title}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
                         <label>
                           Reply draft
                           <textarea
@@ -1326,6 +1357,9 @@ export default async function ConversationReviewPage({
                             readOnly={!canEdit}
                           />
                         </label>
+                        {canEdit ? (
+                          <ReplyGenerator conversationId={conversationId} />
+                        ) : null}
                         <div className="action-button-row">
                           {canEdit ? (
                             <button
@@ -1338,12 +1372,10 @@ export default async function ConversationReviewPage({
                           ) : null}
                           {action.status === "pending_approval" ||
                           action.status === "approved" ? (
-                            <button
-                              className="primary-button compact"
-                              type="submit"
-                            >
-                              Send generated reply
-                            </button>
+                            <InboxSubmitButton
+                              label="Send generated reply"
+                              pendingLabel="Sending reply..."
+                            />
                           ) : null}
                           {action.status === "completed" ? (
                             <span className="pill">Sent</span>

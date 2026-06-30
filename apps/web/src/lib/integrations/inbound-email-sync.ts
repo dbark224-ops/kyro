@@ -1,6 +1,7 @@
 import { selectModelRoute } from "@kyro/ai";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { runStubAiTriage } from "../ai/triage";
+import { buildEmailLeadTitle, formatServiceType } from "../crm/display";
 import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
 import { normalizeContactEmail } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
@@ -688,8 +689,9 @@ function normalizeClassification(
     providerUsed,
     promote: category === "business_actionable" ? promote : false,
     reason: textValue(raw.reason) ?? fallback.reason,
-    suggestedServiceType:
+    suggestedServiceType: formatServiceType(
       textValue(raw.suggestedServiceType) ?? fallback.suggestedServiceType,
+    ),
     summary: textValue(raw.summary) ?? fallback.summary,
   };
 }
@@ -2427,9 +2429,13 @@ async function promoteEmailMessage({
   }
 
   let leadId = conversation?.lead_id ? String(conversation.lead_id) : null;
-  const leadTitle = classification.suggestedServiceType
-    ? `${classification.suggestedServiceType} email from ${contactNameFromMessage(message)}`
-    : message.subject;
+  const contactName = contactNameFromMessage(message);
+  const serviceType = formatServiceType(classification.suggestedServiceType);
+  const leadTitle = buildEmailLeadTitle({
+    contactName,
+    serviceType,
+    subject: message.subject,
+  });
 
   if (!conversation) {
     const { data: lead, error: leadError } = await supabase
@@ -2444,10 +2450,10 @@ async function promoteEmailMessage({
         )
           ? "high"
           : "normal",
-        service_type: classification.suggestedServiceType,
+        service_type: serviceType,
         source: `${message.provider}_email_inbound`,
         status: "new",
-        title: leadTitle || `Email from ${contactNameFromMessage(message)}`,
+        title: leadTitle,
       })
       .select("id,title")
       .single();
@@ -2672,11 +2678,11 @@ async function promoteEmailMessage({
     leadTitle: leadProfile?.title ? String(leadProfile.title) : leadTitle,
     messageId: String(savedMessage.id),
     serviceType: leadProfile?.service_type
-      ? String(leadProfile.service_type)
-      : classification.suggestedServiceType,
+      ? formatServiceType(String(leadProfile.service_type))
+      : serviceType,
     source: "email_inbound_sync",
     sourceEventId: eventId,
-    summary: `${providerLabel(message.provider)} email from ${contactNameFromMessage(message)}: ${classification.summary}`,
+    summary: `${providerLabel(message.provider)} email from ${contactName}: ${classification.summary}`,
     threadMessageCount: thread.count,
     threadSummary: thread.summary,
   });

@@ -12,6 +12,11 @@ import {
   getCommunicationSettings,
 } from "../../lib/communication/settings";
 import {
+  formatLeadTitle,
+  formatServiceType,
+  titleCaseBusinessText,
+} from "../../lib/crm/display";
+import {
   findInboundEmailSenderRule,
   getInboundEmailSettings,
   type InboundEmailSenderRule,
@@ -26,6 +31,7 @@ import {
   updateDraftReplyAction,
 } from "./actions";
 import { ConversationWorkflowPanel } from "./conversation-workflow-panel";
+import { InboxSubmitButton } from "./inbox-submit-button";
 import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
@@ -710,16 +716,20 @@ function InboxActionControls({
 function InboxDraftReplyAction({
   action,
   conversationId,
+  quoteDrafts,
   redirectTo,
 }: {
   action: ConversationReview["actions"][number];
   conversationId: string;
+  quoteDrafts: ConversationReview["quoteDrafts"];
   redirectTo: string;
 }) {
   const canEdit = action.status === "pending_approval";
   const draftSubject =
     textValue(action.input.subject) ?? "Thanks for reaching out";
   const draftBody = textValue(action.input.body) ?? "";
+  const draftAttachmentId =
+    textValue(action.input.attachmentQuoteDraftId) ?? "";
 
   return (
     <article className="assistant-preview-row draft-reply-inline-card">
@@ -743,19 +753,37 @@ function InboxDraftReplyAction({
               : "AI draft"}
           </span>
         </div>
-        <label>
-          Subject
-          <input
-            defaultValue={draftSubject}
-            name="subject"
-            readOnly={!canEdit}
-            type="text"
-          />
-        </label>
+        <div className="draft-reply-field-row">
+          <label>
+            Subject
+            <input
+              defaultValue={draftSubject}
+              name="subject"
+              readOnly={!canEdit}
+              type="text"
+            />
+          </label>
+          <label>
+            Attach
+            <select
+              defaultValue={draftAttachmentId}
+              disabled={!canEdit}
+              name="attachmentQuoteDraftId"
+            >
+              <option value="">No attachment</option>
+              {quoteDrafts.map((quoteDraft) => (
+                <option key={quoteDraft.id} value={quoteDraft.id}>
+                  {quoteDraft.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <label>
           Reply
           <textarea defaultValue={draftBody} name="body" readOnly={!canEdit} />
         </label>
+        {canEdit ? <ReplyGenerator conversationId={conversationId} /> : null}
         <div className="action-button-row">
           {canEdit ? (
             <button
@@ -766,11 +794,16 @@ function InboxDraftReplyAction({
               Save edits
             </button>
           ) : null}
-          <button className="primary-button compact" type="submit">
-            {action.status === "completed"
-              ? "Completed"
-              : "Send generated reply"}
-          </button>
+          {action.status === "pending_approval" ||
+          action.status === "approved" ? (
+            <InboxSubmitButton
+              label="Send generated reply"
+              pendingLabel="Sending reply..."
+            />
+          ) : null}
+          {action.status === "completed" ? (
+            <span className="pill">Sent</span>
+          ) : null}
         </div>
       </form>
     </article>
@@ -852,7 +885,16 @@ function InboxManualReplyComposer({
   }));
 
   return (
-    <InboxPreviewPanel title="Manual reply">
+    <details className="assistant-preview-panel manual-reply-disclosure">
+      <summary>
+        <div>
+          <h3>Manual reply</h3>
+          <span>
+            Open if you want a completely manual response or another channel.
+          </span>
+        </div>
+        <span>Open</span>
+      </summary>
       <form
         action={createMockOutboundMessageAction}
         className="outbound-composer-form inbox-preview-composer"
@@ -945,7 +987,7 @@ function InboxManualReplyComposer({
           Send reply
         </button>
       </form>
-    </InboxPreviewPanel>
+    </details>
   );
 }
 
@@ -985,53 +1027,53 @@ function OutboundDeliveryPanel({
   return (
     <InboxPreviewPanel title="Outbound delivery">
       <div className="assistant-preview-list compact outbound-delivery-list">
-        {deliveries.map((delivery) => (
-          <article className="assistant-preview-row" key={delivery.id}>
-            <div>
-              <strong>{delivery.subject ?? "Outbound message"}</strong>
-              <span>
-                {formatLabel(delivery.channelType)}
-                {delivery.provider
-                  ? ` - ${formatLabel(delivery.provider)}`
-                  : ""}
-                {" - "}
-                {delivery.sentAt
-                  ? `Sent ${formatDate(delivery.sentAt)}`
-                  : `Attempt ${delivery.attemptCount}/${delivery.maxAttempts}`}
-              </span>
-              <p>
-                {delivery.lastError ??
-                  (delivery.recipient
-                    ? `To ${delivery.recipient}`
-                    : "Delivery is recorded against this conversation.")}
-              </p>
-            </div>
-            <div className="delivery-actions">
-              <span className={deliveryStatusClass(delivery.status)}>
-                {deliveryStatusLabel(delivery.status)}
-              </span>
-              {delivery.status === "failed" ||
-              delivery.status === "retry_scheduled" ? (
-                <form action={retryOutboundDeliveryAction}>
-                  <input
-                    name="conversationId"
-                    type="hidden"
-                    value={conversationId}
-                  />
-                  <input
-                    name="outboundQueueId"
-                    type="hidden"
-                    value={delivery.id}
-                  />
-                  <input name="redirectTo" type="hidden" value={redirectTo} />
-                  <button className="secondary-button compact" type="submit">
-                    Retry
-                  </button>
-                </form>
-              ) : null}
-            </div>
-          </article>
-        ))}
+        {deliveries.map((delivery) => {
+          const deliveryMeta = [
+            formatLabel(delivery.channelType),
+            delivery.provider ? formatLabel(delivery.provider) : null,
+            delivery.sentAt
+              ? `Sent ${formatDate(delivery.sentAt)}`
+              : `Attempt ${delivery.attemptCount}/${delivery.maxAttempts}`,
+            delivery.lastError ??
+              (delivery.recipient ? `To ${delivery.recipient}` : null),
+          ].filter(Boolean);
+
+          return (
+            <article
+              className="assistant-preview-row outbound-delivery-row"
+              key={delivery.id}
+            >
+              <div>
+                <strong>{delivery.subject ?? "Outbound message"}</strong>
+                <span>{deliveryMeta.join(" - ")}</span>
+              </div>
+              <div className="delivery-actions">
+                <span className={deliveryStatusClass(delivery.status)}>
+                  {deliveryStatusLabel(delivery.status)}
+                </span>
+                {delivery.status === "failed" ||
+                delivery.status === "retry_scheduled" ? (
+                  <form action={retryOutboundDeliveryAction}>
+                    <input
+                      name="conversationId"
+                      type="hidden"
+                      value={conversationId}
+                    />
+                    <input
+                      name="outboundQueueId"
+                      type="hidden"
+                      value={delivery.id}
+                    />
+                    <input name="redirectTo" type="hidden" value={redirectTo} />
+                    <button className="secondary-button compact" type="submit">
+                      Retry
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </InboxPreviewPanel>
   );
@@ -1049,11 +1091,25 @@ function InboxSplitPreview({
   redirectTo: string;
 }) {
   const title =
-    profile.lead?.title ??
+    formatLeadTitle(profile.lead?.title, profile.contact?.name) ??
     profile.contact?.name ??
     profile.messages[0]?.subject ??
     "Conversation";
-  const visibleActions = profile.actions.filter(isActionablePreviewAction);
+  const visibleActions = profile.actions
+    .filter(isActionablePreviewAction)
+    .sort((left, right) => {
+      if (left.type === "draft_reply" && right.type !== "draft_reply") {
+        return -1;
+      }
+
+      if (right.type === "draft_reply" && left.type !== "draft_reply") {
+        return 1;
+      }
+
+      return (
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      );
+    });
   const recentMessages = profile.messages.slice(-6);
   const latestMessage = [...profile.messages].sort(
     (left, right) =>
@@ -1118,8 +1174,11 @@ function InboxSplitPreview({
           <InboxPreviewPanel title="Lead">
             <InboxPreviewFacts
               facts={[
-                ["Title", profile.lead?.title ?? null],
-                ["Service", profile.lead?.serviceType ?? null],
+                [
+                  "Title",
+                  formatLeadTitle(profile.lead?.title, profile.contact?.name),
+                ],
+                ["Service", formatServiceType(profile.lead?.serviceType)],
                 ["Status", formatLabel(profile.lead?.status ?? null)],
                 ["Priority", formatLabel(profile.lead?.priority ?? null)],
                 ["Next step", leadNextStep ?? null],
@@ -1167,24 +1226,6 @@ function InboxSplitPreview({
           )}
         </InboxPreviewPanel>
 
-        <InboxManualReplyComposer
-          profile={profile}
-          redirectTo={redirectTo}
-          settings={communicationSettings}
-        />
-
-        <ConversationWorkflowPanel
-          compact
-          redirectTo={redirectTo}
-          review={profile}
-        />
-
-        <OutboundDeliveryPanel
-          conversationId={profile.conversation.id}
-          deliveries={profile.outboundMessages}
-          redirectTo={redirectTo}
-        />
-
         {visibleActions.length > 0 ? (
           <InboxPreviewPanel title="Action queue">
             <div className="assistant-preview-list compact">
@@ -1194,6 +1235,7 @@ function InboxSplitPreview({
                     action={action}
                     conversationId={profile.conversation.id}
                     key={action.id}
+                    quoteDrafts={profile.quoteDrafts}
                     redirectTo={redirectTo}
                   />
                 ) : (
@@ -1217,6 +1259,24 @@ function InboxSplitPreview({
             </div>
           </InboxPreviewPanel>
         ) : null}
+
+        <ConversationWorkflowPanel
+          compact
+          redirectTo={redirectTo}
+          review={profile}
+        />
+
+        <OutboundDeliveryPanel
+          conversationId={profile.conversation.id}
+          deliveries={profile.outboundMessages}
+          redirectTo={redirectTo}
+        />
+
+        <InboxManualReplyComposer
+          profile={profile}
+          redirectTo={redirectTo}
+          settings={communicationSettings}
+        />
       </div>
     </section>
   );
@@ -1541,9 +1601,12 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             {paginatedConversations.length > 0 ? (
               paginatedConversations.map((conversation) => {
                 const jobType =
-                  conversation.inquiryFacts?.jobType ??
-                  conversation.leadServiceType ??
-                  conversation.leadTitle ??
+                  titleCaseBusinessText(conversation.inquiryFacts?.jobType) ??
+                  formatServiceType(conversation.leadServiceType) ??
+                  formatLeadTitle(
+                    conversation.leadTitle,
+                    conversation.contactName,
+                  ) ??
                   "Unclassified inquiry";
                 const isSelected =
                   selectedConversationReview?.conversation.id ===

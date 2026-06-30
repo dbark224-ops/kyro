@@ -421,6 +421,50 @@ function redirectWithInboxMessage(
   redirect(`${target}${separator}${key}=${encodeURIComponent(message)}`);
 }
 
+async function assertQuoteDraftBelongsToConversation({
+  attachmentQuoteDraftId,
+  conversationId,
+  redirectTo,
+  supabase,
+  workspaceId,
+}: {
+  attachmentQuoteDraftId: string | null;
+  conversationId: string;
+  redirectTo: string;
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"];
+  workspaceId: string;
+}) {
+  if (!attachmentQuoteDraftId) {
+    return;
+  }
+
+  const { data: quoteDraft, error } = await supabase
+    .from("quote_drafts")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("conversation_id", conversationId)
+    .eq("id", attachmentQuoteDraftId)
+    .maybeSingle();
+
+  if (error) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      error.message,
+      redirectTo,
+    );
+  }
+
+  if (!quoteDraft) {
+    redirectWithConversationMessage(
+      conversationId,
+      "engine_error",
+      "That attachment is not linked to this conversation.",
+      redirectTo,
+    );
+  }
+}
+
 function isUploadFile(value: FormDataEntryValue): value is File {
   if (typeof value !== "object" || !value) {
     return false;
@@ -803,6 +847,9 @@ export async function updateDraftReplyAction(formData: FormData) {
   const conversationId = formString(formData, "conversationId");
   const subject = formString(formData, "subject") || "Thanks for reaching out";
   const body = formString(formData, "body");
+  const attachmentQuoteDraftId = nullableText(
+    formString(formData, "attachmentQuoteDraftId"),
+  );
   const redirectTo = safeRedirectPath(
     formString(formData, "redirectTo"),
     conversationPath(conversationId),
@@ -831,6 +878,13 @@ export async function updateDraftReplyAction(formData: FormData) {
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  await assertQuoteDraftBelongsToConversation({
+    attachmentQuoteDraftId,
+    conversationId,
+    redirectTo,
+    supabase,
+    workspaceId: workspace.id,
+  });
   const { data: action, error: loadError } = await supabase
     .from("actions")
     .select("id,type,status,input,target_type,target_id")
@@ -882,13 +936,18 @@ export async function updateDraftReplyAction(formData: FormData) {
   const subjectChanged =
     (textValue(before.subject) ?? "Thanks for reaching out") !== subject;
   const bodyChanged = (textValue(before.body) ?? "") !== body;
+  const attachmentChanged =
+    (textValue(before.attachmentQuoteDraftId) ?? null) !==
+    attachmentQuoteDraftId;
   const userEditedDraft =
     Boolean(before.userEditedDraft) ||
     Boolean(before.editedByUserId) ||
     subjectChanged ||
-    bodyChanged;
+    bodyChanged ||
+    attachmentChanged;
   const after = {
     ...before,
+    attachmentQuoteDraftId,
     subject,
     body,
     dryRun: true,
@@ -952,6 +1011,9 @@ export async function sendDraftReplyAction(formData: FormData) {
   const conversationId = formString(formData, "conversationId");
   const subject = formString(formData, "subject") || "Thanks for reaching out";
   const body = formString(formData, "body");
+  const attachmentQuoteDraftId = nullableText(
+    formString(formData, "attachmentQuoteDraftId"),
+  );
   const redirectTo = safeRedirectPath(
     formString(formData, "redirectTo"),
     conversationPath(conversationId),
@@ -980,6 +1042,13 @@ export async function sendDraftReplyAction(formData: FormData) {
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  await assertQuoteDraftBelongsToConversation({
+    attachmentQuoteDraftId,
+    conversationId,
+    redirectTo,
+    supabase,
+    workspaceId: workspace.id,
+  });
   const { data: action, error: loadError } = await supabase
     .from("actions")
     .select("id,type,status,input,target_type,target_id")
@@ -1031,14 +1100,19 @@ export async function sendDraftReplyAction(formData: FormData) {
   const subjectChanged =
     (textValue(before.subject) ?? "Thanks for reaching out") !== subject;
   const bodyChanged = (textValue(before.body) ?? "") !== body;
+  const attachmentChanged =
+    (textValue(before.attachmentQuoteDraftId) ?? null) !==
+    attachmentQuoteDraftId;
   const userEditedDraft =
     Boolean(before.userEditedDraft) ||
     Boolean(before.editedByUserId) ||
     subjectChanged ||
-    bodyChanged;
+    bodyChanged ||
+    attachmentChanged;
   const signatureVariant = userEditedDraft ? "manual" : "ai_generated";
   const after = {
     ...before,
+    attachmentQuoteDraftId,
     subject,
     body,
     gmailExternalSendEnabled: true,
