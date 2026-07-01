@@ -102,10 +102,12 @@ const INBOX_PREVIEW_FILTERS = new Set([
   "all",
   "awaiting_customer",
   "follow_up_due",
+  "live_queue",
   "missing_info",
   "needs_approval",
   "needs_reply",
   "needs_review",
+  "reply_or_approval",
   "ready_to_quote",
   "resolved",
   "site_visit_needed",
@@ -144,6 +146,10 @@ function normalizeInboxPreviewSort(value: string | null) {
 function inboxPreviewFilterLabel(filter: string) {
   if (filter === "live_queue") {
     return "Work queue";
+  }
+
+  if (filter === "reply_or_approval") {
+    return "Replies or approvals";
   }
 
   if (filter === "all") {
@@ -211,6 +217,13 @@ function filterInboxPreviewConversations(
 
     if (filter === "needs_approval") {
       return conversation.pendingApprovalCount > 0;
+    }
+
+    if (filter === "reply_or_approval") {
+      return (
+        conversation.workflowBucket === "needs_reply" ||
+        conversation.pendingApprovalCount > 0
+      );
     }
 
     if (filter === "missing_info") {

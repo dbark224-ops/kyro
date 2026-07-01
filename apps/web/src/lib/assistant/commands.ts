@@ -2718,6 +2718,11 @@ async function workQueueCommand({
   const conversations = await getConversationList(supabase, workspace.id);
   const actionable = conversations.filter(isConversationInLiveWorkQueue);
   const top = actionable.slice(0, 5);
+  const replyOrApproval = actionable.filter(
+    (conversation) =>
+      conversation.workflowBucket === "needs_reply" ||
+      conversation.pendingApprovalCount > 0,
+  );
   const summaries = top.map(workQueueVoiceSummary);
   const approvalItems = actionable
     .filter((conversation) => conversation.pendingApprovalCount > 0)
@@ -2766,10 +2771,10 @@ async function workQueueCommand({
         },
         {
           detail: "Replies or approvals",
-          href: "/inbox?filter=needs_reply",
+          href: "/inbox?filter=reply_or_approval&sort=action",
           label: "Top items",
           tone: "cyan",
-          value: String(top.length),
+          value: String(replyOrApproval.length),
         },
       ]),
       ...approvalQueueBlock("Approval queue", approvalItems),

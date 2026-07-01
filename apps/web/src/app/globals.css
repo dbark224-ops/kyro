@@ -4635,10 +4635,30 @@ h2 {
   text-decoration: none;
 }
 
+button.assistant-summary-card,
+a.assistant-summary-card {
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
 .assistant-summary-card:hover,
 .assistant-timeline-item:hover,
 .assistant-approval-item:hover {
   border-color: color-mix(in srgb, var(--cyan) 44%, var(--line));
+}
+
+button.assistant-summary-card:hover,
+a.assistant-summary-card:hover,
+button.assistant-summary-card:focus-visible,
+a.assistant-summary-card:focus-visible {
+  border-color: color-mix(in srgb, var(--cyan) 74%, var(--pink));
+  background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cyan) 28%, transparent);
+  transform: translateY(-1px);
 }
 
 .assistant-summary-card span,
@@ -5062,6 +5082,7 @@ h2 {
 
 .assistant-inline-preview {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   max-height: calc(100vh - 132px);
   overflow: hidden;
