@@ -28,8 +28,12 @@ import {
   getConversationList,
   getConversationReview,
   getQuoteDraftProfile,
+  type ConversationListItem,
 } from "../../lib/crm/queries";
-import { conversationToAssistantLink } from "../../lib/assistant/conversation-links";
+import {
+  conversationToAssistantLink,
+  isConversationInLiveWorkQueue,
+} from "../../lib/assistant/conversation-links";
 import { recordOutboundMessage } from "../../lib/communication/outbound";
 import {
   getCommunicationSettings,
@@ -94,6 +98,33 @@ const RELIABLE_ASSISTANT_FALLBACK_INTENTS = new Set([
   "work_queue",
 ]);
 
+const INBOX_PREVIEW_FILTERS = new Set([
+  "all",
+  "awaiting_customer",
+  "follow_up_due",
+  "missing_info",
+  "needs_approval",
+  "needs_reply",
+  "needs_review",
+  "ready_to_quote",
+  "resolved",
+  "site_visit_needed",
+]);
+
+const INBOX_PREVIEW_SORTS = new Set(["action", "customer", "recent", "urgent"]);
+
+const INBOX_PREVIEW_WORKFLOW_RANK: Record<string, number> = {
+  needs_reply: 1,
+  missing_info: 2,
+  follow_up_due: 3,
+  site_visit_needed: 4,
+  ready_to_quote: 5,
+  needs_review: 6,
+  awaiting_customer: 7,
+  open: 8,
+  resolved: 9,
+};
+
 function primaryAssistantModelRequired(intent: string | undefined) {
   if (!intent) {
     return true;
@@ -102,9 +133,142 @@ function primaryAssistantModelRequired(intent: string | undefined) {
   return !RELIABLE_ASSISTANT_FALLBACK_INTENTS.has(intent);
 }
 
+function normalizeInboxPreviewFilter(value: string | null) {
+  return value && INBOX_PREVIEW_FILTERS.has(value) ? value : "live_queue";
+}
+
+function normalizeInboxPreviewSort(value: string | null) {
+  return value && INBOX_PREVIEW_SORTS.has(value) ? value : "recent";
+}
+
+function inboxPreviewFilterLabel(filter: string) {
+  if (filter === "live_queue") {
+    return "Work queue";
+  }
+
+  if (filter === "all") {
+    return "All inbox items";
+  }
+
+  return filter
+    .split("_")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function inboxPreviewTitle(filter: string) {
+  return filter === "live_queue"
+    ? "Inbox work queue"
+    : `${inboxPreviewFilterLabel(filter)} inbox`;
+}
+
+function inboxPreviewDateValue(value: string | null) {
+  return value ? new Date(value).getTime() : 0;
+}
+
+function inboxPreviewWorkflowRank(value: string) {
+  return INBOX_PREVIEW_WORKFLOW_RANK[value] ?? 99;
+}
+
+function inboxPreviewSearchText(conversation: ConversationListItem) {
+  return [
+    conversation.contactName,
+    conversation.leadTitle,
+    conversation.leadNextStep,
+    conversation.leadServiceType,
+    conversation.latestSubject,
+    conversation.latestBody,
+    conversation.originalInquiryBody,
+    conversation.nextActionLabel,
+    conversation.followUpIsDue ? "follow-up due" : null,
+    conversation.followUpDueAt,
+    conversation.status,
+    conversation.workflowBucket,
+    conversation.inquiryFacts?.jobType,
+    conversation.inquiryFacts?.address,
+    conversation.inquiryFacts?.preferredTime,
+    conversation.inquiryFacts?.urgency,
+    conversation.inquiryFacts?.fit,
+    conversation.inquiryFacts?.missingInfo.join(" "),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function filterInboxPreviewConversations(
+  conversations: ConversationListItem[],
+  filter: string,
+) {
+  return conversations.filter((conversation) => {
+    if (filter === "live_queue") {
+      return isConversationInLiveWorkQueue(conversation);
+    }
+
+    if (filter === "all") {
+      return true;
+    }
+
+    if (filter === "needs_approval") {
+      return conversation.pendingApprovalCount > 0;
+    }
+
+    if (filter === "missing_info") {
+      return Boolean(conversation.inquiryFacts?.missingInfo.length);
+    }
+
+    return conversation.workflowBucket === filter;
+  });
+}
+
+function sortInboxPreviewConversations(
+  conversations: ConversationListItem[],
+  sort: string,
+) {
+  return [...conversations].sort((left, right) => {
+    if (sort === "urgent") {
+      const urgencyScore = (conversation: ConversationListItem) =>
+        (conversation.inquiryFacts?.urgency === "urgent" ? 0 : 10) +
+        (conversation.leadPriority === "high" ? 0 : 2) +
+        inboxPreviewWorkflowRank(conversation.workflowBucket);
+
+      return (
+        urgencyScore(left) - urgencyScore(right) ||
+        inboxPreviewDateValue(right.lastMessageAt) -
+          inboxPreviewDateValue(left.lastMessageAt)
+      );
+    }
+
+    if (sort === "action") {
+      return (
+        inboxPreviewWorkflowRank(left.workflowBucket) -
+          inboxPreviewWorkflowRank(right.workflowBucket) ||
+        inboxPreviewDateValue(right.lastMessageAt) -
+          inboxPreviewDateValue(left.lastMessageAt)
+      );
+    }
+
+    if (sort === "customer") {
+      return (
+        (left.contactName ?? "").localeCompare(right.contactName ?? "") ||
+        inboxPreviewDateValue(right.lastMessageAt) -
+          inboxPreviewDateValue(left.lastMessageAt)
+      );
+    }
+
+    return (
+      inboxPreviewDateValue(right.lastMessageAt) -
+      inboxPreviewDateValue(left.lastMessageAt)
+    );
+  });
+}
+
 function assistantPreviewTarget(href: string) {
   let contactIdFromQuery: string | null = null;
   let conversationIdFromQuery: string | null = null;
+  let inboxFilter: string | null = null;
+  let inboxQuery: string | null = null;
+  let inboxSort: string | null = null;
   let pathname = href.split("?")[0] ?? href;
 
   try {
@@ -112,6 +276,9 @@ function assistantPreviewTarget(href: string) {
     pathname = url.pathname;
     contactIdFromQuery = textValue(url.searchParams.get("contactId"));
     conversationIdFromQuery = textValue(url.searchParams.get("conversationId"));
+    inboxFilter = textValue(url.searchParams.get("filter"));
+    inboxQuery = textValue(url.searchParams.get("q"));
+    inboxSort = textValue(url.searchParams.get("sort"));
   } catch {
     // Fall through to the path-based parser for relative hrefs.
   }
@@ -132,6 +299,15 @@ function assistantPreviewTarget(href: string) {
     return {
       id: conversationIdFromQuery,
       type: "conversation" as const,
+    };
+  }
+
+  if (pathname === "/inbox") {
+    return {
+      filter: normalizeInboxPreviewFilter(inboxFilter),
+      query: inboxQuery,
+      sort: normalizeInboxPreviewSort(inboxSort),
+      type: "inbox_queue" as const,
     };
   }
 
@@ -180,6 +356,10 @@ function previewTitle(
 
   if (preview.type === "quote") {
     return preview.profile.quoteDraft.title;
+  }
+
+  if (preview.type === "inbox_queue") {
+    return preview.title;
   }
 
   if (preview.type === "voice_call") {
@@ -243,6 +423,46 @@ async function loadAssistantResourcePreview(
       refreshedLink: refreshedConversation
         ? conversationToAssistantLink(refreshedConversation)
         : undefined,
+    };
+  }
+
+  if (target.type === "inbox_queue") {
+    const conversations = await getConversationList(supabase, workspace.id, {
+      limit: 100,
+    });
+    const searchedConversations = target.query
+      ? conversations.filter((conversation) =>
+          inboxPreviewSearchText(conversation).includes(
+            target.query!.toLowerCase(),
+          ),
+        )
+      : conversations;
+    const filteredConversations = filterInboxPreviewConversations(
+      searchedConversations,
+      target.filter,
+    );
+    const preview = {
+      href,
+      profile: {
+        conversations: sortInboxPreviewConversations(
+          filteredConversations,
+          target.sort,
+        ).slice(0, 10),
+        filter: target.filter,
+        matchedCount: filteredConversations.length,
+        query: target.query,
+        sort: target.sort,
+        totalCount: conversations.length,
+      },
+      title: inboxPreviewTitle(target.filter),
+      type: "inbox_queue" as const,
+    };
+
+    return {
+      preview: {
+        ...preview,
+        title: previewTitle(preview),
+      },
     };
   }
 

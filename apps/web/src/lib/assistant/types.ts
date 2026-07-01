@@ -1,5 +1,6 @@
 import type {
   ContactProfile,
+  ConversationListItem,
   ConversationReview,
   QuoteDraftProfile,
 } from "../crm/queries";
@@ -242,6 +243,19 @@ export type AssistantResourcePreview =
       profile: ContactProfile;
       title: string;
       type: "contact";
+    }
+  | {
+      href: string;
+      profile: {
+        conversations: ConversationListItem[];
+        filter: string;
+        matchedCount: number;
+        query: string | null;
+        sort: string;
+        totalCount: number;
+      };
+      title: string;
+      type: "inbox_queue";
     }
   | {
       href: string;

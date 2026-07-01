@@ -1055,6 +1055,7 @@ export function AssistantConsole({
             engineError={initialPreviewEngineError}
             engineMessage={initialPreviewEngineMessage}
             onClose={() => setPreviewState({ status: "closed" })}
+            onOpenPreview={openResourcePreview}
             onRunAction={runPreviewAction}
             onSaveDraftReply={saveDraftReply}
             onSendManualReply={sendManualReply}
@@ -2584,6 +2585,7 @@ export function AssistantPreviewPane({
   engineError,
   engineMessage,
   onClose,
+  onOpenPreview,
   onRunAction,
   onSaveDraftReply,
   onSendManualReply,
@@ -2595,6 +2597,7 @@ export function AssistantPreviewPane({
   engineError?: string;
   engineMessage?: string;
   onClose: () => void;
+  onOpenPreview?: (link: AssistantLink) => void;
   onRunAction: (
     actionId: string,
     href: string,
@@ -2688,6 +2691,7 @@ export function AssistantPreviewPane({
       {state.status === "ready" ? (
         <AssistantPreviewContent
           actionPendingId={actionPendingId}
+          onOpenPreview={onOpenPreview}
           onRunAction={onRunAction}
           onSaveDraftReply={onSaveDraftReply}
           onSendManualReply={onSendManualReply}
@@ -2700,12 +2704,14 @@ export function AssistantPreviewPane({
 
 function AssistantPreviewContent({
   actionPendingId,
+  onOpenPreview,
   onRunAction,
   onSaveDraftReply,
   onSendManualReply,
   preview,
 }: {
   actionPendingId: string | null;
+  onOpenPreview?: (link: AssistantLink) => void;
   onRunAction: (
     actionId: string,
     href: string,
@@ -2725,6 +2731,12 @@ function AssistantPreviewContent({
   }) => Promise<void>;
   preview: AssistantResourcePreview;
 }) {
+  if (preview.type === "inbox_queue") {
+    return (
+      <InboxQueuePreview onOpenPreview={onOpenPreview} preview={preview} />
+    );
+  }
+
   if (preview.type === "conversation") {
     return (
       <ConversationPreview
@@ -2750,6 +2762,10 @@ function AssistantPreviewContent({
 }
 
 function previewEyebrowForResource(type: AssistantResourcePreview["type"]) {
+  if (type === "inbox_queue") {
+    return "Inbox";
+  }
+
   if (type === "conversation") {
     return "Conversation";
   }
@@ -2763,6 +2779,128 @@ function previewEyebrowForResource(type: AssistantResourcePreview["type"]) {
   }
 
   return "Contact";
+}
+
+function InboxQueuePreview({
+  onOpenPreview,
+  preview,
+}: {
+  onOpenPreview?: (link: AssistantLink) => void;
+  preview: Extract<AssistantResourcePreview, { type: "inbox_queue" }>;
+}) {
+  const { conversations, filter, matchedCount, query, totalCount } =
+    preview.profile;
+  const filterLabel =
+    filter === "live_queue" ? "Work queue" : formatLabel(filter);
+  const countLabel =
+    matchedCount === totalCount
+      ? `${matchedCount} inbox item${matchedCount === 1 ? "" : "s"}`
+      : `${matchedCount} of ${totalCount} inbox item${totalCount === 1 ? "" : "s"}`;
+
+  return (
+    <div className="assistant-preview-body">
+      <div className="assistant-preview-status-row">
+        <span className="pill">{filterLabel}</span>
+        <span>
+          {countLabel}
+          {query ? ` matching "${query}"` : ""}
+        </span>
+      </div>
+
+      <PreviewPanel title="Inbox queue">
+        <div className="assistant-preview-list compact">
+          {conversations.length > 0 ? (
+            conversations.map((conversation) => (
+              <InboxQueueRow
+                conversation={conversation}
+                key={conversation.id}
+                onOpenPreview={onOpenPreview}
+              />
+            ))
+          ) : (
+            <p className="empty-copy">
+              Nothing matches this Inbox queue right now.
+            </p>
+          )}
+        </div>
+      </PreviewPanel>
+    </div>
+  );
+}
+
+function InboxQueueRow({
+  conversation,
+  onOpenPreview,
+}: {
+  conversation: Extract<
+    AssistantResourcePreview,
+    { type: "inbox_queue" }
+  >["profile"]["conversations"][number];
+  onOpenPreview?: (link: AssistantLink) => void;
+}) {
+  const title = conversation.contactName ?? conversation.leadTitle ?? "Inquiry";
+  const href = `/inbox?conversationId=${encodeURIComponent(conversation.id)}`;
+  const subline = [
+    conversation.leadTitle && conversation.leadTitle !== title
+      ? conversation.leadTitle
+      : null,
+    conversation.leadServiceType,
+    formatLabel(conversation.workflowBucket),
+  ]
+    .filter(Boolean)
+    .join(" - ");
+  const previewText =
+    conversation.latestSubject ??
+    conversation.latestBody ??
+    conversation.originalInquiryBody ??
+    conversation.nextActionLabel;
+  const content = (
+    <>
+      <div>
+        <strong>{title}</strong>
+        {subline ? <span>{subline}</span> : null}
+        {previewText ? <small>{previewText}</small> : null}
+      </div>
+      <div className="assistant-inbox-queue-meta">
+        {conversation.pendingApprovalCount > 0 ? (
+          <span className="pill warning">
+            {conversation.pendingApprovalCount} approval
+            {conversation.pendingApprovalCount === 1 ? "" : "s"}
+          </span>
+        ) : null}
+        <span className="pill subtle">{conversation.nextActionLabel}</span>
+        <time>{formatDate(conversation.lastMessageAt)}</time>
+      </div>
+    </>
+  );
+
+  if (onOpenPreview) {
+    return (
+      <button
+        className="assistant-preview-row assistant-inbox-queue-row"
+        onClick={() =>
+          onOpenPreview({
+            href,
+            label: title,
+            meta: conversation.nextActionLabel,
+          })
+        }
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <Link
+      className="assistant-preview-row assistant-inbox-queue-row"
+      href={href}
+      prefetch={false}
+    >
+      {content}
+    </Link>
+  );
 }
 
 function ConversationPreview({
@@ -3656,6 +3794,10 @@ function isPreviewableHref(href: string) {
       url.pathname === "/inbox" &&
       Boolean(url.searchParams.get("conversationId"))
     ) {
+      return true;
+    }
+
+    if (url.pathname === "/inbox") {
       return true;
     }
 

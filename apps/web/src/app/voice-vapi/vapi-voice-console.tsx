@@ -1762,6 +1762,13 @@ export function VapiVoiceConsole({
           engineError={initialPreviewEngineError}
           engineMessage={initialPreviewEngineMessage}
           onClose={() => setPreviewState({ status: "closed" })}
+          onOpenPreview={(link) =>
+            openVoicePreview({
+              href: link.href,
+              meta: link.meta,
+              title: link.label,
+            })
+          }
           onRunAction={runPreviewAction}
           onSaveDraftReply={saveDraftReply}
           onSendManualReply={sendManualReply}
@@ -2147,6 +2154,10 @@ function isPreviewableVoiceHref(href: string) {
       url.pathname === "/inbox" &&
       Boolean(url.searchParams.get("conversationId"))
     ) {
+      return true;
+    }
+
+    if (url.pathname === "/inbox") {
       return true;
     }
 
