@@ -36,6 +36,8 @@ type VapiMessage = {
 };
 
 const VAPI_INTERNAL_MODEL = "vapi-web-internal";
+const VOICE_SERVICE_UNAVAILABLE_MESSAGE =
+  "Kyro voice is not responding right now. Our team is on it. Please try again shortly.";
 const KYRO_ADDRESSING_VARIANTS = "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
 const KYRO_ADDRESSING_PREFIX =
   "(?:(?:hey|hi|hello|yo|ok|okay|alright|right|so|what'?s up|sup)[,!.?\\s]+){0,4}";
@@ -301,11 +303,22 @@ export function VapiVoiceConsole({
       return !hasNearbyUsefulTurn;
     });
 
-    return [...prunedMessages].reverse();
+    return prunedMessages
+      .map((message) =>
+        message.role === "assistant" &&
+        isVoiceProviderServiceIssue(message.content)
+          ? { ...message, content: VOICE_SERVICE_UNAVAILABLE_MESSAGE }
+          : message,
+      )
+      .reverse();
   }, [dedupedMessages]);
   const statusLabel = useMemo(() => {
     if (!session.configured) {
       return "Setup needed";
+    }
+
+    if (error) {
+      return "Voice unavailable";
     }
 
     if (connectionState === "connecting") {
@@ -321,7 +334,7 @@ export function VapiVoiceConsole({
     }
 
     return "Ready";
-  }, [connectionState, session.configured]);
+  }, [connectionState, error, session.configured]);
   const displayStatus = useMemo(() => {
     if (error) {
       return error;
@@ -366,6 +379,11 @@ export function VapiVoiceConsole({
         return;
       }
 
+      const displayContent =
+        role === "assistant" && isVoiceProviderServiceIssue(clean)
+          ? VOICE_SERVICE_UNAVAILABLE_MESSAGE
+          : clean;
+
       setMessages((currentMessages) => {
         const nowIso = new Date().toISOString();
         const now = Date.now();
@@ -387,11 +405,14 @@ export function VapiVoiceConsole({
             break;
           }
 
-          if (!sameVoiceTurn(message.content, clean)) {
+          if (!sameVoiceTurn(message.content, displayContent)) {
             continue;
           }
 
-          const merged = mergeVoiceTurnContent(message.content, clean);
+          const merged = mergeVoiceTurnContent(
+            message.content,
+            displayContent,
+          );
 
           return currentMessages.map((currentMessage, currentIndex) =>
             currentIndex === index
@@ -411,7 +432,7 @@ export function VapiVoiceConsole({
         return [
           ...currentMessages,
           {
-            content: clean,
+            content: displayContent,
             createdAt: nowIso,
             id: `vapi-${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             intent: "vapi_internal_voice",
@@ -882,6 +903,19 @@ export function VapiVoiceConsole({
         return;
       }
 
+      if (role === "assistant" && isVoiceProviderServiceIssue(clean)) {
+        appendStartTrace(`Suppressed voice provider transcript: ${clean}`);
+        setConnectionState("idle");
+        setError(VOICE_SERVICE_UNAVAILABLE_MESSAGE);
+        setStatus(VOICE_SERVICE_UNAVAILABLE_MESSAGE);
+        addLocalMessage(
+          "assistant",
+          VOICE_SERVICE_UNAVAILABLE_MESSAGE,
+          "vapi",
+        );
+        return;
+      }
+
       if (role === "user") {
         if (!claimLocalTurn(role, clean)) {
           return;
@@ -902,6 +936,7 @@ export function VapiVoiceConsole({
     },
     [
       addLocalMessage,
+      appendStartTrace,
       claimLocalTurn,
       clearAssistantFinalizeTimer,
       finalizeAssistantTurn,
@@ -912,6 +947,27 @@ export function VapiVoiceConsole({
     (payload: unknown) => {
       const message = objectRecord(payload) as VapiMessage;
       const type = textValue(message.type);
+
+      if (
+        isVoiceProviderServiceIssue(message) ||
+        (type &&
+          (type.toLowerCase().includes("error") ||
+            type.toLowerCase().includes("failed")))
+      ) {
+        const rawMessage = errorMessage(message);
+        const displayMessage = safeVoiceErrorMessage(message);
+
+        appendStartTrace(`Suppressed voice provider event: ${rawMessage}`);
+        setConnectionState("idle");
+        setError(displayMessage);
+        setStatus(displayMessage);
+
+        if (displayMessage === VOICE_SERVICE_UNAVAILABLE_MESSAGE) {
+          addLocalMessage("assistant", displayMessage, "vapi");
+        }
+
+        return;
+      }
 
       if (type === "tool-calls" || type === "function-call") {
         setStatus("Using Kyro tools...");
@@ -1042,6 +1098,7 @@ export function VapiVoiceConsole({
       }
     },
     [
+      addLocalMessage,
       appendStartTrace,
       applyToolUiBlocks,
       captureAssistantDraft,
@@ -1195,13 +1252,14 @@ export function VapiVoiceConsole({
         appendStartTrace("Voice call start succeeded");
       });
       vapi.on("call-start-failed", (event) => {
-        const message = errorMessage(event);
+        const rawMessage = errorMessage(event);
+        const displayMessage = safeVoiceErrorMessage(event);
 
-        lastStartErrorRef.current = message;
-        appendStartTrace(`Voice call start failed: ${message}`);
-        setError(message);
+        lastStartErrorRef.current = rawMessage;
+        appendStartTrace(`Voice call start failed: ${rawMessage}`);
+        setError(displayMessage);
         setConnectionState("idle");
-        setStatus(`Voice assistant error: ${message}`);
+        setStatus(displayMessage);
         stopVoiceLevelMeter();
       });
       vapi.on("call-start-progress", (event) => {
@@ -1221,10 +1279,12 @@ export function VapiVoiceConsole({
           const message = metadataError
             ? `${stage}: ${metadataError}`
             : `${stage} failed`;
+          const displayMessage = safeVoiceErrorMessage(message);
 
           lastStartErrorRef.current = message;
           appendStartTrace(message);
-          setError(message);
+          setError(displayMessage);
+          setStatus(displayMessage);
         }
       });
       vapi.on("call-end", () => {
@@ -1253,13 +1313,14 @@ export function VapiVoiceConsole({
       });
       vapi.on("message", handleVapiMessage);
       vapi.on("error", (nextError) => {
-        const message = errorMessage(nextError);
+        const rawMessage = errorMessage(nextError);
+        const displayMessage = safeVoiceErrorMessage(nextError);
 
-        lastStartErrorRef.current = message;
-        appendStartTrace(`Voice runtime error: ${message}`);
-        setError(message);
+        lastStartErrorRef.current = rawMessage;
+        appendStartTrace(`Voice runtime error: ${rawMessage}`);
+        setError(displayMessage);
         setConnectionState("idle");
-        setStatus(`Voice assistant error: ${message}`);
+        setStatus(displayMessage);
         stopVoiceLevelMeter();
       });
 
@@ -1282,14 +1343,15 @@ export function VapiVoiceConsole({
       }
 
       if (!call) {
-        const message =
+        const rawMessage =
           lastStartErrorRef.current ??
           "The voice assistant did not return a live call. Check browser microphone permission and voice assistant configuration.";
+        const displayMessage = safeVoiceErrorMessage(rawMessage);
 
         setConnectionState("idle");
-        setStatus(message);
-        appendStartTrace(`No live call returned: ${message}`);
-        setError(message);
+        setStatus(displayMessage);
+        appendStartTrace(`No live call returned: ${rawMessage}`);
+        setError(displayMessage);
         stopVoiceLevelMeter();
         return;
       }
@@ -1305,13 +1367,14 @@ export function VapiVoiceConsole({
         type: "add-message",
       });
     } catch (nextError) {
-      const message = errorMessage(nextError);
+      const rawMessage = errorMessage(nextError);
+      const displayMessage = safeVoiceErrorMessage(nextError);
 
-      lastStartErrorRef.current = message;
-      appendStartTrace(`Start threw: ${message}`);
-      setError(message);
+      lastStartErrorRef.current = rawMessage;
+      appendStartTrace(`Start threw: ${rawMessage}`);
+      setError(displayMessage);
       setConnectionState("idle");
-      setStatus(`Unable to start voice assistant: ${message}`);
+      setStatus(displayMessage);
       stopVoiceLevelMeter();
     }
   }, [
@@ -2389,6 +2452,38 @@ function humanizeVapiReason(value: string) {
     .replace(/^call\.start\.error-/, "")
     .replace(/[-_.]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function isVoiceProviderServiceIssue(value: unknown) {
+  const text =
+    typeof value === "string" ? value : (safeJson(value) ?? errorMessage(value));
+  const normalized = text.toLowerCase();
+
+  return [
+    "wallet balance",
+    "purchase more credits",
+    "upgrade your plan",
+    "subscriptionlimit",
+    "subscription limit",
+    "currencyblocked",
+    "currencylimit",
+    "start-method-error",
+    "call-start-failed",
+    "call.start.error",
+    "provider error",
+  ].some((fragment) => normalized.includes(fragment));
+}
+
+function safeVoiceErrorMessage(value: unknown) {
+  if (isVoiceProviderServiceIssue(value)) {
+    return VOICE_SERVICE_UNAVAILABLE_MESSAGE;
+  }
+
+  const message = errorMessage(value);
+
+  return isVoiceProviderServiceIssue(message)
+    ? VOICE_SERVICE_UNAVAILABLE_MESSAGE
+    : message;
 }
 
 function objectRecord(value: unknown) {
