@@ -4843,7 +4843,8 @@ h2 {
   gap: 12px;
   overflow: hidden;
   border-color: color-mix(in srgb, var(--cyan) 28%, var(--line));
-  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  background: color-mix(in srgb, var(--surface) 54%, transparent);
+  backdrop-filter: blur(14px);
 }
 
 .assistant-activity-header {
@@ -4880,7 +4881,7 @@ h2 {
   align-items: start;
   border: 1px solid color-mix(in srgb, var(--surface-strong) 12%, var(--line));
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--background) 50%, transparent);
+  background: color-mix(in srgb, var(--background) 34%, transparent);
   color: inherit;
   cursor: pointer;
   font: inherit;
@@ -5058,7 +5059,8 @@ h2 {
   overflow: hidden;
   border-color: color-mix(in srgb, var(--cyan) 22%, var(--line));
   border-radius: var(--radius-panel);
-  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  backdrop-filter: blur(16px);
   padding: 0;
   position: sticky;
   top: 16px;
@@ -5077,7 +5079,7 @@ h2 {
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 92%, var(--background));
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
   padding: 16px 18px;
 }
 
