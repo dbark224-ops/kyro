@@ -7403,10 +7403,11 @@ button.voice-card {
 
 .crm-toolbar {
   display: grid;
-  grid-template-columns: minmax(240px, 440px) minmax(150px, 210px) auto;
+  grid-template-columns: minmax(280px, 420px) minmax(150px, 176px) auto;
   justify-content: start;
-  gap: 8px;
-  align-items: end;
+  column-gap: 14px;
+  row-gap: 10px;
+  align-items: start;
   margin: 0 0 12px;
 }
 
@@ -7424,9 +7425,38 @@ button.voice-card {
 
 .crm-search-field {
   position: relative;
+  grid-template-areas:
+    "label advanced"
+    "input input"
+    "panel panel";
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: 18px;
+  row-gap: 7px;
+  align-items: center;
+}
+
+.crm-search-field > label {
+  grid-area: label;
+  line-height: 1;
+}
+
+.crm-search-field > input {
+  grid-area: input;
+}
+
+.crm-sort-field {
+  grid-template-rows: 12px 38px;
+  gap: 7px;
+  align-items: center;
+}
+
+.crm-sort-field .auto-submit-select-label {
+  line-height: 1;
 }
 
 .crm-toolbar .secondary-button {
+  align-self: start;
+  margin-top: 19px;
   min-height: 38px;
 }
 
@@ -7440,19 +7470,24 @@ button.voice-card {
 }
 
 .crm-advanced-search {
-  height: 0;
-  margin-top: -6px;
+  grid-area: advanced;
+  justify-self: end;
+  min-width: max-content;
+  height: auto;
+  margin: 0;
 }
 
 .crm-advanced-search summary {
-  position: absolute;
-  top: 1px;
-  right: 0;
+  position: static;
+  display: inline-flex;
+  min-height: 12px;
+  align-items: center;
   cursor: pointer;
   list-style: none;
   color: color-mix(in srgb, var(--cyan) 76%, var(--muted));
   font-size: 0.75rem;
   font-weight: 800;
+  line-height: 1;
   text-transform: uppercase;
 }
 
@@ -7473,12 +7508,18 @@ button.voice-card {
 }
 
 .crm-advanced-search[open] {
+  grid-area: panel;
+  justify-self: stretch;
   height: auto;
-  margin-top: 0;
+  margin-top: 1px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--background) 38%, transparent);
   padding: 10px;
+}
+
+.crm-advanced-search[open] summary {
+  margin-bottom: 8px;
 }
 
 .crm-advanced-grid {

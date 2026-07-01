@@ -24,7 +24,7 @@ export function AutoSubmitSelect({
 }: AutoSubmitSelectProps) {
   return (
     <label className={className} htmlFor={id}>
-      {label}
+      <span className="auto-submit-select-label">{label}</span>
       <select
         defaultValue={defaultValue}
         id={id}
