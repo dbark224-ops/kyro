@@ -2,6 +2,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 export type VapiUserIdentity = {
   email: string;
+  firstName: string;
   id: string;
   name: string;
   phone: string;
@@ -35,6 +36,18 @@ function emailName(value: string) {
   return localPart ? localPart.replace(/[._-]+/g, " ") : "";
 }
 
+function firstNameFromName(value: string) {
+  const clean = value.replace(/\s+/g, " ").trim();
+
+  if (!clean) {
+    return "";
+  }
+
+  const [firstName] = clean.split(" ");
+
+  return firstName ?? "";
+}
+
 export function vapiUserIdentityFromUser(user: User): VapiUserIdentity {
   const metadata = objectRecord(user.user_metadata);
   const email = textValue(user.email);
@@ -57,6 +70,7 @@ export function vapiUserIdentityFromUser(user: User): VapiUserIdentity {
 
   return {
     email,
+    firstName: firstNameFromName(name),
     id: user.id,
     name,
     phone,
@@ -102,6 +116,7 @@ export async function loadVapiUserIdentity(
 
   return {
     email,
+    firstName: firstNameFromName(name),
     id: cleanUserId,
     name,
     phone: authIdentity?.phone ?? "",
@@ -111,6 +126,7 @@ export async function loadVapiUserIdentity(
 export function emptyVapiUserIdentity(): VapiUserIdentity {
   return {
     email: "",
+    firstName: "",
     id: "",
     name: "",
     phone: "",
@@ -120,10 +136,12 @@ export function emptyVapiUserIdentity(): VapiUserIdentity {
 export function vapiUserVariableValues(identity: VapiUserIdentity) {
   return {
     kyro_user_email: identity.email,
+    kyro_user_first_name: identity.firstName,
     kyro_user_id: identity.id,
     kyro_user_name: identity.name,
     kyro_user_phone: identity.phone,
     user_email: identity.email,
+    user_first_name: identity.firstName,
     user_name: identity.name,
     user_phone: identity.phone,
   };

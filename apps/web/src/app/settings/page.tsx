@@ -205,6 +205,35 @@ function formatLabel(value: string) {
     .join(" ");
 }
 
+function metadataRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function metadataString(value: unknown, key: string) {
+  const candidate = metadataRecord(value)[key];
+
+  return typeof candidate === "string" ? candidate.trim() : "";
+}
+
+function displayUserName(user: { email?: string | null; user_metadata?: unknown }) {
+  const metadataName =
+    metadataString(user.user_metadata, "name") ||
+    metadataString(user.user_metadata, "full_name") ||
+    metadataString(user.user_metadata, "fullName") ||
+    metadataString(user.user_metadata, "display_name") ||
+    metadataString(user.user_metadata, "displayName");
+
+  if (metadataName) {
+    return metadataName;
+  }
+
+  const emailLocalPart = user.email?.split("@")[0]?.trim() ?? "";
+
+  return emailLocalPart.replace(/[._-]+/g, " ");
+}
+
 function defaultAiAssistantSignatureText({
   businessName,
   publicPhoneNumber,
@@ -2398,6 +2427,7 @@ function GeneralSettingsDetail({
   operationalPhoneNumbers,
   settings,
   userEmail,
+  userName,
   workspaceName,
 }: Readonly<{
   activePanel?: string | null;
@@ -2406,6 +2436,7 @@ function GeneralSettingsDetail({
   operationalPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   settings: WorkspaceGeneralSettings;
   userEmail: string;
+  userName: string;
   workspaceName: string;
 }>) {
   const profile = settings.businessProfile;
@@ -2473,6 +2504,20 @@ function GeneralSettingsDetail({
                 defaultValue={profile.businessName || workspaceName}
                 name="businessName"
                 placeholder="WFA Plumbing"
+              />
+            </label>
+
+            <label
+              className="setting-card"
+              style={visibleWhen(showCoreProfile)}
+            >
+              <SettingCardHeading info="The account user Kyro is speaking to in the Voice assistant. This is used for greetings such as first-name voice intros.">
+                Account user name
+              </SettingCardHeading>
+              <input
+                defaultValue={userName}
+                name="accountUserName"
+                placeholder="David Barker"
               />
             </label>
 
@@ -5274,6 +5319,7 @@ export default async function SettingsPage({
           operationalPhoneNumbers={assignedPhoneNumbers}
           settings={generalSettings}
           userEmail={user.email ?? ""}
+          userName={displayUserName(user)}
           workspaceName={workspace.name}
         />
       </SettingsDetailShell>

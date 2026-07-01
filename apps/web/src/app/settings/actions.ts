@@ -156,6 +156,12 @@ function phoneNumberMetadataRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
 function voicemailOverflowMetadata(
   metadata: Record<string, unknown>,
   userId: string,
@@ -885,6 +891,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     formString(formData, "workspaceDisplayCurrency"),
   );
   const operatingCountry = formString(formData, "businessOperatingCountry");
+  const accountUserName = formString(formData, "accountUserName");
   const businessLogo = await businessLogoPayload(formData, redirectOptions);
   const manualLogo = await signatureLogoPayload(
     formData,
@@ -1214,6 +1221,41 @@ export async function updateGeneralSettingsAction(formData: FormData) {
         "general",
         "engine_error",
         workspaceNameError.message,
+        redirectOptions,
+      );
+    }
+  }
+
+  if (accountUserName && user.email) {
+    const { error: userProfileError } = await supabase.from("users").upsert({
+      email: user.email,
+      id: user.id,
+      name: accountUserName,
+    });
+
+    if (userProfileError) {
+      redirectWithSectionMessage(
+        "general",
+        "engine_error",
+        userProfileError.message,
+        redirectOptions,
+      );
+    }
+
+    const authMetadata = {
+      ...metadataRecord(user.user_metadata),
+      full_name: accountUserName,
+      name: accountUserName,
+    };
+    const { error: authProfileError } = await supabase.auth.updateUser({
+      data: authMetadata,
+    });
+
+    if (authProfileError) {
+      redirectWithSectionMessage(
+        "general",
+        "engine_error",
+        authProfileError.message,
         redirectOptions,
       );
     }
