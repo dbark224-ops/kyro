@@ -9,8 +9,8 @@ stay neutral and reference Kyro variables rather than hard-coded business names.
 
 ## Production Endpoints
 
-- Webhook/server URL: `https://kyroassistant.com/api/integrations/vapi/webhook`
-- Tool URL: `https://kyroassistant.com/api/integrations/vapi/tool`
+- Webhook/server URL: `https://www.kyroassistant.com/api/integrations/vapi/webhook`
+- Tool URL: `https://www.kyroassistant.com/api/integrations/vapi/tool`
 - Tool method: `POST`
 - Tool credential: `Kyro Production Tool`
 - Webhook/server credential: `Kyro Production Webhook`
@@ -37,7 +37,7 @@ call Kyro's webhook through the `assistant-request` flow.
 
 The phone-number server should use:
 
-- URL: `https://kyroassistant.com/api/integrations/vapi/webhook`
+- URL: `https://www.kyroassistant.com/api/integrations/vapi/webhook`
 - Credential: `Kyro Production Webhook`
 
 Kyro responds to `assistant-request` with:
@@ -145,7 +145,7 @@ Outbound calls receive:
 
 Every Kyro custom tool should use:
 
-- Server URL: `https://kyroassistant.com/api/integrations/vapi/tool`
+- Server URL: `https://www.kyroassistant.com/api/integrations/vapi/tool`
 - Method: `POST`
 - Credential: `Kyro Production Tool`
 

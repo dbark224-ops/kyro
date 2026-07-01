@@ -17,8 +17,8 @@ trust problems do not quietly pile up.
 
 ## Vapi Phone Health
 
-1. Check `https://kyroassistant.com/api/integrations/vapi/webhook`.
-2. Check `https://kyroassistant.com/api/integrations/vapi/tool`.
+1. Check `https://www.kyroassistant.com/api/integrations/vapi/webhook`.
+2. Check `https://www.kyroassistant.com/api/integrations/vapi/tool`.
 3. Confirm Vercel logs show no recurring Vapi `401`, `400`, timeout, or tool
    errors.
 4. Spot-check recent `voice_calls` rows for expected status, purpose,

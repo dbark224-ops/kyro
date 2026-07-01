@@ -26,6 +26,7 @@ import {
 import {
   getVapiConfig,
   VAPI_TOOL_PATH,
+  vapiRequestAuthDiagnostics,
   vapiEndpointUrl,
   verifyVapiToolRequest,
 } from "../../../../../lib/integrations/vapi";
@@ -1027,7 +1028,22 @@ async function recordWebSearchUsage({
 
 export async function POST(request: Request) {
   if (!verifyVapiToolRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    console.warn("Vapi tool request rejected by Kyro auth.", {
+      ...vapiRequestAuthDiagnostics(request),
+      route: VAPI_TOOL_PATH,
+      toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
+      webhookSecretFallbackReady: Boolean(
+        process.env.VAPI_WEBHOOK_SECRET?.trim(),
+      ),
+    });
+
+    return NextResponse.json(
+      {
+        error:
+          "Kyro's voice tools are not responding correctly right now. The development team has been notified.",
+      },
+      { status: 401 },
+    );
   }
 
   const payload = (await request.json().catch(() => null)) as Record<

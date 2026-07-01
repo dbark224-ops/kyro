@@ -148,10 +148,49 @@ function requestSecret(request: Request) {
 
   return (
     request.headers.get("x-vapi-secret")?.trim() ??
+    request.headers.get("x-vapi-token")?.trim() ??
+    request.headers.get("x-vapi-tool-secret")?.trim() ??
     request.headers.get("x-vapi-webhook-secret")?.trim() ??
     request.headers.get("x-kyro-vapi-secret")?.trim() ??
+    request.headers.get("x-kyro-vapi-tool-secret")?.trim() ??
+    request.headers.get("x-kyro-vapi-webhook-secret")?.trim() ??
     ""
   );
+}
+
+export function vapiRequestAuthDiagnostics(request: Request) {
+  let hasQueryCredential = false;
+
+  try {
+    const url = new URL(request.url);
+    hasQueryCredential = Boolean(
+      url.searchParams.get("secret")?.trim() ||
+        url.searchParams.get("token")?.trim(),
+    );
+  } catch {
+    hasQueryCredential = false;
+  }
+
+  const authorization = request.headers.get("authorization") ?? "";
+  const authorizationScheme = authorization.split(/\s+/)[0]?.trim() || null;
+  const checkedHeaderNames = [
+    "x-vapi-secret",
+    "x-vapi-token",
+    "x-vapi-tool-secret",
+    "x-vapi-webhook-secret",
+    "x-kyro-vapi-secret",
+    "x-kyro-vapi-tool-secret",
+    "x-kyro-vapi-webhook-secret",
+  ];
+
+  return {
+    authorizationScheme,
+    checkedHeaderNames: checkedHeaderNames.filter((name) =>
+      Boolean(request.headers.get(name)?.trim()),
+    ),
+    hasAuthorization: Boolean(authorization.trim()),
+    hasQueryCredential,
+  };
 }
 
 export function verifyVapiWebhookRequest(request: Request) {

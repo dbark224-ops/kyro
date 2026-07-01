@@ -235,7 +235,7 @@ still needed.
 
 Shared production setup:
 
-- [x] Server URL: `https://kyroassistant.com/api/integrations/vapi/tool`
+- [x] Server URL: `https://www.kyroassistant.com/api/integrations/vapi/tool`
 - [x] Credential: shared `Kyro Production Tool` Custom Credential.
 - [x] Method: `POST`.
 - [x] Vapi tool secret/credential readiness has been completed and removed as a

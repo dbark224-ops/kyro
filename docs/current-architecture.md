@@ -505,8 +505,8 @@ note, writes audit logs, and still preserves the raw Vapi tool event.
 In production, Vapi tools and webhooks must include the shared Kyro header
 `x-kyro-vapi-secret`; Kyro reads this from `VAPI_TOOL_SECRET` and
 `VAPI_WEBHOOK_SECRET`. The production Vapi endpoints are
-`https://kyroassistant.com/api/integrations/vapi/tool` and
-`https://kyroassistant.com/api/integrations/vapi/webhook`. These routes also
+`https://www.kyroassistant.com/api/integrations/vapi/tool` and
+`https://www.kyroassistant.com/api/integrations/vapi/webhook`. These routes also
 return safe `GET` readiness payloads showing whether the server key, shared
 secret, and Vapi Custom Credential ids are configured. Dynamic Vapi server
 overrides include `VAPI_WEBHOOK_CREDENTIAL_ID`, which should point to a Vapi
