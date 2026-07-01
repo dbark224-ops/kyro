@@ -51,14 +51,19 @@ function firstNameFromName(value: string) {
 export function vapiUserIdentityFromUser(user: User): VapiUserIdentity {
   const metadata = objectRecord(user.user_metadata);
   const email = textValue(user.email);
-  const name =
+  const explicitFirstName = firstText(metadata.first_name, metadata.firstName);
+  const lastName = firstText(metadata.last_name, metadata.lastName);
+  const storedName =
     firstText(
       metadata.name,
       metadata.full_name,
       metadata.fullName,
       metadata.display_name,
       metadata.displayName,
-    ) || emailName(email);
+    );
+  const name =
+    storedName || [explicitFirstName, lastName].filter(Boolean).join(" ") ||
+    emailName(email);
   const phone = firstText(
     user.phone,
     metadata.kyroMobileNumber,
@@ -70,7 +75,7 @@ export function vapiUserIdentityFromUser(user: User): VapiUserIdentity {
 
   return {
     email,
-    firstName: firstNameFromName(name),
+    firstName: explicitFirstName || firstNameFromName(name),
     id: user.id,
     name,
     phone,
@@ -91,7 +96,7 @@ export async function loadVapiUserIdentity(
     try {
       const { data } = await supabase
         .from("users")
-        .select("id,name,email")
+        .select("id,name,email,first_name,last_name")
         .eq("id", cleanUserId)
         .maybeSingle();
 
@@ -111,12 +116,19 @@ export async function loadVapiUserIdentity(
   const authIdentity = authUser ? vapiUserIdentityFromUser(authUser) : null;
   const profileRecord = objectRecord(profile);
   const email = firstText(profileRecord.email, authIdentity?.email);
+  const explicitFirstName = firstText(
+    profileRecord.first_name,
+    authIdentity?.firstName,
+  );
+  const lastName = firstText(profileRecord.last_name);
   const name =
-    firstText(profileRecord.name, authIdentity?.name) || emailName(email);
+    firstText(profileRecord.name, authIdentity?.name) ||
+    [explicitFirstName, lastName].filter(Boolean).join(" ") ||
+    emailName(email);
 
   return {
     email,
-    firstName: firstNameFromName(name),
+    firstName: explicitFirstName || firstNameFromName(name),
     id: cleanUserId,
     name,
     phone: authIdentity?.phone ?? "",

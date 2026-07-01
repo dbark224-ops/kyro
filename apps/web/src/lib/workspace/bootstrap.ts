@@ -39,6 +39,18 @@ function requireUserEmail(user: User) {
 
 export async function ensureUserProfile(supabase: SupabaseClient, user: User) {
   const email = requireUserEmail(user);
+  const firstName =
+    typeof user.user_metadata.first_name === "string"
+      ? user.user_metadata.first_name
+      : typeof user.user_metadata.firstName === "string"
+        ? user.user_metadata.firstName
+        : null;
+  const lastName =
+    typeof user.user_metadata.last_name === "string"
+      ? user.user_metadata.last_name
+      : typeof user.user_metadata.lastName === "string"
+        ? user.user_metadata.lastName
+        : null;
   const name =
     typeof user.user_metadata.name === "string"
       ? user.user_metadata.name
@@ -49,6 +61,8 @@ export async function ensureUserProfile(supabase: SupabaseClient, user: User) {
   const { error } = await supabase.from("users").upsert({
     id: user.id,
     email,
+    first_name: firstName,
+    last_name: lastName,
     name
   });
 

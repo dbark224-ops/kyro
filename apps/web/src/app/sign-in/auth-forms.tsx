@@ -393,7 +393,8 @@ export function CreateAccountForm() {
       title: "Create your login",
       copy: "This is the person who owns the first Kyro workspace.",
       fields: [
-        "name",
+        "firstName",
+        "lastName",
         "email",
         "confirmEmail",
         "password",
@@ -440,10 +441,11 @@ export function CreateAccountForm() {
     confirmPassword: "Confirm password",
     country: "Operating country",
     email: "Email",
+    firstName: "First name",
     industry: "Trade / industry",
+    lastName: "Last name",
     mobileCountry: "Phone country",
     mobileNumber: "Mobile number",
-    name: "Your first and last name",
     password: "Password",
     postcode: "Postcode / ZIP",
     trialAcknowledged: "Trial acknowledgement",
@@ -649,10 +651,11 @@ export function CreateAccountForm() {
       "confirmPassword",
       "country",
       "email",
+      "firstName",
       "industry",
+      "lastName",
       "mobileCountry",
       "mobileNumber",
-      "name",
       "password",
       "postcode",
       "serviceArea",
@@ -709,19 +712,40 @@ export function CreateAccountForm() {
       <section className="auth-form-section" hidden={step !== 0}>
         <div className="auth-form-grid">
           <label>
-            Your first and last name
+            First name
             <input
-              name="name"
+              name="firstName"
               type="text"
-              autoComplete="name"
+              autoComplete="given-name"
               required
-              aria-invalid={Boolean(fieldErrors.name)}
-              aria-describedby={fieldErrors.name ? "name-error" : undefined}
-              onChange={() => clearFieldError("name")}
+              aria-invalid={Boolean(fieldErrors.firstName)}
+              aria-describedby={
+                fieldErrors.firstName ? "firstName-error" : undefined
+              }
+              onChange={() => clearFieldError("firstName")}
             />
-            {fieldErrors.name ? (
-              <span className="auth-field-error" id="name-error">
-                {fieldErrors.name}
+            {fieldErrors.firstName ? (
+              <span className="auth-field-error" id="firstName-error">
+                {fieldErrors.firstName}
+              </span>
+            ) : null}
+          </label>
+          <label>
+            Last name
+            <input
+              name="lastName"
+              type="text"
+              autoComplete="family-name"
+              required
+              aria-invalid={Boolean(fieldErrors.lastName)}
+              aria-describedby={
+                fieldErrors.lastName ? "lastName-error" : undefined
+              }
+              onChange={() => clearFieldError("lastName")}
+            />
+            {fieldErrors.lastName ? (
+              <span className="auth-field-error" id="lastName-error">
+                {fieldErrors.lastName}
               </span>
             ) : null}
           </label>

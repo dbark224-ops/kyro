@@ -218,6 +218,20 @@ function metadataString(value: unknown, key: string) {
 }
 
 function displayUserName(user: { email?: string | null; user_metadata?: unknown }) {
+  const metadataFirstName =
+    metadataString(user.user_metadata, "first_name") ||
+    metadataString(user.user_metadata, "firstName");
+  const metadataLastName =
+    metadataString(user.user_metadata, "last_name") ||
+    metadataString(user.user_metadata, "lastName");
+  const splitName = [metadataFirstName, metadataLastName]
+    .filter(Boolean)
+    .join(" ");
+
+  if (splitName) {
+    return splitName;
+  }
+
   const metadataName =
     metadataString(user.user_metadata, "name") ||
     metadataString(user.user_metadata, "full_name") ||
@@ -232,6 +246,36 @@ function displayUserName(user: { email?: string | null; user_metadata?: unknown 
   const emailLocalPart = user.email?.split("@")[0]?.trim() ?? "";
 
   return emailLocalPart.replace(/[._-]+/g, " ");
+}
+
+function displayUserFirstName(user: {
+  email?: string | null;
+  user_metadata?: unknown;
+}) {
+  const metadataFirstName =
+    metadataString(user.user_metadata, "first_name") ||
+    metadataString(user.user_metadata, "firstName");
+
+  if (metadataFirstName) {
+    return metadataFirstName;
+  }
+
+  return displayUserName(user).split(/\s+/)[0] ?? "";
+}
+
+function displayUserLastName(user: {
+  email?: string | null;
+  user_metadata?: unknown;
+}) {
+  const metadataLastName =
+    metadataString(user.user_metadata, "last_name") ||
+    metadataString(user.user_metadata, "lastName");
+
+  if (metadataLastName) {
+    return metadataLastName;
+  }
+
+  return displayUserName(user).split(/\s+/).slice(1).join(" ");
 }
 
 function defaultAiAssistantSignatureText({
@@ -2427,7 +2471,8 @@ function GeneralSettingsDetail({
   operationalPhoneNumbers,
   settings,
   userEmail,
-  userName,
+  userFirstName,
+  userLastName,
   workspaceName,
 }: Readonly<{
   activePanel?: string | null;
@@ -2436,7 +2481,8 @@ function GeneralSettingsDetail({
   operationalPhoneNumbers: WorkspacePhoneNumberPoolRow[];
   settings: WorkspaceGeneralSettings;
   userEmail: string;
-  userName: string;
+  userFirstName: string;
+  userLastName: string;
   workspaceName: string;
 }>) {
   const profile = settings.businessProfile;
@@ -2512,12 +2558,26 @@ function GeneralSettingsDetail({
               style={visibleWhen(showCoreProfile)}
             >
               <SettingCardHeading info="The account user Kyro is speaking to in the Voice assistant. This is used for greetings such as first-name voice intros.">
-                Account user name
+                Account user first name
               </SettingCardHeading>
               <input
-                defaultValue={userName}
-                name="accountUserName"
-                placeholder="David Barker"
+                defaultValue={userFirstName}
+                name="accountUserFirstName"
+                placeholder="David"
+              />
+            </label>
+
+            <label
+              className="setting-card"
+              style={visibleWhen(showCoreProfile)}
+            >
+              <SettingCardHeading info="Used with first name to keep the logged-in Kyro user profile accurate across voice greetings and internal context.">
+                Account user last name
+              </SettingCardHeading>
+              <input
+                defaultValue={userLastName}
+                name="accountUserLastName"
+                placeholder="Barker"
               />
             </label>
 
@@ -5319,7 +5379,8 @@ export default async function SettingsPage({
           operationalPhoneNumbers={assignedPhoneNumbers}
           settings={generalSettings}
           userEmail={user.email ?? ""}
-          userName={displayUserName(user)}
+          userFirstName={displayUserFirstName(user)}
+          userLastName={displayUserLastName(user)}
           workspaceName={workspace.name}
         />
       </SettingsDetailShell>

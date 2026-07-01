@@ -30,10 +30,11 @@ type CreateAccountPayload = {
   confirmPassword?: string;
   country?: string;
   email?: string;
+  firstName?: string;
   industry?: string;
+  lastName?: string;
   mobileCountry?: string;
   mobileNumber?: string;
-  name?: string;
   password?: string;
   postcode?: string;
   serviceArea?: string;
@@ -49,7 +50,9 @@ type ValidatedCreateAccountPayload =
         businessName: string;
         country: string;
         email: string;
+        firstName: string;
         industry: string;
+        lastName: string;
         mobileCountry: string;
         mobileNumber: string;
         normalizedMobileNumber: string;
@@ -190,7 +193,9 @@ function validatePayload(
   const confirmEmail = textValue(payload.confirmEmail);
   const password = textValue(payload.password);
   const confirmPassword = textValue(payload.confirmPassword);
-  const name = textValue(payload.name);
+  const firstName = textValue(payload.firstName);
+  const lastName = textValue(payload.lastName);
+  const name = [firstName, lastName].filter(Boolean).join(" ");
   const mobileNumber = textValue(payload.mobileNumber);
   const businessName = textValue(payload.businessName);
   const businessLocation = textValue(payload.businessLocation);
@@ -218,8 +223,8 @@ function validatePayload(
     return { error: "Passwords must match." };
   }
 
-  if (!name) {
-    return { error: "Your name is required." };
+  if (!firstName || !lastName) {
+    return { error: "First name and last name are required." };
   }
 
   if (!mobileNumber) {
@@ -260,7 +265,9 @@ function validatePayload(
       businessName,
       country,
       email,
+      firstName,
       industry,
+      lastName,
       mobileCountry,
       mobileNumber,
       normalizedMobileNumber,
@@ -315,6 +322,11 @@ export async function POST(request: Request) {
         kyroMobileNumber: input.normalizedMobileNumber,
         kyroIndustry: input.industry,
         kyroTrialAcknowledgedAt: new Date().toISOString(),
+        firstName: input.firstName,
+        first_name: input.firstName,
+        full_name: input.name,
+        lastName: input.lastName,
+        last_name: input.lastName,
         name: input.name,
         phone: input.normalizedMobileNumber,
       },

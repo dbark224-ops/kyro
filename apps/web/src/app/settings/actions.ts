@@ -891,7 +891,11 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     formString(formData, "workspaceDisplayCurrency"),
   );
   const operatingCountry = formString(formData, "businessOperatingCountry");
-  const accountUserName = formString(formData, "accountUserName");
+  const accountUserFirstName = formString(formData, "accountUserFirstName");
+  const accountUserLastName = formString(formData, "accountUserLastName");
+  const accountUserName = [accountUserFirstName, accountUserLastName]
+    .filter(Boolean)
+    .join(" ");
   const businessLogo = await businessLogoPayload(formData, redirectOptions);
   const manualLogo = await signatureLogoPayload(
     formData,
@@ -1229,7 +1233,9 @@ export async function updateGeneralSettingsAction(formData: FormData) {
   if (accountUserName && user.email) {
     const { error: userProfileError } = await supabase.from("users").upsert({
       email: user.email,
+      first_name: accountUserFirstName,
       id: user.id,
+      last_name: accountUserLastName,
       name: accountUserName,
     });
 
@@ -1244,7 +1250,11 @@ export async function updateGeneralSettingsAction(formData: FormData) {
 
     const authMetadata = {
       ...metadataRecord(user.user_metadata),
+      firstName: accountUserFirstName,
+      first_name: accountUserFirstName,
       full_name: accountUserName,
+      lastName: accountUserLastName,
+      last_name: accountUserLastName,
       name: accountUserName,
     };
     const { error: authProfileError } = await supabase.auth.updateUser({
