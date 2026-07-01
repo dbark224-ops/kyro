@@ -59,7 +59,13 @@ The internal web/mobile Vapi session receives:
 - `kyro_context`
 - `kyro_tool_url`
 - `thread_id`
+- `user_first_name`
 - `user_id`
+- `user_name`
+- `user_email`
+- `user_phone`
+- `kyro_user_first_name`
+- `kyro_user_id`
 - `voice_id`
 - `voice_label`
 - `voice_demeanor`
@@ -82,7 +88,13 @@ The dynamic `assistant-request` response receives:
 - `kyro_tool_url`
 - `phone_number_row_id`
 - `thread_id`
+- `user_first_name`
 - `user_id`
+- `user_name`
+- `user_email`
+- `user_phone`
+- `kyro_user_first_name`
+- `kyro_user_id`
 - `voice_id`
 - `voice_label`
 - `voice_demeanor`

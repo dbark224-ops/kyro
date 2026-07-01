@@ -152,6 +152,7 @@ export function vapiUserContextLine(
   label = "Kyro account user",
 ) {
   const parts = [
+    identity.firstName ? `first name ${identity.firstName}` : null,
     identity.name ? `name ${identity.name}` : null,
     identity.email ? `email ${identity.email}` : null,
     identity.phone ? `phone ${identity.phone}` : null,
