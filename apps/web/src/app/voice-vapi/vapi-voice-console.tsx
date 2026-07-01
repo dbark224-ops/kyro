@@ -249,6 +249,7 @@ export function VapiVoiceConsole({
   const toolBlockCursorRef = useRef(new Date().toISOString());
   const callIdRef = useRef<string | null>(null);
   const lastStartErrorRef = useRef<string | null>(null);
+  const reportedBugKeysRef = useRef<Set<string>>(new Set());
   const meterStreamRef = useRef<MediaStream | null>(null);
   const meterAudioContextRef = useRef<AudioContext | null>(null);
   const meterSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -456,6 +457,69 @@ export function VapiVoiceConsole({
       },
     ]);
   }, []);
+
+  const reportVisibleVoiceIssue = useCallback(
+    ({
+      context = {},
+      kind,
+      rawMessage,
+      source,
+      visibleMessage,
+    }: {
+      context?: Record<string, unknown>;
+      kind: string;
+      rawMessage: string;
+      source: string;
+      visibleMessage: string;
+    }) => {
+      const bucket = Math.floor(Date.now() / (15 * 60 * 1000));
+      const key = [
+        source,
+        kind,
+        bucket,
+        clientBugReportKey(rawMessage || visibleMessage),
+      ].join(":");
+
+      if (reportedBugKeysRef.current.has(key)) {
+        return;
+      }
+
+      reportedBugKeysRef.current.add(key);
+      window.setTimeout(() => {
+        reportedBugKeysRef.current.delete(key);
+      }, 15 * 60 * 1000);
+
+      void fetch("/api/internal/bug-report", {
+        body: JSON.stringify({
+          context: {
+            callId: callIdRef.current,
+            threadId,
+            toolUrlConfigured: Boolean(session.toolUrl),
+            vapiAssistantId: session.assistantId,
+            voiceLabel: session.voiceLabel,
+            webhookUrlConfigured: Boolean(session.webhookUrl),
+            workspaceId: session.workspaceId,
+            workspaceName: session.workspaceName,
+            ...context,
+          },
+          eventKey: key,
+          kind,
+          pageUrl: window.location.href,
+          rawMessage,
+          severity: "error",
+          source,
+          userAgent: window.navigator.userAgent,
+          visibleMessage,
+        }),
+        headers: { "Content-Type": "application/json" },
+        keepalive: true,
+        method: "POST",
+      }).catch((notificationError) => {
+        console.warn("Unable to report visible voice issue", notificationError);
+      });
+    },
+    [session, threadId],
+  );
 
   const claimLocalTurn = useCallback(
     (role: "assistant" | "user", content: string) => {
@@ -905,6 +969,12 @@ export function VapiVoiceConsole({
 
       if (role === "assistant" && isVoiceProviderServiceIssue(clean)) {
         appendStartTrace(`Suppressed voice provider transcript: ${clean}`);
+        reportVisibleVoiceIssue({
+          kind: "voice_provider_service_issue",
+          rawMessage: clean,
+          source: "voice-vapi.final-transcript",
+          visibleMessage: VOICE_SERVICE_UNAVAILABLE_MESSAGE,
+        });
         setConnectionState("idle");
         setError(VOICE_SERVICE_UNAVAILABLE_MESSAGE);
         setStatus(VOICE_SERVICE_UNAVAILABLE_MESSAGE);
@@ -940,6 +1010,7 @@ export function VapiVoiceConsole({
       claimLocalTurn,
       clearAssistantFinalizeTimer,
       finalizeAssistantTurn,
+      reportVisibleVoiceIssue,
     ],
   );
 
@@ -958,6 +1029,15 @@ export function VapiVoiceConsole({
         const displayMessage = safeVoiceErrorMessage(message);
 
         appendStartTrace(`Suppressed voice provider event: ${rawMessage}`);
+        reportVisibleVoiceIssue({
+          context: { eventType: type ?? "unknown" },
+          kind: isVoiceProviderServiceIssue(message)
+            ? "voice_provider_service_issue"
+            : "voice_runtime_error",
+          rawMessage,
+          source: "voice-vapi.client-event",
+          visibleMessage: displayMessage,
+        });
         setConnectionState("idle");
         setError(displayMessage);
         setStatus(displayMessage);
@@ -1104,6 +1184,7 @@ export function VapiVoiceConsole({
       captureAssistantDraft,
       fetchPendingToolUiBlocks,
       handleFinalTranscript,
+      reportVisibleVoiceIssue,
       scheduleAssistantFinalize,
     ],
   );
@@ -1257,6 +1338,13 @@ export function VapiVoiceConsole({
 
         lastStartErrorRef.current = rawMessage;
         appendStartTrace(`Voice call start failed: ${rawMessage}`);
+        reportVisibleVoiceIssue({
+          context: { eventType: "call-start-failed" },
+          kind: "voice_provider_start_failed",
+          rawMessage,
+          source: "voice-vapi.call-start-failed",
+          visibleMessage: displayMessage,
+        });
         setError(displayMessage);
         setConnectionState("idle");
         setStatus(displayMessage);
@@ -1283,6 +1371,13 @@ export function VapiVoiceConsole({
 
           lastStartErrorRef.current = message;
           appendStartTrace(message);
+          reportVisibleVoiceIssue({
+            context: { eventStatus, stage },
+            kind: "voice_provider_start_progress_failed",
+            rawMessage: message,
+            source: "voice-vapi.call-start-progress",
+            visibleMessage: displayMessage,
+          });
           setError(displayMessage);
           setStatus(displayMessage);
         }
@@ -1318,6 +1413,13 @@ export function VapiVoiceConsole({
 
         lastStartErrorRef.current = rawMessage;
         appendStartTrace(`Voice runtime error: ${rawMessage}`);
+        reportVisibleVoiceIssue({
+          context: { eventType: "error" },
+          kind: "voice_runtime_error",
+          rawMessage,
+          source: "voice-vapi.runtime-error",
+          visibleMessage: displayMessage,
+        });
         setError(displayMessage);
         setConnectionState("idle");
         setStatus(displayMessage);
@@ -1351,6 +1453,13 @@ export function VapiVoiceConsole({
         setConnectionState("idle");
         setStatus(displayMessage);
         appendStartTrace(`No live call returned: ${rawMessage}`);
+        reportVisibleVoiceIssue({
+          context: { eventType: "no-live-call" },
+          kind: "voice_start_no_live_call",
+          rawMessage,
+          source: "voice-vapi.no-live-call",
+          visibleMessage: displayMessage,
+        });
         setError(displayMessage);
         stopVoiceLevelMeter();
         return;
@@ -1372,6 +1481,15 @@ export function VapiVoiceConsole({
 
       lastStartErrorRef.current = rawMessage;
       appendStartTrace(`Start threw: ${rawMessage}`);
+      if (isVoiceProviderServiceIssue(nextError)) {
+        reportVisibleVoiceIssue({
+          context: { eventType: "start-threw" },
+          kind: "voice_provider_start_exception",
+          rawMessage,
+          source: "voice-vapi.start-exception",
+          visibleMessage: displayMessage,
+        });
+      }
       setError(displayMessage);
       setConnectionState("idle");
       setStatus(displayMessage);
@@ -1381,6 +1499,7 @@ export function VapiVoiceConsole({
     appendStartTrace,
     handleVapiMessage,
     persistVapiTurn,
+    reportVisibleVoiceIssue,
     session,
     startVoiceLevelMeter,
     stopVoiceLevelMeter,
@@ -2484,6 +2603,16 @@ function safeVoiceErrorMessage(value: unknown) {
   return isVoiceProviderServiceIssue(message)
     ? VOICE_SERVICE_UNAVAILABLE_MESSAGE
     : message;
+}
+
+function clientBugReportKey(value: string) {
+  return (
+    canonicalTranscript(value)
+      .replace(/\b\d{4}\s+\d{2}\s+\d{2}t?[a-z0-9 ]+/gi, "<timestamp>")
+      .replace(/\b[0-9a-f]{8}\b(?:\s+[0-9a-f]{4}\b){3}\s+[0-9a-f]{12}\b/gi, "<uuid>")
+      .replace(/\b-?\d+(?:\s+\d+)?\b/g, "<number>")
+      .slice(0, 180) || "unknown"
+  );
 }
 
 function objectRecord(value: unknown) {
