@@ -369,6 +369,9 @@ export function VapiVoiceConsole({
     return status;
   }, [connectionState, error, session.configured, status]);
 
+  const isCompactReadyState =
+    session.configured && !error && connectionState === "idle";
+
   const clearAssistantFinalizeTimer = useCallback(() => {
     if (assistantFinalizeTimerRef.current) {
       window.clearTimeout(assistantFinalizeTimerRef.current);
@@ -1681,7 +1684,10 @@ export function VapiVoiceConsole({
     >
       <div className="voice-console-main">
         <section
-          className="voice-control-panel"
+          className={[
+            "voice-control-panel",
+            isCompactReadyState ? "ready" : "active",
+          ].join(" ")}
           aria-label="Voice assistant controls"
         >
           <button

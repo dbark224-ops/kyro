@@ -6079,23 +6079,32 @@ button.voice-card {
 
 .voice-control-panel {
   display: flex;
-  width: min(780px, calc(100% - 36px));
+  width: fit-content;
+  max-width: min(780px, calc(100% - 36px));
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   justify-self: center;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--radius-shell);
-  background: color-mix(in srgb, var(--surface) 90%, var(--background));
-  padding: 14px;
+  background: transparent;
+  padding: 6px 10px;
   position: sticky;
   top: 0;
   z-index: 3;
 }
 
+.voice-control-panel.active {
+  width: min(620px, calc(100% - 36px));
+  border-color: color-mix(in srgb, var(--cyan) 22%, var(--line));
+  background: color-mix(in srgb, var(--surface) 54%, transparent);
+  backdrop-filter: blur(14px);
+  padding: 10px 12px;
+}
+
 .voice-orb {
   display: grid;
-  width: 74px;
-  height: 74px;
+  width: 48px;
+  height: 48px;
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--cyan) 58%, var(--line));
@@ -6103,6 +6112,11 @@ button.voice-card {
   background: color-mix(in srgb, var(--cyan) 8%, var(--surface));
   color: var(--cyan);
   cursor: pointer;
+}
+
+.voice-orb svg {
+  width: 24px;
+  height: 24px;
 }
 
 .voice-orb.recording {
@@ -6122,7 +6136,7 @@ button.voice-card {
 
 .voice-state-copy {
   display: grid;
-  flex: 1;
+  flex: 0 1 auto;
   gap: 4px;
   min-width: 0;
 }
@@ -6130,13 +6144,18 @@ button.voice-card {
 .voice-state-copy p {
   margin: 0;
   color: var(--text);
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 0.98rem;
+  font-weight: 800;
 }
 
 .voice-state-copy span {
   color: var(--muted);
   line-height: 1.35;
+}
+
+.voice-control-panel.ready .voice-state-copy span,
+.voice-control-panel.ready .voice-meter-panel {
+  display: none;
 }
 
 .voice-meter-panel {
@@ -15670,11 +15689,16 @@ button:disabled {
   }
 
   .voice-control-panel {
-    width: 100%;
+    width: fit-content;
+    max-width: 100%;
     align-items: center;
     flex-wrap: wrap;
     border-radius: var(--radius-shell);
-    box-shadow: 0 14px 42px rgba(15, 23, 42, 0.12);
+    padding: 6px 8px;
+  }
+
+  .voice-control-panel.active {
+    width: 100%;
     padding: 10px;
   }
 
