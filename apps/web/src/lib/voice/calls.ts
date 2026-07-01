@@ -25,6 +25,12 @@ import {
   getWorkspaceGeneralSettings,
 } from "../workspace/general-settings";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
+import {
+  vapiUserContextLine,
+  vapiUserIdentityFromUser,
+  vapiUserVariableValues,
+  type VapiUserIdentity,
+} from "../assistant/vapi-user-context";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
@@ -1241,10 +1247,12 @@ function compactOutboundCallContext(input: {
   instructions: string | null;
   lead: Awaited<ReturnType<typeof lookupLinkedRows>>["lead"];
   recentOutboundCallContext?: string | null;
+  userIdentity: VapiUserIdentity;
   workspaceName: string | null;
 }) {
   const lines = [
     input.workspaceName ? `Workspace: ${input.workspaceName}` : null,
+    `${vapiUserContextLine(input.userIdentity, "Kyro account user")} Use this for internal attribution, routing, and escalation; do not read private account-user email or phone details to the customer unless the user's call instruction explicitly says to share them.`,
     `Customer phone: ${input.customerNumber}`,
     input.contact
       ? `Contact: ${[
@@ -2655,6 +2663,7 @@ export async function createOutboundVoiceCall(input: {
       ),
     ]);
   const currentTime = buildVapiCurrentTimeContext(generalSettings.timeZone);
+  const userIdentity = vapiUserIdentityFromUser(input.user);
   const outboundBusinessName =
     textValue(generalSettings.businessProfile.businessName) ??
     outboundWorkspaceName ??
@@ -2682,6 +2691,7 @@ export async function createOutboundVoiceCall(input: {
     instructions: callInstructions,
     lead: linkedRows.lead,
     recentOutboundCallContext,
+    userIdentity,
     workspaceName: outboundBusinessName || outboundWorkspaceName,
   });
   const outboundCallContextWithTime = [
@@ -2705,6 +2715,9 @@ export async function createOutboundVoiceCall(input: {
     },
     source: "kyro.outbound_voice",
     threadId: input.threadId ?? null,
+    userEmail: userIdentity.email,
+    userName: userIdentity.name,
+    userPhone: userIdentity.phone,
   };
   const { data: inserted, error: insertError } = await input.supabase
     .from("voice_calls")
@@ -2780,6 +2793,7 @@ export async function createOutboundVoiceCall(input: {
           recent_chat_context: assistantContextSummary ?? "",
           recent_outbound_call_context: recentOutboundCallContext ?? "",
           thread_id: input.threadId ?? "",
+          ...vapiUserVariableValues(userIdentity),
           user_id: input.user.id,
           voice_id: selectedVoice.voiceId,
           voice_label: selectedVoice.label,
@@ -2806,6 +2820,9 @@ export async function createOutboundVoiceCall(input: {
         purpose: "outbound_customer",
         threadId: input.threadId ?? null,
         userId: input.user.id,
+        userEmail: userIdentity.email,
+        userName: userIdentity.name,
+        userPhone: userIdentity.phone,
         voiceCallId: inserted.id,
         workspaceId: input.workspaceId,
       },
