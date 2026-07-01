@@ -11,6 +11,7 @@ import {
   assistantWebSearchEnabled,
   runAssistantWebSearch,
 } from "../../../../../lib/assistant/web-search";
+import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
 import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
 import { updateContactFromAssistantTool } from "../../../../../lib/crm/contact-update-tool";
 import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
@@ -296,6 +297,101 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function clipped(value: string, maxLength = 1_600) {
+  const clean = value.replace(/\s+/g, " ").trim();
+
+  if (clean.length <= maxLength) {
+    return clean;
+  }
+
+  return `${clean.slice(0, maxLength - 1).trim()}...`;
+}
+
+async function notificationPayloadFromRequest(request: Request) {
+  return (await request
+    .clone()
+    .json()
+    .catch(() => null)) as Record<string, unknown> | null;
+}
+
+function safeVapiToolCallPayload(payload: Record<string, unknown> | null) {
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    return vapiToolCallPayload(payload);
+  } catch {
+    return null;
+  }
+}
+
+function vapiToolNotificationContext(payload: Record<string, unknown> | null) {
+  const metadata = payload ? vapiToolCallMetadata(payload) : {};
+  const toolCall = safeVapiToolCallPayload(payload);
+
+  return {
+    userEmail: textValue(metadata.userEmail),
+    userId: payload ? vapiToolUserId(payload) : textValue(metadata.userId),
+    workspaceId: payload
+      ? vapiToolWorkspaceId(payload)
+      : textValue(metadata.workspaceId),
+    workspaceName: textValue(metadata.workspaceName),
+    context: {
+      callerRole: textValue(metadata.callerRole),
+      callId: toolCall?.callId ?? textValue(metadata.callId),
+      purpose: textValue(metadata.purpose),
+      selectedAssistantId: textValue(metadata.selectedAssistantId),
+      source: textValue(metadata.source),
+      threadId: payload ? vapiToolThreadId(payload) : textValue(metadata.threadId),
+      toolCallId: toolCall?.id,
+      toolName: toolCall?.name,
+    },
+  };
+}
+
+async function notifyVapiToolIssue({
+  context,
+  kind,
+  payload,
+  rawMessage,
+  severity = "error",
+  visibleMessage,
+}: {
+  context?: Record<string, unknown>;
+  kind: string;
+  payload: Record<string, unknown> | null;
+  rawMessage: string;
+  severity?: "error" | "warning" | "info";
+  visibleMessage: string;
+}) {
+  const notificationContext = vapiToolNotificationContext(payload);
+
+  try {
+    await sendInternalBugNotification({
+      context: {
+        userEmail: notificationContext.userEmail,
+        userId: notificationContext.userId,
+        workspaceId: notificationContext.workspaceId,
+        workspaceName: notificationContext.workspaceName,
+      },
+      input: {
+        context: {
+          ...notificationContext.context,
+          ...context,
+        },
+        kind,
+        rawMessage: clipped(rawMessage, 2_400),
+        severity,
+        source: "server.vapi.tool",
+        visibleMessage,
+      },
+    });
+  } catch (notificationError) {
+    console.error("Unable to send Vapi tool bug notification", notificationError);
+  }
 }
 
 function actionBody(action: DraftSmsActionRow) {
@@ -1028,13 +1124,33 @@ async function recordWebSearchUsage({
 
 export async function POST(request: Request) {
   if (!verifyVapiToolRequest(request)) {
+    const payload = await notificationPayloadFromRequest(request);
+    const authDiagnostics = vapiRequestAuthDiagnostics(request);
+
     console.warn("Vapi tool request rejected by Kyro auth.", {
-      ...vapiRequestAuthDiagnostics(request),
+      ...authDiagnostics,
       route: VAPI_TOOL_PATH,
       toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
       webhookSecretFallbackReady: Boolean(
         process.env.VAPI_WEBHOOK_SECRET?.trim(),
       ),
+    });
+
+    await notifyVapiToolIssue({
+      context: {
+        authDiagnostics,
+        route: VAPI_TOOL_PATH,
+        toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
+        webhookSecretFallbackReady: Boolean(
+          process.env.VAPI_WEBHOOK_SECRET?.trim(),
+        ),
+      },
+      kind: "vapi_tool_auth_failed",
+      payload,
+      rawMessage:
+        "Vapi called Kyro's tool endpoint but none of the supplied credentials matched the configured tool or webhook secret.",
+      visibleMessage:
+        "Kyro's voice tools are not responding correctly right now. The development team has been notified.",
     });
 
     return NextResponse.json(
@@ -1052,6 +1168,18 @@ export async function POST(request: Request) {
   > | null;
 
   if (!payload) {
+    await notifyVapiToolIssue({
+      context: {
+        route: VAPI_TOOL_PATH,
+      },
+      kind: "vapi_tool_invalid_json",
+      payload: null,
+      rawMessage:
+        "Vapi called Kyro's tool endpoint with a body that could not be parsed as JSON.",
+      visibleMessage:
+        "Kyro's voice tools received an invalid tool request. The development team has been notified.",
+    });
+
     return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
   }
 
@@ -1689,6 +1817,18 @@ export async function POST(request: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to run Vapi tool.";
+
+    await notifyVapiToolIssue({
+      context: {
+        route: VAPI_TOOL_PATH,
+        toolCallId,
+      },
+      kind: "vapi_tool_execution_failed",
+      payload,
+      rawMessage: message,
+      visibleMessage:
+        "Kyro's voice tools hit an error while handling a request. The development team has been notified.",
+    });
 
     return toolResponse(
       {
