@@ -1406,38 +1406,6 @@ export default async function ContactsPage({
                 placeholder="Name, company, job type..."
                 type="search"
               />
-              <details className="crm-advanced-search" open={hasAdvancedSearch}>
-                <summary>Advanced search</summary>
-                <div className="crm-advanced-grid">
-                  <label>
-                    Email
-                    <input
-                      defaultValue={searchState.email}
-                      name="email"
-                      placeholder="name@example.com"
-                      type="search"
-                    />
-                  </label>
-                  <label>
-                    Phone
-                    <input
-                      defaultValue={searchState.phone}
-                      name="phone"
-                      placeholder="0400..."
-                      type="search"
-                    />
-                  </label>
-                  <label>
-                    Address
-                    <input
-                      defaultValue={searchState.address}
-                      name="address"
-                      placeholder="Street, suburb, site..."
-                      type="search"
-                    />
-                  </label>
-                </div>
-              </details>
             </div>
             <AutoSubmitSelect
               className="crm-sort-field"
@@ -1460,6 +1428,38 @@ export default async function ContactsPage({
                 Clear
               </Link>
             ) : null}
+            <details className="crm-advanced-search" open={hasAdvancedSearch}>
+              <summary>Advanced search</summary>
+              <div className="crm-advanced-grid">
+                <label>
+                  Email
+                  <input
+                    defaultValue={searchState.email}
+                    name="email"
+                    placeholder="name@example.com"
+                    type="search"
+                  />
+                </label>
+                <label>
+                  Phone
+                  <input
+                    defaultValue={searchState.phone}
+                    name="phone"
+                    placeholder="0400..."
+                    type="search"
+                  />
+                </label>
+                <label>
+                  Address
+                  <input
+                    defaultValue={searchState.address}
+                    name="address"
+                    placeholder="Street, suburb, site..."
+                    type="search"
+                  />
+                </label>
+              </div>
+            </details>
           </form>
 
           <div className="crm-list">
