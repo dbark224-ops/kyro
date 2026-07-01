@@ -5119,6 +5119,7 @@ a.assistant-summary-card:focus-visible {
 
 .assistant-preview-body {
   display: grid;
+  align-content: start;
   gap: 14px;
   overflow: auto;
   max-height: calc(100vh - 220px);
@@ -5262,8 +5263,87 @@ button.assistant-preview-row:hover {
 }
 
 .assistant-inbox-queue-row {
+  grid-template-columns: auto minmax(0, 1fr) minmax(150px, auto);
+  align-items: center;
+  min-height: 74px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 18%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 44%, var(--surface));
+  padding: 12px;
   color: inherit;
   text-decoration: none;
+}
+
+button.assistant-preview-row.assistant-inbox-queue-row {
+  border: 1px solid color-mix(in srgb, var(--cyan) 18%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 44%, var(--surface));
+  padding: 12px;
+}
+
+button.assistant-preview-row.assistant-inbox-queue-row:hover,
+a.assistant-preview-row.assistant-inbox-queue-row:hover {
+  border-color: color-mix(in srgb, var(--cyan) 64%, var(--pink));
+  background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
+}
+
+.assistant-inbox-queue-preview {
+  grid-auto-rows: max-content;
+}
+
+.assistant-work-queue-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 26%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--cyan) 6%, var(--surface));
+  padding: 14px;
+}
+
+.assistant-work-queue-overview > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.assistant-work-queue-overview span:not(.pill),
+.assistant-work-queue-overview small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.assistant-work-queue-overview strong {
+  font-size: 1.1rem;
+}
+
+.assistant-work-queue-panel {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.assistant-work-queue-list {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-work-queue-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 54%, var(--line));
+  border-radius: var(--radius-pill);
+  color: var(--cyan);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.assistant-preview-row .assistant-work-queue-index {
+  display: inline-flex;
 }
 
 .assistant-inbox-queue-row small {

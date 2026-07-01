@@ -164,7 +164,7 @@ function inboxPreviewFilterLabel(filter: string) {
 
 function inboxPreviewTitle(filter: string) {
   return filter === "live_queue"
-    ? "Inbox work queue"
+    ? "Live work queue"
     : `${inboxPreviewFilterLabel(filter)} inbox`;
 }
 
@@ -316,10 +316,16 @@ function assistantPreviewTarget(href: string) {
   }
 
   if (pathname === "/inbox") {
+    const filter = normalizeInboxPreviewFilter(inboxFilter);
+
     return {
-      filter: normalizeInboxPreviewFilter(inboxFilter),
+      filter,
       query: inboxQuery,
-      sort: normalizeInboxPreviewSort(inboxSort),
+      sort: inboxSort
+        ? normalizeInboxPreviewSort(inboxSort)
+        : filter === "live_queue"
+          ? "action"
+          : "recent",
       type: "inbox_queue" as const,
     };
   }

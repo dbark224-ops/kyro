@@ -2790,40 +2790,56 @@ function InboxQueuePreview({
 }) {
   const { conversations, filter, matchedCount, query, totalCount } =
     preview.profile;
+  const isWorkQueue = filter === "live_queue";
   const filterLabel =
-    filter === "live_queue" ? "Work queue" : formatLabel(filter);
-  const countLabel =
-    matchedCount === totalCount
+    filter === "live_queue" ? "Live work queue" : formatLabel(filter);
+  const countLabel = isWorkQueue
+    ? `${matchedCount} active work item${matchedCount === 1 ? "" : "s"}`
+    : matchedCount === totalCount
       ? `${matchedCount} inbox item${matchedCount === 1 ? "" : "s"}`
       : `${matchedCount} of ${totalCount} inbox item${totalCount === 1 ? "" : "s"}`;
 
   return (
-    <div className="assistant-preview-body">
-      <div className="assistant-preview-status-row">
-        <span className="pill">{filterLabel}</span>
-        <span>
-          {countLabel}
-          {query ? ` matching "${query}"` : ""}
+    <div
+      className={`assistant-preview-body assistant-inbox-queue-preview${
+        isWorkQueue ? " work-queue" : ""
+      }`}
+    >
+      <div className="assistant-work-queue-overview">
+        <div>
+          <span>{filterLabel}</span>
+          <strong>{countLabel}</strong>
+          <small>
+            {isWorkQueue
+              ? "Sorted by what needs doing first."
+              : query
+                ? `Matching "${query}".`
+                : "Filtered inbox results."}
+          </small>
+        </div>
+        <span className="pill subtle">
+          {isWorkQueue ? "Action queue" : "Inbox"}
         </span>
       </div>
 
-      <PreviewPanel title="Inbox queue">
-        <div className="assistant-preview-list compact">
+      <section className="assistant-work-queue-panel">
+        <div className="assistant-work-queue-list">
           {conversations.length > 0 ? (
-            conversations.map((conversation) => (
+            conversations.map((conversation, index) => (
               <InboxQueueRow
                 conversation={conversation}
                 key={conversation.id}
                 onOpenPreview={onOpenPreview}
+                position={index + 1}
               />
             ))
           ) : (
             <p className="empty-copy">
-              Nothing matches this Inbox queue right now.
+              There is nothing in the live work queue right now.
             </p>
           )}
         </div>
-      </PreviewPanel>
+      </section>
     </div>
   );
 }
@@ -2831,12 +2847,14 @@ function InboxQueuePreview({
 function InboxQueueRow({
   conversation,
   onOpenPreview,
+  position,
 }: {
   conversation: Extract<
     AssistantResourcePreview,
     { type: "inbox_queue" }
   >["profile"]["conversations"][number];
   onOpenPreview?: (link: AssistantLink) => void;
+  position: number;
 }) {
   const title = conversation.contactName ?? conversation.leadTitle ?? "Inquiry";
   const href = `/inbox?conversationId=${encodeURIComponent(conversation.id)}`;
@@ -2849,6 +2867,8 @@ function InboxQueueRow({
   ]
     .filter(Boolean)
     .join(" - ");
+  const nextStep = conversation.leadNextStep ?? conversation.nextActionLabel;
+  const missingInfo = conversation.inquiryFacts?.missingInfo ?? [];
   const previewText =
     conversation.latestSubject ??
     conversation.latestBody ??
@@ -2856,12 +2876,17 @@ function InboxQueueRow({
     conversation.nextActionLabel;
   const content = (
     <>
+      <span className="assistant-work-queue-index">{position}</span>
       <div>
         <strong>{title}</strong>
         {subline ? <span>{subline}</span> : null}
+        {nextStep ? <small>{nextStep}</small> : null}
         {previewText ? <small>{previewText}</small> : null}
       </div>
       <div className="assistant-inbox-queue-meta">
+        {missingInfo.length > 0 ? (
+          <span className="pill warning">Missing info</span>
+        ) : null}
         {conversation.pendingApprovalCount > 0 ? (
           <span className="pill warning">
             {conversation.pendingApprovalCount} approval
@@ -4122,6 +4147,19 @@ function AssistantMessageBlocks({
         }
 
         if (block.type === "summary_cards") {
+          const cards =
+            message.intent === "work_queue"
+              ? block.cards.filter(
+                  (card) =>
+                    card.label !== "Top items" &&
+                    card.detail !== "Replies or approvals",
+                )
+              : block.cards;
+
+          if (cards.length === 0) {
+            return null;
+          }
+
           return (
             <div
               className="assistant-known-block"
@@ -4129,7 +4167,7 @@ function AssistantMessageBlocks({
             >
               <strong>{block.title}</strong>
               <div className="assistant-summary-grid">
-                {block.cards.map((card) => (
+                {cards.map((card) => (
                   <AssistantBlockCard
                     detail={card.detail}
                     href={card.href}
