@@ -125,17 +125,15 @@ function safeEquals(left: string, right: string) {
   );
 }
 
-function requestSecret(request: Request) {
+function requestSecrets(request: Request) {
+  const candidates: string[] = [];
+
   try {
     const url = new URL(request.url);
-    const querySecret =
-      url.searchParams.get("secret")?.trim() ??
-      url.searchParams.get("token")?.trim() ??
-      "";
-
-    if (querySecret) {
-      return querySecret;
-    }
+    candidates.push(
+      url.searchParams.get("secret")?.trim() ?? "",
+      url.searchParams.get("token")?.trim() ?? "",
+    );
   } catch {
     // Ignore malformed URLs and fall back to headers.
   }
@@ -143,18 +141,33 @@ function requestSecret(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
 
   if (authorization.toLowerCase().startsWith("bearer ")) {
-    return authorization.slice("bearer ".length).trim();
+    candidates.push(authorization.slice("bearer ".length).trim());
   }
 
-  return (
-    request.headers.get("x-vapi-secret")?.trim() ??
-    request.headers.get("x-vapi-token")?.trim() ??
-    request.headers.get("x-vapi-tool-secret")?.trim() ??
-    request.headers.get("x-vapi-webhook-secret")?.trim() ??
-    request.headers.get("x-kyro-vapi-secret")?.trim() ??
-    request.headers.get("x-kyro-vapi-tool-secret")?.trim() ??
-    request.headers.get("x-kyro-vapi-webhook-secret")?.trim() ??
-    ""
+  candidates.push(
+    request.headers.get("x-vapi-secret")?.trim() ?? "",
+    request.headers.get("x-vapi-token")?.trim() ?? "",
+    request.headers.get("x-vapi-tool-secret")?.trim() ?? "",
+    request.headers.get("x-vapi-webhook-secret")?.trim() ?? "",
+    request.headers.get("x-kyro-vapi-secret")?.trim() ?? "",
+    request.headers.get("x-kyro-vapi-tool-secret")?.trim() ?? "",
+    request.headers.get("x-kyro-vapi-webhook-secret")?.trim() ?? "",
+  );
+
+  return candidates.filter(Boolean);
+}
+
+function requestHasMatchingSecret(request: Request, validSecrets: string[]) {
+  const cleanValidSecrets = validSecrets
+    .map((secret) => secret.trim())
+    .filter(Boolean);
+
+  if (cleanValidSecrets.length === 0) {
+    return process.env.NODE_ENV !== "production";
+  }
+
+  return requestSecrets(request).some((providedSecret) =>
+    cleanValidSecrets.some((validSecret) => safeEquals(providedSecret, validSecret)),
   );
 }
 
@@ -196,27 +209,14 @@ export function vapiRequestAuthDiagnostics(request: Request) {
 export function verifyVapiWebhookRequest(request: Request) {
   const secret = process.env.VAPI_WEBHOOK_SECRET?.trim();
 
-  if (!secret) {
-    return process.env.NODE_ENV !== "production";
-  }
-
-  const providedSecret = requestSecret(request);
-
-  return providedSecret ? safeEquals(providedSecret, secret) : false;
+  return requestHasMatchingSecret(request, secret ? [secret] : []);
 }
 
 export function verifyVapiToolRequest(request: Request) {
-  const secret =
-    process.env.VAPI_TOOL_SECRET?.trim() ??
-    process.env.VAPI_WEBHOOK_SECRET?.trim();
-
-  if (!secret) {
-    return process.env.NODE_ENV !== "production";
-  }
-
-  const providedSecret = requestSecret(request);
-
-  return providedSecret ? safeEquals(providedSecret, secret) : false;
+  return requestHasMatchingSecret(request, [
+    process.env.VAPI_TOOL_SECRET?.trim() ?? "",
+    process.env.VAPI_WEBHOOK_SECRET?.trim() ?? "",
+  ]);
 }
 
 export async function createVapiOutboundCall(input: {
