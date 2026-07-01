@@ -70,7 +70,7 @@ type DashboardLayoutConfig = {
 type Tone = "amber" | "cyan" | "pink" | "purple" | "success";
 
 const DASHBOARD_LAYOUT_STORAGE_KEY = "kyro.mobile.dashboard.layout.v1";
-const DEFAULT_DASHBOARD_TIMEFRAME: DashboardTimeframe = "week";
+const DEFAULT_DASHBOARD_TIMEFRAME: DashboardTimeframe = "today";
 const DEFAULT_METRIC_ORDER: DashboardMetricKey[] = [
   "needsReply",
   "readyToQuote",
