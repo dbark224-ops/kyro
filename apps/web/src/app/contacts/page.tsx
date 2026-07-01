@@ -28,8 +28,8 @@ import {
   type LeadListItem,
 } from "../../lib/crm/queries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
-import Link from "next/link";
 import { ManualLeadModal } from "./manual-lead-modal";
 
 export const dynamic = "force-dynamic";
@@ -404,7 +404,7 @@ function ContactRow({
   const warningLabel = profileResolutionLabel(contact);
 
   return (
-    <SmartPrefetchLink
+    <PendingSmartPrefetchLink
       className={[
         "crm-row",
         isSelected ? "active" : "",
@@ -441,7 +441,7 @@ function ContactRow({
         </span>
         <span className="pill">{formatContactType(contact.contactType)}</span>
       </div>
-    </SmartPrefetchLink>
+    </PendingSmartPrefetchLink>
   );
 }
 
@@ -481,7 +481,7 @@ function LeadRow({
       .join(" - ") || lead.source;
 
   return (
-    <SmartPrefetchLink
+    <PendingSmartPrefetchLink
       className={[
         "crm-row",
         isSelected ? "active" : null,
@@ -505,7 +505,7 @@ function LeadRow({
           Lead
         </span>
       </div>
-    </SmartPrefetchLink>
+    </PendingSmartPrefetchLink>
   );
 }
 
@@ -793,12 +793,12 @@ function ProfilePanel({
           <h2>{displayName}</h2>
         </div>
         <div className="action-row">
-          <Link
+          <SmartPrefetchLink
             className="secondary-button compact"
             href={crmHref({ filter: activeFilter, search, sort })}
           >
             Close
-          </Link>
+          </SmartPrefetchLink>
         </div>
       </header>
 
@@ -1048,7 +1048,7 @@ function ProfilePanel({
             <h3>People at {profile.contact.company}</h3>
             <div className="assistant-preview-list compact">
               {profile.companyContacts.map((companyContact) => (
-                <Link
+                <SmartPrefetchLink
                   className="assistant-preview-row plain-link"
                   href={crmHref({
                     contactId: companyContact.id,
@@ -1057,7 +1057,6 @@ function ProfilePanel({
                     sort,
                   })}
                   key={companyContact.id}
-                  prefetch={false}
                 >
                   <div>
                     <strong>{contactTitle(companyContact)}</strong>
@@ -1070,7 +1069,7 @@ function ProfilePanel({
                   <span className="pill">
                     {formatContactType(companyContact.contactType)}
                   </span>
-                </Link>
+                </SmartPrefetchLink>
               ))}
             </div>
           </section>
@@ -1134,14 +1133,13 @@ function ProfilePanel({
                 );
 
                 return message.conversationId ? (
-                  <Link
+                  <SmartPrefetchLink
                     className="plain-link"
                     href={`/inbox?conversationId=${message.conversationId}`}
                     key={message.id}
-                    prefetch={false}
                   >
                     {content}
-                  </Link>
+                  </SmartPrefetchLink>
                 ) : (
                   <div key={message.id}>{content}</div>
                 );
@@ -1156,11 +1154,10 @@ function ProfilePanel({
           <h3>Documents and actions</h3>
           <div className="assistant-preview-list compact">
             {profile.quoteDrafts.slice(0, 4).map((quoteDraft) => (
-              <Link
+              <SmartPrefetchLink
                 className="assistant-preview-row plain-link"
                 href={`/files/${quoteDraft.id}`}
                 key={quoteDraft.id}
-                prefetch={false}
               >
                 <div>
                   <strong>{quoteDraft.title}</strong>
@@ -1170,7 +1167,7 @@ function ProfilePanel({
                   </span>
                 </div>
                 <span>{formatDate(quoteDraft.updatedAt)}</span>
-              </Link>
+              </SmartPrefetchLink>
             ))}
             {profile.actions.slice(0, 4).map((action) => (
               <article className="assistant-preview-row" key={action.id}>
@@ -1365,7 +1362,7 @@ export default async function ContactsPage({
 
           <nav className="filter-bar" aria-label="CRM filters">
             {CRM_FILTERS.map((filter) => (
-              <Link
+              <SmartPrefetchLink
                 className={
                   activeFilter === filter.value
                     ? "filter-pill active"
@@ -1378,11 +1375,10 @@ export default async function ContactsPage({
                   sort: activeSort,
                 })}
                 key={filter.value}
-                prefetch={false}
               >
                 {filter.label}
                 <span>{filterCounts.get(filter.value) ?? 0}</span>
-              </Link>
+              </SmartPrefetchLink>
             ))}
           </nav>
 
@@ -1416,17 +1412,16 @@ export default async function ContactsPage({
               options={CRM_SORT_OPTIONS}
             />
             {hasSearch ? (
-              <Link
+              <SmartPrefetchLink
                 className="secondary-button compact"
                 href={crmHref({
                   contactId: selectedProfile?.contact.id,
                   filter: activeFilter,
                   sort: activeSort,
                 })}
-                prefetch={false}
               >
                 Clear
-              </Link>
+              </SmartPrefetchLink>
             ) : null}
             <details className="crm-advanced-search" open={hasAdvancedSearch}>
               <summary>Advanced search</summary>
@@ -1509,7 +1504,7 @@ export default async function ContactsPage({
 
           {totalPages > 1 ? (
             <nav aria-label="CRM pagination" className="pagination-bar">
-              <Link
+              <SmartPrefetchLink
                 aria-disabled={currentPage === 1}
                 className={
                   currentPage === 1
@@ -1523,14 +1518,13 @@ export default async function ContactsPage({
                   search: searchState,
                   sort: activeSort,
                 })}
-                prefetch={false}
               >
                 Previous
-              </Link>
+              </SmartPrefetchLink>
               <span className="pagination-label">
                 Page {currentPage} of {totalPages}
               </span>
-              <Link
+              <SmartPrefetchLink
                 aria-disabled={currentPage === totalPages}
                 className={
                   currentPage === totalPages
@@ -1544,10 +1538,9 @@ export default async function ContactsPage({
                   search: searchState,
                   sort: activeSort,
                 })}
-                prefetch={false}
               >
                 Next
-              </Link>
+              </SmartPrefetchLink>
             </nav>
           ) : null}
         </section>

@@ -48,18 +48,29 @@ export function InboxConversationLink({
   label?: string;
   selected: boolean;
 }) {
-  const [isPending, setIsPending] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const isPending = pendingHref === href && !selected;
 
   useEffect(() => {
-    setIsPending(false);
-  }, [selected, href]);
+    if (!pendingHref) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setPendingHref(null);
+    }, 12000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [pendingHref]);
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (!shouldHandleClick(event) || selected) {
       return;
     }
 
-    setIsPending(true);
+    setPendingHref(href);
     announcePreviewLoading({
       conversationId,
       href,
@@ -109,15 +120,6 @@ export function InboxPreviewTransitionShell({
   }, []);
 
   useEffect(() => {
-    if (
-      pendingPreview &&
-      pendingPreview.conversationId === selectedConversationId
-    ) {
-      setPendingPreview(null);
-    }
-  }, [pendingPreview, selectedConversationId]);
-
-  useEffect(() => {
     if (!pendingPreview) {
       return;
     }
@@ -131,8 +133,11 @@ export function InboxPreviewTransitionShell({
     };
   }, [pendingPreview]);
 
-  const shouldShowPending =
-    pendingPreview && pendingPreview.conversationId !== selectedConversationId;
+  const visiblePendingPreview =
+    pendingPreview?.conversationId === selectedConversationId
+      ? null
+      : pendingPreview;
+  const shouldShowPending = Boolean(visiblePendingPreview);
 
   if (!children && !shouldShowPending) {
     return null;
@@ -158,7 +163,8 @@ export function InboxPreviewTransitionShell({
             <div>
               <strong>Opening conversation</strong>
               <span>
-                {pendingPreview.label ?? "Loading the latest thread..."}
+                {visiblePendingPreview?.label ??
+                  "Loading the latest thread..."}
               </span>
             </div>
           </div>

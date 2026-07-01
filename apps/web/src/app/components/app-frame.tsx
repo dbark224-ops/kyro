@@ -1,6 +1,7 @@
 import { BrandMark } from "./brand-mark";
 import { FloatingAssistantWidget } from "./floating-assistant-widget";
 import { GlobalSearch } from "./global-search";
+import { PendingSmartPrefetchLink } from "./pending-smart-prefetch-link";
 import { RoutePreloader } from "./route-preloader";
 import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
@@ -500,7 +501,7 @@ async function AppNavLinks({
   return (
     <>
       {visibleNavItems.map((item) => (
-        <SmartPrefetchLink
+        <PendingSmartPrefetchLink
           href={item.href}
           className={[
             isMobile ? "mobile-bottom-link" : "nav-link",
@@ -525,7 +526,7 @@ async function AppNavLinks({
               </span>
             ) : null}
           </span>
-        </SmartPrefetchLink>
+        </PendingSmartPrefetchLink>
       ))}
     </>
   );

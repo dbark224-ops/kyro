@@ -40,6 +40,7 @@ import { InboxSubmitButton } from "./inbox-submit-button";
 import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
+import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
 import {
   SkippedEmailCloseLink,
@@ -53,7 +54,6 @@ import {
   approveDashboardAction,
   executeDashboardAction,
 } from "../engine/actions";
-import Link from "next/link";
 import { MessageAttachmentList } from "../components/message-attachments";
 import type { ReactNode } from "react";
 
@@ -1187,20 +1187,18 @@ function InboxSplitPreview({
           <h2>{title}</h2>
         </div>
         <div className="button-row inbox-preview-actions">
-          <Link
+          <SmartPrefetchLink
             className="secondary-button compact"
             href={`/inbox/${profile.conversation.id}`}
-            prefetch={false}
           >
             Open full screen
-          </Link>
-          <Link
+          </SmartPrefetchLink>
+          <SmartPrefetchLink
             className="secondary-button compact inbox-preview-close-button"
             href={closeHref}
-            prefetch={false}
           >
             Close
-          </Link>
+          </SmartPrefetchLink>
         </div>
       </header>
 
@@ -1601,7 +1599,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
           <nav className="filter-bar" aria-label="Inbox filters">
             {FILTERS.map((filter) => (
-              <Link
+              <SmartPrefetchLink
                 className={
                   activeFilter === filter.value
                     ? "filter-pill active"
@@ -1616,11 +1614,10 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                   selectedConversationReview?.conversation.id,
                 )}
                 key={filter.value}
-                prefetch={false}
               >
                 {filter.label}
                 <span>{filterCounts.get(filter.value) ?? 0}</span>
-              </Link>
+              </SmartPrefetchLink>
             ))}
           </nav>
 
@@ -1755,7 +1752,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
           {totalPages > 1 ? (
             <nav aria-label="Inbox pagination" className="pagination-bar">
-              <Link
+              <SmartPrefetchLink
                 aria-disabled={currentPage === 1}
                 className={
                   currentPage === 1
@@ -1770,14 +1767,13 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                   showSkippedEmail,
                   sort: activeSort,
                 })}
-                prefetch={false}
               >
                 Previous
-              </Link>
+              </SmartPrefetchLink>
               <span className="pagination-label">
                 Page {currentPage} of {totalPages}
               </span>
-              <Link
+              <SmartPrefetchLink
                 aria-disabled={currentPage === totalPages}
                 className={
                   currentPage === totalPages
@@ -1792,10 +1788,9 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                   showSkippedEmail,
                   sort: activeSort,
                 })}
-                prefetch={false}
               >
                 Next
-              </Link>
+              </SmartPrefetchLink>
             </nav>
           ) : null}
         </section>

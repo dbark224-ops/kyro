@@ -2,6 +2,7 @@
 
 import { sendAssistantMessageAction } from "../assistant/actions";
 import { AssistantCompactBlocks } from "../components/assistant-compact-blocks";
+import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
 import type {
   AssistantThreadMessage,
   AssistantThreadState,
@@ -402,14 +403,14 @@ function DashboardListItem({
   title: string;
 }>) {
   return (
-    <Link className="dashboard-list-item" href={href}>
+    <PendingSmartPrefetchLink className="dashboard-list-item" href={href}>
       <div className="dashboard-list-copy">
         {eyebrow ? <span>{eyebrow}</span> : null}
         <strong>{title}</strong>
         {subtitle ? <small>{subtitle}</small> : null}
       </div>
       {meta ? <em>{meta}</em> : null}
-    </Link>
+    </PendingSmartPrefetchLink>
   );
 }
 
@@ -425,13 +426,16 @@ function DashboardCompactContactItem({
   subtitle?: string | null;
 }>) {
   return (
-    <Link className="dashboard-compact-contact-item" href={href}>
+    <PendingSmartPrefetchLink
+      className="dashboard-compact-contact-item"
+      href={href}
+    >
       <div className="dashboard-compact-contact-main">
         <strong>{label}</strong>
         {subtitle ? <small>{subtitle}</small> : null}
       </div>
       {meta ? <em>{meta}</em> : null}
-    </Link>
+    </PendingSmartPrefetchLink>
   );
 }
 

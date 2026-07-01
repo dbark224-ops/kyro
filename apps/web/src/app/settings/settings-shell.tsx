@@ -53,10 +53,13 @@ export function SettingsShell({
   const searchParams = useSearchParams();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const hasDetail = Boolean(selectedSection && detail);
-  const prefetchHrefs = [
-    ...items.map((item) => item.href),
-    ...nestedItems.map((item) => item.href),
-  ];
+  const prefetchHrefs = useMemo(
+    () => [
+      ...items.map((item) => item.href),
+      ...nestedItems.map((item) => item.href),
+    ],
+    [items, nestedItems],
+  );
   const currentHref = useMemo(() => {
     const query = searchParams.toString();
 

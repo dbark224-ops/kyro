@@ -12,48 +12,81 @@ import type {
 
 const intentPrefetchedRoutes = new Set<string>();
 
-function hrefToString(href: string) {
-  return href;
+type ConnectionAwareNavigator = Navigator & {
+  connection?: {
+    effectiveType?: string;
+    saveData?: boolean;
+  };
+};
+
+function shouldSkipPrefetch() {
+  const connection =
+    typeof window === "undefined"
+      ? undefined
+      : (window.navigator as ConnectionAwareNavigator).connection;
+
+  return (
+    connection?.saveData === true ||
+    connection?.effectiveType === "slow-2g" ||
+    connection?.effectiveType === "2g"
+  );
+}
+
+function isInternalHref(href: string) {
+  return href.startsWith("/");
 }
 
 export function SmartPrefetchLink({
   children,
   className,
   href,
+  onFocus,
+  onMouseEnter,
+  onTouchStart,
   ...props
 }: Readonly<
-  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "onFocus" | "onMouseEnter" | "onTouchStart"> & {
-  children: ReactNode;
-  className?: string;
-  href: string;
+  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
+    children: ReactNode;
+    className?: string;
+    href: string;
   }
 >) {
   const router = useRouter();
 
   const prefetchOnIntent = () => {
-    const route = hrefToString(href);
-
-    if (intentPrefetchedRoutes.has(route)) {
+    if (
+      !isInternalHref(href) ||
+      shouldSkipPrefetch() ||
+      intentPrefetchedRoutes.has(href)
+    ) {
       return;
     }
 
-    intentPrefetchedRoutes.add(route);
-    router.prefetch(route);
+    intentPrefetchedRoutes.add(href);
+
+    try {
+      router.prefetch(href);
+    } catch {
+      intentPrefetchedRoutes.delete(href);
+    }
   };
 
   const handleMouseEnter = (event: MouseEvent<HTMLAnchorElement>) => {
     prefetchOnIntent();
     event.currentTarget.dataset.prefetched = "true";
+    onMouseEnter?.(event);
   };
 
   const handleFocus = (event: FocusEvent<HTMLAnchorElement>) => {
     prefetchOnIntent();
     event.currentTarget.dataset.prefetched = "true";
+    onFocus?.(event);
   };
 
   const handleTouchStart = (event: TouchEvent<HTMLAnchorElement>) => {
     prefetchOnIntent();
     event.currentTarget.dataset.prefetched = "true";
+    onTouchStart?.(event);
   };
 
   return (

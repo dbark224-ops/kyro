@@ -47,18 +47,29 @@ export function SkippedEmailDialogToggleLink({
   href: string;
   isOpen: boolean;
 }) {
-  const [isPending, setIsPending] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const isPending = pendingHref === href;
 
   useEffect(() => {
-    setIsPending(false);
-  }, [href, isOpen]);
+    if (!pendingHref) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setPendingHref(null);
+    }, 10000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [pendingHref]);
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (!shouldHandleClick(event)) {
       return;
     }
 
-    setIsPending(true);
+    setPendingHref(href);
     announceDialogTransition(isOpen ? "closing" : "opening");
   }
 
@@ -169,15 +180,6 @@ export function SkippedEmailDialogTransitionShell({
   }, []);
 
   useEffect(() => {
-    if (
-      (showSkippedEmail && transitionState === "opening") ||
-      (!showSkippedEmail && transitionState === "closing")
-    ) {
-      setTransitionState(null);
-    }
-  }, [showSkippedEmail, transitionState]);
-
-  useEffect(() => {
     if (!transitionState) {
       return;
     }
@@ -191,11 +193,17 @@ export function SkippedEmailDialogTransitionShell({
     };
   }, [transitionState]);
 
-  if (transitionState === "closing") {
+  const visibleTransitionState =
+    (showSkippedEmail && transitionState === "opening") ||
+    (!showSkippedEmail && transitionState === "closing")
+      ? null
+      : transitionState;
+
+  if (visibleTransitionState === "closing") {
     return null;
   }
 
-  if (!children && transitionState === "opening") {
+  if (!children && visibleTransitionState === "opening") {
     return <SkippedEmailLoadingDialog />;
   }
 
