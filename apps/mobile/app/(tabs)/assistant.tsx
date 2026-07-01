@@ -1363,11 +1363,7 @@ function VoiceCanvas({
               active={voiceState === "recording" || voiceState === "speaking"}
               level={recorderState.metering}
             />
-          ) : (
-            <Text style={styles.voiceIdleHint}>
-              Tap once, speak naturally, then Kyro sends when you pause.
-            </Text>
-          )}
+          ) : null}
           <Pressable
             accessibilityLabel={
               isVoiceSessionActive ? "End voice session" : "Start voice session"
@@ -1488,11 +1484,7 @@ function VapiVoiceCanvas({
               active={vapi.connectionState !== "connecting"}
               level={vapiVoiceLevelToMetering(vapi.voiceLevel)}
             />
-          ) : (
-            <Text style={styles.voiceIdleHint}>
-              Tap once to start the voice assistant.
-            </Text>
-          )}
+          ) : null}
           <Pressable
             accessibilityLabel={
               vapi.isConnected ? "End voice assistant" : "Start voice assistant"
@@ -1864,7 +1856,7 @@ function lastConversationMessage(
 
 function errorMessage(value: unknown) {
   if (value instanceof Error) {
-    return value.message;
+    return publicVapiErrorMessage(value.message) ?? value.message;
   }
 
   const record = objectRecord(value);
@@ -1884,12 +1876,19 @@ function errorMessage(value: unknown) {
     textValue(nestedContext.error) ??
     textValue(nestedMetadata.error) ??
     textValue(record.stage);
+  const publicMessage = publicVapiErrorMessage(
+    [directMessage, safeJson(value)].filter(Boolean).join(" "),
+  );
+
+  if (publicMessage) {
+    return publicMessage;
+  }
 
   if (directMessage && directMessage.toLowerCase() !== "unknown") {
     return directMessage;
   }
 
-  return safeJson(value) ?? directMessage ?? "Voice assistant failed.";
+  return directMessage ?? "Voice assistant failed. Please try again.";
 }
 
 function vapiStartErrorMessage(value: unknown) {
@@ -1905,6 +1904,22 @@ function vapiStartErrorMessage(value: unknown) {
   }
 
   return message;
+}
+
+function publicVapiErrorMessage(value: string | null | undefined) {
+  const normalized = value?.toLowerCase() ?? "";
+
+  if (
+    normalized.includes("wallet balance") ||
+    normalized.includes("purchase more credits") ||
+    normalized.includes("upgrade your plan") ||
+    normalized.includes("currencyblocked") ||
+    normalized.includes("subscriptionlimits")
+  ) {
+    return "The system is experiencing issues. Our dev team has been notified.";
+  }
+
+  return null;
 }
 
 function humanizeVapiReason(value: string) {
@@ -3769,15 +3784,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     width: "100%",
-  },
-  voiceIdleHint: {
-    color: colors.muted,
-    fontFamily: typography.fontFamily,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-    maxWidth: 240,
-    textAlign: "center",
   },
   voiceLiveFooter: {
     alignItems: "center",

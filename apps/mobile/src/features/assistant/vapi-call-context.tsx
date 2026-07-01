@@ -970,7 +970,7 @@ function isAssistantUiBlock(value: unknown): value is AssistantUiBlock {
 
 function errorMessage(value: unknown) {
   if (value instanceof Error) {
-    return value.message;
+    return publicVapiErrorMessage(value.message) ?? value.message;
   }
 
   const record = objectRecord(value);
@@ -990,12 +990,19 @@ function errorMessage(value: unknown) {
     textValue(nestedContext.error) ??
     textValue(nestedMetadata.error) ??
     textValue(record.stage);
+  const publicMessage = publicVapiErrorMessage(
+    [directMessage, safeJson(value)].filter(Boolean).join(" "),
+  );
+
+  if (publicMessage) {
+    return publicMessage;
+  }
 
   if (directMessage && directMessage.toLowerCase() !== "unknown") {
     return directMessage;
   }
 
-  return safeJson(value) ?? directMessage ?? "Voice assistant failed.";
+  return directMessage ?? "Voice assistant failed. Please try again.";
 }
 
 function vapiStartErrorMessage(value: unknown) {
@@ -1011,6 +1018,22 @@ function vapiStartErrorMessage(value: unknown) {
   }
 
   return message;
+}
+
+function publicVapiErrorMessage(value: string | null | undefined) {
+  const normalized = value?.toLowerCase() ?? "";
+
+  if (
+    normalized.includes("wallet balance") ||
+    normalized.includes("purchase more credits") ||
+    normalized.includes("upgrade your plan") ||
+    normalized.includes("currencyblocked") ||
+    normalized.includes("subscriptionlimits")
+  ) {
+    return "The system is experiencing issues. Our dev team has been notified.";
+  }
+
+  return null;
 }
 
 function humanizeVapiReason(value: string) {
