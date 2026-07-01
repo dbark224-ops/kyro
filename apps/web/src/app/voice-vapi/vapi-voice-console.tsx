@@ -2,7 +2,18 @@
 
 import Vapi from "@vapi-ai/web";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getAssistantResourcePreviewAction,
+  runAssistantResourceActionAction,
+  sendAssistantManualReplyAction,
+  updateAssistantDraftReplyAction,
+} from "../assistant/actions";
+import {
+  AssistantPreviewPane,
+  type PreviewState,
+} from "../assistant/assistant-console";
 import type {
+  AssistantResourcePreviewResult,
   AssistantThreadMessage,
   AssistantThreadState,
   AssistantUiBlock,
@@ -13,7 +24,6 @@ import {
 } from "../../lib/assistant/ui-blocks";
 import type { VapiInternalVoiceSession } from "../../lib/assistant/vapi-internal";
 import type { ContactProfile } from "../../lib/crm/queries";
-import { ContactProfilePanel } from "../components/contact-profile-panel";
 
 type ConnectionState = "connecting" | "idle" | "listening" | "speaking";
 type StartTraceEntry = {
@@ -193,16 +203,11 @@ type VoicePreviewTarget = {
   value?: string;
 };
 
-type VoicePreviewData =
-  | {
-      href: string;
-      type: "link";
-    }
-  | {
-      href: string;
-      profile: ContactProfile;
-      type: "contact";
-    };
+type VoicePreviewData = {
+  href: string;
+  profile: ContactProfile;
+  type: "contact";
+};
 
 export function VapiVoiceConsole({
   initialPreviewEngineError,
@@ -227,11 +232,15 @@ export function VapiVoiceConsole({
   );
   const [error, setError] = useState<string | null>(initialState.error ?? null);
   const [liveTranscript, setLiveTranscript] = useState("");
-  const [previewTarget, setPreviewTarget] = useState<VoicePreviewTarget | null>(
-    initialPreviewTarget ?? null,
-  );
+  const [previewState, setPreviewState] = useState<PreviewState>({
+    status: "closed",
+  });
+  const [previewActionId, setPreviewActionId] = useState<string | null>(null);
   const [, setStartTrace] = useState<StartTraceEntry[]>([]);
   const [voiceLevel, setVoiceLevel] = useState(0);
+  const previewCacheRef = useRef<Map<string, AssistantResourcePreviewResult>>(
+    new Map(),
+  );
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const vapiRef = useRef<Vapi | null>(null);
   const currentUserTranscriptRef = useRef("");
@@ -614,6 +623,66 @@ export function VapiVoiceConsole({
     [threadId],
   );
 
+  const applyVoicePreviewResult = useCallback(
+    (
+      href: string,
+      result: AssistantResourcePreviewResult,
+      fallbackTitle: string,
+    ) => {
+      previewCacheRef.current.set(href, result);
+
+      if (result.preview) {
+        setPreviewState({
+          preview: result.preview,
+          status: "ready",
+        });
+        return;
+      }
+
+      setPreviewState({
+        error: result.error ?? "Unable to load this work panel.",
+        href,
+        status: "error",
+        title: fallbackTitle,
+      });
+    },
+    [],
+  );
+
+  const openVoicePreview = useCallback(
+    (target: VoicePreviewTarget) => {
+      if (!isPreviewableVoiceHref(target.href)) {
+        return;
+      }
+
+      const cachedResult = previewCacheRef.current.get(target.href);
+
+      if (!target.refreshKey && cachedResult?.preview) {
+        setPreviewState({
+          preview: cachedResult.preview,
+          status: "ready",
+        });
+      } else {
+        setPreviewState({
+          href: target.href,
+          status: "loading",
+          title: target.title,
+        });
+      }
+
+      void getAssistantResourcePreviewAction(target.href).then((result) => {
+        applyVoicePreviewResult(target.href, result, target.title);
+      });
+    },
+    [applyVoicePreviewResult],
+  );
+
+  useEffect(() => {
+    if (initialPreviewTarget) {
+      openVoicePreview(initialPreviewTarget);
+    }
+  }, [initialPreviewTarget, openVoicePreview]);
+
   const applyToolUiBlocks = useCallback(
     (uiBlocks: AssistantUiBlock[], source = "Kyro tool") => {
       const normalizedBlocks = mergeAssistantUiBlocks([], uiBlocks);
@@ -625,18 +694,9 @@ export function VapiVoiceConsole({
       const nextPreviewTarget = previewTargetFromUiBlocks(normalizedBlocks);
 
       if (nextPreviewTarget) {
-        setPreviewTarget((currentTarget) => {
-          if (currentTarget?.href === nextPreviewTarget.href) {
-            return {
-              ...currentTarget,
-              meta: nextPreviewTarget.meta ?? currentTarget.meta,
-              refreshKey: Date.now(),
-              title: nextPreviewTarget.title || currentTarget.title,
-              value: currentTarget.value,
-            };
-          }
-
-          return nextPreviewTarget;
+        openVoicePreview({
+          ...nextPreviewTarget,
+          refreshKey: Date.now(),
         });
       }
 
@@ -723,7 +783,7 @@ export function VapiVoiceConsole({
         `${source} added ${normalizedBlocks.length} UI block(s)`,
       );
     },
-    [appendStartTrace],
+    [appendStartTrace, openVoicePreview],
   );
 
   const fetchPendingToolUiBlocks = useCallback(async () => {
@@ -1519,10 +1579,6 @@ export function VapiVoiceConsole({
     return () => window.clearInterval(intervalId);
   }, [fetchPendingToolUiBlocks, isConnected]);
 
-  const openVoicePreview = useCallback((target: VoicePreviewTarget) => {
-    setPreviewTarget(target);
-  }, []);
-
   useEffect(() => {
     const transcript = transcriptRef.current;
     const activeTurn = transcript?.querySelector<HTMLElement>(
@@ -1550,9 +1606,77 @@ export function VapiVoiceConsole({
     return () => window.cancelAnimationFrame(frameId);
   }, [latestMessageSignature, liveTranscript, status]);
 
+  const runPreviewAction = async (
+    actionId: string,
+    href: string,
+    operation: "approve" | "approve_execute" | "execute",
+  ) => {
+    const pendingKey = `${operation}:${actionId}`;
+    setPreviewActionId(pendingKey);
+
+    const result = await runAssistantResourceActionAction({
+      actionId,
+      href,
+      operation,
+    });
+
+    applyVoicePreviewResult(href, result, "Work item");
+    setPreviewActionId(null);
+  };
+
+  const saveDraftReply = async ({
+    actionId,
+    body,
+    href,
+    subject,
+  }: {
+    actionId: string;
+    body: string;
+    href: string;
+    subject: string;
+  }) => {
+    setPreviewActionId(`save:${actionId}`);
+    const result = await updateAssistantDraftReplyAction({
+      actionId,
+      body,
+      href,
+      subject,
+    });
+
+    applyVoicePreviewResult(href, result, "Work item");
+    setPreviewActionId(null);
+
+    return Boolean(result.preview);
+  };
+
+  const sendManualReply = async ({
+    body,
+    channelType,
+    href,
+    subject,
+  }: {
+    body: string;
+    channelType: string;
+    href: string;
+    subject: string;
+  }) => {
+    setPreviewActionId(`manual:${href}`);
+    const result = await sendAssistantManualReplyAction({
+      body,
+      channelType,
+      href,
+      subject,
+    });
+
+    applyVoicePreviewResult(href, result, "Work item");
+    setPreviewActionId(null);
+  };
+
+  const isPreviewOpen = previewState.status !== "closed";
+
   return (
     <section
-      className={previewTarget ? "voice-console has-preview" : "voice-console"}
+      className={isPreviewOpen ? "voice-console has-preview" : "voice-console"}
       aria-label="Voice assistant"
     >
       <div className="voice-console-main">
@@ -1625,12 +1749,18 @@ export function VapiVoiceConsole({
           {error ? <p className="form-error">{error}</p> : null}
         </div>
       </div>
-      {previewTarget ? (
-        <VoicePreviewPanel
+      {isPreviewOpen ? (
+        <AssistantPreviewPane
+          actionPendingId={previewActionId}
+          contactHrefBase="/voice-vapi"
           engineError={initialPreviewEngineError}
           engineMessage={initialPreviewEngineMessage}
-          onClose={() => setPreviewTarget(null)}
-          target={previewTarget}
+          onClose={() => setPreviewState({ status: "closed" })}
+          onRunAction={runPreviewAction}
+          onSaveDraftReply={saveDraftReply}
+          onSendManualReply={sendManualReply}
+          previewEyebrow="Voice work panel"
+          state={previewState}
         />
       ) : null}
     </section>
@@ -1902,116 +2032,6 @@ function VoiceLinkCard({
   return <div className={className}>{body}</div>;
 }
 
-function VoicePreviewPanel({
-  engineError,
-  engineMessage,
-  onClose,
-  target,
-}: {
-  engineError?: string;
-  engineMessage?: string;
-  onClose: () => void;
-  target: VoicePreviewTarget;
-}) {
-  const [data, setData] = useState<VoicePreviewData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let isCancelled = false;
-    const resetTimeout = window.setTimeout(() => {
-      if (!isCancelled) {
-        setData(null);
-        setError(null);
-        setIsLoading(true);
-      }
-    }, 0);
-
-    fetch(
-      `/api/assistant/vapi/preview?href=${encodeURIComponent(target.href)}`,
-      {
-        cache: "no-store",
-      },
-    )
-      .then(async (response) => {
-        const body = objectRecord(await response.json().catch(() => ({})));
-
-        if (!response.ok) {
-          throw new Error(textValue(body.error) ?? "Unable to load preview.");
-        }
-
-        return objectRecord(body.data) as VoicePreviewData;
-      })
-      .then((nextData) => {
-        if (!isCancelled) {
-          setData(nextData);
-        }
-      })
-      .catch((previewError) => {
-        if (!isCancelled) {
-          setError(errorMessage(previewError));
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-      window.clearTimeout(resetTimeout);
-    };
-  }, [target.href, target.refreshKey]);
-
-  if (!isLoading && !error && data?.type === "contact") {
-    const contactHref = (contactId: string) =>
-      `/voice-vapi?contactId=${encodeURIComponent(contactId)}`;
-    const contactId = data.profile.contact.id;
-
-    return (
-      <ContactProfilePanel
-        className="voice-preview-panel voice-contact-profile-panel"
-        engineError={engineError}
-        engineMessage={engineMessage}
-        onClose={onClose}
-        profile={data.profile}
-        profileHref={contactHref}
-        redirectTo={contactHref(contactId)}
-        successHref={contactHref}
-      />
-    );
-  }
-
-  return (
-    <aside className="voice-preview-panel" aria-label="Voice assistant preview">
-      <header className="voice-preview-header">
-        <div>
-          <span>Preview</span>
-          <h2>{target.title}</h2>
-          {target.meta ? <p>{target.meta}</p> : null}
-        </div>
-        <div className="voice-preview-actions">
-          <a href={target.href}>Open full screen</a>
-          <button onClick={onClose} type="button">
-            Close
-          </button>
-        </div>
-      </header>
-      <div className="voice-preview-body">
-        {isLoading ? <p className="muted-copy">Loading preview...</p> : null}
-        {error ? <p className="form-error">{error}</p> : null}
-        {!isLoading && !error && data?.type === "link" ? (
-          <div className="voice-preview-empty">
-            <strong>Open this item full screen</strong>
-            <span>This card links to another Kyro surface.</span>
-          </div>
-        ) : null}
-      </div>
-    </aside>
-  );
-}
-
 // Kept as a compact fallback preview while the primary path uses ContactProfilePanel.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ContactVoicePreview({
@@ -2116,8 +2136,26 @@ function VoicePreviewFact({
 function isPreviewableVoiceHref(href: string) {
   try {
     const url = new URL(href, "http://kyro.local");
+
+    if (
+      url.pathname === "/inbox" &&
+      Boolean(url.searchParams.get("conversationId"))
+    ) {
+      return true;
+    }
+
+    if (
+      url.pathname === "/contacts" &&
+      Boolean(url.searchParams.get("contactId"))
+    ) {
+      return true;
+    }
+
     return (
-      url.pathname === "/contacts" || /^\/contacts\/[^/]+$/.test(url.pathname)
+      /^\/inbox\/[^/]+$/.test(url.pathname) ||
+      /^\/contacts\/[^/]+$/.test(url.pathname) ||
+      /^\/(?:documents|files)\/[^/]+$/.test(url.pathname) ||
+      /^\/voice\/calls\/[^/]+$/.test(url.pathname)
     );
   } catch {
     return false;

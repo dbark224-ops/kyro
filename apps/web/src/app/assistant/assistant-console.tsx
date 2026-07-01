@@ -64,23 +64,6 @@ type GeneratedImageBlock = Extract<
   { type: "generated_image" }
 >;
 type GeneratedImage = GeneratedImageBlock["images"][number];
-type AssistantRecentImage = {
-  alt: string;
-  contentType: string;
-  createdAt: string;
-  downloadHref: string;
-  editMode: boolean;
-  fileId: string;
-  filename: string;
-  href: string;
-  meta?: string;
-  model: string;
-  prompt: string;
-  provider: string;
-  quality: string;
-  referenceCount: number;
-  size: string;
-};
 type OutboundCallRequestBlock = Extract<
   AssistantUiBlock,
   { type: "outbound_call_request" }
@@ -108,7 +91,7 @@ function quickPromptLabel(prompt: string) {
   return `${normalized.slice(0, MAX_QUICK_PROMPT_LABEL_CHARS - 1).trimEnd()}...`;
 }
 
-type PreviewState =
+export type PreviewState =
   | {
       status: "closed";
     }
@@ -136,7 +119,6 @@ export function AssistantConsole({
   initialState,
   isDeveloperAccount = false,
   promptSuggestions,
-  recentImages = [],
 }: {
   externalActivityItems?: AssistantExternalActivityItem[];
   initialPreviewEngineError?: string;
@@ -145,7 +127,6 @@ export function AssistantConsole({
   initialState: AssistantThreadState;
   isDeveloperAccount?: boolean;
   promptSuggestions?: string[];
-  recentImages?: AssistantRecentImage[];
 }) {
   const [state, formAction, pending] = useActionState(
     sendAssistantMessageAction,
@@ -201,7 +182,6 @@ export function AssistantConsole({
   const [expandedImage, setExpandedImage] = useState<GeneratedImage | null>(
     null,
   );
-  const [isGeneratedFilesOpen, setIsGeneratedFilesOpen] = useState(false);
   const visibleOptimisticMessage = useMemo(
     () =>
       optimisticMessage &&
@@ -254,11 +234,6 @@ export function AssistantConsole({
         }));
       }
     });
-  };
-
-  const openGeneratedImage = (image: GeneratedImage) => {
-    setIsGeneratedFilesOpen(false);
-    setExpandedImage(image);
   };
 
   const startOutboundCall = (request: OutboundCallRequestBlock["request"]) => {
@@ -1073,34 +1048,27 @@ export function AssistantConsole({
       </section>
 
       {isPreviewOpen ? (
-        <AssistantPreviewPane
-          actionPendingId={previewActionId}
-          engineError={initialPreviewEngineError}
-          engineMessage={initialPreviewEngineMessage}
-          onClose={() => setPreviewState({ status: "closed" })}
-          onRunAction={runPreviewAction}
-          onSaveDraftReply={saveDraftReply}
-          onSendManualReply={sendManualReply}
-          state={previewState}
-        />
+        <div className="assistant-preview-rail">
+          <AssistantActivityCollapsedBar items={externalActivityItems} />
+          <AssistantPreviewPane
+            actionPendingId={previewActionId}
+            engineError={initialPreviewEngineError}
+            engineMessage={initialPreviewEngineMessage}
+            onClose={() => setPreviewState({ status: "closed" })}
+            onRunAction={runPreviewAction}
+            onSaveDraftReply={saveDraftReply}
+            onSendManualReply={sendManualReply}
+            state={previewState}
+          />
+        </div>
       ) : (
         <div className="assistant-activity-rail">
-          <AssistantGeneratedFilesLauncher
-            images={recentImages}
-            onOpen={() => setIsGeneratedFilesOpen(true)}
-          />
           <AssistantExternalActivityPane
             items={externalActivityItems}
             onOpenPreview={openResourcePreview}
           />
         </div>
       )}
-      <AssistantGeneratedFilesModal
-        images={recentImages}
-        isOpen={isGeneratedFilesOpen}
-        onClose={() => setIsGeneratedFilesOpen(false)}
-        onOpenImage={openGeneratedImage}
-      />
       <AssistantImageLightbox
         disabled={isAssistantGenerating}
         image={expandedImage}
@@ -1422,168 +1390,6 @@ function AssistantImageLightbox({
             {editError ? <p className="form-alert error">{editError}</p> : null}
           </div>
         ) : null}
-      </article>
-    </div>
-  );
-}
-
-function AssistantGeneratedFilesLauncher({
-  images,
-  onOpen,
-}: {
-  images: AssistantRecentImage[];
-  onOpen: () => void;
-}) {
-  const previewImages = images.slice(0, 3);
-
-  return (
-    <button
-      className="assistant-generated-files-launcher"
-      disabled={images.length === 0}
-      onClick={onOpen}
-      type="button"
-    >
-      <span className="assistant-generated-files-launcher-copy">
-        <span className="eyebrow">Generated files</span>
-        <strong>
-          {images.length > 0
-            ? `${images.length} assistant file${images.length === 1 ? "" : "s"}`
-            : "No generated files yet"}
-        </strong>
-      </span>
-      <span
-        aria-hidden="true"
-        className={
-          previewImages.length > 0
-            ? "assistant-generated-files-stack"
-            : "assistant-generated-files-stack empty"
-        }
-      >
-        {previewImages.length > 0 ? (
-          previewImages.map((image) => (
-            <span
-              className="assistant-generated-files-thumb"
-              key={image.fileId}
-            >
-              <Image alt="" fill sizes="44px" src={image.href} unoptimized />
-            </span>
-          ))
-        ) : (
-          <span />
-        )}
-      </span>
-    </button>
-  );
-}
-
-function AssistantGeneratedFilesModal({
-  images,
-  isOpen,
-  onClose,
-  onOpenImage,
-}: {
-  images: AssistantRecentImage[];
-  isOpen: boolean;
-  onClose: () => void;
-  onOpenImage: (image: GeneratedImage) => void;
-}) {
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-
-    window.addEventListener("keydown", closeOnEscape);
-
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) {
-    return null;
-  }
-
-  return (
-    <div
-      aria-label="Assistant generated files"
-      aria-modal="true"
-      className="assistant-generated-files-modal"
-      role="dialog"
-    >
-      <button
-        aria-label="Close generated files"
-        className="assistant-generated-files-backdrop"
-        onClick={onClose}
-        type="button"
-      />
-      <article className="assistant-generated-files-panel">
-        <header className="assistant-generated-files-header">
-          <div>
-            <p className="eyebrow">Generated files</p>
-            <h2>Assistant media</h2>
-          </div>
-          <button
-            className="assistant-generated-files-close"
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </header>
-
-        {images.length > 0 ? (
-          <div className="assistant-generated-files-grid">
-            {images.map((image) => (
-              <article
-                className="assistant-generated-file-card"
-                key={image.fileId}
-              >
-                <button
-                  aria-label={`Open ${image.filename}`}
-                  className="assistant-generated-file-preview"
-                  onClick={() => onOpenImage(image)}
-                  type="button"
-                >
-                  <Image
-                    alt={image.alt}
-                    fill
-                    sizes="(max-width: 760px) 42vw, 180px"
-                    src={image.href}
-                    unoptimized
-                  />
-                </button>
-                <div className="assistant-generated-file-copy">
-                  <strong title={image.filename}>{image.filename}</strong>
-                  <span>{formatDate(image.createdAt)}</span>
-                </div>
-                <div className="assistant-generated-file-actions">
-                  <a href={image.downloadHref}>Download</a>
-                  <button onClick={() => onOpenImage(image)} type="button">
-                    Open
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="assistant-generated-files-empty">
-            <strong>No generated assistant files yet.</strong>
-            <span>
-              Images Kyro creates from assistant chat will appear here.
-            </span>
-          </div>
-        )}
-
-        <footer className="assistant-generated-files-footer">
-          <span>{images.length} recent shown</span>
-          <Link href="/files?kind=generated" onClick={onClose}>
-            View all in Files
-          </Link>
-        </footer>
       </article>
     </div>
   );
@@ -2191,6 +1997,20 @@ function AssistantExternalActivityPane({
   );
 }
 
+function AssistantActivityCollapsedBar({
+  items,
+}: {
+  items: AssistantExternalActivityItem[];
+}) {
+  return (
+    <aside className="assistant-activity-collapsed" aria-label="Kyro activity">
+      <span>Kyro activity</span>
+      <strong>{items.length} recent</strong>
+      <small>Close the work panel to expand</small>
+    </aside>
+  );
+}
+
 function AssistantDevDiagnostics({ state }: { state: AssistantThreadState }) {
   return (
     <details className="assistant-dev-diagnostics">
@@ -2758,17 +2578,20 @@ function shouldRenderAssistantLink(
   return true;
 }
 
-function AssistantPreviewPane({
+export function AssistantPreviewPane({
   actionPendingId,
+  contactHrefBase = "/assistant",
   engineError,
   engineMessage,
   onClose,
   onRunAction,
   onSaveDraftReply,
   onSendManualReply,
+  previewEyebrow,
   state,
 }: {
   actionPendingId: string | null;
+  contactHrefBase?: "/assistant" | "/voice-vapi";
   engineError?: string;
   engineMessage?: string;
   onClose: () => void;
@@ -2789,6 +2612,7 @@ function AssistantPreviewPane({
     href: string;
     subject: string;
   }) => Promise<void>;
+  previewEyebrow?: string;
   state: PreviewState;
 }) {
   if (state.status === "closed") {
@@ -2798,7 +2622,7 @@ function AssistantPreviewPane({
   if (state.status === "ready" && state.preview.type === "contact") {
     const contactId = state.preview.profile.contact.id;
     const contactHref = (nextContactId: string) =>
-      `/assistant?contactId=${encodeURIComponent(nextContactId)}`;
+      `${contactHrefBase}?contactId=${encodeURIComponent(nextContactId)}`;
 
     return (
       <ContactProfilePanel
@@ -2816,6 +2640,11 @@ function AssistantPreviewPane({
 
   const title = state.status === "ready" ? state.preview.title : state.title;
   const href = state.status === "ready" ? state.preview.href : state.href;
+  const eyebrow =
+    previewEyebrow ??
+    (state.status === "ready"
+      ? previewEyebrowForResource(state.preview.type)
+      : "Preview");
 
   return (
     <section
@@ -2824,7 +2653,7 @@ function AssistantPreviewPane({
     >
       <header className="assistant-preview-header">
         <div>
-          <p className="eyebrow">Assistant preview</p>
+          <p className="eyebrow">{eyebrow}</p>
           <h2>{title}</h2>
         </div>
         <div className="row-actions">
@@ -2920,6 +2749,22 @@ function AssistantPreviewContent({
   return <ContactPreview profile={preview.profile} />;
 }
 
+function previewEyebrowForResource(type: AssistantResourcePreview["type"]) {
+  if (type === "conversation") {
+    return "Conversation";
+  }
+
+  if (type === "quote") {
+    return "Document";
+  }
+
+  if (type === "voice_call") {
+    return "Phone call";
+  }
+
+  return "Contact";
+}
+
 function ConversationPreview({
   actionPendingId,
   href,
@@ -2967,6 +2812,25 @@ function ConversationPreview({
           </span>
         ) : null}
       </div>
+
+      <PreviewPanel title="Action queue">
+        <div className="assistant-preview-list">
+          {actionQueue.length > 0 ? (
+            actionQueue.map((action) => (
+              <AssistantPreviewActionCard
+                action={action}
+                actionPendingId={actionPendingId}
+                href={href}
+                key={`${action.id}-${action.status}-${textValue(action.input.subject) ?? ""}-${textValue(action.input.body) ?? ""}`}
+                onRunAction={onRunAction}
+                onSaveDraftReply={onSaveDraftReply}
+              />
+            ))
+          ) : (
+            <p className="empty-copy">No pending actions for this inquiry.</p>
+          )}
+        </div>
+      </PreviewPanel>
 
       <div className="assistant-preview-grid">
         <PreviewPanel title="Contact">
@@ -3029,35 +2893,6 @@ function ConversationPreview({
         </div>
       </PreviewPanel>
 
-      <PreviewPanel title="Manual reply">
-        <AssistantManualReplyComposer
-          href={href}
-          isPending={actionPendingId === `manual:${href}`}
-          leadTitle={profile.lead?.title}
-          onSendManualReply={onSendManualReply}
-          preferredChannel={preferredReplyChannel(profile.contact)}
-        />
-      </PreviewPanel>
-
-      <PreviewPanel title="Action queue">
-        <div className="assistant-preview-list">
-          {actionQueue.length > 0 ? (
-            actionQueue.map((action) => (
-              <AssistantPreviewActionCard
-                action={action}
-                actionPendingId={actionPendingId}
-                href={href}
-                key={`${action.id}-${action.status}-${textValue(action.input.subject) ?? ""}-${textValue(action.input.body) ?? ""}`}
-                onRunAction={onRunAction}
-                onSaveDraftReply={onSaveDraftReply}
-              />
-            ))
-          ) : (
-            <p className="empty-copy">No pending actions for this inquiry.</p>
-          )}
-        </div>
-      </PreviewPanel>
-
       {profile.quoteDrafts.length > 0 ? (
         <PreviewPanel title="Quote drafts">
           <div className="assistant-preview-list compact">
@@ -3082,6 +2917,23 @@ function ConversationPreview({
           </div>
         </PreviewPanel>
       ) : null}
+
+      <details className="assistant-preview-panel manual-reply-disclosure">
+        <summary>
+          <div>
+            <h3>Manual reply</h3>
+            <span>Open for a completely manual response or another channel.</span>
+          </div>
+          <span>Open</span>
+        </summary>
+        <AssistantManualReplyComposer
+          href={href}
+          isPending={actionPendingId === `manual:${href}`}
+          leadTitle={profile.lead?.title}
+          onSendManualReply={onSendManualReply}
+          preferredChannel={preferredReplyChannel(profile.contact)}
+        />
+      </details>
 
       <details className="assistant-preview-details">
         <summary>Audit and AI diagnostics</summary>
@@ -3799,6 +3651,13 @@ function PreviewFacts({
 function isPreviewableHref(href: string) {
   try {
     const url = new URL(href, "http://kyro.local");
+
+    if (
+      url.pathname === "/inbox" &&
+      Boolean(url.searchParams.get("conversationId"))
+    ) {
+      return true;
+    }
 
     if (
       url.pathname === "/contacts" &&

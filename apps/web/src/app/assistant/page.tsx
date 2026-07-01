@@ -35,23 +35,12 @@ function profileTitle(
   );
 }
 
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 export default async function AssistantPage({
   searchParams,
 }: AssistantPageProps) {
   const query = await searchParams;
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const activityPromise = getAssistantExternalActivity(supabase, workspace.id);
-  const recentImagesPromise = supabase
-    .from("files")
-    .select("id,filename,content_type,created_at")
-    .eq("workspace_id", workspace.id)
-    .eq("source", "generated_image")
-    .order("created_at", { ascending: false })
-    .limit(24);
   const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
   const promptSuggestionsPromise = getAssistantPromptSuggestionState({
     supabase,
@@ -72,7 +61,6 @@ export default async function AssistantPage({
     activityItems,
     metrics,
     promptSuggestions,
-    recentImagesResult,
     selectedContactProfile,
     threadState,
   ] =
@@ -80,32 +68,9 @@ export default async function AssistantPage({
       activityPromise,
       metricsPromise,
       promptSuggestionsPromise,
-      recentImagesPromise,
       selectedContactProfilePromise,
       threadStatePromise,
     ]);
-  const recentImages = (recentImagesResult.data ?? []).map((image) => {
-    const fileId = String(image.id);
-    const filename = textValue(image.filename) ?? "Generated image";
-
-    return {
-      alt: filename,
-      contentType: textValue(image.content_type) ?? "image/png",
-      createdAt: String(image.created_at),
-      downloadHref: `/api/files/${fileId}`,
-      editMode: false,
-      fileId,
-      filename,
-      href: `/api/files/${fileId}?disposition=inline`,
-      meta: "Saved image",
-      model: "unknown",
-      prompt: filename,
-      provider: "openai",
-      quality: "unknown",
-      referenceCount: 0,
-      size: "unknown",
-    };
-  });
 
   const { contactCount, needsReply, readyQuotes } = metrics;
   const welcomeMessage: AssistantThreadState["messages"][number] = {
@@ -177,7 +142,6 @@ export default async function AssistantPage({
             initialState={initialState}
             isDeveloperAccount={developerAccessEnabled(user)}
             promptSuggestions={promptSuggestions.visibleSuggestions}
-            recentImages={recentImages}
           />
         </section>
       </div>

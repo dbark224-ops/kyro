@@ -104,24 +104,33 @@ function primaryAssistantModelRequired(intent: string | undefined) {
 
 function assistantPreviewTarget(href: string) {
   let contactIdFromQuery: string | null = null;
+  let conversationIdFromQuery: string | null = null;
   let pathname = href.split("?")[0] ?? href;
 
   try {
     const url = new URL(href, "http://kyro.local");
     pathname = url.pathname;
     contactIdFromQuery = textValue(url.searchParams.get("contactId"));
+    conversationIdFromQuery = textValue(url.searchParams.get("conversationId"));
   } catch {
     // Fall through to the path-based parser for relative hrefs.
   }
 
   const inboxMatch = pathname?.match(/^\/inbox\/([^/]+)$/);
-  const quoteMatch = pathname?.match(/^\/documents\/([^/]+)$/);
+  const quoteMatch = pathname?.match(/^\/(?:documents|files)\/([^/]+)$/);
   const contactMatch = pathname?.match(/^\/contacts\/([^/]+)$/);
   const voiceCallMatch = pathname?.match(/^\/voice\/calls\/([^/]+)$/);
 
   if (inboxMatch?.[1]) {
     return {
       id: decodeURIComponent(inboxMatch[1]),
+      type: "conversation" as const,
+    };
+  }
+
+  if (pathname === "/inbox" && conversationIdFromQuery) {
+    return {
+      id: conversationIdFromQuery,
       type: "conversation" as const,
     };
   }

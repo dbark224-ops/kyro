@@ -4202,7 +4202,7 @@ h2 {
 
 .assistant-activity-rail {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   min-width: 0;
   min-height: 0;
@@ -4212,6 +4212,55 @@ h2 {
 .assistant-activity-rail .assistant-external-activity {
   max-height: none;
   height: 100%;
+}
+
+.assistant-preview-rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.assistant-activity-collapsed {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 24%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface) 68%, var(--background));
+  color: var(--muted);
+  padding: 7px 10px;
+}
+
+.assistant-activity-collapsed span,
+.assistant-activity-collapsed strong,
+.assistant-activity-collapsed small {
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-activity-collapsed span {
+  color: var(--text);
+  font-weight: 850;
+}
+
+.assistant-activity-collapsed strong {
+  color: var(--cyan);
+  font-weight: 900;
+}
+
+.assistant-activity-collapsed small {
+  justify-self: end;
+  color: var(--muted);
+  font-weight: 750;
 }
 
 .assistant-generated-files-launcher {
@@ -5015,6 +5064,13 @@ h2 {
   top: 16px;
 }
 
+.assistant-preview-rail .assistant-inline-preview {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  position: static;
+}
+
 .assistant-preview-header {
   display: flex;
   align-items: center;
@@ -5574,6 +5630,17 @@ h2 {
 .voice-console.has-preview {
   grid-template-columns: minmax(0, 1fr) minmax(420px, 0.86fr);
   gap: 18px;
+}
+
+.voice-console.has-preview .assistant-inline-preview {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  position: static;
+}
+
+.voice-console.has-preview .assistant-preview-body {
+  max-height: none;
 }
 
 .voice-console-main {
