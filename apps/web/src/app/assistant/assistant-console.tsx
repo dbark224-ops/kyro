@@ -14,6 +14,7 @@ import {
 import {
   getAssistantResourcePreviewAction,
   runAssistantResourceActionAction,
+  sendAssistantDraftReplyAction,
   sendAssistantManualReplyAction,
   sendAssistantMessageAction,
   startAssistantOutboundCallAction,
@@ -33,6 +34,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { MessageAttachmentList } from "../components/message-attachments";
 import { ContactProfilePanel } from "../components/contact-profile-panel";
+import { ReplyGenerator } from "../inbox/reply-generator";
+import {
+  formatLeadTitle,
+  formatServiceType,
+} from "../../lib/crm/display";
 
 const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -701,11 +707,13 @@ export function AssistantConsole({
 
   const saveDraftReply = async ({
     actionId,
+    attachmentQuoteDraftId,
     body,
     href,
     subject,
   }: {
     actionId: string;
+    attachmentQuoteDraftId?: string | null;
     body: string;
     href: string;
     subject: string;
@@ -714,6 +722,7 @@ export function AssistantConsole({
 
     const result = await updateAssistantDraftReplyAction({
       actionId,
+      attachmentQuoteDraftId,
       body,
       href,
       subject,
@@ -738,6 +747,39 @@ export function AssistantConsole({
       title: "Draft save failed",
     });
     return false;
+  };
+
+  const sendDraftReply = async ({
+    actionId,
+    formData,
+    href,
+  }: {
+    actionId: string;
+    formData: FormData;
+    href: string;
+  }) => {
+    setPreviewActionId(`send:${actionId}`);
+
+    const result = await sendAssistantDraftReplyAction(formData);
+
+    setPreviewActionId(null);
+    applyRefreshedLink(result);
+
+    if (result.preview) {
+      previewCacheRef.current.set(href, result);
+      setPreviewState({
+        preview: result.preview,
+        status: "ready",
+      });
+      return;
+    }
+
+    setPreviewState({
+      error: result.error ?? "Unable to send this generated reply.",
+      href,
+      status: "error",
+      title: "Generated reply failed",
+    });
   };
 
   const sendManualReply = async ({
@@ -1058,6 +1100,7 @@ export function AssistantConsole({
             onOpenPreview={openResourcePreview}
             onRunAction={runPreviewAction}
             onSaveDraftReply={saveDraftReply}
+            onSendDraftReply={sendDraftReply}
             onSendManualReply={sendManualReply}
             state={previewState}
           />
@@ -2588,6 +2631,7 @@ export function AssistantPreviewPane({
   onOpenPreview,
   onRunAction,
   onSaveDraftReply,
+  onSendDraftReply,
   onSendManualReply,
   previewEyebrow,
   state,
@@ -2605,10 +2649,16 @@ export function AssistantPreviewPane({
   ) => void;
   onSaveDraftReply: (input: {
     actionId: string;
+    attachmentQuoteDraftId?: string | null;
     body: string;
     href: string;
     subject: string;
   }) => Promise<boolean>;
+  onSendDraftReply: (input: {
+    actionId: string;
+    formData: FormData;
+    href: string;
+  }) => Promise<void>;
   onSendManualReply: (input: {
     body: string;
     channelType: string;
@@ -2694,6 +2744,7 @@ export function AssistantPreviewPane({
           onOpenPreview={onOpenPreview}
           onRunAction={onRunAction}
           onSaveDraftReply={onSaveDraftReply}
+          onSendDraftReply={onSendDraftReply}
           onSendManualReply={onSendManualReply}
           preview={state.preview}
         />
@@ -2707,6 +2758,7 @@ function AssistantPreviewContent({
   onOpenPreview,
   onRunAction,
   onSaveDraftReply,
+  onSendDraftReply,
   onSendManualReply,
   preview,
 }: {
@@ -2719,10 +2771,16 @@ function AssistantPreviewContent({
   ) => void;
   onSaveDraftReply: (input: {
     actionId: string;
+    attachmentQuoteDraftId?: string | null;
     body: string;
     href: string;
     subject: string;
   }) => Promise<boolean>;
+  onSendDraftReply: (input: {
+    actionId: string;
+    formData: FormData;
+    href: string;
+  }) => Promise<void>;
   onSendManualReply: (input: {
     body: string;
     channelType: string;
@@ -2744,6 +2802,7 @@ function AssistantPreviewContent({
         href={preview.href}
         onRunAction={onRunAction}
         onSaveDraftReply={onSaveDraftReply}
+        onSendDraftReply={onSendDraftReply}
         onSendManualReply={onSendManualReply}
         profile={preview.profile}
       />
@@ -2933,6 +2992,7 @@ function ConversationPreview({
   href,
   onRunAction,
   onSaveDraftReply,
+  onSendDraftReply,
   onSendManualReply,
   profile,
 }: {
@@ -2945,10 +3005,16 @@ function ConversationPreview({
   ) => void;
   onSaveDraftReply: (input: {
     actionId: string;
+    attachmentQuoteDraftId?: string | null;
     body: string;
     href: string;
     subject: string;
   }) => Promise<boolean>;
+  onSendDraftReply: (input: {
+    actionId: string;
+    formData: FormData;
+    href: string;
+  }) => Promise<void>;
   onSendManualReply: (input: {
     body: string;
     channelType: string;
@@ -2960,50 +3026,56 @@ function ConversationPreview({
     { type: "conversation" }
   >["profile"];
 }) {
-  const messages = profile.messages.slice(-12);
-  const actionQueue = profile.actions.filter((action) =>
-    isAssistantQueueAction(action),
-  );
+  const messages = profile.messages.slice(-6);
+  const actionQueue = profile.actions
+    .filter((action) => isAssistantQueueAction(action))
+    .sort((left, right) => {
+      if (left.type === "draft_reply" && right.type !== "draft_reply") {
+        return -1;
+      }
+
+      if (right.type === "draft_reply" && left.type !== "draft_reply") {
+        return 1;
+      }
+
+      return (
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      );
+    });
+  const latestMessage = [...profile.messages].sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  )[0];
+  const isAwaitingCustomer =
+    profile.conversation.status === "replied" ||
+    latestMessage?.direction === "outbound";
+  const leadNextStep = isAwaitingCustomer
+    ? "Awaiting customer"
+    : profile.lead?.nextStep;
 
   return (
     <div className="assistant-preview-body">
       <div className="assistant-preview-status-row">
-        <span className="pill">{formatLabel(profile.conversation.status)}</span>
-        {profile.conversation.lastMessageAt ? (
-          <span>
-            Last message {formatDate(profile.conversation.lastMessageAt)}
-          </span>
-        ) : null}
+        <div className="assistant-preview-status-copy">
+          <span className="pill">{formatLabel(profile.conversation.status)}</span>
+          {profile.conversation.lastMessageAt ? (
+            <span>
+              Last message {formatDate(profile.conversation.lastMessageAt)}
+            </span>
+          ) : null}
+        </div>
       </div>
 
-      <PreviewPanel title="Action queue">
-        <div className="assistant-preview-list">
-          {actionQueue.length > 0 ? (
-            actionQueue.map((action) => (
-              <AssistantPreviewActionCard
-                action={action}
-                actionPendingId={actionPendingId}
-                href={href}
-                key={`${action.id}-${action.status}-${textValue(action.input.subject) ?? ""}-${textValue(action.input.body) ?? ""}`}
-                onRunAction={onRunAction}
-                onSaveDraftReply={onSaveDraftReply}
-              />
-            ))
-          ) : (
-            <p className="empty-copy">No pending actions for this inquiry.</p>
-          )}
-        </div>
-      </PreviewPanel>
-
-      <div className="assistant-preview-grid">
+      <div className="assistant-preview-grid two-column">
         <PreviewPanel title="Contact">
           <PreviewFacts
             facts={[
-              ["Name", profile.contact?.name ?? profile.contact?.company],
+              ["Name", profile.contact?.name ?? null],
               ["Email", profile.contact?.email],
               ["Phone", profile.contact?.phone],
               ["Address", profile.contact?.address],
               ["Type", formatLabel(profile.contact?.contactType)],
+              ["Company", profile.contact?.company],
             ]}
           />
         </PreviewPanel>
@@ -3011,11 +3083,15 @@ function ConversationPreview({
         <PreviewPanel title="Lead">
           <PreviewFacts
             facts={[
-              ["Title", profile.lead?.title],
-              ["Service", profile.lead?.serviceType],
+              [
+                "Title",
+                formatLeadTitle(profile.lead?.title, profile.contact?.name),
+              ],
+              ["Service", formatServiceType(profile.lead?.serviceType)],
               ["Status", formatLabel(profile.lead?.status)],
               ["Priority", formatLabel(profile.lead?.priority)],
-              ["Next step", profile.lead?.nextStep],
+              ["Next step", leadNextStep],
+              ["Value", profile.lead?.estimatedValue],
             ]}
           />
         </PreviewPanel>
@@ -3046,6 +3122,11 @@ function ConversationPreview({
                 {message.subject ? <strong>{message.subject}</strong> : null}
                 <p>{message.bodyText ?? "No message body."}</p>
                 <MessageAttachmentList metadata={message.metadata} />
+                <AssistantMessageWorkflowSummary
+                  message={message}
+                  notes={profile.notes}
+                  tasks={profile.tasks}
+                />
               </article>
             ))
           ) : (
@@ -3056,30 +3137,31 @@ function ConversationPreview({
         </div>
       </PreviewPanel>
 
-      {profile.quoteDrafts.length > 0 ? (
-        <PreviewPanel title="Quote drafts">
-          <div className="assistant-preview-list compact">
-            {profile.quoteDrafts.map((quote) => (
-              <article className="assistant-preview-row" key={quote.id}>
-                <div>
-                  <strong>{quote.title}</strong>
-                  <span>
-                    {formatLabel(quote.status)} - {quote.lineItems.length} line
-                    items
-                  </span>
-                </div>
-                <Link
-                  className="secondary-button compact"
-                  href={`/files/${quote.id}`}
-                  prefetch={false}
-                >
-                  Open
-                </Link>
-              </article>
-            ))}
-          </div>
-        </PreviewPanel>
-      ) : null}
+      <PreviewPanel title="Action queue">
+        <div className="assistant-preview-list compact">
+          {actionQueue.length > 0 ? (
+            actionQueue.map((action) => (
+              <AssistantPreviewActionCard
+                action={action}
+                actionPendingId={actionPendingId}
+                conversationId={profile.conversation.id}
+                href={href}
+                key={`${action.id}-${action.status}-${textValue(action.input.subject) ?? ""}-${textValue(action.input.body) ?? ""}-${textValue(action.input.attachmentQuoteDraftId) ?? ""}`}
+                onRunAction={onRunAction}
+                onSaveDraftReply={onSaveDraftReply}
+                onSendDraftReply={onSendDraftReply}
+                quoteDrafts={profile.quoteDrafts}
+              />
+            ))
+          ) : (
+            <p className="empty-copy">No pending actions for this inquiry.</p>
+          )}
+        </div>
+      </PreviewPanel>
+
+      <AssistantConversationWorkflowPanel profile={profile} />
+
+      <AssistantOutboundDeliveryPanel deliveries={profile.outboundMessages} />
 
       <details className="assistant-preview-panel manual-reply-disclosure">
         <summary>
@@ -3113,18 +3195,221 @@ function ConversationPreview({
   );
 }
 
+function shouldShowAssistantTask(
+  task: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["tasks"][number],
+) {
+  if (task.taskType !== "customer_follow_up") {
+    return true;
+  }
+
+  return task.dueAt ? Date.parse(task.dueAt) <= Date.now() : false;
+}
+
+function AssistantMessageWorkflowSummary({
+  message,
+  notes,
+  tasks,
+}: {
+  message: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["messages"][number];
+  notes: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["notes"];
+  tasks: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["tasks"];
+}) {
+  const messageTasks = tasks.filter((task) => task.messageId === message.id);
+  const messageNotes = notes.filter((note) => note.messageId === message.id);
+  const openTasks = messageTasks.filter(
+    (task) =>
+      task.status === "open" &&
+      task.taskType !== "message_resolution" &&
+      shouldShowAssistantTask(task),
+  );
+  const isResolved = messageTasks.some(
+    (task) =>
+      task.taskType === "message_resolution" && task.status === "completed",
+  );
+
+  return (
+    <details className="message-workflow-controls">
+      <summary>
+        <span>Message controls</span>
+        <span>
+          {isResolved ? "Resolved" : `${openTasks.length} open task`}
+          {openTasks.length === 1 ? "" : "s"} - {messageNotes.length} note
+          {messageNotes.length === 1 ? "" : "s"}
+        </span>
+      </summary>
+      <div className="message-workflow-content">
+        {isResolved ? <span className="pill success">Resolved</span> : null}
+        {openTasks.map((task) => (
+          <span className="pill" key={task.id}>
+            {task.title}
+            {task.dueAt ? ` - ${formatDate(task.dueAt)}` : ""}
+          </span>
+        ))}
+        {messageNotes.map((note) => (
+          <blockquote className="internal-note" key={note.id}>
+            <p>{note.body}</p>
+            <footer>{formatDate(note.createdAt)}</footer>
+          </blockquote>
+        ))}
+        {!isResolved && openTasks.length === 0 && messageNotes.length === 0 ? (
+          <p className="empty-copy">No controls recorded for this message.</p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function AssistantConversationWorkflowPanel({
+  profile,
+}: {
+  profile: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"];
+}) {
+  const visibleTasks = profile.tasks.filter(
+    (task) => task.taskType !== "message_resolution" && shouldShowAssistantTask(task),
+  );
+  const openTasks = visibleTasks.filter((task) => task.status === "open");
+  const activeAppointments = profile.appointments.filter(
+    (appointment) =>
+      appointment.status === "suggested" || appointment.status === "scheduled",
+  );
+
+  if (openTasks.length === 0 && activeAppointments.length === 0) {
+    return null;
+  }
+
+  return (
+    <PreviewPanel title="Workflow">
+      <div className="assistant-preview-list compact">
+        {activeAppointments.map((appointment) => (
+          <article className="assistant-preview-row" key={appointment.id}>
+            <div>
+              <strong>{appointment.title}</strong>
+              <span>
+                {formatLabel(appointment.status)} -{" "}
+                {formatDate(appointment.startsAt)}
+              </span>
+              {appointment.location ? <p>{appointment.location}</p> : null}
+            </div>
+            <span className="pill">{formatLabel(appointment.appointmentType)}</span>
+          </article>
+        ))}
+        {openTasks.map((task) => (
+          <article className="assistant-preview-row" key={task.id}>
+            <div>
+              <strong>{task.title}</strong>
+              <span>
+                {formatLabel(task.status)} -{" "}
+                {task.dueAt ? formatDate(task.dueAt) : "No due date"}
+              </span>
+              {task.description ? <p>{task.description}</p> : null}
+            </div>
+            <span className="pill">{formatLabel(task.taskType)}</span>
+          </article>
+        ))}
+      </div>
+    </PreviewPanel>
+  );
+}
+
+function deliveryStatusLabel(status: string) {
+  if (status === "retry_scheduled") {
+    return "Retry scheduled";
+  }
+
+  return formatLabel(status);
+}
+
+function deliveryStatusClass(status: string) {
+  if (status === "sent") {
+    return "pill success";
+  }
+
+  if (status === "failed" || status === "retry_scheduled") {
+    return "pill warning";
+  }
+
+  return "pill subtle";
+}
+
+function AssistantOutboundDeliveryPanel({
+  deliveries,
+}: {
+  deliveries: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["outboundMessages"];
+}) {
+  if (deliveries.length === 0) {
+    return null;
+  }
+
+  return (
+    <PreviewPanel title="Outbound delivery">
+      <div className="assistant-preview-list compact outbound-delivery-list">
+        {deliveries.map((delivery) => {
+          const deliveryMeta = [
+            formatLabel(delivery.channelType),
+            delivery.provider ? formatLabel(delivery.provider) : null,
+            delivery.sentAt
+              ? `Sent ${formatDate(delivery.sentAt)}`
+              : `Attempt ${delivery.attemptCount}/${delivery.maxAttempts}`,
+            delivery.lastError ??
+              (delivery.recipient ? `To ${delivery.recipient}` : null),
+          ].filter(Boolean);
+
+          return (
+            <article
+              className="assistant-preview-row outbound-delivery-row"
+              key={delivery.id}
+            >
+              <div>
+                <strong>{delivery.subject ?? "Outbound message"}</strong>
+                <span>{deliveryMeta.join(" - ")}</span>
+              </div>
+              <div className="delivery-actions">
+                <span className={deliveryStatusClass(delivery.status)}>
+                  {deliveryStatusLabel(delivery.status)}
+                </span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </PreviewPanel>
+  );
+}
+
 function AssistantPreviewActionCard({
   action,
   actionPendingId,
+  conversationId,
   href,
   onRunAction,
   onSaveDraftReply,
+  onSendDraftReply,
+  quoteDrafts,
 }: {
   action: Extract<
     AssistantResourcePreview,
     { type: "conversation" }
   >["profile"]["actions"][number];
   actionPendingId: string | null;
+  conversationId: string;
   href: string;
   onRunAction: (
     actionId: string,
@@ -3133,14 +3418,26 @@ function AssistantPreviewActionCard({
   ) => void;
   onSaveDraftReply: (input: {
     actionId: string;
+    attachmentQuoteDraftId?: string | null;
     body: string;
     href: string;
     subject: string;
   }) => Promise<boolean>;
+  onSendDraftReply: (input: {
+    actionId: string;
+    formData: FormData;
+    href: string;
+  }) => Promise<void>;
+  quoteDrafts: Extract<
+    AssistantResourcePreview,
+    { type: "conversation" }
+  >["profile"]["quoteDrafts"];
 }) {
   const draftSubject =
     textValue(action.input.subject) ?? "Thanks for reaching out";
   const draftBody = textValue(action.input.body) ?? "";
+  const draftAttachmentId =
+    textValue(action.input.attachmentQuoteDraftId) ?? "";
   const canEditDraft =
     action.type === "draft_reply" && action.status === "pending_approval";
   const shouldApproveAndSend =
@@ -3150,6 +3447,160 @@ function AssistantPreviewActionCard({
     action.type === "draft_reply" ? "Send generated reply" : "Send reply";
   const [subject, setSubject] = useState(draftSubject);
   const [body, setBody] = useState(draftBody);
+  const [attachmentQuoteDraftId, setAttachmentQuoteDraftId] =
+    useState(draftAttachmentId);
+  const isSaving = actionPendingId === `save:${action.id}`;
+  const isSending = actionPendingId === `send:${action.id}`;
+  const isExecuting = actionPendingId === `execute:${action.id}`;
+  const isApproving =
+    actionPendingId === `approve:${action.id}` ||
+    actionPendingId === `approve_execute:${action.id}`;
+
+  if (action.type === "draft_reply") {
+    const submitDraftReply = async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!canEditDraft || isSending) {
+        return;
+      }
+
+      await onSendDraftReply({
+        actionId: action.id,
+        formData: new FormData(event.currentTarget),
+        href,
+      });
+    };
+
+    return (
+      <article className="assistant-preview-row draft-reply-inline-card">
+        <form
+          className="draft-reply-form"
+          encType="multipart/form-data"
+          onSubmit={submitDraftReply}
+        >
+          <input name="actionId" type="hidden" value={action.id} />
+          <input name="href" type="hidden" value={href} />
+          <div className="draft-reply-header compact-header">
+            <div>
+              <strong>Generated reply</strong>
+              <span>
+                {formatLabel(action.status)} - {formatDate(action.createdAt)}
+              </span>
+            </div>
+            <span className="pill">
+              {attachmentQuoteDraftId ? "PDF attached" : "AI draft"}
+            </span>
+          </div>
+          <div className="draft-reply-field-row">
+            <label>
+              Subject
+              <input
+                name="subject"
+                onChange={(event) => setSubject(event.target.value)}
+                readOnly={!canEditDraft}
+                type="text"
+                value={subject}
+              />
+            </label>
+            <label>
+              Attach
+              <div className="attachment-control-row attachment-control-row-wide">
+                <select
+                  disabled={!canEditDraft}
+                  name="attachmentQuoteDraftId"
+                  onChange={(event) =>
+                    setAttachmentQuoteDraftId(event.target.value)
+                  }
+                  value={attachmentQuoteDraftId}
+                >
+                  <option value="">No Kyro file</option>
+                  {quoteDrafts.map((quoteDraft) => (
+                    <option key={quoteDraft.id} value={quoteDraft.id}>
+                      {quoteDraft.title}
+                    </option>
+                  ))}
+                </select>
+                <label
+                  className={
+                    canEditDraft
+                      ? "local-attachment-button local-attachment-upload-box"
+                      : "local-attachment-button local-attachment-upload-box disabled"
+                  }
+                  title="Attach local files, up to 5 files and 10 MB total"
+                >
+                  <input
+                    aria-label="Attach local files"
+                    disabled={!canEditDraft}
+                    multiple
+                    name="localAttachments"
+                    type="file"
+                  />
+                  <span aria-hidden="true" className="local-attachment-icon">
+                    +
+                  </span>
+                  <span>Upload files</span>
+                </label>
+              </div>
+            </label>
+          </div>
+          <label>
+            Reply
+            <textarea
+              name="body"
+              onChange={(event) => setBody(event.target.value)}
+              readOnly={!canEditDraft}
+              value={body}
+            />
+          </label>
+          {canEditDraft ? (
+            <ReplyGenerator conversationId={conversationId} />
+          ) : null}
+          <div className="action-button-row">
+            {canEditDraft ? (
+              <button
+                className="secondary-button compact"
+                disabled={isSaving || isSending}
+                onClick={() =>
+                  onSaveDraftReply({
+                    actionId: action.id,
+                    attachmentQuoteDraftId: attachmentQuoteDraftId || null,
+                    body,
+                    href,
+                    subject,
+                  })
+                }
+                type="button"
+              >
+                {isSaving ? "Saving..." : "Save edits"}
+              </button>
+            ) : null}
+            {action.status === "pending_approval" ? (
+              <button
+                className="primary-button compact inbox-submit-button"
+                disabled={isSaving || isSending}
+                type="submit"
+              >
+                {isSending ? "Sending reply..." : "Send generated reply"}
+              </button>
+            ) : null}
+            {action.status === "approved" ? (
+              <button
+                className="primary-button compact"
+                disabled={isExecuting}
+                onClick={() => onRunAction(action.id, href, "execute")}
+                type="button"
+              >
+                {isExecuting ? "Sending..." : actionExecuteLabel(action.type)}
+              </button>
+            ) : null}
+            {action.status === "completed" ? (
+              <span className="pill">Sent</span>
+            ) : null}
+          </div>
+        </form>
+      </article>
+    );
+  }
 
   return (
     <details
@@ -3182,10 +3633,11 @@ function AssistantPreviewActionCard({
           {canEditDraft ? (
             <button
               className="secondary-button compact"
-              disabled={actionPendingId === `save:${action.id}`}
+              disabled={isSaving}
               onClick={() =>
                 onSaveDraftReply({
                   actionId: action.id,
+                  attachmentQuoteDraftId: attachmentQuoteDraftId || null,
                   body,
                   href,
                   subject,
@@ -3201,14 +3653,12 @@ function AssistantPreviewActionCard({
           {action.status === "pending_approval" ? (
             <button
               className="primary-button compact"
-              disabled={
-                actionPendingId === `approve:${action.id}` ||
-                actionPendingId === `approve_execute:${action.id}`
-              }
+              disabled={isApproving}
               onClick={async () => {
                 if (canEditDraft && shouldApproveAndSend) {
                   const saved = await onSaveDraftReply({
                     actionId: action.id,
+                    attachmentQuoteDraftId: attachmentQuoteDraftId || null,
                     body,
                     href,
                     subject,
@@ -3240,11 +3690,11 @@ function AssistantPreviewActionCard({
           {action.status === "approved" ? (
             <button
               className="primary-button compact"
-              disabled={actionPendingId === `execute:${action.id}`}
+              disabled={isExecuting}
               onClick={() => onRunAction(action.id, href, "execute")}
               type="button"
             >
-              {actionPendingId === `execute:${action.id}`
+              {isExecuting
                 ? "Sending"
                 : actionExecuteLabel(action.type)}
             </button>

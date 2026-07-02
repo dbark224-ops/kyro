@@ -34,7 +34,10 @@ import {
   conversationToAssistantLink,
   isConversationInLiveWorkQueue,
 } from "../../lib/assistant/conversation-links";
-import { recordOutboundMessage } from "../../lib/communication/outbound";
+import {
+  recordOutboundMessage,
+  type OutboundAttachment,
+} from "../../lib/communication/outbound";
 import {
   getCommunicationSettings,
   isOutboundChannel,
@@ -70,6 +73,73 @@ function objectRecord(value: unknown) {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function nullableText(value: string) {
+  const trimmed = value.trim();
+
+  return trimmed ? trimmed : null;
+}
+
+function isUploadFile(value: FormDataEntryValue): value is File {
+  if (typeof value !== "object" || !value) {
+    return false;
+  }
+
+  const maybeFile = value as {
+    arrayBuffer?: unknown;
+    name?: unknown;
+    size?: unknown;
+    type?: unknown;
+  };
+
+  return (
+    typeof maybeFile.arrayBuffer === "function" &&
+    typeof maybeFile.name === "string" &&
+    typeof maybeFile.size === "number"
+  );
+}
+
+const MAX_LOCAL_ATTACHMENT_COUNT = 5;
+const MAX_LOCAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+async function readAssistantLocalAttachments(formData: FormData) {
+  const uploads = formData
+    .getAll("localAttachments")
+    .filter(isUploadFile)
+    .filter((file) => file.name.trim() && file.size > 0);
+
+  if (uploads.length > MAX_LOCAL_ATTACHMENT_COUNT) {
+    return {
+      attachments: [] as OutboundAttachment[],
+      error: `Attach up to ${MAX_LOCAL_ATTACHMENT_COUNT} local files at a time.`,
+    };
+  }
+
+  const totalBytes = uploads.reduce((sum, file) => sum + file.size, 0);
+
+  if (totalBytes > MAX_LOCAL_ATTACHMENT_BYTES) {
+    return {
+      attachments: [] as OutboundAttachment[],
+      error: "Local attachments are limited to 10 MB total for now.",
+    };
+  }
+
+  const attachments: OutboundAttachment[] = [];
+
+  for (const file of uploads) {
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    attachments.push({
+      contentBase64: buffer.toString("base64"),
+      contentType: file.type || "application/octet-stream",
+      filename: file.name,
+      sizeBytes: buffer.byteLength,
+      source: "local_upload",
+    });
+  }
+
+  return { attachments, error: null };
 }
 
 const RELIABLE_ASSISTANT_FALLBACK_INTENTS = new Set([
@@ -617,13 +687,49 @@ export async function runAssistantResourceActionAction({
   }
 }
 
+async function validateAssistantQuoteDraftAttachment({
+  attachmentQuoteDraftId,
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  attachmentQuoteDraftId: string | null;
+  conversationId: string;
+  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"];
+  workspaceId: string;
+}) {
+  if (!attachmentQuoteDraftId) {
+    return null;
+  }
+
+  const { data: quoteDraft, error } = await supabase
+    .from("quote_drafts")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("conversation_id", conversationId)
+    .eq("id", attachmentQuoteDraftId)
+    .maybeSingle();
+
+  if (error) {
+    return error.message;
+  }
+
+  if (!quoteDraft) {
+    return "That attachment is not linked to this inquiry.";
+  }
+
+  return null;
+}
+
 export async function updateAssistantDraftReplyAction({
   actionId,
+  attachmentQuoteDraftId,
   body,
   href,
   subject,
 }: {
   actionId: string;
+  attachmentQuoteDraftId?: string | null;
   body: string;
   href: string;
   subject: string;
@@ -645,6 +751,17 @@ export async function updateAssistantDraftReplyAction({
     }
 
     const { supabase, user, workspace } = await requireWorkspaceContext();
+    const attachmentError = await validateAssistantQuoteDraftAttachment({
+      attachmentQuoteDraftId: attachmentQuoteDraftId ?? null,
+      conversationId: target.id,
+      supabase,
+      workspaceId: workspace.id,
+    });
+
+    if (attachmentError) {
+      return { error: attachmentError };
+    }
+
     const { data: action, error: loadError } = await supabase
       .from("actions")
       .select("id,type,status,input,target_type,target_id")
@@ -676,13 +793,18 @@ export async function updateAssistantDraftReplyAction({
     const subjectChanged =
       (textValue(before.subject) ?? "Thanks for reaching out") !== cleanSubject;
     const bodyChanged = (textValue(before.body) ?? "") !== cleanBody;
+    const attachmentChanged =
+      (textValue(before.attachmentQuoteDraftId) ?? null) !==
+      (attachmentQuoteDraftId ?? null);
     const userEditedDraft =
       Boolean(before.userEditedDraft) ||
       Boolean(before.editedByUserId) ||
       subjectChanged ||
-      bodyChanged;
+      bodyChanged ||
+      attachmentChanged;
     const after = {
       ...before,
+      attachmentQuoteDraftId: attachmentQuoteDraftId ?? null,
       body: cleanBody,
       dryRun: true,
       subject: cleanSubject,
@@ -732,6 +854,169 @@ export async function updateAssistantDraftReplyAction({
         error instanceof Error
           ? error.message
           : "Unable to save the draft reply.",
+    };
+  }
+}
+
+export async function sendAssistantDraftReplyAction(
+  formData: FormData,
+): Promise<AssistantResourcePreviewResult> {
+  const href = formString(formData, "href");
+  const actionId = formString(formData, "actionId");
+  const subject = formString(formData, "subject") || "Thanks for reaching out";
+  const body = formString(formData, "body");
+  const attachmentQuoteDraftId = nullableText(
+    formString(formData, "attachmentQuoteDraftId"),
+  );
+
+  try {
+    const target = assistantPreviewTarget(href);
+
+    if (target?.type !== "conversation") {
+      return {
+        error: "Draft replies can only be sent from an inquiry preview.",
+      };
+    }
+
+    if (!actionId) {
+      return { error: "Action id is required." };
+    }
+
+    if (!body.trim()) {
+      return { error: "Reply body is required." };
+    }
+
+    const localAttachments = await readAssistantLocalAttachments(formData);
+
+    if (localAttachments.error) {
+      return { error: localAttachments.error };
+    }
+
+    const { supabase, user, workspace } = await requireWorkspaceContext();
+    const attachmentError = await validateAssistantQuoteDraftAttachment({
+      attachmentQuoteDraftId,
+      conversationId: target.id,
+      supabase,
+      workspaceId: workspace.id,
+    });
+
+    if (attachmentError) {
+      return { error: attachmentError };
+    }
+
+    const { data: action, error: loadError } = await supabase
+      .from("actions")
+      .select("id,type,status,input,target_type,target_id")
+      .eq("workspace_id", workspace.id)
+      .eq("id", actionId)
+      .maybeSingle();
+
+    if (loadError) {
+      throw new Error(loadError.message);
+    }
+
+    if (!action) {
+      return { error: "Draft reply action was not found." };
+    }
+
+    if (
+      String(action.type) !== "draft_reply" ||
+      String(action.target_type) !== "conversation" ||
+      String(action.target_id) !== target.id
+    ) {
+      return { error: "That action is not a draft reply for this inquiry." };
+    }
+
+    if (String(action.status) !== "pending_approval") {
+      return {
+        error: "Only pending generated replies can be edited and sent here.",
+      };
+    }
+
+    const before = objectRecord(action.input);
+    const cleanBody = body.trim();
+    const subjectChanged =
+      (textValue(before.subject) ?? "Thanks for reaching out") !== subject;
+    const bodyChanged = (textValue(before.body) ?? "") !== cleanBody;
+    const attachmentChanged =
+      (textValue(before.attachmentQuoteDraftId) ?? null) !==
+      attachmentQuoteDraftId;
+    const localAttachmentChanged = localAttachments.attachments.length > 0;
+    const userEditedDraft =
+      Boolean(before.userEditedDraft) ||
+      Boolean(before.editedByUserId) ||
+      subjectChanged ||
+      bodyChanged ||
+      attachmentChanged ||
+      localAttachmentChanged;
+    const signatureVariant = userEditedDraft ? "manual" : "ai_generated";
+    const after = {
+      ...before,
+      attachmentQuoteDraftId,
+      body: cleanBody,
+      gmailExternalSendEnabled: true,
+      settingsSnapshot: {
+        ...objectRecord(before.settingsSnapshot),
+        localAttachmentCount: localAttachments.attachments.length,
+        localAttachmentFilenames: localAttachments.attachments.map(
+          (attachment) => attachment.filename,
+        ),
+        signatureVariant,
+        userEditedDraft,
+      },
+      signatureVariant,
+      subject,
+      userEditedDraft,
+      ...(userEditedDraft
+        ? {
+            editedAt: new Date().toISOString(),
+            editedByUserId: user.id,
+          }
+        : {}),
+    };
+
+    const { error: updateError } = await supabase
+      .from("actions")
+      .update({ input: after })
+      .eq("workspace_id", workspace.id)
+      .eq("id", actionId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "draft_reply.updated",
+      entityType: "action",
+      entityId: actionId,
+      before: { input: before },
+      after: { input: after },
+      metadata: {
+        conversationId: target.id,
+        source: "assistant.preview.send_generated_reply",
+      },
+    });
+
+    await approveAction(supabase, user, actionId);
+    await executeAction(supabase, user, actionId, {
+      draftReplyAttachments: localAttachments.attachments,
+    });
+
+    revalidatePath("/");
+    revalidatePath("/assistant");
+    revalidatePath("/inbox");
+    revalidatePath(href);
+
+    return loadAssistantResourcePreview(href);
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to send this generated reply.",
     };
   }
 }

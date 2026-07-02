@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getAssistantResourcePreviewAction,
   runAssistantResourceActionAction,
+  sendAssistantDraftReplyAction,
   sendAssistantManualReplyAction,
   updateAssistantDraftReplyAction,
 } from "../assistant/actions";
@@ -1629,11 +1630,13 @@ export function VapiVoiceConsole({
 
   const saveDraftReply = async ({
     actionId,
+    attachmentQuoteDraftId,
     body,
     href,
     subject,
   }: {
     actionId: string;
+    attachmentQuoteDraftId?: string | null;
     body: string;
     href: string;
     subject: string;
@@ -1641,6 +1644,7 @@ export function VapiVoiceConsole({
     setPreviewActionId(`save:${actionId}`);
     const result = await updateAssistantDraftReplyAction({
       actionId,
+      attachmentQuoteDraftId,
       body,
       href,
       subject,
@@ -1650,6 +1654,22 @@ export function VapiVoiceConsole({
     setPreviewActionId(null);
 
     return Boolean(result.preview);
+  };
+
+  const sendDraftReply = async ({
+    actionId,
+    formData,
+    href,
+  }: {
+    actionId: string;
+    formData: FormData;
+    href: string;
+  }) => {
+    setPreviewActionId(`send:${actionId}`);
+    const result = await sendAssistantDraftReplyAction(formData);
+
+    applyVoicePreviewResult(href, result, "Work item");
+    setPreviewActionId(null);
   };
 
   const sendManualReply = async ({
@@ -1771,6 +1791,7 @@ export function VapiVoiceConsole({
           }
           onRunAction={runPreviewAction}
           onSaveDraftReply={saveDraftReply}
+          onSendDraftReply={sendDraftReply}
           onSendManualReply={sendManualReply}
           previewEyebrow="Voice work panel"
           state={previewState}
