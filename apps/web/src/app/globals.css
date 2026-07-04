@@ -7481,10 +7481,24 @@ button.voice-card {
   display: grid;
   min-width: 0;
   min-height: 0;
+  height: 100%;
 }
 
 .inbox-preview-transition-shell > .inbox-inline-preview {
   grid-area: 1 / 1;
+}
+
+.inbox-inline-preview {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  position: static;
+  top: auto;
+}
+
+.inbox-inline-preview .assistant-preview-body {
+  min-height: 0;
+  max-height: none;
 }
 
 .inbox-preview-loading-overlay,
@@ -8231,6 +8245,82 @@ button.voice-card {
   grid-column: 5;
   max-width: 100%;
   justify-self: end;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
+  grid-template-columns: minmax(0, 1fr) minmax(118px, max-content);
+  grid-template-rows: auto auto;
+  gap: 7px 10px;
+  align-items: start;
+  min-height: 58px;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-main {
+  display: grid;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-meta {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+  max-width: 150px;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  text-align: right;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .conversation-row-title,
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .conversation-message-preview,
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .conversation-row-extra,
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-meta
+  time,
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-meta
+  .pill {
+  grid-column: auto;
+  justify-self: auto;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .conversation-row-extra,
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-meta
+  time,
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-meta
+  .pill {
+  max-width: 100%;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-meta
+  .pill {
+  white-space: normal;
+  text-align: center;
 }
 
 .pill {
