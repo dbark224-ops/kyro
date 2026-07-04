@@ -86,12 +86,6 @@ export function InboxConversationLink({
       onClick={handleClick}
     >
       {children}
-      {isPending ? (
-        <span className="conversation-row-loading">
-          <span aria-hidden="true" className="settings-submit-spinner" />
-          Opening
-        </span>
-      ) : null}
     </SmartPrefetchLink>
   );
 }
