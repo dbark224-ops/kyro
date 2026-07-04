@@ -46,7 +46,11 @@ import {
   quoteTemplateCatalog,
   type QuoteTemplate,
 } from "../documents/templates";
-import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  approveAction,
+  executeAction,
+  insertAuditLog,
+} from "../engine/event-action-audit";
 import {
   generateKyroImage,
   looksLikeKyroImageGenerationRequest,
@@ -117,6 +121,14 @@ type CommandInput = {
   toolSelection?: AssistantToolSelection | null;
   user: User;
   workspace: WorkspaceInput;
+};
+
+type ExecutableConversationAction = {
+  id: string;
+  conversationId: string;
+  createdAt: string;
+  status: "approved" | "pending_approval";
+  subject: string | null;
 };
 
 type RecentGeneratedImage = Extract<
@@ -1755,6 +1767,14 @@ async function resolvePlannedAssistantCommand({
       });
     case "overview":
       return overviewCommand({ supabase, workspace });
+    case "action_execution":
+      return executeApprovedWorkQueueRepliesCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        user,
+        workspace,
+      });
     default:
       return null;
   }
@@ -1771,6 +1791,17 @@ export async function resolveAssistantCommand({
   workspace,
 }: CommandInput): Promise<AssistantCommandResult> {
   const text = normalized(prompt);
+
+  if (looksLikeActionExecutionRequest(prompt)) {
+    return executeApprovedWorkQueueRepliesCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
   const plannedCommand = await resolvePlannedAssistantCommand({
     prompt,
     recentMessages,
@@ -2766,6 +2797,349 @@ async function workQueueCommand({
         },
       ]),
       ...approvalQueueBlock("Approval queue", approvalItems),
+    ],
+  };
+}
+
+export function looksLikeActionExecutionRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  if (
+    /\b(what|which|show|list|review|open|pull up|find|check)\b/.test(text) &&
+    !/\b(send|approve|execute|action|handle|deal with|take care of|sort)\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    /^(do i have|have i got|have i|are there|is there)\b/.test(text) &&
+    !/\b(send|approve|execute|action|handle|deal with|take care of|sort)\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+
+  const hasExecutionVerb =
+    /\b(action|handle|execute|approve|send|deal with|take care of|sort)\b/.test(
+      text,
+    ) ||
+    /\b(reply|respond)\s+(to\s+)?(it|that|this|them|these|those|both|all|everything|ones?|replies|drafts?|leads?|inquiries|messages)\b/.test(
+      text,
+    ) ||
+    /\b(do)\s+(it|that|this|them|these|those|both|all|everything|ones?)\b/.test(
+      text,
+    );
+  const hasFollowUpTarget =
+    /\b(it|that|this|them|these|those|both|all|everything|ones?|replies|drafts?|leads?|inquiries|messages|work queue|queue|pending|approvals?)\b/.test(
+      text,
+    );
+
+  return hasExecutionVerb && hasFollowUpTarget;
+}
+
+function requestedActionLimit(prompt: string) {
+  const text = normalized(prompt);
+
+  if (/\b(both|two|2)\b/.test(text)) {
+    return 2;
+  }
+
+  if (/\b(all|everything|every)\b/.test(text)) {
+    return 10;
+  }
+
+  if (/\b(first|one|1|it|that|this)\b/.test(text)) {
+    return 1;
+  }
+
+  return 5;
+}
+
+function conversationIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "https://kyro.local");
+
+    if (url.pathname.startsWith("/inbox/")) {
+      const id = url.pathname.split("/").filter(Boolean)[1];
+
+      return id || null;
+    }
+
+    return url.searchParams.get("conversationId");
+  } catch {
+    const match = href.match(/^\/inbox\/([^/?#]+)/);
+
+    return match?.[1] ?? null;
+  }
+}
+
+function recentWorkQueueConversationIds(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  const ids: string[] = [];
+
+  for (const message of [...recentMessages].reverse()) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const hasWorkQueueIntent = message.intent === "work_queue";
+    const hasWorkQueueBlock = (message.uiBlocks ?? []).some((block) => {
+      if (block.type === "approval_queue") {
+        return true;
+      }
+
+      if (block.type !== "summary_cards") {
+        return false;
+      }
+
+      return /\b(queue|work|approval|reply|inbox)\b/i.test(block.title);
+    });
+
+    if (!hasWorkQueueIntent && !hasWorkQueueBlock) {
+      continue;
+    }
+
+    for (const link of message.links ?? []) {
+      const conversationId = conversationIdFromHref(link.href);
+
+      if (conversationId && !ids.includes(conversationId)) {
+        ids.push(conversationId);
+      }
+    }
+
+    for (const block of message.uiBlocks ?? []) {
+      if (block.type !== "approval_queue") {
+        continue;
+      }
+
+      for (const item of block.items) {
+        const conversationId = item.href
+          ? conversationIdFromHref(item.href)
+          : null;
+
+        if (conversationId && !ids.includes(conversationId)) {
+          ids.push(conversationId);
+        }
+      }
+    }
+
+    if (ids.length > 0) {
+      break;
+    }
+  }
+
+  return ids;
+}
+
+async function executableDraftReplyActionsForConversations({
+  conversationIds,
+  supabase,
+  workspaceId,
+}: {
+  conversationIds: string[];
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  if (conversationIds.length === 0) {
+    return [] as ExecutableConversationAction[];
+  }
+
+  const { data, error } = await supabase
+    .from("actions")
+    .select("id,status,target_id,input,created_at")
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "conversation")
+    .eq("type", "draft_reply")
+    .in("status", ["pending_approval", "approved"])
+    .in("target_id", conversationIds)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Unable to load pending draft replies: ${error.message}`);
+  }
+
+  const conversationOrder = new Map(
+    conversationIds.map((conversationId, index) => [conversationId, index]),
+  );
+
+  return (data ?? [])
+    .map((action) => {
+      const status = String(action.status);
+
+      if (status !== "pending_approval" && status !== "approved") {
+        return null;
+      }
+
+      const input = objectRecord(action.input);
+
+      return {
+        conversationId: String(action.target_id),
+        createdAt: String(action.created_at),
+        id: String(action.id),
+        status,
+        subject: textValue(input.subject),
+      } satisfies ExecutableConversationAction;
+    })
+    .filter((action): action is ExecutableConversationAction =>
+      Boolean(action),
+    )
+    .sort((left, right) => {
+      const leftConversationIndex =
+        conversationOrder.get(left.conversationId) ?? Number.MAX_SAFE_INTEGER;
+      const rightConversationIndex =
+        conversationOrder.get(right.conversationId) ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftConversationIndex !== rightConversationIndex) {
+        return leftConversationIndex - rightConversationIndex;
+      }
+
+      return (
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      );
+    });
+}
+
+async function executeApprovedWorkQueueRepliesCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const conversations = await getConversationList(supabase, workspace.id);
+  const recentConversationIds = recentWorkQueueConversationIds(recentMessages);
+  const liveWorkQueueConversationIds = conversations
+    .filter(isConversationInLiveWorkQueue)
+    .map((conversation) => conversation.id);
+  const candidateConversationIds =
+    recentConversationIds.length > 0
+      ? recentConversationIds.filter((conversationId) =>
+          liveWorkQueueConversationIds.includes(conversationId),
+        )
+      : liveWorkQueueConversationIds;
+  const actions = (
+    await executableDraftReplyActionsForConversations({
+      conversationIds: candidateConversationIds,
+      supabase,
+      workspaceId: workspace.id,
+    })
+  ).slice(0, requestedActionLimit(prompt));
+
+  if (actions.length === 0) {
+    return {
+      context: {
+        attempted: false,
+        reason: "No pending or approved draft replies matched the current work queue.",
+        requestedLimit: requestedActionLimit(prompt),
+      },
+      fallbackAnswer:
+        "I could not find any pending generated replies in the current work queue to send. Open the work queue and I can act on a specific item if needed.",
+      intent: "action_execution",
+      links: [rowLink("Work queue", "/inbox", "No generated replies ready")],
+      title: "No generated replies ready",
+    };
+  }
+
+  const conversationById = new Map(
+    conversations.map((conversation) => [conversation.id, conversation]),
+  );
+  const executed: Array<{
+    actionId: string;
+    conversationId: string;
+    customer: string;
+    subject: string | null;
+  }> = [];
+  const failed: Array<{
+    actionId: string;
+    conversationId: string;
+    customer: string;
+    error: string;
+  }> = [];
+
+  for (const action of actions) {
+    const conversation = conversationById.get(action.conversationId);
+    const customer = conversation
+      ? conversationDisplayName(conversation)
+      : "Customer";
+
+    try {
+      if (action.status === "pending_approval") {
+        await approveAction(supabase, user, action.id);
+      }
+
+      await executeAction(supabase, user, action.id);
+      executed.push({
+        actionId: action.id,
+        conversationId: action.conversationId,
+        customer,
+        subject: action.subject,
+      });
+    } catch (error) {
+      failed.push({
+        actionId: action.id,
+        conversationId: action.conversationId,
+        customer,
+        error: error instanceof Error ? error.message : "Action failed.",
+      });
+    }
+  }
+
+  const executedLinks = executed.map((item) =>
+    rowLink(item.customer, `/inbox/${item.conversationId}`, "Reply sent"),
+  );
+  const failedLinks = failed.map((item) =>
+    rowLink(item.customer, `/inbox/${item.conversationId}`, "Needs review"),
+  );
+
+  return {
+    context: {
+      attempted: true,
+      executed: recordsContext(executed),
+      failed: recordsContext(failed),
+      requestedLimit: requestedActionLimit(prompt),
+    },
+    fallbackAnswer:
+      failed.length === 0
+        ? `Done. I sent ${executed.length} generated repl${executed.length === 1 ? "y" : "ies"} from the work queue.`
+        : `I sent ${executed.length} generated repl${executed.length === 1 ? "y" : "ies"}, but ${failed.length} item${failed.length === 1 ? "" : "s"} still need review.`,
+    intent: "action_execution",
+    links: [...executedLinks, ...failedLinks],
+    mutation:
+      executed.length > 0
+        ? {
+            entityId: executed[0].actionId,
+            entityType: "action",
+            label:
+              executed.length === 1
+                ? "Generated reply sent"
+                : `${executed.length} generated replies sent`,
+          }
+        : undefined,
+    title: failed.length === 0 ? "Replies sent" : "Some replies need review",
+    uiBlocks: [
+      ...summaryCardsBlock("Action summary", [
+        {
+          detail: "Generated replies sent",
+          href: "/inbox",
+          label: "Sent",
+          tone: executed.length > 0 ? "success" : "warning",
+          value: String(executed.length),
+        },
+        {
+          detail: "Could not be completed automatically",
+          href: "/inbox",
+          label: "Needs review",
+          tone: failed.length > 0 ? "warning" : "success",
+          value: String(failed.length),
+        },
+      ]),
     ],
   };
 }

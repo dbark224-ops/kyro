@@ -11,6 +11,7 @@ import {
 } from "../usage/openai";
 
 export type AssistantToolName =
+  | "action_execution"
   | "app_help"
   | "contact_lookup"
   | "document_template_create"
@@ -66,6 +67,11 @@ type ToolDefinition = {
 };
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    description:
+      "Execute clearly approved existing pending actions from the current work queue, such as when the user says action both, send them, approve those replies, or handle all pending replies after Kyro has listed them.",
+    name: "action_execution",
+  },
   {
     description:
       "Show conversations, leads, approvals, or the current inbox/work queue that need attention.",

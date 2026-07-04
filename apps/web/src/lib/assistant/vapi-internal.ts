@@ -409,6 +409,8 @@ export async function getVapiInternalVoiceSession({
     "For address changes, include the suburb/city, state, and country if the user gives them. If they only give a bare street address, ask for the suburb or city before calling kyro_update_contact. When the tool returns a verified formatted address, read that address back including postcode.",
     "After a contact update succeeds, confirm only the changed field or fields. Do not read the full contact profile aloud.",
     "If the user asks whether there are leads, inquiries, inbox items, messages, or jobs needing a response, reply, follow-up, attention, or approval, call kyro_context_lookup with the user's exact request.",
+    "If the user says action them, action both, send them, approve them, handle those replies, deal with the queue, or similar after you just listed work queue items, treat that as explicit approval to execute existing generated replies. Call kyro_context_lookup or kyro_assistant_command with the exact follow-up request. Do not keep asking them to review unless the tool reports no executable draft or a failure.",
+    "For generated replies, spoken approval is enough when the user clearly refers to the listed queue items. If the tool result says replies were sent, say that plainly and stop.",
     "If speech recognition hears Cara, Kara, Clare, Claire, Cairo, Kairo, Kiro, or Kyra near the start of the request, treat and spell it as Kyro unless clearly referring to a real person/place.",
     "For user-facing voice, use best-effort pronunciation when a term is not confirmed. Follow workspace pronunciation vocabulary when it is available.",
     `Workspace ID: ${workspace.id}`,

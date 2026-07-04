@@ -6,6 +6,7 @@ import {
   documentTemplateControlIntent,
   looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
+  looksLikeActionExecutionRequest,
   looksLikeInboundEmailAwarenessRequest,
   looksLikeQuoteHistoryRequest,
   looksLikeQuoteSendReadyListRequest,
@@ -397,6 +398,30 @@ describe("outbound call request parsing", () => {
 });
 
 describe("assistant LLM-first command routing", () => {
+  it("detects clear follow-up requests to execute listed work queue actions", () => {
+    const positivePrompts = [
+      "please action both",
+      "send them",
+      "approve all the pending replies",
+      "can you handle these leads",
+      "deal with the queue",
+    ];
+
+    const negativePrompts = [
+      "what action should I take",
+      "show me the leads that need replies",
+      "which messages are pending",
+    ];
+
+    for (const prompt of positivePrompts) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), true, prompt);
+    }
+
+    for (const prompt of negativePrompts) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
+    }
+  });
+
   it("treats a successful no-tool planner decision as general chat", async () => {
     const command = await resolveAssistantCommand({
       prompt: "do you think image generation will matter for trades businesses?",
