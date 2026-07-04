@@ -8248,57 +8248,57 @@ button.voice-card {
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
-  grid-template-columns: minmax(0, 1fr) minmax(118px, max-content);
-  grid-template-rows: auto auto;
-  gap: 7px 10px;
-  align-items: start;
-  min-height: 58px;
+  grid-template-columns: minmax(0, 1fr) auto auto minmax(104px, max-content);
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .data-main {
-  display: grid;
-  grid-column: 1;
-  grid-row: 1 / span 2;
-  gap: 4px;
-  min-width: 0;
+  display: contents;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .data-meta {
-  display: flex;
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  min-width: 0;
-  max-width: 150px;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 5px;
-  text-align: right;
+  display: contents;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .conversation-row-title,
+  .conversation-message-preview {
+  display: none;
+}
+
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .conversation-message-preview,
+  .conversation-row-title {
+  grid-column: 1;
+}
+
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .conversation-row-extra,
+  .conversation-row-extra {
+  grid-column: 2;
+  justify-self: end;
+}
+
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .data-meta
-  time,
+  time {
+  grid-column: 3;
+  justify-self: end;
+}
+
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .data-meta
   .pill {
-  grid-column: auto;
-  justify-self: auto;
+  grid-column: 4;
+  justify-self: end;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
@@ -8319,7 +8319,7 @@ button.voice-card {
   .conversation-row
   .data-meta
   .pill {
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
 }
 
