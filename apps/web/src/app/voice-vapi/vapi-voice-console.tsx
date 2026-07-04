@@ -216,12 +216,14 @@ export function VapiVoiceConsole({
   initialPreviewTarget,
   initialState,
   session,
+  workspaceTimeZone,
 }: {
   initialPreviewEngineError?: string;
   initialPreviewEngineMessage?: string;
   initialPreviewTarget?: VoicePreviewTarget | null;
   initialState: AssistantThreadState;
   session: VapiInternalVoiceSession;
+  workspaceTimeZone: string;
 }) {
   const [messages, setMessages] = useState(initialState.messages);
   const [connectionState, setConnectionState] =
@@ -1795,6 +1797,7 @@ export function VapiVoiceConsole({
           onSendManualReply={sendManualReply}
           previewEyebrow="Voice work panel"
           state={previewState}
+          timeZone={workspaceTimeZone}
         />
       ) : null}
     </section>

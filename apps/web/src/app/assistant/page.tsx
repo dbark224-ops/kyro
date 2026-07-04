@@ -7,6 +7,7 @@ import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getContactProfile } from "../../lib/crm/queries";
 import { developerAccessEnabled } from "../../lib/auth/developer-access";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import type {
   AssistantResourcePreview,
   AssistantThreadState,
@@ -47,6 +48,10 @@ export default async function AssistantPage({
     userId: user.id,
     workspaceId: workspace.id,
   });
+  const generalSettingsPromise = getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
   const selectedContactId = query?.contactId?.trim() ?? "";
   const selectedContactProfilePromise = selectedContactId
     ? getContactProfile(supabase, workspace.id, selectedContactId)
@@ -60,6 +65,7 @@ export default async function AssistantPage({
   const [
     activityItems,
     metrics,
+    generalSettings,
     promptSuggestions,
     selectedContactProfile,
     threadState,
@@ -67,6 +73,7 @@ export default async function AssistantPage({
     await Promise.all([
       activityPromise,
       metricsPromise,
+      generalSettingsPromise,
       promptSuggestionsPromise,
       selectedContactProfilePromise,
       threadStatePromise,
@@ -142,6 +149,7 @@ export default async function AssistantPage({
             initialState={initialState}
             isDeveloperAccount={developerAccessEnabled(user)}
             promptSuggestions={promptSuggestions.visibleSuggestions}
+            workspaceTimeZone={generalSettings.timeZone}
           />
         </section>
       </div>

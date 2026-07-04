@@ -21,7 +21,9 @@ import {
   getInboundEmailSettings,
   type InboundEmailSenderRule,
 } from "../../lib/integrations/inbound-email-settings";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import {
   createMockOutboundMessageAction,
   createConversationAppointmentAction,
@@ -110,17 +112,12 @@ const WORKFLOW_RANK: Record<string, number> = {
   resolved: 9,
 };
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "No messages";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({
+    emptyLabel: "No messages",
+    timeZone,
+    value,
+  });
 }
 
 function formatLabel(value: string | null) {
@@ -1084,10 +1081,12 @@ function OutboundDeliveryPanel({
   deliveries,
   conversationId,
   redirectTo,
+  timeZone,
 }: {
   deliveries: ConversationReview["outboundMessages"];
   conversationId: string;
   redirectTo: string;
+  timeZone: string;
 }) {
   if (deliveries.length === 0) {
     return null;
@@ -1101,7 +1100,7 @@ function OutboundDeliveryPanel({
             formatLabel(delivery.channelType),
             delivery.provider ? formatLabel(delivery.provider) : null,
             delivery.sentAt
-              ? `Sent ${formatDate(delivery.sentAt)}`
+              ? `Sent ${formatDate(delivery.sentAt, timeZone)}`
               : `Attempt ${delivery.attemptCount}/${delivery.maxAttempts}`,
             delivery.lastError ??
               (delivery.recipient ? `To ${delivery.recipient}` : null),
@@ -1153,11 +1152,13 @@ function InboxSplitPreview({
   communicationSettings,
   profile,
   redirectTo,
+  timeZone,
 }: {
   closeHref: string;
   communicationSettings: CommunicationSettings;
   profile: ConversationReview;
   redirectTo: string;
+  timeZone: string;
 }) {
   const title =
     formatLeadTitle(profile.lead?.title, profile.contact?.name) ??
@@ -1221,7 +1222,7 @@ function InboxSplitPreview({
               {formatLabel(profile.conversation.status)}
             </span>
             <span>
-              Last message {formatDate(profile.conversation.lastMessageAt)}
+              Last message {formatDate(profile.conversation.lastMessageAt, timeZone)}
             </span>
           </div>
           {canIgnoreConversation(profile.conversation.status) ? (
@@ -1281,7 +1282,12 @@ function InboxSplitPreview({
                         message.channelDisplayName,
                       )}
                     </span>
-                    <span>{formatDate(message.createdAt)}</span>
+                    <span>
+                      {formatDate(
+                        message.receivedAt ?? message.sentAt ?? message.createdAt,
+                        timeZone,
+                      )}
+                    </span>
                   </div>
                   {message.subject ? <strong>{message.subject}</strong> : null}
                   <p>{message.bodyText ?? "No message body recorded."}</p>
@@ -1319,7 +1325,7 @@ function InboxSplitPreview({
                       <strong>{previewActionTitle(action)}</strong>
                       <span>
                         {formatLabel(action.status)} -{" "}
-                        {formatDate(action.createdAt)}
+                        {formatDate(action.createdAt, timeZone)}
                       </span>
                       <p>{previewActionSummary(action)}</p>
                     </div>
@@ -1345,6 +1351,7 @@ function InboxSplitPreview({
           conversationId={profile.conversation.id}
           deliveries={profile.outboundMessages}
           redirectTo={redirectTo}
+          timeZone={timeZone}
         />
 
         <InboxManualReplyComposer
@@ -1371,6 +1378,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     conversations,
     selectedConversationReview,
     communicationSettings,
+    generalSettings,
     inboundEmailSettings,
     skippedEmailSummaries,
   ] = await Promise.all([
@@ -1381,6 +1389,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     selectedConversationId
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
     showSkippedEmail
       ? getInboundEmailSettings(supabase, workspace.id)
       : Promise.resolve(null),
@@ -1833,6 +1842,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
               communicationSettings={communicationSettings!}
               profile={selectedConversationReview}
               redirectTo={selectedRedirectHref}
+              timeZone={generalSettings.timeZone}
             />
           ) : null}
         </InboxPreviewTransitionShell>

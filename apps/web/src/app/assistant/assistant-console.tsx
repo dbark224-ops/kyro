@@ -39,6 +39,7 @@ import {
   formatLeadTitle,
   formatServiceType,
 } from "../../lib/crm/display";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 
 const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -125,6 +126,7 @@ export function AssistantConsole({
   initialState,
   isDeveloperAccount = false,
   promptSuggestions,
+  workspaceTimeZone,
 }: {
   externalActivityItems?: AssistantExternalActivityItem[];
   initialPreviewEngineError?: string;
@@ -133,6 +135,7 @@ export function AssistantConsole({
   initialState: AssistantThreadState;
   isDeveloperAccount?: boolean;
   promptSuggestions?: string[];
+  workspaceTimeZone: string;
 }) {
   const [state, formAction, pending] = useActionState(
     sendAssistantMessageAction,
@@ -1103,6 +1106,7 @@ export function AssistantConsole({
             onSendDraftReply={sendDraftReply}
             onSendManualReply={sendManualReply}
             state={previewState}
+            timeZone={workspaceTimeZone}
           />
         </div>
       ) : (
@@ -2635,6 +2639,7 @@ export function AssistantPreviewPane({
   onSendManualReply,
   previewEyebrow,
   state,
+  timeZone,
 }: {
   actionPendingId: string | null;
   contactHrefBase?: "/assistant" | "/voice-vapi";
@@ -2667,6 +2672,7 @@ export function AssistantPreviewPane({
   }) => Promise<void>;
   previewEyebrow?: string;
   state: PreviewState;
+  timeZone: string;
 }) {
   if (state.status === "closed") {
     return null;
@@ -2747,6 +2753,7 @@ export function AssistantPreviewPane({
           onSendDraftReply={onSendDraftReply}
           onSendManualReply={onSendManualReply}
           preview={state.preview}
+          timeZone={timeZone}
         />
       ) : null}
     </section>
@@ -2761,6 +2768,7 @@ function AssistantPreviewContent({
   onSendDraftReply,
   onSendManualReply,
   preview,
+  timeZone,
 }: {
   actionPendingId: string | null;
   onOpenPreview?: (link: AssistantLink) => void;
@@ -2788,6 +2796,7 @@ function AssistantPreviewContent({
     subject: string;
   }) => Promise<void>;
   preview: AssistantResourcePreview;
+  timeZone: string;
 }) {
   if (preview.type === "inbox_queue") {
     return (
@@ -2805,6 +2814,7 @@ function AssistantPreviewContent({
         onSendDraftReply={onSendDraftReply}
         onSendManualReply={onSendManualReply}
         profile={preview.profile}
+        timeZone={timeZone}
       />
     );
   }
@@ -2817,7 +2827,7 @@ function AssistantPreviewContent({
     return <VoiceCallPreview profile={preview.profile} />;
   }
 
-  return <ContactPreview profile={preview.profile} />;
+  return <ContactPreview profile={preview.profile} timeZone={timeZone} />;
 }
 
 function previewEyebrowForResource(type: AssistantResourcePreview["type"]) {
@@ -2995,6 +3005,7 @@ function ConversationPreview({
   onSendDraftReply,
   onSendManualReply,
   profile,
+  timeZone,
 }: {
   actionPendingId: string | null;
   href: string;
@@ -3025,6 +3036,7 @@ function ConversationPreview({
     AssistantResourcePreview,
     { type: "conversation" }
   >["profile"];
+  timeZone: string;
 }) {
   const messages = profile.messages.slice(-6);
   const actionQueue = profile.actions
@@ -3060,7 +3072,7 @@ function ConversationPreview({
           <span className="pill">{formatLabel(profile.conversation.status)}</span>
           {profile.conversation.lastMessageAt ? (
             <span>
-              Last message {formatDate(profile.conversation.lastMessageAt)}
+              Last message {formatDate(profile.conversation.lastMessageAt, timeZone)}
             </span>
           ) : null}
         </div>
@@ -3116,6 +3128,7 @@ function ConversationPreview({
                   <time>
                     {formatDate(
                       message.receivedAt ?? message.sentAt ?? message.createdAt,
+                      timeZone,
                     )}
                   </time>
                 </div>
@@ -4051,8 +4064,10 @@ function QuotePreview({
 
 function ContactPreview({
   profile,
+  timeZone,
 }: {
   profile: Extract<AssistantResourcePreview, { type: "contact" }>["profile"];
+  timeZone: string;
 }) {
   return (
     <div className="assistant-preview-body">
@@ -4092,6 +4107,7 @@ function ContactPreview({
                 <time>
                   {formatDate(
                     message.receivedAt ?? message.sentAt ?? message.createdAt,
+                    timeZone,
                   )}
                 </time>
               </div>
@@ -4325,17 +4341,12 @@ function isAssistantQueueAction(
   return true;
 }
 
-function formatDate(value: string | null | undefined) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null | undefined, timeZone?: string | null) {
+  return formatWorkspaceDateTime({
+    locale: "en-US",
+    timeZone,
+    value,
+  });
 }
 
 function formatLabel(value: string | null | undefined) {

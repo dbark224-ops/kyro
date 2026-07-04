@@ -4,6 +4,7 @@ import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { getVapiInternalVoiceSession } from "../../lib/assistant/vapi-internal";
 import type { AssistantThreadState } from "../../lib/assistant/types";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { VapiVoiceConsole } from "./vapi-voice-console";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +24,18 @@ export default async function VapiVoicePage({
   const query = await searchParams;
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
+  const generalSettingsPromise = getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
   const threadStatePromise = getAssistantThreadState({
     supabase,
     user,
     workspace,
   });
-  const [metrics, threadState] = await Promise.all([
+  const [metrics, generalSettings, threadState] = await Promise.all([
     metricsPromise,
+    generalSettingsPromise,
     threadStatePromise,
   ]);
   const session = await getVapiInternalVoiceSession({
@@ -68,6 +74,7 @@ export default async function VapiVoicePage({
       }
       initialState={initialState}
       session={session}
+      workspaceTimeZone={generalSettings.timeZone}
     />
   );
 

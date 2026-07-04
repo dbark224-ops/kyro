@@ -30,10 +30,10 @@ import {
   titleCaseBusinessText,
 } from "../../../lib/crm/display";
 import {
-  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   formatDisplayMoney,
   type DisplayCurrencySettings,
 } from "../../../lib/billing/display-currency";
+import { formatWorkspaceDateTime } from "../../../lib/time/format";
 import {
   OUTBOUND_CHANNELS,
   getCommunicationSettings,
@@ -44,7 +44,10 @@ import {
   quoteRevisionState,
 } from "../../../lib/documents/revisions";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
-import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
+import {
+  DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+  getWorkspaceGeneralSettings,
+} from "../../../lib/workspace/general-settings";
 import { prepareQuoteDraftSendAction } from "../../documents/actions";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -77,17 +80,8 @@ const CONVERSATION_STATUS_OPTIONS = [
   { value: "resolved", label: "Resolved" },
 ] as const;
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatMoney(
@@ -652,7 +646,7 @@ export default async function ConversationReviewPage({
     getConversationReview(supabase, workspace.id, conversationId),
     getCommunicationSettings(supabase, workspace.id),
     getWorkspaceGeneralSettings(supabase, workspace.id).catch(
-      () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+      () => DEFAULT_WORKSPACE_GENERAL_SETTINGS,
     ),
   ]);
 
@@ -874,6 +868,7 @@ export default async function ConversationReviewPage({
               Updated{" "}
               {formatDate(
                 review.lead?.updatedAt ?? review.conversation.lastMessageAt,
+                generalSettings.timeZone,
               )}
             </span>
           </div>
@@ -1123,6 +1118,7 @@ export default async function ConversationReviewPage({
                         message.receivedAt ??
                           message.sentAt ??
                           message.createdAt,
+                        generalSettings.timeZone,
                       )}
                     </span>
                   </div>
