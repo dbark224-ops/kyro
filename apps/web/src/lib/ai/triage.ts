@@ -541,6 +541,12 @@ function listPhrase(items: string[]) {
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
+function missingInfoQuestion(items: string[]) {
+  return `To arrange the next step, could you please send through ${listPhrase(
+    items.map(missingInfoPhrase),
+  )}?`;
+}
+
 export function buildReplyBody(facts: InquiryFacts) {
   if (facts.fit === "not_fit") {
     return "Thanks for letting me know. I will close this off on my side.";
@@ -580,7 +586,29 @@ function replyMentionsMissingInfo(body: string, item: string) {
   }
 }
 
-function ensureReplyDraftCoversMissingInfo(
+function sentenceMentionsAnyMissingInfo(sentence: string, missingInfo: string[]) {
+  return missingInfo.some((item) => replyMentionsMissingInfo(sentence, item));
+}
+
+function mergeMissingInfoIntoReplyBody(body: string, facts: InquiryFacts) {
+  const request = missingInfoQuestion(facts.missingInfo);
+  const sentences = body
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .filter(Boolean);
+  const askIndex = sentences.findIndex((sentence) =>
+    sentenceMentionsAnyMissingInfo(sentence, facts.missingInfo),
+  );
+
+  if (askIndex >= 0) {
+    sentences[askIndex] = request;
+    return sentences.join(" ");
+  }
+
+  return `${body.trim()}\n\n${request}`;
+}
+
+export function ensureReplyDraftCoversMissingInfo(
   replyDraft: TriageDecision["replyDraft"],
   facts: InquiryFacts,
 ): TriageDecision["replyDraft"] {
@@ -600,9 +628,7 @@ function ensureReplyDraftCoversMissingInfo(
 
   return {
     ...replyDraft,
-    body: `${body.trim()}\n\nCould you also send through ${listPhrase(
-      unasked.map(missingInfoPhrase),
-    )}?`,
+    body: mergeMissingInfoIntoReplyBody(body, facts),
     subject:
       replyDraft.subject ??
       (facts.missingInfo.length > 0

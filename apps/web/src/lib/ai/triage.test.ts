@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildReplyBody, extractInquiryFacts } from "./triage";
+import {
+  buildReplyBody,
+  ensureReplyDraftCoversMissingInfo,
+  extractInquiryFacts,
+  type InquiryFacts,
+} from "./triage";
 
 describe("inbound inquiry requirements", () => {
   it("asks email-originated inquiries for address, preferred time, and phone when missing", () => {
@@ -43,5 +48,29 @@ describe("inbound inquiry requirements", () => {
 
     assert.equal(facts.missingInfo.includes("Email address"), true);
     assert.match(buildReplyBody(facts), /email address/i);
+  });
+
+  it("folds missing requirements into one natural reply ask", () => {
+    const facts: InquiryFacts = {
+      address: null,
+      budget: null,
+      fit: "likely_fit",
+      jobType: "Bathroom remodel",
+      missingInfo: ["Job address", "Preferred time", "Phone number"],
+      preferredTime: null,
+      urgency: "normal",
+    };
+    const draft = ensureReplyDraftCoversMissingInfo(
+      {
+        subject: "Re: Bathroom remodel",
+        body: "Thanks for reaching out about your bathroom remodel for the vanity sink and shower/bath. To arrange a quote visit next week, could you please provide the job address and your preferred day or time? Looking forward to helping you with this project.",
+      },
+      facts,
+    );
+
+    assert.match(draft.body ?? "", /job address/i);
+    assert.match(draft.body ?? "", /preferred day or time/i);
+    assert.match(draft.body ?? "", /phone number/i);
+    assert.doesNotMatch(draft.body ?? "", /could you also/i);
   });
 });
