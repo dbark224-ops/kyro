@@ -191,6 +191,17 @@ describe("shouldRunInboundEmailSync", () => {
     );
   });
 
+  it("treats a slightly early scheduled wake as due", () => {
+    assert.equal(
+      shouldRunInboundEmailSync({
+        lastSyncAt: "2026-05-22T04:00:30.000Z",
+        now: new Date("2026-05-22T04:05:00.000Z"),
+        settings: automaticSettings,
+      }),
+      true,
+    );
+  });
+
   it("normalizes legacy same-interval quiet-hours settings back to pause", () => {
     const legacySettings = normalizeInboundEmailSettings({
       ...automaticSettings,

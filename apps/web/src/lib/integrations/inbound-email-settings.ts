@@ -428,6 +428,8 @@ function minutesSince(value: string | null, now: Date) {
   return (now.getTime() - timestamp) / 60_000;
 }
 
+const SCHEDULED_POLL_DUE_TOLERANCE_MINUTES = 0.75;
+
 export function normalizeInboundEmailSettings(value: unknown): InboundEmailSettings {
   const settings = objectRecord(value);
   const timeZone = normalizeTimeZone(settings.timeZone);
@@ -589,7 +591,11 @@ export function shouldRunInboundEmailSync({
     return false;
   }
 
-  const regularIntervalDue = minutesSince(lastSyncAt, now) >= settings.pollIntervalMinutes;
+  const dueAfterMinutes = Math.max(
+    settings.pollIntervalMinutes - SCHEDULED_POLL_DUE_TOLERANCE_MINUTES,
+    1,
+  );
+  const regularIntervalDue = minutesSince(lastSyncAt, now) >= dueAfterMinutes;
 
   if (!settings.quietHoursEnabled) {
     return regularIntervalDue;
