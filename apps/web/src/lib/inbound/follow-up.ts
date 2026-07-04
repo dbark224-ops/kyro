@@ -87,7 +87,7 @@ export async function ingestManualConversationFollowUp(
     conversation.contact_id
       ? supabase
           .from("contacts")
-          .select("address")
+          .select("address,email,phone")
           .eq("workspace_id", workspaceId)
           .eq("id", conversation.contact_id)
           .maybeSingle()
@@ -336,6 +336,13 @@ export async function ingestManualConversationFollowUp(
     contactAddress: contactProfile.data?.address
       ? String(contactProfile.data.address)
       : null,
+    contactEmail: contactProfile.data?.email
+      ? String(contactProfile.data.email)
+      : null,
+    contactPhone: contactProfile.data?.phone
+      ? String(contactProfile.data.phone)
+      : null,
+    inboundChannelType: "manual_follow_up",
     summary: `Follow-up inbound message received. Full thread now has ${
       threadMessages?.length ?? 1
     } messages.`,

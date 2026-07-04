@@ -44,6 +44,32 @@ function parseDraft(value: string, fallbackSubject: string) {
   };
 }
 
+function mobileMissingInfo(
+  profile: NonNullable<Awaited<ReturnType<typeof getConversationReview>>>,
+) {
+  const missing = [...(profile.inquiryFacts?.missingInfo ?? [])];
+
+  if (!profile.inquiryFacts?.address && !profile.contact?.address) {
+    missing.push("job address");
+  }
+
+  if (!profile.inquiryFacts?.preferredTime) {
+    missing.push("preferred day or time");
+  }
+
+  if (!profile.contact?.phone) {
+    missing.push("phone number");
+  }
+
+  return Array.from(
+    new Set(
+      missing
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { conversationId } = await context.params;
@@ -102,7 +128,14 @@ export async function POST(request: Request, context: RouteContext) {
               contact: profile.contact,
               instruction: prompt,
               lead: profile.lead,
+              requiredMissingInfo: mobileMissingInfo(profile),
               thread,
+              rules: [
+                "Every customer service inquiry needs an attendable job address. Ask for it if not present in the thread or CRM profile.",
+                "Every customer service inquiry needs a preferred day or time. Ask for it if not present.",
+                "For email-originated inquiries, ask for a phone number if the customer profile/thread does not contain one.",
+                "Do not claim calendar availability unless the context explicitly provides it.",
+              ],
               task: "Draft an outbound reply for the user to review before sending.",
             }),
             role: "user",
@@ -155,8 +188,8 @@ function fallbackDraftBody(
     "there";
   const contextLine = prompt
     ? `\n\n${prompt}`
-    : profile.inquiryFacts?.missingInfo.length
-      ? `\n\nCould you please send through ${profile.inquiryFacts.missingInfo.join(
+    : mobileMissingInfo(profile).length
+      ? `\n\nCould you please send through ${mobileMissingInfo(profile).join(
           ", ",
         )} so I can help properly?`
       : "";

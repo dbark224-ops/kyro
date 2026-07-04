@@ -811,6 +811,10 @@ export async function ingestManualInbound(
     leadTitle: String(lead.title),
     serviceType: nullableText(input.serviceType),
     contactAddress: nullableText(input.address),
+    contactEmail: nullableText(input.email),
+    contactPhone: nullableText(input.phone),
+    defaultPhoneRegion: generalSettings.defaultPhoneRegion,
+    inboundChannelType: input.channel?.type ?? "manual_inbound",
     summary: `${
       source === "twilio_sms" ? "Inbound SMS" : "Manual inbound enquiry"
     } from ${input.contactName}: ${input.message.slice(0, 180)}`,

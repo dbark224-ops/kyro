@@ -33,10 +33,17 @@ export type ReplyDraftContext = {
   } | null;
   contactEmail?: string | null;
   contactName?: string | null;
+  contactPhone?: string | null;
+  contactAddress?: string | null;
   conversationId?: string;
   eventId?: string;
   latestSubject?: string | null;
   leadTitle?: string | null;
+  inquiryFacts?: {
+    address: string | null;
+    missingInfo: string[];
+    preferredTime: string | null;
+  } | null;
   prompt: string | null;
   replyWriting?: ReplyWritingSettings;
   source: "conversation" | "skipped_email";
@@ -139,6 +146,34 @@ function replySubject(value: string | null) {
   return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 }
 
+function requiredConversationReplyRules(context: ReplyDraftContext) {
+  if (context.source !== "conversation") {
+    return [];
+  }
+
+  const missingInfo = context.inquiryFacts?.missingInfo ?? [];
+  const hasAddress =
+    Boolean(context.contactAddress?.trim()) ||
+    Boolean(context.inquiryFacts?.address?.trim());
+  const hasPreferredTime = Boolean(context.inquiryFacts?.preferredTime?.trim());
+  const hasPhone = Boolean(context.contactPhone?.trim());
+  const hasEmail = Boolean(context.contactEmail?.trim());
+
+  return [
+    "Every customer service inquiry needs an attendable job address before a quote/site visit can happen. If the thread and CRM profile do not contain a job address, ask for the job address.",
+    "Every customer service inquiry needs a preferred day or time. If the thread does not contain one, ask for the customer's preferred day or time. Do not claim calendar availability unless context explicitly provides it.",
+    "If the inquiry came by email and the CRM profile/thread does not contain a phone number, ask for a phone number.",
+    "If the inquiry came by SMS or phone and the CRM profile/thread does not contain an email address, ask for an email address.",
+    hasAddress ? null : "Required missing detail: job address.",
+    hasPreferredTime ? null : "Required missing detail: preferred day or time.",
+    hasPhone ? null : "Required missing detail for email-originated inquiry: phone number.",
+    hasEmail ? null : "Required missing detail for SMS/phone-originated inquiry: email address.",
+    missingInfo.length
+      ? `Existing inquiry missing-info labels: ${missingInfo.join(", ")}.`
+      : null,
+  ].filter((rule): rule is string => Boolean(rule));
+}
+
 export function buildReplyDraftPrompt(context: ReplyDraftContext) {
   const replyWriting =
     context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
@@ -178,6 +213,7 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
           (rule) => `Writing style - ${rule}`,
         ),
         ...skippedEmailRules,
+        ...requiredConversationReplyRules(promptContext),
       ],
       task: "Draft an outbound email reply for the user to review before sending.",
     },
@@ -280,9 +316,18 @@ async function conversationContext(
     .find((message) => message.subject)?.subject;
 
   return {
+    contactAddress: review.contact?.address ?? null,
     contactEmail: review.contact?.email ?? null,
     contactName: review.contact?.name ?? null,
+    contactPhone: review.contact?.phone ?? null,
     conversationId,
+    inquiryFacts: review.inquiryFacts
+      ? {
+          address: review.inquiryFacts.address,
+          missingInfo: review.inquiryFacts.missingInfo,
+          preferredTime: review.inquiryFacts.preferredTime,
+        }
+      : null,
     latestSubject: latestSubject ?? review.lead?.title ?? null,
     leadTitle: review.lead?.title ?? null,
     prompt,

@@ -2651,7 +2651,7 @@ async function promoteEmailMessage({
     : { data: null, error: null };
   const { data: contactProfile, error: contactProfileError } = await supabase
     .from("contacts")
-    .select("address")
+    .select("address,email,phone")
     .eq("workspace_id", workspaceId)
     .eq("id", contactId)
     .maybeSingle();
@@ -2672,8 +2672,11 @@ async function promoteEmailMessage({
     contactAddress: contactProfile?.address
       ? String(contactProfile.address)
       : null,
+    contactEmail: contactProfile?.email ? String(contactProfile.email) : null,
+    contactPhone: contactProfile?.phone ? String(contactProfile.phone) : null,
     contactId,
     conversationId,
+    inboundChannelType: "email",
     leadId: leadId ?? undefined,
     leadTitle: leadProfile?.title ? String(leadProfile.title) : leadTitle,
     messageId: String(savedMessage.id),
