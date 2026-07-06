@@ -7,6 +7,7 @@ import {
   getConversationList,
   getConversationWorkflowCounts,
 } from "../crm/queries";
+import { getCalendarEvents, type CalendarEventItem } from "../calendar/events";
 import {
   getGeneratedDocumentsForWorkspace,
   type GeneratedDocumentRecord,
@@ -17,6 +18,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type DashboardCommandCenterData = {
   activity: AssistantExternalActivityItem[];
+  calendarEvents: DashboardCalendarEventItem[];
   generatedDocuments: DashboardGeneratedDocumentItem[];
   payments: DashboardPaymentsSummary;
   stats: DashboardStats;
@@ -24,6 +26,18 @@ export type DashboardCommandCenterData = {
   topContacts: DashboardContactSummary[];
   workQueue: DashboardWorkQueueItem[];
   workspace: WorkspaceSummary;
+};
+
+export type DashboardCalendarEventItem = {
+  appointmentType: string;
+  contactLabel: string | null;
+  endsAt: string | null;
+  id: string;
+  leadTitle: string | null;
+  location: string | null;
+  startsAt: string | null;
+  status: string;
+  title: string;
 };
 
 export type DashboardGeneratedDocumentItem = {
@@ -156,12 +170,51 @@ function generatedDocumentHref(document: GeneratedDocumentRecord) {
   return "/files";
 }
 
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfToday() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function calendarContactLabel(event: CalendarEventItem) {
+  return (
+    event.contact?.name ??
+    event.contact?.company ??
+    event.contact?.email ??
+    event.contact?.phone ??
+    null
+  );
+}
+
+function dashboardCalendarEvent(event: CalendarEventItem) {
+  return {
+    appointmentType: event.appointmentType,
+    contactLabel: calendarContactLabel(event),
+    endsAt: event.endsAt,
+    id: event.id,
+    leadTitle: event.lead?.title ?? event.conversation?.leadTitle ?? null,
+    location: event.location,
+    startsAt: event.startsAt,
+    status: event.status,
+    title: event.title,
+  } satisfies DashboardCalendarEventItem;
+}
+
 export async function getDashboardCommandCenterData(
   supabase: SupabaseClient,
   workspace: WorkspaceSummary,
 ): Promise<DashboardCommandCenterData> {
+  const calendarFrom = startOfToday();
+  const calendarTo = addDays(calendarFrom, 45);
   const [
     activity,
+    calendarEvents,
     routeMetrics,
     workflowCounts,
     conversations,
@@ -170,6 +223,10 @@ export async function getDashboardCommandCenterData(
     paymentsOverview,
   ] = await Promise.all([
     getAssistantExternalActivity(supabase, workspace.id, 18),
+    getCalendarEvents(supabase, workspace.id, {
+      from: calendarFrom.toISOString(),
+      to: calendarTo.toISOString(),
+    }).catch(() => []),
     getAssistantRouteMetrics(supabase, workspace.id),
     getConversationWorkflowCounts(supabase, workspace.id),
     getConversationList(supabase, workspace.id, { limit: 36 }),
@@ -243,6 +300,10 @@ export async function getDashboardCommandCenterData(
 
   return {
     activity,
+    calendarEvents: calendarEvents
+      .filter((event) => event.status !== "cancelled")
+      .slice(0, 12)
+      .map(dashboardCalendarEvent),
     generatedDocuments: generatedDocuments.map((document) => ({
       href: generatedDocumentHref(document),
       id: document.id,
@@ -253,7 +314,8 @@ export async function getDashboardCommandCenterData(
     })),
     payments: {
       currency: paymentsOverview?.stats.currency ?? "AUD",
-      outstandingAmountCents: paymentsOverview?.stats.outstandingAmountCents ?? 0,
+      outstandingAmountCents:
+        paymentsOverview?.stats.outstandingAmountCents ?? 0,
       outstandingCount: paymentsOverview?.stats.outstandingCount ?? 0,
       overdueAmountCents: paymentsOverview?.stats.overdueAmountCents ?? 0,
       overdueCount: paymentsOverview?.stats.overdueCount ?? 0,

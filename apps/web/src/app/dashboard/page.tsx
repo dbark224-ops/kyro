@@ -6,10 +6,13 @@ import type { AssistantThreadState } from "../../lib/assistant/types";
 import { isKyroEmailVerified } from "../../lib/auth/email-verification";
 import { getDashboardCommandCenterData } from "../../lib/dashboard/queries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 
 export const dynamic = "force-dynamic";
 
-function buildWelcomeState(threadState: AssistantThreadState): AssistantThreadState {
+function buildWelcomeState(
+  threadState: AssistantThreadState,
+): AssistantThreadState {
   if (threadState.messages.length > 0) {
     return threadState;
   }
@@ -30,8 +33,9 @@ function buildWelcomeState(threadState: AssistantThreadState): AssistantThreadSt
 
 export default async function DashboardPage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [data, threadState] = await Promise.all([
+  const [data, generalSettings, threadState] = await Promise.all([
     getDashboardCommandCenterData(supabase, workspace),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
     getAssistantThreadState({
       supabase,
       user,
@@ -45,6 +49,7 @@ export default async function DashboardPage() {
         data={data}
         emailVerified={isKyroEmailVerified(user)}
         initialAssistantState={buildWelcomeState(threadState)}
+        timeZone={generalSettings.timeZone}
         userEmail={user.email ?? ""}
       />
       <DashboardTour />

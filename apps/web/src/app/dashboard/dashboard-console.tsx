@@ -8,6 +8,7 @@ import type {
   AssistantThreadState,
 } from "../../lib/assistant/types";
 import type {
+  DashboardCalendarEventItem,
   DashboardCommandCenterData,
   DashboardContactSummary,
   DashboardWorkQueueItem,
@@ -20,6 +21,7 @@ type DashboardConsoleProps = {
   data: DashboardCommandCenterData;
   emailVerified: boolean;
   initialAssistantState: AssistantThreadState;
+  timeZone: string;
   userEmail: string;
 };
 
@@ -83,10 +85,10 @@ type WidgetDefinition = {
   title: string;
 };
 
-const DASHBOARD_LAYOUT_STORAGE_KEY = "kyro.dashboard.layout.v1";
+const DASHBOARD_LAYOUT_STORAGE_KEY = "kyro.dashboard.layout.v2";
 const DEFAULT_LAYOUT: DashboardLayoutConfig = {
-  bottom: ["payments", "top_contacts", "suppliers"],
-  middle: ["work_queue", "assistant", "activity"],
+  bottom: ["activity", "payments", "top_contacts"],
+  middle: ["calendar", "work_queue", "assistant"],
   top: ["needsReply", "readyToQuote", "quoteApprovedOrBooked", "followUpDue"],
 };
 
@@ -229,7 +231,7 @@ function formatCount(value: number) {
   return new Intl.NumberFormat().format(value);
 }
 
-function formatDateTime(value: string | null) {
+function formatDateTime(value: string | null, timeZone?: string) {
   if (!value) {
     return null;
   }
@@ -245,6 +247,7 @@ function formatDateTime(value: string | null) {
     hour: "numeric",
     minute: "2-digit",
     month: "short",
+    timeZone,
   }).format(date);
 }
 
@@ -272,6 +275,121 @@ function startOfTimeframe(timeframe: DashboardTimeframe, now: Date) {
   start.setHours(0, 0, 0, 0);
   start.setMonth(0, 1);
   return start;
+}
+
+function endOfTimeframe(timeframe: DashboardTimeframe, now: Date) {
+  const start = startOfTimeframe(timeframe, now);
+  const end = new Date(start);
+
+  if (timeframe === "today") {
+    end.setDate(end.getDate() + 1);
+    return end;
+  }
+
+  if (timeframe === "week") {
+    end.setDate(end.getDate() + 7);
+    return end;
+  }
+
+  if (timeframe === "month") {
+    end.setMonth(end.getMonth() + 1, 1);
+    return end;
+  }
+
+  end.setFullYear(end.getFullYear() + 1, 0, 1);
+  return end;
+}
+
+function calendarDateParam(value: string | null, timeZone: string) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat("en", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone,
+    year: "numeric",
+  }).formatToParts(date);
+  const partMap = new Map(parts.map((part) => [part.type, part.value]));
+  const year = partMap.get("year");
+  const month = partMap.get("month");
+  const day = partMap.get("day");
+
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+function dashboardCalendarHref(
+  event: DashboardCalendarEventItem,
+  timeZone: string,
+) {
+  const params = new URLSearchParams({
+    event: event.id,
+    view: "day",
+  });
+  const dateParam = calendarDateParam(event.startsAt, timeZone);
+
+  if (dateParam) {
+    params.set("date", dateParam);
+  }
+
+  return `/calendar?${params.toString()}`;
+}
+
+function calendarEventTimeLabel(
+  event: DashboardCalendarEventItem,
+  timeZone: string,
+) {
+  if (!event.startsAt) {
+    return "Time not set";
+  }
+
+  const start = new Date(event.startsAt);
+
+  if (Number.isNaN(start.getTime())) {
+    return "Time not set";
+  }
+
+  const dateLabel = new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    timeZone,
+    weekday: "short",
+  }).format(start);
+  const timeLabel = new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  }).format(start);
+
+  return `${dateLabel}, ${timeLabel}`;
+}
+
+function isCalendarEventWithinTimeframe(
+  event: DashboardCalendarEventItem,
+  timeframe: DashboardTimeframe,
+  now: Date,
+) {
+  if (!event.startsAt) {
+    return false;
+  }
+
+  const date = new Date(event.startsAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  return (
+    date.getTime() >= startOfTimeframe(timeframe, now).getTime() &&
+    date.getTime() < endOfTimeframe(timeframe, now).getTime()
+  );
 }
 
 function isWithinTimeframe(
@@ -507,6 +625,18 @@ function timeFilteredWorkQueue(
   return filtered.length > 0 ? filtered : items.slice(0, 8);
 }
 
+function timeFilteredCalendar(
+  items: DashboardCalendarEventItem[],
+  timeframe: DashboardTimeframe,
+) {
+  const now = new Date();
+  const filtered = items.filter((item) =>
+    isCalendarEventWithinTimeframe(item, timeframe, now),
+  );
+
+  return filtered.length > 0 ? filtered : items;
+}
+
 function matchesWorkQueueFilter(
   item: DashboardWorkQueueItem,
   filter: DashboardQueueFilter,
@@ -696,6 +826,7 @@ function renderWidget({
   onActivityFilterChange,
   onWorkQueueFilterChange,
   timeframe,
+  timeZone,
   workQueueFilter,
 }: {
   activityFilter: DashboardActivityFilter;
@@ -705,6 +836,7 @@ function renderWidget({
   onActivityFilterChange: (value: DashboardActivityFilter) => void;
   onWorkQueueFilterChange: (value: DashboardQueueFilter) => void;
   timeframe: DashboardTimeframe;
+  timeZone: string;
   workQueueFilter: DashboardQueueFilter;
 }) {
   const timeframeLabel = timeframeLabelMap[timeframe];
@@ -1001,19 +1133,50 @@ function renderWidget({
   }
 
   if (key === "calendar") {
+    const items = timeFilteredCalendar(data.calendarEvents, timeframe).slice(
+      0,
+      5,
+    );
+
     return (
-      <section className="dashboard-widget placeholder" key={key}>
+      <section className="dashboard-widget dashboard-widget-calendar" key={key}>
         <DashboardWidgetHeader
-          action={<span className="filter-pill">Upcoming</span>}
-          description="Scheduling, site visits, and due reminders."
+          action={
+            <Link className="filter-pill" href="/calendar">
+              Open
+            </Link>
+          }
+          description={`${timeframeLabel} schedule and next appointments.`}
           title="Calendar"
         />
-        <div className="dashboard-placeholder">
-          <strong>Scheduling view is being prepared.</strong>
-          <p>
-            Site visits, due reminders, and calendar writeback will appear here
-            once scheduling is connected.
-          </p>
+        <div className="dashboard-list-grid">
+          {items.map((item) => (
+            <DashboardListItem
+              eyebrow={calendarEventTimeLabel(item, timeZone)}
+              href={dashboardCalendarHref(item, timeZone)}
+              key={item.id}
+              meta={item.status.replace(/_/g, " ")}
+              subtitle={
+                compactSnippet(
+                  item.location ??
+                    item.contactLabel ??
+                    item.leadTitle ??
+                    item.appointmentType.replace(/_/g, " "),
+                  72,
+                ) ?? "Calendar event"
+              }
+              title={item.title}
+            />
+          ))}
+          {items.length === 0 ? (
+            <p className="empty-copy">
+              Nothing is scheduled in Kyro yet. Add the first event from
+              Calendar.
+            </p>
+          ) : null}
+          <Link className="dashboard-widget-footer-link" href="/calendar">
+            Open calendar
+          </Link>
         </div>
       </section>
     );
@@ -1061,9 +1224,10 @@ function DashboardEmailVerificationNotice({
       method: "POST",
     }).catch(() => null);
 
-    const payload = (await response?.json().catch(() => null)) as
-      | { error?: string; ok?: boolean }
-      | null;
+    const payload = (await response?.json().catch(() => null)) as {
+      error?: string;
+      ok?: boolean;
+    } | null;
 
     if (!response?.ok || payload?.error) {
       setStatus("error");
@@ -1112,6 +1276,7 @@ export function DashboardConsole({
   data,
   emailVerified,
   initialAssistantState,
+  timeZone,
   userEmail,
 }: DashboardConsoleProps) {
   const [timeframe, setTimeframe] = useState<DashboardTimeframe>("today");
@@ -1329,6 +1494,7 @@ export function DashboardConsole({
                 onActivityFilterChange: setActivityFilter,
                 onWorkQueueFilterChange: setWorkQueueFilter,
                 timeframe,
+                timeZone,
                 workQueueFilter,
               }),
             )}
@@ -1347,6 +1513,7 @@ export function DashboardConsole({
                 onActivityFilterChange: setActivityFilter,
                 onWorkQueueFilterChange: setWorkQueueFilter,
                 timeframe,
+                timeZone,
                 workQueueFilter,
               }),
             )}
