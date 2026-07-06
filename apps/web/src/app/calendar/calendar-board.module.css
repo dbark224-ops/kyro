@@ -1,12 +1,12 @@
 .calendarShell {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .calendarToolbar {
   align-items: center;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: space-between;
 }
 
@@ -28,9 +28,9 @@
 
 .viewSwitch a {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 800;
-  padding: 8px 12px;
+  padding: 7px 10px;
   text-decoration: none;
   text-transform: uppercase;
 }
@@ -42,7 +42,7 @@
 
 .calendarGrid {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
 }
 
@@ -70,7 +70,7 @@
   display: flex;
   gap: 12px;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 .calendarTitle h2,
@@ -90,9 +90,9 @@
 
 .monthGrid {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  padding: 12px;
+  padding: 10px;
 }
 
 .monthDayName {
@@ -100,16 +100,16 @@
   font-size: 0.68rem;
   font-weight: 900;
   letter-spacing: 0.03em;
-  padding: 10px;
+  padding: 8px;
   text-transform: uppercase;
 }
 
 .monthCell {
   background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
-  border-radius: 12px;
-  min-height: 126px;
-  padding: 8px;
+  border-radius: 10px;
+  min-height: 112px;
+  padding: 7px;
 }
 
 .monthCellMuted {
@@ -131,7 +131,7 @@
 
 .eventList {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .eventCard {
@@ -143,7 +143,7 @@
   display: grid;
   gap: 2px;
   min-width: 0;
-  padding: 8px 9px;
+  padding: 6px 7px;
   text-align: left;
   transition:
     border-color 150ms ease,
@@ -159,7 +159,7 @@
 }
 
 .eventCard strong {
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -167,7 +167,7 @@
 
 .eventCard span {
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -175,10 +175,10 @@
 
 .weekGrid {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  min-height: 620px;
-  padding: 12px;
+  min-height: 560px;
+  padding: 10px;
 }
 
 .weekColumn {
@@ -193,7 +193,7 @@
 
 .weekHeader {
   border-bottom: 1px solid var(--line);
-  padding: 12px;
+  padding: 10px;
 }
 
 .weekHeader strong {
@@ -210,16 +210,16 @@
 .dayBody {
   align-content: start;
   display: grid;
-  gap: 8px;
-  padding: 12px;
+  gap: 7px;
+  padding: 10px;
 }
 
 .dayBody {
   background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
   border-radius: 12px;
-  margin: 12px;
-  min-height: 620px;
+  margin: 10px;
+  min-height: 560px;
 }
 
 .dayEventRow {
@@ -356,16 +356,42 @@
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 28px;
+  padding: 22px;
   position: fixed;
   z-index: 80;
 }
 
 .modalPanel {
-  max-height: calc(100vh - 56px);
+  max-height: calc(100vh - 44px);
   max-width: 760px;
   overflow: auto;
   width: min(760px, 100%);
+}
+
+@media (max-height: 860px) and (min-width: 761px) {
+  .calendarShell {
+    gap: 10px;
+  }
+
+  .calendarPanelHeader,
+  .editorHeader {
+    padding: 10px 12px;
+  }
+
+  .monthGrid {
+    gap: 5px;
+    padding: 8px;
+  }
+
+  .monthCell {
+    min-height: 102px;
+    padding: 6px;
+  }
+
+  .weekGrid,
+  .dayBody {
+    min-height: 520px;
+  }
 }
 
 @media (max-width: 1120px) {
