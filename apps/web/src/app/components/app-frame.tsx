@@ -35,7 +35,6 @@ import type { ReactNode } from "react";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
   { label: "Assistant", href: "/assistant", icon: "assistant", primary: true },
-  { label: "Voice assistant", href: "/voice-vapi", icon: "voice" },
   { label: "Inbox", href: "/inbox", icon: "inbox" },
   { label: "Calendar", href: "/calendar", icon: "calendar" },
   { label: "CRM", href: "/contacts", icon: "crm" },
@@ -61,7 +60,8 @@ const preloadRoutes = navItems
       "Activity",
     ].includes(item.label),
   )
-  .map((item) => item.href);
+  .map((item) => item.href)
+  .concat("/voice-vapi");
 const USAGE_COST_CACHE_TTL_MS = 30_000;
 const usageCostCache = new Map<
   string,

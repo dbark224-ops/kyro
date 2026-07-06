@@ -1,4 +1,5 @@
 import { AssistantConsole } from "./assistant-console";
+import { AssistantModeSwitch } from "../components/assistant-mode-switch";
 import { AppFrame } from "../components/app-frame";
 import { getAssistantExternalActivity } from "../../lib/assistant/external-activity";
 import { getAssistantPromptSuggestionState } from "../../lib/assistant/prompt-suggestions";
@@ -69,15 +70,14 @@ export default async function AssistantPage({
     promptSuggestions,
     selectedContactProfile,
     threadState,
-  ] =
-    await Promise.all([
-      activityPromise,
-      metricsPromise,
-      generalSettingsPromise,
-      promptSuggestionsPromise,
-      selectedContactProfilePromise,
-      threadStatePromise,
-    ]);
+  ] = await Promise.all([
+    activityPromise,
+    metricsPromise,
+    generalSettingsPromise,
+    promptSuggestionsPromise,
+    selectedContactProfilePromise,
+    threadStatePromise,
+  ]);
 
   const { contactCount, needsReply, readyQuotes } = metrics;
   const welcomeMessage: AssistantThreadState["messages"][number] = {
@@ -115,6 +115,7 @@ export default async function AssistantPage({
           <div>
             <p className="eyebrow">{workspace.name}</p>
             <h1>Assistant</h1>
+            <AssistantModeSwitch active="assistant" />
           </div>
           <div className="topbar-right">
             <section
