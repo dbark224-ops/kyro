@@ -91,15 +91,6 @@ function rangeForView(anchor: Date, view: CalendarView) {
   return { from, to: addDays(from, 7) };
 }
 
-function currentHref(view: CalendarView, date: Date) {
-  const params = new URLSearchParams({
-    date: formatDateParam(date),
-    view,
-  });
-
-  return `/calendar?${params.toString()}`;
-}
-
 export default async function CalendarPage({ searchParams }: CalendarPageProps) {
   const [query, { supabase, workspace }] = await Promise.all([
     searchParams,
@@ -111,7 +102,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   ]);
   const view = normalizeView(query?.view, settings.defaultView);
   const anchor = parseAnchorDate(query?.date);
-  const range = rangeForView(anchor, view);
+  const range = rangeForView(anchor, "month");
   if (settings.importExternalUpdates && settings.syncProvider !== "none") {
     await syncExternalCalendarUpdatesToKyro({
       supabase,
@@ -144,9 +135,9 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
 
       <CalendarBoard
         anchorDate={formatDateParam(anchor)}
-        currentHref={currentHref(view, anchor)}
         events={events}
         initialSelectedEventId={query?.event ?? null}
+        key={`${formatDateParam(anchor)}-${view}`}
         options={options}
         settings={settings}
         timeZone={generalSettings.timeZone}

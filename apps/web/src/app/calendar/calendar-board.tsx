@@ -23,7 +23,6 @@ import styles from "./calendar-board.module.css";
 
 type CalendarBoardProps = Readonly<{
   anchorDate: string;
-  currentHref: string;
   events: CalendarEventItem[];
   initialSelectedEventId: string | null;
   options: CalendarEntityOptions;
@@ -54,6 +53,10 @@ function startOfWeek(date: Date) {
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
 }
 
 function formatDateParam(date: Date) {
@@ -132,6 +135,22 @@ function viewHref(view: CalendarView, date: Date) {
   return `/calendar?${params.toString()}`;
 }
 
+function rangeForView(anchor: Date, view: CalendarView) {
+  if (view === "day") {
+    const from = startOfDay(anchor);
+    return { from, to: addDays(from, 1) };
+  }
+
+  if (view === "month") {
+    const from = startOfWeek(startOfMonth(anchor));
+    const to = addDays(startOfWeek(addMonths(anchor, 1)), 7);
+    return { from, to };
+  }
+
+  const from = startOfWeek(anchor);
+  return { from, to: addDays(from, 7) };
+}
+
 function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
   if (view === "day") {
     return new Intl.DateTimeFormat("en", {
@@ -173,6 +192,23 @@ function eventsForDay(events: CalendarEventItem[], day: Date) {
 
     const time = new Date(event.startsAt).getTime();
     return time >= start && time < end;
+  });
+}
+
+function eventsInRange(
+  events: CalendarEventItem[],
+  range: ReturnType<typeof rangeForView>,
+) {
+  const from = range.from.getTime();
+  const to = range.to.getTime();
+
+  return events.filter((event) => {
+    if (!event.startsAt) {
+      return false;
+    }
+
+    const time = new Date(event.startsAt).getTime();
+    return time >= from && time < to;
   });
 }
 
@@ -630,7 +666,6 @@ function EventEditor({
 
 export function CalendarBoard({
   anchorDate,
-  currentHref,
   events,
   initialSelectedEventId,
   options,
@@ -641,26 +676,40 @@ export function CalendarBoard({
   const anchor = useMemo(() => startOfDay(new Date(`${anchorDate}T12:00:00`)), [
     anchorDate,
   ]);
+  const [currentView, setCurrentView] = useState<CalendarView>(view);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(
     initialSelectedEventId,
   );
   const [createOpen, setCreateOpen] = useState(false);
+  const visibleRange = useMemo(
+    () => rangeForView(anchor, currentView),
+    [anchor, currentView],
+  );
+  const visibleEvents = useMemo(
+    () => eventsInRange(events, visibleRange),
+    [events, visibleRange],
+  );
+  const currentHref = viewHref(currentView, anchor);
   const selectedEvent =
     events.find((event) => event.id === selectedEventId) ?? null;
   const selectEvent = (eventId: string) => {
     setCreateOpen(false);
     setSelectedEventId(eventId);
   };
+  const switchView = (nextView: CalendarView) => {
+    setCurrentView(nextView);
+    window.history.replaceState(null, "", viewHref(nextView, anchor));
+  };
   const previousDate =
-    view === "month"
+    currentView === "month"
       ? new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1)
-      : addDays(anchor, view === "week" ? -7 : -1);
+      : addDays(anchor, currentView === "week" ? -7 : -1);
   const nextDate =
-    view === "month"
+    currentView === "month"
       ? new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1)
-      : addDays(anchor, view === "week" ? 7 : 1);
-  const scheduledEvents = events.filter((event) => event.startsAt);
-  const unsyncedCount = events.filter(
+      : addDays(anchor, currentView === "week" ? 7 : 1);
+  const scheduledEvents = visibleEvents.filter((event) => event.startsAt);
+  const unsyncedCount = visibleEvents.filter(
     (event) =>
       event.startsAt &&
       event.externalSyncStatus &&
@@ -673,25 +722,34 @@ export function CalendarBoard({
         <div className={styles.calendarToolbarLeft}>
           <div className={styles.viewSwitch} aria-label="Calendar view">
             {(["day", "week", "month"] as const).map((nextView) => (
-              <Link
-                data-active={view === nextView}
-                href={viewHref(nextView, anchor)}
+              <button
+                data-active={currentView === nextView}
                 key={nextView}
-                prefetch
+                onClick={() => switchView(nextView)}
+                type="button"
               >
                 {nextView}
-              </Link>
+              </button>
             ))}
           </div>
-          <Link className="secondary-button compact" href={viewHref(view, new Date())}>
+          <Link
+            className="secondary-button compact"
+            href={viewHref(currentView, new Date())}
+          >
             Today
           </Link>
         </div>
         <div className={styles.calendarToolbarRight}>
-          <Link className="secondary-button compact" href={viewHref(view, previousDate)}>
+          <Link
+            className="secondary-button compact"
+            href={viewHref(currentView, previousDate)}
+          >
             Prev
           </Link>
-          <Link className="secondary-button compact" href={viewHref(view, nextDate)}>
+          <Link
+            className="secondary-button compact"
+            href={viewHref(currentView, nextDate)}
+          >
             Next
           </Link>
           <button
@@ -716,7 +774,7 @@ export function CalendarBoard({
           <div className={styles.calendarPanelHeader}>
             <div className={styles.calendarTitle}>
               <p className="eyebrow">Calendar</p>
-              <h2>{rangeLabel(anchor, view, timeZone)}</h2>
+              <h2>{rangeLabel(anchor, currentView, timeZone)}</h2>
               <p>
                 {scheduledEvents.length} scheduled event
                 {scheduledEvents.length === 1 ? "" : "s"}
@@ -730,29 +788,29 @@ export function CalendarBoard({
             </span>
           </div>
 
-          {view === "month" ? (
+          {currentView === "month" ? (
             <MonthView
               activeEventId={selectedEventId}
               anchor={anchor}
-              events={events}
+              events={visibleEvents}
               onSelect={selectEvent}
               timeZone={timeZone}
             />
           ) : null}
-          {view === "week" ? (
+          {currentView === "week" ? (
             <WeekView
               activeEventId={selectedEventId}
               anchor={anchor}
-              events={events}
+              events={visibleEvents}
               onSelect={selectEvent}
               timeZone={timeZone}
             />
           ) : null}
-          {view === "day" ? (
+          {currentView === "day" ? (
             <DayView
               activeEventId={selectedEventId}
               anchor={anchor}
-              events={events}
+              events={visibleEvents}
               onSelect={selectEvent}
               timeZone={timeZone}
             />
