@@ -13,6 +13,7 @@ import {
 export type AssistantToolName =
   | "action_execution"
   | "app_help"
+  | "calendar_event"
   | "contact_lookup"
   | "document_template_create"
   | "document_template_update"
@@ -146,6 +147,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Prepare an approval-gated outbound phone call to a contact, customer, or phone number with clear instructions for what Kyro should say.",
     name: "outbound_call",
+  },
+  {
+    description:
+      "Show, create, open, or manage Kyro calendar events, quote visits, appointments, jobs, or site visits. Use this for scheduling requests before guessing from general chat.",
+    name: "calendar_event",
   },
   {
     description:

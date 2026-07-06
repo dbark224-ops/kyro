@@ -26,6 +26,7 @@ import {
 } from "../../lib/integrations/inbound-email-settings";
 import { promoteSkippedEmailEvent } from "../../lib/integrations/inbound-email-sync";
 import { runStubAiTriage, type InquiryFacts } from "../../lib/ai/triage";
+import { syncAppointmentToExternalCalendar } from "../../lib/calendar/provider-sync";
 import {
   approveAction,
   executeAction,
@@ -2705,7 +2706,15 @@ export async function createConversationAppointmentAction(formData: FormData) {
     },
   });
 
+  await syncAppointmentToExternalCalendar({
+    action: "create",
+    appointmentId: String(appointment.id),
+    supabase,
+    workspaceId: workspace.id,
+  });
+
   revalidatePath("/inbox");
+  revalidatePath("/calendar");
   revalidatePath(conversationPath(conversationId));
   revalidatePath(redirectTo.split("?")[0] || "/inbox");
   redirectWithConversationMessage(
@@ -2785,7 +2794,15 @@ export async function completeConversationAppointmentAction(
     },
   });
 
+  await syncAppointmentToExternalCalendar({
+    action: "update",
+    appointmentId,
+    supabase,
+    workspaceId: workspace.id,
+  });
+
   revalidatePath("/inbox");
+  revalidatePath("/calendar");
   revalidatePath(conversationPath(conversationId));
   revalidatePath(redirectTo.split("?")[0] || "/inbox");
   redirectWithConversationMessage(

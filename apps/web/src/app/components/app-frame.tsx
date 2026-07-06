@@ -37,6 +37,7 @@ const navItems = [
   { label: "Assistant", href: "/assistant", icon: "assistant", primary: true },
   { label: "Voice assistant", href: "/voice-vapi", icon: "voice" },
   { label: "Inbox", href: "/inbox", icon: "inbox" },
+  { label: "Calendar", href: "/calendar", icon: "calendar" },
   { label: "CRM", href: "/contacts", icon: "crm" },
   { label: "Files", href: "/files", icon: "files" },
   { label: "Payments", href: "/payments", icon: "payments" },
@@ -52,6 +53,7 @@ const preloadRoutes = navItems
     [
       "Dashboard",
       "Assistant",
+      "Calendar",
       "Inbox",
       "CRM",
       "Files",
@@ -725,6 +727,18 @@ function AppShellIcon({
           d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5V14A1.5 1.5 0 0 1 16 15.5H4A1.5 1.5 0 0 1 2.5 14V6A1.5 1.5 0 0 1 4 4.5Z"
         />
         <path {...common} d="M3 8.5h4l1.25 2h3.5l1.25-2H17" />
+      </svg>
+    );
+  }
+
+  if (name === "calendar") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M5 3.5v2M15 3.5v2M3.5 7.5h13M5 5h10A1.5 1.5 0 0 1 16.5 6.5V15A1.5 1.5 0 0 1 15 16.5H5A1.5 1.5 0 0 1 3.5 15V6.5A1.5 1.5 0 0 1 5 5Z"
+        />
+        <path {...common} d="M6.5 10h2M11.5 10h2M6.5 13h2M11.5 13h2" />
       </svg>
     );
   }

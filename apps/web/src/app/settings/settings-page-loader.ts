@@ -3,6 +3,7 @@ import { getPronunciationEntries } from "../../lib/assistant/pronunciation";
 import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import { getKyroBillingEngineOverview } from "../../lib/billing/kyro-billing-engine";
 import { getKyroUserBillingOverview } from "../../lib/billing/kyro-user-billing";
+import { getCalendarSettings } from "../../lib/calendar/settings";
 import { getCommunicationSettings } from "../../lib/communication/settings";
 import { getDocumentTemplateSettings } from "../../lib/documents/settings";
 import { getGoogleIntegrationOverview } from "../../lib/integrations/google";
@@ -108,6 +109,7 @@ export async function loadSettingsPageData(
   const needsGeneralSettings =
     selectedSection === "general" ||
     selectedSection === "usage" ||
+    selectedSection === "calendar" ||
     (selectedSection === "developer" && isDeveloperAccount) ||
     (selectedSection === "integrations" &&
       activeIntegrationPanel === "phone-sms");
@@ -116,11 +118,12 @@ export async function loadSettingsPageData(
     (selectedSection === "integrations" &&
       activeIntegrationPanel === "outbound");
   const needsEmailProviderOverview =
-    selectedSection === "integrations" &&
-    (activeIntegrationPanel === "inbound-email" ||
-      activeIntegrationPanel === "email-accounts" ||
-      activeIntegrationPanel === "google" ||
-      activeIntegrationPanel === "microsoft");
+    (selectedSection === "integrations" &&
+      (activeIntegrationPanel === "inbound-email" ||
+        activeIntegrationPanel === "email-accounts" ||
+        activeIntegrationPanel === "google" ||
+        activeIntegrationPanel === "microsoft")) ||
+    selectedSection === "calendar";
   const needsAssignedPhoneNumbers =
     (selectedSection === "general" && selectedPanel === "public-details") ||
     (selectedSection === "voice" && selectedPanel === "voicemail-overflow") ||
@@ -136,6 +139,7 @@ export async function loadSettingsPageData(
   const [
     communicationSettings,
     availablePhoneNumbers,
+    calendarSettings,
     generalSettings,
     googleOverview,
     microsoftOverview,
@@ -167,6 +171,9 @@ export async function loadSettingsPageData(
           )
           .catch(() => [])
       : Promise.resolve([]),
+    selectedSection === "calendar"
+      ? getCalendarSettings(supabase, workspace.id)
+      : Promise.resolve(null),
     needsGeneralSettings
       ? getWorkspaceGeneralSettings(supabase, workspace.id)
       : Promise.resolve(null),
@@ -221,6 +228,7 @@ export async function loadSettingsPageData(
     activeWindow,
     assignedPhoneNumbers,
     availablePhoneNumbers,
+    calendarSettings,
     communicationSettings,
     dashboardTutorialState,
     documentTemplateSettings,

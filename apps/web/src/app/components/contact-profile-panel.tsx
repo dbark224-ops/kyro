@@ -101,6 +101,9 @@ export function ContactProfilePanel({
             <strong>{profile.counts.quoteDrafts}</strong> documents
           </span>
           <span>
+            <strong>{profile.counts.appointments}</strong> events
+          </span>
+          <span>
             <strong>
               {formatContactLifecycleStage(profile.contact.lifecycleStage)}
             </strong>{" "}
@@ -425,6 +428,33 @@ export function ContactProfilePanel({
           ) : (
             <p className="empty-copy">No messages linked to this contact.</p>
           )}
+        </section>
+
+        <section className="assistant-preview-panel">
+          <h3>Calendar</h3>
+          <div className="assistant-preview-list compact">
+            {profile.appointments.slice(0, 4).map((appointment) => (
+              <Link
+                className="assistant-preview-row plain-link"
+                href={calendarEventHref(appointment.id, appointment.startsAt)}
+                key={appointment.id}
+                prefetch={false}
+              >
+                <div>
+                  <strong>{appointment.title}</strong>
+                  <span>
+                    {formatLabel(appointment.appointmentType)} -{" "}
+                    {formatDate(appointment.startsAt)}
+                  </span>
+                  {appointment.location ? <p>{appointment.location}</p> : null}
+                </div>
+                <span>{formatLabel(appointment.status)}</span>
+              </Link>
+            ))}
+            {profile.appointments.length === 0 ? (
+              <p className="empty-copy">No calendar events linked yet.</p>
+            ) : null}
+          </div>
         </section>
 
         <section className="assistant-preview-panel">
@@ -782,6 +812,23 @@ function formatDate(value: string | null) {
     minute: "2-digit",
     month: "short",
   }).format(new Date(value));
+}
+
+function calendarEventHref(eventId: string, startsAt: string | null) {
+  const params = new URLSearchParams({
+    event: eventId,
+    view: "week",
+  });
+
+  if (startsAt) {
+    const date = new Date(startsAt);
+
+    if (!Number.isNaN(date.getTime())) {
+      params.set("date", date.toISOString().slice(0, 10));
+    }
+  }
+
+  return `/calendar?${params.toString()}`;
 }
 
 function formatLabel(value: string | null) {

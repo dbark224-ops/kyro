@@ -52,6 +52,23 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function calendarEventHref(eventId: string, startsAt: string | null) {
+  const params = new URLSearchParams({
+    event: eventId,
+    view: "week",
+  });
+
+  if (startsAt) {
+    const date = new Date(startsAt);
+
+    if (!Number.isNaN(date.getTime())) {
+      params.set("date", date.toISOString().slice(0, 10));
+    }
+  }
+
+  return `/calendar?${params.toString()}`;
+}
+
 function formatMoney(
   value: string | null,
   sourceCurrency: string,
@@ -411,6 +428,53 @@ export default async function ContactProfilePage({
                 <span>Updated</span>
                 <strong>{formatDate(profile.contact.updatedAt)}</strong>
               </div>
+            </div>
+          </article>
+
+          <article className="panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Calendar</p>
+                <h2>Events</h2>
+              </div>
+              <span className="pill">{profile.counts.appointments}</span>
+            </div>
+            <div className="engine-list">
+              {profile.appointments.length > 0 ? (
+                profile.appointments.slice(0, 5).map((appointment) => (
+                  <Link
+                    className="engine-row plain-link"
+                    href={calendarEventHref(
+                      appointment.id,
+                      appointment.startsAt,
+                    )}
+                    key={appointment.id}
+                    prefetch={false}
+                  >
+                    <div>
+                      <strong>{appointment.title}</strong>
+                      <span>
+                        {formatLabel(appointment.appointmentType)} -{" "}
+                        {formatDate(appointment.startsAt)} -{" "}
+                        {appointment.location ?? "No address"}
+                      </span>
+                    </div>
+                    <span
+                      className={
+                        appointment.status === "cancelled"
+                          ? "pill warning"
+                          : "pill"
+                      }
+                    >
+                      {formatLabel(appointment.status)}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="empty-copy">
+                  No calendar events linked to this contact yet.
+                </p>
+              )}
             </div>
           </article>
 

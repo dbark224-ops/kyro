@@ -592,7 +592,7 @@ Google and Outlook can be used for:
 - outbound email sending,
 - inbound email reading,
 - provider account labelling,
-- future document/calendar extensions.
+- Calendar event writeback when calendar scopes are connected.
 
 Users can disconnect a connected account. Disconnecting clears Kyro's stored usable token, marks the connection disconnected, and stops Kyro using that mailbox. To reconnect or switch accounts, use the normal Connect flow again.
 
@@ -1738,7 +1738,7 @@ memory suggestions, summary cards, timelines, approval queues, and generated-ima
 web-search results are rendered as source link cards and metered as both model
 tokens and \`web_search_calls\`. External SMS now has a Twilio send/receive
 foundation, Vapi phone-call records/routes exist for configured workspaces, and
-calendar tools are still provider-needed, approval-gated future tools.
+Kyro calendar events can sync to connected Google or Outlook calendars.
 
 Assistant voice input uses the browser \`MediaRecorder\` API only for capture. Audio is posted to
 \`/api/assistant/transcribe\`, where the server calls OpenAI's audio transcription endpoint with the configured
@@ -2030,8 +2030,8 @@ workflow flows.
 Settings expose outbound policy inside the combined Connected accounts area for
 Google Workspace, Microsoft Outlook, and Twilio. Gmail and Outlook are the first
 real email send/read providers. Twilio is the first SMS send/receive provider.
-Vapi is the first phone-call assistant provider, while calendar remains a future
-integration.
+Vapi is the first phone-call assistant provider. Calendar settings control Kyro's
+first-party calendar defaults and Google/Outlook writeback.
 
 Inbound email settings live in \`workspace_policies\` with policy type \`inbound_email\`.
 The default posture is automatic five-minute polling during active hours, paused
@@ -2257,13 +2257,13 @@ Current action behavior:
 - future automatic follow-up tasks are hidden from task/workflow panels until due, so they do not clutter a freshly replied conversation,
 - \`create_quote_draft\` actions create internal \`quote_drafts\` rows only,
 - quote drafts created from inquiry actions prefill customer/job metadata from the linked contact, lead, and saved inquiry facts,
-- \`book_site_visit\` is converted into durable \`conversation_appointments\` and \`conversation_tasks\` records before any future calendar integration,
+- \`book_site_visit\` is converted into durable \`conversation_appointments\` and \`conversation_tasks\` records and scheduled appointments can sync to Google/Outlook when calendar writeback is configured,
 - follow-up reminders are intentionally not shown as immediate approval actions,
 - \`mark_not_fit\` updates the attached lead status to \`not_fit\`,
-- SMS/phone/calendar are still not connected.
+- SMS and phone side effects are provider/policy gated; calendar events now use Kyro's first-party appointment records with optional provider sync.
 
 This is intentional. Gmail and Outlook are the first real outbound providers; the same
-outbox/action-executor seam should be reused for SMS, phone, and calendar later.
+outbox/action-executor seam should be reused for SMS and phone side effects as they mature.
 Generated PDF records and user-approved Drive filing already use the same audited,
 permission-bound pattern.
 

@@ -58,6 +58,13 @@ export function buildSettingsMenuItems({
       title: "Connected accounts",
     },
     {
+      detail: "Calendar defaults, event sync, and scheduling writeback",
+      eyebrow: "Calendar",
+      href: settingsSectionHref("calendar", activeWindow),
+      section: "calendar",
+      title: "Calendar",
+    },
+    {
       detail: voiceSettings
         ? `${elevenLabsVoicePresetById(voiceSettings.elevenLabsVoicePresetId).label} - ${
             voiceSettings.phoneAgentEnabled ? "Phone on" : "Phone off"
@@ -243,6 +250,25 @@ export function buildSettingsNestedItems({
         key: "pronunciation",
         selected: selectedPanel === "pronunciation",
         title: "Pronunciation",
+      },
+    ];
+  }
+
+  if (selectedSection === "calendar") {
+    return [
+      {
+        detail: "Google/Outlook writeback and import behaviour",
+        href: settingsPanelHref("calendar", "calendar-sync", activeWindow),
+        key: "calendar-sync",
+        selected: selectedPanel === "calendar-sync",
+        title: "Calendar sync",
+      },
+      {
+        detail: "Default view, event duration, and buffers",
+        href: settingsPanelHref("calendar", "calendar-defaults", activeWindow),
+        key: "calendar-defaults",
+        selected: selectedPanel === "calendar-defaults",
+        title: "Calendar defaults",
       },
     ];
   }

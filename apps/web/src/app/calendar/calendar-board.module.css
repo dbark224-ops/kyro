@@ -1,0 +1,375 @@
+.calendarShell {
+  display: grid;
+  gap: 16px;
+}
+
+.calendarToolbar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.calendarToolbarLeft,
+.calendarToolbarRight {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.viewSwitch {
+  align-items: center;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  overflow: hidden;
+}
+
+.viewSwitch a {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 8px 12px;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.viewSwitch a[data-active="true"] {
+  background: color-mix(in srgb, var(--accent-cyan) 16%, transparent);
+  color: var(--text);
+}
+
+.calendarGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+}
+
+.calendarPanel,
+.editorPanel {
+  background: color-mix(in srgb, var(--panel-bg) 88%, transparent);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: var(--panel-shadow);
+  min-width: 0;
+}
+
+.calendarPanel {
+  overflow: hidden;
+}
+
+.calendarPanelHeader,
+.editorHeader {
+  align-items: center;
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.calendarTitle h2,
+.editorHeader h2 {
+  font-size: clamp(1.05rem, 1.2vw, 1.35rem);
+  margin: 0;
+}
+
+.calendarTitle p,
+.editorHeader p,
+.eventMeta,
+.syncLine {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 3px 0 0;
+}
+
+.monthGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.monthDayName {
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  padding: 10px;
+  text-transform: uppercase;
+}
+
+.monthCell {
+  border-bottom: 1px solid var(--panel-border);
+  border-right: 1px solid var(--panel-border);
+  min-height: 126px;
+  padding: 8px;
+}
+
+.monthCell:nth-child(7n) {
+  border-right: 0;
+}
+
+.monthCellMuted {
+  background: color-mix(in srgb, var(--panel-bg) 72%, transparent);
+  color: var(--muted);
+}
+
+.monthCellToday {
+  box-shadow: inset 0 0 0 1px var(--accent-cyan);
+}
+
+.dayNumber {
+  font-size: 0.72rem;
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.eventList {
+  display: grid;
+  gap: 6px;
+}
+
+.eventCard {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 28%, var(--panel-border));
+  border-radius: 9px;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 9px;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease,
+    background 150ms ease;
+}
+
+.eventCard:hover,
+.eventCard[data-active="true"] {
+  background: color-mix(in srgb, var(--accent-cyan) 12%, var(--surface));
+  border-color: var(--accent-pink);
+  transform: translateY(-1px);
+}
+
+.eventCard strong {
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eventCard span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-height: 620px;
+}
+
+.weekColumn {
+  border-right: 1px solid var(--panel-border);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+}
+
+.weekColumn:last-child {
+  border-right: 0;
+}
+
+.weekHeader {
+  border-bottom: 1px solid var(--panel-border);
+  padding: 12px;
+}
+
+.weekHeader strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.weekHeader span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.weekBody,
+.dayBody {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.dayBody {
+  min-height: 620px;
+}
+
+.dayEventRow {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 84px minmax(0, 1fr);
+}
+
+.dayEventTime {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding-top: 9px;
+  text-align: right;
+}
+
+.editorPanel {
+  align-self: start;
+  overflow: hidden;
+}
+
+.editorForm {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.formGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.editorForm label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 5px;
+  text-transform: uppercase;
+}
+
+.editorForm input,
+.editorForm select,
+.editorForm textarea {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 9px;
+  color: var(--text);
+  font: inherit;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.editorForm textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.editorActions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.editorActions form {
+  margin: 0;
+}
+
+.submitRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dangerButton {
+  background: transparent;
+  border: 0;
+  color: var(--accent-pink);
+  cursor: pointer;
+  font-weight: 900;
+  padding: 8px;
+}
+
+.directionsLink {
+  color: var(--accent-cyan);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: underline;
+}
+
+.emptyState {
+  color: var(--muted);
+  font-size: 0.84rem;
+  padding: 18px;
+}
+
+.syncPill {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.syncPill[data-status="synced"] {
+  border-color: color-mix(in srgb, #22c55e 55%, var(--panel-border));
+  color: #22c55e;
+}
+
+.syncPill[data-status="failed"] {
+  border-color: var(--accent-pink);
+  color: var(--accent-pink);
+}
+
+@media (max-width: 1120px) {
+  .calendarGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editorPanel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .calendarToolbar,
+  .calendarPanelHeader,
+  .editorHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .monthGrid,
+  .weekGrid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .monthDayName {
+    display: none;
+  }
+
+  .monthCell,
+  .weekColumn {
+    border-right: 0;
+    min-height: auto;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}

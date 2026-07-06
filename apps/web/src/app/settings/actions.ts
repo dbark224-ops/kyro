@@ -42,6 +42,14 @@ import {
   DISPLAY_CURRENCIES,
   normalizeDisplayCurrency,
 } from "../../lib/billing/display-currency";
+import {
+  CALENDAR_EVENT_TYPES,
+  CALENDAR_SETTINGS_POLICY_TYPE,
+  CALENDAR_SYNC_PROVIDERS,
+  CALENDAR_VIEWS,
+  getCalendarSettings,
+  normalizeCalendarSettings,
+} from "../../lib/calendar/settings";
 import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
@@ -466,7 +474,7 @@ async function businessLogoPayload(
 }
 
 function redirectWithSectionMessage(
-  section: "general" | "integrations" | "voice" | "developer",
+  section: "general" | "integrations" | "calendar" | "voice" | "developer",
   key: "engine_error" | "engine_message",
   message: string,
   options: { focus?: string; panel?: string; senderRules?: boolean } = {},
@@ -858,6 +866,126 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     "engine_message",
     "Communication settings saved.",
     settingsFocus,
+  );
+}
+
+export async function updateCalendarSettingsAction(formData: FormData) {
+  const requestedPanel = formString(formData, "settingsPanel");
+  const panel =
+    requestedPanel === "calendar-defaults" ? "calendar-defaults" : "calendar-sync";
+  const defaultView = formString(formData, "calendarDefaultView");
+  const defaultEventType = formString(formData, "calendarDefaultEventType");
+  const syncProvider = formString(formData, "calendarSyncProvider");
+
+  if (!CALENDAR_VIEWS.includes(defaultView as (typeof CALENDAR_VIEWS)[number])) {
+    redirectWithSectionMessage("calendar", "engine_error", "Choose a valid calendar view.", {
+      panel,
+    });
+  }
+
+  if (
+    !CALENDAR_EVENT_TYPES.includes(
+      defaultEventType as (typeof CALENDAR_EVENT_TYPES)[number],
+    )
+  ) {
+    redirectWithSectionMessage("calendar", "engine_error", "Choose a valid default event type.", {
+      panel,
+    });
+  }
+
+  if (
+    !CALENDAR_SYNC_PROVIDERS.includes(
+      syncProvider as (typeof CALENDAR_SYNC_PROVIDERS)[number],
+    )
+  ) {
+    redirectWithSectionMessage("calendar", "engine_error", "Choose a valid calendar sync provider.", {
+      panel,
+    });
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const beforeSettings = await getCalendarSettings(supabase, workspace.id);
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", CALENDAR_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage("calendar", "engine_error", beforeError.message, {
+      panel,
+    });
+  }
+
+  const settings = normalizeCalendarSettings({
+    ...beforeSettings,
+    bufferMinutesAfter: formString(formData, "calendarBufferMinutesAfter"),
+    bufferMinutesBefore: formString(formData, "calendarBufferMinutesBefore"),
+    defaultDurationMinutes: formString(
+      formData,
+      "calendarDefaultDurationMinutes",
+    ),
+    defaultEventType,
+    defaultView,
+    externalCalendarId: formString(formData, "calendarExternalCalendarId"),
+    importExternalUpdates: formBoolean(formData, "calendarImportExternalUpdates"),
+    syncCreatedEventsToExternal: formBoolean(
+      formData,
+      "calendarSyncCreatedEventsToExternal",
+    ),
+    syncDeletedEventsToExternal: formBoolean(
+      formData,
+      "calendarSyncDeletedEventsToExternal",
+    ),
+    syncProvider,
+    syncUpdatedEventsToExternal: formBoolean(
+      formData,
+      "calendarSyncUpdatedEventsToExternal",
+    ),
+  });
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        workspace_id: workspace.id,
+        policy_type: CALENDAR_SETTINGS_POLICY_TYPE,
+        settings,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "calendar",
+      "engine_error",
+      saveError?.message ?? "Unable to save calendar settings.",
+      { panel },
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "calendar_settings.updated",
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    after: { settings },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/calendar");
+  redirectWithSectionMessage(
+    "calendar",
+    "engine_message",
+    "Calendar settings saved.",
+    { panel },
   );
 }
 

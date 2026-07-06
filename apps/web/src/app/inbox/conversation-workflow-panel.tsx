@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ConversationReview } from "../../lib/crm/queries";
 import {
   completeConversationAppointmentAction,
@@ -28,6 +29,23 @@ function formatLabel(value: string | null) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+function calendarEventHref(eventId: string, startsAt: string | null) {
+  const params = new URLSearchParams({
+    event: eventId,
+    view: "week",
+  });
+
+  if (startsAt) {
+    const date = new Date(startsAt);
+
+    if (!Number.isNaN(date.getTime())) {
+      params.set("date", date.toISOString().slice(0, 10));
+    }
+  }
+
+  return `/calendar?${params.toString()}`;
 }
 
 function shouldShowTask(task: ConversationReview["tasks"][number]) {
@@ -102,29 +120,38 @@ export function ConversationWorkflowPanel({
                   </span>
                   {appointment.location ? <p>{appointment.location}</p> : null}
                 </div>
-                <form action={completeConversationAppointmentAction}>
-                  <input
-                    name="conversationId"
-                    type="hidden"
-                    value={review.conversation.id}
-                  />
-                  <input
-                    name="appointmentId"
-                    type="hidden"
-                    value={appointment.id}
-                  />
-                  {appointment.taskId ? (
+                <div className="action-row">
+                  <Link
+                    className="secondary-button compact link-button"
+                    href={calendarEventHref(appointment.id, appointment.startsAt)}
+                    prefetch={false}
+                  >
+                    Calendar
+                  </Link>
+                  <form action={completeConversationAppointmentAction}>
                     <input
-                      name="taskId"
+                      name="conversationId"
                       type="hidden"
-                      value={appointment.taskId}
+                      value={review.conversation.id}
                     />
-                  ) : null}
-                  <input name="redirectTo" type="hidden" value={redirectTo} />
-                  <button className="secondary-button compact" type="submit">
-                    Complete
-                  </button>
-                </form>
+                    <input
+                      name="appointmentId"
+                      type="hidden"
+                      value={appointment.id}
+                    />
+                    {appointment.taskId ? (
+                      <input
+                        name="taskId"
+                        type="hidden"
+                        value={appointment.taskId}
+                      />
+                    ) : null}
+                    <input name="redirectTo" type="hidden" value={redirectTo} />
+                    <button className="secondary-button compact" type="submit">
+                      Complete
+                    </button>
+                  </form>
+                </div>
               </article>
             ))
           ) : (

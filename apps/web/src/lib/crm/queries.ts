@@ -558,10 +558,11 @@ export type ContactProfile = {
   resolutionCandidates: ContactResolutionCandidate[];
   companyContacts: ContactCompanyPeer[];
   counts: {
-    leads: number;
-    conversations: number;
-    messages: number;
     actions: number;
+    appointments: number;
+    conversations: number;
+    leads: number;
+    messages: number;
     quoteDrafts: number;
   };
   leads: Array<{
@@ -578,6 +579,19 @@ export type ContactProfile = {
     status: string;
     leadTitle: string | null;
     lastMessageAt: string | null;
+  }>;
+  appointments: Array<{
+    appointmentType: string;
+    conversationId: string | null;
+    endsAt: string | null;
+    externalSyncStatus: string | null;
+    id: string;
+    leadId: string | null;
+    location: string | null;
+    startsAt: string | null;
+    status: string;
+    title: string;
+    updatedAt: string;
   }>;
   messages: Array<{
     id: string;
@@ -2212,7 +2226,7 @@ export async function getContactProfile(
     duplicateFilters.push(`normalized_phone.eq.${normalizedPhone}`);
   }
 
-  const [leads, conversations, messages, aiRuns, quoteDrafts] =
+  const [leads, conversations, messages, aiRuns, quoteDrafts, appointments] =
     await Promise.all([
       supabase
         .from("leads")
@@ -2253,6 +2267,15 @@ export async function getContactProfile(
         .eq("contact_id", contactId)
         .order("updated_at", { ascending: false })
         .limit(50),
+      supabase
+        .from("conversation_appointments")
+        .select(
+          "id,conversation_id,lead_id,appointment_type,title,status,starts_at,ends_at,location,external_sync_status,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("contact_id", contactId)
+        .order("starts_at", { ascending: false, nullsFirst: false })
+        .limit(50),
     ]);
 
   if (leads.error) {
@@ -2281,6 +2304,12 @@ export async function getContactProfile(
     );
   }
 
+  if (appointments.error) {
+    throw new Error(
+      `Unable to load contact appointments: ${appointments.error.message}`,
+    );
+  }
+
   const leadIds = uniqueIds((leads.data ?? []).map((lead) => String(lead.id)));
   const conversationIds = uniqueIds(
     (conversations.data ?? []).map((conversation) => String(conversation.id)),
@@ -2291,6 +2320,9 @@ export async function getContactProfile(
   const aiRunIds = uniqueIds((aiRuns.data ?? []).map((run) => String(run.id)));
   const quoteDraftIds = uniqueIds(
     (quoteDrafts.data ?? []).map((quoteDraft) => String(quoteDraft.id)),
+  );
+  const appointmentIds = uniqueIds(
+    (appointments.data ?? []).map((appointment) => String(appointment.id)),
   );
   const leadTitlesById = new Map(
     (leads.data ?? []).map((lead) => [String(lead.id), String(lead.title)]),
@@ -2447,6 +2479,7 @@ export async function getContactProfile(
     ...aiRunIds,
     ...actionIds,
     ...quoteDraftIds,
+    ...appointmentIds,
   ]);
 
   const auditLogs =
@@ -2533,10 +2566,11 @@ export async function getContactProfile(
       updatedAt: String(companyContact.updated_at),
     })),
     counts: {
-      leads: leads.data?.length ?? 0,
-      conversations: conversations.data?.length ?? 0,
-      messages: messages.data?.length ?? 0,
       actions: actions.data?.length ?? 0,
+      appointments: appointments.data?.length ?? 0,
+      conversations: conversations.data?.length ?? 0,
+      leads: leads.data?.length ?? 0,
+      messages: messages.data?.length ?? 0,
       quoteDrafts: quoteDrafts.data?.length ?? 0,
     },
     leads: (leads.data ?? []).map((lead) => ({
@@ -2557,6 +2591,25 @@ export async function getContactProfile(
       lastMessageAt: conversation.last_message_at
         ? String(conversation.last_message_at)
         : null,
+    })),
+    appointments: (appointments.data ?? []).map((appointment) => ({
+      appointmentType: appointment.appointment_type
+        ? String(appointment.appointment_type)
+        : "quote_visit",
+      conversationId: appointment.conversation_id
+        ? String(appointment.conversation_id)
+        : null,
+      endsAt: appointment.ends_at ? String(appointment.ends_at) : null,
+      externalSyncStatus: appointment.external_sync_status
+        ? String(appointment.external_sync_status)
+        : null,
+      id: String(appointment.id),
+      leadId: appointment.lead_id ? String(appointment.lead_id) : null,
+      location: appointment.location ? String(appointment.location) : null,
+      startsAt: appointment.starts_at ? String(appointment.starts_at) : null,
+      status: appointment.status ? String(appointment.status) : "suggested",
+      title: appointment.title ? String(appointment.title) : "Kyro event",
+      updatedAt: String(appointment.updated_at),
     })),
     messages: (messages.data ?? []).map((message) => ({
       id: String(message.id),

@@ -92,19 +92,19 @@ export const assistantToolRegistry: AssistantToolRegistryItem[] = [
     uiBlocks: ["outbound_call_request", "link_cards", "activity_preview"],
   },
   {
-    approval: "provider_required",
+    approval: "workspace_policy",
     category: "calendar",
     id: "calendar.event",
     label: "Calendar appointment",
     notes:
-      "Internal appointment/task records exist now; external Google/Microsoft calendar creation waits for provider wiring.",
+      "Kyro calendar events are first-party appointment records with optional Google/Outlook writeback through connected account calendar scopes.",
     permission:
-      "Create external calendar events after internal appointment review",
-    provider: "Not connected",
+      "Create, update, and delete Kyro calendar events and mirror scheduled events to a connected provider calendar",
+    provider: "Kyro calendar + Google/Outlook sync",
     risk: "medium",
-    status: "provider_needed",
-    surfaces: ["Inbox", "Future Calendar"],
-    uiBlocks: ["approval_queue", "timeline"],
+    status: "active",
+    surfaces: ["Calendar", "Inbox", "CRM", "Assistant"],
+    uiBlocks: ["approval_queue", "timeline", "link_cards"],
   },
   {
     approval: "user_click",

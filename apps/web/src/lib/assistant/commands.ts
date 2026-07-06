@@ -11,6 +11,11 @@ import {
   type QuoteDraftListItem,
 } from "../crm/queries";
 import {
+  createCalendarEventRecord,
+  getCalendarEvents,
+  type CalendarEventItem,
+} from "../calendar/events";
+import {
   DOCUMENT_TEMPLATE_POLICY_TYPE,
   type CustomDocumentTemplate,
   documentTemplateDesignSettingsForQuote,
@@ -96,6 +101,7 @@ import type {
 import {
   approvalQueueBlock,
   generatedImageBlock,
+  linkCardsBlock,
   outboundCallRequestBlock,
   summaryCardsBlock,
   timelineBlock,
@@ -1724,6 +1730,14 @@ async function resolvePlannedAssistantCommand({
         user,
         workspace,
       });
+    case "calendar_event":
+      return calendarCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        user,
+        workspace,
+      });
     case "legislation_lookup":
       return legislationKnowledgeCommand({
         prompt: plannedPrompt,
@@ -1814,6 +1828,16 @@ export async function resolveAssistantCommand({
 
   if (plannedCommand) {
     return plannedCommand;
+  }
+
+  if (looksLikeCalendarRequest(prompt)) {
+    return calendarCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
   }
 
   if (looksLikeWorkQueueRequest(prompt)) {
@@ -2737,6 +2761,359 @@ function generalChatFallback(prompt: string) {
   }
 
   return "I'm here. Ask me anything, serious or stupid, and we can get into it.";
+}
+
+const CALENDAR_WEEKDAYS = new Map([
+  ["sunday", 0],
+  ["monday", 1],
+  ["tuesday", 2],
+  ["wednesday", 3],
+  ["thursday", 4],
+  ["friday", 5],
+  ["saturday", 6],
+]);
+
+function looksLikeCalendarRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(calendar|appointment|appointments|site visit|quote visit|job visit|booking|booked)\b/.test(
+      text,
+    ) ||
+    (/\b(book|schedule|scheduled|add|create|move|reschedule|cancel|delete|remove)\b/.test(
+      text,
+    ) &&
+      /\b(visit|quote|job|appointment|event|calendar|meeting|call back|callback)\b/.test(
+        text,
+      ))
+  );
+}
+
+function wantsCalendarCreate(prompt: string) {
+  return /\b(add|create|book|schedule|put|make)\b/.test(normalized(prompt));
+}
+
+function wantsCalendarEdit(prompt: string) {
+  return /\b(edit|update|move|reschedule|change|cancel|delete|remove)\b/.test(
+    normalized(prompt),
+  );
+}
+
+function inferCalendarEventType(prompt: string) {
+  const text = normalized(prompt);
+
+  if (/\b(follow up|follow-up|callback|call back)\b/.test(text)) {
+    return "follow_up" as const;
+  }
+
+  if (/\b(job|work)\b/.test(text)) {
+    return "job" as const;
+  }
+
+  if (/\b(site|inspect|inspection)\b/.test(text)) {
+    return "site_visit" as const;
+  }
+
+  return "quote_visit" as const;
+}
+
+function cleanCalendarTitle(prompt: string, contact: ContactListItem | null) {
+  const stripped = prompt
+    .replace(
+      /^\s*(please\s+)?(can you\s+)?(add|create|book|schedule|put|make)\s+(a|an|the)?\s*/i,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  const withoutTrailingTiming = stripped
+    .replace(/\b(today|tomorrow)\b.*$/i, "")
+    .replace(
+      /\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*$/i,
+      "",
+    )
+    .replace(/\bon\s+\d{4}-\d{1,2}-\d{1,2}\b.*$/i, "")
+    .trim();
+
+  if (withoutTrailingTiming.length >= 4) {
+    return withoutTrailingTiming.slice(0, 90);
+  }
+
+  const contactName =
+    contact?.name ?? contact?.company ?? contact?.email ?? contact?.phone;
+
+  return contactName ? `Appointment for ${contactName}` : "Kyro appointment";
+}
+
+function nextWeekdayDate(targetDay: number) {
+  const date = new Date();
+  const currentDay = date.getDay();
+  const offset = (targetDay + 7 - currentDay) % 7 || 7;
+  date.setDate(date.getDate() + offset);
+  return date;
+}
+
+function parseAssistantCalendarTime(prompt: string) {
+  const text = normalized(prompt);
+  const isoDate = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  const time = text.match(/\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  let date: Date | null = null;
+
+  if (isoDate) {
+    date = new Date(
+      Number(isoDate[1]),
+      Number(isoDate[2]) - 1,
+      Number(isoDate[3]),
+    );
+  } else if (text.includes("tomorrow")) {
+    date = new Date();
+    date.setDate(date.getDate() + 1);
+  } else if (text.includes("today")) {
+    date = new Date();
+  } else {
+    const nextWeekday = text.match(
+      /\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/,
+    );
+    const targetDay = nextWeekday
+      ? CALENDAR_WEEKDAYS.get(nextWeekday[1])
+      : undefined;
+
+    if (targetDay !== undefined) {
+      date = nextWeekdayDate(targetDay);
+    }
+  }
+
+  if (!date || !time) {
+    return null;
+  }
+
+  let hour = Number(time[1]);
+  const minute = time[2] ? Number(time[2]) : 0;
+  const meridiem = time[3];
+
+  if (meridiem === "pm" && hour < 12) {
+    hour += 12;
+  }
+
+  if (meridiem === "am" && hour === 12) {
+    hour = 0;
+  }
+
+  date.setHours(hour, minute, 0, 0);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const end = new Date(date.getTime() + 60 * 60_000);
+
+  return {
+    endsAt: end.toISOString(),
+    startsAt: date.toISOString(),
+  };
+}
+
+function calendarEventHrefFromParts(eventId: string, startsAt: string | null) {
+  const params = new URLSearchParams({
+    event: eventId,
+    view: "week",
+  });
+
+  if (startsAt) {
+    params.set("date", startsAt.slice(0, 10));
+  }
+
+  return `/calendar?${params.toString()}`;
+}
+
+function calendarEventHref(event: CalendarEventItem) {
+  return calendarEventHrefFromParts(event.id, event.startsAt);
+}
+
+function resolveCalendarContact(prompt: string, contacts: ContactListItem[]) {
+  const haystack = normalized(prompt);
+
+  return (
+    contacts.find((contact) =>
+      [contact.name, contact.company, contact.email, contact.phone].some(
+        (value) => {
+          const needle = normalized(value ?? "");
+
+          return needle.length >= 3 && haystack.includes(needle);
+        },
+      ),
+    ) ?? null
+  );
+}
+
+function latestCalendarLink(recentMessages: AssistantRecentMessage[]) {
+  return [...recentMessages]
+    .reverse()
+    .flatMap((message) => [...(message.links ?? [])].reverse())
+    .find((link) => link.href.startsWith("/calendar"));
+}
+
+async function calendarCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
+>): Promise<AssistantCommandResult> {
+  if (wantsCalendarCreate(prompt)) {
+    const contacts = await getContactList(supabase, workspace.id);
+    const contact = resolveCalendarContact(prompt, contacts);
+    const scheduled = parseAssistantCalendarTime(prompt);
+    const title = cleanCalendarTitle(prompt, contact);
+    const appointmentId = await createCalendarEventRecord({
+      input: {
+        appointmentType: inferCalendarEventType(prompt),
+        contactId: contact?.id ?? null,
+        conversationId: null,
+        description: `Created from Assistant request: ${prompt}`,
+        endsAt: scheduled?.endsAt ?? null,
+        leadId: null,
+        location: contact?.address ?? null,
+        locationAddress: null,
+        metadata: { source: "assistant_calendar_command" },
+        startsAt: scheduled?.startsAt ?? null,
+        status: scheduled?.startsAt ? "scheduled" : "suggested",
+        title,
+      },
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+    const href = calendarEventHrefFromParts(
+      appointmentId,
+      scheduled?.startsAt ?? null,
+    );
+    const link = rowLink(
+      title,
+      href,
+      scheduled?.startsAt ? assistantDate(scheduled.startsAt) : "Suggested",
+    );
+
+    return {
+      context: {
+        appointmentId,
+        contactId: contact?.id ?? null,
+        scheduled,
+        title,
+      },
+      fallbackAnswer: scheduled?.startsAt
+        ? `I created ${title} for ${assistantDate(scheduled.startsAt)}.`
+        : `I created ${title} as a suggested calendar event. Open it to set the exact time.`,
+      intent: "calendar_event",
+      links: [link],
+      mutation: {
+        entityId: appointmentId,
+        entityType: "conversation_appointment",
+        label: title,
+      },
+      title: "Calendar event created",
+      uiBlocks: linkCardsBlock("Calendar event", [link]),
+    };
+  }
+
+  if (wantsCalendarEdit(prompt)) {
+    const link =
+      latestCalendarLink(recentMessages) ??
+      rowLink("Calendar", "/calendar", "Choose an event to edit");
+
+    return {
+      context: {
+        reason: "Calendar edit/delete requests need a resolved target event.",
+        targetLink: link,
+      },
+      fallbackAnswer:
+        "Open the exact calendar event and make the change there so Kyro does not alter the wrong appointment.",
+      intent: "calendar_event",
+      links: [link],
+      title: "Calendar event edit",
+      uiBlocks: linkCardsBlock("Calendar", [link]),
+    };
+  }
+
+  const now = new Date();
+  const to = new Date(now.getTime() + 30 * 24 * 60 * 60_000);
+  const events = await getCalendarEvents(supabase, workspace.id, {
+    from: now.toISOString(),
+    to: to.toISOString(),
+  });
+  const top = events
+    .filter((event) => event.status !== "cancelled")
+    .slice(0, 8);
+
+  return {
+    context: {
+      events: recordsContext(
+        top.map((event) => ({
+          contact:
+            event.contact?.name ??
+            event.contact?.company ??
+            event.contact?.email ??
+            null,
+          id: event.id,
+          location: event.location,
+          startsAt: event.startsAt,
+          status: event.status,
+          title: event.title,
+        })),
+      ),
+      range: "next_30_days",
+    },
+    fallbackAnswer:
+      top.length > 0
+        ? `You have ${top.length} calendar event${top.length === 1 ? "" : "s"} coming up in the next 30 days.`
+        : "There are no scheduled calendar events in the next 30 days.",
+    intent: "calendar_event",
+    links: [
+      rowLink(
+        "Calendar",
+        "/calendar",
+        `${top.length} upcoming event${top.length === 1 ? "" : "s"}`,
+      ),
+      ...top.slice(0, 4).map((event) =>
+        rowLink(
+          event.title,
+          calendarEventHref(event),
+          event.startsAt ? assistantDate(event.startsAt) : event.status,
+        ),
+      ),
+    ],
+    title: "Calendar",
+    uiBlocks: [
+      ...summaryCardsBlock("Calendar summary", [
+        {
+          detail: "Next 30 days",
+          href: "/calendar",
+          label: "Events",
+          tone: top.length > 0 ? "cyan" : "success",
+          value: String(top.length),
+        },
+      ]),
+      ...timelineBlock(
+        "Upcoming events",
+        top.map((event) => ({
+          at: event.startsAt,
+          detail:
+            [
+              event.contact?.name ?? event.contact?.company,
+              event.location,
+              event.status,
+            ]
+              .filter(Boolean)
+              .join(" - ") || undefined,
+          href: calendarEventHref(event),
+          label: event.title,
+          tone: event.status === "cancelled" ? "warning" : "cyan",
+        })),
+      ),
+    ],
+  };
 }
 
 async function workQueueCommand({

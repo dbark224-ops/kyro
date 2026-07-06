@@ -15,6 +15,7 @@ const intentPrefetchedSettingsRoutes = new Set<string>();
 export type SettingsSection =
   | "general"
   | "integrations"
+  | "calendar"
   | "usage"
   | "voice"
   | "developer";
