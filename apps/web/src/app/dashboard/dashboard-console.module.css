@@ -1,0 +1,39 @@
+.activityItem {
+  min-height: 0;
+}
+
+.activityCopy,
+.activityTitle,
+.activitySubject,
+.activityPreview,
+.activityTime {
+  min-width: 0;
+}
+
+.activityCopy {
+  overflow: hidden;
+}
+
+.activityTitle,
+.activitySubject,
+.activityPreview,
+.activityTime {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 761px) and (max-width: 1536px),
+  (min-width: 761px) and (max-height: 900px) {
+  .activityItem {
+    align-items: center;
+  }
+
+  .activityCopy {
+    gap: 2px;
+  }
+
+  .activityPreview {
+    display: none;
+  }
+}

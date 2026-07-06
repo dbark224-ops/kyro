@@ -3,6 +3,7 @@
 import { sendAssistantMessageAction } from "../assistant/actions";
 import { AssistantCompactBlocks } from "../components/assistant-compact-blocks";
 import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
+import styles from "./dashboard-console.module.css";
 import type {
   AssistantThreadMessage,
   AssistantThreadState,
@@ -945,21 +946,35 @@ function renderWidget({
           title="System activity"
         />
         <div className="dashboard-activity-list">
-          {items.map((item) => (
-            <Link
-              className={`dashboard-activity-item ${item.tone}`}
-              href={item.href ?? "/activity"}
-              key={item.id}
-            >
-              <div className="dashboard-activity-dot" />
-              <div className="dashboard-activity-copy">
-                <strong>{item.title}</strong>
-                {item.subject ? <span>{item.subject}</span> : null}
-                <small>{compactSnippet(item.preview, 92)}</small>
-              </div>
-              <em>{formatDateTime(item.at) ?? ""}</em>
-            </Link>
-          ))}
+          {items.map((item) => {
+            const preview = compactSnippet(item.preview, 92);
+
+            return (
+              <Link
+                className={`dashboard-activity-item ${item.tone} ${styles.activityItem}`}
+                href={item.href ?? "/activity"}
+                key={item.id}
+              >
+                <div className="dashboard-activity-dot" />
+                <div
+                  className={`dashboard-activity-copy ${styles.activityCopy}`}
+                >
+                  <strong className={styles.activityTitle}>{item.title}</strong>
+                  {item.subject ? (
+                    <span className={styles.activitySubject}>
+                      {item.subject}
+                    </span>
+                  ) : null}
+                  {preview ? (
+                    <small className={styles.activityPreview}>{preview}</small>
+                  ) : null}
+                </div>
+                <em className={styles.activityTime}>
+                  {formatDateTime(item.at) ?? ""}
+                </em>
+              </Link>
+            );
+          })}
           {items.length === 0 ? (
             <p className="empty-copy">
               Nothing matches that activity filter yet.
