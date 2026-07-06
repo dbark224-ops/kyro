@@ -421,18 +421,22 @@ function EventEditor({
   currentHref,
   event,
   mode,
+  onClose,
   onNew,
   options,
   settings,
   timeZone,
+  variant = "side",
 }: Readonly<{
   currentHref: string;
   event: CalendarEventItem | null;
   mode: "create" | "edit";
+  onClose?: () => void;
   onNew: () => void;
   options: CalendarEntityOptions;
   settings: CalendarSettings;
   timeZone: string;
+  variant?: "modal" | "side";
 }>) {
   const newTimes = useMemo(() => eventStartForNew(settings), [settings]);
   const directionsUrl = event
@@ -444,7 +448,14 @@ function EventEditor({
   const action = mode === "edit" ? updateCalendarEventAction : createCalendarEventAction;
 
   return (
-    <aside className={styles.editorPanel}>
+    <aside
+      className={[
+        styles.editorPanel,
+        variant === "modal" ? styles.editorPanelModal : null,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className={styles.editorHeader}>
         <div>
           <p className="eyebrow">Event</p>
@@ -455,8 +466,12 @@ function EventEditor({
               : "Create a Kyro event and sync it to the connected calendar."}
           </p>
         </div>
-        <button className="secondary-button compact" onClick={onNew} type="button">
-          New
+        <button
+          className="secondary-button compact"
+          onClick={variant === "modal" ? (onClose ?? onNew) : onNew}
+          type="button"
+        >
+          {variant === "modal" ? "Close" : "New"}
         </button>
       </div>
 
@@ -629,8 +644,13 @@ export function CalendarBoard({
   const [selectedEventId, setSelectedEventId] = useState<string | null>(
     initialSelectedEventId,
   );
+  const [createOpen, setCreateOpen] = useState(false);
   const selectedEvent =
     events.find((event) => event.id === selectedEventId) ?? null;
+  const selectEvent = (eventId: string) => {
+    setCreateOpen(false);
+    setSelectedEventId(eventId);
+  };
   const previousDate =
     view === "month"
       ? new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1)
@@ -676,7 +696,7 @@ export function CalendarBoard({
           </Link>
           <button
             className="primary-button compact"
-            onClick={() => setSelectedEventId(null)}
+            onClick={() => setCreateOpen(true)}
             type="button"
           >
             Add event
@@ -684,7 +704,14 @@ export function CalendarBoard({
         </div>
       </div>
 
-      <div className={styles.calendarGrid}>
+      <div
+        className={[
+          styles.calendarGrid,
+          selectedEvent ? null : styles.calendarGridFull,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <section className={styles.calendarPanel}>
           <div className={styles.calendarPanelHeader}>
             <div className={styles.calendarTitle}>
@@ -708,7 +735,7 @@ export function CalendarBoard({
               activeEventId={selectedEventId}
               anchor={anchor}
               events={events}
-              onSelect={setSelectedEventId}
+              onSelect={selectEvent}
               timeZone={timeZone}
             />
           ) : null}
@@ -717,7 +744,7 @@ export function CalendarBoard({
               activeEventId={selectedEventId}
               anchor={anchor}
               events={events}
-              onSelect={setSelectedEventId}
+              onSelect={selectEvent}
               timeZone={timeZone}
             />
           ) : null}
@@ -726,22 +753,47 @@ export function CalendarBoard({
               activeEventId={selectedEventId}
               anchor={anchor}
               events={events}
-              onSelect={setSelectedEventId}
+              onSelect={selectEvent}
               timeZone={timeZone}
             />
           ) : null}
         </section>
 
-        <EventEditor
-          currentHref={currentHref}
-          event={selectedEvent}
-          mode={selectedEvent ? "edit" : "create"}
-          onNew={() => setSelectedEventId(null)}
-          options={options}
-          settings={settings}
-          timeZone={timeZone}
-        />
+        {selectedEvent ? (
+          <EventEditor
+            currentHref={currentHref}
+            event={selectedEvent}
+            mode="edit"
+            onNew={() => setCreateOpen(true)}
+            options={options}
+            settings={settings}
+            timeZone={timeZone}
+          />
+        ) : null}
       </div>
+
+      {createOpen ? (
+        <div className={styles.modalBackdrop}>
+          <div
+            aria-label="Add calendar event"
+            aria-modal="true"
+            className={styles.modalPanel}
+            role="dialog"
+          >
+            <EventEditor
+              currentHref={currentHref}
+              event={null}
+              mode="create"
+              onClose={() => setCreateOpen(false)}
+              onNew={() => setCreateOpen(false)}
+              options={options}
+              settings={settings}
+              timeZone={timeZone}
+              variant="modal"
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
