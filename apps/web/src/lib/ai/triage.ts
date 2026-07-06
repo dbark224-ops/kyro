@@ -108,7 +108,16 @@ type TriageDecision = {
   inputTokens?: number;
   outputTokens?: number;
   providerUsageId?: string;
+  repairUsage?: ReplyRepairUsage[];
   tokenUsage?: OpenAiTokenUsage;
+};
+
+type ReplyRepairUsage = {
+  inputTokens: number;
+  model: string;
+  outputTokens: number;
+  providerUsageId?: string;
+  tokenUsage: OpenAiTokenUsage;
 };
 
 function objectRecord(value: unknown) {
@@ -608,14 +617,16 @@ function mergeMissingInfoIntoReplyBody(body: string, facts: InquiryFacts) {
   return `${body.trim()}\n\n${request}`;
 }
 
+function missingInfoNotAskedFor(body: string, facts: InquiryFacts) {
+  return facts.missingInfo.filter((item) => !replyMentionsMissingInfo(body, item));
+}
+
 export function ensureReplyDraftCoversMissingInfo(
   replyDraft: TriageDecision["replyDraft"],
   facts: InquiryFacts,
 ): TriageDecision["replyDraft"] {
   const body = replyDraft.body ?? buildReplyBody(facts);
-  const unasked = facts.missingInfo.filter(
-    (item) => !replyMentionsMissingInfo(body, item),
-  );
+  const unasked = missingInfoNotAskedFor(body, facts);
 
   if (unasked.length === 0) {
     return replyDraft.body
@@ -634,6 +645,170 @@ export function ensureReplyDraftCoversMissingInfo(
       (facts.missingInfo.length > 0
         ? "A few details for your quote"
         : "Thanks for the details"),
+  };
+}
+
+function buildReplyRepairPrompt(input: {
+  body: string;
+  context: StubAiTriageContext;
+  facts: InquiryFacts;
+  missingInfo: string[];
+  subject: string | null;
+}) {
+  const replyWriting =
+    input.context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+
+  return JSON.stringify(
+    {
+      task:
+        "Rewrite this customer reply so it naturally asks for every required missing detail. Return a complete replacement draft, not notes.",
+      outputContract: {
+        subject: "string|null",
+        body: "string",
+      },
+      rules: [
+        "Return JSON only.",
+        "Write as Kyro on behalf of the business owner, not as an AI assistant.",
+        "Keep the reply concise, natural, and customer-facing.",
+        "Do not append an extra afterthought line. Compose one coherent message.",
+        "Do not invent prices, availability, addresses, phone numbers, email addresses, or promises not present in context.",
+        "The replacement body must ask for every requiredMissingInfo item.",
+        "If asking for several details, combine them naturally in one sentence where possible.",
+        "Preserve the useful meaning of the original draft, but rewrite awkward wording if needed.",
+        ...replyWritingPromptRules(replyWriting).map(
+          (rule) => `Writing style - ${rule}`,
+        ),
+      ],
+      requiredMissingInfo: input.missingInfo,
+      requiredMissingInfoPhrases: input.missingInfo.map(missingInfoPhrase),
+      inquiryFacts: input.facts,
+      originalDraft: {
+        subject: input.subject,
+        body: input.body,
+      },
+      replyWriting,
+      context: {
+        source: input.context.source ?? null,
+        inboundChannelType: input.context.inboundChannelType ?? null,
+        leadTitle: input.context.leadTitle ?? null,
+        serviceType: input.context.serviceType ?? null,
+        summary: input.context.summary ?? null,
+        threadSummary: input.context.threadSummary ?? null,
+      },
+    },
+    null,
+    2,
+  );
+}
+
+async function repairReplyDraftWithOpenAi(input: {
+  context: StubAiTriageContext;
+  facts: InquiryFacts;
+  model: string;
+  replyDraft: TriageDecision["replyDraft"];
+}): Promise<{
+  repairUsage?: ReplyRepairUsage;
+  replyDraft: TriageDecision["replyDraft"];
+}> {
+  const body = input.replyDraft.body ?? buildReplyBody(input.facts);
+  const unasked = missingInfoNotAskedFor(body, input.facts);
+
+  if (unasked.length === 0) {
+    return {
+      replyDraft: input.replyDraft.body
+        ? input.replyDraft
+        : {
+            ...input.replyDraft,
+            body,
+          },
+    };
+  }
+
+  const apiKey = openAiApiKey();
+
+  if (!apiKey) {
+    return {
+      replyDraft: ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts),
+    };
+  }
+
+  const prompt = buildReplyRepairPrompt({
+    body,
+    context: input.context,
+    facts: input.facts,
+    missingInfo: input.facts.missingInfo,
+    subject: input.replyDraft.subject,
+  });
+  const model = openAiTriageModel("gpt-4.1-mini");
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    body: JSON.stringify({
+      input: prompt,
+      instructions:
+        "You repair Kyro customer reply drafts. Return compact JSON matching the requested contract.",
+      max_output_tokens: openAiReplyRepairMaxOutputTokens(),
+      model,
+      text: {
+        format: {
+          name: "kyro_reply_repair",
+          schema: {
+            additionalProperties: false,
+            properties: {
+              body: { type: "string" },
+              subject: { type: ["string", "null"] },
+            },
+            required: ["subject", "body"],
+            type: "object",
+          },
+          strict: true,
+          type: "json_schema",
+        },
+      },
+    }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return {
+      replyDraft: ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts),
+    };
+  }
+
+  const content = responseOutputText(payload);
+
+  if (!content) {
+    return {
+      replyDraft: ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts),
+    };
+  }
+
+  const usage = responseUsage(payload, prompt, content);
+  const parsed = extractJsonObject(content);
+  const repairedBody = textValue(parsed.body);
+  const repairedDraft = repairedBody
+    ? {
+        body: repairedBody,
+        subject: textValue(parsed.subject) ?? input.replyDraft.subject,
+      }
+    : ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts);
+  const validatedDraft =
+    repairedDraft.body && missingInfoNotAskedFor(repairedDraft.body, input.facts).length === 0
+      ? repairedDraft
+      : ensureReplyDraftCoversMissingInfo(repairedDraft, input.facts);
+
+  return {
+    repairUsage: {
+      inputTokens: usage.inputTokens,
+      model,
+      outputTokens: usage.outputTokens,
+      providerUsageId: usage.providerUsageId,
+      tokenUsage: usage.tokenUsage,
+    },
+    replyDraft: validatedDraft,
   };
 }
 
@@ -694,6 +869,11 @@ function openAiTriageModel(fallbackModel: string) {
 function openAiTriageMaxOutputTokens() {
   const parsed = Number(process.env.OPENAI_TRIAGE_MAX_OUTPUT_TOKENS);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 700;
+}
+
+function openAiReplyRepairMaxOutputTokens() {
+  const parsed = Number(process.env.OPENAI_REPLY_REPAIR_MAX_OUTPUT_TOKENS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
 }
 
 function describeOllamaError(error: unknown, timeoutMs: number) {
@@ -1399,13 +1579,19 @@ export async function runStubAiTriage(
     rawTriageDecision.inquiryFacts,
     triageContext,
   );
+  const repairedDraft = await repairReplyDraftWithOpenAi({
+    context: triageContext,
+    facts: inquiryFacts,
+    model: route.model,
+    replyDraft: rawTriageDecision.replyDraft,
+  });
   const triageDecision: TriageDecision = {
     ...rawTriageDecision,
     inquiryFacts,
-    replyDraft: ensureReplyDraftCoversMissingInfo(
-      rawTriageDecision.replyDraft,
-      inquiryFacts,
-    ),
+    repairUsage: repairedDraft.repairUsage
+      ? [...(rawTriageDecision.repairUsage ?? []), repairedDraft.repairUsage]
+      : rawTriageDecision.repairUsage,
+    replyDraft: repairedDraft.replyDraft,
   };
   const { error: routeError } = await supabase.from("model_route_decisions").insert({
     workspace_id: workspaceId,
@@ -1422,7 +1608,8 @@ export async function runStubAiTriage(
     budget_snapshot: {
       fallbackReason: triageDecision.fallbackReason ?? null,
       estimatedInputTokens: routeRequest.estimatedInputTokens,
-      providerUsed: triageDecision.providerUsed
+      providerUsed: triageDecision.providerUsed,
+      replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
     }
   });
 
@@ -1444,7 +1631,7 @@ export async function runStubAiTriage(
     workspaceId,
     "OPENAI_LLM_MARKUP_RATE",
   );
-  const usageEvents = buildLlmUsageEvents({
+  const mainUsageEvents = buildLlmUsageEvents({
     context: {
       aiRunId,
       metadata: {
@@ -1463,6 +1650,30 @@ export async function runStubAiTriage(
     service: "llm",
     usage: tokenUsage,
   });
+  const repairUsageEvents = (triageDecision.repairUsage ?? []).flatMap(
+    (repair, index) =>
+      buildLlmUsageEvents({
+        context: {
+          aiRunId,
+          metadata: {
+            providerUsed: "openai",
+            repairIndex: index + 1,
+            source: "inbound_triage_reply_repair",
+          },
+          providerUsageId: repair.providerUsageId,
+          sourceId: aiRunId,
+          sourceType: "ai_run",
+          usageMarkupRate,
+          userId: user.id,
+          workspaceId,
+        },
+        model: repair.model,
+        provider: "openai",
+        service: "llm",
+        usage: repair.tokenUsage,
+      }),
+  );
+  const usageEvents = [...mainUsageEvents, ...repairUsageEvents];
   const usageTotals = usageEventTotals(usageEvents);
 
   const { error: usageError } = await supabase
@@ -1495,6 +1706,8 @@ export async function runStubAiTriage(
     inquiryFacts,
     authoritativeFactsUsed: Boolean(triageContext.inquiryFactsOverride),
     providerUsed: triageDecision.providerUsed,
+    replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
+    replyRepairUsed: Boolean(triageDecision.repairUsage?.length),
     summary: triageDecision.summary,
     threadMessageCount: triageContext.threadMessageCount ?? null,
     proposedActionTypes: actionProposals.map((proposal) => proposal.type)
