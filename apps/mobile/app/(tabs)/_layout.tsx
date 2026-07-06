@@ -1,6 +1,7 @@
 import { Redirect, Tabs, useRouter } from "expo-router";
 import {
   Bot,
+  CalendarDays,
   Inbox,
   LayoutDashboard,
   Settings,
@@ -104,6 +105,13 @@ export default function TabLayout() {
           options={{
             tabBarIcon: tabIcon(Inbox),
             title: "Inbox",
+          }}
+        />
+        <Tabs.Screen
+          name="calendar"
+          options={{
+            tabBarIcon: tabIcon(CalendarDays),
+            title: "Calendar",
           }}
         />
         <Tabs.Screen

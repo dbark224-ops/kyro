@@ -11,6 +11,7 @@ export type KyroApiRoute =
   | "/api/mobile/addresses/autocomplete"
   | "/api/mobile/addresses/place"
   | "/api/mobile/bootstrap"
+  | "/api/mobile/calendar"
   | "/api/mobile/crm"
   | "/api/mobile/crm/import-contacts"
   | `/api/mobile/crm/${string}`

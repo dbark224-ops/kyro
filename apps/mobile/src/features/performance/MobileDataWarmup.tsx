@@ -6,6 +6,7 @@ import { useAuthSession } from "@/features/auth/auth-context";
 import {
   mobileAssistantQueryOptions,
   mobileAssistantVapiSessionQueryOptions,
+  mobileCalendarQueryOptions,
   mobileCrmContactQueryOptions,
   mobileCrmQueryOptions,
   mobileDashboardQueryOptions,
@@ -68,6 +69,7 @@ export function MobileDataWarmup() {
           () => warmDashboardAndLikelyDetails(),
           () => queryClient.prefetchQuery(mobileInboxQueryOptions(session)),
           () => queryClient.prefetchQuery(mobileCrmQueryOptions(session)),
+          () => queryClient.prefetchQuery(mobileCalendarQueryOptions(session)),
           () => queryClient.prefetchQuery(mobileAssistantQueryOptions(session)),
           () => queryClient.prefetchQuery(mobileAssistantVapiSessionQueryOptions(session)),
           () => warmListDetails(),

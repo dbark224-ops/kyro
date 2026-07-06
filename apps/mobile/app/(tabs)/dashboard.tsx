@@ -29,8 +29,26 @@ import {
 import { Screen } from "@/components/Screen";
 import { SectionCard, SectionHeader, StatusPill } from "@/components/ui";
 import { useAuthSession } from "@/features/auth/auth-context";
-import { mobileDashboardQueryOptions } from "@/lib/mobile-query";
+import {
+  addDays,
+  addMonths,
+  calendarViewLabels,
+  eventContactLabel,
+  eventsForDay,
+  eventsInRange,
+  formatEventTime,
+  rangeForCalendarView,
+  rangeLabel,
+  startOfMonth,
+  startOfWeek,
+  type MobileCalendarView
+} from "@/lib/calendar-utils";
+import {
+  mobileCalendarQueryOptions,
+  mobileDashboardQueryOptions
+} from "@/lib/mobile-query";
 import type {
+  MobileCalendarEvent,
   MobileDashboardActivityItem,
   MobileDashboardCommandCenter,
   MobileDashboardContactSummary,
@@ -83,16 +101,16 @@ const DEFAULT_METRIC_ORDER: DashboardMetricKey[] = [
 ];
 const DEFAULT_WIDGET_ORDER: DashboardWidgetKey[] = [
   "work_queue",
+  "calendar",
   "activity",
   "documents",
   "payments",
   "top_contacts",
-  "suppliers",
-  "calendar"
+  "suppliers"
 ];
 const DEFAULT_LAYOUT: DashboardLayoutConfig = {
   activeMetrics: DEFAULT_METRIC_ORDER.slice(0, 4),
-  activeWidgets: DEFAULT_WIDGET_ORDER.filter((key) => key !== "calendar"),
+  activeWidgets: DEFAULT_WIDGET_ORDER.filter((key) => key !== "suppliers"),
   defaultTimeframe: DEFAULT_DASHBOARD_TIMEFRAME,
   metricOrder: DEFAULT_METRIC_ORDER,
   widgetOrder: DEFAULT_WIDGET_ORDER
@@ -174,7 +192,7 @@ const widgetDefinitions: Record<
     title: "System activity"
   },
   calendar: {
-    description: "Calendar placeholder for upcoming scheduling.",
+    description: "Site visits, jobs, and reminders.",
     title: "Calendar"
   },
   documents: {
@@ -485,6 +503,10 @@ function WidgetBody({
     return <PaymentsWidget data={data} />;
   }
 
+  if (widgetKey === "calendar") {
+    return <CalendarDashboardWidget />;
+  }
+
   if (widgetKey === "top_contacts") {
     return (
       <ContactsWidget
@@ -525,13 +547,167 @@ function WidgetBody({
     );
   }
 
+  return null;
+}
+
+function CalendarDashboardWidget() {
+  const { session, status } = useAuthSession();
+  const [view, setView] = useState<MobileCalendarView>("day");
+  const [anchor, setAnchor] = useState(() => new Date());
+  const queryRange = useMemo(() => {
+    const from = startOfWeek(startOfMonth(anchor));
+    const to = addDays(startOfWeek(addMonths(anchor, 2)), 7);
+
+    return { from: from.toISOString(), to: to.toISOString() };
+  }, [anchor]);
+  const calendar = useQuery({
+    ...mobileCalendarQueryOptions(session, queryRange),
+    enabled: status === "signed-in"
+  });
+  const visibleEvents = useMemo(
+    () =>
+      eventsInRange(
+        calendar.data?.events ?? [],
+        rangeForCalendarView(anchor, view)
+      ).sort(
+        (left, right) =>
+          new Date(left.startsAt ?? left.createdAt).getTime() -
+          new Date(right.startsAt ?? right.createdAt).getTime()
+      ),
+    [anchor, calendar.data?.events, view]
+  );
+
   return (
-    <View style={styles.placeholderBody}>
-      <CalendarDays color={colors.purple} size={26} />
-      <Text style={styles.placeholderTitle}>Calendar coming next</Text>
-      <Text style={styles.placeholderCopy}>
-        Scheduled jobs and site visits will sit here once the calendar surface is live.
-      </Text>
+    <View style={styles.calendarWidget}>
+      <View style={styles.calendarWidgetTop}>
+        <SegmentedControl
+          options={(["day", "week", "month"] as const).map((key) => ({
+            key,
+            label: calendarViewLabels[key]
+          }))}
+          value={view}
+          onChange={setView}
+        />
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/calendar" as never)}
+          style={({ pressed }) => [
+            styles.calendarOpenButton,
+            pressed ? styles.pressed : null
+          ]}
+        >
+          <Text style={styles.calendarOpenButtonText}>Open</Text>
+        </Pressable>
+      </View>
+      <View style={styles.calendarRangeRow}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setAnchor((current) => shiftCalendarAnchor(current, view, -1))}
+        >
+          <Text style={styles.calendarNudge}>Prev</Text>
+        </Pressable>
+        <Text numberOfLines={1} style={styles.calendarRangeLabel}>
+          {rangeLabel(anchor, view)}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setAnchor((current) => shiftCalendarAnchor(current, view, 1))}
+        >
+          <Text style={styles.calendarNudge}>Next</Text>
+        </Pressable>
+      </View>
+
+      {calendar.isLoading ? (
+        <View style={styles.widgetList}>
+          <SkeletonLine height={14} width="68%" />
+          <SkeletonLine height={14} width="48%" />
+        </View>
+      ) : null}
+      {!calendar.isLoading && calendar.error ? (
+        <EmptyCopy text="Calendar is not available from the backend yet." />
+      ) : null}
+      {!calendar.isLoading && !calendar.error && view === "month" ? (
+        <MiniMonthGrid anchor={anchor} events={calendar.data?.events ?? []} />
+      ) : null}
+      {!calendar.isLoading && !calendar.error && view !== "month" ? (
+        <View style={styles.widgetList}>
+          {visibleEvents.slice(0, 4).map((event) => (
+            <CalendarWidgetRow event={event} key={event.id} />
+          ))}
+          {!visibleEvents.length ? (
+            <EmptyCopy text="No calendar items in this view." />
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function CalendarWidgetRow({ event }: { event: MobileCalendarEvent }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => {
+        if (event.conversationId) {
+          router.push({
+            pathname: "/inbox",
+            params: { conversationId: event.conversationId }
+          });
+          return;
+        }
+
+        if (event.contactId) {
+          router.push({
+            pathname: "/crm",
+            params: { contactId: event.contactId }
+          });
+        }
+      }}
+      style={({ pressed }) => [styles.simpleRow, pressed ? styles.pressed : null]}
+    >
+      <CalendarDays color={colors.cyan} size={17} />
+      <View style={styles.rowCopyBlock}>
+        <Text numberOfLines={1} style={styles.rowTitle}>
+          {event.title}
+        </Text>
+        <Text numberOfLines={1} style={styles.rowCopy}>
+          {formatEventTime(event.startsAt)} - {eventContactLabel(event)}
+        </Text>
+      </View>
+      <Text style={styles.rowMeta}>{event.status}</Text>
+    </Pressable>
+  );
+}
+
+function MiniMonthGrid({
+  anchor,
+  events
+}: {
+  anchor: Date;
+  events: MobileCalendarEvent[];
+}) {
+  const firstDay = startOfWeek(startOfMonth(anchor));
+  const cells = Array.from({ length: 35 }, (_, index) => addDays(firstDay, index));
+
+  return (
+    <View style={styles.miniMonthGrid}>
+      {cells.map((day) => {
+        const dayEvents = eventsForDay(events, day);
+        const muted = day.getMonth() !== anchor.getMonth();
+
+        return (
+          <View
+            key={`${day.toISOString()}-${dayEvents.length}`}
+            style={[
+              styles.miniMonthCell,
+              muted ? styles.miniMonthCellMuted : null
+            ]}
+          >
+            <Text style={styles.miniMonthDay}>{day.getDate()}</Text>
+            {dayEvents.length ? <View style={styles.miniMonthDot} /> : null}
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -1167,6 +1343,22 @@ function clampIndex(index: number, rowCount: number) {
   return Math.max(0, Math.min(rowCount - 1, index));
 }
 
+function shiftCalendarAnchor(
+  date: Date,
+  view: MobileCalendarView,
+  direction: -1 | 1
+) {
+  if (view === "day") {
+    return addDays(date, direction);
+  }
+
+  if (view === "month") {
+    return addMonths(date, direction);
+  }
+
+  return addDays(date, direction * 7);
+}
+
 function startOfTimeframe(timeframe: DashboardTimeframe) {
   const start = new Date();
 
@@ -1300,6 +1492,52 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     height: 9,
     width: 9
+  },
+  calendarNudge: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  calendarOpenButton: {
+    alignItems: "center",
+    borderColor: "rgba(81, 229, 255, 0.34)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    minHeight: 32,
+    justifyContent: "center",
+    paddingHorizontal: 12
+  },
+  calendarOpenButtonText: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  calendarRangeLabel: {
+    color: colors.text,
+    flex: 1,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center"
+  },
+  calendarRangeRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between"
+  },
+  calendarWidget: {
+    gap: 10
+  },
+  calendarWidgetTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between"
   },
   compactWidget: {
     minHeight: 154
@@ -1463,6 +1701,36 @@ const styles = StyleSheet.create({
   },
   largeWidget: {
     minHeight: 286
+  },
+  miniMonthCell: {
+    alignItems: "center",
+    aspectRatio: 1,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    flexBasis: "13.5%",
+    justifyContent: "center",
+    gap: 3
+  },
+  miniMonthCellMuted: {
+    opacity: 0.3
+  },
+  miniMonthDay: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "900"
+  },
+  miniMonthDot: {
+    backgroundColor: colors.pink,
+    borderRadius: radii.pill,
+    height: 4,
+    width: 4
+  },
+  miniMonthGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4
   },
   paymentMetricCard: {
     backgroundColor: colors.surface,

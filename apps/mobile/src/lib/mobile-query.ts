@@ -6,6 +6,7 @@ import type {
   MobileAssistantState,
   MobileAssistantVapiSessionResponse,
   MobileBootstrapResponse,
+  MobileCalendarResponse,
   MobileCrmContactProfile,
   MobileCrmResponse,
   MobileDocumentsResponse,
@@ -24,6 +25,7 @@ export const mobileQueryStaleTime = {
   assistant: 20 * 1000,
   assistantPromptSuggestions: 60 * 60 * 1000,
   assistantVapiSession: 30 * 1000,
+  calendar: 60 * 1000,
   crm: 2 * 60 * 1000,
   crmContact: 2 * 60 * 1000,
   dashboard: 60 * 1000,
@@ -46,6 +48,11 @@ export const mobileQueryKeys = {
     ["mobile-assistant-prompt-suggestions", userId] as const,
   assistantVapiSession: (userId?: string | null) =>
     ["mobile-assistant-vapi-session", userId] as const,
+  calendar: (
+    userId?: string | null,
+    from?: string | null,
+    to?: string | null
+  ) => ["mobile-calendar", userId, from, to] as const,
   crm: (userId?: string | null) => ["mobile-crm", userId] as const,
   crmContact: (userId?: string | null, contactId?: string | null) =>
     ["mobile-crm-contact", userId, contactId] as const,
@@ -113,6 +120,28 @@ export function mobileCrmQueryOptions(session?: Session | null) {
     queryFn: () => kyroApiFetch<MobileCrmResponse>("/api/mobile/crm", { session }),
     queryKey: mobileQueryKeys.crm(session?.user.id),
     staleTime: mobileQueryStaleTime.crm
+  };
+}
+
+export function mobileCalendarQueryOptions(
+  session?: Session | null,
+  range?: { from?: string | null; to?: string | null }
+) {
+  return {
+    queryFn: () =>
+      kyroApiFetch<MobileCalendarResponse>("/api/mobile/calendar", {
+        query: {
+          from: range?.from,
+          to: range?.to
+        },
+        session
+      }),
+    queryKey: mobileQueryKeys.calendar(
+      session?.user.id,
+      range?.from,
+      range?.to
+    ),
+    staleTime: mobileQueryStaleTime.calendar
   };
 }
 

@@ -842,8 +842,50 @@ export type MobileDashboardWorkQueueItem = {
   workflowBucket: string;
 };
 
+export type MobileCalendarEvent = {
+  appointmentType: string;
+  contact: {
+    company: string | null;
+    email: string | null;
+    id: string;
+    name: string | null;
+    phone: string | null;
+  } | null;
+  contactId: string | null;
+  conversationId: string | null;
+  createdAt: string;
+  description: string | null;
+  endsAt: string | null;
+  externalCalendarProvider: string | null;
+  externalSyncStatus: string | null;
+  id: string;
+  lead: {
+    id: string;
+    priority: string | null;
+    serviceType: string | null;
+    status: string | null;
+    title: string;
+  } | null;
+  leadId: string | null;
+  location: string | null;
+  startsAt: string | null;
+  status: string;
+  title: string;
+  updatedAt: string;
+};
+
+export type MobileCalendarResponse = {
+  events: MobileCalendarEvent[];
+  range: {
+    from: string;
+    to: string;
+  };
+  workspace: WorkspaceSummary;
+};
+
 export type MobileDashboardCommandCenter = {
   activity: MobileDashboardActivityItem[];
+  calendar: MobileCalendarEvent[];
   generatedDocuments: MobileDashboardGeneratedDocumentItem[];
   payments: MobileDashboardPaymentsSummary;
   stats: MobileDashboardStats;
