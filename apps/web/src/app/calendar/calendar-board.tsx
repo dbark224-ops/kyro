@@ -19,6 +19,10 @@ import {
   type CalendarSettings,
   type CalendarView,
 } from "../../lib/calendar/settings";
+import {
+  type CalendarSyncProvider,
+  calendarProviderSyncErrorMessage,
+} from "../../lib/calendar/sync-errors";
 import styles from "./calendar-board.module.css";
 
 type CalendarBoardProps = Readonly<{
@@ -124,6 +128,31 @@ function displayType(value: string) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+function calendarSyncProvider(
+  value: string | null,
+): CalendarSyncProvider | null {
+  return value === "google" || value === "microsoft" ? value : null;
+}
+
+function calendarSyncDestination(event: CalendarEventItem) {
+  if (event.externalCalendarProvider) {
+    return `${displayType(event.externalCalendarProvider)} calendar`;
+  }
+
+  return event.externalSyncStatus === "failed"
+    ? "Calendar sync needs attention."
+    : "Will sync when a connected calendar is available.";
+}
+
+function calendarSyncError(event: CalendarEventItem) {
+  return event.externalSyncError
+    ? calendarProviderSyncErrorMessage(
+        event.externalSyncError,
+        calendarSyncProvider(event.externalCalendarProvider),
+      )
+    : null;
 }
 
 function viewHref(view: CalendarView, date: Date) {
@@ -305,7 +334,9 @@ function MonthView({
   const firstOfMonth = startOfMonth(anchor);
   const firstDay = startOfWeek(firstOfMonth);
   const todayKey = formatDateParam(new Date());
-  const cells = Array.from({ length: 42 }, (_, index) => addDays(firstDay, index));
+  const cells = Array.from({ length: 42 }, (_, index) =>
+    addDays(firstDay, index),
+  );
 
   return (
     <div className={styles.monthGrid}>
@@ -445,7 +476,9 @@ function eventStartForNew(settings: CalendarSettings) {
   const date = new Date();
   date.setMinutes(0, 0, 0);
   date.setHours(date.getHours() + 1);
-  const end = new Date(date.getTime() + settings.defaultDurationMinutes * 60_000);
+  const end = new Date(
+    date.getTime() + settings.defaultDurationMinutes * 60_000,
+  );
 
   return {
     end: end.toISOString(),
@@ -481,7 +514,9 @@ function EventEditor({
   const defaultContactId = event?.contactId ?? "";
   const defaultLeadId = event?.leadId ?? "";
   const defaultConversationId = event?.conversationId ?? "";
-  const action = mode === "edit" ? updateCalendarEventAction : createCalendarEventAction;
+  const syncError = event ? calendarSyncError(event) : null;
+  const action =
+    mode === "edit" ? updateCalendarEventAction : createCalendarEventAction;
 
   return (
     <aside
@@ -495,7 +530,9 @@ function EventEditor({
       <div className={styles.editorHeader}>
         <div>
           <p className="eyebrow">Event</p>
-          <h2>{mode === "edit" ? "Edit calendar event" : "Add calendar event"}</h2>
+          <h2>
+            {mode === "edit" ? "Edit calendar event" : "Add calendar event"}
+          </h2>
           <p>
             {mode === "edit"
               ? `Updated ${formatLocalDateTime(event?.updatedAt ?? null, timeZone)}`
@@ -511,7 +548,11 @@ function EventEditor({
         </button>
       </div>
 
-      <form action={action} className={styles.editorForm} key={event?.id ?? "new"}>
+      <form
+        action={action}
+        className={styles.editorForm}
+        key={event?.id ?? "new"}
+      >
         {event ? (
           <input name="appointmentId" type="hidden" value={event.id} />
         ) : null}
@@ -634,10 +675,8 @@ function EventEditor({
                     ? "Sync failed"
                     : "Kyro calendar"}
               </span>{" "}
-              {event.externalCalendarProvider
-                ? `${displayType(event.externalCalendarProvider)} calendar`
-                : "Will sync when a connected calendar is available."}
-              {event.externalSyncError ? ` - ${event.externalSyncError}` : ""}
+              {calendarSyncDestination(event)}
+              {syncError ? ` - ${syncError}` : ""}
             </>
           ) : (
             "New events write back to Google or Outlook when a connected calendar is available."
@@ -646,7 +685,9 @@ function EventEditor({
 
         <div className={styles.editorActions}>
           <div className={styles.submitRow}>
-            <SubmitButton>{mode === "edit" ? "Save event" : "Create event"}</SubmitButton>
+            <SubmitButton>
+              {mode === "edit" ? "Save event" : "Create event"}
+            </SubmitButton>
           </div>
         </div>
       </form>
@@ -673,9 +714,10 @@ export function CalendarBoard({
   timeZone,
   view,
 }: CalendarBoardProps) {
-  const anchor = useMemo(() => startOfDay(new Date(`${anchorDate}T12:00:00`)), [
-    anchorDate,
-  ]);
+  const anchor = useMemo(
+    () => startOfDay(new Date(`${anchorDate}T12:00:00`)),
+    [anchorDate],
+  );
   const [currentView, setCurrentView] = useState<CalendarView>(view);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(
     initialSelectedEventId,

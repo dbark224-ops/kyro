@@ -17,10 +17,11 @@ import {
   decryptIntegrationTokenSet,
   encryptIntegrationTokenSet,
 } from "../integrations/token-vault";
+import { type CalendarSettings, getCalendarSettings } from "./settings";
 import {
-  type CalendarSettings,
-  getCalendarSettings,
-} from "./settings";
+  type CalendarSyncProvider,
+  calendarProviderSyncErrorMessage,
+} from "./sync-errors";
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
 const EXTERNAL_EVENT_REFRESH_INTERVAL_MS = 5 * 60_000;
@@ -66,7 +67,7 @@ type ExternalRefreshRow = AppointmentSyncRow & {
   external_synced_at: string | null;
 };
 
-type ExternalCalendarProvider = "google" | "microsoft";
+type ExternalCalendarProvider = CalendarSyncProvider;
 
 type ExternalSyncResult = {
   error: string | null;
@@ -88,7 +89,8 @@ function objectRecord(value: unknown) {
 function normalizeScopes(value: unknown) {
   return Array.isArray(value)
     ? value.filter(
-        (scope): scope is string => typeof scope === "string" && scope.length > 0,
+        (scope): scope is string =>
+          typeof scope === "string" && scope.length > 0,
       )
     : [];
 }
@@ -114,7 +116,9 @@ function tokenIsExpiring(tokenSet: TokenSet) {
     return true;
   }
 
-  return new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS;
+  return (
+    new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS
+  );
 }
 
 async function readApiError(response: Response) {
@@ -201,7 +205,9 @@ async function refreshGoogleAccessToken({
   const refreshToken = textValue(tokenSet.refreshToken);
 
   if (!config || !refreshToken) {
-    throw new Error("Google calendar access expired. Reconnect Google in Settings.");
+    throw new Error(
+      "Google calendar access expired. Reconnect Google in Settings.",
+    );
   }
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -223,7 +229,9 @@ async function refreshGoogleAccessToken({
       supabase,
       workspaceId,
     });
-    throw new Error("Google calendar access expired. Reconnect Google in Settings.");
+    throw new Error(
+      "Google calendar access expired. Reconnect Google in Settings.",
+    );
   }
 
   const refreshed = (await response.json()) as {
@@ -278,7 +286,9 @@ async function refreshMicrosoftAccessToken({
   const refreshToken = textValue(tokenSet.refreshToken);
 
   if (!config || !refreshToken) {
-    throw new Error("Microsoft calendar access expired. Reconnect Outlook in Settings.");
+    throw new Error(
+      "Microsoft calendar access expired. Reconnect Outlook in Settings.",
+    );
   }
 
   const response = await fetch(config.tokenEndpoint, {
@@ -313,7 +323,9 @@ async function refreshMicrosoftAccessToken({
       supabase,
       workspaceId,
     });
-    throw new Error("Microsoft calendar access expired. Reconnect Outlook in Settings.");
+    throw new Error(
+      "Microsoft calendar access expired. Reconnect Outlook in Settings.",
+    );
   }
 
   const updatedTokenSet: TokenSet = {
@@ -340,7 +352,9 @@ async function refreshMicrosoftAccessToken({
     .eq("id", connection.id);
 
   if (error) {
-    throw new Error(`Unable to save Microsoft calendar token: ${error.message}`);
+    throw new Error(
+      `Unable to save Microsoft calendar token: ${error.message}`,
+    );
   }
 
   return updatedTokenSet;
@@ -359,14 +373,19 @@ async function loadCalendarConnection({
     .from("integration_connections")
     .select("id,provider,account_email,scopes,token_set")
     .eq("workspace_id", workspaceId)
-    .eq("provider", provider === "google" ? GOOGLE_PROVIDER : MICROSOFT_PROVIDER)
+    .eq(
+      "provider",
+      provider === "google" ? GOOGLE_PROVIDER : MICROSOFT_PROVIDER,
+    )
     .eq("service", provider === "google" ? GOOGLE_SERVICE : MICROSOFT_SERVICE)
     .eq("status", "connected")
     .order("last_connected_at", { ascending: false })
     .limit(3);
 
   if (error) {
-    throw new Error(`Unable to load ${provider} calendar connection: ${error.message}`);
+    throw new Error(
+      `Unable to load ${provider} calendar connection: ${error.message}`,
+    );
   }
 
   return (data ?? [])
@@ -434,7 +453,9 @@ async function chooseCalendarConnection({
     workspaceId,
   });
 
-  return microsoft ? { connection: microsoft, provider: "microsoft" as const } : null;
+  return microsoft
+    ? { connection: microsoft, provider: "microsoft" as const }
+    : null;
 }
 
 async function accessTokenForConnection({
@@ -472,13 +493,18 @@ async function accessTokenForConnection({
   const accessToken = textValue(tokenSet.accessToken);
 
   if (!accessToken) {
-    throw new Error(`${provider} calendar connection has no usable access token.`);
+    throw new Error(
+      `${provider} calendar connection has no usable access token.`,
+    );
   }
 
   return accessToken;
 }
 
-function fallbackEndAt(appointment: AppointmentSyncRow, settings: CalendarSettings) {
+function fallbackEndAt(
+  appointment: AppointmentSyncRow,
+  settings: CalendarSettings,
+) {
   if (appointment.ends_at) {
     return appointment.ends_at;
   }
@@ -511,7 +537,9 @@ function kyroDescription(appointment: AppointmentSyncRow) {
 }
 
 function googleCalendarUrl(settings: CalendarSettings, suffix = "") {
-  const calendarId = encodeURIComponent(settings.externalCalendarId || "primary");
+  const calendarId = encodeURIComponent(
+    settings.externalCalendarId || "primary",
+  );
 
   return `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events${suffix}`;
 }
@@ -533,7 +561,9 @@ async function upsertGoogleEvent({
   const endsAt = fallbackEndAt(appointment, settings);
 
   if (!startsAt || !endsAt) {
-    throw new Error("Calendar event needs a start and end time before syncing.");
+    throw new Error(
+      "Calendar event needs a start and end time before syncing.",
+    );
   }
 
   const response = await fetch(
@@ -566,7 +596,9 @@ async function upsertGoogleEvent({
   );
 
   if (!response.ok) {
-    throw new Error(await readApiError(response));
+    throw new Error(
+      calendarProviderSyncErrorMessage(await readApiError(response), "google"),
+    );
   }
 
   return (await response.json()) as { etag?: string; id?: string };
@@ -594,7 +626,9 @@ async function readGoogleEvent({
   }
 
   if (!response.ok) {
-    throw new Error(await readApiError(response));
+    throw new Error(
+      calendarProviderSyncErrorMessage(await readApiError(response), "google"),
+    );
   }
 
   const event = (await response.json()) as {
@@ -627,7 +661,10 @@ function microsoftDateTime(value: string) {
   return new Date(value).toISOString().replace(/\.\d{3}Z$/, "");
 }
 
-function microsoftCalendarUrl(settings: CalendarSettings, eventId?: string | null) {
+function microsoftCalendarUrl(
+  settings: CalendarSettings,
+  eventId?: string | null,
+) {
   if (eventId) {
     return `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(eventId)}`;
   }
@@ -660,34 +697,44 @@ async function upsertMicrosoftEvent({
   const endsAt = fallbackEndAt(appointment, settings);
 
   if (!startsAt || !endsAt) {
-    throw new Error("Calendar event needs a start and end time before syncing.");
+    throw new Error(
+      "Calendar event needs a start and end time before syncing.",
+    );
   }
 
   const requestId = randomUUID();
-  const response = await fetch(microsoftCalendarUrl(settings, existingEventId), {
-    body: JSON.stringify({
-      body: {
-        content: kyroDescription(appointment),
-        contentType: "Text",
+  const response = await fetch(
+    microsoftCalendarUrl(settings, existingEventId),
+    {
+      body: JSON.stringify({
+        body: {
+          content: kyroDescription(appointment),
+          contentType: "Text",
+        },
+        end: { dateTime: microsoftDateTime(endsAt), timeZone: "UTC" },
+        location: textValue(appointment.location)
+          ? { displayName: textValue(appointment.location) }
+          : undefined,
+        subject: textValue(appointment.title) ?? "Kyro appointment",
+        start: { dateTime: microsoftDateTime(startsAt), timeZone: "UTC" },
+      }),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "client-request-id": requestId,
+        "Content-Type": "application/json",
+        "return-client-request-id": "true",
       },
-      end: { dateTime: microsoftDateTime(endsAt), timeZone: "UTC" },
-      location: textValue(appointment.location)
-        ? { displayName: textValue(appointment.location) }
-        : undefined,
-      subject: textValue(appointment.title) ?? "Kyro appointment",
-      start: { dateTime: microsoftDateTime(startsAt), timeZone: "UTC" },
-    }),
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "client-request-id": requestId,
-      "Content-Type": "application/json",
-      "return-client-request-id": "true",
+      method: existingEventId ? "PATCH" : "POST",
     },
-    method: existingEventId ? "PATCH" : "POST",
-  });
+  );
 
   if (!response.ok) {
-    throw new Error(await readApiError(response));
+    throw new Error(
+      calendarProviderSyncErrorMessage(
+        await readApiError(response),
+        "microsoft",
+      ),
+    );
   }
 
   return (await response.json()) as { id?: string };
@@ -710,7 +757,12 @@ async function readMicrosoftEvent({
   }
 
   if (!response.ok) {
-    throw new Error(await readApiError(response));
+    throw new Error(
+      calendarProviderSyncErrorMessage(
+        await readApiError(response),
+        "microsoft",
+      ),
+    );
   }
 
   const event = (await response.json()) as {
@@ -730,7 +782,11 @@ async function readMicrosoftEvent({
     etag: textValue(event.id),
     location: textValue(event.location?.displayName),
     startsAt: startsAt ? new Date(startsAt).toISOString() : null,
-    status: event.isCancelled ? "cancelled" : startsAt ? "scheduled" : "suggested",
+    status: event.isCancelled
+      ? "cancelled"
+      : startsAt
+        ? "scheduled"
+        : "suggested",
     title: textValue(event.subject),
   };
 }
@@ -776,7 +832,9 @@ async function loadExternalRefreshAppointments(
     .limit(100);
 
   if (error) {
-    throw new Error(`Unable to load external calendar events: ${error.message}`);
+    throw new Error(
+      `Unable to load external calendar events: ${error.message}`,
+    );
   }
 
   return ((data ?? []) as ExternalRefreshRow[]).filter(externalRefreshDue);
@@ -808,7 +866,9 @@ async function applyExternalEventRefresh({
       .eq("id", appointment.id);
 
     if (error) {
-      throw new Error(`Unable to mark deleted external event: ${error.message}`);
+      throw new Error(
+        `Unable to mark deleted external event: ${error.message}`,
+      );
     }
 
     return;
@@ -833,7 +893,9 @@ async function applyExternalEventRefresh({
     .eq("id", appointment.id);
 
   if (error) {
-    throw new Error(`Unable to apply external calendar update: ${error.message}`);
+    throw new Error(
+      `Unable to apply external calendar update: ${error.message}`,
+    );
   }
 }
 
@@ -891,7 +953,8 @@ export async function syncAppointmentToExternalCalendar({
       {
         error: null,
         eventId: appointment.external_event_id,
-        provider: appointment.external_calendar_provider as ExternalCalendarProvider | null,
+        provider:
+          appointment.external_calendar_provider as ExternalCalendarProvider | null,
         status: "not_synced",
       },
       appointment.external_calendar_id ?? settings.externalCalendarId,
@@ -907,13 +970,20 @@ export async function syncAppointmentToExternalCalendar({
       {
         error: "Event has no scheduled start time.",
         eventId: appointment.external_event_id,
-        provider: appointment.external_calendar_provider as ExternalCalendarProvider | null,
+        provider:
+          appointment.external_calendar_provider as ExternalCalendarProvider | null,
         status: "not_synced",
       },
       appointment.external_calendar_id ?? settings.externalCalendarId,
     );
     return { ok: true, skipped: true, status: "unscheduled" };
   }
+
+  let attemptedProvider: ExternalCalendarProvider | null =
+    appointment.external_calendar_provider === "google" ||
+    appointment.external_calendar_provider === "microsoft"
+      ? appointment.external_calendar_provider
+      : null;
 
   try {
     const selected = await chooseCalendarConnection({
@@ -928,7 +998,8 @@ export async function syncAppointmentToExternalCalendar({
         workspaceId,
         appointment.id,
         {
-          error: "No connected Google or Outlook calendar with write permission.",
+          error:
+            "No connected Google or Outlook calendar with write permission.",
           eventId: appointment.external_event_id,
           provider: null,
           status: "not_synced",
@@ -937,6 +1008,8 @@ export async function syncAppointmentToExternalCalendar({
       );
       return { ok: true, skipped: true, status: "provider_missing" };
     }
+
+    attemptedProvider = selected.provider;
 
     const accessToken = await accessTokenForConnection({
       connection: selected.connection,
@@ -986,8 +1059,10 @@ export async function syncAppointmentToExternalCalendar({
 
     return { ok: true, skipped: false, status: "synced" };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Calendar provider sync failed.";
+    const message = calendarProviderSyncErrorMessage(
+      error instanceof Error ? error.message : "Calendar provider sync failed.",
+      attemptedProvider,
+    );
     await markAppointmentExternalSync(
       supabase,
       workspaceId,
@@ -995,7 +1070,7 @@ export async function syncAppointmentToExternalCalendar({
       {
         error: message,
         eventId: appointment.external_event_id,
-        provider: appointment.external_calendar_provider as ExternalCalendarProvider | null,
+        provider: attemptedProvider,
         status: "failed",
       },
       appointment.external_calendar_id ?? settings.externalCalendarId,
@@ -1091,10 +1166,12 @@ export async function syncExternalCalendarUpdatesToKyro({
       });
       refreshed += 1;
     } catch (error) {
-      const message =
+      const message = calendarProviderSyncErrorMessage(
         error instanceof Error
           ? error.message
-          : "External calendar refresh failed.";
+          : "External calendar refresh failed.",
+        provider,
+      );
       await markAppointmentExternalSync(
         supabase,
         workspaceId,
@@ -1137,7 +1214,8 @@ export async function deleteAppointmentFromExternalCalendar({
   }
 
   try {
-    const provider = appointment.external_calendar_provider as ExternalCalendarProvider;
+    const provider =
+      appointment.external_calendar_provider as ExternalCalendarProvider;
     const connection = await loadCalendarConnection({
       provider,
       supabase,
@@ -1168,13 +1246,21 @@ export async function deleteAppointmentFromExternalCalendar({
     );
 
     if (!response.ok && response.status !== 404 && response.status !== 410) {
-      throw new Error(await readApiError(response));
+      throw new Error(
+        calendarProviderSyncErrorMessage(
+          await readApiError(response),
+          provider,
+        ),
+      );
     }
 
     return { ok: true, skipped: false };
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Calendar delete failed.",
+      error: calendarProviderSyncErrorMessage(
+        error instanceof Error ? error.message : "Calendar delete failed.",
+        appointment.external_calendar_provider as ExternalCalendarProvider,
+      ),
       ok: false,
       skipped: false,
     };
