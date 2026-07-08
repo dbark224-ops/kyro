@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
   CalendarDays,
@@ -6,11 +6,20 @@ import {
   ChevronRight,
   Clock3,
   MapPin,
-  RefreshCw,
+  Plus,
+  Save,
+  Trash2,
   UserRound,
 } from "lucide-react-native";
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { DataState } from "@/components/DataState";
 import { SkeletonLine, SkeletonRow } from "@/components/LoadingSkeleton";
@@ -32,16 +41,45 @@ import {
   startOfWeek,
   type MobileCalendarView,
 } from "@/lib/calendar-utils";
-import { mobileCalendarQueryOptions } from "@/lib/mobile-query";
-import type { MobileCalendarEvent } from "@/lib/mobile-api-types";
+import { kyroApiFetch } from "@/lib/kyro-api";
+import {
+  mobileCalendarQueryOptions,
+  mobileQueryKeys,
+} from "@/lib/mobile-query";
+import type {
+  MobileCalendarEvent,
+  MobileCalendarEventMutationInput,
+  MobileCalendarEventMutationResponse,
+} from "@/lib/mobile-api-types";
 import { colors, radii, typography } from "@/theme";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const EVENT_TYPES = [
+  "quote_visit",
+  "job",
+  "follow_up",
+  "site_visit",
+  "internal",
+  "other",
+] as const;
+const EVENT_STATUSES = [
+  "scheduled",
+  "suggested",
+  "completed",
+  "cancelled",
+] as const;
+
+type CalendarEditorState = {
+  event: MobileCalendarEvent | null;
+  mode: "create" | "edit";
+} | null;
 
 export default function CalendarScreen() {
   const { session, status } = useAuthSession();
+  const queryClient = useQueryClient();
   const [anchor, setAnchor] = useState(() => new Date());
   const [view, setView] = useState<MobileCalendarView>("day");
+  const [editor, setEditor] = useState<CalendarEditorState>(null);
   const queryRange = useMemo(() => {
     const from = startOfWeek(startOfMonth(anchor));
     const to = addDays(startOfWeek(addMonths(anchor, 2)), 7);
@@ -51,6 +89,57 @@ export default function CalendarScreen() {
   const calendar = useQuery({
     ...mobileCalendarQueryOptions(session, queryRange),
     enabled: status === "signed-in",
+  });
+  const invalidateCalendar = () =>
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["mobile-calendar", session?.user.id],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: mobileQueryKeys.dashboard(session?.user.id),
+      }),
+    ]);
+  const saveEventMutation = useMutation({
+    mutationFn: ({
+      eventId,
+      input,
+      mode,
+    }: {
+      eventId?: string;
+      input: MobileCalendarEventMutationInput;
+      mode: "create" | "edit";
+    }) =>
+      kyroApiFetch<MobileCalendarEventMutationResponse>(
+        "/api/mobile/calendar",
+        {
+          body: mode === "edit" ? { ...input, eventId } : input,
+          method: mode === "edit" ? "PATCH" : "POST",
+          session,
+        },
+      ),
+    onSuccess: async (payload) => {
+      if (payload.event?.startsAt) {
+        setAnchor(new Date(payload.event.startsAt));
+      }
+
+      setEditor(null);
+      await invalidateCalendar();
+    },
+  });
+  const deleteEventMutation = useMutation({
+    mutationFn: (eventId: string) =>
+      kyroApiFetch<MobileCalendarEventMutationResponse>(
+        "/api/mobile/calendar",
+        {
+          body: { eventId },
+          method: "DELETE",
+          session,
+        },
+      ),
+    onSuccess: async () => {
+      setEditor(null);
+      await invalidateCalendar();
+    },
   });
   const events = calendar.data?.events ?? [];
   const visibleEvents = useMemo(
@@ -71,10 +160,7 @@ export default function CalendarScreen() {
       ),
     [anchor, events, view, visibleEvents],
   );
-  const todayEvents = useMemo(
-    () => eventsForDay(events, new Date()),
-    [events],
-  );
+  const todayEvents = useMemo(() => eventsForDay(events, new Date()), [events]);
   const upcomingCount = events.filter((event) => {
     if (!event.startsAt) {
       return false;
@@ -82,6 +168,51 @@ export default function CalendarScreen() {
 
     return new Date(event.startsAt).getTime() >= Date.now();
   }).length;
+
+  if (editor) {
+    return (
+      <Screen
+        compactHeaderEmphasis
+        compactHeaderLabel={calendar.data?.workspace.name ?? "Workspace"}
+        showTopBar={false}
+        title={editor.mode === "create" ? "Add event" : "Event"}
+        titleScale="compact"
+      >
+        <Pressable
+          accessibilityLabel="Back to calendar"
+          accessibilityRole="button"
+          onPress={() => setEditor(null)}
+          style={({ pressed }) => [
+            styles.backLink,
+            pressed ? styles.pressed : null,
+          ]}
+        >
+          <ChevronLeft color={colors.text} size={17} />
+          <Text style={styles.backLinkText}>Calendar</Text>
+        </Pressable>
+        <CalendarEventEditor
+          anchor={anchor}
+          busy={saveEventMutation.isPending || deleteEventMutation.isPending}
+          error={
+            saveEventMutation.error instanceof Error
+              ? saveEventMutation.error.message
+              : deleteEventMutation.error instanceof Error
+                ? deleteEventMutation.error.message
+                : null
+          }
+          state={editor}
+          onDelete={(eventId) => deleteEventMutation.mutate(eventId)}
+          onSave={(input, eventId) =>
+            saveEventMutation.mutate({
+              eventId,
+              input,
+              mode: editor.mode,
+            })
+          }
+        />
+      </Screen>
+    );
+  }
 
   return (
     <Screen
@@ -118,15 +249,16 @@ export default function CalendarScreen() {
           value={view}
         />
         <Pressable
-          accessibilityLabel="Refresh calendar"
+          accessibilityLabel="Add calendar event"
           accessibilityRole="button"
-          onPress={() => calendar.refetch()}
+          onPress={() => setEditor({ event: null, mode: "create" })}
           style={({ pressed }) => [
-            styles.iconButton,
+            styles.addButton,
             pressed ? styles.pressed : null,
           ]}
         >
-          <RefreshCw color={colors.cyan} size={17} />
+          <Plus color={colors.background} size={15} />
+          <Text style={styles.addButtonText}>Add</Text>
         </Pressable>
       </View>
 
@@ -135,7 +267,9 @@ export default function CalendarScreen() {
           <Pressable
             accessibilityLabel="Previous calendar range"
             accessibilityRole="button"
-            onPress={() => setAnchor((current) => shiftAnchor(current, view, -1))}
+            onPress={() =>
+              setAnchor((current) => shiftAnchor(current, view, -1))
+            }
             style={({ pressed }) => [
               styles.iconButton,
               pressed ? styles.pressed : null,
@@ -155,7 +289,9 @@ export default function CalendarScreen() {
           <Pressable
             accessibilityLabel="Next calendar range"
             accessibilityRole="button"
-            onPress={() => setAnchor((current) => shiftAnchor(current, view, 1))}
+            onPress={() =>
+              setAnchor((current) => shiftAnchor(current, view, 1))
+            }
             style={({ pressed }) => [
               styles.iconButton,
               pressed ? styles.pressed : null,
@@ -182,17 +318,26 @@ export default function CalendarScreen() {
       {calendar.data ? (
         <SectionCard style={styles.agendaCard}>
           <SectionHeader
-            action={<Text style={styles.meta}>{agendaLabel(anchor, view)}</Text>}
+            action={
+              <Text style={styles.meta}>{agendaLabel(anchor, view)}</Text>
+            }
             eyebrow="Agenda"
             title={agendaEvents.length ? "Scheduled work" : "No calendar items"}
           />
           {agendaEvents.length ? (
             view === "week" ? (
-              <WeekAgenda events={agendaEvents} />
+              <WeekAgenda
+                events={agendaEvents}
+                onSelectEvent={(event) => setEditor({ event, mode: "edit" })}
+              />
             ) : (
               <View style={styles.eventList}>
                 {agendaEvents.map((event) => (
-                  <CalendarEventCard event={event} key={event.id} />
+                  <CalendarEventCard
+                    event={event}
+                    key={event.id}
+                    onPress={() => setEditor({ event, mode: "edit" })}
+                  />
                 ))}
               </View>
             )
@@ -208,7 +353,13 @@ export default function CalendarScreen() {
   );
 }
 
-function WeekAgenda({ events }: { events: MobileCalendarEvent[] }) {
+function WeekAgenda({
+  events,
+  onSelectEvent,
+}: {
+  events: MobileCalendarEvent[];
+  onSelectEvent: (event: MobileCalendarEvent) => void;
+}) {
   const groups = groupEventsByDay(events);
 
   return (
@@ -218,7 +369,11 @@ function WeekAgenda({ events }: { events: MobileCalendarEvent[] }) {
           <Text style={styles.agendaDateHeader}>{group.label}</Text>
           <View style={styles.eventList}>
             {group.events.map((event) => (
-              <CalendarEventCard event={event} key={event.id} />
+              <CalendarEventCard
+                event={event}
+                key={event.id}
+                onPress={() => onSelectEvent(event)}
+              />
             ))}
           </View>
         </View>
@@ -238,28 +393,17 @@ function CalendarLoadingState() {
   );
 }
 
-function CalendarEventCard({ event }: { event: MobileCalendarEvent }) {
-  const openLinkedRecord = () => {
-    if (event.conversationId) {
-      router.push({
-        pathname: "/inbox",
-        params: { conversationId: event.conversationId },
-      });
-      return;
-    }
-
-    if (event.contactId) {
-      router.push({
-        pathname: "/crm",
-        params: { contactId: event.contactId },
-      });
-    }
-  };
-
+function CalendarEventCard({
+  event,
+  onPress,
+}: {
+  event: MobileCalendarEvent;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={openLinkedRecord}
+      onPress={onPress}
       style={({ pressed }) => [
         styles.eventCard,
         pressed ? styles.pressed : null,
@@ -281,6 +425,603 @@ function CalendarEventCard({ event }: { event: MobileCalendarEvent }) {
   );
 }
 
+type CalendarFormState = {
+  appointmentType: string;
+  description: string;
+  endDate: string;
+  endTime: string;
+  location: string;
+  startDate: string;
+  startTime: string;
+  status: string;
+  title: string;
+};
+
+function CalendarEventEditor({
+  anchor,
+  busy,
+  error,
+  onDelete,
+  onSave,
+  state,
+}: {
+  anchor: Date;
+  busy: boolean;
+  error: string | null;
+  onDelete: (eventId: string) => void;
+  onSave: (input: MobileCalendarEventMutationInput, eventId?: string) => void;
+  state: NonNullable<CalendarEditorState>;
+}) {
+  const [form, setForm] = useState(() => formFromEditorState(state, anchor));
+  const [localError, setLocalError] = useState<string | null>(null);
+  const event = state.event;
+  const linkedContact = event?.contact;
+  const linkedLead = event?.lead;
+
+  useEffect(() => {
+    setForm(formFromEditorState(state, anchor));
+    setLocalError(null);
+  }, [anchor, state]);
+
+  const updateForm = (field: keyof CalendarFormState, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setLocalError(null);
+  };
+
+  const saveEvent = () => {
+    const title = form.title.trim();
+
+    if (!title) {
+      setLocalError("Add an event title first.");
+      return;
+    }
+
+    const start = isoFromDateAndTime(form.startDate, form.startTime, "start");
+    const end = isoFromDateAndTime(form.endDate, form.endTime, "end");
+
+    if (start.error || end.error) {
+      setLocalError(start.error ?? end.error);
+      return;
+    }
+
+    if (
+      start.value &&
+      end.value &&
+      Date.parse(end.value) <= Date.parse(start.value)
+    ) {
+      setLocalError("The end time needs to be after the start time.");
+      return;
+    }
+
+    onSave(
+      {
+        appointmentType: form.appointmentType,
+        contactId: event?.contactId ?? null,
+        conversationId: event?.conversationId ?? null,
+        description: nullableFormText(form.description),
+        endsAt: end.value,
+        leadId: event?.leadId ?? null,
+        location: nullableFormText(form.location),
+        startsAt: start.value,
+        status: form.status,
+        title,
+      },
+      event?.id,
+    );
+  };
+
+  const confirmDelete = () => {
+    if (!event) {
+      return;
+    }
+
+    Alert.alert("Delete event", "Remove this event from Kyro calendar?", [
+      { style: "cancel", text: "Cancel" },
+      {
+        onPress: () => onDelete(event.id),
+        style: "destructive",
+        text: "Delete",
+      },
+    ]);
+  };
+
+  const openLinkedInquiry = () => {
+    if (event?.conversationId) {
+      router.push({
+        pathname: "/inbox",
+        params: { conversationId: event.conversationId },
+      });
+    }
+  };
+
+  const openLinkedContact = () => {
+    if (event?.contactId) {
+      router.push({
+        pathname: "/crm",
+        params: { contactId: event.contactId },
+      });
+    }
+  };
+
+  return (
+    <View style={styles.editorStack}>
+      <SectionCard style={styles.editorCard}>
+        <View style={styles.editorHeader}>
+          <View style={styles.editorIcon}>
+            <CalendarDays color={colors.cyan} size={18} />
+          </View>
+          <View style={styles.editorTitleBlock}>
+            <Text style={styles.editorEyebrow}>Calendar event</Text>
+            <Text style={styles.editorTitle}>
+              {state.mode === "create" ? "New calendar item" : event?.title}
+            </Text>
+          </View>
+          {event ? (
+            <StatusPill label={formatLabel(event.status)} tone="neutral" />
+          ) : null}
+        </View>
+
+        <FieldLabel label="Title">
+          <TextInput
+            autoCapitalize="sentences"
+            editable={!busy}
+            onChangeText={(value) => updateForm("title", value)}
+            placeholder="Quote visit, job, call back..."
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={form.title}
+          />
+        </FieldLabel>
+
+        <FieldLabel label="Type">
+          <OptionGroup
+            disabled={busy}
+            onChange={(value) => updateForm("appointmentType", value)}
+            options={EVENT_TYPES.map((type) => ({
+              key: type,
+              label: formatLabel(type),
+            }))}
+            value={form.appointmentType}
+          />
+        </FieldLabel>
+
+        <FieldLabel label="Status">
+          <OptionGroup
+            disabled={busy}
+            onChange={(value) => updateForm("status", value)}
+            options={EVENT_STATUSES.map((status) => ({
+              key: status,
+              label: formatLabel(status),
+            }))}
+            value={form.status}
+          />
+        </FieldLabel>
+
+        <View style={styles.dateGrid}>
+          <FieldLabel label="Start date">
+            <TextInput
+              editable={!busy}
+              keyboardType="numbers-and-punctuation"
+              onChangeText={(value) => updateForm("startDate", value)}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+              value={form.startDate}
+            />
+          </FieldLabel>
+          <FieldLabel label="Start time">
+            <TextInput
+              editable={!busy}
+              keyboardType="numbers-and-punctuation"
+              onChangeText={(value) => updateForm("startTime", value)}
+              placeholder="HH:MM"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+              value={form.startTime}
+            />
+          </FieldLabel>
+          <FieldLabel label="End date">
+            <TextInput
+              editable={!busy}
+              keyboardType="numbers-and-punctuation"
+              onChangeText={(value) => updateForm("endDate", value)}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+              value={form.endDate}
+            />
+          </FieldLabel>
+          <FieldLabel label="End time">
+            <TextInput
+              editable={!busy}
+              keyboardType="numbers-and-punctuation"
+              onChangeText={(value) => updateForm("endTime", value)}
+              placeholder="HH:MM"
+              placeholderTextColor={colors.muted}
+              style={styles.input}
+              value={form.endTime}
+            />
+          </FieldLabel>
+        </View>
+
+        <FieldLabel label="Address">
+          <CalendarAddressInput
+            disabled={busy}
+            onChange={(value) => updateForm("location", value)}
+            value={form.location}
+          />
+        </FieldLabel>
+
+        <FieldLabel label="Notes">
+          <TextInput
+            editable={!busy}
+            multiline
+            onChangeText={(value) => updateForm("description", value)}
+            placeholder="Access notes, customer preference, quote details..."
+            placeholderTextColor={colors.muted}
+            style={[styles.input, styles.textArea]}
+            textAlignVertical="top"
+            value={form.description}
+          />
+        </FieldLabel>
+
+        {localError || error ? (
+          <Text style={styles.errorText}>{localError ?? error}</Text>
+        ) : null}
+
+        <View style={styles.editorActions}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={saveEvent}
+            style={({ pressed }) => [
+              styles.saveButton,
+              busy ? styles.disabled : null,
+              pressed && !busy ? styles.pressed : null,
+            ]}
+          >
+            <Save color={colors.background} size={15} />
+            <Text style={styles.saveButtonText}>
+              {state.mode === "create" ? "Create event" : "Save event"}
+            </Text>
+          </Pressable>
+          {event ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={confirmDelete}
+              style={({ pressed }) => [
+                styles.deleteButton,
+                busy ? styles.disabled : null,
+                pressed && !busy ? styles.pressed : null,
+              ]}
+            >
+              <Trash2 color={colors.pink} size={15} />
+              <Text style={styles.deleteButtonText}>Delete</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </SectionCard>
+
+      {event ? (
+        <SectionCard style={styles.detailCard}>
+          <SectionHeader
+            eyebrow="Linked records"
+            title={
+              linkedContact || linkedLead
+                ? eventContactLabel(event)
+                : "No linked customer"
+            }
+          />
+          <View style={styles.detailGrid}>
+            <DetailLine label="Contact" value={linkedContact?.name} />
+            <DetailLine label="Email" value={linkedContact?.email} />
+            <DetailLine label="Phone" value={linkedContact?.phone} />
+            <DetailLine label="Lead" value={linkedLead?.title} />
+          </View>
+          <View style={styles.secondaryActions}>
+            {event.conversationId ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={openLinkedInquiry}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <Text style={styles.secondaryButtonText}>Open inquiry</Text>
+                <ChevronRight color={colors.cyan} size={15} />
+              </Pressable>
+            ) : null}
+            {event.contactId ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={openLinkedContact}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <Text style={styles.secondaryButtonText}>Open contact</Text>
+                <ChevronRight color={colors.cyan} size={15} />
+              </Pressable>
+            ) : null}
+          </View>
+        </SectionCard>
+      ) : null}
+
+      <SectionCard style={styles.syncCard}>
+        <Text style={styles.syncTitle}>Calendar sync</Text>
+        <Text style={styles.syncText}>
+          {event
+            ? syncDescription(event)
+            : "New events write back to Google or Outlook when a connected calendar is available."}
+        </Text>
+      </SectionCard>
+    </View>
+  );
+}
+
+function FieldLabel({
+  children,
+  label,
+}: {
+  children: ReactNode;
+  label: string;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+function OptionGroup({
+  disabled,
+  onChange,
+  options,
+  value,
+}: {
+  disabled: boolean;
+  onChange: (value: string) => void;
+  options: Array<{ key: string; label: string }>;
+  value: string;
+}) {
+  return (
+    <View style={styles.optionGroup}>
+      {options.map((option) => {
+        const active = value === option.key;
+
+        return (
+          <Pressable
+            accessibilityRole="button"
+            disabled={disabled}
+            key={option.key}
+            onPress={() => onChange(option.key)}
+            style={({ pressed }) => [
+              styles.optionPill,
+              active ? styles.optionPillActive : null,
+              pressed && !disabled ? styles.pressed : null,
+            ]}
+          >
+            <Text
+              style={[
+                styles.optionText,
+                active ? styles.optionTextActive : null,
+              ]}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+type MobileAddressSuggestion = {
+  description: string;
+  mainText: string;
+  placeId: string;
+  secondaryText: string | null;
+};
+
+type MobileStructuredAddress = {
+  formattedAddress: string | null;
+  validationMessage: string | null;
+};
+
+function CalendarAddressInput({
+  disabled,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const { session } = useAuthSession();
+  const [suggestions, setSuggestions] = useState<MobileAddressSuggestion[]>([]);
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [selectingPlaceId, setSelectingPlaceId] = useState<string | null>(null);
+  const selectedFormattedAddress = useRef<string | null>(null);
+  const sessionToken = useRef(
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const query = value.trim();
+
+  useEffect(() => {
+    if (
+      disabled ||
+      !session ||
+      query.length < 3 ||
+      selectedFormattedAddress.current === query
+    ) {
+      setBusy(false);
+      setSuggestions([]);
+      return;
+    }
+
+    let cancelled = false;
+    setBusy(true);
+    setLookupMessage(null);
+
+    const timer = setTimeout(() => {
+      kyroApiFetch<{
+        data: MobileAddressSuggestion[];
+        unavailable?: boolean;
+      }>("/api/mobile/addresses/autocomplete", {
+        query: {
+          q: query,
+          sessionToken: sessionToken.current,
+          type: "address",
+        },
+        session,
+      })
+        .then((payload) => {
+          if (cancelled) {
+            return;
+          }
+
+          setSuggestions(payload.data ?? []);
+          setLookupMessage(
+            payload.unavailable ? "Address lookup is unavailable." : null,
+          );
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSuggestions([]);
+            setLookupMessage("Address lookup is unavailable.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setBusy(false);
+          }
+        });
+    }, 260);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [disabled, query, session]);
+
+  const selectSuggestion = (suggestion: MobileAddressSuggestion) => {
+    if (!session) {
+      onChange(suggestion.description);
+      setSuggestions([]);
+      return;
+    }
+
+    setSelectingPlaceId(suggestion.placeId);
+    setLookupMessage(null);
+
+    kyroApiFetch<{
+      data: MobileStructuredAddress | null;
+      unavailable?: boolean;
+    }>("/api/mobile/addresses/place", {
+      query: {
+        placeId: suggestion.placeId,
+        sessionToken: sessionToken.current,
+      },
+      session,
+    })
+      .then((payload) => {
+        const nextValue =
+          payload.data?.formattedAddress || suggestion.description;
+
+        selectedFormattedAddress.current = nextValue;
+        onChange(nextValue);
+        setSuggestions([]);
+        setLookupMessage(payload.data?.validationMessage ?? null);
+        sessionToken.current = `${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2)}`;
+      })
+      .catch(() => {
+        onChange(suggestion.description);
+        setSuggestions([]);
+        setLookupMessage("Address details are unavailable.");
+      })
+      .finally(() => setSelectingPlaceId(null));
+  };
+
+  return (
+    <View style={styles.addressBox}>
+      <TextInput
+        autoCapitalize="words"
+        editable={!disabled}
+        multiline
+        onChangeText={(text) => {
+          selectedFormattedAddress.current = null;
+          onChange(text);
+          setLookupMessage(null);
+        }}
+        placeholder="Start typing the event address..."
+        placeholderTextColor={colors.muted}
+        style={[styles.input, styles.addressInput]}
+        textAlignVertical="top"
+        value={value}
+      />
+      {suggestions.length ? (
+        <View style={styles.suggestionMenu}>
+          {suggestions.slice(0, 5).map((suggestion) => (
+            <Pressable
+              accessibilityRole="button"
+              disabled={Boolean(selectingPlaceId)}
+              key={suggestion.placeId || suggestion.description}
+              onPress={() => selectSuggestion(suggestion)}
+              style={styles.suggestionRow}
+            >
+              <View style={styles.suggestionTextBlock}>
+                <Text numberOfLines={1} style={styles.suggestionTitle}>
+                  {suggestion.mainText || suggestion.description}
+                </Text>
+                {suggestion.secondaryText ? (
+                  <Text numberOfLines={1} style={styles.suggestionMeta}>
+                    {suggestion.secondaryText}
+                  </Text>
+                ) : null}
+              </View>
+              <ChevronRight color={colors.cyan} size={15} />
+            </Pressable>
+          ))}
+          <Text style={styles.googleAttribution}>Powered by Google</Text>
+        </View>
+      ) : null}
+      {busy ? (
+        <Text style={styles.lookupMeta}>Searching addresses...</Text>
+      ) : null}
+      {selectingPlaceId ? (
+        <Text style={styles.lookupMeta}>Verifying address...</Text>
+      ) : null}
+      {lookupMessage ? (
+        <Text style={styles.lookupMeta}>{lookupMessage}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function DetailLine({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <View style={styles.detailLine}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text numberOfLines={2} style={styles.detailValue}>
+        {value?.trim() || "-"}
+      </Text>
+    </View>
+  );
+}
+
 function InfoLine({
   icon,
   text,
@@ -288,8 +1029,7 @@ function InfoLine({
   icon: "clock" | "map" | "user";
   text: string;
 }) {
-  const Icon =
-    icon === "clock" ? Clock3 : icon === "map" ? MapPin : UserRound;
+  const Icon = icon === "clock" ? Clock3 : icon === "map" ? MapPin : UserRound;
 
   return (
     <View style={styles.infoLine}>
@@ -408,6 +1148,167 @@ function SegmentedControl<T extends string>({
   );
 }
 
+function formFromEditorState(
+  state: NonNullable<CalendarEditorState>,
+  anchor: Date,
+): CalendarFormState {
+  if (state.event) {
+    const start = state.event.startsAt ? new Date(state.event.startsAt) : null;
+    const end = state.event.endsAt ? new Date(state.event.endsAt) : null;
+
+    return {
+      appointmentType: normalizeOption(
+        state.event.appointmentType,
+        EVENT_TYPES,
+        "other",
+      ),
+      description: state.event.description ?? "",
+      endDate: dateInputValue(end ?? start ?? defaultEventTimes(anchor).end),
+      endTime: timeInputValue(end ?? defaultEventTimes(anchor).end),
+      location: state.event.location ?? "",
+      startDate: dateInputValue(start ?? defaultEventTimes(anchor).start),
+      startTime: timeInputValue(start ?? defaultEventTimes(anchor).start),
+      status: normalizeOption(state.event.status, EVENT_STATUSES, "scheduled"),
+      title: state.event.title ?? "",
+    };
+  }
+
+  const defaults = defaultEventTimes(anchor);
+
+  return {
+    appointmentType: "quote_visit",
+    description: "",
+    endDate: dateInputValue(defaults.end),
+    endTime: timeInputValue(defaults.end),
+    location: "",
+    startDate: dateInputValue(defaults.start),
+    startTime: timeInputValue(defaults.start),
+    status: "scheduled",
+    title: "",
+  };
+}
+
+function defaultEventTimes(anchor: Date) {
+  const start = new Date(anchor);
+  const now = new Date();
+
+  if (formatDateParam(anchor) === formatDateParam(now)) {
+    start.setHours(now.getHours() + 1, 0, 0, 0);
+  } else {
+    start.setHours(9, 0, 0, 0);
+  }
+
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+
+  return { end, start };
+}
+
+function normalizeOption<T extends readonly string[]>(
+  value: string,
+  options: T,
+  fallback: T[number],
+) {
+  return options.includes(value) ? value : fallback;
+}
+
+function dateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function timeInputValue(date: Date) {
+  const hour = `${date.getHours()}`.padStart(2, "0");
+  const minute = `${date.getMinutes()}`.padStart(2, "0");
+
+  return `${hour}:${minute}`;
+}
+
+function isoFromDateAndTime(
+  dateValue: string,
+  timeValue: string,
+  label: string,
+) {
+  const date = dateValue.trim();
+  const time = timeValue.trim();
+
+  if (!date && !time) {
+    return { error: null, value: null };
+  }
+
+  const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timeMatch = time.match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!dateMatch || !timeMatch) {
+    return {
+      error: `Use YYYY-MM-DD and HH:MM for the ${label} time.`,
+      value: null,
+    };
+  }
+
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+  const hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2]);
+
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return {
+      error: `Use a valid ${label} date and time.`,
+      value: null,
+    };
+  }
+
+  const parsed = new Date(year, month - 1, day, hour, minute, 0, 0);
+
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return {
+      error: `Use a valid ${label} date and time.`,
+      value: null,
+    };
+  }
+
+  return { error: null, value: parsed.toISOString() };
+}
+
+function nullableFormText(value: string) {
+  const trimmed = value.trim();
+
+  return trimmed ? trimmed : null;
+}
+
+function syncDescription(event: MobileCalendarEvent) {
+  if (event.externalSyncStatus === "synced") {
+    return `Synced to ${formatLabel(event.externalCalendarProvider ?? "external calendar")}.`;
+  }
+
+  if (event.externalSyncStatus === "failed") {
+    return "Kyro saved this event, but external calendar sync needs attention.";
+  }
+
+  if (event.externalCalendarProvider) {
+    return `Kyro calendar event linked to ${formatLabel(event.externalCalendarProvider)}.`;
+  }
+
+  return "Kyro calendar event.";
+}
+
 function shiftAnchor(date: Date, view: MobileCalendarView, direction: -1 | 1) {
   if (view === "day") {
     return addDays(date, direction);
@@ -489,7 +1390,9 @@ function monthCells(anchor: Date) {
       (lastGridDay.getTime() - firstDay.getTime()) / (24 * 60 * 60 * 1000),
     ) + 1;
 
-  return Array.from({ length: totalDays }, (_, index) => addDays(firstDay, index));
+  return Array.from({ length: totalDays }, (_, index) =>
+    addDays(firstDay, index),
+  );
 }
 
 function chunkWeeks(days: Date[]) {
@@ -503,6 +1406,28 @@ function chunkWeeks(days: Date[]) {
 }
 
 const styles = StyleSheet.create({
+  addButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceStrong,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    gap: 6,
+    height: 36,
+    justifyContent: "center",
+    paddingHorizontal: 13,
+  },
+  addButtonText: {
+    color: colors.background,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  addressBox: {
+    gap: 7,
+  },
+  addressInput: {
+    minHeight: 66,
+  },
   agendaCard: {
     gap: 12,
   },
@@ -519,6 +1444,24 @@ const styles = StyleSheet.create({
   agendaGroups: {
     gap: 14,
   },
+  backLink: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 4,
+    minHeight: 34,
+  },
+  backLinkText: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  dateGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
   dayName: {
     color: colors.muted,
     flex: 1,
@@ -534,6 +1477,109 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 19,
+  },
+  deleteButton: {
+    alignItems: "center",
+    borderColor: "rgba(236, 54, 141, 0.45)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 14,
+  },
+  deleteButtonText: {
+    color: colors.pink,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  detailCard: {
+    gap: 12,
+  },
+  detailGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  detailLabel: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  detailLine: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    gap: 4,
+    padding: 10,
+    width: "48%",
+  },
+  detailValue: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  disabled: {
+    opacity: 0.5,
+  },
+  editorActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  editorCard: {
+    gap: 14,
+  },
+  editorEyebrow: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  editorHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  editorIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(81, 229, 255, 0.11)",
+    borderColor: "rgba(81, 229, 255, 0.42)",
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  editorStack: {
+    gap: 12,
+  },
+  editorTitle: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 17,
+    fontWeight: "900",
+    lineHeight: 21,
+  },
+  editorTitleBlock: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  errorText: {
+    color: colors.pink,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
   },
   eventAccent: {
     backgroundColor: colors.cyan,
@@ -572,6 +1618,26 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     lineHeight: 19,
   },
+  field: {
+    flex: 1,
+    gap: 7,
+    minWidth: 132,
+  },
+  fieldLabel: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  googleAttribution: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 10,
+    fontWeight: "800",
+    paddingHorizontal: 10,
+    paddingTop: 2,
+  },
   iconButton: {
     alignItems: "center",
     borderColor: colors.line,
@@ -593,6 +1659,25 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "700",
+  },
+  input: {
+    backgroundColor: colors.background,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "800",
+    minHeight: 42,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+  },
+  lookupMeta: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 11,
+    fontWeight: "800",
   },
   meta: {
     color: colors.muted,
@@ -657,6 +1742,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 4,
   },
+  optionGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  optionPill: {
+    borderColor: colors.line,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  optionPillActive: {
+    backgroundColor: colors.surfaceStrong,
+    borderColor: colors.surfaceStrong,
+  },
+  optionText: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  optionTextActive: {
+    color: colors.background,
+  },
   pressed: {
     opacity: 0.72,
   },
@@ -680,6 +1790,43 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flex: 1,
     gap: 2,
+  },
+  saveButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceStrong,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    flexGrow: 1,
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 15,
+  },
+  saveButtonText: {
+    color: colors.background,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  secondaryActions: {
+    gap: 8,
+  },
+  secondaryButton: {
+    alignItems: "center",
+    borderColor: colors.line,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+    minHeight: 40,
+    paddingHorizontal: 12,
+  },
+  secondaryButtonText: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
   },
   segment: {
     alignItems: "center",
@@ -708,6 +1855,60 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: colors.background,
+  },
+  suggestionMenu: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: 4,
+    padding: 6,
+  },
+  suggestionMeta: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  suggestionRow: {
+    alignItems: "center",
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 46,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  suggestionTextBlock: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  suggestionTitle: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  syncCard: {
+    gap: 5,
+  },
+  syncText: {
+    color: colors.muted,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
+  syncTitle: {
+    color: colors.text,
+    fontFamily: typography.fontFamily,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  textArea: {
+    minHeight: 92,
   },
   todayLink: {
     color: colors.cyan,

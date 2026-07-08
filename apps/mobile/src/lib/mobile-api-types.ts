@@ -883,6 +883,27 @@ export type MobileCalendarResponse = {
   workspace: WorkspaceSummary;
 };
 
+export type MobileCalendarEventMutationInput = {
+  appointmentType: string;
+  contactId?: string | null;
+  conversationId?: string | null;
+  description?: string | null;
+  endsAt?: string | null;
+  eventId?: string;
+  leadId?: string | null;
+  location?: string | null;
+  startsAt?: string | null;
+  status: string;
+  title: string;
+};
+
+export type MobileCalendarEventMutationResponse = {
+  deletedEventId?: string;
+  event: MobileCalendarEvent | null;
+  message: string;
+  workspace: WorkspaceSummary;
+};
+
 export type MobileDashboardCommandCenter = {
   activity: MobileDashboardActivityItem[];
   calendar: MobileCalendarEvent[];
