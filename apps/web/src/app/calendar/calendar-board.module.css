@@ -162,11 +162,28 @@
   transform: translateY(-1px);
 }
 
-.eventCard strong {
-  font-size: 0.74rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.eventCardPrimary {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.eventCardPrimary time {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 0.65rem;
+  font-weight: 900;
   white-space: nowrap;
+}
+
+.eventCardPrimary strong {
+  font-size: 0.74rem;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .eventCard span {
@@ -224,21 +241,6 @@
   border-radius: 12px;
   margin: 10px;
   min-height: 560px;
-}
-
-.dayEventRow {
-  align-items: start;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: 84px minmax(0, 1fr);
-}
-
-.dayEventTime {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 900;
-  padding-top: 9px;
-  text-align: right;
 }
 
 .editorPanel {

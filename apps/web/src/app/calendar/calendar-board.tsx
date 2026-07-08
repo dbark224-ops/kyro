@@ -308,11 +308,11 @@ function EventCard({
       onClick={onSelect}
       type="button"
     >
-      <strong>{event.title}</strong>
-      <span>
-        {formatTime(event.startsAt, timeZone)}
-        {event.location ? ` - ${event.location}` : ""}
-      </span>
+      <div className={styles.eventCardPrimary}>
+        <time>{formatTime(event.startsAt, timeZone)}</time>
+        <strong>{event.title}</strong>
+      </div>
+      {event.location ? <span>{event.location}</span> : null}
       <span>{contactLabel(event)}</span>
     </button>
   );
@@ -453,17 +453,13 @@ function DayView({
     <div className={styles.dayBody}>
       {dayEvents.length > 0 ? (
         dayEvents.map((event) => (
-          <div className={styles.dayEventRow} key={event.id}>
-            <div className={styles.dayEventTime}>
-              {formatTime(event.startsAt, timeZone)}
-            </div>
-            <EventCard
-              active={event.id === activeEventId}
-              event={event}
-              onSelect={() => onSelect(event.id)}
-              timeZone={timeZone}
-            />
-          </div>
+          <EventCard
+            active={event.id === activeEventId}
+            event={event}
+            key={event.id}
+            onSelect={() => onSelect(event.id)}
+            timeZone={timeZone}
+          />
         ))
       ) : (
         <p className={styles.emptyState}>No events on this day yet.</p>
