@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
 import {
@@ -162,6 +162,29 @@ function viewHref(view: CalendarView, date: Date) {
   });
 
   return `/calendar?${params.toString()}`;
+}
+
+function adjacentCalendarHrefs(view: CalendarView, anchor: Date) {
+  const adjacentDates =
+    view === "month"
+      ? [-1, 1].map(
+          (offset) =>
+            new Date(anchor.getFullYear(), anchor.getMonth() + offset, 1),
+        )
+      : view === "week"
+        ? [-14, -7, 7, 14].map((offset) => addDays(anchor, offset))
+        : [-2, -1, 1, 2].map((offset) => addDays(anchor, offset));
+  const viewSwitchHrefs = (["day", "week", "month"] as const)
+    .filter((nextView) => nextView !== view)
+    .map((nextView) => viewHref(nextView, anchor));
+
+  return [
+    ...new Set([
+      ...adjacentDates.map((date) => viewHref(view, date)),
+      ...viewSwitchHrefs,
+      viewHref(view, new Date()),
+    ]),
+  ];
 }
 
 function rangeForView(anchor: Date, view: CalendarView) {
@@ -710,6 +733,8 @@ export function CalendarBoard({
   timeZone,
   view,
 }: CalendarBoardProps) {
+  const router = useRouter();
+  const [isNavigating, startNavigation] = useTransition();
   const anchor = useMemo(
     () => startOfDay(new Date(`${anchorDate}T12:00:00`)),
     [anchorDate],
@@ -719,6 +744,7 @@ export function CalendarBoard({
     initialSelectedEventId,
   );
   const [createOpen, setCreateOpen] = useState(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const visibleRange = useMemo(
     () => rangeForView(anchor, currentView),
     [anchor, currentView],
@@ -728,8 +754,19 @@ export function CalendarBoard({
     [events, visibleRange],
   );
   const currentHref = viewHref(currentView, anchor);
+  const prefetchedHrefs = useMemo(
+    () => adjacentCalendarHrefs(currentView, anchor),
+    [anchor, currentView],
+  );
   const selectedEvent =
     events.find((event) => event.id === selectedEventId) ?? null;
+
+  useEffect(() => {
+    prefetchedHrefs.forEach((href) => {
+      router.prefetch(href);
+    });
+  }, [prefetchedHrefs, router]);
+
   const selectEvent = (eventId: string) => {
     setCreateOpen(false);
     setSelectedEventId(eventId);
@@ -737,6 +774,16 @@ export function CalendarBoard({
   const switchView = (nextView: CalendarView) => {
     setCurrentView(nextView);
     window.history.replaceState(null, "", viewHref(nextView, anchor));
+  };
+  const navigateCalendar = (href: string) => {
+    if (href === currentHref) {
+      return;
+    }
+
+    setPendingHref(href);
+    startNavigation(() => {
+      router.push(href);
+    });
   };
   const previousDate =
     currentView === "month"
@@ -753,6 +800,7 @@ export function CalendarBoard({
       event.externalSyncStatus &&
       event.externalSyncStatus !== "synced",
   ).length;
+  const calendarIsPending = Boolean(pendingHref || isNavigating);
 
   return (
     <div className={styles.calendarShell}>
@@ -770,26 +818,29 @@ export function CalendarBoard({
               </button>
             ))}
           </div>
-          <Link
+          <button
             className="secondary-button compact"
-            href={viewHref(currentView, new Date())}
+            onClick={() => navigateCalendar(viewHref(currentView, new Date()))}
+            type="button"
           >
             Today
-          </Link>
+          </button>
         </div>
         <div className={styles.calendarToolbarRight}>
-          <Link
+          <button
             className="secondary-button compact"
-            href={viewHref(currentView, previousDate)}
+            onClick={() => navigateCalendar(viewHref(currentView, previousDate))}
+            type="button"
           >
             Prev
-          </Link>
-          <Link
+          </button>
+          <button
             className="secondary-button compact"
-            href={viewHref(currentView, nextDate)}
+            onClick={() => navigateCalendar(viewHref(currentView, nextDate))}
+            type="button"
           >
             Next
-          </Link>
+          </button>
           <button
             className="primary-button compact"
             onClick={() => setCreateOpen(true)}
@@ -808,7 +859,7 @@ export function CalendarBoard({
           .filter(Boolean)
           .join(" ")}
       >
-        <section className={styles.calendarPanel}>
+        <section aria-busy={calendarIsPending} className={styles.calendarPanel}>
           <div className={styles.calendarPanelHeader}>
             <div className={styles.calendarTitle}>
               <p className="eyebrow">Calendar</p>
@@ -825,6 +876,16 @@ export function CalendarBoard({
                 : `${displayType(settings.syncProvider)} sync`}
             </span>
           </div>
+
+          {calendarIsPending ? (
+            <div className={styles.calendarPendingOverlay} aria-live="polite">
+              <span
+                className={styles.calendarPendingSpinner}
+                aria-hidden="true"
+              />
+              <span>Loading calendar</span>
+            </div>
+          ) : null}
 
           {currentView === "month" ? (
             <MonthView

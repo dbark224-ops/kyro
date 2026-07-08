@@ -65,6 +65,42 @@
 
 .calendarPanel {
   overflow: hidden;
+  position: relative;
+}
+
+.calendarPanel[aria-busy="true"] .monthGrid,
+.calendarPanel[aria-busy="true"] .weekGrid,
+.calendarPanel[aria-busy="true"] .dayBody {
+  opacity: 0.58;
+  transition: opacity 160ms ease;
+}
+
+.calendarPendingOverlay {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 800;
+  gap: 7px;
+  padding: 7px 10px;
+  position: absolute;
+  right: 14px;
+  top: 70px;
+  z-index: 4;
+}
+
+.calendarPendingSpinner {
+  animation: calendarPendingSpin 680ms linear infinite;
+  border: 2px solid color-mix(in srgb, var(--cyan) 22%, transparent);
+  border-radius: 999px;
+  border-top-color: var(--cyan);
+  display: inline-block;
+  height: 14px;
+  width: 14px;
 }
 
 .calendarPanelHeader,
@@ -125,6 +161,21 @@
 .monthCellToday {
   border-color: var(--cyan);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--cyan) 35%, transparent);
+}
+
+.calendarLoadingGrid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding: 10px;
+}
+
+.calendarLoadingCell {
+  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
+  border-radius: 10px;
+  min-height: 82px;
+  opacity: 0.64;
 }
 
 .dayNumber {
@@ -444,5 +495,11 @@
 
   .modalPanel {
     max-height: calc(100vh - 28px);
+  }
+}
+
+@keyframes calendarPendingSpin {
+  to {
+    transform: rotate(360deg);
   }
 }

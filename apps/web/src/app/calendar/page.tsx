@@ -1,4 +1,5 @@
 import { AppFrame } from "../components/app-frame";
+import { headers } from "next/headers";
 import {
   getCalendarEntityOptions,
   getCalendarEvents,
@@ -92,10 +93,15 @@ function rangeForView(anchor: Date, view: CalendarView) {
 }
 
 export default async function CalendarPage({ searchParams }: CalendarPageProps) {
-  const [query, { supabase, workspace }] = await Promise.all([
+  const [query, { supabase, workspace }, requestHeaders] = await Promise.all([
     searchParams,
     requireWorkspaceContext(),
+    headers(),
   ]);
+  const isPrefetchRequest =
+    requestHeaders.get("next-router-prefetch") === "1" ||
+    requestHeaders.get("purpose") === "prefetch" ||
+    requestHeaders.get("sec-purpose")?.includes("prefetch");
   const [settings, generalSettings] = await Promise.all([
     getCalendarSettings(supabase, workspace.id),
     getWorkspaceGeneralSettings(supabase, workspace.id),
@@ -103,7 +109,11 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   const view = normalizeView(query?.view, settings.defaultView);
   const anchor = parseAnchorDate(query?.date);
   const range = rangeForView(anchor, "month");
-  if (settings.importExternalUpdates && settings.syncProvider !== "none") {
+  if (
+    !isPrefetchRequest &&
+    settings.importExternalUpdates &&
+    settings.syncProvider !== "none"
+  ) {
     await syncExternalCalendarUpdatesToKyro({
       supabase,
       workspaceId: workspace.id,
