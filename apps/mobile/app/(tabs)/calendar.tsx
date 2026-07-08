@@ -62,6 +62,15 @@ export default function CalendarScreen() {
       ),
     [anchor, events, view],
   );
+  const agendaEvents = useMemo(
+    () =>
+      (view === "month" ? eventsForDay(events, anchor) : visibleEvents).sort(
+        (left, right) =>
+          new Date(left.startsAt ?? left.createdAt).getTime() -
+          new Date(right.startsAt ?? right.createdAt).getTime(),
+      ),
+    [anchor, events, view, visibleEvents],
+  );
   const todayEvents = useMemo(
     () => eventsForDay(events, new Date()),
     [events],
@@ -173,16 +182,20 @@ export default function CalendarScreen() {
       {calendar.data ? (
         <SectionCard style={styles.agendaCard}>
           <SectionHeader
-            action={<Text style={styles.meta}>{calendarViewLabels[view]}</Text>}
+            action={<Text style={styles.meta}>{agendaLabel(anchor, view)}</Text>}
             eyebrow="Agenda"
-            title={visibleEvents.length ? "Scheduled work" : "No calendar items"}
+            title={agendaEvents.length ? "Scheduled work" : "No calendar items"}
           />
-          {visibleEvents.length ? (
-            <View style={styles.eventList}>
-              {visibleEvents.map((event) => (
-                <CalendarEventCard event={event} key={event.id} />
-              ))}
-            </View>
+          {agendaEvents.length ? (
+            view === "week" ? (
+              <WeekAgenda events={agendaEvents} />
+            ) : (
+              <View style={styles.eventList}>
+                {agendaEvents.map((event) => (
+                  <CalendarEventCard event={event} key={event.id} />
+                ))}
+              </View>
+            )
           ) : (
             <Text style={styles.emptyText}>
               Site visits, jobs, and reminders will appear here when Kyro saves
@@ -192,6 +205,25 @@ export default function CalendarScreen() {
         </SectionCard>
       ) : null}
     </Screen>
+  );
+}
+
+function WeekAgenda({ events }: { events: MobileCalendarEvent[] }) {
+  const groups = groupEventsByDay(events);
+
+  return (
+    <View style={styles.agendaGroups}>
+      {groups.map((group) => (
+        <View key={group.key} style={styles.agendaGroup}>
+          <Text style={styles.agendaDateHeader}>{group.label}</Text>
+          <View style={styles.eventList}>
+            {group.events.map((event) => (
+              <CalendarEventCard event={event} key={event.id} />
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -278,54 +310,64 @@ function MonthGrid({
   events: MobileCalendarEvent[];
   onSelectDate: (date: Date) => void;
 }) {
-  const firstDay = startOfWeek(startOfMonth(anchor));
+  const cells = monthCells(anchor);
   const todayKey = formatDateParam(new Date());
-  const cells = Array.from({ length: 42 }, (_, index) => addDays(firstDay, index));
+  const selectedKey = formatDateParam(anchor);
+  const rows = chunkWeeks(cells);
 
   return (
     <SectionCard style={styles.monthCard}>
       <View style={styles.monthGrid}>
-        {DAY_NAMES.map((day) => (
-          <Text key={day} style={styles.dayName}>
-            {day}
-          </Text>
-        ))}
-        {cells.map((day) => {
-          const key = formatDateParam(day);
-          const dayEvents = eventsForDay(events, day);
-          const isMuted = day.getMonth() !== anchor.getMonth();
-          const isToday = key === todayKey;
+        <View style={styles.monthWeekRow}>
+          {DAY_NAMES.map((day) => (
+            <Text key={day} style={styles.dayName}>
+              {day}
+            </Text>
+          ))}
+        </View>
+        {rows.map((week) => (
+          <View key={formatDateParam(week[0])} style={styles.monthWeekRow}>
+            {week.map((day) => {
+              const key = formatDateParam(day);
+              const dayEvents = eventsForDay(events, day);
+              const isMuted = day.getMonth() !== anchor.getMonth();
+              const isToday = key === todayKey;
+              const isSelected = key === selectedKey;
 
-          return (
-            <Pressable
-              accessibilityRole="button"
-              key={key}
-              onPress={() => onSelectDate(day)}
-              style={[
-                styles.monthCell,
-                isMuted ? styles.monthCellMuted : null,
-                isToday ? styles.monthCellToday : null,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.monthCellText,
-                  isMuted ? styles.monthCellTextMuted : null,
-                  isToday ? styles.monthCellTextToday : null,
-                ]}
-              >
-                {day.getDate()}
-              </Text>
-              {dayEvents.length ? (
-                <View style={styles.monthDots}>
-                  {dayEvents.slice(0, 3).map((event) => (
-                    <View key={event.id} style={styles.monthDot} />
-                  ))}
-                </View>
-              ) : null}
-            </Pressable>
-          );
-        })}
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  key={key}
+                  onPress={() => onSelectDate(day)}
+                  style={[
+                    styles.monthCell,
+                    isMuted ? styles.monthCellMuted : null,
+                    isSelected ? styles.monthCellSelected : null,
+                    isToday ? styles.monthCellToday : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.monthCellText,
+                      isMuted ? styles.monthCellTextMuted : null,
+                      isSelected ? styles.monthCellTextSelected : null,
+                      isToday ? styles.monthCellTextToday : null,
+                    ]}
+                  >
+                    {day.getDate()}
+                  </Text>
+                  {dayEvents.length ? (
+                    <View style={styles.monthDots}>
+                      {dayEvents.slice(0, 3).map((event) => (
+                        <View key={event.id} style={styles.monthDot} />
+                      ))}
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
       </View>
     </SectionCard>
   );
@@ -398,13 +440,88 @@ function formatLabel(value: string) {
     .join(" ");
 }
 
+function agendaLabel(anchor: Date, view: MobileCalendarView) {
+  if (view === "month") {
+    return new Intl.DateTimeFormat(undefined, {
+      day: "numeric",
+      month: "short",
+    }).format(anchor);
+  }
+
+  return calendarViewLabels[view];
+}
+
+function groupEventsByDay(events: MobileCalendarEvent[]) {
+  const groups = new Map<
+    string,
+    { events: MobileCalendarEvent[]; key: string; label: string }
+  >();
+
+  for (const event of events) {
+    const date = new Date(event.startsAt ?? event.createdAt);
+    const key = Number.isNaN(date.getTime())
+      ? "unscheduled"
+      : formatDateParam(date);
+    const label = Number.isNaN(date.getTime())
+      ? "Time not set"
+      : new Intl.DateTimeFormat(undefined, {
+          day: "numeric",
+          month: "short",
+          weekday: "long",
+        }).format(date);
+
+    if (!groups.has(key)) {
+      groups.set(key, { events: [], key, label });
+    }
+
+    groups.get(key)?.events.push(event);
+  }
+
+  return [...groups.values()];
+}
+
+function monthCells(anchor: Date) {
+  const firstDay = startOfWeek(startOfMonth(anchor));
+  const lastDayOfMonth = addDays(addMonths(startOfMonth(anchor), 1), -1);
+  const lastGridDay = addDays(startOfWeek(lastDayOfMonth), 6);
+  const totalDays =
+    Math.round(
+      (lastGridDay.getTime() - firstDay.getTime()) / (24 * 60 * 60 * 1000),
+    ) + 1;
+
+  return Array.from({ length: totalDays }, (_, index) => addDays(firstDay, index));
+}
+
+function chunkWeeks(days: Date[]) {
+  const rows: Date[][] = [];
+
+  for (let index = 0; index < days.length; index += 7) {
+    rows.push(days.slice(index, index + 7));
+  }
+
+  return rows;
+}
+
 const styles = StyleSheet.create({
   agendaCard: {
     gap: 12,
   },
+  agendaDateHeader: {
+    color: colors.cyan,
+    fontFamily: typography.fontFamily,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  agendaGroup: {
+    gap: 8,
+  },
+  agendaGroups: {
+    gap: 14,
+  },
   dayName: {
     color: colors.muted,
-    flexBasis: "14.28%",
+    flex: 1,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "900",
@@ -485,7 +602,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   monthCard: {
-    padding: 10,
+    padding: 8,
   },
   monthCell: {
     alignItems: "center",
@@ -493,18 +610,25 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radii.sm,
     borderWidth: 1,
-    flexBasis: "14.28%",
-    justifyContent: "center",
-    gap: 5,
+    flex: 1,
+    justifyContent: "space-between",
+    paddingBottom: 8,
+    paddingTop: 8,
   },
   monthCellMuted: {
     opacity: 0.38,
+  },
+  monthCellSelected: {
+    borderColor: colors.pink,
   },
   monthCellText: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "900",
+  },
+  monthCellTextSelected: {
+    color: colors.pink,
   },
   monthCellTextMuted: {
     color: colors.muted,
@@ -527,8 +651,10 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   monthGrid: {
+    gap: 4,
+  },
+  monthWeekRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 4,
   },
   pressed: {

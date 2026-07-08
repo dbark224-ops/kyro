@@ -686,28 +686,32 @@ function MiniMonthGrid({
   anchor: Date;
   events: MobileCalendarEvent[];
 }) {
-  const firstDay = startOfWeek(startOfMonth(anchor));
-  const cells = Array.from({ length: 35 }, (_, index) => addDays(firstDay, index));
+  const cells = dashboardMonthCells(anchor);
+  const rows = dashboardChunkWeeks(cells);
 
   return (
     <View style={styles.miniMonthGrid}>
-      {cells.map((day) => {
-        const dayEvents = eventsForDay(events, day);
-        const muted = day.getMonth() !== anchor.getMonth();
+      {rows.map((week) => (
+        <View key={week[0].toISOString()} style={styles.miniMonthRow}>
+          {week.map((day) => {
+            const dayEvents = eventsForDay(events, day);
+            const muted = day.getMonth() !== anchor.getMonth();
 
-        return (
-          <View
-            key={`${day.toISOString()}-${dayEvents.length}`}
-            style={[
-              styles.miniMonthCell,
-              muted ? styles.miniMonthCellMuted : null
-            ]}
-          >
-            <Text style={styles.miniMonthDay}>{day.getDate()}</Text>
-            {dayEvents.length ? <View style={styles.miniMonthDot} /> : null}
-          </View>
-        );
-      })}
+            return (
+              <View
+                key={`${day.toISOString()}-${dayEvents.length}`}
+                style={[
+                  styles.miniMonthCell,
+                  muted ? styles.miniMonthCellMuted : null
+                ]}
+              >
+                <Text style={styles.miniMonthDay}>{day.getDate()}</Text>
+                {dayEvents.length ? <View style={styles.miniMonthDot} /> : null}
+              </View>
+            );
+          })}
+        </View>
+      ))}
     </View>
   );
 }
@@ -1359,6 +1363,28 @@ function shiftCalendarAnchor(
   return addDays(date, direction * 7);
 }
 
+function dashboardMonthCells(anchor: Date) {
+  const firstDay = startOfWeek(startOfMonth(anchor));
+  const lastDayOfMonth = addDays(addMonths(startOfMonth(anchor), 1), -1);
+  const lastGridDay = addDays(startOfWeek(lastDayOfMonth), 6);
+  const totalDays =
+    Math.round(
+      (lastGridDay.getTime() - firstDay.getTime()) / (24 * 60 * 60 * 1000)
+    ) + 1;
+
+  return Array.from({ length: totalDays }, (_, index) => addDays(firstDay, index));
+}
+
+function dashboardChunkWeeks(days: Date[]) {
+  const rows: Date[][] = [];
+
+  for (let index = 0; index < days.length; index += 7) {
+    rows.push(days.slice(index, index + 7));
+  }
+
+  return rows;
+}
+
 function startOfTimeframe(timeframe: DashboardTimeframe) {
   const start = new Date();
 
@@ -1708,7 +1734,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radii.sm,
     borderWidth: 1,
-    flexBasis: "13.5%",
+    flex: 1,
     justifyContent: "center",
     gap: 3
   },
@@ -1728,8 +1754,10 @@ const styles = StyleSheet.create({
     width: 4
   },
   miniMonthGrid: {
+    gap: 4
+  },
+  miniMonthRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 4
   },
   paymentMetricCard: {
