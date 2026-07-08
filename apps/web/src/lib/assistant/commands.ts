@@ -2814,7 +2814,11 @@ function inferCalendarEventType(prompt: string) {
     return "site_visit" as const;
   }
 
-  return "quote_visit" as const;
+  if (/\b(quote|estimate|pricing|price|bid)\b/.test(text)) {
+    return "quote_visit" as const;
+  }
+
+  return "other" as const;
 }
 
 function cleanCalendarTitle(prompt: string, contact: ContactListItem | null) {

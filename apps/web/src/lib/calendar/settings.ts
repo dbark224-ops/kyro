@@ -11,6 +11,7 @@ export const CALENDAR_EVENT_TYPES = [
   "follow_up",
   "site_visit",
   "internal",
+  "other",
 ] as const;
 export type CalendarEventType = (typeof CALENDAR_EVENT_TYPES)[number];
 
@@ -106,9 +107,9 @@ function normalizeCalendarView(
     : fallback;
 }
 
-function normalizeCalendarEventType(
+export function normalizeCalendarEventType(
   value: unknown,
-  fallback: CalendarEventType,
+  fallback: CalendarEventType = "other",
 ): CalendarEventType {
   const type = textValue(value);
 

@@ -3,9 +3,10 @@ import { parseAddressFormData } from "../addresses/form";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { syncAppointmentToExternalCalendar } from "./provider-sync";
 import {
-  CALENDAR_EVENT_TYPES,
+  normalizeCalendarEventType as normalizeCalendarEventTypeValue,
   type CalendarEventType,
 } from "./settings";
+export { normalizeCalendarEventType } from "./settings";
 
 export const CALENDAR_EVENT_STATUSES = [
   "suggested",
@@ -32,7 +33,7 @@ export type CalendarAddressMetadata = {
 };
 
 export type CalendarEventItem = {
-  appointmentType: string;
+  appointmentType: CalendarEventType;
   contact: {
     company: string | null;
     email: string | null;
@@ -149,12 +150,6 @@ function uniqueIds(values: Array<string | null | undefined>) {
   return [
     ...new Set(values.filter((value): value is string => Boolean(value))),
   ];
-}
-
-export function normalizeCalendarEventType(value: string): CalendarEventType {
-  return CALENDAR_EVENT_TYPES.includes(value as CalendarEventType)
-    ? (value as CalendarEventType)
-    : "quote_visit";
 }
 
 export function normalizeCalendarEventStatus(
@@ -340,7 +335,7 @@ async function hydrateCalendarEvents(
   );
 
   return rows.map((row) => ({
-    appointmentType: row.appointment_type ?? "quote_visit",
+    appointmentType: normalizeCalendarEventTypeValue(row.appointment_type),
     contact: row.contact_id ? (contactsById.get(row.contact_id) ?? null) : null,
     contactId: row.contact_id,
     conversation: row.conversation_id
