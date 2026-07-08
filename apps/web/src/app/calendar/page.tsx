@@ -131,13 +131,6 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
 
   return (
     <AppFrame active="Calendar">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">{workspace.name}</p>
-          <h1>Calendar</h1>
-        </div>
-      </header>
-
       {query?.engine_error ? (
         <p className="form-alert error">{query.engine_error}</p>
       ) : null}

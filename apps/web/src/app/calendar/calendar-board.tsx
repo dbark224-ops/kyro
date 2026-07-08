@@ -1,7 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import {
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import { useFormStatus } from "react-dom";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
 import {
@@ -38,6 +44,20 @@ type CalendarBoardProps = Readonly<{
 }>;
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const TIMELINE_VISIBLE_START_HOUR = 6;
+const TIMELINE_VISIBLE_END_HOUR = 18;
+const TIMELINE_BUFFER_MINUTES = 60;
+const TIMELINE_START_MINUTES =
+  TIMELINE_VISIBLE_START_HOUR * 60 - TIMELINE_BUFFER_MINUTES;
+const TIMELINE_END_MINUTES =
+  TIMELINE_VISIBLE_END_HOUR * 60 + TIMELINE_BUFFER_MINUTES;
+const TIMELINE_TOTAL_MINUTES =
+  TIMELINE_END_MINUTES - TIMELINE_START_MINUTES;
+const TIMELINE_MIN_EVENT_MINUTES = 34;
+const TIMELINE_LABEL_HOURS = Array.from(
+  { length: TIMELINE_VISIBLE_END_HOUR - TIMELINE_VISIBLE_START_HOUR + 1 },
+  (_, index) => TIMELINE_VISIBLE_START_HOUR + index,
+);
 
 function startOfDay(date: Date) {
   const next = new Date(date);
@@ -97,6 +117,95 @@ function formatTime(value: string | null, timeZone: string) {
     minute: "2-digit",
     timeZone,
   }).format(new Date(value));
+}
+
+function formatHourLabel(hour: number) {
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+
+  return `${displayHour}${suffix}`;
+}
+
+function dateKeyInTimeZone(value: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone,
+    year: "numeric",
+  }).formatToParts(new Date(value));
+  const part = (type: string) =>
+    parts.find((current) => current.type === type)?.value ?? "";
+
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function minutesInTimeZone(value: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    timeZone,
+  }).formatToParts(new Date(value));
+  const hour = Number(
+    parts.find((current) => current.type === "hour")?.value ?? "0",
+  );
+  const minute = Number(
+    parts.find((current) => current.type === "minute")?.value ?? "0",
+  );
+
+  return hour * 60 + minute;
+}
+
+function timelinePercent(minutes: number) {
+  return ((minutes - TIMELINE_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+}
+
+function timelineEventMetrics(event: CalendarEventItem, timeZone: string) {
+  if (!event.startsAt) {
+    return {
+      edge: "normal",
+      style: { height: "6%", top: "0%" } satisfies CSSProperties,
+    };
+  }
+
+  const start = minutesInTimeZone(event.startsAt, timeZone);
+  const startDate = new Date(event.startsAt);
+  const endDate = event.endsAt ? new Date(event.endsAt) : null;
+  const duration =
+    endDate && !Number.isNaN(endDate.getTime()) && endDate > startDate
+      ? Math.max(
+          TIMELINE_MIN_EVENT_MINUTES,
+          Math.round((endDate.getTime() - startDate.getTime()) / 60_000),
+        )
+      : 60;
+  const latestStart = TIMELINE_END_MINUTES - TIMELINE_MIN_EVENT_MINUTES;
+  const clampedStart = Math.min(
+    Math.max(start, TIMELINE_START_MINUTES),
+    latestStart,
+  );
+  const clampedEnd = Math.min(
+    Math.max(start + duration, clampedStart + TIMELINE_MIN_EVENT_MINUTES),
+    TIMELINE_END_MINUTES,
+  );
+  const height = Math.max(
+    (TIMELINE_MIN_EVENT_MINUTES / TIMELINE_TOTAL_MINUTES) * 100,
+    ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100,
+  );
+  const top = Math.min(timelinePercent(clampedStart), 100 - height);
+  const edge =
+    start < TIMELINE_VISIBLE_START_HOUR * 60
+      ? "early"
+      : start >= TIMELINE_VISIBLE_END_HOUR * 60
+        ? "late"
+        : "normal";
+
+  return {
+    edge,
+    style: {
+      height: `${height}%`,
+      top: `${top}%`,
+    } satisfies CSSProperties,
+  };
 }
 
 function dateTimeLocalValue(value: string | null) {
@@ -294,18 +403,29 @@ function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
   return `${formatter.format(start)} - ${formatter.format(end)}`;
 }
 
-function eventsForDay(events: CalendarEventItem[], day: Date) {
-  const start = startOfDay(day).getTime();
-  const end = addDays(startOfDay(day), 1).getTime();
+function eventsForDay(
+  events: CalendarEventItem[],
+  day: Date,
+  timeZone: string,
+) {
+  const dayKey = formatDateParam(day);
 
-  return events.filter((event) => {
-    if (!event.startsAt) {
-      return false;
-    }
+  return events
+    .filter(
+      (event) =>
+        Boolean(event.startsAt) &&
+        dateKeyInTimeZone(event.startsAt as string, timeZone) === dayKey,
+    )
+    .sort((first, second) => {
+      const firstTime = first.startsAt
+        ? new Date(first.startsAt).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      const secondTime = second.startsAt
+        ? new Date(second.startsAt).getTime()
+        : Number.MAX_SAFE_INTEGER;
 
-    const time = new Date(event.startsAt).getTime();
-    return time >= start && time < end;
-  });
+      return firstTime - secondTime;
+    });
 }
 
 function eventsInRange(
@@ -402,6 +522,75 @@ function EventCard({
   );
 }
 
+function TimelineAxis() {
+  return (
+    <div className={styles.timelineAxis} aria-hidden="true">
+      {TIMELINE_LABEL_HOURS.map((hour) => (
+        <span
+          className={styles.timelineAxisLabel}
+          key={hour}
+          style={{ top: `${timelinePercent(hour * 60)}%` }}
+        >
+          {formatHourLabel(hour)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function TimelineLines() {
+  return (
+    <>
+      {TIMELINE_LABEL_HOURS.map((hour) => (
+        <span
+          className={styles.timelineLine}
+          key={hour}
+          style={{ top: `${timelinePercent(hour * 60)}%` }}
+        />
+      ))}
+    </>
+  );
+}
+
+function TimelineEventCard({
+  active,
+  compact = false,
+  event,
+  onSelect,
+  timeZone,
+}: Readonly<{
+  active: boolean;
+  compact?: boolean;
+  event: CalendarEventItem;
+  onSelect: () => void;
+  timeZone: string;
+}>) {
+  const metrics = timelineEventMetrics(event, timeZone);
+
+  return (
+    <button
+      className={styles.timelineEvent}
+      data-active={active}
+      data-compact={compact}
+      data-edge={metrics.edge}
+      onClick={onSelect}
+      style={metrics.style}
+      type="button"
+    >
+      <span className={styles.timelineEventTop}>
+        <time>{formatTime(event.startsAt, timeZone)}</time>
+        <strong>{event.title}</strong>
+      </span>
+      {compact ? null : (
+        <>
+          {event.location ? <span>{event.location}</span> : null}
+          <span>{contactLabel(event)}</span>
+        </>
+      )}
+    </button>
+  );
+}
+
 function MonthView({
   activeEventId,
   anchor,
@@ -430,7 +619,7 @@ function MonthView({
         </div>
       ))}
       {cells.map((day) => {
-        const dayEvents = eventsForDay(events, day);
+        const dayEvents = eventsForDay(events, day, timeZone);
         const isMuted = day.getMonth() !== anchor.getMonth();
         const isToday = formatDateParam(day) === todayKey;
 
@@ -487,30 +676,30 @@ function WeekView({
 
   return (
     <div className={styles.weekGrid}>
+      <div className={styles.timelineAxisSpacer} />
+      {days.map((day) => (
+        <div className={styles.weekHeader} key={formatDateParam(day)}>
+          <strong>{DAY_NAMES[(day.getDay() + 6) % 7]}</strong>
+          <span>{day.getDate()}</span>
+        </div>
+      ))}
+      <TimelineAxis />
       {days.map((day) => {
-        const dayEvents = eventsForDay(events, day);
+        const dayEvents = eventsForDay(events, day, timeZone);
 
         return (
-          <div className={styles.weekColumn} key={formatDateParam(day)}>
-            <div className={styles.weekHeader}>
-              <strong>{DAY_NAMES[(day.getDay() + 6) % 7]}</strong>
-              <span>{day.getDate()}</span>
-            </div>
-            <div className={styles.weekBody}>
-              {dayEvents.length > 0 ? (
-                dayEvents.map((event) => (
-                  <EventCard
-                    active={event.id === activeEventId}
-                    event={event}
-                    key={event.id}
-                    onSelect={() => onSelect(event.id)}
-                    timeZone={timeZone}
-                  />
-                ))
-              ) : (
-                <span className={styles.eventMeta}>No events</span>
-              )}
-            </div>
+          <div className={styles.timelineDay} key={formatDateParam(day)}>
+            <TimelineLines />
+            {dayEvents.map((event) => (
+              <TimelineEventCard
+                active={event.id === activeEventId}
+                compact
+                event={event}
+                key={event.id}
+                onSelect={() => onSelect(event.id)}
+                timeZone={timeZone}
+              />
+            ))}
           </div>
         );
       })}
@@ -531,23 +720,27 @@ function DayView({
   onSelect: (eventId: string) => void;
   timeZone: string;
 }>) {
-  const dayEvents = eventsForDay(events, anchor);
+  const dayEvents = eventsForDay(events, anchor, timeZone);
 
   return (
-    <div className={styles.dayBody}>
-      {dayEvents.length > 0 ? (
-        dayEvents.map((event) => (
-          <EventCard
-            active={event.id === activeEventId}
-            event={event}
-            key={event.id}
-            onSelect={() => onSelect(event.id)}
-            timeZone={timeZone}
-          />
-        ))
-      ) : (
-        <p className={styles.emptyState}>No events on this day yet.</p>
-      )}
+    <div className={styles.dayTimeline}>
+      <TimelineAxis />
+      <div className={styles.timelineDay} data-view="day">
+        <TimelineLines />
+        {dayEvents.length > 0 ? (
+          dayEvents.map((event) => (
+            <TimelineEventCard
+              active={event.id === activeEventId}
+              event={event}
+              key={event.id}
+              onSelect={() => onSelect(event.id)}
+              timeZone={timeZone}
+            />
+          ))
+        ) : (
+          <p className={styles.emptyState}>No events on this day yet.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -867,53 +1060,6 @@ export function CalendarBoard({
 
   return (
     <div className={styles.calendarShell}>
-      <div className={styles.calendarToolbar}>
-        <div className={styles.calendarToolbarLeft}>
-          <div className={styles.viewSwitch} aria-label="Calendar view">
-            {(["day", "week", "month"] as const).map((nextView) => (
-              <button
-                data-active={currentView === nextView}
-                key={nextView}
-                onClick={() => switchView(nextView)}
-                type="button"
-              >
-                {nextView}
-              </button>
-            ))}
-          </div>
-          <button
-            className="secondary-button compact"
-            onClick={() => navigateCalendar(viewHref(currentView, new Date()))}
-            type="button"
-          >
-            Today
-          </button>
-        </div>
-        <div className={styles.calendarToolbarRight}>
-          <button
-            className="secondary-button compact"
-            onClick={() => navigateCalendar(viewHref(currentView, previousDate))}
-            type="button"
-          >
-            Prev
-          </button>
-          <button
-            className="secondary-button compact"
-            onClick={() => navigateCalendar(viewHref(currentView, nextDate))}
-            type="button"
-          >
-            Next
-          </button>
-          <button
-            className="primary-button compact"
-            onClick={() => setCreateOpen(true)}
-            type="button"
-          >
-            Add event
-          </button>
-        </div>
-      </div>
-
       <div
         className={[
           styles.calendarGrid,
@@ -924,18 +1070,67 @@ export function CalendarBoard({
       >
         <section aria-busy={calendarIsPending} className={styles.calendarPanel}>
           <div className={styles.calendarPanelHeader}>
-            <div className={styles.calendarTitle}>
-              <p className="eyebrow">Calendar</p>
-              <h2>{rangeLabel(anchor, currentView, timeZone)}</h2>
+            <div className={styles.calendarTitleCluster}>
+              <div className={styles.calendarTitleLine}>
+                <div className={styles.calendarTitle}>
+                  <h2>{rangeLabel(anchor, currentView, timeZone)}</h2>
+                </div>
+                <div className={styles.viewSwitch} aria-label="Calendar view">
+                  {(["day", "week", "month"] as const).map((nextView) => (
+                    <button
+                      data-active={currentView === nextView}
+                      key={nextView}
+                      onClick={() => switchView(nextView)}
+                      type="button"
+                    >
+                      {nextView}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <p>
                 {scheduledEvents.length} scheduled event
                 {scheduledEvents.length === 1 ? "" : "s"}
                 {unsyncedCount > 0 ? ` - ${unsyncedCount} needing sync` : ""}
               </p>
             </div>
-            <span className={styles.syncPill} data-status={syncBadge.status}>
-              {syncBadge.label}
-            </span>
+            <div className={styles.calendarHeaderActions}>
+              <span className={styles.syncPill} data-status={syncBadge.status}>
+                {syncBadge.label}
+              </span>
+              <button
+                className="secondary-button compact"
+                onClick={() =>
+                  navigateCalendar(viewHref(currentView, previousDate))
+                }
+                type="button"
+              >
+                Prev
+              </button>
+              <button
+                className="secondary-button compact"
+                onClick={() =>
+                  navigateCalendar(viewHref(currentView, new Date()))
+                }
+                type="button"
+              >
+                Today
+              </button>
+              <button
+                className="secondary-button compact"
+                onClick={() => navigateCalendar(viewHref(currentView, nextDate))}
+                type="button"
+              >
+                Next
+              </button>
+              <button
+                className="primary-button compact"
+                onClick={() => setCreateOpen(true)}
+                type="button"
+              >
+                Add event
+              </button>
+            </div>
           </div>
 
           {calendarIsPending ? (

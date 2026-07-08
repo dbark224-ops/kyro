@@ -1,6 +1,9 @@
 .calendarShell {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  padding-top: 54px;
 }
 
 .calendarToolbar {
@@ -48,6 +51,7 @@
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  min-height: 0;
 }
 
 .calendarGridFull {
@@ -64,13 +68,16 @@
 }
 
 .calendarPanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
 
 .calendarPanel[aria-busy="true"] .monthGrid,
 .calendarPanel[aria-busy="true"] .weekGrid,
-.calendarPanel[aria-busy="true"] .dayBody {
+.calendarPanel[aria-busy="true"] .dayTimeline {
   opacity: 0.58;
   transition: opacity 160ms ease;
 }
@@ -108,9 +115,31 @@
   align-items: center;
   border-bottom: 1px solid var(--line);
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 10px 12px;
+}
+
+.calendarTitleCluster {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.calendarTitleLine {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.calendarHeaderActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
 }
 
 .calendarTitle h2,
@@ -120,6 +149,7 @@
 }
 
 .calendarTitle p,
+.calendarTitleCluster > p,
 .editorHeader p,
 .eventMeta,
 .syncLine {
@@ -130,8 +160,10 @@
 
 .monthGrid {
   display: grid;
+  flex: 1 1 auto;
   gap: 6px;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-height: 0;
   padding: 10px;
 }
 
@@ -245,53 +277,161 @@
   white-space: nowrap;
 }
 
-.weekGrid {
+.weekGrid,
+.dayTimeline {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  min-height: 560px;
-  padding: 10px;
+  flex: 1 1 auto;
+  gap: 6px;
+  height: clamp(500px, calc(100dvh - 252px), 620px);
+  min-height: 0;
+  padding: 8px 10px 10px;
 }
 
-.weekColumn {
+.weekGrid {
+  grid-template-columns: 44px repeat(7, minmax(0, 1fr));
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.dayTimeline {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.timelineAxisSpacer {
+  min-height: 32px;
+}
+
+.timelineAxis {
+  position: relative;
+}
+
+.timelineAxisLabel {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  position: absolute;
+  right: 5px;
+  text-transform: uppercase;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.timelineDay {
   background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
   border-radius: 12px;
-  display: grid;
-  grid-template-rows: auto 1fr;
+  min-height: 0;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .weekHeader {
-  border-bottom: 1px solid var(--line);
-  padding: 10px;
+  align-items: baseline;
+  background: color-mix(in srgb, var(--surface) 94%, var(--text) 6%);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
+  border-radius: 10px;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  padding: 7px 8px;
 }
 
 .weekHeader strong {
-  display: block;
-  font-size: 0.9rem;
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .weekHeader span {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
+  font-weight: 900;
 }
 
-.weekBody,
-.dayBody {
-  align-content: start;
+.timelineLine {
+  background: color-mix(in srgb, var(--line) 78%, transparent);
+  display: block;
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+}
+
+.timelineLine:first-child,
+.timelineLine:last-child {
+  background: color-mix(in srgb, var(--cyan) 24%, var(--line));
+}
+
+.timelineEvent {
+  background: color-mix(in srgb, var(--cyan) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
+  border-radius: 9px;
+  color: var(--text);
+  cursor: pointer;
   display: grid;
-  gap: 7px;
-  padding: 10px;
+  gap: 2px;
+  left: 5px;
+  min-height: 30px;
+  overflow: hidden;
+  padding: 6px 7px;
+  position: absolute;
+  right: 5px;
+  text-align: left;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+  z-index: 1;
 }
 
-.dayBody {
-  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
-  border-radius: 12px;
-  margin: 10px;
-  min-height: 560px;
+.timelineEvent:hover,
+.timelineEvent[data-active="true"] {
+  background: color-mix(in srgb, var(--cyan) 16%, var(--surface));
+  border-color: var(--pink);
+  transform: translateY(-1px);
+}
+
+.timelineEvent[data-edge="early"],
+.timelineEvent[data-edge="late"] {
+  border-style: dashed;
+}
+
+.timelineEvent[data-compact="true"] {
+  padding: 5px 6px;
+}
+
+.timelineEventTop {
+  align-items: baseline;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+.timelineEventTop time {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.timelineEventTop strong {
+  font-size: 0.7rem;
+  line-height: 1.14;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelineEvent span:not(.timelineEventTop) {
+  color: var(--muted);
+  font-size: 0.64rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editorPanel {
@@ -383,7 +523,9 @@
 .emptyState {
   color: var(--muted);
   font-size: 0.84rem;
-  padding: 18px;
+  inset: 18px;
+  margin: 0;
+  position: absolute;
 }
 
 .syncPill {
@@ -433,6 +575,7 @@
 @media (max-height: 860px) and (min-width: 761px) {
   .calendarShell {
     gap: 10px;
+    padding-top: 50px;
   }
 
   .calendarPanelHeader,
@@ -451,8 +594,8 @@
   }
 
   .weekGrid,
-  .dayBody {
-    min-height: 520px;
+  .dayTimeline {
+    height: clamp(460px, calc(100dvh - 236px), 560px);
   }
 }
 
@@ -467,17 +610,28 @@
 }
 
 @media (max-width: 760px) {
-  .calendarToolbar,
   .calendarPanelHeader,
   .editorHeader {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .monthGrid,
-  .weekGrid {
+  .calendarHeaderActions {
+    justify-content: flex-start;
+  }
+
+  .monthGrid {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .weekGrid {
+    grid-template-columns: 40px repeat(7, minmax(92px, 1fr));
+    overflow-x: auto;
+  }
+
+  .dayTimeline {
+    grid-template-columns: 40px minmax(0, 1fr);
   }
 
   .monthDayName {
@@ -485,7 +639,7 @@
   }
 
   .monthCell,
-  .weekColumn {
+  .timelineDay {
     min-height: auto;
   }
 

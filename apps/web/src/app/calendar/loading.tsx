@@ -4,31 +4,23 @@ import styles from "./calendar-board.module.css";
 export default function CalendarLoading() {
   return (
     <AppFrame active="Calendar">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Calendar</p>
-          <h1>Calendar</h1>
-        </div>
-      </header>
-
       <div className={styles.calendarShell} aria-busy="true">
-        <div className={styles.calendarToolbar}>
-          <div className={styles.calendarToolbarLeft}>
-            <div className={styles.viewSwitch} aria-hidden="true">
-              <button data-active="true" disabled type="button">
-                Week
-              </button>
-              <button disabled type="button">
-                Month
-              </button>
-            </div>
-          </div>
-        </div>
         <section className={styles.calendarPanel}>
           <div className={styles.calendarPanelHeader}>
-            <div className={styles.calendarTitle}>
-              <p className="eyebrow">Calendar</p>
-              <h2>Loading calendar</h2>
+            <div className={styles.calendarTitleCluster}>
+              <div className={styles.calendarTitleLine}>
+                <div className={styles.calendarTitle}>
+                  <h2>Loading calendar</h2>
+                </div>
+                <div className={styles.viewSwitch} aria-hidden="true">
+                  <button data-active="true" disabled type="button">
+                    Week
+                  </button>
+                  <button disabled type="button">
+                    Month
+                  </button>
+                </div>
+              </div>
               <p>Getting events and linked work.</p>
             </div>
             <div className={styles.calendarPendingOverlay}>

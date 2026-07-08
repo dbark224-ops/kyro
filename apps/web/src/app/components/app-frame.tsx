@@ -839,6 +839,7 @@ export function AppFrame({
   const fitFoldPages = new Set([
     "Assistant",
     "Activity",
+    "Calendar",
     "CRM",
     "Files",
     "Inbox",
