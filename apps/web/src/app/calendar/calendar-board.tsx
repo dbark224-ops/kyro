@@ -452,8 +452,16 @@ function contactLabel(event: CalendarEventItem) {
     event.contact?.email ??
     event.lead?.title ??
     event.conversation?.leadTitle ??
-    "No contact linked"
+    null
   );
+}
+
+function truncateCalendarTitle(title: string, enabled: boolean) {
+  const limit = 34;
+
+  return enabled && title.length > limit
+    ? `${title.slice(0, limit - 1).trimEnd()}...`
+    : title;
 }
 
 function SubmitButton({
@@ -496,28 +504,33 @@ function DateTimeInput({
 
 function EventCard({
   active,
+  condensed = false,
   event,
   onSelect,
   timeZone,
 }: Readonly<{
   active: boolean;
+  condensed?: boolean;
   event: CalendarEventItem;
   onSelect: () => void;
   timeZone: string;
 }>) {
+  const linkedLabel = contactLabel(event);
+
   return (
     <button
       className={styles.eventCard}
       data-active={active}
+      data-condensed={condensed}
       onClick={onSelect}
       type="button"
     >
       <div className={styles.eventCardPrimary}>
         <time>{formatTime(event.startsAt, timeZone)}</time>
-        <strong>{event.title}</strong>
+        <strong>{truncateCalendarTitle(event.title, condensed)}</strong>
       </div>
       {event.location ? <span>{event.location}</span> : null}
-      <span>{contactLabel(event)}</span>
+      {linkedLabel ? <span>{linkedLabel}</span> : null}
     </button>
   );
 }
@@ -555,36 +568,41 @@ function TimelineLines() {
 function TimelineEventCard({
   active,
   compact = false,
+  condensed = false,
   event,
   onSelect,
   timeZone,
 }: Readonly<{
   active: boolean;
   compact?: boolean;
+  condensed?: boolean;
   event: CalendarEventItem;
   onSelect: () => void;
   timeZone: string;
 }>) {
   const metrics = timelineEventMetrics(event, timeZone);
+  const linkedLabel = contactLabel(event);
 
   return (
     <button
       className={styles.timelineEvent}
       data-active={active}
       data-compact={compact}
+      data-condensed={condensed}
       data-edge={metrics.edge}
       onClick={onSelect}
+      title={condensed ? event.title : undefined}
       style={metrics.style}
       type="button"
     >
       <span className={styles.timelineEventTop}>
         <time>{formatTime(event.startsAt, timeZone)}</time>
-        <strong>{event.title}</strong>
+        <strong>{truncateCalendarTitle(event.title, condensed)}</strong>
       </span>
       {compact ? null : (
         <>
           {event.location ? <span>{event.location}</span> : null}
-          <span>{contactLabel(event)}</span>
+          {linkedLabel ? <span>{linkedLabel}</span> : null}
         </>
       )}
     </button>
@@ -594,12 +612,14 @@ function TimelineEventCard({
 function MonthView({
   activeEventId,
   anchor,
+  condensed,
   events,
   onSelect,
   timeZone,
 }: Readonly<{
   activeEventId: string | null;
   anchor: Date;
+  condensed: boolean;
   events: CalendarEventItem[];
   onSelect: (eventId: string) => void;
   timeZone: string;
@@ -639,6 +659,7 @@ function MonthView({
               {dayEvents.slice(0, 4).map((event) => (
                 <EventCard
                   active={event.id === activeEventId}
+                  condensed={condensed}
                   event={event}
                   key={event.id}
                   onSelect={() => onSelect(event.id)}
@@ -661,12 +682,14 @@ function MonthView({
 function WeekView({
   activeEventId,
   anchor,
+  condensed,
   events,
   onSelect,
   timeZone,
 }: Readonly<{
   activeEventId: string | null;
   anchor: Date;
+  condensed: boolean;
   events: CalendarEventItem[];
   onSelect: (eventId: string) => void;
   timeZone: string;
@@ -694,6 +717,7 @@ function WeekView({
               <TimelineEventCard
                 active={event.id === activeEventId}
                 compact
+                condensed={condensed}
                 event={event}
                 key={event.id}
                 onSelect={() => onSelect(event.id)}
@@ -710,12 +734,14 @@ function WeekView({
 function DayView({
   activeEventId,
   anchor,
+  condensed,
   events,
   onSelect,
   timeZone,
 }: Readonly<{
   activeEventId: string | null;
   anchor: Date;
+  condensed: boolean;
   events: CalendarEventItem[];
   onSelect: (eventId: string) => void;
   timeZone: string;
@@ -731,6 +757,7 @@ function DayView({
           dayEvents.map((event) => (
             <TimelineEventCard
               active={event.id === activeEventId}
+              condensed={condensed}
               event={event}
               key={event.id}
               onSelect={() => onSelect(event.id)}
@@ -1147,6 +1174,7 @@ export function CalendarBoard({
             <MonthView
               activeEventId={selectedEventId}
               anchor={anchor}
+              condensed={Boolean(selectedEvent)}
               events={visibleEvents}
               onSelect={selectEvent}
               timeZone={timeZone}
@@ -1156,6 +1184,7 @@ export function CalendarBoard({
             <WeekView
               activeEventId={selectedEventId}
               anchor={anchor}
+              condensed={Boolean(selectedEvent)}
               events={visibleEvents}
               onSelect={selectEvent}
               timeZone={timeZone}
@@ -1165,6 +1194,7 @@ export function CalendarBoard({
             <DayView
               activeEventId={selectedEventId}
               anchor={anchor}
+              condensed={Boolean(selectedEvent)}
               events={visibleEvents}
               onSelect={selectEvent}
               timeZone={timeZone}
