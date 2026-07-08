@@ -19,6 +19,7 @@ import {
   type CalendarSettings,
   type CalendarView,
 } from "../../lib/calendar/settings";
+import type { CalendarReadiness } from "../../lib/calendar/readiness";
 import {
   type CalendarSyncProvider,
   calendarProviderSyncErrorMessage,
@@ -27,6 +28,7 @@ import styles from "./calendar-board.module.css";
 
 type CalendarBoardProps = Readonly<{
   anchorDate: string;
+  calendarReadiness: CalendarReadiness;
   events: CalendarEventItem[];
   initialSelectedEventId: string | null;
   options: CalendarEntityOptions;
@@ -153,6 +155,65 @@ function calendarSyncError(event: CalendarEventItem) {
         calendarSyncProvider(event.externalCalendarProvider),
       )
     : null;
+}
+
+function providerLabel(provider: "google" | "microsoft") {
+  return provider === "google" ? "Google" : "Outlook";
+}
+
+function syncProviderLabel(provider: CalendarSettings["syncProvider"]) {
+  return provider === "google"
+    ? "Google"
+    : provider === "microsoft"
+      ? "Outlook"
+      : "Calendar";
+}
+
+function calendarSyncBadge(
+  settings: CalendarSettings,
+  readiness: CalendarReadiness,
+) {
+  if (settings.syncProvider === "none") {
+    return { label: "Kyro only", status: "not_synced" as const };
+  }
+
+  if (readiness.error) {
+    return { label: "Calendar status unavailable", status: "failed" as const };
+  }
+
+  const selectedProviders =
+    settings.syncProvider === "auto"
+      ? (["google", "microsoft"] as const)
+      : ([settings.syncProvider] as const);
+  const providers = readiness.providers.filter((provider) =>
+    selectedProviders.includes(provider.provider),
+  );
+  const readyProviders = providers.filter((provider) => provider.calendarReady);
+
+  if (readyProviders.length > 0) {
+    const label =
+      readyProviders.length > 1
+        ? "Google + Outlook sync ready"
+        : `${providerLabel(readyProviders[0].provider)} sync ready`;
+
+    return { label, status: "synced" as const };
+  }
+
+  if (providers.some((provider) => provider.connected)) {
+    const label =
+      settings.syncProvider === "auto"
+        ? "Calendar needs reconnect"
+        : `${syncProviderLabel(settings.syncProvider)} needs reconnect`;
+
+    return { label, status: "failed" as const };
+  }
+
+  const label =
+    settings.syncProvider === "auto"
+      ? "Connect calendar"
+      : `Connect ${syncProviderLabel(settings.syncProvider)}`;
+
+  return { label, status: "not_synced" as const };
 }
 
 function viewHref(view: CalendarView, date: Date) {
@@ -726,6 +787,7 @@ function EventEditor({
 
 export function CalendarBoard({
   anchorDate,
+  calendarReadiness,
   events,
   initialSelectedEventId,
   options,
@@ -801,6 +863,7 @@ export function CalendarBoard({
       event.externalSyncStatus !== "synced",
   ).length;
   const calendarIsPending = Boolean(pendingHref || isNavigating);
+  const syncBadge = calendarSyncBadge(settings, calendarReadiness);
 
   return (
     <div className={styles.calendarShell}>
@@ -870,10 +933,8 @@ export function CalendarBoard({
                 {unsyncedCount > 0 ? ` - ${unsyncedCount} needing sync` : ""}
               </p>
             </div>
-            <span className={styles.syncPill} data-status="synced">
-              {settings.syncProvider === "none"
-                ? "Kyro only"
-                : `${displayType(settings.syncProvider)} sync`}
+            <span className={styles.syncPill} data-status={syncBadge.status}>
+              {syncBadge.label}
             </span>
           </div>
 

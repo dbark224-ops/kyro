@@ -401,6 +401,11 @@
   color: #22c55e;
 }
 
+.syncPill[data-status="not_synced"] {
+  border-color: color-mix(in srgb, var(--muted) 54%, var(--line));
+  color: var(--muted);
+}
+
 .syncPill[data-status="failed"] {
   border-color: var(--pink);
   color: var(--pink);

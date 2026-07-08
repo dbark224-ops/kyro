@@ -9,6 +9,7 @@ import {
   getCalendarSettings,
   type CalendarView,
 } from "../../lib/calendar/settings";
+import { getCalendarReadiness } from "../../lib/calendar/readiness";
 import { syncExternalCalendarUpdatesToKyro } from "../../lib/calendar/provider-sync";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
@@ -119,12 +120,13 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
       workspaceId: workspace.id,
     });
   }
-  const [events, options] = await Promise.all([
+  const [events, options, calendarReadiness] = await Promise.all([
     getCalendarEvents(supabase, workspace.id, {
       from: range.from.toISOString(),
       to: range.to.toISOString(),
     }),
     getCalendarEntityOptions(supabase, workspace.id),
+    getCalendarReadiness(supabase, workspace.id),
   ]);
 
   return (
@@ -145,6 +147,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
 
       <CalendarBoard
         anchorDate={formatDateParam(anchor)}
+        calendarReadiness={calendarReadiness}
         events={events}
         initialSelectedEventId={query?.event ?? null}
         key={`${formatDateParam(anchor)}-${view}`}
