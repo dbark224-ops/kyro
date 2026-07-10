@@ -1,5 +1,9 @@
-.activityItem {
+.activityItem.activityItem {
+  grid-template-columns: 10px minmax(0, 1fr) max-content;
+  align-items: start;
+  gap: 8px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .activityCopy,
@@ -11,7 +15,17 @@
 }
 
 .activityCopy {
+  display: grid;
+  align-content: start;
+  gap: 3px;
   overflow: hidden;
+}
+
+.activityTitle,
+.activitySubject,
+.activityPreview {
+  display: block;
+  max-width: 100%;
 }
 
 .activityTitle,
@@ -23,14 +37,33 @@
   white-space: nowrap;
 }
 
+.activityTime {
+  max-width: 7.5rem;
+  justify-self: end;
+  text-align: right;
+}
+
 @media (min-width: 761px) and (max-width: 1536px),
   (min-width: 761px) and (max-height: 900px) {
-  .activityItem {
-    align-items: center;
+  .activityItem.activityItem {
+    grid-template-columns: 10px minmax(0, 1fr);
+    align-items: start;
+    gap: 3px 8px;
+    padding-block: 8px;
   }
 
   .activityCopy {
+    grid-column: 2;
+    grid-row: 1;
     gap: 2px;
+  }
+
+  .activityTime {
+    grid-column: 2;
+    grid-row: 2;
+    max-width: 100%;
+    justify-self: start;
+    text-align: left;
   }
 
   .activityPreview {
