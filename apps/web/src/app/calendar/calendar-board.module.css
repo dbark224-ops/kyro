@@ -323,8 +323,10 @@
 }
 
 .weekGrid {
+  column-gap: 6px;
   grid-template-columns: 44px repeat(7, minmax(0, 1fr));
   grid-template-rows: auto minmax(0, 1fr);
+  row-gap: 2px;
 }
 
 .dayTimeline {
@@ -332,7 +334,7 @@
 }
 
 .timelineAxisSpacer {
-  min-height: 32px;
+  min-height: 24px;
 }
 
 .timelineAxis {
@@ -372,7 +374,7 @@
   gap: 6px;
   justify-content: center;
   min-width: 0;
-  padding: 3px 6px 8px;
+  padding: 1px 6px 2px;
   text-align: center;
 }
 
