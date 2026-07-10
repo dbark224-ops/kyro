@@ -543,7 +543,7 @@
 }
 
 .editorForm textarea {
-  min-height: 86px;
+  min-height: 44px;
   resize: vertical;
 }
 
