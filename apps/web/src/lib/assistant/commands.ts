@@ -12,9 +12,15 @@ import {
 } from "../crm/queries";
 import {
   createCalendarEventRecord,
+  deleteCalendarEventRecord,
+  getCalendarEventById,
   getCalendarEvents,
+  resolveCalendarLinkedEntities,
+  updateCalendarEventRecord,
+  type CalendarEventStatus,
   type CalendarEventItem,
 } from "../calendar/events";
+import { getCalendarSettings } from "../calendar/settings";
 import {
   DOCUMENT_TEMPLATE_POLICY_TYPE,
   type CustomDocumentTemplate,
@@ -112,6 +118,7 @@ import {
   resolveOutboundCallRequest,
   type OutboundCallRequestResolution,
 } from "../voice/outbound-call-requests";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 
 type WorkspaceInput = {
   id: string;
@@ -2764,14 +2771,77 @@ function generalChatFallback(prompt: string) {
 }
 
 const CALENDAR_WEEKDAYS = new Map([
+  ["sun", 0],
   ["sunday", 0],
+  ["mon", 1],
   ["monday", 1],
+  ["tue", 2],
+  ["tues", 2],
   ["tuesday", 2],
+  ["wed", 3],
   ["wednesday", 3],
+  ["thu", 4],
+  ["thur", 4],
+  ["thurs", 4],
   ["thursday", 4],
+  ["fri", 5],
   ["friday", 5],
+  ["sat", 6],
   ["saturday", 6],
 ]);
+
+const CALENDAR_MONTHS = new Map([
+  ["jan", 1],
+  ["january", 1],
+  ["feb", 2],
+  ["february", 2],
+  ["mar", 3],
+  ["march", 3],
+  ["apr", 4],
+  ["april", 4],
+  ["may", 5],
+  ["jun", 6],
+  ["june", 6],
+  ["jul", 7],
+  ["july", 7],
+  ["aug", 8],
+  ["august", 8],
+  ["sep", 9],
+  ["sept", 9],
+  ["september", 9],
+  ["oct", 10],
+  ["october", 10],
+  ["nov", 11],
+  ["november", 11],
+  ["dec", 12],
+  ["december", 12],
+]);
+
+const CALENDAR_LOOKUP_PAST_DAYS = 180;
+const CALENDAR_LOOKUP_FUTURE_DAYS = 365;
+
+type CalendarLocalDateParts = {
+  day: number;
+  hour: number;
+  minute: number;
+  month: number;
+  second: number;
+  weekday: number;
+  year: number;
+};
+
+type ParsedCalendarSchedule = {
+  assumedMeridiem: "am" | "pm" | null;
+  dateLabel: string;
+  endsAt: string;
+  startsAt: string;
+  timeZone: string;
+};
+
+type CalendarTargetResolution =
+  | { event: CalendarEventItem; kind: "selected" }
+  | { candidates: CalendarEventItem[]; kind: "ambiguous" }
+  | { kind: "none" };
 
 function looksLikeCalendarRequest(prompt: string) {
   const text = normalized(prompt);
@@ -2790,12 +2860,27 @@ function looksLikeCalendarRequest(prompt: string) {
 }
 
 function wantsCalendarCreate(prompt: string) {
-  return /\b(add|create|book|schedule|put|make)\b/.test(normalized(prompt));
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    (/\b(add|create|book|schedule|put)\b/.test(text) ||
+      /\bmake\b.*\b(appointment|event|booking|meeting|visit)\b/.test(text))
+  );
 }
 
-function wantsCalendarEdit(prompt: string) {
-  return /\b(edit|update|move|reschedule|change|cancel|delete|remove)\b/.test(
-    normalized(prompt),
+function wantsCalendarDelete(prompt: string) {
+  return /\b(cancel|delete|remove|clear)\b/.test(normalized(prompt));
+}
+
+function wantsCalendarUpdate(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    /\b(edit|update|move|reschedule|change|rename|retitle|complete|completed|done|mark)\b/.test(
+      text,
+    )
   );
 }
 
@@ -2818,7 +2903,11 @@ function inferCalendarEventType(prompt: string) {
     return "quote_visit" as const;
   }
 
-  return "other" as const;
+  if (/\b(other|personal|admin|misc|miscellaneous|reminder)\b/.test(text)) {
+    return "other" as const;
+  }
+
+  return null;
 }
 
 function cleanCalendarTitle(prompt: string, contact: ContactListItem | null) {
@@ -2848,71 +2937,331 @@ function cleanCalendarTitle(prompt: string, contact: ContactListItem | null) {
   return contactName ? `Appointment for ${contactName}` : "Kyro appointment";
 }
 
-function nextWeekdayDate(targetDay: number) {
-  const date = new Date();
-  const currentDay = date.getDay();
-  const offset = (targetDay + 7 - currentDay) % 7 || 7;
-  date.setDate(date.getDate() + offset);
-  return date;
+function safeTimeZone(value: string | null | undefined) {
+  const timeZone = value?.trim() || "UTC";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "UTC";
+  }
 }
 
-function parseAssistantCalendarTime(prompt: string) {
+function zonedDateParts(date: Date, timeZone: string): CalendarLocalDateParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    weekday: "short",
+    year: "numeric",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  const weekday = CALENDAR_WEEKDAYS.get(
+    String(values.weekday ?? "").toLowerCase(),
+  );
+
+  return {
+    day: Number(values.day),
+    hour: Number(values.hour) % 24,
+    minute: Number(values.minute),
+    month: Number(values.month),
+    second: Number(values.second),
+    weekday: weekday ?? date.getUTCDay(),
+    year: Number(values.year),
+  };
+}
+
+function addDaysToLocalDate(
+  date: Pick<CalendarLocalDateParts, "day" | "month" | "year">,
+  days: number,
+) {
+  const utc = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
+
+  return {
+    day: utc.getUTCDate(),
+    month: utc.getUTCMonth() + 1,
+    year: utc.getUTCFullYear(),
+  };
+}
+
+function localDateOrdinal(
+  date: Pick<CalendarLocalDateParts, "day" | "month" | "year">,
+) {
+  return Date.UTC(date.year, date.month - 1, date.day);
+}
+
+function timeZoneOffsetMs(timeZone: string, date: Date) {
+  const parts = zonedDateParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedWallTimeToUtc({
+  day,
+  hour,
+  minute,
+  month,
+  timeZone,
+  year,
+}: {
+  day: number;
+  hour: number;
+  minute: number;
+  month: number;
+  timeZone: string;
+  year: number;
+}) {
+  const wallUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  let guess = wallUtc;
+
+  for (let index = 0; index < 3; index += 1) {
+    const offset = timeZoneOffsetMs(timeZone, new Date(guess));
+    const next = wallUtc - offset;
+
+    if (Math.abs(next - guess) < 1000) {
+      guess = next;
+      break;
+    }
+
+    guess = next;
+  }
+
+  return new Date(guess);
+}
+
+function nextWeekdayDateParts(
+  targetDay: number,
+  now: CalendarLocalDateParts,
+  forceNextWeek: boolean,
+) {
+  const offset =
+    (targetDay + 7 - now.weekday) % 7 || (forceNextWeek ? 7 : 0);
+  const adjustedOffset = offset === 0 ? 0 : offset;
+
+  return addDaysToLocalDate(now, adjustedOffset);
+}
+
+function calendarDateFromPrompt(prompt: string, timeZone: string) {
+  const raw = prompt.toLowerCase();
   const text = normalized(prompt);
-  const isoDate = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
-  const time = text.match(/\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
-  let date: Date | null = null;
+  const now = zonedDateParts(new Date(), timeZone);
+  const isoDate = raw.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
 
   if (isoDate) {
-    date = new Date(
-      Number(isoDate[1]),
-      Number(isoDate[2]) - 1,
-      Number(isoDate[3]),
-    );
-  } else if (text.includes("tomorrow")) {
-    date = new Date();
-    date.setDate(date.getDate() + 1);
-  } else if (text.includes("today")) {
-    date = new Date();
-  } else {
-    const nextWeekday = text.match(
-      /\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/,
-    );
-    const targetDay = nextWeekday
-      ? CALENDAR_WEEKDAYS.get(nextWeekday[1])
-      : undefined;
+    return {
+      day: Number(isoDate[3]),
+      label: `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`,
+      month: Number(isoDate[2]),
+      year: Number(isoDate[1]),
+    };
+  }
 
-    if (targetDay !== undefined) {
-      date = nextWeekdayDate(targetDay);
+  if (/\btomorrow\b/.test(text)) {
+    return {
+      ...addDaysToLocalDate(now, 1),
+      label: "tomorrow",
+    };
+  }
+
+  if (/\btoday\b/.test(text)) {
+    return {
+      day: now.day,
+      label: "today",
+      month: now.month,
+      year: now.year,
+    };
+  }
+
+  const monthNameDate = raw.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i,
+  );
+
+  if (monthNameDate) {
+    const month = CALENDAR_MONTHS.get(monthNameDate[1].toLowerCase());
+    const day = Number(monthNameDate[2]);
+    let year = monthNameDate[3] ? Number(monthNameDate[3]) : now.year;
+
+    if (
+      !monthNameDate[3] &&
+      localDateOrdinal({ day, month: month ?? now.month, year }) <
+        localDateOrdinal(now)
+    ) {
+      year += 1;
+    }
+
+    if (month) {
+      return {
+        day,
+        label: `${monthNameDate[1]} ${day}`,
+        month,
+        year,
+      };
     }
   }
+
+  const dayMonthDate = raw.match(
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:,?\s+(\d{4}))?\b/i,
+  );
+
+  if (dayMonthDate) {
+    const month = CALENDAR_MONTHS.get(dayMonthDate[2].toLowerCase());
+    const day = Number(dayMonthDate[1]);
+    let year = dayMonthDate[3] ? Number(dayMonthDate[3]) : now.year;
+
+    if (
+      !dayMonthDate[3] &&
+      localDateOrdinal({ day, month: month ?? now.month, year }) <
+        localDateOrdinal(now)
+    ) {
+      year += 1;
+    }
+
+    if (month) {
+      return {
+        day,
+        label: `${day} ${dayMonthDate[2]}`,
+        month,
+        year,
+      };
+    }
+  }
+
+  const weekday = raw.match(
+    /\b(?:(this|next)\s+)?(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/i,
+  );
+
+  if (weekday) {
+    const weekdayKey = weekday[2].toLowerCase();
+    const targetDay = CALENDAR_WEEKDAYS.get(weekdayKey);
+
+    if (targetDay !== undefined) {
+      return {
+        ...nextWeekdayDateParts(targetDay, now, weekday[1] === "next"),
+        label: `${weekday[1] ? `${weekday[1]} ` : ""}${weekday[2]}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+function calendarTimeFromPrompt(prompt: string) {
+  const raw = prompt.toLowerCase();
+
+  if (/\b(noon|midday)\b/.test(raw)) {
+    return { assumedMeridiem: null, hour: 12, minute: 0 };
+  }
+
+  if (/\bmidnight\b/.test(raw)) {
+    return { assumedMeridiem: null, hour: 0, minute: 0 };
+  }
+
+  const meridiemTime = raw.match(
+    /\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)\b/,
+  );
+
+  if (meridiemTime) {
+    let hour = Number(meridiemTime[1]);
+    const minute = meridiemTime[2] ? Number(meridiemTime[2]) : 0;
+    const meridiem = meridiemTime[3].replace(/\./g, "").startsWith("p")
+      ? "pm"
+      : "am";
+
+    if (meridiem === "pm" && hour < 12) {
+      hour += 12;
+    }
+
+    if (meridiem === "am" && hour === 12) {
+      hour = 0;
+    }
+
+    return { assumedMeridiem: null, hour, minute };
+  }
+
+  const twentyFourHour = raw.match(/\b(?:at\s*)?([01]?\d|2[0-3]):(\d{2})\b/);
+
+  if (twentyFourHour) {
+    return {
+      assumedMeridiem: null,
+      hour: Number(twentyFourHour[1]),
+      minute: Number(twentyFourHour[2]),
+    };
+  }
+
+  const bareHour = raw.match(/\bat\s+(\d{1,2})\b/);
+
+  if (bareHour) {
+    const hour = Number(bareHour[1]);
+
+    if (hour >= 1 && hour <= 5) {
+      return { assumedMeridiem: "pm" as const, hour: hour + 12, minute: 0 };
+    }
+
+    if (hour >= 6 && hour <= 23) {
+      return { assumedMeridiem: "am" as const, hour, minute: 0 };
+    }
+  }
+
+  return null;
+}
+
+export function parseAssistantCalendarTime(
+  prompt: string,
+  {
+    defaultDurationMinutes = 60,
+    timeZone = "UTC",
+  }: {
+    defaultDurationMinutes?: number;
+    timeZone?: string;
+  } = {},
+): ParsedCalendarSchedule | null {
+  const safeZone = safeTimeZone(timeZone);
+  const date = calendarDateFromPrompt(prompt, safeZone);
+  const time = calendarTimeFromPrompt(prompt);
 
   if (!date || !time) {
     return null;
   }
 
-  let hour = Number(time[1]);
-  const minute = time[2] ? Number(time[2]) : 0;
-  const meridiem = time[3];
+  const startsAt = zonedWallTimeToUtc({
+    day: date.day,
+    hour: time.hour,
+    minute: time.minute,
+    month: date.month,
+    timeZone: safeZone,
+    year: date.year,
+  });
 
-  if (meridiem === "pm" && hour < 12) {
-    hour += 12;
-  }
-
-  if (meridiem === "am" && hour === 12) {
-    hour = 0;
-  }
-
-  date.setHours(hour, minute, 0, 0);
-
-  if (Number.isNaN(date.getTime())) {
+  if (Number.isNaN(startsAt.getTime())) {
     return null;
   }
 
-  const end = new Date(date.getTime() + 60 * 60_000);
+  const durationMinutes = Math.max(5, Math.min(720, defaultDurationMinutes));
+  const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
 
   return {
-    endsAt: end.toISOString(),
-    startsAt: date.toISOString(),
+    assumedMeridiem: time.assumedMeridiem,
+    dateLabel: date.label,
+    endsAt: endsAt.toISOString(),
+    startsAt: startsAt.toISOString(),
+    timeZone: safeZone,
   };
 }
 
@@ -2949,11 +3298,373 @@ function resolveCalendarContact(prompt: string, contacts: ContactListItem[]) {
   );
 }
 
-function latestCalendarLink(recentMessages: AssistantRecentMessage[]) {
+function recentAssistantLinks(recentMessages: AssistantRecentMessage[]) {
   return [...recentMessages]
     .reverse()
-    .flatMap((message) => [...(message.links ?? [])].reverse())
-    .find((link) => link.href.startsWith("/calendar"));
+    .flatMap((message) => [
+      ...(message.links ?? []).slice().reverse(),
+      ...(message.uiBlocks ?? []).flatMap((block) => {
+        if (block.type === "link_cards") {
+          return block.links.slice().reverse();
+        }
+
+        if (block.type === "summary_cards") {
+          return block.cards
+            .filter((card) => card.href)
+            .map((card) =>
+              rowLink(
+                card.label,
+                card.href as string,
+                card.detail ?? card.value,
+              ),
+            );
+        }
+
+        if (block.type === "timeline") {
+          return block.items
+            .filter((item) => item.href)
+            .map((item) => rowLink(item.label, item.href as string, item.detail));
+        }
+
+        return [];
+      }),
+    ]);
+}
+
+function calendarEventIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "http://kyro.local");
+    const eventId = textValue(url.searchParams.get("event"));
+
+    return url.pathname === "/calendar" ? eventId : null;
+  } catch {
+    return null;
+  }
+}
+
+function calendarConversationIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "http://kyro.local");
+
+    if (url.pathname === "/inbox") {
+      return textValue(url.searchParams.get("conversationId"));
+    }
+
+    const match = url.pathname.match(/^\/inbox\/([^/]+)$/);
+
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function latestCalendarLink(recentMessages: AssistantRecentMessage[]) {
+  return recentAssistantLinks(recentMessages).find((link) =>
+    link.href.startsWith("/calendar"),
+  );
+}
+
+function latestConversationIdFromMessages(
+  recentMessages: AssistantRecentMessage[],
+) {
+  const link = recentAssistantLinks(recentMessages).find((candidate) =>
+    Boolean(calendarConversationIdFromHref(candidate.href)),
+  );
+
+  return link ? calendarConversationIdFromHref(link.href) : null;
+}
+
+function explicitCalendarEventId(prompt: string) {
+  return (
+    prompt.match(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i,
+    )?.[0] ?? null
+  );
+}
+
+function statusFromCalendarPrompt(prompt: string): CalendarEventStatus | null {
+  const text = normalized(prompt);
+
+  if (/\b(done|completed|complete|finished)\b/.test(text)) {
+    return "completed";
+  }
+
+  if (/\b(cancelled|canceled|cancel)\b/.test(text)) {
+    return "cancelled";
+  }
+
+  if (/\b(scheduled|booked|confirmed)\b/.test(text)) {
+    return "scheduled";
+  }
+
+  return null;
+}
+
+function titleFromCalendarRenamePrompt(prompt: string) {
+  const match = prompt.match(
+    /\b(?:rename|retitle|call|title)\s+(?:the\s+)?(?:event|appointment|booking|it)?\s*(?:to|as)?\s+["']?([^"'\n.]+)["']?/i,
+  );
+  const value = match?.[1]?.replace(/\s+/g, " ").trim();
+
+  if (!value || value.length < 3) {
+    return null;
+  }
+
+  return value.slice(0, 90);
+}
+
+function calendarEventSearchText(event: CalendarEventItem) {
+  return normalized(
+    [
+      event.title,
+      event.description,
+      event.location,
+      event.status,
+      event.appointmentType,
+      event.contact?.name,
+      event.contact?.company,
+      event.contact?.email,
+      event.contact?.phone,
+      event.lead?.title,
+      event.lead?.serviceType,
+      event.conversation?.leadTitle,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+function sameLocalDate(leftIso: string | null, rightIso: string, timeZone: string) {
+  if (!leftIso) {
+    return false;
+  }
+
+  const left = zonedDateParts(new Date(leftIso), timeZone);
+  const right = zonedDateParts(new Date(rightIso), timeZone);
+
+  return (
+    left.year === right.year &&
+    left.month === right.month &&
+    left.day === right.day
+  );
+}
+
+function scoreCalendarTarget(
+  event: CalendarEventItem,
+  prompt: string,
+  scheduled: ParsedCalendarSchedule | null,
+  timeZone: string,
+) {
+  const promptText = normalized(prompt);
+  const eventText = calendarEventSearchText(event);
+  const title = normalized(event.title);
+  const tokens = meaningfulTokens(promptText).filter(
+    (token) =>
+      ![
+        "calendar",
+        "event",
+        "appointment",
+        "booking",
+        "move",
+        "reschedule",
+        "change",
+        "delete",
+        "remove",
+        "cancel",
+        "update",
+        "edit",
+        "to",
+        "at",
+        "on",
+        "the",
+        "it",
+        "this",
+        "that",
+      ].includes(token),
+  );
+  let score = 0;
+
+  if (title && promptText.includes(title)) {
+    score += 110;
+  }
+
+  for (const token of tokens) {
+    if (eventText.includes(token)) {
+      score += 12;
+    }
+  }
+
+  if (event.contact?.email && prompt.toLowerCase().includes(event.contact.email)) {
+    score += 90;
+  }
+
+  if (event.contact?.phone) {
+    const promptDigits = prompt.replace(/\D/g, "");
+    const phoneDigits = event.contact.phone.replace(/\D/g, "");
+
+    if (phoneDigits.length >= 6 && promptDigits.includes(phoneDigits)) {
+      score += 90;
+    }
+  }
+
+  if (scheduled?.startsAt && sameLocalDate(event.startsAt, scheduled.startsAt, timeZone)) {
+    score += 35;
+  }
+
+  if (event.status === "cancelled") {
+    score -= 30;
+  }
+
+  return score;
+}
+
+async function loadCalendarTargetEvents({
+  supabase,
+  workspaceId,
+}: {
+  supabase: CommandInput["supabase"];
+  workspaceId: string;
+}) {
+  const now = new Date();
+  const from = new Date(
+    now.getTime() - CALENDAR_LOOKUP_PAST_DAYS * 24 * 60 * 60_000,
+  );
+  const to = new Date(
+    now.getTime() + CALENDAR_LOOKUP_FUTURE_DAYS * 24 * 60 * 60_000,
+  );
+
+  return getCalendarEvents(supabase, workspaceId, {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  });
+}
+
+async function resolveCalendarTargetEvent({
+  prompt,
+  recentMessages,
+  scheduled,
+  supabase,
+  timeZone,
+  workspaceId,
+}: {
+  prompt: string;
+  recentMessages: AssistantRecentMessage[];
+  scheduled: ParsedCalendarSchedule | null;
+  supabase: CommandInput["supabase"];
+  timeZone: string;
+  workspaceId: string;
+}): Promise<CalendarTargetResolution> {
+  const latestEventId = latestCalendarLink(recentMessages)
+    ? calendarEventIdFromHref(latestCalendarLink(recentMessages)!.href)
+    : null;
+  const eventId = explicitCalendarEventId(prompt) ?? latestEventId;
+
+  if (eventId) {
+    const event = await getCalendarEventById(supabase, workspaceId, eventId);
+
+    return event ? { event, kind: "selected" } : { kind: "none" };
+  }
+
+  const events = await loadCalendarTargetEvents({ supabase, workspaceId });
+  const ranked = events
+    .map((event) => ({
+      event,
+      score: scoreCalendarTarget(event, prompt, scheduled, timeZone),
+    }))
+    .filter((candidate) => candidate.score >= 30)
+    .sort((left, right) => right.score - left.score);
+  const best = ranked[0];
+
+  if (!best) {
+    return { kind: "none" };
+  }
+
+  const tied = ranked.filter(
+    (candidate) => best.score - candidate.score <= 8,
+  );
+
+  if (tied.length > 1) {
+    return {
+      candidates: tied.slice(0, 5).map((candidate) => candidate.event),
+      kind: "ambiguous",
+    };
+  }
+
+  return { event: best.event, kind: "selected" };
+}
+
+async function calendarLinkedContext({
+  contacts,
+  prompt,
+  recentMessages,
+  supabase,
+  workspaceId,
+}: {
+  contacts: ContactListItem[];
+  prompt: string;
+  recentMessages: AssistantRecentMessage[];
+  supabase: CommandInput["supabase"];
+  workspaceId: string;
+}) {
+  const explicitContact = resolveCalendarContact(prompt, contacts);
+  const conversationId =
+    explicitContact?.id ? null : latestConversationIdFromMessages(recentMessages);
+  const linked = await resolveCalendarLinkedEntities({
+    contactId: explicitContact?.id ?? null,
+    conversationId,
+    leadId: null,
+    supabase,
+    workspaceId,
+  });
+  const contact =
+    explicitContact ??
+    contacts.find((item) => item.id === linked.contactId) ??
+    null;
+
+  return {
+    contact,
+    contactId: linked.contactId,
+    conversationId,
+    leadId: linked.leadId,
+  };
+}
+
+function eventDurationMinutes(event: CalendarEventItem, fallback: number) {
+  if (!event.startsAt || !event.endsAt) {
+    return fallback;
+  }
+
+  const minutes = Math.round(
+    (new Date(event.endsAt).getTime() - new Date(event.startsAt).getTime()) /
+      60_000,
+  );
+
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : fallback;
+}
+
+function rescheduledEventEnd(
+  event: CalendarEventItem,
+  startsAt: string,
+  fallbackDurationMinutes: number,
+) {
+  return new Date(
+    new Date(startsAt).getTime() +
+      eventDurationMinutes(event, fallbackDurationMinutes) * 60_000,
+  ).toISOString();
+}
+
+function calendarChangeSummary(changes: string[]) {
+  if (changes.length === 0) {
+    return "No calendar fields changed.";
+  }
+
+  if (changes.length === 1) {
+    return changes[0];
+  }
+
+  return `${changes.slice(0, -1).join(", ")} and ${
+    changes[changes.length - 1]
+  }`;
 }
 
 async function calendarCommand({
@@ -2966,19 +3677,36 @@ async function calendarCommand({
   CommandInput,
   "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
 >): Promise<AssistantCommandResult> {
+  const [calendarSettings, generalSettings] = await Promise.all([
+    getCalendarSettings(supabase, workspace.id),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
+  ]);
+  const timeZone = safeTimeZone(generalSettings.timeZone);
+  const scheduled = parseAssistantCalendarTime(prompt, {
+    defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
+    timeZone,
+  });
+
   if (wantsCalendarCreate(prompt)) {
     const contacts = await getContactList(supabase, workspace.id);
-    const contact = resolveCalendarContact(prompt, contacts);
-    const scheduled = parseAssistantCalendarTime(prompt);
+    const linked = await calendarLinkedContext({
+      contacts,
+      prompt,
+      recentMessages,
+      supabase,
+      workspaceId: workspace.id,
+    });
+    const contact = linked.contact;
     const title = cleanCalendarTitle(prompt, contact);
     const appointmentId = await createCalendarEventRecord({
       input: {
-        appointmentType: inferCalendarEventType(prompt),
-        contactId: contact?.id ?? null,
-        conversationId: null,
+        appointmentType:
+          inferCalendarEventType(prompt) ?? calendarSettings.defaultEventType,
+        contactId: linked.contactId,
+        conversationId: linked.conversationId,
         description: `Created from Assistant request: ${prompt}`,
         endsAt: scheduled?.endsAt ?? null,
-        leadId: null,
+        leadId: linked.leadId,
         location: contact?.address ?? null,
         locationAddress: null,
         metadata: { source: "assistant_calendar_command" },
@@ -2997,18 +3725,31 @@ async function calendarCommand({
     const link = rowLink(
       title,
       href,
-      scheduled?.startsAt ? assistantDate(scheduled.startsAt) : "Suggested",
+      scheduled?.startsAt
+        ? `${assistantDate(scheduled.startsAt)} (${timeZone})`
+        : "Suggested",
     );
+    const assumedTime =
+      scheduled?.assumedMeridiem === "pm"
+        ? " I treated that as PM."
+        : scheduled?.assumedMeridiem === "am"
+          ? " I treated that as AM."
+          : "";
 
     return {
       context: {
         appointmentId,
-        contactId: contact?.id ?? null,
+        contactId: linked.contactId,
+        conversationId: linked.conversationId,
+        externalSyncStatus: "attempted_if_connected",
+        leadId: linked.leadId,
         scheduled,
         title,
       },
       fallbackAnswer: scheduled?.startsAt
-        ? `I created ${title} for ${assistantDate(scheduled.startsAt)}.`
+        ? `I created ${title} for ${assistantDate(
+            scheduled.startsAt,
+          )}.${assumedTime}`
         : `I created ${title} as a suggested calendar event. Open it to set the exact time.`,
       intent: "calendar_event",
       links: [link],
@@ -3022,22 +3763,206 @@ async function calendarCommand({
     };
   }
 
-  if (wantsCalendarEdit(prompt)) {
-    const link =
-      latestCalendarLink(recentMessages) ??
-      rowLink("Calendar", "/calendar", "Choose an event to edit");
+  if (wantsCalendarDelete(prompt)) {
+    const resolution = await resolveCalendarTargetEvent({
+      prompt,
+      recentMessages,
+      scheduled,
+      supabase,
+      timeZone,
+      workspaceId: workspace.id,
+    });
+
+    if (resolution.kind !== "selected") {
+      const links =
+        resolution.kind === "ambiguous"
+          ? resolution.candidates.map((event) =>
+              rowLink(
+                event.title,
+                calendarEventHref(event),
+                event.startsAt ? assistantDate(event.startsAt) : event.status,
+              ),
+            )
+          : [rowLink("Calendar", "/calendar", "Choose the event")];
+
+      return {
+        context: {
+          candidateCount:
+            resolution.kind === "ambiguous" ? resolution.candidates.length : 0,
+          reason: "Calendar delete requests need a resolved target event.",
+        },
+        fallbackAnswer:
+          resolution.kind === "ambiguous"
+            ? "I found more than one possible calendar event. Choose the exact one before I delete anything."
+            : "I could not confidently identify which calendar event to delete.",
+        intent: "calendar_event",
+        links,
+        title: "Choose calendar event",
+        uiBlocks: linkCardsBlock("Possible calendar events", links),
+      };
+    }
+
+    await deleteCalendarEventRecord({
+      appointmentId: resolution.event.id,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
 
     return {
       context: {
-        reason: "Calendar edit/delete requests need a resolved target event.",
-        targetLink: link,
+        deletedEventId: resolution.event.id,
+        title: resolution.event.title,
       },
-      fallbackAnswer:
-        "Open the exact calendar event and make the change there so Kyro does not alter the wrong appointment.",
+      fallbackAnswer: `I deleted ${resolution.event.title} from the calendar.`,
+      intent: "calendar_event",
+      links: [rowLink("Calendar", "/calendar", "View calendar")],
+      mutation: {
+        entityId: resolution.event.id,
+        entityType: "conversation_appointment",
+        label: "Calendar event deleted",
+      },
+      title: "Calendar event deleted",
+    };
+  }
+
+  if (wantsCalendarUpdate(prompt)) {
+    const resolution = await resolveCalendarTargetEvent({
+      prompt,
+      recentMessages,
+      scheduled,
+      supabase,
+      timeZone,
+      workspaceId: workspace.id,
+    });
+
+    if (resolution.kind !== "selected") {
+      const links =
+        resolution.kind === "ambiguous"
+          ? resolution.candidates.map((event) =>
+              rowLink(
+                event.title,
+                calendarEventHref(event),
+                event.startsAt ? assistantDate(event.startsAt) : event.status,
+              ),
+            )
+          : [rowLink("Calendar", "/calendar", "Choose the event")];
+
+      return {
+        context: {
+          candidateCount:
+            resolution.kind === "ambiguous" ? resolution.candidates.length : 0,
+          reason: "Calendar update requests need a resolved target event.",
+        },
+        fallbackAnswer:
+          resolution.kind === "ambiguous"
+            ? "I found more than one possible calendar event. Choose the exact one before I change anything."
+            : "I could not confidently identify which calendar event to update.",
+        intent: "calendar_event",
+        links,
+        title: "Choose calendar event",
+        uiBlocks: linkCardsBlock("Possible calendar events", links),
+      };
+    }
+
+    const event = resolution.event;
+    const newTitle = titleFromCalendarRenamePrompt(prompt);
+    const newStatus = statusFromCalendarPrompt(prompt);
+    const changes: string[] = [];
+    const input = {
+      appointmentType: inferCalendarEventType(prompt) ?? event.appointmentType,
+      contactId: event.contactId,
+      conversationId: event.conversationId,
+      description: event.description,
+      endsAt: event.endsAt,
+      leadId: event.leadId,
+      location: event.location,
+      locationAddress: event.locationAddress,
+      metadata: { source: "assistant_calendar_command" },
+      startsAt: event.startsAt,
+      status: event.status as CalendarEventStatus,
+      title: event.title,
+    };
+
+    if (scheduled?.startsAt) {
+      input.startsAt = scheduled.startsAt;
+      input.endsAt = rescheduledEventEnd(
+        event,
+        scheduled.startsAt,
+        calendarSettings.defaultDurationMinutes,
+      );
+      input.status = event.status === "cancelled" ? "scheduled" : input.status;
+      changes.push(`moved it to ${assistantDate(scheduled.startsAt)}`);
+    }
+
+    if (newTitle) {
+      input.title = newTitle;
+      changes.push(`renamed it to ${newTitle}`);
+    }
+
+    if (newStatus && newStatus !== input.status) {
+      input.status = newStatus;
+      changes.push(`marked it ${newStatus}`);
+    }
+
+    if (input.appointmentType !== event.appointmentType) {
+      changes.push(`set the type to ${titleCase(input.appointmentType)}`);
+    }
+
+    if (changes.length === 0) {
+      const link = rowLink(
+        event.title,
+        calendarEventHref(event),
+        event.startsAt ? assistantDate(event.startsAt) : event.status,
+      );
+
+      return {
+        context: {
+          eventId: event.id,
+          reason: "No supported calendar change was detected.",
+        },
+        fallbackAnswer:
+          "I found the event, but I could not read the change you wanted. Tell me the new time, title, or status.",
+        intent: "calendar_event",
+        links: [link],
+        title: "Calendar event found",
+        uiBlocks: linkCardsBlock("Calendar event", [link]),
+      };
+    }
+
+    await updateCalendarEventRecord({
+      appointmentId: event.id,
+      input,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    const href = calendarEventHrefFromParts(event.id, input.startsAt);
+    const link = rowLink(
+      input.title,
+      href,
+      input.startsAt ? assistantDate(input.startsAt) : input.status,
+    );
+
+    return {
+      context: {
+        changes,
+        eventId: event.id,
+        title: input.title,
+      },
+      fallbackAnswer: `I updated ${input.title}: ${calendarChangeSummary(
+        changes,
+      )}.`,
       intent: "calendar_event",
       links: [link],
-      title: "Calendar event edit",
-      uiBlocks: linkCardsBlock("Calendar", [link]),
+      mutation: {
+        entityId: event.id,
+        entityType: "conversation_appointment",
+        label: "Calendar event updated",
+      },
+      title: "Calendar event updated",
+      uiBlocks: linkCardsBlock("Calendar event", [link]),
     };
   }
 

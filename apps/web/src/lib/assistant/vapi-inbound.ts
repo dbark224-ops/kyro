@@ -493,6 +493,7 @@ function internalCallerContextMessage(input: {
     vapiUserContextLine(input.userIdentity, "Kyro account user"),
     "Be concise and action-focused. Say the useful business fact first, then the next action.",
     "Use Kyro tools for live CRM, inbox, SMS, email, files, web search, usage, app help, or workspace data. Do not guess live business data.",
+    "If the internal caller asks to add, create, book, schedule, move, reschedule, rename, complete, cancel, delete, or remove a calendar event, appointment, quote visit, site visit, meeting, or job booking, call kyro_assistant_command with the exact request. If the tool result says the event was created, updated, or deleted, confirm that result instead of telling the caller to open Calendar.",
     "If the internal caller asks for current public information such as news, sport, prices, scores, or other live facts, use kyro_web_search instead of refusing.",
     "If the user asks what messages, emails, leads, tasks, calls, or replies need attention, call kyro_context_lookup with the exact request.",
     "If the user asks whether a text, call, email, or lead came in, call kyro_context_lookup unless a more specific tool is available.",

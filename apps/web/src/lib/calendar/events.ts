@@ -1,7 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseAddressFormData } from "../addresses/form";
 import { insertAuditLog } from "../engine/event-action-audit";
-import { syncAppointmentToExternalCalendar } from "./provider-sync";
+import {
+  deleteAppointmentFromExternalCalendar,
+  syncAppointmentToExternalCalendar,
+} from "./provider-sync";
 import {
   normalizeCalendarEventType as normalizeCalendarEventTypeValue,
   type CalendarEventType,
@@ -395,6 +398,37 @@ export async function getCalendarEvents(
   );
 }
 
+export async function getCalendarEventById(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  appointmentId: string,
+) {
+  const { data, error } = await supabase
+    .from("conversation_appointments")
+    .select(
+      "id,conversation_id,contact_id,lead_id,appointment_type,title,description,status,starts_at,ends_at,location,metadata,external_calendar_provider,external_event_id,external_sync_status,external_sync_error,external_synced_at,created_at,updated_at",
+    )
+    .eq("workspace_id", workspaceId)
+    .eq("id", appointmentId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load calendar event: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const [event] = await hydrateCalendarEvents(
+    supabase,
+    workspaceId,
+    [data as CalendarAppointmentRow],
+  );
+
+  return event ?? null;
+}
+
 export async function getContactCalendarEvents(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -514,6 +548,63 @@ export async function getCalendarEntityOptions(
       serviceType: textValue(lead.service_type),
       status: String(lead.status),
     })),
+  };
+}
+
+export async function resolveCalendarLinkedEntities({
+  contactId,
+  conversationId,
+  leadId,
+  supabase,
+  workspaceId,
+}: {
+  contactId: string | null;
+  conversationId: string | null;
+  leadId: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  let resolvedContactId = contactId;
+  let resolvedLeadId = leadId;
+
+  if (conversationId) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id,contact_id,lead_id")
+      .eq("workspace_id", workspaceId)
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data) {
+      throw new Error("Linked inquiry was not found.");
+    }
+
+    resolvedContactId ||= data.contact_id ? String(data.contact_id) : null;
+    resolvedLeadId ||= data.lead_id ? String(data.lead_id) : null;
+  }
+
+  if (resolvedLeadId && !resolvedContactId) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select("id,contact_id")
+      .eq("workspace_id", workspaceId)
+      .eq("id", resolvedLeadId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    resolvedContactId = data?.contact_id ? String(data.contact_id) : null;
+  }
+
+  return {
+    contactId: resolvedContactId,
+    leadId: resolvedLeadId,
   };
 }
 
@@ -638,4 +729,46 @@ export async function updateCalendarEventRecord({
     supabase,
     workspaceId,
   });
+}
+
+export async function deleteCalendarEventRecord({
+  appointmentId,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  appointmentId: string;
+  supabase: SupabaseClient;
+  userId: string;
+  workspaceId: string;
+}) {
+  const externalDelete = await deleteAppointmentFromExternalCalendar({
+    appointmentId,
+    supabase,
+    workspaceId,
+  });
+
+  const { error } = await supabase
+    .from("conversation_appointments")
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .eq("id", appointmentId);
+
+  if (error) {
+    throw new Error(`Unable to delete calendar event: ${error.message}`);
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId,
+    actorType: "user",
+    actorId: userId,
+    action: "calendar_event.deleted",
+    entityType: "conversation_appointment",
+    entityId: appointmentId,
+    metadata: {
+      externalDelete,
+    },
+  });
+
+  return externalDelete;
 }

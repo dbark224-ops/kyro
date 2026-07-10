@@ -1313,6 +1313,7 @@ export async function sendAssistantMessageAction(
     revalidatePath("/files");
     revalidatePath("/documents");
     revalidatePath("/inbox");
+    revalidatePath("/calendar");
 
     return getAssistantThreadState({
       supabase,

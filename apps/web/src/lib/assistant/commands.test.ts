@@ -11,6 +11,7 @@ import {
   looksLikeQuoteHistoryRequest,
   looksLikeQuoteSendReadyListRequest,
   looksLikeQuoteSendRequest,
+  parseAssistantCalendarTime,
   resolveAssistantCommand,
   selectContactForAssistantPrompt,
   selectQuoteDraftForAssistantPrompt,
@@ -383,6 +384,35 @@ describe("assistant generated image follow-up helpers", () => {
       looksLikeImageFollowUpRequest("where is it", recentImageMessages),
       false,
     );
+  });
+});
+
+describe("assistant calendar helpers", () => {
+  it("parses explicit local calendar dates in the workspace timezone", () => {
+    const parsed = parseAssistantCalendarTime(
+      "Add a quote visit on July 14 2026 at 2pm",
+      {
+        defaultDurationMinutes: 90,
+        timeZone: "America/Denver",
+      },
+    );
+
+    assert.equal(parsed?.startsAt, "2026-07-14T20:00:00.000Z");
+    assert.equal(parsed?.endsAt, "2026-07-14T21:30:00.000Z");
+    assert.equal(parsed?.timeZone, "America/Denver");
+  });
+
+  it("treats bare early afternoon hours as PM for natural scheduling prompts", () => {
+    const parsed = parseAssistantCalendarTime(
+      "Book the site visit on July 14 2026 at 2",
+      {
+        defaultDurationMinutes: 60,
+        timeZone: "America/Denver",
+      },
+    );
+
+    assert.equal(parsed?.startsAt, "2026-07-14T20:00:00.000Z");
+    assert.equal(parsed?.assumedMeridiem, "pm");
   });
 });
 

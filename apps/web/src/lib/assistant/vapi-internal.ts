@@ -405,6 +405,7 @@ export async function getVapiInternalVoiceSession({
       ? "Kyro tool calls are available through the configured remote tool endpoint."
       : "This local test session does not expose Kyro tools to Vapi because the app URL is not a public HTTPS URL. Answer conversationally and tell the user if a live Kyro tool would normally be needed.",
     "If the user asks you to create, send, update, search, look up, summarize, or inspect business data, call the relevant Kyro tool instead of guessing.",
+    "If the user asks to add, create, book, schedule, move, reschedule, rename, complete, cancel, delete, or remove a calendar event, appointment, quote visit, site visit, meeting, or job booking, call kyro_assistant_command with the exact request. If the tool result says the event was created, updated, or deleted, confirm that result instead of telling the user to open Calendar.",
     "For contact profile changes, call kyro_update_contact. It can update contact name, email, phone, address, company, contact type, and append or replace notes. If the contact is unclear, call kyro_lookup_contact first and ask the user to pick.",
     "For address changes, include the suburb/city, state, and country if the user gives them. If they only give a bare street address, ask for the suburb or city before calling kyro_update_contact. When the tool returns a verified formatted address, read that address back including postcode.",
     "After a contact update succeeds, confirm only the changed field or fields. Do not read the full contact profile aloud.",

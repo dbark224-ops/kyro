@@ -5,12 +5,12 @@ import { redirect } from "next/navigation";
 import {
   calendarAddressFromFormData,
   createCalendarEventRecord,
+  deleteCalendarEventRecord,
   normalizeCalendarEventStatus,
   normalizeCalendarEventType,
+  resolveCalendarLinkedEntities,
   updateCalendarEventRecord,
 } from "../../lib/calendar/events";
-import { deleteAppointmentFromExternalCalendar } from "../../lib/calendar/provider-sync";
-import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 
 function formString(formData: FormData, key: string) {
@@ -53,63 +53,6 @@ function redirectWithCalendarMessage(
   redirect(`${path}?${params.toString()}`);
 }
 
-async function resolveLinkedEntities({
-  contactId,
-  conversationId,
-  leadId,
-  supabase,
-  workspaceId,
-}: {
-  contactId: string | null;
-  conversationId: string | null;
-  leadId: string | null;
-  supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"];
-  workspaceId: string;
-}) {
-  let resolvedContactId = contactId;
-  let resolvedLeadId = leadId;
-
-  if (conversationId) {
-    const { data, error } = await supabase
-      .from("conversations")
-      .select("id,contact_id,lead_id")
-      .eq("workspace_id", workspaceId)
-      .eq("id", conversationId)
-      .maybeSingle();
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    if (!data) {
-      throw new Error("Linked inquiry was not found.");
-    }
-
-    resolvedContactId ||= data.contact_id ? String(data.contact_id) : null;
-    resolvedLeadId ||= data.lead_id ? String(data.lead_id) : null;
-  }
-
-  if (resolvedLeadId && !resolvedContactId) {
-    const { data, error } = await supabase
-      .from("leads")
-      .select("id,contact_id")
-      .eq("workspace_id", workspaceId)
-      .eq("id", resolvedLeadId)
-      .maybeSingle();
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    resolvedContactId = data?.contact_id ? String(data.contact_id) : null;
-  }
-
-  return {
-    contactId: resolvedContactId,
-    leadId: resolvedLeadId,
-  };
-}
-
 async function eventInputFromForm(
   formData: FormData,
   supabase: Awaited<ReturnType<typeof requireWorkspaceContext>>["supabase"],
@@ -135,7 +78,7 @@ async function eventInputFromForm(
     throw new Error("The end time needs to be after the start time.");
   }
 
-  const linked = await resolveLinkedEntities({
+  const linked = await resolveCalendarLinkedEntities({
     contactId: rawContactId,
     conversationId,
     leadId: rawLeadId,
@@ -246,29 +189,11 @@ export async function deleteCalendarEventAction(formData: FormData) {
   const { supabase, user, workspace } = await requireWorkspaceContext();
 
   try {
-    await deleteAppointmentFromExternalCalendar({
+    await deleteCalendarEventRecord({
       appointmentId,
       supabase,
+      userId: user.id,
       workspaceId: workspace.id,
-    });
-
-    const { error } = await supabase
-      .from("conversation_appointments")
-      .delete()
-      .eq("workspace_id", workspace.id)
-      .eq("id", appointmentId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    await insertAuditLog(supabase, {
-      workspaceId: workspace.id,
-      actorType: "user",
-      actorId: user.id,
-      action: "calendar_event.deleted",
-      entityType: "conversation_appointment",
-      entityId: appointmentId,
     });
 
     revalidatePath("/calendar");
