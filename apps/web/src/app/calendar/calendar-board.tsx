@@ -562,6 +562,12 @@ function TimelineLines() {
       {TIMELINE_LABEL_HOURS.map((hour) => (
         <span
           className={styles.timelineLine}
+          data-boundary={
+            hour === TIMELINE_VISIBLE_START_HOUR ||
+            hour === TIMELINE_VISIBLE_END_HOUR
+              ? "true"
+              : undefined
+          }
           key={hour}
           style={{ top: `${timelinePercent(hour * 60)}%` }}
         />

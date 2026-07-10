@@ -405,8 +405,7 @@
   transform: translateY(-50%);
 }
 
-.timelineLine:first-child,
-.timelineLine:last-child {
+.timelineLine[data-boundary="true"] {
   background: color-mix(in srgb, var(--cyan) 24%, var(--line));
 }
 
