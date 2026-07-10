@@ -18,6 +18,11 @@ import {
   decryptIntegrationTokenSet,
   encryptIntegrationTokenSet,
 } from "../integrations/token-vault";
+import {
+  providerDateTimeToIso as externalProviderDateTimeToIso,
+  safeTimeZone,
+} from "../timezone";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { type CalendarSettings, getCalendarSettings } from "./settings";
 import {
   type CalendarSyncProvider,
@@ -88,9 +93,11 @@ type ExternalCalendarImportEvent = {
   location: string | null;
   privateProperties: Record<string, string>;
   startsAt: string | null;
+  startsAtTimeZone: string | null;
   status: "cancelled" | "scheduled" | "suggested";
   title: string | null;
   updatedAt: string | null;
+  endsAtTimeZone: string | null;
 };
 
 type ExternalCalendarImportExistingRow = {
@@ -606,12 +613,14 @@ async function upsertGoogleEvent({
   appointment,
   existingEventId,
   settings,
+  timeZone,
   workspaceId,
 }: {
   accessToken: string;
   appointment: AppointmentSyncRow;
   existingEventId: string | null;
   settings: CalendarSettings;
+  timeZone: string;
   workspaceId: string;
 }) {
   const startsAt = appointment.starts_at;
@@ -640,8 +649,8 @@ async function upsertGoogleEvent({
           },
         },
         location: textValue(appointment.location) ?? undefined,
-        start: { dateTime: startsAt },
-        end: { dateTime: endsAt },
+        start: { dateTime: startsAt, timeZone },
+        end: { dateTime: endsAt, timeZone },
         summary: textValue(appointment.title) ?? "Kyro appointment",
       }),
       headers: {
@@ -690,10 +699,10 @@ async function readGoogleEvent({
 
   const event = (await response.json()) as {
     description?: string | null;
-    end?: { date?: string; dateTime?: string };
+    end?: { date?: string; dateTime?: string; timeZone?: string | null };
     etag?: string | null;
     location?: string | null;
-    start?: { date?: string; dateTime?: string };
+    start?: { date?: string; dateTime?: string; timeZone?: string | null };
     status?: string | null;
     summary?: string | null;
   };
@@ -701,9 +710,11 @@ async function readGoogleEvent({
   return {
     deleted: false as const,
     endsAt: textValue(event.end?.dateTime) ?? textValue(event.end?.date),
+    endsAtTimeZone: textValue(event.end?.timeZone),
     etag: textValue(event.etag),
     location: textValue(event.location),
     startsAt: textValue(event.start?.dateTime) ?? textValue(event.start?.date),
+    startsAtTimeZone: textValue(event.start?.timeZone),
     status:
       event.status === "cancelled"
         ? "cancelled"
@@ -835,10 +846,12 @@ async function readMicrosoftEvent({
 
   return {
     deleted: false as const,
-    endsAt: endsAt ? new Date(endsAt).toISOString() : null,
+    endsAt,
+    endsAtTimeZone: textValue(event.end?.timeZone) ?? "UTC",
     etag: textValue(event.id),
     location: textValue(event.location?.displayName),
-    startsAt: startsAt ? new Date(startsAt).toISOString() : null,
+    startsAt,
+    startsAtTimeZone: textValue(event.start?.timeZone) ?? "UTC",
     status: event.isCancelled
       ? "cancelled"
       : startsAt
@@ -848,14 +861,11 @@ async function readMicrosoftEvent({
   };
 }
 
-function providerDateTimeToIso(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+function providerDateTimeToIso(
+  value: string | null,
+  timeZone: string | null | undefined,
+) {
+  return externalProviderDateTimeToIso(value, timeZone);
 }
 
 function externalRefreshDue(row: ExternalRefreshRow) {
@@ -901,6 +911,7 @@ async function applyExternalEventRefresh({
   appointment,
   external,
   supabase,
+  workspaceTimeZone,
   workspaceId,
 }: {
   appointment: ExternalRefreshRow;
@@ -908,6 +919,7 @@ async function applyExternalEventRefresh({
     | Awaited<ReturnType<typeof readGoogleEvent>>
     | Awaited<ReturnType<typeof readMicrosoftEvent>>;
   supabase: SupabaseClient;
+  workspaceTimeZone: string;
   workspaceId: string;
 }) {
   if (external.deleted) {
@@ -931,8 +943,14 @@ async function applyExternalEventRefresh({
     return;
   }
 
-  const startsAt = providerDateTimeToIso(external.startsAt);
-  const endsAt = providerDateTimeToIso(external.endsAt);
+  const startsAt = providerDateTimeToIso(
+    external.startsAt,
+    external.startsAtTimeZone ?? workspaceTimeZone,
+  );
+  const endsAt = providerDateTimeToIso(
+    external.endsAt,
+    external.endsAtTimeZone ?? workspaceTimeZone,
+  );
   const { error } = await supabase
     .from("conversation_appointments")
     .update({
@@ -988,10 +1006,12 @@ export async function syncAppointmentToExternalCalendar({
   supabase: SupabaseClient;
   workspaceId: string;
 }) {
-  const [settings, appointment] = await Promise.all([
+  const [settings, appointment, generalSettings] = await Promise.all([
     getCalendarSettings(supabase, workspaceId),
     loadAppointment(supabase, workspaceId, appointmentId),
+    getWorkspaceGeneralSettings(supabase, workspaceId),
   ]);
+  const workspaceTimeZone = safeTimeZone(generalSettings.timeZone);
 
   if (!appointment) {
     return { ok: false, skipped: true, status: "missing" };
@@ -1085,6 +1105,7 @@ export async function syncAppointmentToExternalCalendar({
             appointment,
             existingEventId,
             settings,
+            timeZone: workspaceTimeZone,
             workspaceId,
           })
         : await upsertMicrosoftEvent({
@@ -1144,7 +1165,11 @@ export async function syncExternalCalendarUpdatesToKyro({
   supabase: SupabaseClient;
   workspaceId: string;
 }) {
-  const settings = await getCalendarSettings(supabase, workspaceId);
+  const [settings, generalSettings] = await Promise.all([
+    getCalendarSettings(supabase, workspaceId),
+    getWorkspaceGeneralSettings(supabase, workspaceId),
+  ]);
+  const workspaceTimeZone = safeTimeZone(generalSettings.timeZone);
 
   if (!settings.importExternalUpdates || settings.syncProvider === "none") {
     return { refreshed: 0, skipped: true };
@@ -1219,6 +1244,7 @@ export async function syncExternalCalendarUpdatesToKyro({
         appointment,
         external,
         supabase,
+        workspaceTimeZone,
         workspaceId,
       });
       refreshed += 1;
@@ -1395,12 +1421,20 @@ async function listGoogleCalendarEvents({
     const payload = (await response.json()) as {
       items?: Array<{
         description?: string | null;
-        end?: { date?: string | null; dateTime?: string | null };
+        end?: {
+          date?: string | null;
+          dateTime?: string | null;
+          timeZone?: string | null;
+        };
         etag?: string | null;
         extendedProperties?: { private?: Record<string, unknown> | null };
         id?: string | null;
         location?: string | null;
-        start?: { date?: string | null; dateTime?: string | null };
+        start?: {
+          date?: string | null;
+          dateTime?: string | null;
+          timeZone?: string | null;
+        };
         status?: string | null;
         summary?: string | null;
         updated?: string | null;
@@ -1423,11 +1457,13 @@ async function listGoogleCalendarEvents({
         deleted,
         description: textValue(item.description),
         endsAt: textValue(item.end?.dateTime) ?? textValue(item.end?.date),
+        endsAtTimeZone: textValue(item.end?.timeZone),
         etag: textValue(item.etag),
         id,
         location: textValue(item.location),
         privateProperties: stringRecord(item.extendedProperties?.private),
         startsAt,
+        startsAtTimeZone: textValue(item.start?.timeZone),
         status: deleted ? "cancelled" : startsAt ? "scheduled" : "suggested",
         title: textValue(item.summary),
         updatedAt: textValue(item.updated),
@@ -1526,11 +1562,13 @@ async function listMicrosoftCalendarEvents({
           stripHtml(textValue(item.body?.content)) ??
           textValue(item.bodyPreview),
         endsAt: textValue(item.end?.dateTime),
+        endsAtTimeZone: textValue(item.end?.timeZone) ?? "UTC",
         etag: textValue(item.lastModifiedDateTime) ?? id,
         id,
         location: textValue(item.location?.displayName),
         privateProperties: {},
         startsAt,
+        startsAtTimeZone: textValue(item.start?.timeZone) ?? "UTC",
         status: deleted ? "cancelled" : startsAt ? "scheduled" : "suggested",
         title: textValue(item.subject),
         updatedAt: textValue(item.lastModifiedDateTime),
@@ -1599,6 +1637,7 @@ async function updateExistingExternalAppointment({
   provider,
   settings,
   supabase,
+  workspaceTimeZone,
   workspaceId,
 }: {
   accountEmail: string | null;
@@ -1608,6 +1647,7 @@ async function updateExistingExternalAppointment({
   provider: ExternalCalendarProvider;
   settings: CalendarSettings;
   supabase: SupabaseClient;
+  workspaceTimeZone: string;
   workspaceId: string;
 }) {
   const importedAt = new Date().toISOString();
@@ -1632,7 +1672,10 @@ async function updateExistingExternalAppointment({
     return "cancelled" as const;
   }
 
-  const startsAt = providerDateTimeToIso(event.startsAt);
+  const startsAt = providerDateTimeToIso(
+    event.startsAt,
+    event.startsAtTimeZone ?? workspaceTimeZone,
+  );
 
   if (!startsAt) {
     return "skipped" as const;
@@ -1640,7 +1683,7 @@ async function updateExistingExternalAppointment({
 
   const endsAt = externalFallbackEndAt(
     startsAt,
-    providerDateTimeToIso(event.endsAt),
+    providerDateTimeToIso(event.endsAt, event.endsAtTimeZone ?? workspaceTimeZone),
     settings,
   );
   const { error } = await supabase
@@ -1686,6 +1729,7 @@ async function insertExternalAppointment({
   settings,
   supabase,
   userId,
+  workspaceTimeZone,
   workspaceId,
 }: {
   accountEmail: string | null;
@@ -1695,9 +1739,13 @@ async function insertExternalAppointment({
   settings: CalendarSettings;
   supabase: SupabaseClient;
   userId: string | null;
+  workspaceTimeZone: string;
   workspaceId: string;
 }) {
-  const startsAt = providerDateTimeToIso(event.startsAt);
+  const startsAt = providerDateTimeToIso(
+    event.startsAt,
+    event.startsAtTimeZone ?? workspaceTimeZone,
+  );
 
   if (event.deleted || !startsAt) {
     return "skipped" as const;
@@ -1706,7 +1754,7 @@ async function insertExternalAppointment({
   const importedAt = new Date().toISOString();
   const endsAt = externalFallbackEndAt(
     startsAt,
-    providerDateTimeToIso(event.endsAt),
+    providerDateTimeToIso(event.endsAt, event.endsAtTimeZone ?? workspaceTimeZone),
     settings,
   );
   const { error } = await supabase.from("conversation_appointments").insert({
@@ -1751,6 +1799,7 @@ async function applyImportedExternalCalendarEvent({
   settings,
   supabase,
   userId,
+  workspaceTimeZone,
   workspaceId,
 }: {
   accountEmail: string | null;
@@ -1760,6 +1809,7 @@ async function applyImportedExternalCalendarEvent({
   settings: CalendarSettings;
   supabase: SupabaseClient;
   userId: string | null;
+  workspaceTimeZone: string;
   workspaceId: string;
 }) {
   const existing = await loadExistingExternalAppointment({
@@ -1778,6 +1828,7 @@ async function applyImportedExternalCalendarEvent({
       provider,
       settings,
       supabase,
+      workspaceTimeZone,
       workspaceId,
     });
   }
@@ -1790,6 +1841,7 @@ async function applyImportedExternalCalendarEvent({
     settings,
     supabase,
     userId,
+    workspaceTimeZone,
     workspaceId,
   });
 }
@@ -1843,7 +1895,11 @@ export async function syncExternalCalendarEventsToKyro({
   userId?: string | null;
   workspaceId: string;
 }): Promise<ExternalCalendarImportSummary> {
-  const settings = await getCalendarSettings(supabase, workspaceId);
+  const [settings, generalSettings] = await Promise.all([
+    getCalendarSettings(supabase, workspaceId),
+    getWorkspaceGeneralSettings(supabase, workspaceId),
+  ]);
+  const workspaceTimeZone = safeTimeZone(generalSettings.timeZone);
   const summary: ExternalCalendarImportSummary = {
     cancelled: 0,
     imported: 0,
@@ -1923,6 +1979,7 @@ export async function syncExternalCalendarEventsToKyro({
           settings: providerSettings,
           supabase,
           userId,
+          workspaceTimeZone,
           workspaceId,
         });
 

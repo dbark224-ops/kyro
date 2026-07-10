@@ -27,6 +27,18 @@ import {
   type CalendarView,
 } from "../../lib/calendar/settings";
 import type { CalendarReadiness } from "../../lib/calendar/readiness";
+import {
+  addDaysToDateKey,
+  addMonthsToDateKey,
+  dateKeyInTimeZone,
+  dateKeyToPlainDate,
+  dateTimeLocalValueInTimeZone,
+  isoFromDateKeyAndMinutes,
+  isoFromDateTimeLocalInTimeZone,
+  startOfMonthDateKey,
+  startOfWeekDateKey,
+  todayDateKey,
+} from "../../lib/timezone";
 import styles from "./calendar-board.module.css";
 
 type CalendarBoardProps = Readonly<{
@@ -68,36 +80,26 @@ const TIMELINE_LABEL_HOURS = Array.from(
   (_, index) => TIMELINE_VISIBLE_START_HOUR + index,
 );
 
-function startOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
 function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+  return dateKeyToPlainDate(addDaysToDateKey(formatDateParam(date), days));
 }
 
 function startOfWeek(date: Date) {
-  const day = date.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  return startOfDay(addDays(date, mondayOffset));
+  return dateKeyToPlainDate(startOfWeekDateKey(formatDateParam(date)));
 }
 
 function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+  return dateKeyToPlainDate(startOfMonthDateKey(formatDateParam(date)));
 }
 
 function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+  return dateKeyToPlainDate(addMonthsToDateKey(formatDateParam(date), months));
 }
 
 function formatDateParam(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 }
@@ -135,74 +137,12 @@ function formatHourLabel(hour: number) {
   return `${displayHour}${suffix}`;
 }
 
-function dateKeyInTimeZone(value: string, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone,
-    year: "numeric",
-  }).formatToParts(new Date(value));
-  const part = (type: string) =>
-    parts.find((current) => current.type === type)?.value ?? "";
-
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
-function timeZoneParts(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-    minute: "2-digit",
-    month: "2-digit",
-    second: "2-digit",
-    timeZone,
-    year: "numeric",
-  }).formatToParts(date);
-  const part = (type: string) =>
-    Number(parts.find((current) => current.type === type)?.value ?? "0");
-
-  return {
-    day: part("day"),
-    hour: part("hour"),
-    minute: part("minute"),
-    month: part("month"),
-    second: part("second"),
-    year: part("year"),
-  };
-}
-
-function timeZoneOffsetMinutes(date: Date, timeZone: string) {
-  const parts = timeZoneParts(date, timeZone);
-  const localAsUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-
-  return (localAsUtc - date.getTime()) / 60_000;
-}
-
 function isoFromCalendarDayAndMinutes(
   day: Date,
   minutes: number,
   timeZone: string,
 ) {
-  const [year, month, date] = formatDateParam(day).split("-").map(Number);
-  const hour = Math.floor(minutes / 60);
-  const minute = minutes % 60;
-  const localTimestamp = Date.UTC(year, month - 1, date, hour, minute);
-  let utcTimestamp = localTimestamp;
-
-  for (let iteration = 0; iteration < 2; iteration += 1) {
-    const offset = timeZoneOffsetMinutes(new Date(utcTimestamp), timeZone);
-    utcTimestamp = localTimestamp - offset * 60_000;
-  }
-
-  return new Date(utcTimestamp).toISOString();
+  return isoFromDateKeyAndMinutes(formatDateParam(day), minutes, timeZone);
 }
 
 function minutesInTimeZone(value: string, timeZone: string) {
@@ -321,30 +261,12 @@ function timelineEventMetrics(event: CalendarEventItem, timeZone: string) {
   };
 }
 
-function dateTimeLocalValue(value: string | null) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+function dateTimeLocalValue(value: string | null, timeZone: string) {
+  return dateTimeLocalValueInTimeZone(value, timeZone);
 }
 
-function isoFromDateTimeLocal(value: string) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+function isoFromDateTimeLocal(value: string, timeZone: string) {
+  return value ? isoFromDateTimeLocalInTimeZone(value, timeZone) : "";
 }
 
 function displayType(value: string) {
@@ -438,12 +360,12 @@ function viewHref(view: CalendarView, date: Date) {
   return `/calendar?${params.toString()}`;
 }
 
-function adjacentCalendarHrefs(view: CalendarView, anchor: Date) {
+function adjacentCalendarHrefs(view: CalendarView, anchor: Date, timeZone: string) {
   const adjacentDates =
     view === "month"
       ? [-1, 1].map(
           (offset) =>
-            new Date(anchor.getFullYear(), anchor.getMonth() + offset, 1),
+            addMonths(anchor, offset),
         )
       : view === "week"
         ? [-14, -7, 7, 14].map((offset) => addDays(anchor, offset))
@@ -456,14 +378,14 @@ function adjacentCalendarHrefs(view: CalendarView, anchor: Date) {
     ...new Set([
       ...adjacentDates.map((date) => viewHref(view, date)),
       ...viewSwitchHrefs,
-      viewHref(view, new Date()),
+      viewHref(view, dateKeyToPlainDate(todayDateKey(timeZone))),
     ]),
   ];
 }
 
 function rangeForView(anchor: Date, view: CalendarView) {
   if (view === "day") {
-    const from = startOfDay(anchor);
+    const from = dateKeyToPlainDate(formatDateParam(anchor));
     return { from, to: addDays(from, 1) };
   }
 
@@ -478,6 +400,10 @@ function rangeForView(anchor: Date, view: CalendarView) {
 }
 
 function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
+  const anchorNoon = new Date(
+    isoFromCalendarDayAndMinutes(anchor, 12 * 60, timeZone),
+  );
+
   if (view === "day") {
     return new Intl.DateTimeFormat("en", {
       day: "numeric",
@@ -485,7 +411,7 @@ function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
       timeZone,
       weekday: "long",
       year: "numeric",
-    }).format(anchor);
+    }).format(anchorNoon);
   }
 
   if (view === "month") {
@@ -493,18 +419,24 @@ function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
       month: "long",
       timeZone,
       year: "numeric",
-    }).format(anchor);
+    }).format(anchorNoon);
   }
 
   const start = startOfWeek(anchor);
   const end = addDays(start, 6);
+  const startNoon = new Date(
+    isoFromCalendarDayAndMinutes(start, 12 * 60, timeZone),
+  );
+  const endNoon = new Date(
+    isoFromCalendarDayAndMinutes(end, 12 * 60, timeZone),
+  );
   const formatter = new Intl.DateTimeFormat("en", {
     day: "numeric",
     month: "short",
     timeZone,
   });
 
-  return `${formatter.format(start)} - ${formatter.format(end)}`;
+  return `${formatter.format(startNoon)} - ${formatter.format(endNoon)}`;
 }
 
 function eventsForDay(
@@ -535,17 +467,18 @@ function eventsForDay(
 function eventsInRange(
   events: CalendarEventItem[],
   range: ReturnType<typeof rangeForView>,
+  timeZone: string,
 ) {
-  const from = range.from.getTime();
-  const to = range.to.getTime();
+  const from = formatDateParam(range.from);
+  const to = formatDateParam(range.to);
 
   return events.filter((event) => {
     if (!event.startsAt) {
       return false;
     }
 
-    const time = new Date(event.startsAt).getTime();
-    return time >= from && time < to;
+    const eventDay = dateKeyInTimeZone(event.startsAt, timeZone);
+    return eventDay >= from && eventDay < to;
   });
 }
 
@@ -606,12 +539,14 @@ function DateTimeInput({
   defaultValue,
   label,
   name,
+  timeZone,
 }: Readonly<{
   defaultValue: string | null;
   label: string;
   name: string;
+  timeZone: string;
 }>) {
-  const [value, setValue] = useState(dateTimeLocalValue(defaultValue));
+  const [value, setValue] = useState(dateTimeLocalValue(defaultValue, timeZone));
 
   return (
     <label>
@@ -622,7 +557,11 @@ function DateTimeInput({
         type="datetime-local"
         value={value}
       />
-      <input name={name} type="hidden" value={isoFromDateTimeLocal(value)} />
+      <input
+        name={name}
+        type="hidden"
+        value={isoFromDateTimeLocal(value, timeZone)}
+      />
     </label>
   );
 }
@@ -754,7 +693,7 @@ function MonthView({
 }>) {
   const firstOfMonth = startOfMonth(anchor);
   const firstDay = startOfWeek(firstOfMonth);
-  const todayKey = formatDateParam(new Date());
+  const todayKey = todayDateKey(timeZone);
   const cells = Array.from({ length: 42 }, (_, index) =>
     addDays(firstDay, index),
   );
@@ -768,7 +707,7 @@ function MonthView({
       ))}
       {cells.map((day) => {
         const dayEvents = eventsForDay(events, day, timeZone);
-        const isMuted = day.getMonth() !== anchor.getMonth();
+        const isMuted = day.getUTCMonth() !== anchor.getUTCMonth();
         const isToday = formatDateParam(day) === todayKey;
 
         return (
@@ -782,7 +721,7 @@ function MonthView({
               .join(" ")}
             key={formatDateParam(day)}
           >
-            <div className={styles.dayNumber}>{day.getDate()}</div>
+            <div className={styles.dayNumber}>{day.getUTCDate()}</div>
             <div className={styles.eventList}>
               {dayEvents.slice(0, 4).map((event) => (
                 <EventCard
@@ -832,8 +771,8 @@ function WeekView({
       <div className={styles.timelineAxisSpacer} />
       {days.map((day) => (
         <div className={styles.weekHeader} key={formatDateParam(day)}>
-          <strong>{DAY_NAMES[(day.getDay() + 6) % 7]}</strong>
-          <span>{day.getDate()}</span>
+          <strong>{DAY_NAMES[(day.getUTCDay() + 6) % 7]}</strong>
+          <span>{day.getUTCDate()}</span>
         </div>
       ))}
       <TimelineAxis />
@@ -928,17 +867,26 @@ function DayView({
   );
 }
 
-function eventStartForNew(settings: CalendarSettings) {
-  const date = new Date();
-  date.setMinutes(0, 0, 0);
-  date.setHours(date.getHours() + 1);
+function eventStartForNew(settings: CalendarSettings, timeZone: string) {
+  const nowIso = new Date().toISOString();
+  const todayKey = dateKeyInTimeZone(nowIso, timeZone);
+  const currentMinutes = minutesInTimeZone(nowIso, timeZone);
+  const roundedStartMinutes =
+    (Math.floor(currentMinutes / 60) + 1) * 60;
+  const startDayOffset = Math.floor(roundedStartMinutes / (24 * 60));
+  const startMinutes = roundedStartMinutes % (24 * 60);
+  const start = isoFromDateKeyAndMinutes(
+    addDaysToDateKey(todayKey, startDayOffset),
+    startMinutes,
+    timeZone,
+  );
   const end = new Date(
-    date.getTime() + settings.defaultDurationMinutes * 60_000,
+    new Date(start).getTime() + settings.defaultDurationMinutes * 60_000,
   );
 
   return {
     end: end.toISOString(),
-    start: date.toISOString(),
+    start,
   };
 }
 
@@ -965,7 +913,10 @@ function EventEditor({
   timeZone: string;
   variant?: "modal" | "side";
 }>) {
-  const fallbackNewTimes = useMemo(() => eventStartForNew(settings), [settings]);
+  const fallbackNewTimes = useMemo(
+    () => eventStartForNew(settings, timeZone),
+    [settings, timeZone],
+  );
   const newTimes = initialTimes ?? fallbackNewTimes;
   const directionsUrl = event
     ? googleMapsDirectionsUrl(event.location, event.locationAddress)
@@ -1053,11 +1004,13 @@ function EventEditor({
             defaultValue={event?.startsAt ?? newTimes.start}
             label="Start"
             name="startsAt"
+            timeZone={timeZone}
           />
           <DateTimeInput
             defaultValue={event?.endsAt ?? newTimes.end}
             label="End"
             name="endsAt"
+            timeZone={timeZone}
           />
           <label>
             Contact
@@ -1176,7 +1129,7 @@ export function CalendarBoard({
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const anchor = useMemo(
-    () => startOfDay(new Date(`${anchorDate}T12:00:00`)),
+    () => dateKeyToPlainDate(anchorDate),
     [anchorDate],
   );
   const [currentView, setCurrentView] = useState<CalendarView>(view);
@@ -1191,13 +1144,13 @@ export function CalendarBoard({
     [anchor, currentView],
   );
   const visibleEvents = useMemo(
-    () => eventsInRange(events, visibleRange),
-    [events, visibleRange],
+    () => eventsInRange(events, visibleRange, timeZone),
+    [events, visibleRange, timeZone],
   );
   const currentHref = viewHref(currentView, anchor);
   const prefetchedHrefs = useMemo(
-    () => adjacentCalendarHrefs(currentView, anchor),
-    [anchor, currentView],
+    () => adjacentCalendarHrefs(currentView, anchor, timeZone),
+    [anchor, currentView, timeZone],
   );
   const selectedEvent =
     events.find((event) => event.id === selectedEventId) ?? null;
@@ -1250,12 +1203,13 @@ export function CalendarBoard({
   };
   const previousDate =
     currentView === "month"
-      ? new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1)
+      ? addMonths(anchor, -1)
       : addDays(anchor, currentView === "week" ? -7 : -1);
   const nextDate =
     currentView === "month"
-      ? new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1)
+      ? addMonths(anchor, 1)
       : addDays(anchor, currentView === "week" ? 7 : 1);
+  const todayDate = dateKeyToPlainDate(todayDateKey(timeZone));
   const scheduledEvents = visibleEvents.filter((event) => event.startsAt);
   const unsyncedCount = visibleEvents.filter(
     (event) =>
@@ -1319,7 +1273,7 @@ export function CalendarBoard({
               <button
                 className="secondary-button compact"
                 onClick={() =>
-                  navigateCalendar(viewHref(currentView, new Date()))
+                  navigateCalendar(viewHref(currentView, todayDate))
                 }
                 type="button"
               >
