@@ -414,6 +414,13 @@ function quietWindowKey(date: Date, settings: InboundEmailSettings) {
   return null;
 }
 
+export function inboundQuietHoursActiveNow(
+  settings: InboundEmailSettings,
+  now = new Date(),
+) {
+  return settings.quietHoursEnabled && Boolean(quietWindowKey(now, settings));
+}
+
 function minutesSince(value: string | null, now: Date) {
   if (!value) {
     return Number.POSITIVE_INFINITY;

@@ -13,6 +13,7 @@ import {
   MICROSOFT_SERVICE,
   getMicrosoftOAuthConfig,
 } from "../integrations/microsoft";
+import { insertAuditLog } from "../engine/event-action-audit";
 import {
   decryptIntegrationTokenSet,
   encryptIntegrationTokenSet,
@@ -76,6 +77,54 @@ type ExternalSyncResult = {
   status: "not_synced" | "synced" | "failed";
 };
 
+type ExternalCalendarImportTrigger = "manual" | "page_refresh" | "scheduled";
+
+type ExternalCalendarImportEvent = {
+  deleted: boolean;
+  description: string | null;
+  endsAt: string | null;
+  etag: string | null;
+  id: string;
+  location: string | null;
+  privateProperties: Record<string, string>;
+  startsAt: string | null;
+  status: "cancelled" | "scheduled" | "suggested";
+  title: string | null;
+  updatedAt: string | null;
+};
+
+type ExternalCalendarImportExistingRow = {
+  ends_at: string | null;
+  external_calendar_provider: string | null;
+  external_event_etag: string | null;
+  external_event_id: string | null;
+  id: string;
+  location: string | null;
+  metadata: unknown;
+  starts_at: string | null;
+  status: string | null;
+  title: string | null;
+};
+
+type ExternalCalendarProviderImportSummary = {
+  accountEmail: string | null;
+  cancelled: number;
+  error: string | null;
+  imported: number;
+  provider: ExternalCalendarProvider;
+  skipped: number;
+  updated: number;
+};
+
+export type ExternalCalendarImportSummary = {
+  cancelled: number;
+  imported: number;
+  providers: ExternalCalendarProviderImportSummary[];
+  reason: string | null;
+  skipped: boolean;
+  updated: number;
+};
+
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -84,6 +133,14 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function stringRecord(value: unknown) {
+  return Object.fromEntries(
+    Object.entries(objectRecord(value)).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 function normalizeScopes(value: unknown) {
@@ -1188,6 +1245,727 @@ export async function syncExternalCalendarUpdatesToKyro({
   }
 
   return { refreshed, skipped: false };
+}
+
+async function selectedCalendarConnections({
+  settings,
+  supabase,
+  workspaceId,
+}: {
+  settings: CalendarSettings;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const providers: ExternalCalendarProvider[] =
+    settings.syncProvider === "auto"
+      ? ["google", "microsoft"]
+      : settings.syncProvider === "none"
+        ? []
+        : [settings.syncProvider];
+  const selections: Array<{
+    connection: IntegrationConnectionRow;
+    provider: ExternalCalendarProvider;
+  }> = [];
+
+  for (const provider of providers) {
+    const connection = await loadCalendarConnection({
+      provider,
+      supabase,
+      workspaceId,
+    });
+
+    if (connection) {
+      selections.push({ connection, provider });
+    }
+  }
+
+  return selections;
+}
+
+function externalImportWindow() {
+  return {
+    from: new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString(),
+    to: new Date(Date.now() + 180 * 24 * 60 * 60_000).toISOString(),
+  };
+}
+
+function stripHtml(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return (
+    value
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .trim() || null
+  );
+}
+
+function calendarImportMetadata({
+  accountEmail,
+  calendarId,
+  currentMetadata,
+  event,
+  importedAt,
+  provider,
+}: {
+  accountEmail: string | null;
+  calendarId: string;
+  currentMetadata: unknown;
+  event: ExternalCalendarImportEvent;
+  importedAt: string;
+  provider: ExternalCalendarProvider;
+}) {
+  const current = objectRecord(currentMetadata);
+  const existingExternal = objectRecord(current.externalCalendar);
+
+  return {
+    ...current,
+    source: textValue(current.source) ?? "external_calendar_import",
+    externalCalendar: {
+      ...existingExternal,
+      accountEmail,
+      calendarId,
+      eventId: event.id,
+      eventUpdatedAt: event.updatedAt,
+      etag: event.etag,
+      importedAt,
+      provider,
+    },
+  };
+}
+
+function externalFallbackEndAt(
+  startsAt: string,
+  endsAt: string | null,
+  settings: CalendarSettings,
+) {
+  if (endsAt) {
+    return endsAt;
+  }
+
+  return new Date(
+    new Date(startsAt).getTime() +
+      settings.defaultDurationMinutes * 60_000,
+  ).toISOString();
+}
+
+async function listGoogleCalendarEvents({
+  accessToken,
+  from,
+  settings,
+  to,
+}: {
+  accessToken: string;
+  from: string;
+  settings: CalendarSettings;
+  to: string;
+}) {
+  const events: ExternalCalendarImportEvent[] = [];
+  let pageToken: string | null = null;
+
+  do {
+    const params = new URLSearchParams({
+      maxResults: "250",
+      showDeleted: "true",
+      singleEvents: "true",
+      timeMax: to,
+      timeMin: from,
+    });
+
+    if (pageToken) {
+      params.set("pageToken", pageToken);
+    }
+
+    const response = await fetch(googleCalendarUrl(settings, `?${params}`), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      method: "GET",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        calendarProviderSyncErrorMessage(await readApiError(response), "google"),
+      );
+    }
+
+    const payload = (await response.json()) as {
+      items?: Array<{
+        description?: string | null;
+        end?: { date?: string | null; dateTime?: string | null };
+        etag?: string | null;
+        extendedProperties?: { private?: Record<string, unknown> | null };
+        id?: string | null;
+        location?: string | null;
+        start?: { date?: string | null; dateTime?: string | null };
+        status?: string | null;
+        summary?: string | null;
+        updated?: string | null;
+      }>;
+      nextPageToken?: string | null;
+    };
+
+    for (const item of payload.items ?? []) {
+      const id = textValue(item.id);
+
+      if (!id) {
+        continue;
+      }
+
+      const startsAt =
+        textValue(item.start?.dateTime) ?? textValue(item.start?.date);
+      const deleted = item.status === "cancelled";
+
+      events.push({
+        deleted,
+        description: textValue(item.description),
+        endsAt: textValue(item.end?.dateTime) ?? textValue(item.end?.date),
+        etag: textValue(item.etag),
+        id,
+        location: textValue(item.location),
+        privateProperties: stringRecord(item.extendedProperties?.private),
+        startsAt,
+        status: deleted ? "cancelled" : startsAt ? "scheduled" : "suggested",
+        title: textValue(item.summary),
+        updatedAt: textValue(item.updated),
+      });
+    }
+
+    pageToken = textValue(payload.nextPageToken);
+  } while (pageToken && events.length < 1000);
+
+  return events;
+}
+
+function microsoftCalendarViewUrl(
+  settings: CalendarSettings,
+  from: string,
+  to: string,
+) {
+  const calendarId = settings.externalCalendarId;
+  const base =
+    calendarId && calendarId !== "primary"
+      ? `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(
+          calendarId,
+        )}/calendarView`
+      : "https://graph.microsoft.com/v1.0/me/calendarView";
+  const params = new URLSearchParams({
+    "$select":
+      "id,subject,bodyPreview,body,location,start,end,isCancelled,lastModifiedDateTime",
+    "$top": "100",
+    endDateTime: to,
+    startDateTime: from,
+  });
+
+  return `${base}?${params}`;
+}
+
+async function listMicrosoftCalendarEvents({
+  accessToken,
+  from,
+  settings,
+  to,
+}: {
+  accessToken: string;
+  from: string;
+  settings: CalendarSettings;
+  to: string;
+}) {
+  const events: ExternalCalendarImportEvent[] = [];
+  let url: string | null = microsoftCalendarViewUrl(settings, from, to);
+
+  while (url && events.length < 1000) {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Prefer: 'outlook.timezone="UTC"',
+      },
+      method: "GET",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        calendarProviderSyncErrorMessage(
+          await readApiError(response),
+          "microsoft",
+        ),
+      );
+    }
+
+    const payload = (await response.json()) as {
+      "@odata.nextLink"?: string | null;
+      value?: Array<{
+        body?: { content?: string | null; contentType?: string | null } | null;
+        bodyPreview?: string | null;
+        end?: { dateTime?: string | null; timeZone?: string | null };
+        id?: string | null;
+        isCancelled?: boolean | null;
+        lastModifiedDateTime?: string | null;
+        location?: { displayName?: string | null } | null;
+        start?: { dateTime?: string | null; timeZone?: string | null };
+        subject?: string | null;
+      }>;
+    };
+
+    for (const item of payload.value ?? []) {
+      const id = textValue(item.id);
+
+      if (!id) {
+        continue;
+      }
+
+      const startsAt = textValue(item.start?.dateTime);
+      const deleted = Boolean(item.isCancelled);
+
+      events.push({
+        deleted,
+        description:
+          stripHtml(textValue(item.body?.content)) ??
+          textValue(item.bodyPreview),
+        endsAt: textValue(item.end?.dateTime),
+        etag: textValue(item.lastModifiedDateTime) ?? id,
+        id,
+        location: textValue(item.location?.displayName),
+        privateProperties: {},
+        startsAt,
+        status: deleted ? "cancelled" : startsAt ? "scheduled" : "suggested",
+        title: textValue(item.subject),
+        updatedAt: textValue(item.lastModifiedDateTime),
+      });
+    }
+
+    url = textValue(payload["@odata.nextLink"]);
+  }
+
+  return events;
+}
+
+async function loadExistingExternalAppointment({
+  event,
+  provider,
+  supabase,
+  workspaceId,
+}: {
+  event: ExternalCalendarImportEvent;
+  provider: ExternalCalendarProvider;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const select =
+    "id,metadata,external_calendar_provider,external_event_id,external_event_etag,status,starts_at,ends_at,title,location";
+  const kyroAppointmentId = textValue(event.privateProperties.kyroAppointmentId);
+  const kyroWorkspaceId = textValue(event.privateProperties.kyroWorkspaceId);
+
+  if (kyroAppointmentId && (!kyroWorkspaceId || kyroWorkspaceId === workspaceId)) {
+    const { data, error } = await supabase
+      .from("conversation_appointments")
+      .select(select)
+      .eq("workspace_id", workspaceId)
+      .eq("id", kyroAppointmentId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Unable to match Kyro calendar event: ${error.message}`);
+    }
+
+    if (data) {
+      return data as ExternalCalendarImportExistingRow;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("conversation_appointments")
+    .select(select)
+    .eq("workspace_id", workspaceId)
+    .eq("external_calendar_provider", provider)
+    .eq("external_event_id", event.id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to match external calendar event: ${error.message}`);
+  }
+
+  return data ? (data as ExternalCalendarImportExistingRow) : null;
+}
+
+async function updateExistingExternalAppointment({
+  accountEmail,
+  calendarId,
+  event,
+  existing,
+  provider,
+  settings,
+  supabase,
+  workspaceId,
+}: {
+  accountEmail: string | null;
+  calendarId: string;
+  event: ExternalCalendarImportEvent;
+  existing: ExternalCalendarImportExistingRow;
+  provider: ExternalCalendarProvider;
+  settings: CalendarSettings;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const importedAt = new Date().toISOString();
+
+  if (event.deleted) {
+    const { error } = await supabase
+      .from("conversation_appointments")
+      .update({
+        external_event_etag: event.etag ?? existing.external_event_etag,
+        external_sync_error: null,
+        external_sync_status: "synced",
+        external_synced_at: importedAt,
+        status: "cancelled",
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("id", existing.id);
+
+    if (error) {
+      throw new Error(`Unable to cancel external calendar event: ${error.message}`);
+    }
+
+    return "cancelled" as const;
+  }
+
+  const startsAt = providerDateTimeToIso(event.startsAt);
+
+  if (!startsAt) {
+    return "skipped" as const;
+  }
+
+  const endsAt = externalFallbackEndAt(
+    startsAt,
+    providerDateTimeToIso(event.endsAt),
+    settings,
+  );
+  const { error } = await supabase
+    .from("conversation_appointments")
+    .update({
+      description: event.description,
+      ends_at: endsAt,
+      external_calendar_id: calendarId,
+      external_calendar_provider: provider,
+      external_event_etag: event.etag ?? existing.external_event_etag,
+      external_event_id: event.id,
+      external_sync_error: null,
+      external_sync_status: "synced",
+      external_synced_at: importedAt,
+      location: event.location,
+      metadata: calendarImportMetadata({
+        accountEmail,
+        calendarId,
+        currentMetadata: existing.metadata,
+        event,
+        importedAt,
+        provider,
+      }),
+      starts_at: startsAt,
+      status: existing.status === "completed" ? "completed" : event.status,
+      title: event.title ?? existing.title ?? "Calendar event",
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("id", existing.id);
+
+  if (error) {
+    throw new Error(`Unable to update external calendar event: ${error.message}`);
+  }
+
+  return "updated" as const;
+}
+
+async function insertExternalAppointment({
+  accountEmail,
+  calendarId,
+  event,
+  provider,
+  settings,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  accountEmail: string | null;
+  calendarId: string;
+  event: ExternalCalendarImportEvent;
+  provider: ExternalCalendarProvider;
+  settings: CalendarSettings;
+  supabase: SupabaseClient;
+  userId: string | null;
+  workspaceId: string;
+}) {
+  const startsAt = providerDateTimeToIso(event.startsAt);
+
+  if (event.deleted || !startsAt) {
+    return "skipped" as const;
+  }
+
+  const importedAt = new Date().toISOString();
+  const endsAt = externalFallbackEndAt(
+    startsAt,
+    providerDateTimeToIso(event.endsAt),
+    settings,
+  );
+  const { error } = await supabase.from("conversation_appointments").insert({
+    appointment_type: "other",
+    created_by_user_id: userId,
+    description: event.description,
+    ends_at: endsAt,
+    external_calendar_id: calendarId,
+    external_calendar_provider: provider,
+    external_event_etag: event.etag,
+    external_event_id: event.id,
+    external_sync_error: null,
+    external_sync_status: "synced",
+    external_synced_at: importedAt,
+    location: event.location,
+    metadata: calendarImportMetadata({
+      accountEmail,
+      calendarId,
+      currentMetadata: {},
+      event,
+      importedAt,
+      provider,
+    }),
+    starts_at: startsAt,
+    status: event.status,
+    title: event.title ?? "Calendar event",
+    workspace_id: workspaceId,
+  });
+
+  if (error) {
+    throw new Error(`Unable to import external calendar event: ${error.message}`);
+  }
+
+  return "imported" as const;
+}
+
+async function applyImportedExternalCalendarEvent({
+  accountEmail,
+  calendarId,
+  event,
+  provider,
+  settings,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  accountEmail: string | null;
+  calendarId: string;
+  event: ExternalCalendarImportEvent;
+  provider: ExternalCalendarProvider;
+  settings: CalendarSettings;
+  supabase: SupabaseClient;
+  userId: string | null;
+  workspaceId: string;
+}) {
+  const existing = await loadExistingExternalAppointment({
+    event,
+    provider,
+    supabase,
+    workspaceId,
+  });
+
+  if (existing) {
+    return updateExistingExternalAppointment({
+      accountEmail,
+      calendarId,
+      event,
+      existing,
+      provider,
+      settings,
+      supabase,
+      workspaceId,
+    });
+  }
+
+  return insertExternalAppointment({
+    accountEmail,
+    calendarId,
+    event,
+    provider,
+    settings,
+    supabase,
+    userId,
+    workspaceId,
+  });
+}
+
+async function writeExternalCalendarImportAudit({
+  summary,
+  trigger,
+  userId,
+  supabase,
+  workspaceId,
+}: {
+  summary: ExternalCalendarImportSummary;
+  trigger: ExternalCalendarImportTrigger;
+  userId: string | null;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const changed = summary.imported + summary.updated + summary.cancelled;
+  const hasErrors = summary.providers.some((provider) => provider.error);
+
+  if (changed === 0 && !hasErrors) {
+    return;
+  }
+
+  try {
+    await insertAuditLog(supabase, {
+      workspaceId,
+      actorType: "system",
+      actorId: userId ?? undefined,
+      action: "calendar.external_sync.completed",
+      entityType: "workspace",
+      entityId: workspaceId,
+      after: { ...summary, trigger },
+    });
+  } catch (error) {
+    console.warn(
+      "Unable to write external calendar sync audit",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+export async function syncExternalCalendarEventsToKyro({
+  supabase,
+  trigger = "scheduled",
+  userId = null,
+  workspaceId,
+}: {
+  supabase: SupabaseClient;
+  trigger?: ExternalCalendarImportTrigger;
+  userId?: string | null;
+  workspaceId: string;
+}): Promise<ExternalCalendarImportSummary> {
+  const settings = await getCalendarSettings(supabase, workspaceId);
+  const summary: ExternalCalendarImportSummary = {
+    cancelled: 0,
+    imported: 0,
+    providers: [],
+    reason: null,
+    skipped: false,
+    updated: 0,
+  };
+
+  if (!settings.importExternalUpdates || settings.syncProvider === "none") {
+    return {
+      ...summary,
+      reason: "disabled",
+      skipped: true,
+    };
+  }
+
+  const selections = await selectedCalendarConnections({
+    settings,
+    supabase,
+    workspaceId,
+  });
+
+  if (selections.length === 0) {
+    return {
+      ...summary,
+      reason: "provider_missing",
+      skipped: true,
+    };
+  }
+
+  const { from, to } = externalImportWindow();
+
+  for (const selection of selections) {
+    const providerSummary: ExternalCalendarProviderImportSummary = {
+      accountEmail: selection.connection.account_email,
+      cancelled: 0,
+      error: null,
+      imported: 0,
+      provider: selection.provider,
+      skipped: 0,
+      updated: 0,
+    };
+
+    try {
+      const accessToken = await accessTokenForConnection({
+        connection: selection.connection,
+        provider: selection.provider,
+        supabase,
+        workspaceId,
+      });
+      const providerSettings = {
+        ...settings,
+        externalCalendarId: settings.externalCalendarId || "primary",
+      };
+      const events =
+        selection.provider === "google"
+          ? await listGoogleCalendarEvents({
+              accessToken,
+              from,
+              settings: providerSettings,
+              to,
+            })
+          : await listMicrosoftCalendarEvents({
+              accessToken,
+              from,
+              settings: providerSettings,
+              to,
+            });
+
+      for (const event of events) {
+        const result = await applyImportedExternalCalendarEvent({
+          accountEmail: selection.connection.account_email,
+          calendarId: providerSettings.externalCalendarId,
+          event,
+          provider: selection.provider,
+          settings: providerSettings,
+          supabase,
+          userId,
+          workspaceId,
+        });
+
+        providerSummary[result] += 1;
+      }
+
+      await updateConnectionLastError({
+        connectionId: selection.connection.id,
+        message: null,
+        supabase,
+        workspaceId,
+      });
+    } catch (error) {
+      const message = calendarProviderSyncErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "External calendar import failed.",
+        selection.provider,
+      );
+      providerSummary.error = message;
+      await updateConnectionLastError({
+        connectionId: selection.connection.id,
+        message,
+        supabase,
+        workspaceId,
+      });
+    }
+
+    summary.cancelled += providerSummary.cancelled;
+    summary.imported += providerSummary.imported;
+    summary.updated += providerSummary.updated;
+    summary.providers.push(providerSummary);
+  }
+
+  await writeExternalCalendarImportAudit({
+    summary,
+    trigger,
+    userId,
+    supabase,
+    workspaceId,
+  });
+
+  return summary;
 }
 
 export async function deleteAppointmentFromExternalCalendar({
