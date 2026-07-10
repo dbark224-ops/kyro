@@ -3,7 +3,7 @@
   gap: 10px;
   height: 100%;
   min-height: 0;
-  padding-top: 54px;
+  padding-top: 0;
 }
 
 .calendarToolbar {
@@ -142,10 +142,33 @@
   justify-content: flex-end;
 }
 
+.calendarNavButton {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.calendarNavButton svg {
+  flex: 0 0 auto;
+  height: 14px;
+  width: 14px;
+}
+
 .calendarTitle h2,
 .editorHeader h2 {
   font-size: clamp(1.05rem, 1.2vw, 1.35rem);
   margin: 0;
+}
+
+.syncLine {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.syncLine span:not(.syncPill) {
+  min-width: 0;
 }
 
 .calendarTitle p,
@@ -604,7 +627,6 @@
 @media (max-height: 860px) and (min-width: 761px) {
   .calendarShell {
     gap: 10px;
-    padding-top: 50px;
   }
 
   .calendarPanelHeader,

@@ -26,10 +26,6 @@ import {
   type CalendarView,
 } from "../../lib/calendar/settings";
 import type { CalendarReadiness } from "../../lib/calendar/readiness";
-import {
-  type CalendarSyncProvider,
-  calendarProviderSyncErrorMessage,
-} from "../../lib/calendar/sync-errors";
 import styles from "./calendar-board.module.css";
 
 type CalendarBoardProps = Readonly<{
@@ -241,12 +237,6 @@ function displayType(value: string) {
     .join(" ");
 }
 
-function calendarSyncProvider(
-  value: string | null,
-): CalendarSyncProvider | null {
-  return value === "google" || value === "microsoft" ? value : null;
-}
-
 function calendarSyncDestination(event: CalendarEventItem) {
   if (event.externalCalendarProvider) {
     return `${displayType(event.externalCalendarProvider)} calendar`;
@@ -257,13 +247,10 @@ function calendarSyncDestination(event: CalendarEventItem) {
     : "Will sync when a connected calendar is available.";
 }
 
-function calendarSyncError(event: CalendarEventItem) {
-  return event.externalSyncError
-    ? calendarProviderSyncErrorMessage(
-        event.externalSyncError,
-        calendarSyncProvider(event.externalCalendarProvider),
-      )
-    : null;
+function calendarSyncDetail(event: CalendarEventItem) {
+  return event.externalSyncStatus === "failed"
+    ? null
+    : calendarSyncDestination(event);
 }
 
 function providerLabel(provider: "google" | "microsoft") {
@@ -474,6 +461,27 @@ function SubmitButton({
     <button className={className} disabled={pending} type="submit">
       {pending ? "Saving..." : children}
     </button>
+  );
+}
+
+function ChevronIcon({
+  direction,
+}: Readonly<{ direction: "next" | "previous" }>) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 16 16"
+    >
+      <path
+        d={direction === "previous" ? "M10 3 5 8l5 5" : "m6 3 5 5-5 5"}
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
   );
 }
 
@@ -814,7 +822,7 @@ function EventEditor({
   const defaultContactId = event?.contactId ?? "";
   const defaultLeadId = event?.leadId ?? "";
   const defaultConversationId = event?.conversationId ?? "";
-  const syncError = event ? calendarSyncError(event) : null;
+  const syncDetail = event ? calendarSyncDetail(event) : null;
   const action =
     mode === "edit" ? updateCalendarEventAction : createCalendarEventAction;
 
@@ -974,9 +982,8 @@ function EventEditor({
                   : event.externalSyncStatus === "failed"
                     ? "Sync failed"
                     : "Kyro calendar"}
-              </span>{" "}
-              {calendarSyncDestination(event)}
-              {syncError ? ` - ${syncError}` : ""}
+              </span>
+              {syncDetail ? <span>{syncDetail}</span> : null}
             </>
           ) : (
             "New events write back to Google or Outlook when a connected calendar is available."
@@ -1126,12 +1133,13 @@ export function CalendarBoard({
                 {syncBadge.label}
               </span>
               <button
-                className="secondary-button compact"
+                className={`secondary-button compact ${styles.calendarNavButton}`}
                 onClick={() =>
                   navigateCalendar(viewHref(currentView, previousDate))
                 }
                 type="button"
               >
+                <ChevronIcon direction="previous" />
                 Prev
               </button>
               <button
@@ -1144,18 +1152,19 @@ export function CalendarBoard({
                 Today
               </button>
               <button
-                className="secondary-button compact"
+                className={`secondary-button compact ${styles.calendarNavButton}`}
                 onClick={() => navigateCalendar(viewHref(currentView, nextDate))}
                 type="button"
               >
                 Next
+                <ChevronIcon direction="next" />
               </button>
               <button
                 className="primary-button compact"
                 onClick={() => setCreateOpen(true)}
                 type="button"
               >
-                Add event
+                + Add
               </button>
             </div>
           </div>
