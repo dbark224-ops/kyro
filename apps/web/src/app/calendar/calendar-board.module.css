@@ -360,6 +360,10 @@
   position: relative;
 }
 
+.timelineDay[data-clickable="true"] {
+  cursor: crosshair;
+}
+
 .weekHeader {
   align-items: baseline;
   background: color-mix(in srgb, var(--surface) 94%, var(--text) 6%);

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import {
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   useEffect,
   useMemo,
   useState,
@@ -39,6 +40,17 @@ type CalendarBoardProps = Readonly<{
   view: CalendarView;
 }>;
 
+type NewEventTimes = {
+  end: string;
+  start: string;
+};
+
+type TimelineClickPosition = {
+  clientY: number;
+  height: number;
+  top: number;
+};
+
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const TIMELINE_VISIBLE_START_HOUR = 6;
 const TIMELINE_VISIBLE_END_HOUR = 18;
@@ -50,6 +62,7 @@ const TIMELINE_END_MINUTES =
 const TIMELINE_TOTAL_MINUTES =
   TIMELINE_END_MINUTES - TIMELINE_START_MINUTES;
 const TIMELINE_MIN_EVENT_MINUTES = 34;
+const TIMELINE_CREATE_SLOT_MINUTES = 30;
 const TIMELINE_LABEL_HOURS = Array.from(
   { length: TIMELINE_VISIBLE_END_HOUR - TIMELINE_VISIBLE_START_HOUR + 1 },
   (_, index) => TIMELINE_VISIBLE_START_HOUR + index,
@@ -135,6 +148,63 @@ function dateKeyInTimeZone(value: string, timeZone: string) {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
+function timeZoneParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    year: "numeric",
+  }).formatToParts(date);
+  const part = (type: string) =>
+    Number(parts.find((current) => current.type === type)?.value ?? "0");
+
+  return {
+    day: part("day"),
+    hour: part("hour"),
+    minute: part("minute"),
+    month: part("month"),
+    second: part("second"),
+    year: part("year"),
+  };
+}
+
+function timeZoneOffsetMinutes(date: Date, timeZone: string) {
+  const parts = timeZoneParts(date, timeZone);
+  const localAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return (localAsUtc - date.getTime()) / 60_000;
+}
+
+function isoFromCalendarDayAndMinutes(
+  day: Date,
+  minutes: number,
+  timeZone: string,
+) {
+  const [year, month, date] = formatDateParam(day).split("-").map(Number);
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const localTimestamp = Date.UTC(year, month - 1, date, hour, minute);
+  let utcTimestamp = localTimestamp;
+
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    const offset = timeZoneOffsetMinutes(new Date(utcTimestamp), timeZone);
+    utcTimestamp = localTimestamp - offset * 60_000;
+  }
+
+  return new Date(utcTimestamp).toISOString();
+}
+
 function minutesInTimeZone(value: string, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
@@ -154,6 +224,53 @@ function minutesInTimeZone(value: string, timeZone: string) {
 
 function timelinePercent(minutes: number) {
   return ((minutes - TIMELINE_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+}
+
+function clampTimelineMinutes(minutes: number) {
+  return Math.max(
+    0,
+    Math.min(24 * 60 - TIMELINE_CREATE_SLOT_MINUTES, minutes),
+  );
+}
+
+function timelineClickMinutes(position: TimelineClickPosition) {
+  const ratio =
+    position.height > 0
+      ? Math.min(
+          1,
+          Math.max(0, (position.clientY - position.top) / position.height),
+        )
+      : 0;
+  const rawMinutes =
+    TIMELINE_START_MINUTES + TIMELINE_TOTAL_MINUTES * ratio;
+  const rounded =
+    Math.round(rawMinutes / TIMELINE_CREATE_SLOT_MINUTES) *
+    TIMELINE_CREATE_SLOT_MINUTES;
+
+  return clampTimelineMinutes(rounded);
+}
+
+function timelineCreateTimes({
+  day,
+  position,
+  settings,
+  timeZone,
+}: {
+  day: Date;
+  position: TimelineClickPosition;
+  settings: CalendarSettings;
+  timeZone: string;
+}): NewEventTimes {
+  const start = isoFromCalendarDayAndMinutes(
+    day,
+    timelineClickMinutes(position),
+    timeZone,
+  );
+  const end = new Date(
+    new Date(start).getTime() + settings.defaultDurationMinutes * 60_000,
+  ).toISOString();
+
+  return { end, start };
 }
 
 function timelineEventMetrics(event: CalendarEventItem, timeZone: string) {
@@ -598,7 +715,10 @@ function TimelineEventCard({
       data-compact={compact}
       data-condensed={condensed}
       data-edge={metrics.edge}
-      onClick={onSelect}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
       title={condensed ? event.title : undefined}
       style={metrics.style}
       type="button"
@@ -692,6 +812,7 @@ function WeekView({
   anchor,
   condensed,
   events,
+  onCreateAt,
   onSelect,
   timeZone,
 }: Readonly<{
@@ -699,6 +820,7 @@ function WeekView({
   anchor: Date;
   condensed: boolean;
   events: CalendarEventItem[];
+  onCreateAt: (day: Date, position: TimelineClickPosition) => void;
   onSelect: (eventId: string) => void;
   timeZone: string;
 }>) {
@@ -719,7 +841,19 @@ function WeekView({
         const dayEvents = eventsForDay(events, day, timeZone);
 
         return (
-          <div className={styles.timelineDay} key={formatDateParam(day)}>
+          <div
+            className={styles.timelineDay}
+            data-clickable="true"
+            key={formatDateParam(day)}
+            onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              onCreateAt(day, {
+                clientY: event.clientY,
+                height: rect.height,
+                top: rect.top,
+              });
+            }}
+          >
             <TimelineLines />
             {dayEvents.map((event) => (
               <TimelineEventCard
@@ -744,6 +878,7 @@ function DayView({
   anchor,
   condensed,
   events,
+  onCreateAt,
   onSelect,
   timeZone,
 }: Readonly<{
@@ -751,6 +886,7 @@ function DayView({
   anchor: Date;
   condensed: boolean;
   events: CalendarEventItem[];
+  onCreateAt: (day: Date, position: TimelineClickPosition) => void;
   onSelect: (eventId: string) => void;
   timeZone: string;
 }>) {
@@ -759,7 +895,19 @@ function DayView({
   return (
     <div className={styles.dayTimeline}>
       <TimelineAxis />
-      <div className={styles.timelineDay} data-view="day">
+      <div
+        className={styles.timelineDay}
+        data-clickable="true"
+        data-view="day"
+        onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          onCreateAt(anchor, {
+            clientY: event.clientY,
+            height: rect.height,
+            top: rect.top,
+          });
+        }}
+      >
         <TimelineLines />
         {dayEvents.length > 0 ? (
           dayEvents.map((event) => (
@@ -797,6 +945,7 @@ function eventStartForNew(settings: CalendarSettings) {
 function EventEditor({
   currentHref,
   event,
+  initialTimes,
   mode,
   onClose,
   onNew,
@@ -807,6 +956,7 @@ function EventEditor({
 }: Readonly<{
   currentHref: string;
   event: CalendarEventItem | null;
+  initialTimes?: NewEventTimes | null;
   mode: "create" | "edit";
   onClose?: () => void;
   onNew: () => void;
@@ -815,7 +965,8 @@ function EventEditor({
   timeZone: string;
   variant?: "modal" | "side";
 }>) {
-  const newTimes = useMemo(() => eventStartForNew(settings), [settings]);
+  const fallbackNewTimes = useMemo(() => eventStartForNew(settings), [settings]);
+  const newTimes = initialTimes ?? fallbackNewTimes;
   const directionsUrl = event
     ? googleMapsDirectionsUrl(event.location, event.locationAddress)
     : null;
@@ -859,7 +1010,7 @@ function EventEditor({
       <form
         action={action}
         className={styles.editorForm}
-        key={event?.id ?? "new"}
+        key={event?.id ?? newTimes.start}
       >
         {event ? (
           <input name="appointmentId" type="hidden" value={event.id} />
@@ -1033,6 +1184,7 @@ export function CalendarBoard({
     initialSelectedEventId,
   );
   const [createOpen, setCreateOpen] = useState(false);
+  const [createTimes, setCreateTimes] = useState<NewEventTimes | null>(null);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const visibleRange = useMemo(
     () => rangeForView(anchor, currentView),
@@ -1058,7 +1210,29 @@ export function CalendarBoard({
 
   const selectEvent = (eventId: string) => {
     setCreateOpen(false);
+    setCreateTimes(null);
     setSelectedEventId(eventId);
+  };
+  const openCreateEvent = (times: NewEventTimes | null = null) => {
+    setCreateTimes(times);
+    setCreateOpen(true);
+  };
+  const closeCreateEvent = () => {
+    setCreateOpen(false);
+    setCreateTimes(null);
+  };
+  const createEventFromTimeline = (
+    day: Date,
+    position: TimelineClickPosition,
+  ) => {
+    openCreateEvent(
+      timelineCreateTimes({
+        day,
+        position,
+        settings,
+        timeZone,
+      }),
+    );
   };
   const switchView = (nextView: CalendarView) => {
     setCurrentView(nextView);
@@ -1161,7 +1335,7 @@ export function CalendarBoard({
               </button>
               <button
                 className="primary-button compact"
-                onClick={() => setCreateOpen(true)}
+                onClick={() => openCreateEvent()}
                 type="button"
               >
                 + Add
@@ -1195,6 +1369,7 @@ export function CalendarBoard({
               anchor={anchor}
               condensed={Boolean(selectedEvent)}
               events={visibleEvents}
+              onCreateAt={createEventFromTimeline}
               onSelect={selectEvent}
               timeZone={timeZone}
             />
@@ -1205,6 +1380,7 @@ export function CalendarBoard({
               anchor={anchor}
               condensed={Boolean(selectedEvent)}
               events={visibleEvents}
+              onCreateAt={createEventFromTimeline}
               onSelect={selectEvent}
               timeZone={timeZone}
             />
@@ -1216,7 +1392,7 @@ export function CalendarBoard({
             currentHref={currentHref}
             event={selectedEvent}
             mode="edit"
-            onNew={() => setCreateOpen(true)}
+            onNew={() => openCreateEvent()}
             options={options}
             settings={settings}
             timeZone={timeZone}
@@ -1235,9 +1411,10 @@ export function CalendarBoard({
             <EventEditor
               currentHref={currentHref}
               event={null}
+              initialTimes={createTimes}
               mode="create"
-              onClose={() => setCreateOpen(false)}
-              onNew={() => setCreateOpen(false)}
+              onClose={closeCreateEvent}
+              onNew={closeCreateEvent}
               options={options}
               settings={settings}
               timeZone={timeZone}
