@@ -3024,6 +3024,11 @@ textarea:focus {
   margin-bottom: 12px;
 }
 
+.topbar h1 {
+  font-size: clamp(1.95rem, 3vw, 2.45rem);
+  line-height: 1;
+}
+
 .page-topbar-tight {
   margin-top: -30px;
   margin-bottom: 2px;
@@ -16642,7 +16647,7 @@ button:disabled {
 
 .dashboard-command-header h1 {
   margin: 0;
-  font-size: clamp(2.2rem, 3.4vw, 3rem);
+  font-size: clamp(1.95rem, 3vw, 2.45rem);
   line-height: 1;
 }
 
@@ -19322,7 +19327,7 @@ button:disabled {
   }
 
   html:has(.app-shell) .topbar h1 {
-    font-size: 2.1rem;
+    font-size: 1.9rem;
   }
 
   html:has(.app-shell) .metric-grid {
@@ -19367,7 +19372,7 @@ button:disabled {
   }
 
   html:has(.app-shell) .dashboard-command-header h1 {
-    font-size: 2.35rem;
+    font-size: 1.9rem;
   }
 
   html:has(.app-shell) .dashboard-command-actions {
