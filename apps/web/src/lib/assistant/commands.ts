@@ -3454,6 +3454,37 @@ function latestConversationIdFromMessages(
   return link ? calendarConversationIdFromHref(link.href) : null;
 }
 
+export function calendarLinkIntentFromPrompt(prompt: string) {
+  const text = normalized(prompt);
+  const hasLinkVerb = /\b(link|associate|attach|connect|assign|relate)\b/.test(
+    text,
+  );
+  const hasCurrentEntity =
+    /\b(this|that|current|active|selected|open)\s+(contact|customer|client|lead|conversation|inquiry|enquiry|thread|profile|inbox|message|email)\b/.test(
+      text,
+    );
+  const namesContactEntity =
+    /\b(to|for|with)\s+(the\s+)?(contact|customer|client|lead|profile)\s+[a-z0-9]/.test(
+      text,
+    ) ||
+    /\b(contact|customer|client|lead|profile)\s+(called|named)\s+[a-z0-9]/.test(
+      text,
+    );
+  const linksNamedTarget =
+    hasLinkVerb &&
+    /\b(to|with|for)\s+(?!(the\s+)?(this|that|current|active|selected|open|contact|customer|client|lead|conversation|inquiry|enquiry|thread|profile|inbox|message|email)\b)(the\s+)?[a-z0-9]/.test(
+      text,
+    );
+  const linksConversationEntity =
+    hasLinkVerb &&
+    /\b(conversation|inquiry|enquiry|thread|inbox|message|email)\b/.test(text);
+
+  return {
+    allowNamedContact: namesContactEntity || linksNamedTarget,
+    allowRecentConversation: hasCurrentEntity || linksConversationEntity,
+  };
+}
+
 function explicitCalendarEventId(prompt: string) {
   return (
     prompt.match(
@@ -3686,9 +3717,24 @@ async function calendarLinkedContext({
   supabase: CommandInput["supabase"];
   workspaceId: string;
 }) {
-  const explicitContact = resolveCalendarContact(prompt, contacts);
+  const linkIntent = calendarLinkIntentFromPrompt(prompt);
+  const explicitContact = linkIntent.allowNamedContact
+    ? resolveCalendarContact(prompt, contacts)
+    : null;
   const conversationId =
-    explicitContact?.id ? null : latestConversationIdFromMessages(recentMessages);
+    explicitContact?.id || !linkIntent.allowRecentConversation
+      ? null
+      : latestConversationIdFromMessages(recentMessages);
+
+  if (!explicitContact && !conversationId) {
+    return {
+      contact: null,
+      contactId: null,
+      conversationId: null,
+      leadId: null,
+    };
+  }
+
   const linked = await resolveCalendarLinkedEntities({
     contactId: explicitContact?.id ?? null,
     conversationId,

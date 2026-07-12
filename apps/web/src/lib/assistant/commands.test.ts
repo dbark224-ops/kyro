@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
+  calendarLinkIntentFromPrompt,
   cleanCalendarTitle,
   documentTemplateControlIntent,
   looksLikeWebSearchRequest,
@@ -389,6 +390,53 @@ describe("assistant generated image follow-up helpers", () => {
 });
 
 describe("assistant calendar helpers", () => {
+  it("does not infer contact links from ordinary event titles", () => {
+    assert.deepEqual(
+      calendarLinkIntentFromPrompt(
+        "can you create an event for a meeting with Starbucks on Friday at 10am",
+      ),
+      {
+        allowNamedContact: false,
+        allowRecentConversation: false,
+      },
+    );
+    assert.deepEqual(
+      calendarLinkIntentFromPrompt("create an event for David Barker tomorrow"),
+      {
+        allowNamedContact: false,
+        allowRecentConversation: false,
+      },
+    );
+  });
+
+  it("allows calendar links only when the user explicitly asks for CRM context", () => {
+    assert.deepEqual(
+      calendarLinkIntentFromPrompt(
+        "create a quote visit for this customer tomorrow at 10",
+      ),
+      {
+        allowNamedContact: false,
+        allowRecentConversation: true,
+      },
+    );
+    assert.deepEqual(
+      calendarLinkIntentFromPrompt(
+        "create an event and attach it to contact David Barker",
+      ),
+      {
+        allowNamedContact: true,
+        allowRecentConversation: false,
+      },
+    );
+    assert.deepEqual(
+      calendarLinkIntentFromPrompt("link this event to the current conversation"),
+      {
+        allowNamedContact: false,
+        allowRecentConversation: true,
+      },
+    );
+  });
+
   it("cleans command wording from assistant-created calendar titles", () => {
     assert.equal(
       cleanCalendarTitle(
