@@ -203,7 +203,11 @@
   background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
   border-radius: 10px;
+  display: flex;
+  flex-direction: column;
   min-height: 112px;
+  min-width: 0;
+  overflow: hidden;
   padding: 7px;
 }
 
@@ -242,6 +246,9 @@
 .eventList {
   display: grid;
   gap: 5px;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .eventCard {
@@ -252,7 +259,9 @@
   cursor: pointer;
   display: grid;
   gap: 2px;
+  max-height: 68px;
   min-width: 0;
+  overflow: hidden;
   padding: 6px 7px;
   text-align: left;
   transition:
@@ -269,8 +278,11 @@
 }
 
 .eventCardPrimary {
-  display: block;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
   min-width: 0;
+  overflow: hidden;
 }
 
 .eventCardPrimary time {
@@ -289,7 +301,7 @@
   line-height: 1.2;
   min-width: 0;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: normal;
 }
 
@@ -314,6 +326,7 @@
 
 .eventCard[data-condensed="true"] {
   gap: 0;
+  max-height: 28px;
   padding: 4px 6px;
 }
 

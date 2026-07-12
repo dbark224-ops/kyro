@@ -435,9 +435,9 @@ function contactLabel(event: CalendarEventItem) {
 }
 
 function truncateCalendarTitle(title: string, enabled: boolean) {
-  const limit = 34;
+  const limit = enabled ? 34 : 56;
 
-  return enabled && title.length > limit
+  return title.length > limit
     ? `${title.slice(0, limit - 1).trimEnd()}...`
     : title;
 }
@@ -528,6 +528,7 @@ function EventCard({
       data-active={active}
       data-condensed={condensed}
       onClick={onSelect}
+      title={event.title}
       type="button"
     >
       <div className={styles.eventCardPrimary}>
