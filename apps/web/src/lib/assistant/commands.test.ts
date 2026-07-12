@@ -16,6 +16,7 @@ import {
   looksLikeQuoteSendReadyListRequest,
   looksLikeQuoteSendRequest,
   parseAssistantCalendarTime,
+  parseAssistantCalendarTimeFromPrompts,
   resolveAssistantCommand,
   selectContactForAssistantPrompt,
   selectQuoteDraftForAssistantPrompt,
@@ -526,7 +527,14 @@ describe("assistant calendar helpers", () => {
         "can you create an event for a meeting with Starbucks on Friday at 10am",
         null,
       ),
-      "Meeting with Starbucks",
+      "Meeting - Starbucks",
+    );
+    assert.equal(
+      cleanCalendarTitle(
+        "can you add a meeting with NMSU on the 2nd August at 10am",
+        null,
+      ),
+      "Meeting - NMSU",
     );
     assert.equal(
       cleanCalendarTitle(
@@ -566,6 +574,20 @@ describe("assistant calendar helpers", () => {
     assert.equal(parsed?.startsAt, "2026-07-14T20:00:00.000Z");
     assert.equal(parsed?.endsAt, "2026-07-14T21:30:00.000Z");
     assert.equal(parsed?.timeZone, "America/Denver");
+  });
+
+  it("falls back to the original user prompt when planner cleanup drops calendar timing", () => {
+    const parsed = parseAssistantCalendarTimeFromPrompts(
+      "meeting with NMSU",
+      "can you add a meeting with NMSU on the 2nd August 2026 at 10am",
+      {
+        defaultDurationMinutes: 60,
+        timeZone: "America/Denver",
+      },
+    );
+
+    assert.equal(parsed?.startsAt, "2026-08-02T16:00:00.000Z");
+    assert.equal(parsed?.endsAt, "2026-08-02T17:00:00.000Z");
   });
 
   it("treats bare early afternoon hours as PM for natural scheduling prompts", () => {

@@ -1742,6 +1742,7 @@ async function resolvePlannedAssistantCommand({
         prompt: plannedPrompt,
         recentMessages,
         supabase,
+        userPrompt: prompt,
         user,
         workspace,
       });
@@ -2936,6 +2937,13 @@ function stripCalendarTitleTiming(value: string) {
   return value
     .replace(new RegExp(`\\s+\\b(?:on|for)?\\s*(?:this|next)?\\s*${CALENDAR_TITLE_WEEKDAY}\\b.*$`, "i"), "")
     .replace(new RegExp(`\\s+\\b(?:on|for)?\\s*${CALENDAR_TITLE_MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b.*$`, "i"), "")
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th)?\\s+${CALENDAR_TITLE_MONTH}\\.?(?:,?\\s+\\d{4})?\\b.*$`,
+        "i",
+      ),
+      "",
+    )
     .replace(/\s+\b(?:on|for)\s+\d{4}-\d{1,2}-\d{1,2}\b.*$/i, "")
     .replace(/\s+\b(?:today|tomorrow)\b.*$/i, "")
     .replace(/\s+\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?\b.*$/i, "")
@@ -2961,6 +2969,17 @@ function sentenceCaseCalendarTitle(value: string) {
   }
 
   return `${title.charAt(0).toUpperCase()}${title.slice(1)}`;
+}
+
+function compactCalendarTitle(value: string) {
+  const title = value.replace(/\s+/g, " ").trim();
+  const meetingMatch = title.match(/^meeting\s+(?:with|for)\s+(.+)$/i);
+
+  if (meetingMatch?.[1]?.trim()) {
+    return `Meeting - ${meetingMatch[1].trim()}`;
+  }
+
+  return title;
 }
 
 function fallbackCalendarTitle(prompt: string, contact: ContactListItem | null) {
@@ -3028,7 +3047,10 @@ export function cleanCalendarTitle(
     .trim();
 
   if (candidate.length >= 4 && !isGenericCalendarTitle(candidate)) {
-    return sentenceCaseCalendarTitle(candidate).slice(0, 90);
+    return sentenceCaseCalendarTitle(compactCalendarTitle(candidate)).slice(
+      0,
+      90,
+    );
   }
 
   return fallbackCalendarTitle(prompt, contact);
@@ -3360,6 +3382,29 @@ export function parseAssistantCalendarTime(
     startsAt: startsAt.toISOString(),
     timeZone: safeZone,
   };
+}
+
+export function parseAssistantCalendarTimeFromPrompts(
+  prompt: string,
+  fallbackPrompt: string | null | undefined,
+  options: {
+    defaultDurationMinutes?: number;
+    timeZone?: string;
+  } = {},
+) {
+  const primary = parseAssistantCalendarTime(prompt, options);
+
+  if (primary) {
+    return primary;
+  }
+
+  const fallback = fallbackPrompt?.trim();
+
+  if (!fallback || fallback === prompt.trim()) {
+    return null;
+  }
+
+  return parseAssistantCalendarTime(fallback, options);
 }
 
 function calendarEventHrefFromParts(eventId: string, startsAt: string | null) {
@@ -3925,15 +3970,29 @@ function eventDurationMinutes(event: CalendarEventItem, fallback: number) {
   return Number.isFinite(minutes) && minutes > 0 ? minutes : fallback;
 }
 
+function defaultCalendarEndIso(startsAt: string, durationMinutes: number) {
+  const startMs = Date.parse(startsAt);
+
+  if (!Number.isFinite(startMs)) {
+    return null;
+  }
+
+  return new Date(
+    startMs + Math.max(5, Math.min(720, durationMinutes)) * 60_000,
+  ).toISOString();
+}
+
 function rescheduledEventEnd(
   event: CalendarEventItem,
   startsAt: string,
   fallbackDurationMinutes: number,
 ) {
-  return new Date(
-    new Date(startsAt).getTime() +
-      eventDurationMinutes(event, fallbackDurationMinutes) * 60_000,
-  ).toISOString();
+  return (
+    defaultCalendarEndIso(
+      startsAt,
+      eventDurationMinutes(event, fallbackDurationMinutes),
+    ) ?? startsAt
+  );
 }
 
 function calendarChangeSummary(changes: string[]) {
@@ -3954,18 +4013,21 @@ async function calendarCommand({
   prompt,
   recentMessages = [],
   supabase,
+  userPrompt = null,
   user,
   workspace,
 }: Pick<
   CommandInput,
   "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
->): Promise<AssistantCommandResult> {
+> & {
+  userPrompt?: string | null;
+}): Promise<AssistantCommandResult> {
   const [calendarSettings, generalSettings] = await Promise.all([
     getCalendarSettings(supabase, workspace.id),
     getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
   const timeZone = safeTimeZone(generalSettings.timeZone);
-  const scheduled = parseAssistantCalendarTime(prompt, {
+  const scheduled = parseAssistantCalendarTimeFromPrompts(prompt, userPrompt, {
     defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
     timeZone,
   });
@@ -4046,6 +4108,76 @@ async function calendarCommand({
     }
 
     if (!event.startsAt || !event.endsAt) {
+      const recoveredSchedule = parseAssistantCalendarTimeFromPrompts(
+        event.title,
+        userPrompt ?? prompt,
+        {
+          defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
+          timeZone,
+        },
+      );
+      const recoveredStartsAt = event.startsAt ?? recoveredSchedule?.startsAt;
+      const recoveredEndsAt =
+        event.endsAt ??
+        recoveredSchedule?.endsAt ??
+        (recoveredStartsAt
+          ? defaultCalendarEndIso(
+              recoveredStartsAt,
+              calendarSettings.defaultDurationMinutes,
+            )
+          : null);
+
+      if (recoveredStartsAt && recoveredEndsAt) {
+        const recoveredTitle = cleanCalendarTitle(event.title, null);
+
+        await updateCalendarEventRecord({
+          appointmentId: event.id,
+          input: {
+            appointmentType: event.appointmentType,
+            contactId: event.contactId,
+            conversationId: event.conversationId,
+            description: event.description,
+            endsAt: recoveredEndsAt,
+            leadId: event.leadId,
+            location: event.location,
+            locationAddress: event.locationAddress,
+            metadata: { source: "assistant_calendar_command" },
+            startsAt: recoveredStartsAt,
+            status: "scheduled",
+            title: recoveredTitle,
+          },
+          supabase,
+          userId: user.id,
+          workspaceId: workspace.id,
+        });
+
+        const recoveredLink = rowLink(
+          recoveredTitle,
+          calendarEventHrefFromParts(event.id, recoveredStartsAt),
+          assistantDate(recoveredStartsAt),
+        );
+
+        return {
+          context: {
+            eventId: event.id,
+            scheduledAt: recoveredStartsAt,
+            title: recoveredTitle,
+          },
+          fallbackAnswer: `I saved ${recoveredTitle} on the calendar for ${assistantDate(
+            recoveredStartsAt,
+          )}.`,
+          intent: "calendar_event",
+          links: [recoveredLink],
+          mutation: {
+            entityId: event.id,
+            entityType: "conversation_appointment",
+            label: "Calendar event saved",
+          },
+          title: "Calendar event saved",
+          uiBlocks: linkCardsBlock("Calendar event", [recoveredLink]),
+        };
+      }
+
       return {
         context: {
           eventId: event.id,
@@ -4121,7 +4253,7 @@ async function calendarCommand({
           inferCalendarEventType(prompt) ?? calendarSettings.defaultEventType,
         contactId: linked.contactId,
         conversationId: linked.conversationId,
-        description: `Created from Assistant request: ${prompt}`,
+        description: `Created from Assistant request: ${userPrompt ?? prompt}`,
         endsAt: scheduled?.endsAt ?? null,
         leadId: linked.leadId,
         location: contact?.address ?? null,
