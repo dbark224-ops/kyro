@@ -944,8 +944,10 @@ function EventEditor({
           <label>
             Status
             <select defaultValue={event?.status ?? "scheduled"} name="status">
+              {event?.status === "suggested" ? (
+                <option value="suggested">Draft</option>
+              ) : null}
               <option value="scheduled">Scheduled</option>
-              <option value="suggested">Suggested</option>
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>

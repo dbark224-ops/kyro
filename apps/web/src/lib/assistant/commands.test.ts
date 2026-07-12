@@ -7,6 +7,7 @@ import {
   calendarLinkIntentFromPrompt,
   cleanCalendarTitle,
   documentTemplateControlIntent,
+  looksLikeCalendarFollowUpRequest,
   looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
   looksLikeActionExecutionRequest,
@@ -483,6 +484,39 @@ describe("assistant calendar helpers", () => {
         },
       ]),
       null,
+    );
+  });
+
+  it("only finalizes calendar drafts when a recent calendar card exists", () => {
+    const calendarCard: AssistantRecentMessage = {
+      content: "I drafted the event.",
+      createdAt: "2026-07-12T10:00:00.000Z",
+      role: "assistant",
+      uiBlocks: [
+        {
+          links: [
+            {
+              href: "/calendar?event=event-1",
+              label: "Meeting with Starbucks",
+            },
+          ],
+          title: "Calendar draft",
+          type: "link_cards",
+        },
+      ],
+    };
+
+    assert.equal(
+      looksLikeCalendarFollowUpRequest("finalize it", [calendarCard]),
+      true,
+    );
+    assert.equal(looksLikeCalendarFollowUpRequest("finalize it", []), false);
+    assert.equal(
+      looksLikeCalendarFollowUpRequest(
+        "create an event for a meeting with Starbucks on Friday at 10am",
+        [calendarCard],
+      ),
+      false,
     );
   });
 

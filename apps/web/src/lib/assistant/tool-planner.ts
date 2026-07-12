@@ -150,7 +150,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     description:
-      "Show, create, open, or manage Kyro calendar events, quote visits, appointments, jobs, or site visits. Use this for scheduling requests before guessing from general chat. For create requests, infer a succinct real-world event title such as 'Meeting with Starbucks', not generic app wording such as 'Calendar event for...'. Do not attach CRM contact, lead, or conversation context unless the user explicitly asks to link, attach, or associate the event. Treat old thread context as background only; never add current-customer/contact wording from stale chat history.",
+      "Show, create, open, or manage Kyro calendar events, quote visits, appointments, jobs, or site visits. Use this for scheduling requests before guessing from general chat. For create requests, infer a succinct real-world event title such as 'Meeting with Starbucks', not generic app wording such as 'Calendar event for...'. Do not attach CRM contact, lead, or conversation context unless the user explicitly asks to link, attach, or associate the event. Treat old thread context as background only; never add current-customer/contact wording from stale chat history. If the user says finalize, save, confirm, approve, or create this event after a draft card, call this tool to save the draft instead of showing upcoming events.",
     name: "calendar_event",
   },
   {
@@ -323,7 +323,7 @@ function toolSchema(tool: ToolDefinition) {
         prompt: {
           description:
             tool.name === "calendar_event"
-              ? "The concise calendar instruction to pass to Kyro. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, location, and job details. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation in the current prompt. Do not add this/current customer wording from stale recentMessages. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am'."
+              ? "The concise calendar instruction to pass to Kyro. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, location, and job details. For finalize/save/confirm follow-ups, preserve that action instead of rewriting it into a generic calendar lookup. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation in the current prompt. Do not add this/current customer wording from stale recentMessages. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am'."
               : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
           type: "string",
         },

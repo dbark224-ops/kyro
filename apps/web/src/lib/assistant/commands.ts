@@ -1837,7 +1837,10 @@ export async function resolveAssistantCommand({
     return plannedCommand;
   }
 
-  if (looksLikeCalendarRequest(prompt)) {
+  if (
+    looksLikeCalendarRequest(prompt) ||
+    looksLikeCalendarFollowUpRequest(prompt, recentMessages)
+  ) {
     return calendarCommand({
       prompt,
       recentMessages,
@@ -2870,6 +2873,18 @@ function wantsCalendarCreate(prompt: string) {
   );
 }
 
+function wantsCalendarFinalize(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    (/\b(finali[sz]e|save|confirm|approve)\b/.test(text) ||
+      /\block\s+it\s+in\b/.test(text) ||
+      /\b(create|make|turn)\s+(this|that|it)\b/.test(text) ||
+      /\bcreate\s+this\s+event\b/.test(text))
+  );
+}
+
 function wantsCalendarDelete(prompt: string) {
   return /\b(cancel|delete|remove|clear)\b/.test(normalized(prompt));
 }
@@ -2879,6 +2894,7 @@ function wantsCalendarUpdate(prompt: string) {
 
   return (
     !wantsCalendarDelete(prompt) &&
+    !wantsCalendarFinalize(prompt) &&
     /\b(edit|update|move|reschedule|change|rename|retitle|complete|completed|done|mark)\b/.test(
       text,
     )
@@ -3529,6 +3545,22 @@ function latestCalendarLink(recentMessages: AssistantRecentMessage[]) {
   );
 }
 
+export function looksLikeCalendarFollowUpRequest(
+  prompt: string,
+  recentMessages: AssistantRecentMessage[],
+) {
+  return (
+    Boolean(latestCalendarLink(recentMessages)) && wantsCalendarFinalize(prompt)
+  );
+}
+
+function wantsCalendarDraftFinalize(
+  prompt: string,
+  recentMessages: AssistantRecentMessage[],
+) {
+  return looksLikeCalendarFollowUpRequest(prompt, recentMessages);
+}
+
 export function calendarLinkIntentFromPrompt(prompt: string) {
   const text = normalized(prompt);
   const hasLinkVerb = /\b(link|associate|attach|connect|assign|relate)\b/.test(
@@ -3876,6 +3908,10 @@ function calendarContactDisplayName(contact: ContactListItem | null) {
   );
 }
 
+function calendarStatusLabel(status: string | null | undefined) {
+  return status === "suggested" ? "Draft" : titleCase(status ?? "scheduled");
+}
+
 function eventDurationMinutes(event: CalendarEventItem, fallback: number) {
   if (!event.startsAt || !event.endsAt) {
     return fallback;
@@ -3934,6 +3970,140 @@ async function calendarCommand({
     timeZone,
   });
 
+  if (wantsCalendarDraftFinalize(prompt, recentMessages)) {
+    const resolution = await resolveCalendarTargetEvent({
+      prompt,
+      recentMessages,
+      scheduled,
+      supabase,
+      timeZone,
+      workspaceId: workspace.id,
+    });
+
+    if (resolution.kind !== "selected") {
+      return {
+        context: {
+          candidateCount:
+            resolution.kind === "ambiguous" ? resolution.candidates.length : 0,
+          reason: "Calendar draft finalization needs a resolved draft event.",
+        },
+        fallbackAnswer:
+          resolution.kind === "ambiguous"
+            ? "I found more than one possible draft event. Choose the exact one before I save it."
+            : "I could not find a draft calendar event to save.",
+        intent: "calendar_event",
+        links:
+          resolution.kind === "ambiguous"
+            ? resolution.candidates.map((event) =>
+                rowLink(
+                  event.title,
+                  calendarEventHref(event),
+                  event.startsAt
+                    ? assistantDate(event.startsAt)
+                    : calendarStatusLabel(event.status),
+                ),
+              )
+            : [],
+        title: "Choose calendar draft",
+        uiBlocks:
+          resolution.kind === "ambiguous"
+            ? linkCardsBlock(
+                "Calendar drafts",
+                resolution.candidates.map((event) =>
+                  rowLink(
+                    event.title,
+                    calendarEventHref(event),
+                    event.startsAt
+                      ? assistantDate(event.startsAt)
+                      : calendarStatusLabel(event.status),
+                  ),
+                ),
+              )
+            : [],
+      };
+    }
+
+    const event = resolution.event;
+    const link = rowLink(
+      event.title,
+      calendarEventHref(event),
+      event.startsAt ? assistantDate(event.startsAt) : "Draft",
+    );
+
+    if (event.status !== "suggested") {
+      return {
+        context: {
+          eventId: event.id,
+          status: event.status,
+          title: event.title,
+        },
+        fallbackAnswer: `${event.title} is already saved on the calendar.`,
+        intent: "calendar_event",
+        links: [link],
+        title: "Calendar event already saved",
+        uiBlocks: linkCardsBlock("Calendar event", [link]),
+      };
+    }
+
+    if (!event.startsAt || !event.endsAt) {
+      return {
+        context: {
+          eventId: event.id,
+          missing: ["start_time", "end_time"],
+          status: event.status,
+          title: event.title,
+        },
+        fallbackAnswer:
+          "That draft still needs a date and time before I can save it as a calendar event.",
+        intent: "calendar_event",
+        links: [link],
+        title: "Calendar draft needs time",
+        uiBlocks: linkCardsBlock("Calendar draft", [link]),
+      };
+    }
+
+    await updateCalendarEventRecord({
+      appointmentId: event.id,
+      input: {
+        appointmentType: event.appointmentType,
+        contactId: event.contactId,
+        conversationId: event.conversationId,
+        description: event.description,
+        endsAt: event.endsAt,
+        leadId: event.leadId,
+        location: event.location,
+        locationAddress: event.locationAddress,
+        metadata: { source: "assistant_calendar_command" },
+        startsAt: event.startsAt,
+        status: "scheduled",
+        title: event.title,
+      },
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      context: {
+        eventId: event.id,
+        scheduledAt: event.startsAt,
+        title: event.title,
+      },
+      fallbackAnswer: `I saved ${event.title} on the calendar for ${assistantDate(
+        event.startsAt,
+      )}.`,
+      intent: "calendar_event",
+      links: [link],
+      mutation: {
+        entityId: event.id,
+        entityType: "conversation_appointment",
+        label: "Calendar event saved",
+      },
+      title: "Calendar event saved",
+      uiBlocks: linkCardsBlock("Calendar event", [link]),
+    };
+  }
+
   if (wantsCalendarCreate(prompt)) {
     const contacts = await getContactList(supabase, workspace.id);
     const linked = await calendarLinkedContext({
@@ -3974,7 +4144,7 @@ async function calendarCommand({
       href,
       scheduled?.startsAt
         ? `${assistantDate(scheduled.startsAt)} (${timeZone})`
-        : "Suggested",
+        : "Draft",
     );
     const assumedTime =
       scheduled?.assumedMeridiem === "pm"
@@ -3998,6 +4168,7 @@ async function calendarCommand({
         leadId: linked.leadId,
         scheduled,
         skippedLinkReason: linked.skippedLinkReason,
+        status: scheduled?.startsAt ? "scheduled" : "suggested",
         suggestedContactId: linked.suggestedContact?.id ?? null,
         suggestedContactName: linked.suggestedContact
           ? calendarContactDisplayName(linked.suggestedContact)
@@ -4008,7 +4179,7 @@ async function calendarCommand({
         ? `I created ${title} for ${assistantDate(
             scheduled.startsAt,
           )}.${assumedTime}${suggestedContactQuestion}`
-        : `I created ${title} as a suggested calendar event. Open it to set the exact time.${suggestedContactQuestion}`,
+        : `I drafted ${title}. Open it to add the date and time before saving it to the calendar.${suggestedContactQuestion}`,
       intent: "calendar_event",
       links: [link],
       mutation: {
@@ -4016,8 +4187,13 @@ async function calendarCommand({
         entityType: "conversation_appointment",
         label: title,
       },
-      title: "Calendar event created",
-      uiBlocks: linkCardsBlock("Calendar event", [link]),
+      title: scheduled?.startsAt
+        ? "Calendar event created"
+        : "Calendar draft created",
+      uiBlocks: linkCardsBlock(
+        scheduled?.startsAt ? "Calendar event" : "Calendar draft",
+        [link],
+      ),
     };
   }
 

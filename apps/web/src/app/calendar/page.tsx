@@ -2,6 +2,7 @@ import { AppFrame } from "../components/app-frame";
 import { headers } from "next/headers";
 import {
   getCalendarEntityOptions,
+  getCalendarEventById,
   getCalendarEvents,
 } from "../../lib/calendar/events";
 import {
@@ -71,14 +72,21 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
       workspaceId: workspace.id,
     });
   }
-  const [events, options, calendarReadiness] = await Promise.all([
+  const [events, selectedEvent, options, calendarReadiness] = await Promise.all([
     getCalendarEvents(supabase, workspace.id, {
       from: calendarRange.from,
       to: calendarRange.to,
     }),
+    query?.event
+      ? getCalendarEventById(supabase, workspace.id, query.event)
+      : null,
     getCalendarEntityOptions(supabase, workspace.id),
     getCalendarReadiness(supabase, workspace.id),
   ]);
+  const boardEvents =
+    selectedEvent && !events.some((event) => event.id === selectedEvent.id)
+      ? [...events, selectedEvent]
+      : events;
 
   return (
     <AppFrame active="Calendar">
@@ -92,7 +100,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
       <CalendarBoard
         anchorDate={anchorDateKey}
         calendarReadiness={calendarReadiness}
-        events={events}
+        events={boardEvents}
         initialSelectedEventId={query?.event ?? null}
         key={`${anchorDateKey}-${view}`}
         options={options}

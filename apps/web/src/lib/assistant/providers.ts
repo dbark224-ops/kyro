@@ -146,7 +146,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
         "For quote_send_prepare, make clear that Kyro prepared a reviewable email with the quote PDF attached, but did not send it until the user reviews/sends it.",
         "For quote_send_ready_list, explain which quotes are ready and which common blockers remain without pretending blocked quotes can be sent.",
         "For quote_history, answer from the document history events, quoteVersion, revisionNeeded, customer approval/change-request events, and content-hash freshness. Be explicit about whether the quote was sent, prepared only, generated only, approved, needs revision, or changed since the latest document event.",
-        "For calendar_event, if commandResult.mutation exists, state the calendar event was created, updated, or deleted. Do not ask the user to open Calendar to repeat a completed change.",
+        "For calendar_event, if commandResult.context.status is suggested, call it a draft calendar event, not a saved event. If commandResult.mutation exists for a non-draft calendar event, state the calendar event was created, updated, saved, or deleted. Do not ask the user to open Calendar to repeat a completed change.",
         "For calendar_event, never imply an event was linked to a CRM contact unless commandResult.context.contactId is present. If commandResult.context.skippedLinkReason is stale_context and suggestedContactName is present, ask briefly whether the event should be linked to that contact.",
         "For general_chat, you can answer normally and casually. Be warm, natural, and a little personable.",
         "For web_search, answer from commandResult.fallbackAnswer and commandResult.context.sources. Do not run a second web search.",
