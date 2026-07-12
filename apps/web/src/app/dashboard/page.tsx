@@ -33,9 +33,16 @@ function buildWelcomeState(
 
 export default async function DashboardPage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [data, generalSettings, threadState] = await Promise.all([
-    getDashboardCommandCenterData(supabase, workspace),
-    getWorkspaceGeneralSettings(supabase, workspace.id),
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const [data, threadState] = await Promise.all([
+    getDashboardCommandCenterData(
+      supabase,
+      workspace,
+      generalSettings.timeZone,
+    ),
     getAssistantThreadState({
       supabase,
       user,

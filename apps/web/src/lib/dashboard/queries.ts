@@ -12,6 +12,7 @@ import {
   getGeneratedDocumentsForWorkspace,
   type GeneratedDocumentRecord,
 } from "../documents/generated-documents";
+import { isoRangeForDateKeyRange, todayDateKey } from "../timezone";
 import { getPaymentsOverviewData } from "../payments/queries";
 import type { WorkspaceSummary } from "../workspace/bootstrap";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -170,18 +171,6 @@ function generatedDocumentHref(document: GeneratedDocumentRecord) {
   return "/files";
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function startOfToday() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  return start;
-}
-
 function calendarContactLabel(event: CalendarEventItem) {
   return (
     event.contact?.name ??
@@ -209,9 +198,16 @@ function dashboardCalendarEvent(event: CalendarEventItem) {
 export async function getDashboardCommandCenterData(
   supabase: SupabaseClient,
   workspace: WorkspaceSummary,
+  timeZone: string,
 ): Promise<DashboardCommandCenterData> {
-  const calendarFrom = startOfToday();
-  const calendarTo = addDays(calendarFrom, 45);
+  const currentYear = Number(todayDateKey(timeZone).slice(0, 4));
+  const calendarRange = isoRangeForDateKeyRange(
+    {
+      from: `${currentYear}-01-01`,
+      to: `${currentYear + 1}-01-01`,
+    },
+    timeZone,
+  );
   const [
     activity,
     calendarEvents,
@@ -224,8 +220,8 @@ export async function getDashboardCommandCenterData(
   ] = await Promise.all([
     getAssistantExternalActivity(supabase, workspace.id, 18),
     getCalendarEvents(supabase, workspace.id, {
-      from: calendarFrom.toISOString(),
-      to: calendarTo.toISOString(),
+      from: calendarRange.from,
+      to: calendarRange.to,
     }).catch(() => []),
     getAssistantRouteMetrics(supabase, workspace.id),
     getConversationWorkflowCounts(supabase, workspace.id),
@@ -302,7 +298,6 @@ export async function getDashboardCommandCenterData(
     activity,
     calendarEvents: calendarEvents
       .filter((event) => event.status !== "cancelled")
-      .slice(0, 12)
       .map(dashboardCalendarEvent),
     generatedDocuments: generatedDocuments.map((document) => ({
       href: generatedDocumentHref(document),

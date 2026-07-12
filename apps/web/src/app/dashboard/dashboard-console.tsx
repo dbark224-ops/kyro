@@ -14,6 +14,15 @@ import type {
   DashboardContactSummary,
   DashboardWorkQueueItem,
 } from "../../lib/dashboard/queries";
+import {
+  addDaysToDateKey,
+  addMonthsToDateKey,
+  dateKeyInTimeZone,
+  isoRangeForDateKeyRange,
+  startOfMonthDateKey,
+  startOfWeekDateKey,
+  todayDateKey,
+} from "../../lib/timezone";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
@@ -301,29 +310,41 @@ function endOfTimeframe(timeframe: DashboardTimeframe, now: Date) {
   return end;
 }
 
-function calendarDateParam(value: string | null, timeZone: string) {
-  if (!value) {
-    return null;
+function dashboardTimeframeDateKeyRange(
+  timeframe: DashboardTimeframe,
+  timeZone: string,
+) {
+  const today = todayDateKey(timeZone);
+
+  if (timeframe === "today") {
+    return { from: today, to: addDaysToDateKey(today, 1) };
   }
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
+  if (timeframe === "week") {
+    const from = startOfWeekDateKey(today);
+    return { from, to: addDaysToDateKey(from, 7) };
   }
 
-  const parts = new Intl.DateTimeFormat("en", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone,
-    year: "numeric",
-  }).formatToParts(date);
-  const partMap = new Map(parts.map((part) => [part.type, part.value]));
-  const year = partMap.get("year");
-  const month = partMap.get("month");
-  const day = partMap.get("day");
+  if (timeframe === "month") {
+    const from = startOfMonthDateKey(today);
+    return { from, to: addMonthsToDateKey(from, 1) };
+  }
 
-  return year && month && day ? `${year}-${month}-${day}` : null;
+  const year = Number(today.slice(0, 4));
+  return { from: `${year}-01-01`, to: `${year + 1}-01-01` };
+}
+
+function dashboardCalendarCollectionHref(
+  timeframe: DashboardTimeframe,
+  timeZone: string,
+) {
+  const params = new URLSearchParams({
+    date: todayDateKey(timeZone),
+    view:
+      timeframe === "today" ? "day" : timeframe === "week" ? "week" : "month",
+  });
+
+  return `/calendar?${params.toString()}`;
 }
 
 function dashboardCalendarHref(
@@ -334,7 +355,9 @@ function dashboardCalendarHref(
     event: event.id,
     view: "day",
   });
-  const dateParam = calendarDateParam(event.startsAt, timeZone);
+  const dateParam = event.startsAt
+    ? dateKeyInTimeZone(event.startsAt, timeZone)
+    : null;
 
   if (dateParam) {
     params.set("date", dateParam);
@@ -372,25 +395,86 @@ function calendarEventTimeLabel(
   return `${dateLabel}, ${timeLabel}`;
 }
 
-function isCalendarEventWithinTimeframe(
+function calendarEventShortTimeLabel(
   event: DashboardCalendarEventItem,
-  timeframe: DashboardTimeframe,
-  now: Date,
+  timeZone: string,
 ) {
   if (!event.startsAt) {
-    return false;
+    return "Any time";
+  }
+
+  const start = new Date(event.startsAt);
+
+  if (Number.isNaN(start.getTime())) {
+    return "Any time";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  }).format(start);
+}
+
+function calendarDateGroupLabel(
+  dateKey: string,
+  timeframe: DashboardTimeframe,
+) {
+  const date = new Date(`${dateKey}T12:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateKey;
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+    weekday: timeframe === "month" ? "short" : "long",
+  }).format(date);
+}
+
+function calendarEventTimestamp(event: DashboardCalendarEventItem) {
+  if (!event.startsAt) {
+    return Number.MAX_SAFE_INTEGER;
   }
 
   const date = new Date(event.startsAt);
 
-  if (Number.isNaN(date.getTime())) {
-    return false;
+  return Number.isNaN(date.getTime()) ? Number.MAX_SAFE_INTEGER : date.getTime();
+}
+
+function calendarEventDateKey(
+  event: DashboardCalendarEventItem,
+  timeZone: string,
+) {
+  if (!event.startsAt) {
+    return "unscheduled";
   }
 
-  return (
-    date.getTime() >= startOfTimeframe(timeframe, now).getTime() &&
-    date.getTime() < endOfTimeframe(timeframe, now).getTime()
-  );
+  return dateKeyInTimeZone(event.startsAt, timeZone);
+}
+
+function groupedCalendarEvents(
+  items: DashboardCalendarEventItem[],
+  timeZone: string,
+) {
+  const groups = new Map<string, DashboardCalendarEventItem[]>();
+
+  for (const item of items) {
+    const dateKey = calendarEventDateKey(item, timeZone);
+    groups.set(dateKey, [...(groups.get(dateKey) ?? []), item]);
+  }
+
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([dateKey, groupItems]) => ({
+      dateKey,
+      items: groupItems.sort(
+        (left, right) =>
+          calendarEventTimestamp(left) - calendarEventTimestamp(right),
+      ),
+    }));
 }
 
 function isWithinTimeframe(
@@ -629,13 +713,25 @@ function timeFilteredWorkQueue(
 function timeFilteredCalendar(
   items: DashboardCalendarEventItem[],
   timeframe: DashboardTimeframe,
+  timeZone: string,
 ) {
-  const now = new Date();
-  const filtered = items.filter((item) =>
-    isCalendarEventWithinTimeframe(item, timeframe, now),
+  const range = isoRangeForDateKeyRange(
+    dashboardTimeframeDateKeyRange(timeframe, timeZone),
+    timeZone,
   );
+  const from = new Date(range.from).getTime();
+  const to = new Date(range.to).getTime();
 
-  return filtered.length > 0 ? filtered : items;
+  return items
+    .filter((item) => {
+      const timestamp = calendarEventTimestamp(item);
+
+      return timestamp >= from && timestamp < to;
+    })
+    .sort(
+      (left, right) =>
+        calendarEventTimestamp(left) - calendarEventTimestamp(right),
+    );
 }
 
 function matchesWorkQueueFilter(
@@ -1148,51 +1244,103 @@ function renderWidget({
   }
 
   if (key === "calendar") {
-    const items = timeFilteredCalendar(data.calendarEvents, timeframe).slice(
-      0,
-      5,
+    const items = timeFilteredCalendar(
+      data.calendarEvents,
+      timeframe,
+      timeZone,
     );
+    const visibleItems = items.slice(0, 5);
+    const groupedItems = groupedCalendarEvents(items, timeZone).slice(
+      0,
+      timeframe === "week" ? 7 : 8,
+    );
+    const calendarHref = dashboardCalendarCollectionHref(timeframe, timeZone);
 
     return (
       <section className="dashboard-widget dashboard-widget-calendar" key={key}>
         <DashboardWidgetHeader
           action={
-            <Link className="filter-pill" href="/calendar">
+            <Link className="filter-pill" href={calendarHref}>
               Open
             </Link>
           }
           description={`${timeframeLabel} schedule and next appointments.`}
           title="Calendar"
         />
-        <div className="dashboard-list-grid">
-          {items.map((item) => (
-            <DashboardListItem
-              eyebrow={calendarEventTimeLabel(item, timeZone)}
-              href={dashboardCalendarHref(item, timeZone)}
-              key={item.id}
-              meta={item.status.replace(/_/g, " ")}
-              subtitle={
-                compactSnippet(
-                  item.location ??
-                    item.contactLabel ??
-                    item.leadTitle ??
-                    item.appointmentType.replace(/_/g, " "),
-                  72,
-                ) ?? "Calendar event"
-              }
-              title={item.title}
-            />
-          ))}
-          {items.length === 0 ? (
-            <p className="empty-copy">
-              Nothing is scheduled in Kyro yet. Add the first event from
-              Calendar.
-            </p>
-          ) : null}
-          <Link className="dashboard-widget-footer-link" href="/calendar">
-            Open calendar
-          </Link>
-        </div>
+        {timeframe === "today" ? (
+          <div className="dashboard-list-grid">
+            {visibleItems.map((item) => (
+              <DashboardListItem
+                eyebrow={calendarEventTimeLabel(item, timeZone)}
+                href={dashboardCalendarHref(item, timeZone)}
+                key={item.id}
+                meta={item.status.replace(/_/g, " ")}
+                subtitle={
+                  compactSnippet(
+                    item.location ??
+                      item.contactLabel ??
+                      item.leadTitle ??
+                      item.appointmentType.replace(/_/g, " "),
+                    72,
+                  ) ?? "Calendar event"
+                }
+                title={item.title}
+              />
+            ))}
+            {visibleItems.length === 0 ? (
+              <p className="empty-copy">
+                Nothing is scheduled for today in Kyro.
+              </p>
+            ) : null}
+            <Link className="dashboard-widget-footer-link" href={calendarHref}>
+              Open calendar
+            </Link>
+          </div>
+        ) : (
+          <div className={styles.calendarGroups}>
+            {groupedItems.map((group) => (
+              <article className={styles.calendarGroup} key={group.dateKey}>
+                <header className={styles.calendarGroupHeader}>
+                  <strong>
+                    {calendarDateGroupLabel(group.dateKey, timeframe)}
+                  </strong>
+                  <span>
+                    {formatCount(group.items.length)}{" "}
+                    {group.items.length === 1 ? "event" : "events"}
+                  </span>
+                </header>
+                <div className={styles.calendarGroupEvents}>
+                  {group.items.slice(0, 3).map((item) => (
+                    <PendingSmartPrefetchLink
+                      className={styles.calendarGroupEvent}
+                      href={dashboardCalendarHref(item, timeZone)}
+                      key={item.id}
+                    >
+                      <time>{calendarEventShortTimeLabel(item, timeZone)}</time>
+                      <span>{item.title}</span>
+                      <em>{item.status.replace(/_/g, " ")}</em>
+                    </PendingSmartPrefetchLink>
+                  ))}
+                </div>
+              </article>
+            ))}
+            {groupedItems.length === 0 ? (
+              <p className="empty-copy">
+                Nothing is scheduled for {timeframeLabel.toLowerCase()} in
+                Kyro.
+              </p>
+            ) : null}
+            <Link className="dashboard-widget-footer-link" href={calendarHref}>
+              Open calendar
+            </Link>
+          </div>
+        )}
+        {timeframe === "today" && items.length > visibleItems.length ? (
+          <p className={styles.calendarOverflow}>
+            Showing {formatCount(visibleItems.length)} of{" "}
+            {formatCount(items.length)} events today.
+          </p>
+        ) : null}
       </section>
     );
   }
