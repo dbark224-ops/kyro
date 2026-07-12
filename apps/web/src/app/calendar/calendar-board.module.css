@@ -487,6 +487,7 @@
   align-items: center;
   display: flex;
   gap: 5px;
+  line-height: 1;
   min-height: 100%;
 }
 
@@ -501,6 +502,7 @@
 }
 
 .timelineEvent[data-compact="true"] .timelineEventTop time {
+  line-height: 1;
   margin-right: 0;
 }
 
@@ -519,6 +521,7 @@
   flex: 1 1 auto;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-height: 1.05;
 }
 
 .timelineEvent span:not(.timelineEventTop) {
