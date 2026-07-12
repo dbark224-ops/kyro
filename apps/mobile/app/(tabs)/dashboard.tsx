@@ -7,7 +7,7 @@ import {
   FileText,
   GripVertical,
   RotateCcw,
-  X
+  X,
 } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -17,14 +17,14 @@ import {
   Text,
   View,
   type GestureResponderEvent,
-  type PanResponderGestureState
+  type PanResponderGestureState,
 } from "react-native";
 
 import { DataState } from "@/components/DataState";
 import {
   SkeletonLine,
   SkeletonPill,
-  SkeletonRow
+  SkeletonRow,
 } from "@/components/LoadingSkeleton";
 import { Screen } from "@/components/Screen";
 import { SectionCard, SectionHeader, StatusPill } from "@/components/ui";
@@ -41,18 +41,18 @@ import {
   rangeLabel,
   startOfMonth,
   startOfWeek,
-  type MobileCalendarView
+  type MobileCalendarView,
 } from "@/lib/calendar-utils";
 import {
   mobileCalendarQueryOptions,
-  mobileDashboardQueryOptions
+  mobileDashboardQueryOptions,
 } from "@/lib/mobile-query";
 import type {
   MobileCalendarEvent,
   MobileDashboardActivityItem,
   MobileDashboardCommandCenter,
   MobileDashboardContactSummary,
-  MobileDashboardWorkQueueItem
+  MobileDashboardWorkQueueItem,
 } from "@/lib/mobile-api-types";
 import { colors, radii, typography } from "@/theme";
 
@@ -97,7 +97,7 @@ const DEFAULT_METRIC_ORDER: DashboardMetricKey[] = [
   "readyToSend",
   "awaitingCustomer",
   "missingInfo",
-  "contactsIndexed"
+  "contactsIndexed",
 ];
 const DEFAULT_WIDGET_ORDER: DashboardWidgetKey[] = [
   "work_queue",
@@ -106,14 +106,14 @@ const DEFAULT_WIDGET_ORDER: DashboardWidgetKey[] = [
   "documents",
   "payments",
   "top_contacts",
-  "suppliers"
+  "suppliers",
 ];
 const DEFAULT_LAYOUT: DashboardLayoutConfig = {
   activeMetrics: DEFAULT_METRIC_ORDER.slice(0, 4),
   activeWidgets: DEFAULT_WIDGET_ORDER.filter((key) => key !== "suppliers"),
   defaultTimeframe: DEFAULT_DASHBOARD_TIMEFRAME,
   metricOrder: DEFAULT_METRIC_ORDER,
-  widgetOrder: DEFAULT_WIDGET_ORDER
+  widgetOrder: DEFAULT_WIDGET_ORDER,
 };
 const CUSTOMIZE_ROW_REORDER_HEIGHT = 48;
 
@@ -121,7 +121,7 @@ const timeframeLabels: Record<DashboardTimeframe, string> = {
   month: "Month",
   today: "Today",
   week: "Week",
-  year: "Year"
+  year: "Year",
 };
 
 const metricDefinitions: Record<
@@ -137,50 +137,50 @@ const metricDefinitions: Record<
     description: "Waiting on customer input",
     label: "Awaiting customer",
     tone: "purple",
-    value: (data) => data.stats.awaitingCustomer
+    value: (data) => data.stats.awaitingCustomer,
   },
   contactsIndexed: {
     description: "Profiles indexed",
     label: "Contacts indexed",
     tone: "purple",
-    value: (data) => data.stats.contactsIndexed
+    value: (data) => data.stats.contactsIndexed,
   },
   followUpDue: {
     description: "Internal reminders ready",
     label: "Follow-up due",
     tone: "amber",
-    value: (data) => data.stats.followUpDue
+    value: (data) => data.stats.followUpDue,
   },
   missingInfo: {
     description: "Need more detail",
     label: "Missing info",
     tone: "pink",
-    value: (data) => data.stats.missingInfo
+    value: (data) => data.stats.missingInfo,
   },
   needsReply: {
     description: "Conversations need reply",
     label: "Needs reply",
     tone: "pink",
-    value: (data) => data.stats.needsReply
+    value: (data) => data.stats.needsReply,
   },
   quoteApprovedOrBooked: {
     description: "Approved or booked",
     label: "Approved / booked",
     tone: "success",
-    value: (data) => data.stats.quoteApprovedOrBooked
+    value: (data) => data.stats.quoteApprovedOrBooked,
   },
   readyToQuote: {
     description: "Ready for quoting",
     label: "Ready to quote",
     tone: "cyan",
-    value: (data) => data.stats.readyToQuote
+    value: (data) => data.stats.readyToQuote,
   },
   readyToSend: {
     description: "Drafts ready to send",
     label: "Ready to send",
     tone: "cyan",
-    value: (data) => data.stats.readyToSend
-  }
+    value: (data) => data.stats.readyToSend,
+  },
 };
 
 const widgetDefinitions: Record<
@@ -189,45 +189,45 @@ const widgetDefinitions: Record<
 > = {
   activity: {
     description: "Recent messages and system movement.",
-    title: "System activity"
+    title: "System activity",
   },
   calendar: {
     description: "Site visits, jobs, and reminders.",
-    title: "Calendar"
+    title: "Calendar",
   },
   documents: {
     description: "Recent generated files and outputs.",
-    title: "Document generation"
+    title: "Document generation",
   },
   payments: {
     description: "Usage, quote readiness, and collections placeholder.",
-    title: "Payments"
+    title: "Payments",
   },
   suppliers: {
     description: "Frequently used supplier contacts.",
-    title: "Suppliers"
+    title: "Suppliers",
   },
   top_contacts: {
     description: "Most active customers and contacts.",
-    title: "Top contacts"
+    title: "Top contacts",
   },
   work_queue: {
     description: "Priority conversations and next actions.",
-    title: "Work queue"
-  }
+    title: "Work queue",
+  },
 };
 
 export default function DashboardScreen() {
   const { session, status } = useAuthSession();
   const [timeframe, setTimeframe] = useState<DashboardTimeframe>(
-    DEFAULT_DASHBOARD_TIMEFRAME
+    DEFAULT_DASHBOARD_TIMEFRAME,
   );
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [isCustomizeDragLocked, setIsCustomizeDragLocked] = useState(false);
   const [layout, setLayout] = useState<DashboardLayoutConfig>(DEFAULT_LAYOUT);
   const dashboard = useQuery({
     ...mobileDashboardQueryOptions(session),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const commandCenter = dashboard.data?.commandCenter;
   const isDashboardLoading =
@@ -264,14 +264,14 @@ export default function DashboardScreen() {
     setLayout(nextLayout);
     void AsyncStorage.setItem(
       DASHBOARD_LAYOUT_STORAGE_KEY,
-      JSON.stringify(nextLayout)
+      JSON.stringify(nextLayout),
     );
   };
 
   const saveDefaultTimeframe = (defaultTimeframe: DashboardTimeframe) => {
     saveLayout({
       ...layout,
-      defaultTimeframe
+      defaultTimeframe,
     });
     setTimeframe(defaultTimeframe);
   };
@@ -289,7 +289,7 @@ export default function DashboardScreen() {
         <SegmentedControl
           options={(["today", "week", "month", "year"] as const).map((key) => ({
             key,
-            label: timeframeLabels[key]
+            label: timeframeLabels[key],
           }))}
           value={timeframe}
           onChange={setTimeframe}
@@ -300,13 +300,13 @@ export default function DashboardScreen() {
           style={({ pressed }) => [
             styles.customizeButton,
             isCustomizing ? styles.customizeButtonActive : null,
-            pressed ? styles.pressed : null
+            pressed ? styles.pressed : null,
           ]}
         >
           <Text
             style={[
               styles.customizeButtonText,
-              isCustomizing ? styles.customizeButtonTextActive : null
+              isCustomizing ? styles.customizeButtonTextActive : null,
             ]}
           >
             {isCustomizing ? "Done" : "Customize"}
@@ -353,28 +353,28 @@ export default function DashboardScreen() {
             {activeWidgetKeys(layout)
               .slice(0, 3)
               .map((widgetKey, index) => (
-              <DashboardWidget
-                data={commandCenter}
-                key={`middle-${widgetKey}-${index}`}
-                size="large"
-                timeframe={timeframe}
-                widgetKey={widgetKey}
-              />
-            ))}
+                <DashboardWidget
+                  data={commandCenter}
+                  key={`middle-${widgetKey}-${index}`}
+                  size="large"
+                  timeframe={timeframe}
+                  widgetKey={widgetKey}
+                />
+              ))}
           </View>
 
           <View style={styles.sectionStack}>
             {activeWidgetKeys(layout)
               .slice(3)
               .map((widgetKey, index) => (
-              <DashboardWidget
-                data={commandCenter}
-                key={`bottom-${widgetKey}-${index}`}
-                size="compact"
-                timeframe={timeframe}
-                widgetKey={widgetKey}
-              />
-            ))}
+                <DashboardWidget
+                  data={commandCenter}
+                  key={`bottom-${widgetKey}-${index}`}
+                  size="compact"
+                  timeframe={timeframe}
+                  widgetKey={widgetKey}
+                />
+              ))}
           </View>
         </>
       ) : null}
@@ -388,7 +388,11 @@ function DashboardLoadingState() {
       <View style={styles.kpiGrid}>
         {[0, 1, 2, 3].map((index) => (
           <SectionCard key={index} style={styles.kpiCard}>
-            <SkeletonLine height={22} tone={index % 2 ? "pink" : "cyan"} width="70%" />
+            <SkeletonLine
+              height={22}
+              tone={index % 2 ? "pink" : "cyan"}
+              width="70%"
+            />
           </SectionCard>
         ))}
       </View>
@@ -410,7 +414,7 @@ function DashboardLoadingState() {
 
 function MetricCard({
   data,
-  metricKey
+  metricKey,
 }: {
   data: MobileDashboardCommandCenter;
   metricKey: DashboardMetricKey;
@@ -419,12 +423,7 @@ function MetricCard({
   const toneStyle = toneStyles[metric.tone];
 
   return (
-    <View
-      style={[
-        styles.kpiCard,
-        { borderLeftColor: toneStyle.color }
-      ]}
-    >
+    <View style={[styles.kpiCard, { borderLeftColor: toneStyle.color }]}>
       <View style={styles.kpiLine}>
         <Text style={styles.kpiValue}>{formatCount(metric.value(data))}</Text>
         <Text numberOfLines={1} style={styles.kpiLabel}>
@@ -439,7 +438,7 @@ function DashboardWidget({
   data,
   size,
   timeframe,
-  widgetKey
+  widgetKey,
 }: {
   data: MobileDashboardCommandCenter;
   size: "compact" | "large";
@@ -453,7 +452,9 @@ function DashboardWidget({
       style={size === "large" ? styles.largeWidget : styles.compactWidget}
     >
       <SectionHeader
-        action={<Text style={styles.widgetMeta}>{timeframeLabels[timeframe]}</Text>}
+        action={
+          <Text style={styles.widgetMeta}>{timeframeLabels[timeframe]}</Text>
+        }
         eyebrow={size === "large" ? "Live" : "Support"}
         title={definition.title}
       />
@@ -465,7 +466,7 @@ function DashboardWidget({
 function WidgetBody({
   data,
   timeframe,
-  widgetKey
+  widgetKey,
 }: {
   data: MobileDashboardCommandCenter;
   timeframe: DashboardTimeframe;
@@ -562,19 +563,19 @@ function CalendarDashboardWidget() {
   }, [anchor]);
   const calendar = useQuery({
     ...mobileCalendarQueryOptions(session, queryRange),
-    enabled: status === "signed-in"
+    enabled: status === "signed-in",
   });
   const visibleEvents = useMemo(
     () =>
       eventsInRange(
         calendar.data?.events ?? [],
-        rangeForCalendarView(anchor, view)
+        rangeForCalendarView(anchor, view),
       ).sort(
         (left, right) =>
           new Date(left.startsAt ?? left.createdAt).getTime() -
-          new Date(right.startsAt ?? right.createdAt).getTime()
+          new Date(right.startsAt ?? right.createdAt).getTime(),
       ),
-    [anchor, calendar.data?.events, view]
+    [anchor, calendar.data?.events, view],
   );
 
   return (
@@ -583,7 +584,7 @@ function CalendarDashboardWidget() {
         <SegmentedControl
           options={(["day", "week", "month"] as const).map((key) => ({
             key,
-            label: calendarViewLabels[key]
+            label: calendarViewLabels[key],
           }))}
           value={view}
           onChange={setView}
@@ -593,7 +594,7 @@ function CalendarDashboardWidget() {
           onPress={() => router.push("/calendar" as never)}
           style={({ pressed }) => [
             styles.calendarOpenButton,
-            pressed ? styles.pressed : null
+            pressed ? styles.pressed : null,
           ]}
         >
           <Text style={styles.calendarOpenButtonText}>Open</Text>
@@ -602,7 +603,9 @@ function CalendarDashboardWidget() {
       <View style={styles.calendarRangeRow}>
         <Pressable
           accessibilityRole="button"
-          onPress={() => setAnchor((current) => shiftCalendarAnchor(current, view, -1))}
+          onPress={() =>
+            setAnchor((current) => shiftCalendarAnchor(current, view, -1))
+          }
         >
           <Text style={styles.calendarNudge}>Prev</Text>
         </Pressable>
@@ -611,7 +614,9 @@ function CalendarDashboardWidget() {
         </Text>
         <Pressable
           accessibilityRole="button"
-          onPress={() => setAnchor((current) => shiftCalendarAnchor(current, view, 1))}
+          onPress={() =>
+            setAnchor((current) => shiftCalendarAnchor(current, view, 1))
+          }
         >
           <Text style={styles.calendarNudge}>Next</Text>
         </Pressable>
@@ -648,22 +653,18 @@ function CalendarWidgetRow({ event }: { event: MobileCalendarEvent }) {
     <Pressable
       accessibilityRole="button"
       onPress={() => {
-        if (event.conversationId) {
-          router.push({
-            pathname: "/inbox",
-            params: { conversationId: event.conversationId }
-          });
-          return;
-        }
-
-        if (event.contactId) {
-          router.push({
-            pathname: "/crm",
-            params: { contactId: event.contactId }
-          });
-        }
+        router.push({
+          pathname: "/calendar" as never,
+          params: {
+            eventDate: event.startsAt ?? event.createdAt,
+            eventId: event.id,
+          } as never,
+        });
       }}
-      style={({ pressed }) => [styles.simpleRow, pressed ? styles.pressed : null]}
+      style={({ pressed }) => [
+        styles.simpleRow,
+        pressed ? styles.pressed : null,
+      ]}
     >
       <CalendarDays color={colors.cyan} size={17} />
       <View style={styles.rowCopyBlock}>
@@ -681,7 +682,7 @@ function CalendarWidgetRow({ event }: { event: MobileCalendarEvent }) {
 
 function MiniMonthGrid({
   anchor,
-  events
+  events,
 }: {
   anchor: Date;
   events: MobileCalendarEvent[];
@@ -702,7 +703,7 @@ function MiniMonthGrid({
                 key={`${day.toISOString()}-${dayEvents.length}`}
                 style={[
                   styles.miniMonthCell,
-                  muted ? styles.miniMonthCellMuted : null
+                  muted ? styles.miniMonthCellMuted : null,
                 ]}
               >
                 <Text style={styles.miniMonthDay}>{day.getDate()}</Text>
@@ -723,10 +724,13 @@ function QueueRow({ item }: { item: MobileDashboardWorkQueueItem }) {
       onPress={() =>
         router.push({
           pathname: "/inbox",
-          params: { conversationId: item.id }
+          params: { conversationId: item.id },
         })
       }
-      style={({ pressed }) => [styles.simpleRow, pressed ? styles.pressed : null]}
+      style={({ pressed }) => [
+        styles.simpleRow,
+        pressed ? styles.pressed : null,
+      ]}
     >
       <View style={styles.rowCopyBlock}>
         <Text numberOfLines={1} style={styles.rowTitle}>
@@ -743,11 +747,17 @@ function QueueRow({ item }: { item: MobileDashboardWorkQueueItem }) {
 
 function ActivityRow({ item }: { item: MobileDashboardActivityItem }) {
   const tone =
-    item.tone === "failed" ? "pink" : item.tone === "system" ? "purple" : "cyan";
+    item.tone === "failed"
+      ? "pink"
+      : item.tone === "system"
+        ? "purple"
+        : "cyan";
 
   return (
     <View style={styles.simpleRow}>
-      <View style={[styles.activityDot, { backgroundColor: toneColor(tone) }]} />
+      <View
+        style={[styles.activityDot, { backgroundColor: toneColor(tone) }]}
+      />
       <View style={styles.rowCopyBlock}>
         <Text numberOfLines={1} style={styles.rowTitle}>
           {item.title}
@@ -768,25 +778,25 @@ function PaymentsWidget({ data }: { data: MobileDashboardCommandCenter }) {
     {
       amountCents: payments.paidThisWeekCents,
       label: "Paid this week",
-      tone: "cyan" as const
+      tone: "cyan" as const,
     },
     {
       amountCents: payments.paidThisMonthCents,
       label: "Paid this month",
-      tone: "purple" as const
+      tone: "purple" as const,
     },
     {
       amountCents: payments.outstandingAmountCents,
       label: "Outstanding",
       meta: `${payments.outstandingCount} open`,
-      tone: "amber" as const
+      tone: "amber" as const,
     },
     {
       amountCents: payments.overdueAmountCents,
       label: "Overdue",
       meta: `${payments.overdueCount} due`,
-      tone: "pink" as const
-    }
+      tone: "pink" as const,
+    },
   ];
 
   return (
@@ -796,10 +806,14 @@ function PaymentsWidget({ data }: { data: MobileDashboardCommandCenter }) {
           key={item.label}
           style={[
             styles.paymentMetricCard,
-            { borderLeftColor: toneColor(item.tone) }
+            { borderLeftColor: toneColor(item.tone) },
           ]}
         >
-          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.paymentValue}>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={styles.paymentValue}
+          >
             {formatCurrencyFromCents(item.amountCents, payments.currency)}
           </Text>
           <View style={styles.paymentMetricLine}>
@@ -820,7 +834,7 @@ function PaymentsWidget({ data }: { data: MobileDashboardCommandCenter }) {
 
 function ContactsWidget({
   emptyText,
-  items
+  items,
 }: {
   emptyText: string;
   items: MobileDashboardContactSummary[];
@@ -834,7 +848,10 @@ function ContactsWidget({
           onPress={() =>
             router.push({ pathname: "/crm", params: { contactId: item.id } })
           }
-          style={({ pressed }) => [styles.simpleRow, pressed ? styles.pressed : null]}
+          style={({ pressed }) => [
+            styles.simpleRow,
+            pressed ? styles.pressed : null,
+          ]}
         >
           <View style={styles.rowCopyBlock}>
             <Text numberOfLines={1} style={styles.rowTitle}>
@@ -859,7 +876,7 @@ function DashboardCustomizePanel({
   onChange,
   onDragStateChange,
   onDefaultTimeframeChange,
-  onReset
+  onReset,
 }: {
   defaultTimeframe: DashboardTimeframe;
   layout: DashboardLayoutConfig;
@@ -870,35 +887,35 @@ function DashboardCustomizePanel({
 }) {
   const metricActiveSet = useMemo(
     () => new Set(layout.activeMetrics),
-    [layout.activeMetrics]
+    [layout.activeMetrics],
   );
   const widgetActiveSet = useMemo(
     () => new Set(layout.activeWidgets),
-    [layout.activeWidgets]
+    [layout.activeWidgets],
   );
 
   const updateMetricOrder = (fromIndex: number, toIndex: number) => {
     onChange({
       ...layout,
-      metricOrder: moveItem(layout.metricOrder, fromIndex, toIndex)
+      metricOrder: moveItem(layout.metricOrder, fromIndex, toIndex),
     });
   };
   const updateWidgetOrder = (fromIndex: number, toIndex: number) => {
     onChange({
       ...layout,
-      widgetOrder: moveItem(layout.widgetOrder, fromIndex, toIndex)
+      widgetOrder: moveItem(layout.widgetOrder, fromIndex, toIndex),
     });
   };
   const toggleMetric = (metricKey: DashboardMetricKey) => {
     onChange({
       ...layout,
-      activeMetrics: toggleKey(layout.activeMetrics, metricKey)
+      activeMetrics: toggleKey(layout.activeMetrics, metricKey),
     });
   };
   const toggleWidget = (widgetKey: DashboardWidgetKey) => {
     onChange({
       ...layout,
-      activeWidgets: toggleKey(layout.activeWidgets, widgetKey)
+      activeWidgets: toggleKey(layout.activeWidgets, widgetKey),
     });
   };
 
@@ -908,7 +925,8 @@ function DashboardCustomizePanel({
         <View style={styles.rowCopyBlock}>
           <Text style={styles.customizePanelTitle}>Dashboard layout</Text>
           <Text style={styles.customizePanelCopy}>
-            Drag an active row to reorder. Hide a row with X, tap a grey row to show it.
+            Drag an active row to reorder. Hide a row with X, tap a grey row to
+            show it.
           </Text>
         </View>
         <Pressable
@@ -917,7 +935,7 @@ function DashboardCustomizePanel({
           onPress={onReset}
           style={({ pressed }) => [
             styles.resetIconButton,
-            pressed ? styles.pressed : null
+            pressed ? styles.pressed : null,
           ]}
         >
           <RotateCcw color={colors.cyan} size={16} />
@@ -928,7 +946,7 @@ function DashboardCustomizePanel({
         <SegmentedControl
           options={(["today", "week", "month", "year"] as const).map((key) => ({
             key,
-            label: timeframeLabels[key]
+            label: timeframeLabels[key],
           }))}
           value={defaultTimeframe}
           onChange={onDefaultTimeframeChange}
@@ -970,7 +988,7 @@ function DashboardCustomizePanel({
 
 function CustomizeSection({
   children,
-  title
+  title,
 }: {
   children: ReactNode;
   title: string;
@@ -990,7 +1008,7 @@ function CustomizeRow({
   onDragStateChange,
   onMove,
   onToggle,
-  rowCount
+  rowCount,
 }: {
   active: boolean;
   index: number;
@@ -1025,7 +1043,7 @@ function CustomizeRow({
       clearHoldTimer();
       onDragStateChange(false);
     },
-    [onDragStateChange]
+    [onDragStateChange],
   );
 
   const armDrag = () => {
@@ -1052,61 +1070,53 @@ function CustomizeRow({
     }
   };
 
-  const panResponder = useMemo(
-    () => {
-      const shouldStartReorder = (
-        _event: GestureResponderEvent,
-        gesture: PanResponderGestureState
-      ) =>
-        active &&
-        isDragArmed &&
-        Math.abs(gesture.dy) > 2 &&
-        Math.abs(gesture.dy) > Math.abs(gesture.dx);
+  const panResponder = useMemo(() => {
+    const shouldStartReorder = (
+      _event: GestureResponderEvent,
+      gesture: PanResponderGestureState,
+    ) =>
+      active &&
+      isDragArmed &&
+      Math.abs(gesture.dy) > 2 &&
+      Math.abs(gesture.dy) > Math.abs(gesture.dx);
 
-      return (
-      PanResponder.create({
-        onMoveShouldSetPanResponder: shouldStartReorder,
-        onMoveShouldSetPanResponderCapture: shouldStartReorder,
-        onPanResponderGrant: () => {
-          clearHoldTimer();
-          startIndexRef.current = index;
-          lastTargetIndexRef.current = index;
-          setIsDragArmed(true);
-          setIsDragging(true);
-          onDragStateChange(true);
-        },
-        onPanResponderMove: (_event, gesture) => {
-          if (!active) {
-            return;
-          }
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: shouldStartReorder,
+      onMoveShouldSetPanResponderCapture: shouldStartReorder,
+      onPanResponderGrant: () => {
+        clearHoldTimer();
+        startIndexRef.current = index;
+        lastTargetIndexRef.current = index;
+        setIsDragArmed(true);
+        setIsDragging(true);
+        onDragStateChange(true);
+      },
+      onPanResponderMove: (_event, gesture) => {
+        if (!active) {
+          return;
+        }
 
-          const targetIndex = clampIndex(
-            startIndexRef.current +
-              Math.round(gesture.dy / CUSTOMIZE_ROW_REORDER_HEIGHT),
-            rowCount
-          );
+        const targetIndex = clampIndex(
+          startIndexRef.current +
+            Math.round(gesture.dy / CUSTOMIZE_ROW_REORDER_HEIGHT),
+          rowCount,
+        );
 
-          if (targetIndex !== lastTargetIndexRef.current) {
-            onMove(lastTargetIndexRef.current, targetIndex);
-            lastTargetIndexRef.current = targetIndex;
-          }
-        },
-        onPanResponderRelease: releaseDragState,
-        onPanResponderTerminate: releaseDragState,
-        onPanResponderTerminationRequest: () => false,
-        onShouldBlockNativeResponder: () => true
-      })
-      );
-    },
-    [active, index, isDragArmed, onDragStateChange, onMove, rowCount]
-  );
+        if (targetIndex !== lastTargetIndexRef.current) {
+          onMove(lastTargetIndexRef.current, targetIndex);
+          lastTargetIndexRef.current = targetIndex;
+        }
+      },
+      onPanResponderRelease: releaseDragState,
+      onPanResponderTerminate: releaseDragState,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+    });
+  }, [active, index, isDragArmed, onDragStateChange, onMove, rowCount]);
   const rowContent = (
     <>
       <View
-        style={[
-          styles.dragHandle,
-          active ? null : styles.dragHandleInactive
-        ]}
+        style={[styles.dragHandle, active ? null : styles.dragHandleInactive]}
       >
         <GripVertical
           color={active ? colors.muted : "rgba(160, 164, 175, 0.42)"}
@@ -1117,7 +1127,7 @@ function CustomizeRow({
         numberOfLines={1}
         style={[
           styles.customizeRowLabel,
-          active ? null : styles.customizeRowLabelInactive
+          active ? null : styles.customizeRowLabelInactive,
         ]}
       >
         {label}
@@ -1130,7 +1140,7 @@ function CustomizeRow({
           hitSlop={10}
           style={({ pressed }) => [
             styles.removeButton,
-            pressed ? styles.pressed : null
+            pressed ? styles.pressed : null,
           ]}
         >
           <X color={colors.muted} size={16} />
@@ -1150,7 +1160,7 @@ function CustomizeRow({
         onTouchStart={handleTouchStart}
         style={[
           styles.customizeRow,
-          isDragArmed || isDragging ? styles.customizeRowDragging : null
+          isDragArmed || isDragging ? styles.customizeRowDragging : null,
         ]}
       >
         {rowContent}
@@ -1169,7 +1179,7 @@ function CustomizeRow({
       style={({ pressed }) => [
         styles.customizeRow,
         active ? null : styles.customizeRowInactive,
-        pressed ? styles.pressed : null
+        pressed ? styles.pressed : null,
       ]}
     >
       {rowContent}
@@ -1180,7 +1190,7 @@ function CustomizeRow({
 function SegmentedControl<T extends string>({
   onChange,
   options,
-  value
+  value,
 }: {
   onChange: (value: T) => void;
   options: Array<{ key: T; label: string }>;
@@ -1195,13 +1205,13 @@ function SegmentedControl<T extends string>({
           onPress={() => onChange(option.key)}
           style={[
             styles.segment,
-            value === option.key ? styles.segmentActive : null
+            value === option.key ? styles.segmentActive : null,
           ]}
         >
           <Text
             style={[
               styles.segmentText,
-              value === option.key ? styles.segmentTextActive : null
+              value === option.key ? styles.segmentTextActive : null,
             ]}
           >
             {option.label}
@@ -1220,19 +1230,19 @@ function normalizeDashboardLayout(value: unknown): DashboardLayoutConfig {
   const record = objectRecord(value);
   const legacyWidgets = [
     ...arrayValue(record.middle),
-    ...arrayValue(record.bottom)
+    ...arrayValue(record.bottom),
   ];
   const metricOrder = normalizeOrder(
     arrayValue(record.metricOrder).length
       ? arrayValue(record.metricOrder)
       : [...arrayValue(record.top), ...DEFAULT_METRIC_ORDER],
-    DEFAULT_METRIC_ORDER
+    DEFAULT_METRIC_ORDER,
   );
   const widgetOrder = normalizeOrder(
     arrayValue(record.widgetOrder).length
       ? arrayValue(record.widgetOrder)
       : [...legacyWidgets, ...DEFAULT_WIDGET_ORDER],
-    DEFAULT_WIDGET_ORDER
+    DEFAULT_WIDGET_ORDER,
   );
 
   return {
@@ -1241,18 +1251,18 @@ function normalizeDashboardLayout(value: unknown): DashboardLayoutConfig {
         ? arrayValue(record.activeMetrics)
         : arrayValue(record.top),
       metricOrder,
-      DEFAULT_LAYOUT.activeMetrics
+      DEFAULT_LAYOUT.activeMetrics,
     ),
     activeWidgets: normalizeActiveKeys(
       arrayValue(record.activeWidgets).length
         ? arrayValue(record.activeWidgets)
         : legacyWidgets,
       widgetOrder,
-      DEFAULT_LAYOUT.activeWidgets
+      DEFAULT_LAYOUT.activeWidgets,
     ),
     defaultTimeframe: normalizeTimeframe(record.defaultTimeframe),
     metricOrder,
-    widgetOrder
+    widgetOrder,
   };
 }
 
@@ -1281,7 +1291,7 @@ function normalizeOrder<T extends string>(row: unknown[], availableKeys: T[]) {
 function normalizeActiveKeys<T extends string>(
   row: unknown[],
   order: T[],
-  fallback: T[]
+  fallback: T[],
 ) {
   const active = uniqueKeys(row, order);
 
@@ -1350,7 +1360,7 @@ function clampIndex(index: number, rowCount: number) {
 function shiftCalendarAnchor(
   date: Date,
   view: MobileCalendarView,
-  direction: -1 | 1
+  direction: -1 | 1,
 ) {
   if (view === "day") {
     return addDays(date, direction);
@@ -1369,10 +1379,12 @@ function dashboardMonthCells(anchor: Date) {
   const lastGridDay = addDays(startOfWeek(lastDayOfMonth), 6);
   const totalDays =
     Math.round(
-      (lastGridDay.getTime() - firstDay.getTime()) / (24 * 60 * 60 * 1000)
+      (lastGridDay.getTime() - firstDay.getTime()) / (24 * 60 * 60 * 1000),
     ) + 1;
 
-  return Array.from({ length: totalDays }, (_, index) => addDays(firstDay, index));
+  return Array.from({ length: totalDays }, (_, index) =>
+    addDays(firstDay, index),
+  );
 }
 
 function dashboardChunkWeeks(days: Date[]) {
@@ -1411,7 +1423,10 @@ function startOfTimeframe(timeframe: DashboardTimeframe) {
   return start;
 }
 
-function isInsideTimeframe(value: string | null, timeframe: DashboardTimeframe) {
+function isInsideTimeframe(
+  value: string | null,
+  timeframe: DashboardTimeframe,
+) {
   if (!value) {
     return timeframe === "year";
   }
@@ -1427,23 +1442,27 @@ function isInsideTimeframe(value: string | null, timeframe: DashboardTimeframe) 
 
 function timeFilteredQueue(
   items: MobileDashboardWorkQueueItem[],
-  timeframe: DashboardTimeframe
+  timeframe: DashboardTimeframe,
 ) {
-  return items.filter((item) => isInsideTimeframe(item.lastMessageAt, timeframe));
+  return items.filter((item) =>
+    isInsideTimeframe(item.lastMessageAt, timeframe),
+  );
 }
 
 function timeFilteredActivity(
   items: MobileDashboardActivityItem[],
-  timeframe: DashboardTimeframe
+  timeframe: DashboardTimeframe,
 ) {
   return items.filter((item) => isInsideTimeframe(item.at, timeframe));
 }
 
 function timeFilteredContacts(
   items: MobileDashboardContactSummary[],
-  timeframe: DashboardTimeframe
+  timeframe: DashboardTimeframe,
 ) {
-  return items.filter((item) => isInsideTimeframe(item.lastMessageAt, timeframe));
+  return items.filter((item) =>
+    isInsideTimeframe(item.lastMessageAt, timeframe),
+  );
 }
 
 function formatCount(value: number) {
@@ -1455,12 +1474,15 @@ function formatCurrency(value: number, currency: string) {
     currency,
     maximumFractionDigits: 2,
     minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    style: "currency"
+    style: "currency",
   }).format(value);
 }
 
 function formatCurrencyFromCents(value: number, currency: string) {
-  return formatCurrency((Number.isFinite(value) ? value : 0) / 100, currency || "AUD");
+  return formatCurrency(
+    (Number.isFinite(value) ? value : 0) / 100,
+    currency || "AUD",
+  );
 }
 
 function formatRelativeTime(value: string | null) {
@@ -1474,7 +1496,10 @@ function formatRelativeTime(value: string | null) {
     return "";
   }
 
-  const diffMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  const diffMinutes = Math.max(
+    0,
+    Math.round((Date.now() - date.getTime()) / 60000),
+  );
 
   if (diffMinutes < 1) {
     return "Now";
@@ -1510,21 +1535,21 @@ const toneStyles: Record<Tone, { color: string }> = {
   cyan: { color: colors.cyan },
   pink: { color: colors.pink },
   purple: { color: colors.purple },
-  success: { color: colors.green }
+  success: { color: colors.green },
 };
 
 const styles = StyleSheet.create({
   activityDot: {
     borderRadius: radii.pill,
     height: 9,
-    width: 9
+    width: 9,
   },
   calendarNudge: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   calendarOpenButton: {
     alignItems: "center",
@@ -1533,14 +1558,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     minHeight: 32,
     justifyContent: "center",
-    paddingHorizontal: 12
+    paddingHorizontal: 12,
   },
   calendarOpenButtonText: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   calendarRangeLabel: {
     color: colors.text,
@@ -1548,25 +1573,25 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "900",
-    textAlign: "center"
+    textAlign: "center",
   },
   calendarRangeRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   calendarWidget: {
-    gap: 10
+    gap: 10,
   },
   calendarWidgetTop: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   compactWidget: {
-    minHeight: 154
+    minHeight: 154,
   },
   customizeButton: {
     alignItems: "center",
@@ -1575,42 +1600,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: "center",
     minHeight: 36,
-    paddingHorizontal: 13
+    paddingHorizontal: 13,
   },
   customizeButtonActive: {
     backgroundColor: colors.surfaceStrong,
-    borderColor: colors.surfaceStrong
+    borderColor: colors.surfaceStrong,
   },
   customizeButtonText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   customizeButtonTextActive: {
-    color: colors.background
+    color: colors.background,
   },
   customizePanel: {
     gap: 12,
-    padding: 12
+    padding: 12,
   },
   customizePanelCopy: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "700",
-    lineHeight: 17
+    lineHeight: 17,
   },
   customizePanelHeader: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10
+    gap: 10,
   },
   customizePanelTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   customizeRow: {
     alignItems: "center",
@@ -1622,11 +1647,11 @@ const styles = StyleSheet.create({
     gap: 9,
     minHeight: CUSTOMIZE_ROW_REORDER_HEIGHT,
     paddingLeft: 7,
-    paddingRight: 9
+    paddingRight: 9,
   },
   customizeRowInactive: {
     backgroundColor: "rgba(160, 164, 175, 0.06)",
-    borderColor: "rgba(160, 164, 175, 0.16)"
+    borderColor: "rgba(160, 164, 175, 0.16)",
   },
   customizeRowDragging: {
     backgroundColor: "rgba(81, 229, 255, 0.08)",
@@ -1637,53 +1662,53 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 12,
     transform: [{ scale: 1.015 }],
-    zIndex: 10
+    zIndex: 10,
   },
   customizeRowLabel: {
     color: colors.text,
     flex: 1,
     fontFamily: typography.fontFamily,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   customizeRowLabelInactive: {
-    color: "rgba(160, 164, 175, 0.58)"
+    color: "rgba(160, 164, 175, 0.58)",
   },
   customizeRows: {
-    gap: 6
+    gap: 6,
   },
   customizeSection: {
-    gap: 7
+    gap: 7,
   },
   customizeSectionTitle: {
     color: colors.cyan,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   dragHandle: {
     alignItems: "center",
     borderRadius: radii.sm,
     justifyContent: "center",
     minHeight: 30,
-    width: 28
+    width: 28,
   },
   dragHandleInactive: {
-    opacity: 0.5
+    opacity: 0.5,
   },
   emptyText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "700",
-    lineHeight: 19
+    lineHeight: 19,
   },
   inactiveText: {
     color: "rgba(160, 164, 175, 0.72)",
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   kpiCard: {
     backgroundColor: colors.surface,
@@ -1696,12 +1721,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 58,
     paddingHorizontal: 11,
-    paddingVertical: 9
+    paddingVertical: 9,
   },
   kpiGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   kpiLabel: {
     color: colors.text,
@@ -1710,23 +1735,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     lineHeight: 15,
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   kpiLine: {
     alignItems: "baseline",
     flexDirection: "row",
     gap: 8,
-    minWidth: 0
+    minWidth: 0,
   },
   kpiValue: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 24,
     fontWeight: "900",
-    lineHeight: 27
+    lineHeight: 27,
   },
   largeWidget: {
-    minHeight: 286
+    minHeight: 286,
   },
   miniMonthCell: {
     alignItems: "center",
@@ -1736,29 +1761,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flex: 1,
     justifyContent: "center",
-    gap: 3
+    gap: 3,
   },
   miniMonthCellMuted: {
-    opacity: 0.3
+    opacity: 0.3,
   },
   miniMonthDay: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 10,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   miniMonthDot: {
     backgroundColor: colors.pink,
     borderRadius: radii.pill,
     height: 4,
-    width: 4
+    width: 4,
   },
   miniMonthGrid: {
-    gap: 4
+    gap: 4,
   },
   miniMonthRow: {
     flexDirection: "row",
-    gap: 4
+    gap: 4,
   },
   paymentMetricCard: {
     backgroundColor: colors.surface,
@@ -1771,7 +1796,7 @@ const styles = StyleSheet.create({
     gap: 5,
     minHeight: 72,
     paddingHorizontal: 10,
-    paddingVertical: 10
+    paddingVertical: 10,
   },
   paymentMetricLabel: {
     color: colors.muted,
@@ -1780,52 +1805,52 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "900",
     lineHeight: 13,
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   paymentMetricLine: {
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
-    minWidth: 0
+    minWidth: 0,
   },
   paymentMetricMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 10,
     fontWeight: "800",
-    lineHeight: 13
+    lineHeight: 13,
   },
   paymentValue: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 20,
     fontWeight: "900",
-    lineHeight: 23
+    lineHeight: 23,
   },
   paymentsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   placeholderBody: {
     alignItems: "flex-start",
-    gap: 8
+    gap: 8,
   },
   placeholderCopy: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 13,
     fontWeight: "700",
-    lineHeight: 19
+    lineHeight: 19,
   },
   placeholderTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   pressed: {
-    opacity: 0.72
+    opacity: 0.72,
   },
   resetIconButton: {
     alignItems: "center",
@@ -1834,41 +1859,41 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 34,
     justifyContent: "center",
-    width: 34
+    width: 34,
   },
   removeButton: {
     alignItems: "center",
     borderRadius: radii.pill,
     height: 30,
     justifyContent: "center",
-    width: 30
+    width: 30,
   },
   rowCopy: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
     fontWeight: "600",
-    lineHeight: 17
+    lineHeight: 17,
   },
   rowCopyBlock: {
     flex: 1,
     gap: 3,
-    minWidth: 0
+    minWidth: 0,
   },
   rowMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   rowTitle: {
     color: colors.text,
     fontFamily: typography.fontFamily,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   sectionStack: {
-    gap: 10
+    gap: 10,
   },
   segment: {
     alignItems: "center",
@@ -1876,10 +1901,10 @@ const styles = StyleSheet.create({
     minHeight: 32,
     minWidth: 62,
     justifyContent: "center",
-    paddingHorizontal: 10
+    paddingHorizontal: 10,
   },
   segmentActive: {
-    backgroundColor: colors.surfaceStrong
+    backgroundColor: colors.surfaceStrong,
   },
   segmented: {
     backgroundColor: colors.surface,
@@ -1887,16 +1912,16 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
-    padding: 3
+    padding: 3,
   },
   segmentText: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "900",
   },
   segmentTextActive: {
-    color: colors.background
+    color: colors.background,
   },
   simpleRow: {
     alignItems: "center",
@@ -1905,23 +1930,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 50,
-    paddingBottom: 9
+    paddingBottom: 9,
   },
   toolbar: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   widgetList: {
-    gap: 10
+    gap: 10,
   },
   widgetMeta: {
     color: colors.muted,
     fontFamily: typography.fontFamily,
     fontSize: 11,
     fontWeight: "900",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
-
 });

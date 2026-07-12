@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   CalendarDays,
   ChevronLeft,
@@ -76,10 +76,16 @@ type CalendarEditorState = {
 
 export default function CalendarScreen() {
   const { session, status } = useAuthSession();
+  const params = useLocalSearchParams<{
+    eventDate?: string | string[];
+    eventId?: string | string[];
+  }>();
   const queryClient = useQueryClient();
   const [anchor, setAnchor] = useState(() => new Date());
   const [view, setView] = useState<MobileCalendarView>("day");
   const [editor, setEditor] = useState<CalendarEditorState>(null);
+  const requestedEventDate = singleParam(params.eventDate);
+  const requestedEventId = singleParam(params.eventId);
   const queryRange = useMemo(() => {
     const from = startOfWeek(startOfMonth(anchor));
     const to = addDays(startOfWeek(addMonths(anchor, 2)), 7);
@@ -168,6 +174,37 @@ export default function CalendarScreen() {
 
     return new Date(event.startsAt).getTime() >= Date.now();
   }).length;
+
+  useEffect(() => {
+    if (!requestedEventDate || editor) {
+      return;
+    }
+
+    const date = new Date(requestedEventDate);
+
+    if (Number.isNaN(date.getTime())) {
+      return;
+    }
+
+    setAnchor((current) =>
+      formatDateParam(current) === formatDateParam(date) ? current : date,
+    );
+  }, [editor, requestedEventDate]);
+
+  useEffect(() => {
+    if (!requestedEventId || editor || !calendar.data) {
+      return;
+    }
+
+    const event = events.find((item) => item.id === requestedEventId);
+
+    if (!event) {
+      return;
+    }
+
+    setEditor({ event, mode: "edit" });
+    router.setParams({ eventDate: undefined, eventId: undefined });
+  }, [calendar.data, editor, events, requestedEventId]);
 
   if (editor) {
     return (
@@ -1307,6 +1344,10 @@ function syncDescription(event: MobileCalendarEvent) {
   }
 
   return "Kyro calendar event.";
+}
+
+function singleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function shiftAnchor(date: Date, view: MobileCalendarView, direction: -1 | 1) {
