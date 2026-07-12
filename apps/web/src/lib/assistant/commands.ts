@@ -2819,6 +2819,7 @@ const CALENDAR_MONTHS = new Map([
 
 const CALENDAR_LOOKUP_PAST_DAYS = 180;
 const CALENDAR_LOOKUP_FUTURE_DAYS = 365;
+const CALENDAR_IMPLICIT_CONTEXT_WINDOW_MS = 30 * 60 * 1000;
 
 type CalendarLocalDateParts = {
   day: number;
@@ -3378,37 +3379,121 @@ function resolveCalendarContact(prompt: string, contacts: ContactListItem[]) {
   );
 }
 
+function assistantLinksFromMessage(message: AssistantRecentMessage) {
+  return [
+    ...(message.links ?? []).slice().reverse(),
+    ...(message.uiBlocks ?? []).flatMap((block) => {
+      if (block.type === "link_cards") {
+        return block.links.slice().reverse();
+      }
+
+      if (block.type === "summary_cards") {
+        return block.cards
+          .filter((card) => card.href)
+          .map((card) =>
+            rowLink(
+              card.label,
+              card.href as string,
+              card.detail ?? card.value,
+            ),
+          );
+      }
+
+      if (block.type === "timeline") {
+        return block.items
+          .filter((item) => item.href)
+          .map((item) => rowLink(item.label, item.href as string, item.detail));
+      }
+
+      return [];
+    }),
+  ];
+}
+
 function recentAssistantLinks(recentMessages: AssistantRecentMessage[]) {
   return [...recentMessages]
     .reverse()
-    .flatMap((message) => [
-      ...(message.links ?? []).slice().reverse(),
-      ...(message.uiBlocks ?? []).flatMap((block) => {
-        if (block.type === "link_cards") {
-          return block.links.slice().reverse();
-        }
+    .flatMap((message) => assistantLinksFromMessage(message));
+}
 
-        if (block.type === "summary_cards") {
-          return block.cards
-            .filter((card) => card.href)
-            .map((card) =>
-              rowLink(
-                card.label,
-                card.href as string,
-                card.detail ?? card.value,
-              ),
-            );
-        }
+function messageCreatedAtMs(message: AssistantRecentMessage) {
+  const createdAt = textValue(message.createdAt);
 
-        if (block.type === "timeline") {
-          return block.items
-            .filter((item) => item.href)
-            .map((item) => rowLink(item.label, item.href as string, item.detail));
-        }
+  if (!createdAt) {
+    return null;
+  }
 
-        return [];
-      }),
-    ]);
+  const timestamp = Date.parse(createdAt);
+
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function latestRecentMessageTimeMs(
+  recentMessages: readonly AssistantRecentMessage[],
+) {
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const timestamp = messageCreatedAtMs(recentMessages[index]);
+
+    if (timestamp !== null) {
+      return timestamp;
+    }
+  }
+
+  return null;
+}
+
+function isFreshImplicitCalendarContext(
+  message: AssistantRecentMessage,
+  referenceTimeMs: number,
+) {
+  const timestamp = messageCreatedAtMs(message);
+
+  if (timestamp === null) {
+    return false;
+  }
+
+  return (
+    timestamp <= referenceTimeMs + 60_000 &&
+    referenceTimeMs - timestamp <= CALENDAR_IMPLICIT_CONTEXT_WINDOW_MS
+  );
+}
+
+export function calendarConversationReferenceFromRecentMessages(
+  recentMessages: readonly AssistantRecentMessage[],
+  {
+    nowMs = Date.now(),
+    requireFresh = true,
+  }: {
+    nowMs?: number;
+    requireFresh?: boolean;
+  } = {},
+) {
+  const referenceTimeMs = latestRecentMessageTimeMs(recentMessages) ?? nowMs;
+
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+
+    if (
+      requireFresh &&
+      !isFreshImplicitCalendarContext(message, referenceTimeMs)
+    ) {
+      continue;
+    }
+
+    for (const link of assistantLinksFromMessage(message)) {
+      const conversationId = calendarConversationIdFromHref(link.href);
+
+      if (conversationId) {
+        return {
+          conversationId,
+          createdAt: textValue(message.createdAt),
+          label: link.label,
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 function calendarEventIdFromHref(href: string) {
@@ -3442,16 +3527,6 @@ function latestCalendarLink(recentMessages: AssistantRecentMessage[]) {
   return recentAssistantLinks(recentMessages).find((link) =>
     link.href.startsWith("/calendar"),
   );
-}
-
-function latestConversationIdFromMessages(
-  recentMessages: AssistantRecentMessage[],
-) {
-  const link = recentAssistantLinks(recentMessages).find((candidate) =>
-    Boolean(calendarConversationIdFromHref(candidate.href)),
-  );
-
-  return link ? calendarConversationIdFromHref(link.href) : null;
 }
 
 export function calendarLinkIntentFromPrompt(prompt: string) {
@@ -3721,17 +3796,52 @@ async function calendarLinkedContext({
   const explicitContact = linkIntent.allowNamedContact
     ? resolveCalendarContact(prompt, contacts)
     : null;
-  const conversationId =
+  const freshConversationReference =
     explicitContact?.id || !linkIntent.allowRecentConversation
       ? null
-      : latestConversationIdFromMessages(recentMessages);
+      : calendarConversationReferenceFromRecentMessages(recentMessages, {
+          requireFresh: true,
+        });
+  const staleConversationReference =
+    explicitContact?.id ||
+    !linkIntent.allowRecentConversation ||
+    freshConversationReference
+      ? null
+      : calendarConversationReferenceFromRecentMessages(recentMessages, {
+          requireFresh: false,
+        });
+  const conversationId =
+    freshConversationReference?.conversationId ?? null;
 
   if (!explicitContact && !conversationId) {
+    if (staleConversationReference) {
+      const staleLinked = await resolveCalendarLinkedEntities({
+        contactId: null,
+        conversationId: staleConversationReference.conversationId,
+        leadId: null,
+        supabase,
+        workspaceId,
+      });
+      const suggestedContact =
+        contacts.find((item) => item.id === staleLinked.contactId) ?? null;
+
+      return {
+        contact: null,
+        contactId: null,
+        conversationId: null,
+        leadId: null,
+        skippedLinkReason: "stale_context" as const,
+        suggestedContact,
+      };
+    }
+
     return {
       contact: null,
       contactId: null,
       conversationId: null,
       leadId: null,
+      skippedLinkReason: null,
+      suggestedContact: null,
     };
   }
 
@@ -3752,7 +3862,18 @@ async function calendarLinkedContext({
     contactId: linked.contactId,
     conversationId,
     leadId: linked.leadId,
+    skippedLinkReason: null,
+    suggestedContact: null,
   };
+}
+
+function calendarContactDisplayName(contact: ContactListItem | null) {
+  return (
+    textValue(contact?.name) ??
+    textValue(contact?.company) ??
+    textValue(contact?.email) ??
+    "that contact"
+  );
 }
 
 function eventDurationMinutes(event: CalendarEventItem, fallback: number) {
@@ -3861,6 +3982,12 @@ async function calendarCommand({
         : scheduled?.assumedMeridiem === "am"
           ? " I treated that as AM."
           : "";
+    const suggestedContactQuestion =
+      linked.skippedLinkReason === "stale_context" && linked.suggestedContact
+        ? ` Should I link it to ${calendarContactDisplayName(
+            linked.suggestedContact,
+          )}?`
+        : "";
 
     return {
       context: {
@@ -3870,13 +3997,18 @@ async function calendarCommand({
         externalSyncStatus: "attempted_if_connected",
         leadId: linked.leadId,
         scheduled,
+        skippedLinkReason: linked.skippedLinkReason,
+        suggestedContactId: linked.suggestedContact?.id ?? null,
+        suggestedContactName: linked.suggestedContact
+          ? calendarContactDisplayName(linked.suggestedContact)
+          : null,
         title,
       },
       fallbackAnswer: scheduled?.startsAt
         ? `I created ${title} for ${assistantDate(
             scheduled.startsAt,
-          )}.${assumedTime}`
-        : `I created ${title} as a suggested calendar event. Open it to set the exact time.`,
+          )}.${assumedTime}${suggestedContactQuestion}`
+        : `I created ${title} as a suggested calendar event. Open it to set the exact time.${suggestedContactQuestion}`,
       intent: "calendar_event",
       links: [link],
       mutation: {

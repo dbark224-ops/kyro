@@ -150,7 +150,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     description:
-      "Show, create, open, or manage Kyro calendar events, quote visits, appointments, jobs, or site visits. Use this for scheduling requests before guessing from general chat. For create requests, infer a succinct real-world event title such as 'Meeting with Starbucks', not generic app wording such as 'Calendar event for...'. Do not attach CRM contact, lead, or conversation context unless the user explicitly asks to link, attach, or associate the event.",
+      "Show, create, open, or manage Kyro calendar events, quote visits, appointments, jobs, or site visits. Use this for scheduling requests before guessing from general chat. For create requests, infer a succinct real-world event title such as 'Meeting with Starbucks', not generic app wording such as 'Calendar event for...'. Do not attach CRM contact, lead, or conversation context unless the user explicitly asks to link, attach, or associate the event. Treat old thread context as background only; never add current-customer/contact wording from stale chat history.",
     name: "calendar_event",
   },
   {
@@ -292,6 +292,7 @@ function recentContextForPlanning(
           }))
         : [],
     ),
+    createdAt: message.createdAt ?? null,
     intent: message.intent ?? null,
     role: message.role,
   }));
@@ -322,7 +323,7 @@ function toolSchema(tool: ToolDefinition) {
         prompt: {
           description:
             tool.name === "calendar_event"
-              ? "The concise calendar instruction to pass to Kyro. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, location, and job details. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am'."
+              ? "The concise calendar instruction to pass to Kyro. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, location, and job details. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation in the current prompt. Do not add this/current customer wording from stale recentMessages. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am'."
               : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
           type: "string",
         },
@@ -461,12 +462,13 @@ export async function planAssistantToolCall({
           "Call exactly one Kyro tool only when tool-backed app state, files, documents, images, settings, email sync, usage, CRM records, or outbound actions are needed.",
           "For normal conversation, jokes, opinions, broad reasoning, or casual chat, do not call a tool.",
           "Use compactedContext for continuity. If the user asks about older assistant chat history, what was discussed before, or where an older generated/saved thing went and recentMessages are insufficient, call kyro_history_search.",
-        "Use recentMessages to understand follow-ups. If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
-        "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
-        "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",
-        "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
-        "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
-      ].join(" "),
+          "Use recentMessages to understand immediate follow-ups, but only treat them as live intent when the relevant message is from roughly the last 30 minutes. Older messages are background and must not create implicit CRM/contact/calendar associations.",
+          "If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
+          "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
+          "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",
+          "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
+          "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
+        ].join(" "),
         max_output_tokens: 180,
         model: route.model,
         parallel_tool_calls: false,

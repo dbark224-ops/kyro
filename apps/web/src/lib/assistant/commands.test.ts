@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
+  calendarConversationReferenceFromRecentMessages,
   calendarLinkIntentFromPrompt,
   cleanCalendarTitle,
   documentTemplateControlIntent,
@@ -434,6 +435,54 @@ describe("assistant calendar helpers", () => {
         allowNamedContact: false,
         allowRecentConversation: true,
       },
+    );
+  });
+
+  it("only treats fresh conversation cards as implicit calendar context", () => {
+    const conversationCard: AssistantRecentMessage = {
+      content: "Here is the current inquiry.",
+      createdAt: "2026-07-12T10:00:00.000Z",
+      role: "assistant",
+      uiBlocks: [
+        {
+          links: [
+            {
+              href: "/inbox/conversation-1",
+              label: "David Barker",
+            },
+          ],
+          title: "Inquiry",
+          type: "link_cards",
+        },
+      ],
+    };
+
+    assert.deepEqual(
+      calendarConversationReferenceFromRecentMessages([
+        conversationCard,
+        {
+          content: "Book this customer for tomorrow at 10am",
+          createdAt: "2026-07-12T10:20:00.000Z",
+          role: "user",
+        },
+      ]),
+      {
+        conversationId: "conversation-1",
+        createdAt: "2026-07-12T10:00:00.000Z",
+        label: "David Barker",
+      },
+    );
+
+    assert.equal(
+      calendarConversationReferenceFromRecentMessages([
+        conversationCard,
+        {
+          content: "Book this customer for tomorrow at 10am",
+          createdAt: "2026-07-12T12:00:00.000Z",
+          role: "user",
+        },
+      ]),
+      null,
     );
   });
 
