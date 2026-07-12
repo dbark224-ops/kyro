@@ -269,21 +269,22 @@
 }
 
 .eventCardPrimary {
-  align-items: baseline;
-  display: flex;
-  gap: 6px;
+  display: block;
   min-width: 0;
 }
 
 .eventCardPrimary time {
   color: var(--muted);
-  flex: 0 0 auto;
+  display: inline-block;
   font-size: 0.65rem;
   font-weight: 900;
+  margin-right: 6px;
+  vertical-align: baseline;
   white-space: nowrap;
 }
 
 .eventCardPrimary strong {
+  display: inline;
   font-size: 0.74rem;
   line-height: 1.2;
   min-width: 0;
@@ -298,7 +299,13 @@
   gap: 5px;
 }
 
+.eventCard[data-condensed="true"] .eventCardPrimary time {
+  flex: 0 0 auto;
+  margin-right: 0;
+}
+
 .eventCard[data-condensed="true"] .eventCardPrimary strong {
+  display: block;
   flex: 1 1 auto;
   overflow-wrap: normal;
   text-overflow: ellipsis;
