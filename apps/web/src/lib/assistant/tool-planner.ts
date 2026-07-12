@@ -150,7 +150,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     description:
-      "Show, create, open, or manage Kyro calendar events, quote visits, appointments, jobs, or site visits. Use this for scheduling requests before guessing from general chat.",
+      "Show, create, open, or manage Kyro calendar events, quote visits, appointments, jobs, or site visits. Use this for scheduling requests before guessing from general chat. For create requests, infer a succinct real-world event title such as 'Meeting with Starbucks', not generic app wording such as 'Calendar event for...'.",
     name: "calendar_event",
   },
   {
@@ -321,7 +321,9 @@ function toolSchema(tool: ToolDefinition) {
         },
         prompt: {
           description:
-            "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
+            tool.name === "calendar_event"
+              ? "The concise calendar instruction to pass to Kyro. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, contact, location, and job details. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am'."
+              : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
           type: "string",
         },
         reason: {

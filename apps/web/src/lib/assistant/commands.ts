@@ -2910,31 +2910,111 @@ function inferCalendarEventType(prompt: string) {
   return null;
 }
 
-function cleanCalendarTitle(prompt: string, contact: ContactListItem | null) {
-  const stripped = prompt
-    .replace(
-      /^\s*(please\s+)?(can you\s+)?(add|create|book|schedule|put|make)\s+(a|an|the)?\s*/i,
-      "",
-    )
-    .replace(/\s+/g, " ")
-    .trim();
-  const withoutTrailingTiming = stripped
-    .replace(/\b(today|tomorrow)\b.*$/i, "")
-    .replace(
-      /\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*$/i,
-      "",
-    )
-    .replace(/\bon\s+\d{4}-\d{1,2}-\d{1,2}\b.*$/i, "")
-    .trim();
+const CALENDAR_TITLE_WEEKDAY =
+  "(?:mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)";
+const CALENDAR_TITLE_MONTH =
+  "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
 
-  if (withoutTrailingTiming.length >= 4) {
-    return withoutTrailingTiming.slice(0, 90);
+function stripCalendarTitleTiming(value: string) {
+  return value
+    .replace(new RegExp(`\\s+\\b(?:on|for)?\\s*(?:this|next)?\\s*${CALENDAR_TITLE_WEEKDAY}\\b.*$`, "i"), "")
+    .replace(new RegExp(`\\s+\\b(?:on|for)?\\s*${CALENDAR_TITLE_MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b.*$`, "i"), "")
+    .replace(/\s+\b(?:on|for)\s+\d{4}-\d{1,2}-\d{1,2}\b.*$/i, "")
+    .replace(/\s+\b(?:today|tomorrow)\b.*$/i, "")
+    .replace(/\s+\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?\b.*$/i, "")
+    .trim();
+}
+
+function isGenericCalendarTitle(value: string) {
+  const text = normalized(value);
+
+  return (
+    !/[a-z]/i.test(value) ||
+    /^(calendar )?(event|appointment|booking|entry|calendar entry|reminder)( in (the|my) calendar)?$/.test(
+      text,
+    )
+  );
+}
+
+function sentenceCaseCalendarTitle(value: string) {
+  const title = value.replace(/\s+/g, " ").trim();
+
+  if (!title) {
+    return title;
   }
 
+  return `${title.charAt(0).toUpperCase()}${title.slice(1)}`;
+}
+
+function fallbackCalendarTitle(prompt: string, contact: ContactListItem | null) {
   const contactName =
     contact?.name ?? contact?.company ?? contact?.email ?? contact?.phone;
 
-  return contactName ? `Appointment for ${contactName}` : "Kyro appointment";
+  if (!contactName) {
+    return "Kyro appointment";
+  }
+
+  const text = normalized(prompt);
+
+  if (/\b(quote|estimate|pricing|price|bid)\b/.test(text)) {
+    return `Quote visit with ${contactName}`;
+  }
+
+  if (/\b(site|inspect|inspection)\b/.test(text)) {
+    return `Site visit with ${contactName}`;
+  }
+
+  if (/\b(meet|meeting)\b/.test(text)) {
+    return `Meeting with ${contactName}`;
+  }
+
+  if (/\b(follow up|follow-up|callback|call back)\b/.test(text)) {
+    return `Follow-up with ${contactName}`;
+  }
+
+  return `Appointment with ${contactName}`;
+}
+
+export function cleanCalendarTitle(
+  prompt: string,
+  contact: ContactListItem | null,
+) {
+  let candidate = prompt.replace(/\s+/g, " ").trim();
+
+  candidate = candidate
+    .replace(/^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?/i, "")
+    .replace(
+      /^\s*(?:add|create|book|schedule|put|make|set\s+up|setup)\s+(?:the|an|a)?\s*/i,
+      "",
+    )
+    .trim();
+
+  for (let index = 0; index < 4; index += 1) {
+    const next = candidate
+      .replace(
+        /^\s*(?:(?:calendar\s+)?event|appointment|booking|calendar entry)\s+(?:for|called|named|titled|about|with)?\s+(?:the|an|a)?\s*/i,
+        "",
+      )
+      .replace(/^\s*(?:for|called|named|titled|about)\s+(?:the|an|a)?\s*/i, "")
+      .trim();
+
+    if (next === candidate) {
+      break;
+    }
+
+    candidate = next;
+  }
+
+  candidate = stripCalendarTitleTiming(candidate)
+    .replace(/^\s*(?:the|an|a)\s+/i, "")
+    .replace(/\s*[-,;:]\s*$/g, "")
+    .trim();
+
+  if (candidate.length >= 4 && !isGenericCalendarTitle(candidate)) {
+    return sentenceCaseCalendarTitle(candidate).slice(0, 90);
+  }
+
+  return fallbackCalendarTitle(prompt, contact);
 }
 
 function safeTimeZone(value: string | null | undefined) {

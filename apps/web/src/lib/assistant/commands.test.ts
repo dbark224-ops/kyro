@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
+  cleanCalendarTitle,
   documentTemplateControlIntent,
   looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
@@ -388,6 +389,40 @@ describe("assistant generated image follow-up helpers", () => {
 });
 
 describe("assistant calendar helpers", () => {
+  it("cleans command wording from assistant-created calendar titles", () => {
+    assert.equal(
+      cleanCalendarTitle(
+        "can you create an event for a meeting with Starbucks on Friday at 10am",
+        null,
+      ),
+      "Meeting with Starbucks",
+    );
+    assert.equal(
+      cleanCalendarTitle(
+        "please schedule a quote visit with David next Tuesday at 2pm",
+        null,
+      ),
+      "Quote visit with David",
+    );
+    assert.equal(
+      cleanCalendarTitle(
+        "book a site inspection for Jane on July 14 2026 at 2pm",
+        null,
+      ),
+      "Site inspection for Jane",
+    );
+  });
+
+  it("falls back to the linked contact when the prompt only contains generic calendar words", () => {
+    assert.equal(
+      cleanCalendarTitle(
+        "put an appointment in the calendar tomorrow at 10am",
+        contact({ name: "Daryl" }),
+      ),
+      "Appointment with Daryl",
+    );
+  });
+
   it("parses explicit local calendar dates in the workspace timezone", () => {
     const parsed = parseAssistantCalendarTime(
       "Add a quote visit on July 14 2026 at 2pm",
