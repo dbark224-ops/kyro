@@ -198,6 +198,9 @@ export async function runAssistantTurn({
   const commandHasGeneratedImageBlock = commandUiBlocks.some(
     (block) => block.type === "generated_image",
   );
+  const commandHasLinkCardsBlock = commandUiBlocks.some(
+    (block) => block.type === "link_cards",
+  );
   const assistantContent = commandHasGeneratedImageBlock
     ? command.fallbackAnswer
     : modelOutput.text;
@@ -401,7 +404,7 @@ export async function runAssistantTurn({
     toolCalls,
     uiBlocks: [
       ...commandUiBlocks,
-      ...(commandHasGeneratedImageBlock
+      ...(commandHasGeneratedImageBlock || commandHasLinkCardsBlock
         ? []
         : linkCardsBlock(command.title, command.links)),
       ...linkCardsBlock("Web sources", webSourceLinks),

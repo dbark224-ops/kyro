@@ -474,12 +474,20 @@
 }
 
 .timelineEvent[data-compact="true"] {
+  align-content: center;
   padding: 5px 6px;
 }
 
 .timelineEventTop {
   display: block;
   min-width: 0;
+}
+
+.timelineEvent[data-compact="true"] .timelineEventTop {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  min-height: 100%;
 }
 
 .timelineEventTop time {
@@ -492,6 +500,10 @@
   white-space: nowrap;
 }
 
+.timelineEvent[data-compact="true"] .timelineEventTop time {
+  margin-right: 0;
+}
+
 .timelineEventTop strong {
   display: inline;
   font-size: 0.7rem;
@@ -500,6 +512,13 @@
   overflow: hidden;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.timelineEvent[data-compact="true"] .timelineEventTop strong {
+  display: -webkit-box;
+  flex: 1 1 auto;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .timelineEvent span:not(.timelineEventTop) {
