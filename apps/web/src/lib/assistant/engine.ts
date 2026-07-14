@@ -201,7 +201,10 @@ export async function runAssistantTurn({
   const commandHasLinkCardsBlock = commandUiBlocks.some(
     (block) => block.type === "link_cards",
   );
-  const assistantContent = commandHasGeneratedImageBlock
+  const commandNeedsExactMutationAnswer =
+    command.intent === "calendar_event" && Boolean(command.mutation);
+  const assistantContent =
+    commandHasGeneratedImageBlock || commandNeedsExactMutationAnswer
     ? command.fallbackAnswer
     : modelOutput.text;
   const toolCalls = [

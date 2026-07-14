@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
+  assistantDate,
   calendarConversationReferenceFromRecentMessages,
   calendarLinkIntentFromPrompt,
   cleanCalendarTitle,
@@ -581,6 +582,16 @@ describe("assistant calendar helpers", () => {
     assert.equal(parsed?.startsAt, "2026-07-14T20:00:00.000Z");
     assert.equal(parsed?.endsAt, "2026-07-14T21:30:00.000Z");
     assert.equal(parsed?.timeZone, "America/Denver");
+  });
+
+  it("formats assistant calendar confirmations in the workspace timezone", () => {
+    const formatted = assistantDate(
+      "2026-08-03T15:00:00.000Z",
+      "America/Denver",
+    );
+
+    assert.match(formatted, /9:00\sAM/);
+    assert.doesNotMatch(formatted, /3:00\sPM/);
   });
 
   it("falls back to the original user prompt when planner cleanup drops calendar timing", () => {

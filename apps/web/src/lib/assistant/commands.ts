@@ -174,18 +174,29 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function assistantDate(value: string | null | undefined) {
+export function assistantDate(
+  value: string | null | undefined,
+  timeZone?: string | null,
+) {
   if (!value) {
     return "an unknown time";
   }
 
-  return new Intl.DateTimeFormat("en", {
+  const safeZone = timeZone ? safeTimeZone(timeZone) : null;
+  const options: Intl.DateTimeFormatOptions = {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(value));
+  };
+
+  if (safeZone) {
+    options.timeZone = safeZone;
+    options.timeZoneName = "short";
+  }
+
+  return new Intl.DateTimeFormat("en", options).format(new Date(value));
 }
 
 function assistantMoney(value: number, currency: string) {
@@ -4062,7 +4073,7 @@ async function calendarCommand({
                   event.title,
                   calendarEventHref(event),
                   event.startsAt
-                    ? assistantDate(event.startsAt)
+                    ? assistantDate(event.startsAt, timeZone)
                     : calendarStatusLabel(event.status),
                 ),
               )
@@ -4077,7 +4088,7 @@ async function calendarCommand({
                     event.title,
                     calendarEventHref(event),
                     event.startsAt
-                      ? assistantDate(event.startsAt)
+                      ? assistantDate(event.startsAt, timeZone)
                       : calendarStatusLabel(event.status),
                   ),
                 ),
@@ -4090,7 +4101,7 @@ async function calendarCommand({
     const link = rowLink(
       event.title,
       calendarEventHref(event),
-      event.startsAt ? assistantDate(event.startsAt) : "Draft",
+      event.startsAt ? assistantDate(event.startsAt, timeZone) : "Draft",
     );
 
     if (event.status !== "suggested") {
@@ -4155,17 +4166,20 @@ async function calendarCommand({
         const recoveredLink = rowLink(
           recoveredTitle,
           calendarEventHrefFromParts(event.id, recoveredStartsAt),
-          assistantDate(recoveredStartsAt),
+          assistantDate(recoveredStartsAt, timeZone),
         );
 
         return {
           context: {
             eventId: event.id,
             scheduledAt: recoveredStartsAt,
+            scheduledAtLocal: assistantDate(recoveredStartsAt, timeZone),
+            workspaceTimeZone: timeZone,
             title: recoveredTitle,
           },
           fallbackAnswer: `I saved ${recoveredTitle} on the calendar for ${assistantDate(
             recoveredStartsAt,
+            timeZone,
           )}.`,
           intent: "calendar_event",
           links: [recoveredLink],
@@ -4220,10 +4234,13 @@ async function calendarCommand({
       context: {
         eventId: event.id,
         scheduledAt: event.startsAt,
+        scheduledAtLocal: assistantDate(event.startsAt, timeZone),
+        workspaceTimeZone: timeZone,
         title: event.title,
       },
       fallbackAnswer: `I saved ${event.title} on the calendar for ${assistantDate(
         event.startsAt,
+        timeZone,
       )}.`,
       intent: "calendar_event",
       links: [link],
@@ -4276,7 +4293,7 @@ async function calendarCommand({
       title,
       href,
       scheduled?.startsAt
-        ? `${assistantDate(scheduled.startsAt)} (${timeZone})`
+        ? assistantDate(scheduled.startsAt, timeZone)
         : "Draft",
     );
     const assumedTime =
@@ -4300,6 +4317,12 @@ async function calendarCommand({
         externalSyncStatus: "attempted_if_connected",
         leadId: linked.leadId,
         scheduled,
+        scheduledAtLocal: scheduled?.startsAt
+          ? assistantDate(scheduled.startsAt, timeZone)
+          : null,
+        scheduledEndsAtLocal: scheduled?.endsAt
+          ? assistantDate(scheduled.endsAt, timeZone)
+          : null,
         skippedLinkReason: linked.skippedLinkReason,
         status: scheduled?.startsAt ? "scheduled" : "suggested",
         suggestedContactId: linked.suggestedContact?.id ?? null,
@@ -4307,10 +4330,12 @@ async function calendarCommand({
           ? calendarContactDisplayName(linked.suggestedContact)
           : null,
         title,
+        workspaceTimeZone: timeZone,
       },
       fallbackAnswer: scheduled?.startsAt
         ? `I created ${title} for ${assistantDate(
             scheduled.startsAt,
+            timeZone,
           )}.${assumedTime}${suggestedContactQuestion}`
         : `I drafted ${title}. Open it to add the date and time before saving it to the calendar.${suggestedContactQuestion}`,
       intent: "calendar_event",
@@ -4347,7 +4372,9 @@ async function calendarCommand({
               rowLink(
                 event.title,
                 calendarEventHref(event),
-                event.startsAt ? assistantDate(event.startsAt) : event.status,
+                event.startsAt
+                  ? assistantDate(event.startsAt, timeZone)
+                  : event.status,
               ),
             )
           : [rowLink("Calendar", "/calendar", "Choose the event")];
@@ -4410,7 +4437,9 @@ async function calendarCommand({
               rowLink(
                 event.title,
                 calendarEventHref(event),
-                event.startsAt ? assistantDate(event.startsAt) : event.status,
+                event.startsAt
+                  ? assistantDate(event.startsAt, timeZone)
+                  : event.status,
               ),
             )
           : [rowLink("Calendar", "/calendar", "Choose the event")];
@@ -4459,7 +4488,7 @@ async function calendarCommand({
         calendarSettings.defaultDurationMinutes,
       );
       input.status = event.status === "cancelled" ? "scheduled" : input.status;
-      changes.push(`moved it to ${assistantDate(scheduled.startsAt)}`);
+      changes.push(`moved it to ${assistantDate(scheduled.startsAt, timeZone)}`);
     }
 
     if (newTitle) {
@@ -4480,7 +4509,7 @@ async function calendarCommand({
       const link = rowLink(
         event.title,
         calendarEventHref(event),
-        event.startsAt ? assistantDate(event.startsAt) : event.status,
+        event.startsAt ? assistantDate(event.startsAt, timeZone) : event.status,
       );
 
       return {
@@ -4509,14 +4538,18 @@ async function calendarCommand({
     const link = rowLink(
       input.title,
       href,
-      input.startsAt ? assistantDate(input.startsAt) : input.status,
+      input.startsAt ? assistantDate(input.startsAt, timeZone) : input.status,
     );
 
     return {
       context: {
         changes,
         eventId: event.id,
+        scheduledAtLocal: input.startsAt
+          ? assistantDate(input.startsAt, timeZone)
+          : null,
         title: input.title,
+        workspaceTimeZone: timeZone,
       },
       fallbackAnswer: `I updated ${input.title}: ${calendarChangeSummary(
         changes,
@@ -4555,6 +4588,9 @@ async function calendarCommand({
           id: event.id,
           location: event.location,
           startsAt: event.startsAt,
+          startsAtLocal: event.startsAt
+            ? assistantDate(event.startsAt, timeZone)
+            : null,
           status: event.status,
           title: event.title,
         })),
@@ -4576,7 +4612,7 @@ async function calendarCommand({
         rowLink(
           event.title,
           calendarEventHref(event),
-          event.startsAt ? assistantDate(event.startsAt) : event.status,
+          event.startsAt ? assistantDate(event.startsAt, timeZone) : event.status,
         ),
       ),
     ],
