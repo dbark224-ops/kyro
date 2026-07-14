@@ -4,18 +4,24 @@ import {
   type DateKeyRange,
 } from "../timezone";
 
-export const CALENDAR_NAVIGATION_PRELOAD_MONTH_RADIUS = 2;
+export const CALENDAR_NAVIGATION_PRELOAD_MONTHS_BACK = 2;
+export const CALENDAR_NAVIGATION_PRELOAD_MONTHS_FORWARD = 3;
 
 export function calendarNavigationPreloadRange(
   anchorDateKey: string,
 ): DateKeyRange {
   const ranges = Array.from(
-    { length: CALENDAR_NAVIGATION_PRELOAD_MONTH_RADIUS * 2 + 1 },
+    {
+      length:
+        CALENDAR_NAVIGATION_PRELOAD_MONTHS_BACK +
+        CALENDAR_NAVIGATION_PRELOAD_MONTHS_FORWARD +
+        1,
+    },
     (_, index) =>
       rangeForCalendarViewDateKey(
         addMonthsToDateKey(
           anchorDateKey,
-          index - CALENDAR_NAVIGATION_PRELOAD_MONTH_RADIUS,
+          index - CALENDAR_NAVIGATION_PRELOAD_MONTHS_BACK,
         ),
         "month",
       ),

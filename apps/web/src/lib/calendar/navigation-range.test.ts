@@ -10,7 +10,7 @@ describe("calendar navigation preload ranges", () => {
   it("loads the surrounding month grids for fast local navigation", () => {
     assert.deepEqual(calendarNavigationPreloadRange("2026-07-13"), {
       from: "2026-04-27",
-      to: "2026-10-05",
+      to: "2026-11-02",
     });
   });
 
@@ -34,7 +34,7 @@ describe("calendar navigation preload ranges", () => {
     assert.equal(
       dateKeyRangeContainsRange(
         preloaded,
-        rangeForCalendarViewDateKey("2026-10-01", "month"),
+        rangeForCalendarViewDateKey("2026-11-01", "month"),
       ),
       false,
     );
