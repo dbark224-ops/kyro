@@ -1043,7 +1043,7 @@ function renderWidget({
         />
         <div className="dashboard-activity-list">
           {items.map((item) => {
-            const preview = compactSnippet(item.preview, 92);
+            const preview = compactSnippet(item.preview, 72);
 
             return (
               <Link

@@ -1,9 +1,10 @@
 .activityItem.activityItem {
-  grid-template-columns: 10px minmax(0, 1fr) max-content;
+  grid-template-columns: 8px minmax(0, 1fr) max-content;
   align-items: start;
-  gap: 8px;
+  gap: 6px;
   min-height: 0;
   overflow: hidden;
+  padding: 6px 8px;
 }
 
 .activityCopy,
@@ -17,7 +18,7 @@
 .activityCopy {
   display: grid;
   align-content: start;
-  gap: 3px;
+  gap: 1px;
   overflow: hidden;
 }
 
@@ -32,15 +33,46 @@
 .activitySubject,
 .activityPreview,
 .activityTime {
+  line-height: 1.12;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.activityTitle {
+  font-size: 0.76rem;
+}
+
+.activitySubject {
+  font-size: 0.66rem;
+}
+
+.activityPreview {
+  font-size: 0.64rem;
+}
+
 .activityTime {
-  max-width: 7.5rem;
+  max-width: 5.8rem;
   justify-self: end;
+  font-size: 0.61rem;
+  line-height: 1.1;
   text-align: right;
+}
+
+:global(.dashboard-widget-activity .dashboard-widget-header select) {
+  min-height: 34px;
+  padding: 6px 30px 6px 12px;
+  font-size: 0.78rem;
+}
+
+:global(.dashboard-widget-activity .dashboard-activity-list) {
+  gap: 5px;
+}
+
+:global(.dashboard-widget-activity .dashboard-activity-dot) {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
 }
 
 .calendarGroups {
