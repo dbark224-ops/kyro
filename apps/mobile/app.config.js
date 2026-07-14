@@ -180,6 +180,7 @@ module.exports = {
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.INTERNET",
         "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_CONTACTS",
         "android.permission.RECORD_AUDIO",
         "android.permission.WAKE_LOCK",
@@ -189,6 +190,12 @@ module.exports = {
       "expo-router",
       "expo-secure-store",
       "expo-font",
+      [
+        "expo-notifications",
+        {
+          color: "#51e5ff",
+        },
+      ],
       [
         "expo-contacts",
         {

@@ -8,6 +8,7 @@ import * as Sharing from "expo-sharing";
 import {
   Activity,
   BarChart3,
+  Bell,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -66,6 +67,14 @@ import {
   StatusPill,
 } from "@/components/ui";
 import { useAuthSession } from "@/features/auth/auth-context";
+import {
+  calendarMorningDigestTimeOptions,
+  calendarNotificationLeadTimeOptions,
+  calendarNotificationPermissionLabel,
+  calendarNotificationToneOptions,
+  useCalendarNotifications,
+  type CalendarNotificationPermissionStatus,
+} from "@/features/notifications/calendar-notifications-context";
 import {
   useAppearance,
   type AppearanceMode,
@@ -126,6 +135,7 @@ type SettingsSection =
   | "general"
   | "integrations"
   | "legal"
+  | "notifications"
   | "phone_sms"
   | "contact_sync"
   | "activity"
@@ -144,6 +154,7 @@ type SettingsGroup =
   | "workspace"
   | "communication"
   | "document_generator"
+  | "notifications"
   | "payments"
   | "insight_tools";
 type SettingsSaveSection =
@@ -462,6 +473,13 @@ const sectionItems: SettingsSectionItem[] = [
     title: "Legal & support",
   },
   {
+    detail: "Calendar reminders and morning summaries",
+    eyebrow: "Notifications",
+    icon: Bell,
+    section: "notifications",
+    title: "Notifications",
+  },
+  {
     detail: "Realtime voice and pronunciation",
     eyebrow: "Voice",
     icon: Mic2,
@@ -554,6 +572,13 @@ const settingsGroups: SettingsGroupItem[] = [
     id: "app_account",
     sections: ["security", "appearance", "legal", "usage"],
     title: "App & account",
+  },
+  {
+    detail: "Calendar reminders and daily summaries",
+    icon: Bell,
+    id: "notifications",
+    sections: ["notifications"],
+    title: "Notifications",
   },
   {
     detail: "Business profile, voice, and CRM imports",
@@ -848,6 +873,10 @@ export default function SettingsScreen() {
               ) : null}
 
               {selectedSection === "legal" ? <LegalSettingsPanel /> : null}
+
+              {selectedSection === "notifications" ? (
+                <NotificationsSettingsPanel />
+              ) : null}
 
               {selectedSection === "voice" ? (
                 <VoiceSettingsPanel
@@ -1422,6 +1451,184 @@ function LegalSettingsPanel() {
       </SectionCard>
     </>
   );
+}
+
+function NotificationsSettingsPanel() {
+  const {
+    calendarLoading,
+    lastError,
+    lastScheduledAt,
+    permissionStatus,
+    preferences,
+    refreshPermissionStatus,
+    scheduledCount,
+    updatePreferences,
+  } = useCalendarNotifications();
+  const [saving, setSaving] = useState(false);
+  const updateCalendarNotifications = async (
+    patch: Parameters<typeof updatePreferences>[0],
+  ) => {
+    setSaving(true);
+
+    try {
+      await updatePreferences(patch);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const disabled = saving || calendarLoading;
+
+  return (
+    <>
+      <SectionCard>
+        <SectionHeader
+          action={
+            <StatusPill
+              label={calendarNotificationPermissionLabel(permissionStatus)}
+              tone={notificationPermissionTone(permissionStatus)}
+            />
+          }
+          eyebrow="Calendar"
+          title="Event reminders"
+        />
+        <SwitchRow
+          label="Calendar reminders"
+          onValueChange={(value) =>
+            void updateCalendarNotifications({
+              eventRemindersEnabled: value,
+            })
+          }
+          value={preferences.eventRemindersEnabled}
+        />
+        {preferences.eventRemindersEnabled ? (
+          <SettingField label="Remind me before">
+            <OptionChips
+              formatOption={(value) =>
+                calendarNotificationLeadTimeOptions.find(
+                  (option) => option.value === value,
+                )?.label ?? value
+              }
+              onChange={(value) =>
+                void updateCalendarNotifications({
+                  leadTime: value as typeof preferences.leadTime,
+                })
+              }
+              options={calendarNotificationLeadTimeOptions.map(
+                (option) => option.value,
+              )}
+              value={preferences.leadTime}
+            />
+          </SettingField>
+        ) : null}
+        <SettingField label="Notification style">
+          <OptionChips
+            formatOption={(value) =>
+              calendarNotificationToneOptions.find(
+                (option) => option.value === value,
+              )?.label ?? value
+            }
+            onChange={(value) =>
+              void updateCalendarNotifications({
+                tone: value as typeof preferences.tone,
+              })
+            }
+            options={calendarNotificationToneOptions.map(
+              (option) => option.value,
+            )}
+            value={preferences.tone}
+          />
+        </SettingField>
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader eyebrow="Morning" title="Daily calendar summary" />
+        <SwitchRow
+          label="Morning summary"
+          onValueChange={(value) =>
+            void updateCalendarNotifications({
+              morningDigestEnabled: value,
+            })
+          }
+          value={preferences.morningDigestEnabled}
+        />
+        {preferences.morningDigestEnabled ? (
+          <SettingField label="Send at">
+            <OptionChips
+              formatOption={(value) =>
+                calendarMorningDigestTimeOptions.find(
+                  (option) => option.value === value,
+                )?.label ?? value
+              }
+              onChange={(value) =>
+                void updateCalendarNotifications({
+                  morningDigestTime:
+                    value as typeof preferences.morningDigestTime,
+                })
+              }
+              options={calendarMorningDigestTimeOptions.map(
+                (option) => option.value,
+              )}
+              value={preferences.morningDigestTime}
+            />
+          </SettingField>
+        ) : null}
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader eyebrow="Device" title="Notification status" />
+        <View style={styles.summaryStrip}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Scheduled</Text>
+            <Text style={styles.summaryValue}>
+              {disabled ? "Syncing" : scheduledCount}
+            </Text>
+            <Text style={styles.summaryMeta}>Local reminders</Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Updated</Text>
+            <Text style={styles.summaryValue}>
+              {lastScheduledAt ? formatDate(lastScheduledAt) : "Not yet"}
+            </Text>
+            <Text style={styles.summaryMeta}>On this device</Text>
+          </View>
+        </View>
+        {lastError ? <Text style={styles.securityError}>{lastError}</Text> : null}
+        {permissionStatus === "denied" ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => Linking.openSettings().catch(() => undefined)}
+            style={styles.iconButton}
+          >
+            <Bell color={colors.text} size={18} />
+            <Text style={styles.iconButtonText}>Open device settings</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void refreshPermissionStatus()}
+            style={styles.iconButton}
+          >
+            <Bell color={colors.text} size={18} />
+            <Text style={styles.iconButtonText}>Refresh permission</Text>
+          </Pressable>
+        )}
+      </SectionCard>
+    </>
+  );
+}
+
+function notificationPermissionTone(
+  status: CalendarNotificationPermissionStatus,
+): "cyan" | "green" | "neutral" | "pink" | "purple" | "warning" {
+  if (status === "granted" || status === "provisional") {
+    return "green";
+  }
+
+  if (status === "denied") {
+    return "warning";
+  }
+
+  return "neutral";
 }
 
 function LegalLinkRow({
