@@ -538,6 +538,13 @@ describe("assistant calendar helpers", () => {
     );
     assert.equal(
       cleanCalendarTitle(
+        "can you add a calendar event a meeting at the NM MVD on the 2nd of August at 2pm",
+        null,
+      ),
+      "Meeting - NM MVD",
+    );
+    assert.equal(
+      cleanCalendarTitle(
         "please schedule a quote visit with David next Tuesday at 2pm",
         null,
       ),

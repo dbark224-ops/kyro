@@ -2939,7 +2939,7 @@ function stripCalendarTitleTiming(value: string) {
     .replace(new RegExp(`\\s+\\b(?:on|for)?\\s*${CALENDAR_TITLE_MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b.*$`, "i"), "")
     .replace(
       new RegExp(
-        `\\s+\\b(?:on|for)?\\s*(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th)?\\s+${CALENDAR_TITLE_MONTH}\\.?(?:,?\\s+\\d{4})?\\b.*$`,
+        `\\s+\\b(?:on|for)?\\s*(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+${CALENDAR_TITLE_MONTH}\\.?(?:,?\\s+\\d{4})?\\b.*$`,
         "i",
       ),
       "",
@@ -2957,7 +2957,8 @@ function isGenericCalendarTitle(value: string) {
     !/[a-z]/i.test(value) ||
     /^(calendar )?(event|appointment|booking|entry|calendar entry|reminder)( in (the|my) calendar)?$/.test(
       text,
-    )
+    ) ||
+    /^(?:in|on) (?:the|my) calendar$/.test(text)
   );
 }
 
@@ -2973,10 +2974,10 @@ function sentenceCaseCalendarTitle(value: string) {
 
 function compactCalendarTitle(value: string) {
   const title = value.replace(/\s+/g, " ").trim();
-  const meetingMatch = title.match(/^meeting\s+(?:with|for)\s+(.+)$/i);
+  const meetingMatch = title.match(/^meeting\s+(?:with|for|at)\s+(.+)$/i);
 
   if (meetingMatch?.[1]?.trim()) {
-    return `Meeting - ${meetingMatch[1].trim()}`;
+    return `Meeting - ${meetingMatch[1].trim().replace(/^(?:the|an|a)\s+/i, "")}`;
   }
 
   return title;
@@ -3028,7 +3029,7 @@ export function cleanCalendarTitle(
   for (let index = 0; index < 4; index += 1) {
     const next = candidate
       .replace(
-        /^\s*(?:(?:calendar\s+)?event|appointment|booking|calendar entry)\s+(?:for|called|named|titled|about|with)?\s+(?:the|an|a)?\s*/i,
+        /^\s*(?:(?:calendar\s+)?event|appointment|booking|calendar entry)(?:\s+(?:for|called|named|titled|about|with|at))?\s+(?:the|an|a)?\s*/i,
         "",
       )
       .replace(/^\s*(?:for|called|named|titled|about)\s+(?:the|an|a)?\s*/i, "")
