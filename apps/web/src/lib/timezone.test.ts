@@ -5,6 +5,7 @@ import {
   isoFromDateTimeLocalInTimeZone,
   isoRangeForDateKeyRange,
   providerDateTimeToIso,
+  rangeForCalendarViewDateKey,
 } from "./timezone";
 
 describe("workspace timezone helpers", () => {
@@ -46,5 +47,19 @@ describe("workspace timezone helpers", () => {
         to: "2026-07-11T06:00:00.000Z",
       },
     );
+  });
+
+  it("builds month ranges only through the final visible Sunday", () => {
+    assert.deepEqual(rangeForCalendarViewDateKey("2026-07-13", "month"), {
+      from: "2026-06-29",
+      to: "2026-08-03",
+    });
+  });
+
+  it("does not add a trailing week when a month ends on Sunday", () => {
+    assert.deepEqual(rangeForCalendarViewDateKey("2026-05-12", "month"), {
+      from: "2026-04-27",
+      to: "2026-06-01",
+    });
   });
 });

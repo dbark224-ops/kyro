@@ -35,7 +35,7 @@ import {
   dateTimeLocalValueInTimeZone,
   isoFromDateKeyAndMinutes,
   isoFromDateTimeLocalInTimeZone,
-  startOfMonthDateKey,
+  rangeForCalendarViewDateKey,
   startOfWeekDateKey,
   todayDateKey,
 } from "../../lib/timezone";
@@ -86,10 +86,6 @@ function addDays(date: Date, days: number) {
 
 function startOfWeek(date: Date) {
   return dateKeyToPlainDate(startOfWeekDateKey(formatDateParam(date)));
-}
-
-function startOfMonth(date: Date) {
-  return dateKeyToPlainDate(startOfMonthDateKey(formatDateParam(date)));
 }
 
 function addMonths(date: Date, months: number) {
@@ -325,19 +321,12 @@ function adjacentCalendarHrefs(view: CalendarView, anchor: Date, timeZone: strin
 }
 
 function rangeForView(anchor: Date, view: CalendarView) {
-  if (view === "day") {
-    const from = dateKeyToPlainDate(formatDateParam(anchor));
-    return { from, to: addDays(from, 1) };
-  }
+  const range = rangeForCalendarViewDateKey(formatDateParam(anchor), view);
 
-  if (view === "month") {
-    const from = startOfWeek(startOfMonth(anchor));
-    const to = addDays(startOfWeek(addMonths(anchor, 1)), 7);
-    return { from, to };
-  }
-
-  const from = startOfWeek(anchor);
-  return { from, to: addDays(from, 7) };
+  return {
+    from: dateKeyToPlainDate(range.from),
+    to: dateKeyToPlainDate(range.to),
+  };
 }
 
 function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
@@ -633,11 +622,16 @@ function MonthView({
   onSelect: (eventId: string) => void;
   timeZone: string;
 }>) {
-  const firstOfMonth = startOfMonth(anchor);
-  const firstDay = startOfWeek(firstOfMonth);
+  const range = rangeForView(anchor, "month");
+  const dayCount = Math.max(
+    7,
+    Math.round(
+      (range.to.getTime() - range.from.getTime()) / (24 * 60 * 60 * 1000),
+    ),
+  );
   const todayKey = todayDateKey(timeZone);
-  const cells = Array.from({ length: 42 }, (_, index) =>
-    addDays(firstDay, index),
+  const cells = Array.from({ length: dayCount }, (_, index) =>
+    addDays(range.from, index),
   );
 
   return (

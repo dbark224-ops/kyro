@@ -93,6 +93,14 @@ export function startOfWeekDateKey(dateKey: string) {
   return addDaysToDateKey(dateKey, mondayOffset);
 }
 
+function endOfVisibleMonthGridDateKey(nextMonthDateKey: string) {
+  const weekStart = startOfWeekDateKey(nextMonthDateKey);
+
+  return weekStart === nextMonthDateKey
+    ? nextMonthDateKey
+    : addDaysToDateKey(weekStart, 7);
+}
+
 export function rangeForCalendarViewDateKey(
   anchorDateKey: string,
   view: "day" | "month" | "week",
@@ -104,7 +112,7 @@ export function rangeForCalendarViewDateKey(
   if (view === "month") {
     const from = startOfWeekDateKey(startOfMonthDateKey(anchorDateKey));
     const nextMonth = addMonthsToDateKey(anchorDateKey, 1);
-    const to = addDaysToDateKey(startOfWeekDateKey(nextMonth), 7);
+    const to = endOfVisibleMonthGridDateKey(nextMonth);
 
     return { from, to };
   }
