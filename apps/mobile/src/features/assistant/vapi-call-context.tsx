@@ -85,6 +85,7 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
   const vapiRef = useRef<VapiClient | null>(null);
   const currentUserTranscriptRef = useRef("");
   const currentAssistantTranscriptRef = useRef("");
+  const finalizedAssistantTurnsRef = useRef<string[]>([]);
   const persistedSignaturesRef = useRef<Set<string>>(new Set());
   const assistantFinalizeTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -236,8 +237,9 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
   const finalizeAssistantTurn = useCallback(
     (rawContent?: string) => {
-      const content = normalizedTranscript(
+      const content = assistantTurnFromVapiTranscript(
         rawContent ?? currentAssistantTranscriptRef.current,
+        finalizedAssistantTurnsRef.current,
       );
 
       if (!content) {
@@ -247,6 +249,10 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
       clearAssistantFinalizeTimer();
       currentAssistantTranscriptRef.current = content;
       addLocalTurn("assistant", content);
+      finalizedAssistantTurnsRef.current = appendAssistantTranscriptTurn(
+        finalizedAssistantTurnsRef.current,
+        content,
+      );
       persistCurrentTurn(content);
       setStatusText("Listening...");
     },
@@ -362,11 +368,15 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
 
       if (type === "model-output") {
         const outputText = modelOutputText(message);
+        const outputTurn = assistantTurnFromVapiTranscript(
+          outputText ?? "",
+          finalizedAssistantTurnsRef.current,
+        );
 
-        if (outputText) {
+        if (outputTurn) {
           currentAssistantTranscriptRef.current = mergeAssistantContent(
             currentAssistantTranscriptRef.current,
-            outputText,
+            outputTurn,
           );
         }
 
@@ -410,9 +420,14 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
           lastConversationMessage(message.messagesOpenAIFormatted, "assistant");
 
         if (lastAssistantMessage) {
+          const assistantTurn = assistantTurnFromVapiTranscript(
+            lastAssistantMessage.content,
+            finalizedAssistantTurnsRef.current,
+          );
+
           currentAssistantTranscriptRef.current = mergeAssistantContent(
             currentAssistantTranscriptRef.current,
-            lastAssistantMessage.content,
+            assistantTurn,
           );
         }
       }
@@ -456,6 +471,10 @@ export function VapiCallProvider({ children }: { children: ReactNode }) {
     }
 
     setError(null);
+    currentUserTranscriptRef.current = "";
+    currentAssistantTranscriptRef.current = "";
+    finalizedAssistantTurnsRef.current = [];
+    persistedSignaturesRef.current.clear();
     setConnectionState("connecting");
     setStatusText("Connecting to Kyro...");
 
@@ -676,6 +695,103 @@ function vapiStatusLabel(
 
 function normalizedTranscript(value: string) {
   return value.trim().replace(/\s+/g, " ");
+}
+
+function assistantTurnFromVapiTranscript(
+  value: string,
+  previousTurns: string[],
+) {
+  let content = normalizedTranscript(value);
+
+  if (!content) {
+    return "";
+  }
+
+  const previousConversation = normalizedTranscript(previousTurns.join(" "));
+
+  if (previousConversation) {
+    content = removeKnownTranscriptPrefix(content, previousConversation);
+  }
+
+  for (const previousTurn of previousTurns) {
+    content = removeKnownTranscriptPrefix(content, previousTurn);
+  }
+
+  const contentCanonical = canonicalTranscript(content);
+
+  if (
+    !contentCanonical ||
+    previousTurns.some(
+      (previousTurn) => canonicalTranscript(previousTurn) === contentCanonical,
+    )
+  ) {
+    return "";
+  }
+
+  return content;
+}
+
+function appendAssistantTranscriptTurn(
+  previousTurns: string[],
+  nextTurn: string,
+) {
+  const content = normalizedTranscript(nextTurn);
+
+  if (!content) {
+    return previousTurns;
+  }
+
+  const contentCanonical = canonicalTranscript(content);
+
+  if (
+    previousTurns.some(
+      (previousTurn) => canonicalTranscript(previousTurn) === contentCanonical,
+    )
+  ) {
+    return previousTurns;
+  }
+
+  return [...previousTurns, content].slice(-24);
+}
+
+function removeKnownTranscriptPrefix(value: string, knownPrefix: string) {
+  const content = normalizedTranscript(value);
+  const prefix = normalizedTranscript(knownPrefix);
+
+  if (!content || !prefix) {
+    return content;
+  }
+
+  if (content.toLowerCase().startsWith(prefix.toLowerCase())) {
+    return content
+      .slice(prefix.length)
+      .replace(/^[\s,.;:!?)-]+/, "")
+      .trim();
+  }
+
+  const contentCanonical = canonicalTranscript(content);
+  const prefixCanonical = canonicalTranscript(prefix);
+
+  if (!contentCanonical || !prefixCanonical) {
+    return content;
+  }
+
+  if (contentCanonical === prefixCanonical) {
+    return "";
+  }
+
+  if (contentCanonical.startsWith(prefixCanonical)) {
+    const prefixWordCount = prefixCanonical.split(" ").filter(Boolean).length;
+
+    return content
+      .split(/\s+/g)
+      .slice(prefixWordCount)
+      .join(" ")
+      .replace(/^[\s,.;:!?)-]+/, "")
+      .trim();
+  }
+
+  return content;
 }
 
 const KYRO_ADDRESSING_VARIANTS = "cairo|kairo|kiro|kyra|cara|kara|clare|claire";
