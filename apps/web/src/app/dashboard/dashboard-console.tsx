@@ -1012,7 +1012,7 @@ function renderWidget({
   if (key === "activity") {
     const items = timeFilteredActivity(data, timeframe)
       .filter((item) => matchesActivityFilter(item.tone, activityFilter))
-      .slice(0, 6);
+      .slice(0, 3);
 
     return (
       <section
@@ -1043,7 +1043,7 @@ function renderWidget({
         />
         <div className="dashboard-activity-list">
           {items.map((item) => {
-            const preview = compactSnippet(item.preview, 72);
+            const preview = compactSnippet(item.preview, 88);
 
             return (
               <Link

@@ -1,10 +1,10 @@
 .activityItem.activityItem {
-  grid-template-columns: 8px minmax(0, 1fr) max-content;
+  grid-template-columns: 10px minmax(0, 1fr) max-content;
   align-items: start;
-  gap: 6px;
-  min-height: 0;
+  gap: 10px;
+  min-height: 54px;
   overflow: hidden;
-  padding: 6px 8px;
+  padding: 10px 12px;
 }
 
 .activityCopy,
@@ -18,7 +18,7 @@
 .activityCopy {
   display: grid;
   align-content: start;
-  gap: 1px;
+  gap: 3px;
   overflow: hidden;
 }
 
@@ -33,46 +33,46 @@
 .activitySubject,
 .activityPreview,
 .activityTime {
-  line-height: 1.12;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .activityTitle {
-  font-size: 0.76rem;
+  font-size: 0.88rem;
 }
 
 .activitySubject {
-  font-size: 0.66rem;
+  font-size: 0.74rem;
 }
 
 .activityPreview {
-  font-size: 0.64rem;
+  font-size: 0.71rem;
 }
 
 .activityTime {
-  max-width: 5.8rem;
+  max-width: 7.2rem;
   justify-self: end;
-  font-size: 0.61rem;
-  line-height: 1.1;
+  font-size: 0.68rem;
+  line-height: 1.2;
   text-align: right;
 }
 
 :global(.dashboard-widget-activity .dashboard-widget-header select) {
-  min-height: 34px;
-  padding: 6px 30px 6px 12px;
-  font-size: 0.78rem;
+  min-height: 40px;
+  padding: 8px 38px 8px 16px;
+  font-size: 0.88rem;
 }
 
 :global(.dashboard-widget-activity .dashboard-activity-list) {
-  gap: 5px;
+  gap: 8px;
 }
 
 :global(.dashboard-widget-activity .dashboard-activity-dot) {
-  width: 7px;
-  height: 7px;
-  margin-top: 4px;
+  width: 9px;
+  height: 9px;
+  margin-top: 7px;
 }
 
 .calendarGroups {
@@ -176,24 +176,21 @@
 @media (min-width: 761px) and (max-width: 1536px),
   (min-width: 761px) and (max-height: 900px) {
   .activityItem.activityItem {
-    grid-template-columns: 10px minmax(0, 1fr);
+    grid-template-columns: 10px minmax(0, 1fr) max-content;
     align-items: start;
-    gap: 3px 8px;
-    padding-block: 8px;
+    gap: 10px;
+    min-height: 50px;
+    padding: 9px 11px;
   }
 
   .activityCopy {
-    grid-column: 2;
-    grid-row: 1;
-    gap: 2px;
+    gap: 3px;
   }
 
   .activityTime {
-    grid-column: 2;
-    grid-row: 2;
-    max-width: 100%;
-    justify-self: start;
-    text-align: left;
+    max-width: 6.6rem;
+    justify-self: end;
+    text-align: right;
   }
 
   .activityPreview {
