@@ -268,7 +268,7 @@
   text-align: left;
   transition:
     border-color 150ms ease,
-    transform 150ms ease,
+    box-shadow 150ms ease,
     background 150ms ease;
 }
 
@@ -276,7 +276,7 @@
 .eventCard[data-active="true"] {
   background: color-mix(in srgb, var(--cyan) 12%, var(--surface));
   border-color: var(--pink);
-  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pink) 30%, transparent);
 }
 
 .eventCardPrimary {
