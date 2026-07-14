@@ -26,6 +26,7 @@ import {
   type CalendarSettings,
   type CalendarView,
 } from "../../lib/calendar/settings";
+import { dateKeyRangeContainsRange } from "../../lib/calendar/navigation-range";
 import type { CalendarReadiness } from "../../lib/calendar/readiness";
 import {
   addDaysToDateKey,
@@ -38,6 +39,7 @@ import {
   rangeForCalendarViewDateKey,
   startOfWeekDateKey,
   todayDateKey,
+  type DateKeyRange,
 } from "../../lib/timezone";
 import styles from "./calendar-board.module.css";
 
@@ -47,6 +49,7 @@ type CalendarBoardProps = Readonly<{
   events: CalendarEventItem[];
   initialSelectedEventId: string | null;
   options: CalendarEntityOptions;
+  preloadedRange: DateKeyRange;
   settings: CalendarSettings;
   timeZone: string;
   view: CalendarView;
@@ -1067,15 +1070,17 @@ export function CalendarBoard({
   events,
   initialSelectedEventId,
   options,
+  preloadedRange,
   settings,
   timeZone,
   view,
 }: CalendarBoardProps) {
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
+  const [currentAnchorDate, setCurrentAnchorDate] = useState(anchorDate);
   const anchor = useMemo(
-    () => dateKeyToPlainDate(anchorDate),
-    [anchorDate],
+    () => dateKeyToPlainDate(currentAnchorDate),
+    [currentAnchorDate],
   );
   const [currentView, setCurrentView] = useState<CalendarView>(view);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(
@@ -1099,6 +1104,18 @@ export function CalendarBoard({
   );
   const selectedEvent =
     events.find((event) => event.id === selectedEventId) ?? null;
+
+  useEffect(() => {
+    setCurrentAnchorDate(anchorDate);
+  }, [anchorDate]);
+
+  useEffect(() => {
+    setCurrentView(view);
+  }, [view]);
+
+  useEffect(() => {
+    setSelectedEventId(initialSelectedEventId);
+  }, [initialSelectedEventId]);
 
   useEffect(() => {
     prefetchedHrefs.forEach((href) => {
@@ -1132,12 +1149,38 @@ export function CalendarBoard({
       }),
     );
   };
-  const switchView = (nextView: CalendarView) => {
+  const commitLocalNavigation = ({
+    href,
+    nextAnchorDate,
+    nextView,
+  }: {
+    href: string;
+    nextAnchorDate: string;
+    nextView: CalendarView;
+  }) => {
+    setPendingHref(null);
+    setCurrentAnchorDate(nextAnchorDate);
     setCurrentView(nextView);
-    window.history.replaceState(null, "", viewHref(nextView, anchor));
+    setSelectedEventId(null);
+    setCreateOpen(false);
+    setCreateTimes(null);
+    window.history.replaceState(null, "", href);
   };
-  const navigateCalendar = (href: string) => {
+  const navigateCalendar = (nextView: CalendarView, nextDate: Date) => {
+    const nextAnchorDate = formatDateParam(nextDate);
+    const href = viewHref(nextView, nextDate);
+
     if (href === currentHref) {
+      return;
+    }
+
+    if (
+      dateKeyRangeContainsRange(
+        preloadedRange,
+        rangeForCalendarViewDateKey(nextAnchorDate, nextView),
+      )
+    ) {
+      commitLocalNavigation({ href, nextAnchorDate, nextView });
       return;
     }
 
@@ -1186,7 +1229,7 @@ export function CalendarBoard({
                     <button
                       data-active={currentView === nextView}
                       key={nextView}
-                      onClick={() => switchView(nextView)}
+                      onClick={() => navigateCalendar(nextView, anchor)}
                       type="button"
                     >
                       {nextView}
@@ -1204,7 +1247,7 @@ export function CalendarBoard({
               <button
                 className={`secondary-button compact ${styles.calendarNavButton}`}
                 onClick={() =>
-                  navigateCalendar(viewHref(currentView, previousDate))
+                  navigateCalendar(currentView, previousDate)
                 }
                 type="button"
               >
@@ -1214,7 +1257,7 @@ export function CalendarBoard({
               <button
                 className="secondary-button compact"
                 onClick={() =>
-                  navigateCalendar(viewHref(currentView, todayDate))
+                  navigateCalendar(currentView, todayDate)
                 }
                 type="button"
               >
@@ -1222,7 +1265,7 @@ export function CalendarBoard({
               </button>
               <button
                 className={`secondary-button compact ${styles.calendarNavButton}`}
-                onClick={() => navigateCalendar(viewHref(currentView, nextDate))}
+                onClick={() => navigateCalendar(currentView, nextDate)}
                 type="button"
               >
                 Next

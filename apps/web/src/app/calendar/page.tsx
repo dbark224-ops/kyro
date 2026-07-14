@@ -11,11 +11,11 @@ import {
   type CalendarView,
 } from "../../lib/calendar/settings";
 import { getCalendarReadiness } from "../../lib/calendar/readiness";
+import { calendarNavigationPreloadRange } from "../../lib/calendar/navigation-range";
 import { syncExternalCalendarUpdatesToKyro } from "../../lib/calendar/provider-sync";
 import {
   isoRangeForDateKeyRange,
   parseDateKeyOrToday,
-  rangeForCalendarViewDateKey,
 } from "../../lib/timezone";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
@@ -58,8 +58,9 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
     query?.date,
     generalSettings.timeZone,
   );
+  const preloadedDateRange = calendarNavigationPreloadRange(anchorDateKey);
   const calendarRange = isoRangeForDateKeyRange(
-    rangeForCalendarViewDateKey(anchorDateKey, "month"),
+    preloadedDateRange,
     generalSettings.timeZone,
   );
   if (
@@ -104,6 +105,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         initialSelectedEventId={query?.event ?? null}
         key={`${anchorDateKey}-${view}`}
         options={options}
+        preloadedRange={preloadedDateRange}
         settings={settings}
         timeZone={generalSettings.timeZone}
         view={view}
