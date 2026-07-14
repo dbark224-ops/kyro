@@ -50,6 +50,13 @@ import {
   getCalendarSettings,
   normalizeCalendarSettings,
 } from "../../lib/calendar/settings";
+import {
+  CALENDAR_DAILY_DIGEST_TIMINGS,
+  CALENDAR_SMS_REMINDER_MINUTES,
+  NOTIFICATION_SETTINGS_POLICY_TYPE,
+  getNotificationSettings,
+  normalizeNotificationSettings,
+} from "../../lib/notifications/settings";
 import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
@@ -474,7 +481,13 @@ async function businessLogoPayload(
 }
 
 function redirectWithSectionMessage(
-  section: "general" | "integrations" | "calendar" | "voice" | "developer",
+  section:
+    | "general"
+    | "integrations"
+    | "calendar"
+    | "notifications"
+    | "voice"
+    | "developer",
   key: "engine_error" | "engine_message",
   message: string,
   options: { focus?: string; panel?: string; senderRules?: boolean } = {},
@@ -985,6 +998,140 @@ export async function updateCalendarSettingsAction(formData: FormData) {
     "calendar",
     "engine_message",
     "Calendar settings saved.",
+    { panel },
+  );
+}
+
+export async function updateNotificationSettingsAction(formData: FormData) {
+  const reminderMinutesValue = Number(
+    formString(formData, "calendarSmsReminderMinutes"),
+  );
+  const digestTiming = formString(formData, "calendarDailyDigestTiming");
+  const panel = "calendar-notifications";
+
+  if (
+    !CALENDAR_SMS_REMINDER_MINUTES.includes(
+      reminderMinutesValue as (typeof CALENDAR_SMS_REMINDER_MINUTES)[number],
+    )
+  ) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      "Choose a valid reminder time.",
+      { panel },
+    );
+  }
+
+  if (
+    !CALENDAR_DAILY_DIGEST_TIMINGS.includes(
+      digestTiming as (typeof CALENDAR_DAILY_DIGEST_TIMINGS)[number],
+    )
+  ) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      "Choose a valid daily report timing.",
+      { panel },
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const [beforeSettings, generalSettings, beforePolicyResult] =
+    await Promise.all([
+      getNotificationSettings(supabase, workspace.id),
+      getWorkspaceGeneralSettings(supabase, workspace.id),
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", NOTIFICATION_SETTINGS_POLICY_TYPE)
+        .maybeSingle(),
+    ]);
+
+  if (beforePolicyResult.error) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      beforePolicyResult.error.message,
+      { panel },
+    );
+  }
+
+  const rawRecipientPhone = formString(formData, "calendarSmsRecipientPhone");
+  const normalizedRecipientPhone = rawRecipientPhone
+    ? normalizeContactPhoneForRegion(
+        rawRecipientPhone,
+        generalSettings.defaultPhoneRegion,
+      )
+    : "";
+
+  if (rawRecipientPhone && !normalizedRecipientPhone?.startsWith("+")) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      "Enter the SMS recipient number with a valid country code.",
+      { panel },
+    );
+  }
+
+  const settings = {
+    ...normalizeNotificationSettings({
+      ...beforeSettings,
+      calendarDailyDigestEnabled: formBoolean(
+        formData,
+        "calendarDailyDigestEnabled",
+      ),
+      calendarDailyDigestTime: formString(formData, "calendarDailyDigestTime"),
+      calendarDailyDigestTiming: digestTiming,
+      calendarSmsReminderMinutes: reminderMinutesValue,
+      calendarSmsRemindersEnabled: formBoolean(
+        formData,
+        "calendarSmsRemindersEnabled",
+      ),
+      calendarSmsRecipientPhone: normalizedRecipientPhone,
+    }),
+    calendarSmsRecipientPhone: normalizedRecipientPhone ?? "",
+  };
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: NOTIFICATION_SETTINGS_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      saveError?.message ?? "Unable to save notification settings.",
+      { panel },
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    action: "notification_settings.updated",
+    actorId: user.id,
+    actorType: "user",
+    after: { settings },
+    before: beforePolicyResult.data
+      ? { settings: beforePolicyResult.data.settings }
+      : null,
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+    workspaceId: workspace.id,
+  });
+
+  revalidatePath("/settings");
+  redirectWithSectionMessage(
+    "notifications",
+    "engine_message",
+    "Notification settings saved.",
     { panel },
   );
 }

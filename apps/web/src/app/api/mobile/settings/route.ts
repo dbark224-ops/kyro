@@ -30,6 +30,7 @@ import {
   normalizeCommunicationSettings,
   normalizeEmailSignatureSettings,
 } from "../../../../lib/communication/settings";
+import { normalizeContactPhoneForRegion } from "../../../../lib/crm/identity";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import {
   GOOGLE_GMAIL_READ_SCOPE,
@@ -53,6 +54,13 @@ import {
   getMicrosoftIntegrationOverview,
 } from "../../../../lib/integrations/microsoft";
 import {
+  CALENDAR_DAILY_DIGEST_TIMINGS,
+  CALENDAR_SMS_REMINDER_MINUTES,
+  NOTIFICATION_SETTINGS_POLICY_TYPE,
+  getNotificationSettings,
+  normalizeNotificationSettings,
+} from "../../../../lib/notifications/settings";
+import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
@@ -74,6 +82,7 @@ type MobileSettingsSection =
   | "communication"
   | "general"
   | "inboundEmail"
+  | "notifications"
   | "pronunciation"
   | "voice";
 
@@ -107,6 +116,7 @@ export async function PATCH(request: Request) {
       section !== "communication" &&
       section !== "general" &&
       section !== "inboundEmail" &&
+      section !== "notifications" &&
       section !== "pronunciation" &&
       section !== "voice"
     ) {
@@ -125,6 +135,8 @@ export async function PATCH(request: Request) {
       } else {
         await updateInboundEmailSettings(context, settings);
       }
+    } else if (section === "notifications") {
+      await updateNotificationSettings(context, settings);
     } else if (section === "pronunciation") {
       await updatePronunciationSettings(context, operation, settings);
     } else {
@@ -152,6 +164,7 @@ async function buildSettingsResponse({
     inboundEmail,
     inboundSummary,
     microsoft,
+    notifications,
     pronunciationEntries,
     usageReport,
     voice,
@@ -162,6 +175,7 @@ async function buildSettingsResponse({
     getInboundEmailSettings(supabase, workspace.id),
     getInboundEmailOperationalSummary(supabase, workspace.id),
     getMicrosoftIntegrationOverview(supabase, workspace.id),
+    getNotificationSettings(supabase, workspace.id),
     getPronunciationEntries(supabase, workspace.id),
     getUsageReport(supabase, workspace.id, usageWindow),
     getVoiceSettings(supabase, workspace.id),
@@ -218,6 +232,8 @@ async function buildSettingsResponse({
       inboundPollIntervals: [...INBOUND_EMAIL_POLL_INTERVALS],
       inboundSenderRuleActions: [...INBOUND_EMAIL_SENDER_RULE_ACTIONS],
       inboundSyncModes: [...INBOUND_EMAIL_SYNC_MODES],
+      notificationDailyDigestTimings: [...CALENDAR_DAILY_DIGEST_TIMINGS],
+      notificationReminderMinutes: [...CALENDAR_SMS_REMINDER_MINUTES],
       outboundChannels: [...OUTBOUND_CHANNELS],
       outboundVoicePronunciationPolicies: [
         ...OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
@@ -269,6 +285,14 @@ async function buildSettingsResponse({
         senderRuleCount: inboundEmail.senderRules.length,
         syncMode: inboundEmail.syncMode,
         timeZone: inboundEmail.timeZone,
+      },
+      notifications: {
+        calendarDailyDigestEnabled: notifications.calendarDailyDigestEnabled,
+        calendarDailyDigestTime: notifications.calendarDailyDigestTime,
+        calendarDailyDigestTiming: notifications.calendarDailyDigestTiming,
+        calendarSmsReminderMinutes: notifications.calendarSmsReminderMinutes,
+        calendarSmsRemindersEnabled: notifications.calendarSmsRemindersEnabled,
+        calendarSmsRecipientPhone: notifications.calendarSmsRecipientPhone,
       },
       voice: {
         openAiVoice: voice.openAiVoice,
@@ -412,6 +436,96 @@ async function updateGeneralSettings(
   if (error) {
     throw new Error(error.message);
   }
+}
+
+async function updateNotificationSettings(
+  context: MobileContext,
+  updates: Record<string, unknown>,
+) {
+  const beforePolicy = await loadPolicy(
+    context,
+    NOTIFICATION_SETTINGS_POLICY_TYPE,
+  );
+  const beforeSettings = normalizeNotificationSettings(beforePolicy?.settings);
+  const generalSettings = await getWorkspaceGeneralSettings(
+    context.supabase,
+    context.workspace.id,
+  );
+  const reminderMinutes =
+    numberValue(updates.calendarSmsReminderMinutes) ??
+    beforeSettings.calendarSmsReminderMinutes;
+  const digestTiming =
+    textValue(updates.calendarDailyDigestTiming) ??
+    beforeSettings.calendarDailyDigestTiming;
+
+  if (
+    !CALENDAR_SMS_REMINDER_MINUTES.includes(
+      reminderMinutes as (typeof CALENDAR_SMS_REMINDER_MINUTES)[number],
+    )
+  ) {
+    throw new Error("Choose a valid reminder time.");
+  }
+
+  if (
+    !CALENDAR_DAILY_DIGEST_TIMINGS.includes(
+      digestTiming as (typeof CALENDAR_DAILY_DIGEST_TIMINGS)[number],
+    )
+  ) {
+    throw new Error("Choose a valid daily report timing.");
+  }
+
+  const recipientProvided = Object.prototype.hasOwnProperty.call(
+    updates,
+    "calendarSmsRecipientPhone",
+  );
+  const rawRecipientPhone = recipientProvided
+    ? typeof updates.calendarSmsRecipientPhone === "string"
+      ? updates.calendarSmsRecipientPhone.trim()
+      : ""
+    : beforeSettings.calendarSmsRecipientPhone;
+  const normalizedRecipientPhone =
+    recipientProvided && rawRecipientPhone
+      ? normalizeContactPhoneForRegion(
+          rawRecipientPhone,
+          generalSettings.defaultPhoneRegion,
+        )
+      : rawRecipientPhone;
+
+  if (
+    recipientProvided &&
+    rawRecipientPhone &&
+    !normalizedRecipientPhone?.startsWith("+")
+  ) {
+    throw new Error("Enter the SMS recipient number with a valid country code.");
+  }
+
+  const settings = {
+    ...normalizeNotificationSettings({
+      ...beforeSettings,
+      calendarDailyDigestEnabled: booleanValue(
+        updates.calendarDailyDigestEnabled,
+        beforeSettings.calendarDailyDigestEnabled,
+      ),
+      calendarDailyDigestTime:
+        textValue(updates.calendarDailyDigestTime) ??
+        beforeSettings.calendarDailyDigestTime,
+      calendarDailyDigestTiming: digestTiming,
+      calendarSmsReminderMinutes: reminderMinutes,
+      calendarSmsRemindersEnabled: booleanValue(
+        updates.calendarSmsRemindersEnabled,
+        beforeSettings.calendarSmsRemindersEnabled,
+      ),
+      calendarSmsRecipientPhone: normalizedRecipientPhone,
+    }),
+    calendarSmsRecipientPhone: normalizedRecipientPhone ?? "",
+  };
+
+  await savePolicy(context, {
+    action: "notification_settings.updated",
+    beforePolicy,
+    policyType: NOTIFICATION_SETTINGS_POLICY_TYPE,
+    settings,
+  });
 }
 
 async function updateCommunicationSettings(
@@ -814,6 +928,26 @@ function objectRecord(value: unknown) {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function booleanValue(value: unknown, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+
+    if (["0", "false", "no", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return fallback;
 }
 
 function numberValue(value: unknown) {

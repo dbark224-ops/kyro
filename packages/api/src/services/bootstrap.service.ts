@@ -208,6 +208,17 @@ export function createWorkspaceBootstrapDefaults(
         },
       },
       {
+        policyType: "notifications",
+        settings: {
+          calendarDailyDigestEnabled: false,
+          calendarDailyDigestTime: "07:00",
+          calendarDailyDigestTiming: "morning_of",
+          calendarSmsReminderMinutes: 60,
+          calendarSmsRemindersEnabled: false,
+          calendarSmsRecipientPhone: "",
+        },
+      },
+      {
         policyType: "usage_budget",
         settings: {
           alertThresholdPercent: 80,

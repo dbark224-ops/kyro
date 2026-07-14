@@ -65,6 +65,13 @@ export function buildSettingsMenuItems({
       title: "Calendar",
     },
     {
+      detail: "SMS reminders and daily schedule summaries",
+      eyebrow: "Notifications",
+      href: settingsSectionHref("notifications", activeWindow),
+      section: "notifications",
+      title: "Notifications",
+    },
+    {
       detail: voiceSettings
         ? `${elevenLabsVoicePresetById(voiceSettings.elevenLabsVoicePresetId).label} - ${
             voiceSettings.phoneAgentEnabled ? "Phone on" : "Phone off"
@@ -269,6 +276,22 @@ export function buildSettingsNestedItems({
         key: "calendar-defaults",
         selected: selectedPanel === "calendar-defaults",
         title: "Calendar defaults",
+      },
+    ];
+  }
+
+  if (selectedSection === "notifications") {
+    return [
+      {
+        detail: "Event reminders and daily calendar summaries by SMS",
+        href: settingsPanelHref(
+          "notifications",
+          "calendar-notifications",
+          activeWindow,
+        ),
+        key: "calendar-notifications",
+        selected: selectedPanel === "calendar-notifications",
+        title: "Calendar SMS",
       },
     ];
   }

@@ -24,6 +24,7 @@ export function normalizeSettingsSection(
   if (
     value === "calendar" ||
     value === "general" ||
+    value === "notifications" ||
     value === "usage" ||
     value === "voice"
   ) {
@@ -77,6 +78,8 @@ export function defaultSettingsPanel(section: SettingsSection | null) {
       return "inbound-email";
     case "calendar":
       return "calendar-sync";
+    case "notifications":
+      return "calendar-notifications";
     case "usage":
       return "usage-summary";
     case "voice":

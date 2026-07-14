@@ -21,6 +21,7 @@ import {
   updateCalendarSettingsAction,
   updateDashboardTutorialTestModeAction,
   updateCommunicationSettingsAction,
+  updateNotificationSettingsAction,
   updateWorkspaceUsageMarkupRateAction,
   updateGeneralSettingsAction,
   updateVoiceSettingsAction,
@@ -108,6 +109,11 @@ import {
   CALENDAR_VIEWS,
   type CalendarSettings,
 } from "../../lib/calendar/settings";
+import {
+  CALENDAR_DAILY_DIGEST_TIMINGS,
+  CALENDAR_SMS_REMINDER_MINUTES,
+  type NotificationSettings,
+} from "../../lib/notifications/settings";
 import { isKyroEmailVerified } from "../../lib/auth/email-verification";
 import {
   quoteTemplateCatalog,
@@ -989,6 +995,150 @@ function CalendarSettingsDetail({
       <div className="settings-footer compact-settings-footer">
         <span>
           Kyro calendar remains the scheduling record; connected calendars mirror it.
+        </span>
+        <SettingsSubmitButton>Save</SettingsSubmitButton>
+      </div>
+    </form>
+  );
+}
+
+function calendarNotificationFallbackRecipient(
+  settings: WorkspaceGeneralSettings,
+) {
+  const contacts = settings.businessProfile.workplaceContacts;
+  const primary = contacts.find(
+    (contact) => contact.primaryEscalationContact && contact.phoneNumber,
+  );
+  const firstWithPhone = contacts.find((contact) => contact.phoneNumber);
+
+  return (
+    primary?.phoneNumber ||
+    firstWithPhone?.phoneNumber ||
+    settings.businessProfile.publicPhoneNumber ||
+    ""
+  );
+}
+
+function notificationDigestTimingLabel(
+  timing: (typeof CALENDAR_DAILY_DIGEST_TIMINGS)[number],
+) {
+  return timing === "night_before" ? "Night before" : "Morning of";
+}
+
+function NotificationSettingsDetail({
+  generalSettings,
+  settings,
+}: Readonly<{
+  generalSettings: WorkspaceGeneralSettings;
+  settings: NotificationSettings;
+}>) {
+  const fallbackRecipient =
+    calendarNotificationFallbackRecipient(generalSettings);
+  const fallbackCopy = fallbackRecipient
+    ? `Leave blank to use ${fallbackRecipient}.`
+    : "Add a recipient number or a workplace contact phone number before turning this on.";
+
+  return (
+    <form action={updateNotificationSettingsAction}>
+      <div className="integration-choice-panel">
+        <div>
+          <p className="eyebrow">Calendar SMS</p>
+          <h3>Calendar reminders</h3>
+          <p>
+            Kyro can text the user before events and send a compact daily
+            calendar summary.
+          </p>
+        </div>
+        <span
+          className={
+            settings.calendarSmsRemindersEnabled ||
+            settings.calendarDailyDigestEnabled
+              ? "pill success"
+              : "pill"
+          }
+        >
+          {settings.calendarSmsRemindersEnabled ||
+          settings.calendarDailyDigestEnabled
+            ? "On"
+            : "Off"}
+        </span>
+      </div>
+
+      <div className="settings-grid">
+        <label className="compact-checkbox-row setting-card">
+          <input
+            defaultChecked={settings.calendarSmsRemindersEnabled}
+            name="calendarSmsRemindersEnabled"
+            type="checkbox"
+          />
+          <span>SMS reminders before calendar events</span>
+        </label>
+
+        <label className="setting-card">
+          Reminder time
+          <select
+            defaultValue={settings.calendarSmsReminderMinutes}
+            name="calendarSmsReminderMinutes"
+          >
+            {CALENDAR_SMS_REMINDER_MINUTES.map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {minutes < 60
+                  ? `${minutes} minutes before`
+                  : `${minutes / 60} hour${minutes === 60 ? "" : "s"} before`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="setting-card">
+          SMS recipient
+          <input
+            defaultValue={settings.calendarSmsRecipientPhone}
+            name="calendarSmsRecipientPhone"
+            placeholder={fallbackRecipient || "+1 555 123 4567"}
+            type="tel"
+          />
+          <span>{fallbackCopy}</span>
+        </label>
+      </div>
+
+      <div className="settings-grid">
+        <label className="compact-checkbox-row setting-card">
+          <input
+            defaultChecked={settings.calendarDailyDigestEnabled}
+            name="calendarDailyDigestEnabled"
+            type="checkbox"
+          />
+          <span>Daily SMS calendar report</span>
+        </label>
+
+        <label className="setting-card">
+          Report timing
+          <select
+            defaultValue={settings.calendarDailyDigestTiming}
+            name="calendarDailyDigestTiming"
+          >
+            {CALENDAR_DAILY_DIGEST_TIMINGS.map((timing) => (
+              <option key={timing} value={timing}>
+                {notificationDigestTimingLabel(timing)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="setting-card">
+          Report time
+          <input
+            defaultValue={settings.calendarDailyDigestTime}
+            name="calendarDailyDigestTime"
+            type="time"
+          />
+        </label>
+      </div>
+
+      <div className="settings-footer compact-settings-footer">
+        <span>
+          Times use the workspace timezone: {generalSettings.timeZone || "UTC"}.
         </span>
         <SettingsSubmitButton>Save</SettingsSubmitButton>
       </div>
@@ -5622,6 +5772,7 @@ export default async function SettingsPage({
     kyroBillingEngineOverview,
     kyroBillingOverview,
     microsoftOverview,
+    notificationSettings,
     pronunciationEntries,
     query,
     selectedPanel,
@@ -5721,6 +5872,18 @@ export default async function SettingsPage({
           microsoftOverview={microsoftOverview}
           settings={calendarSettings}
           timeZone={generalSettings.timeZone}
+        />
+      </SettingsDetailShell>
+    ) : selectedSection === "notifications" &&
+      notificationSettings &&
+      generalSettings ? (
+      <SettingsDetailShell
+        eyebrow="Notifications"
+        title={selectedNestedTitle ?? "Notifications"}
+      >
+        <NotificationSettingsDetail
+          generalSettings={generalSettings}
+          settings={notificationSettings}
         />
       </SettingsDetailShell>
     ) : selectedSection === "usage" &&

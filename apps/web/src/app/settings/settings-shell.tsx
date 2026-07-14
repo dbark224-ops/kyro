@@ -16,6 +16,7 @@ export type SettingsSection =
   | "general"
   | "integrations"
   | "calendar"
+  | "notifications"
   | "usage"
   | "voice"
   | "developer";

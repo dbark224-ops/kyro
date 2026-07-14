@@ -12,6 +12,7 @@ import {
   getInboundEmailSettings,
 } from "../../lib/integrations/inbound-email-settings";
 import { getMicrosoftIntegrationOverview } from "../../lib/integrations/microsoft";
+import { getNotificationSettings } from "../../lib/notifications/settings";
 import { getTwilioTelephonyOverview } from "../../lib/integrations/twilio";
 import { getWorkspaceStripePaymentOverview } from "../../lib/payments/accounts";
 import { createServiceSupabaseClient } from "../../lib/supabase/service";
@@ -110,6 +111,7 @@ export async function loadSettingsPageData(
     selectedSection === "general" ||
     selectedSection === "usage" ||
     selectedSection === "calendar" ||
+    selectedSection === "notifications" ||
     (selectedSection === "developer" && isDeveloperAccount) ||
     (selectedSection === "integrations" &&
       activeIntegrationPanel === "phone-sms");
@@ -145,6 +147,7 @@ export async function loadSettingsPageData(
     microsoftOverview,
     inboundEmailSettings,
     inboundEmailSummary,
+    notificationSettings,
     twilioOverview,
     stripeOverview,
     documentTemplateSettings,
@@ -190,6 +193,9 @@ export async function loadSettingsPageData(
     selectedSection === "integrations" &&
     activeIntegrationPanel === "inbound-email"
       ? getInboundEmailOperationalSummary(supabase, workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "notifications"
+      ? getNotificationSettings(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "integrations" && activeIntegrationPanel === "phone-sms"
       ? getTwilioTelephonyOverview(supabase, workspace.id)
@@ -240,6 +246,7 @@ export async function loadSettingsPageData(
     kyroBillingEngineOverview,
     kyroBillingOverview,
     microsoftOverview,
+    notificationSettings,
     pronunciationEntries,
     query,
     selectedPanel,
