@@ -252,6 +252,7 @@
 }
 
 .eventCard {
+  align-content: center;
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
   border-radius: 9px;
@@ -260,9 +261,10 @@
   display: grid;
   gap: 2px;
   max-height: 68px;
+  min-height: 36px;
   min-width: 0;
   overflow: hidden;
-  padding: 6px 7px;
+  padding: 5px 7px 6px;
   text-align: left;
   transition:
     border-color 150ms ease,
@@ -281,6 +283,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   display: -webkit-box;
+  line-height: 1.12;
   min-width: 0;
   overflow: hidden;
 }
@@ -290,8 +293,9 @@
   display: inline-block;
   font-size: 0.65rem;
   font-weight: 900;
+  line-height: 1;
   margin-right: 6px;
-  vertical-align: baseline;
+  vertical-align: 0.02em;
   white-space: nowrap;
 }
 
