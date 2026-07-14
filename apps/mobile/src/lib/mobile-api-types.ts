@@ -904,6 +904,15 @@ export type MobileCalendarEventMutationResponse = {
   workspace: WorkspaceSummary;
 };
 
+export type MobileNotificationSettings = {
+  calendarDailyDigestEnabled: boolean;
+  calendarDailyDigestTime: string;
+  calendarDailyDigestTiming: "morning_of" | "night_before";
+  calendarSmsRecipientPhone: string;
+  calendarSmsReminderMinutes: 15 | 30 | 60 | 120;
+  calendarSmsRemindersEnabled: boolean;
+};
+
 export type MobileDashboardCommandCenter = {
   activity: MobileDashboardActivityItem[];
   calendar: MobileCalendarEvent[];
@@ -1038,6 +1047,7 @@ export type MobileSettingsResponse = {
       syncMode: string;
       timeZone: string;
     };
+    notifications: MobileNotificationSettings;
     voice: {
       elevenLabsVoiceAccent: string;
       elevenLabsVoiceId: string;

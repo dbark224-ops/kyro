@@ -109,6 +109,7 @@ import type {
   MobileDocumentTemplate,
   MobileEmailSignatureSettings,
   MobileInboundSenderRule,
+  MobileNotificationSettings,
   MobileOperationalLogItem,
   MobilePaymentLinkResponse,
   MobilePaymentRequest,
@@ -161,6 +162,7 @@ type SettingsSaveSection =
   | "communication"
   | "general"
   | "inboundEmail"
+  | "notifications"
   | "pronunciation"
   | "voice";
 type GeneralDraft = {
@@ -203,6 +205,7 @@ type VoiceDraft = {
   phoneAgentVerbosity: string;
   phoneAgentVoicemailOverflowEnabled: boolean;
 };
+type NotificationsDraft = MobileNotificationSettings;
 type MobileVoiceSettings = MobileSettingsResponse["settings"]["voice"];
 type PronunciationEntry =
   MobileSettingsResponse["pronunciationEntries"][number];
@@ -334,6 +337,21 @@ const defaultVoiceDraft: VoiceDraft = {
   phoneAgentVerbosity: "concise",
   phoneAgentVoicemailOverflowEnabled: false,
 };
+
+const defaultNotificationsDraft: NotificationsDraft = {
+  calendarDailyDigestEnabled: false,
+  calendarDailyDigestTime: "07:00",
+  calendarDailyDigestTiming: "morning_of",
+  calendarSmsRecipientPhone: "",
+  calendarSmsReminderMinutes: 60,
+  calendarSmsRemindersEnabled: false,
+};
+
+const smsReminderMinuteOptions: Array<NotificationsDraft["calendarSmsReminderMinutes"]> =
+  [15, 30, 60, 120];
+const smsDailyDigestTimingOptions: Array<
+  NotificationsDraft["calendarDailyDigestTiming"]
+> = ["morning_of", "night_before"];
 
 const emptySignature: MobileEmailSignatureSettings = {
   logoContentBase64: "",
@@ -654,6 +672,8 @@ export default function SettingsScreen() {
       useSeparateAiSignature: false,
     });
   const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>(defaultVoiceDraft);
+  const [notificationsDraft, setNotificationsDraft] =
+    useState<NotificationsDraft>(defaultNotificationsDraft);
   const queryClient = useQueryClient();
   const settingsQueryOptions = mobileSettingsQueryOptions(session);
   const queryKey = settingsQueryOptions.queryKey;
@@ -749,6 +769,9 @@ export default function SettingsScreen() {
         data.settings.communication.useSeparateAiSignature,
     });
     setVoiceDraft(normalizeVoiceDraft(data.settings.voice));
+    setNotificationsDraft(
+      normalizeNotificationsDraft(data.settings.notifications),
+    );
   }, [data]);
 
   useEffect(() => {
@@ -875,7 +898,17 @@ export default function SettingsScreen() {
               {selectedSection === "legal" ? <LegalSettingsPanel /> : null}
 
               {selectedSection === "notifications" ? (
-                <NotificationsSettingsPanel />
+                <NotificationsSettingsPanel
+                  disabled={saveSettings.isPending}
+                  draft={notificationsDraft}
+                  onChange={setNotificationsDraft}
+                  onSave={() =>
+                    saveSettings.mutate({
+                      section: "notifications",
+                      settings: notificationsDraft,
+                    })
+                  }
+                />
               ) : null}
 
               {selectedSection === "voice" ? (
@@ -1453,7 +1486,17 @@ function LegalSettingsPanel() {
   );
 }
 
-function NotificationsSettingsPanel() {
+function NotificationsSettingsPanel({
+  disabled,
+  draft,
+  onChange,
+  onSave,
+}: {
+  disabled: boolean;
+  draft: NotificationsDraft;
+  onChange: (draft: NotificationsDraft) => void;
+  onSave: () => void;
+}) {
   const {
     calendarLoading,
     lastError,
@@ -1476,7 +1519,7 @@ function NotificationsSettingsPanel() {
       setSaving(false);
     }
   };
-  const disabled = saving || calendarLoading;
+  const deviceDisabled = saving || calendarLoading;
 
   return (
     <>
@@ -1575,12 +1618,99 @@ function NotificationsSettingsPanel() {
       </SectionCard>
 
       <SectionCard>
+        <SectionHeader eyebrow="SMS" title="Kyro calendar reminders" />
+        <SwitchRow
+          label="SMS reminders"
+          onValueChange={(calendarSmsRemindersEnabled) =>
+            onChange({ ...draft, calendarSmsRemindersEnabled })
+          }
+          value={draft.calendarSmsRemindersEnabled}
+        />
+        {draft.calendarSmsRemindersEnabled ? (
+          <>
+            <SettingField label="Send SMS to">
+              <TextInput
+                editable={!disabled}
+                keyboardType="phone-pad"
+                onChangeText={(calendarSmsRecipientPhone) =>
+                  onChange({ ...draft, calendarSmsRecipientPhone })
+                }
+                placeholder="Workspace or owner phone"
+                placeholderTextColor={colors.muted}
+                style={styles.input}
+                value={draft.calendarSmsRecipientPhone}
+              />
+            </SettingField>
+            <SettingField label="Remind me before">
+              <OptionChips
+                formatOption={smsReminderMinuteLabel}
+                onChange={(value) =>
+                  onChange({
+                    ...draft,
+                    calendarSmsReminderMinutes:
+                      Number(value) as NotificationsDraft["calendarSmsReminderMinutes"],
+                  })
+                }
+                options={smsReminderMinuteOptions.map(String)}
+                value={String(draft.calendarSmsReminderMinutes)}
+              />
+            </SettingField>
+          </>
+        ) : null}
+      </SectionCard>
+
+      <SectionCard>
+        <SectionHeader eyebrow="SMS" title="Daily calendar SMS report" />
+        <SwitchRow
+          label="Daily SMS report"
+          onValueChange={(calendarDailyDigestEnabled) =>
+            onChange({ ...draft, calendarDailyDigestEnabled })
+          }
+          value={draft.calendarDailyDigestEnabled}
+        />
+        {draft.calendarDailyDigestEnabled ? (
+          <>
+            <SettingField label="When">
+              <OptionChips
+                formatOption={smsDailyDigestTimingLabel}
+                onChange={(value) =>
+                  onChange({
+                    ...draft,
+                    calendarDailyDigestTiming:
+                      value as NotificationsDraft["calendarDailyDigestTiming"],
+                  })
+                }
+                options={smsDailyDigestTimingOptions}
+                value={draft.calendarDailyDigestTiming}
+              />
+            </SettingField>
+            <SettingField label="Time">
+              <TimeWheelPicker
+                disabled={disabled}
+                label="Daily calendar SMS time"
+                onChange={(calendarDailyDigestTime) =>
+                  onChange({ ...draft, calendarDailyDigestTime })
+                }
+                value={draft.calendarDailyDigestTime}
+              />
+            </SettingField>
+          </>
+        ) : null}
+        <SaveFooter
+          disabled={disabled}
+          label="Save SMS settings"
+          onPress={onSave}
+          text="SMS reminders and reports are sent by Kyro from the server."
+        />
+      </SectionCard>
+
+      <SectionCard>
         <SectionHeader eyebrow="Device" title="Notification status" />
         <View style={styles.summaryStrip}>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Scheduled</Text>
             <Text style={styles.summaryValue}>
-              {disabled ? "Syncing" : scheduledCount}
+              {deviceDisabled ? "Syncing" : scheduledCount}
             </Text>
             <Text style={styles.summaryMeta}>Local reminders</Text>
           </View>
@@ -1629,6 +1759,26 @@ function notificationPermissionTone(
   }
 
   return "neutral";
+}
+
+function smsReminderMinuteLabel(value: string) {
+  if (value === "15" || value === "30") {
+    return `${value} min`;
+  }
+
+  if (value === "120") {
+    return "2 hr";
+  }
+
+  return "1 hr";
+}
+
+function smsDailyDigestTimingLabel(value: string) {
+  if (value === "night_before") {
+    return "Night before";
+  }
+
+  return "Morning of";
 }
 
 function LegalLinkRow({
@@ -8068,6 +8218,42 @@ function normalizeMobileBusinessProfile(
     workingHoursSchedule: normalizeBusinessHoursSchedule(
       source.workingHoursSchedule,
     ),
+  };
+}
+
+function normalizeNotificationsDraft(
+  value: Partial<MobileNotificationSettings> | null | undefined,
+): NotificationsDraft {
+  const reminderMinutes = smsReminderMinuteOptions.includes(
+    value?.calendarSmsReminderMinutes as NotificationsDraft["calendarSmsReminderMinutes"],
+  )
+    ? (value?.calendarSmsReminderMinutes as NotificationsDraft["calendarSmsReminderMinutes"])
+    : defaultNotificationsDraft.calendarSmsReminderMinutes;
+  const digestTiming = smsDailyDigestTimingOptions.includes(
+    value?.calendarDailyDigestTiming as NotificationsDraft["calendarDailyDigestTiming"],
+  )
+    ? (value?.calendarDailyDigestTiming as NotificationsDraft["calendarDailyDigestTiming"])
+    : defaultNotificationsDraft.calendarDailyDigestTiming;
+
+  return {
+    calendarDailyDigestEnabled:
+      typeof value?.calendarDailyDigestEnabled === "boolean"
+        ? value.calendarDailyDigestEnabled
+        : defaultNotificationsDraft.calendarDailyDigestEnabled,
+    calendarDailyDigestTime: normalizeBusinessTime(
+      value?.calendarDailyDigestTime,
+      defaultNotificationsDraft.calendarDailyDigestTime,
+    ),
+    calendarDailyDigestTiming: digestTiming,
+    calendarSmsRecipientPhone:
+      typeof value?.calendarSmsRecipientPhone === "string"
+        ? value.calendarSmsRecipientPhone
+        : defaultNotificationsDraft.calendarSmsRecipientPhone,
+    calendarSmsReminderMinutes: reminderMinutes,
+    calendarSmsRemindersEnabled:
+      typeof value?.calendarSmsRemindersEnabled === "boolean"
+        ? value.calendarSmsRemindersEnabled
+        : defaultNotificationsDraft.calendarSmsRemindersEnabled,
   };
 }
 
