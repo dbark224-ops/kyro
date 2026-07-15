@@ -5337,16 +5337,16 @@ function PronunciationEntryCard({
               name="aliases"
             />
           </label>
+          <PronunciationPreviewPlayer
+            entryId={entry.id}
+            fallbackSrc={`/api/assistant/pronunciation/preview?entryId=${entry.id}`}
+          />
           <div className="pronunciation-row-meta">
             <small>
               {pronunciationEntrySourceLabel(entry)} -{" "}
               {pronunciationUsageLabel(entry)}
             </small>
           </div>
-          <PronunciationPreviewPlayer
-            entryId={entry.id}
-            fallbackSrc={`/api/assistant/pronunciation/preview?entryId=${entry.id}`}
-          />
         </PronunciationAutosaveForm>
 
         <form
