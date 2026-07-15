@@ -103,7 +103,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         calendarReadiness={calendarReadiness}
         events={boardEvents}
         initialSelectedEventId={query?.event ?? null}
-        key={`${anchorDateKey}-${view}`}
+        key={`${anchorDateKey}-${view}-${query?.event ?? ""}`}
         options={options}
         preloadedRange={preloadedDateRange}
         settings={settings}

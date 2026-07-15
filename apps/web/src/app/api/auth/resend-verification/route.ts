@@ -7,6 +7,7 @@ import {
 import { normalizeContactEmail } from "../../../../lib/crm/identity";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
+import { consumeApiRateLimit } from "../../../../lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,40 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Enter the email address to verify.", ok: false },
       { status: 400 },
+    );
+  }
+
+  let rateLimit;
+
+  try {
+    rateLimit = await consumeApiRateLimit({
+      headers: request.headers,
+      identifier: email,
+      maxRequests: 4,
+      route: "auth.resend_verification",
+      windowSeconds: 15 * 60,
+    });
+  } catch (rateLimitError) {
+    console.error(
+      "Unable to enforce verification-email rate limit",
+      rateLimitError,
+    );
+    return NextResponse.json(
+      { error: "Kyro could not send verification right now.", ok: false },
+      { status: 503 },
+    );
+  }
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      {
+        error: "Please wait a few minutes before requesting another email.",
+        ok: false,
+      },
+      {
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+        status: 429,
+      },
     );
   }
 

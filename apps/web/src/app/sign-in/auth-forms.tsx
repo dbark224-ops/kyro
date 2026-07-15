@@ -8,6 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { SignupPlaceAutocompleteField } from "../components/signup-place-autocomplete-field";
 import { OPERATING_COUNTRY_OPTIONS } from "../../lib/workspace/operating-countries";
 
@@ -217,6 +218,9 @@ export function SignInForm({ action }: { action: ServerAction }) {
         />
       </label>
       <PasswordField autoComplete="current-password" />
+      <p className="auth-link-row">
+        <Link href="/forgot-password">Forgot password?</Link>
+      </p>
       <label className="auth-remember-row">
         <input
           name="rememberUser"

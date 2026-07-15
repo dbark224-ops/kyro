@@ -12,6 +12,7 @@ import {
   markKyroUserBillingSetupIntentComplete,
 } from "../../../../../lib/billing/kyro-user-billing";
 import { reconcileKyroInvoicePaymentIntent } from "../../../../../lib/billing/kyro-billing-engine";
+import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -30,6 +31,17 @@ function textValue(value: unknown) {
 
 function boolValue(value: unknown) {
   return value === true;
+}
+
+function throwOnDatabaseError(
+  result: { error: { message?: string } | null },
+  operation: string,
+) {
+  if (result.error) {
+    throw new Error(
+      `${operation}: ${result.error.message ?? "Unknown database error."}`,
+    );
+  }
 }
 
 function stripeAccountStatus(account: Record<string, unknown>) {
@@ -61,7 +73,7 @@ async function recordPaymentEvent({
   supabase: ReturnType<typeof createServiceSupabaseClient>;
   workspaceId: string;
 }) {
-  await supabase.from("payment_events").upsert(
+  const result = await supabase.from("payment_events").upsert(
     {
       payment_request_id: paymentRequestId ?? null,
       payload: event,
@@ -74,6 +86,8 @@ async function recordPaymentEvent({
     },
     { ignoreDuplicates: true, onConflict: "provider,provider_event_id" },
   );
+
+  throwOnDatabaseError(result, "Unable to record Stripe payment event");
 }
 
 async function handleAccountUpdated(
@@ -94,7 +108,11 @@ async function handleAccountUpdated(
     .eq("provider_account_id", accountId)
     .maybeSingle();
 
-  if (error || !row) {
+  if (error) {
+    throw new Error(`Unable to load Stripe account mapping: ${error.message}`);
+  }
+
+  if (!row) {
     return;
   }
 
@@ -103,7 +121,7 @@ async function handleAccountUpdated(
   const detailsSubmitted = boolValue(account.details_submitted);
   const status = stripeAccountStatus(account);
 
-  await supabase
+  const updateResult = await supabase
     .from("workspace_payment_accounts")
     .update({
       charges_enabled: chargesEnabled,
@@ -118,6 +136,8 @@ async function handleAccountUpdated(
       status,
     })
     .eq("id", row.id);
+
+  throwOnDatabaseError(updateResult, "Unable to update Stripe account state");
 
   await recordPaymentEvent({
     event,
@@ -159,20 +179,28 @@ async function handleCheckoutSessionCompleted(
       workspaceId,
     });
 
-    await supabase.from("events").insert({
-      idempotency_key: `stripe.${event.id}`,
-      payload: {
-        flow: KYRO_BILLING_SETUP_FLOW,
-        providerCheckoutSessionId: sessionId,
-        stripeCustomerId: textValue(session.customer),
-        stripeSetupIntentId: textValue(session.setup_intent),
+    const eventResult = await supabase.from("events").upsert(
+      {
+        idempotency_key: `stripe.${event.id}`,
+        payload: {
+          flow: KYRO_BILLING_SETUP_FLOW,
+          providerCheckoutSessionId: sessionId,
+          stripeCustomerId: textValue(session.customer),
+          stripeSetupIntentId: textValue(session.setup_intent),
+        },
+        processed_at: new Date().toISOString(),
+        source: "stripe.webhook",
+        status: "processed",
+        type: "billing.setup.completed",
+        workspace_id: workspaceId,
       },
-      processed_at: new Date().toISOString(),
-      source: "stripe.webhook",
-      status: "processed",
-      type: "billing.setup.completed",
-      workspace_id: workspaceId,
-    });
+      { ignoreDuplicates: true, onConflict: "workspace_id,idempotency_key" },
+    );
+
+    throwOnDatabaseError(
+      eventResult,
+      "Unable to record Stripe billing setup completion",
+    );
 
     return;
   }
@@ -184,7 +212,11 @@ async function handleCheckoutSessionCompleted(
     .eq("provider_checkout_session_id", sessionId)
     .maybeSingle();
 
-  if (error || !requestRow) {
+  if (error) {
+    throw new Error(`Unable to load Stripe payment request: ${error.message}`);
+  }
+
+  if (!requestRow) {
     return;
   }
 
@@ -193,7 +225,7 @@ async function handleCheckoutSessionCompleted(
     textValue(session.status)?.toLowerCase() === "complete";
   const paymentIntentId = textValue(session.payment_intent);
 
-  await supabase
+  const requestUpdateResult = await supabase
     .from("payment_requests")
     .update({
       paid_at: paid ? new Date().toISOString() : null,
@@ -201,6 +233,11 @@ async function handleCheckoutSessionCompleted(
       status: paid ? "paid" : "sent",
     })
     .eq("id", requestRow.id);
+
+  throwOnDatabaseError(
+    requestUpdateResult,
+    "Unable to update Stripe checkout payment request",
+  );
 
   await recordPaymentEvent({
     event,
@@ -210,20 +247,28 @@ async function handleCheckoutSessionCompleted(
     workspaceId: requestRow.workspace_id,
   });
 
-  await supabase.from("events").insert({
-    idempotency_key: `stripe.${event.id}`,
-    payload: {
-      paymentRequestId: requestRow.id,
-      providerCheckoutSessionId: sessionId,
-      providerPaymentIntentId: paymentIntentId,
-      status: paid ? "paid" : "sent",
+  const eventResult = await supabase.from("events").upsert(
+    {
+      idempotency_key: `stripe.${event.id}`,
+      payload: {
+        paymentRequestId: requestRow.id,
+        providerCheckoutSessionId: sessionId,
+        providerPaymentIntentId: paymentIntentId,
+        status: paid ? "paid" : "sent",
+      },
+      processed_at: new Date().toISOString(),
+      source: "stripe.webhook",
+      status: "processed",
+      type: "payment.checkout.completed",
+      workspace_id: requestRow.workspace_id,
     },
-    processed_at: new Date().toISOString(),
-    source: "stripe.webhook",
-    status: "processed",
-    type: "payment.checkout.completed",
-    workspace_id: requestRow.workspace_id,
-  });
+    { ignoreDuplicates: true, onConflict: "workspace_id,idempotency_key" },
+  );
+
+  throwOnDatabaseError(
+    eventResult,
+    "Unable to record Stripe checkout completion",
+  );
 }
 
 async function handlePaymentIntentStatus(
@@ -252,7 +297,7 @@ async function handlePaymentIntentStatus(
     const workspaceId = textValue(metadata.workspaceId);
 
     if (workspaceId) {
-      await supabase.from("events").upsert(
+      const eventResult = await supabase.from("events").upsert(
         {
           idempotency_key: `stripe.${event.id}`,
           payload: {
@@ -273,7 +318,12 @@ async function handlePaymentIntentStatus(
               : "billing.invoice.payment_failed",
           workspace_id: workspaceId,
         },
-        { ignoreDuplicates: true, onConflict: "idempotency_key" },
+        { ignoreDuplicates: true, onConflict: "workspace_id,idempotency_key" },
+      );
+
+      throwOnDatabaseError(
+        eventResult,
+        "Unable to record Kyro invoice reconciliation",
       );
     }
 
@@ -287,13 +337,17 @@ async function handlePaymentIntentStatus(
     .eq("provider_payment_intent_id", paymentIntentId)
     .maybeSingle();
 
-  if (error || !requestRow) {
+  if (error) {
+    throw new Error(`Unable to load Stripe payment request: ${error.message}`);
+  }
+
+  if (!requestRow) {
     return;
   }
 
   const failed = event.type === "payment_intent.payment_failed";
 
-  await supabase
+  const requestUpdateResult = await supabase
     .from("payment_requests")
     .update({
       failed_at: failed ? new Date().toISOString() : null,
@@ -301,6 +355,11 @@ async function handlePaymentIntentStatus(
       status: failed ? "failed" : "paid",
     })
     .eq("id", requestRow.id);
+
+  throwOnDatabaseError(
+    requestUpdateResult,
+    "Unable to reconcile Stripe payment request",
+  );
 
   await recordPaymentEvent({
     event,
@@ -341,7 +400,7 @@ async function handleSetupIntentSucceeded(
     workspaceId,
   });
 
-  await supabase.from("events").upsert(
+  const eventResult = await supabase.from("events").upsert(
     {
       idempotency_key: `stripe.${event.id}`,
       payload: {
@@ -355,7 +414,12 @@ async function handleSetupIntentSucceeded(
       type: "billing.setup.completed",
       workspace_id: workspaceId,
     },
-    { ignoreDuplicates: true, onConflict: "idempotency_key" },
+    { ignoreDuplicates: true, onConflict: "workspace_id,idempotency_key" },
+  );
+
+  throwOnDatabaseError(
+    eventResult,
+    "Unable to record Stripe setup-intent completion",
   );
 }
 
@@ -438,10 +502,38 @@ export async function POST(request: Request) {
       eventType: event.type,
     });
 
-    return NextResponse.json({
-      processed: false,
-      received: true,
-    });
+    try {
+      await sendInternalBugNotification({
+        context: {},
+        input: {
+          context: {
+            eventId: event.id,
+            eventType: event.type,
+          },
+          eventKey: event.id ?? null,
+          kind: "stripe_webhook_processing_failed",
+          rawMessage:
+            error instanceof Error ? error.message : "Unknown Stripe error.",
+          severity: "error",
+          source: "server.stripe.webhook",
+          visibleMessage: "Stripe will retry this billing update.",
+        },
+      });
+    } catch (notificationError) {
+      console.error(
+        "Unable to send Stripe webhook bug notification",
+        notificationError,
+      );
+    }
+
+    return NextResponse.json(
+      {
+        error: "Stripe webhook processing failed.",
+        processed: false,
+        received: true,
+      },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ received: true });

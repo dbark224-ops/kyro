@@ -287,29 +287,6 @@ function startOfTimeframe(timeframe: DashboardTimeframe, now: Date) {
   return start;
 }
 
-function endOfTimeframe(timeframe: DashboardTimeframe, now: Date) {
-  const start = startOfTimeframe(timeframe, now);
-  const end = new Date(start);
-
-  if (timeframe === "today") {
-    end.setDate(end.getDate() + 1);
-    return end;
-  }
-
-  if (timeframe === "week") {
-    end.setDate(end.getDate() + 7);
-    return end;
-  }
-
-  if (timeframe === "month") {
-    end.setMonth(end.getMonth() + 1, 1);
-    return end;
-  }
-
-  end.setFullYear(end.getFullYear() + 1, 0, 1);
-  return end;
-}
-
 function dashboardTimeframeDateKeyRange(
   timeframe: DashboardTimeframe,
   timeZone: string,

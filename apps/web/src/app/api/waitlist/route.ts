@@ -1,4 +1,5 @@
 import { createServiceSupabaseClient } from "../../../lib/supabase/service";
+import { consumeApiRateLimit } from "../../../lib/security/rate-limit";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -173,6 +174,34 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Enter a valid email address." },
       { status: 400 },
+    );
+  }
+
+  let rateLimit;
+
+  try {
+    rateLimit = await consumeApiRateLimit({
+      headers: request.headers,
+      identifier: emailNormalized,
+      maxRequests: 10,
+      route: "public.waitlist",
+      windowSeconds: 60 * 60,
+    });
+  } catch (rateLimitError) {
+    console.error("Unable to enforce waitlist rate limit", rateLimitError);
+    return NextResponse.json(
+      { error: "Kyro could not save this waitlist request." },
+      { status: 503 },
+    );
+  }
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      {
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+        status: 429,
+      },
     );
   }
 

@@ -22,7 +22,15 @@ function loadEnvFile(file) {
     }
 
     const [key, ...rest] = line.split("=");
-    entries[key.trim()] = rest.join("=").trim();
+    const rawValue = rest.join("=").trim();
+    const matchingQuote =
+      rawValue.length >= 2 &&
+      ((rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+        (rawValue.startsWith("'") && rawValue.endsWith("'")));
+
+    entries[key.trim()] = matchingQuote
+      ? rawValue.slice(1, -1)
+      : rawValue;
   }
 
   return entries;

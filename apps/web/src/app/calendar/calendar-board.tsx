@@ -1106,18 +1106,6 @@ export function CalendarBoard({
     events.find((event) => event.id === selectedEventId) ?? null;
 
   useEffect(() => {
-    setCurrentAnchorDate(anchorDate);
-  }, [anchorDate]);
-
-  useEffect(() => {
-    setCurrentView(view);
-  }, [view]);
-
-  useEffect(() => {
-    setSelectedEventId(initialSelectedEventId);
-  }, [initialSelectedEventId]);
-
-  useEffect(() => {
     prefetchedHrefs.forEach((href) => {
       router.prefetch(href);
     });

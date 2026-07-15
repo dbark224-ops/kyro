@@ -20,6 +20,7 @@ import {
   isOperatingCountry,
   operatingCountryPhoneRegion,
 } from "../../../../lib/workspace/operating-countries";
+import { consumeApiRateLimit } from "../../../../lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -296,6 +297,34 @@ export async function POST(request: Request) {
   }
 
   const input = validated.input;
+  let rateLimit;
+
+  try {
+    rateLimit = await consumeApiRateLimit({
+      headers: request.headers,
+      identifier: input.email,
+      maxRequests: 5,
+      route: "auth.create_account",
+      windowSeconds: 15 * 60,
+    });
+  } catch (rateLimitError) {
+    console.error("Unable to enforce account-creation rate limit", rateLimitError);
+    return errorResponse("Kyro could not start signup right now.", 503);
+  }
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      {
+        error: "Too many signup attempts. Please wait a few minutes.",
+        ok: false,
+      },
+      {
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+        status: 429,
+      },
+    );
+  }
+
   const duplicateError = await verifySignupIdentityAvailable({
     email: input.email,
     mobileCountry: input.mobileCountry,

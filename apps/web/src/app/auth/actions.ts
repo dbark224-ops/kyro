@@ -186,6 +186,80 @@ export async function signInAction(formData: FormData) {
   redirect("/dashboard");
 }
 
+export async function requestPasswordResetAction(formData: FormData) {
+  const email = formString(formData, "email");
+
+  if (!email) {
+    redirectWithError("/forgot-password", "Enter your email address.");
+  }
+
+  const requestHeaders = await headers();
+  const callbackUrl = new URL(
+    getAuthCallbackUrl(requestHeaders.get("origin")),
+  );
+  callbackUrl.searchParams.set("next", "/reset-password");
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: callbackUrl.toString(),
+  });
+
+  if (error) {
+    const normalized = error.message.toLowerCase();
+
+    if (normalized.includes("rate limit") || normalized.includes("too many")) {
+      redirectWithError(
+        "/forgot-password",
+        "Please wait a few minutes before requesting another reset email.",
+      );
+    }
+
+    console.error("Unable to request password reset", error);
+  }
+
+  redirect(
+    "/forgot-password?message=If%20that%20email%20belongs%20to%20a%20Kyro%20account%2C%20a%20reset%20link%20is%20on%20the%20way.",
+  );
+}
+
+export async function updateRecoveredPasswordAction(formData: FormData) {
+  const password = formString(formData, "password");
+  const confirmPassword = formString(formData, "confirmPassword");
+
+  if (password.length < 8) {
+    redirectWithError(
+      "/reset-password",
+      "Password must be at least 8 characters.",
+    );
+  }
+
+  if (password !== confirmPassword) {
+    redirectWithError("/reset-password", "Passwords must match.");
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirectWithError(
+      "/forgot-password",
+      "That reset link has expired. Request a new one.",
+    );
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+
+  if (error) {
+    redirectWithError("/reset-password", error.message);
+  }
+
+  await supabase.auth.signOut();
+  redirect(
+    "/sign-in?message=Password%20updated.%20Sign%20in%20with%20your%20new%20password.",
+  );
+}
+
 export async function signUpAction(formData: FormData) {
   const email = formString(formData, "email");
   const confirmEmail = formString(formData, "confirmEmail");

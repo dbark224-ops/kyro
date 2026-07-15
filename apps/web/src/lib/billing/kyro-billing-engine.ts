@@ -126,6 +126,17 @@ function intValue(value: unknown) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
 }
 
+function throwOnDatabaseError(
+  result: { error: { message?: string } | null },
+  operation: string,
+) {
+  if (result.error) {
+    throw new Error(
+      `${operation}: ${result.error.message ?? "Unknown database error."}`,
+    );
+  }
+}
+
 function envNumber(name: string, fallback: number) {
   const parsed = Number(process.env[name]?.trim());
 
@@ -814,11 +825,13 @@ export async function chargeKyroInvoice(input: {
     };
   }
 
-  await input.supabase
+  const invoiceResult = await input.supabase
     .from("kyro_invoices")
     .update({ status: "charging" })
     .eq("workspace_id", workspaceId)
     .eq("id", invoiceId);
+
+  throwOnDatabaseError(invoiceResult, "Unable to start Kyro invoice charge");
 
   try {
     const paymentIntent = await createStripePaymentIntent({
@@ -914,7 +927,7 @@ export async function markKyroInvoicePaid(input: {
 }) {
   const now = new Date().toISOString();
 
-  await input.supabase
+  const invoiceResult = await input.supabase
     .from("kyro_invoices")
     .update({
       failed_at: null,
@@ -930,7 +943,9 @@ export async function markKyroInvoicePaid(input: {
     .eq("workspace_id", input.workspaceId)
     .eq("id", input.invoiceId);
 
-  await input.supabase
+  throwOnDatabaseError(invoiceResult, "Unable to mark Kyro invoice paid");
+
+  const periodResult = await input.supabase
     .from("kyro_billing_periods")
     .update({
       closed_at: now,
@@ -938,6 +953,8 @@ export async function markKyroInvoicePaid(input: {
     })
     .eq("workspace_id", input.workspaceId)
     .eq("invoice_id", input.invoiceId);
+
+  throwOnDatabaseError(periodResult, "Unable to close Kyro billing period");
 }
 
 export async function markKyroInvoiceFailed(input: {
@@ -948,15 +965,30 @@ export async function markKyroInvoiceFailed(input: {
   supabase: SupabaseClient;
   workspaceId: string;
 }) {
-  const { data } = await input.supabase
+  const invoiceLookupResult = await input.supabase
     .from("kyro_invoices")
-    .select("failure_count")
+    .select("failure_count,stripe_last_event_id")
     .eq("workspace_id", input.workspaceId)
     .eq("id", input.invoiceId)
     .maybeSingle();
+  const { data } = invoiceLookupResult;
+
+  throwOnDatabaseError(
+    invoiceLookupResult,
+    "Unable to load failed Kyro invoice",
+  );
+
+  if (!data) {
+    throw new Error("Unable to load failed Kyro invoice: invoice not found.");
+  }
+
+  if (input.eventId && data?.stripe_last_event_id === input.eventId) {
+    return;
+  }
+
   const failureCount = intValue(data?.failure_count) + 1;
 
-  await input.supabase
+  const invoiceResult = await input.supabase
     .from("kyro_invoices")
     .update({
       failed_at: new Date().toISOString(),
@@ -972,11 +1004,18 @@ export async function markKyroInvoiceFailed(input: {
     .eq("workspace_id", input.workspaceId)
     .eq("id", input.invoiceId);
 
-  await input.supabase
+  throwOnDatabaseError(invoiceResult, "Unable to mark Kyro invoice failed");
+
+  const periodResult = await input.supabase
     .from("kyro_billing_periods")
     .update({ status: "payment_failed" })
     .eq("workspace_id", input.workspaceId)
     .eq("invoice_id", input.invoiceId);
+
+  throwOnDatabaseError(
+    periodResult,
+    "Unable to mark Kyro billing period failed",
+  );
 }
 
 export async function reconcileKyroInvoicePaymentIntent(input: {
