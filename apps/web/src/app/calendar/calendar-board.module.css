@@ -222,21 +222,6 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--cyan) 35%, transparent);
 }
 
-.calendarLoadingGrid {
-  display: grid;
-  gap: 6px;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  padding: 10px;
-}
-
-.calendarLoadingCell {
-  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
-  border-radius: 10px;
-  min-height: 82px;
-  opacity: 0.64;
-}
-
 .dayNumber {
   font-size: 0.72rem;
   font-weight: 900;
