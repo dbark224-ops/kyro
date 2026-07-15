@@ -114,6 +114,7 @@ import {
   CALENDAR_SMS_REMINDER_MINUTES,
   type NotificationSettings,
 } from "../../lib/notifications/settings";
+import notificationStyles from "./notification-settings.module.css";
 import { isKyroEmailVerified } from "../../lib/auth/email-verification";
 import {
   quoteTemplateCatalog,
@@ -1051,60 +1052,108 @@ function NotificationSettingsDetail({
   const fallbackCopy = fallbackRecipient
     ? `Leave blank to use ${fallbackRecipient}.`
     : "Add a recipient number or a workplace contact phone number before turning this on.";
+  const notificationsEnabled =
+    settings.calendarSmsRemindersEnabled || settings.calendarDailyDigestEnabled;
 
   return (
-    <form action={updateNotificationSettingsAction}>
-      <div className="integration-choice-panel">
+    <form
+      action={updateNotificationSettingsAction}
+      className={notificationStyles.form}
+    >
+      <div className={notificationStyles.intro}>
         <div>
-          <p className="eyebrow">Calendar SMS</p>
-          <h3>Calendar reminders</h3>
-          <p>
-            Kyro can text the user before events and send a compact daily
-            calendar summary.
-          </p>
+          <p className="eyebrow">SMS notifications</p>
+          <h3>Calendar alerts</h3>
+          <p>Receive event reminders and a compact summary of the day ahead.</p>
         </div>
-        <span
-          className={
-            settings.calendarSmsRemindersEnabled ||
-            settings.calendarDailyDigestEnabled
-              ? "pill success"
-              : "pill"
-          }
-        >
-          {settings.calendarSmsRemindersEnabled ||
-          settings.calendarDailyDigestEnabled
-            ? "On"
-            : "Off"}
+        <span className={notificationsEnabled ? "pill success" : "pill"}>
+          {notificationsEnabled ? "On" : "Off"}
         </span>
       </div>
 
-      <div className="settings-grid">
-        <label className="compact-checkbox-row setting-card">
-          <input
-            defaultChecked={settings.calendarSmsRemindersEnabled}
-            name="calendarSmsRemindersEnabled"
-            type="checkbox"
-          />
-          <span>SMS reminders before calendar events</span>
-        </label>
+      <div className={notificationStyles.preferenceList}>
+        <section className={notificationStyles.preferenceRow}>
+          <label className={notificationStyles.toggleLabel}>
+            <input
+              className={notificationStyles.toggleInput}
+              defaultChecked={settings.calendarSmsRemindersEnabled}
+              name="calendarSmsRemindersEnabled"
+              type="checkbox"
+            />
+            <span
+              aria-hidden="true"
+              className={notificationStyles.toggleTrack}
+            />
+            <span className={notificationStyles.preferenceCopy}>
+              <strong>Event reminders</strong>
+              <span>Send an SMS before each calendar event.</span>
+            </span>
+          </label>
 
-        <label className="setting-card">
-          Reminder time
-          <select
-            defaultValue={settings.calendarSmsReminderMinutes}
-            name="calendarSmsReminderMinutes"
-          >
-            {CALENDAR_SMS_REMINDER_MINUTES.map((minutes) => (
-              <option key={minutes} value={minutes}>
-                {minutes < 60
-                  ? `${minutes} minutes before`
-                  : `${minutes / 60} hour${minutes === 60 ? "" : "s"} before`}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className={notificationStyles.field}>
+            Reminder time
+            <select
+              defaultValue={settings.calendarSmsReminderMinutes}
+              name="calendarSmsReminderMinutes"
+            >
+              {CALENDAR_SMS_REMINDER_MINUTES.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes < 60
+                    ? `${minutes} minutes before`
+                    : `${minutes / 60} hour${minutes === 60 ? "" : "s"} before`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
 
-        <label className="setting-card">
+        <section className={notificationStyles.preferenceRow}>
+          <label className={notificationStyles.toggleLabel}>
+            <input
+              className={notificationStyles.toggleInput}
+              defaultChecked={settings.calendarDailyDigestEnabled}
+              name="calendarDailyDigestEnabled"
+              type="checkbox"
+            />
+            <span
+              aria-hidden="true"
+              className={notificationStyles.toggleTrack}
+            />
+            <span className={notificationStyles.preferenceCopy}>
+              <strong>Daily calendar summary</strong>
+              <span>Send one SMS with the next day&apos;s events.</span>
+            </span>
+          </label>
+
+          <div className={notificationStyles.reportFields}>
+            <label className={notificationStyles.field}>
+              Send
+              <select
+                defaultValue={settings.calendarDailyDigestTiming}
+                name="calendarDailyDigestTiming"
+              >
+                {CALENDAR_DAILY_DIGEST_TIMINGS.map((timing) => (
+                  <option key={timing} value={timing}>
+                    {notificationDigestTimingLabel(timing)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className={notificationStyles.field}>
+              Time
+              <input
+                defaultValue={settings.calendarDailyDigestTime}
+                name="calendarDailyDigestTime"
+                type="time"
+              />
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <section className={notificationStyles.deliveryRow}>
+        <label className={notificationStyles.field}>
           SMS recipient
           <input
             defaultValue={settings.calendarSmsRecipientPhone}
@@ -1114,46 +1163,13 @@ function NotificationSettingsDetail({
           />
           <span>{fallbackCopy}</span>
         </label>
-      </div>
+        <div className={notificationStyles.timeZone}>
+          <span>Workspace time zone</span>
+          <strong>{generalSettings.timeZone || "UTC"}</strong>
+        </div>
+      </section>
 
-      <div className="settings-grid">
-        <label className="compact-checkbox-row setting-card">
-          <input
-            defaultChecked={settings.calendarDailyDigestEnabled}
-            name="calendarDailyDigestEnabled"
-            type="checkbox"
-          />
-          <span>Daily SMS calendar report</span>
-        </label>
-
-        <label className="setting-card">
-          Report timing
-          <select
-            defaultValue={settings.calendarDailyDigestTiming}
-            name="calendarDailyDigestTiming"
-          >
-            {CALENDAR_DAILY_DIGEST_TIMINGS.map((timing) => (
-              <option key={timing} value={timing}>
-                {notificationDigestTimingLabel(timing)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="setting-card">
-          Report time
-          <input
-            defaultValue={settings.calendarDailyDigestTime}
-            name="calendarDailyDigestTime"
-            type="time"
-          />
-        </label>
-      </div>
-
-      <div className="settings-footer compact-settings-footer">
-        <span>
-          Times use the workspace timezone: {generalSettings.timeZone || "UTC"}.
-        </span>
+      <div className={notificationStyles.footer}>
         <SettingsSubmitButton>Save</SettingsSubmitButton>
       </div>
     </form>

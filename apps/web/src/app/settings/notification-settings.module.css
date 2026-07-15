@@ -1,0 +1,203 @@
+.form {
+  display: grid;
+  gap: 12px;
+}
+
+.intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--cyan) 6%, var(--surface));
+  padding: 12px 14px;
+}
+
+.intro h3,
+.intro p {
+  margin: 0;
+}
+
+.intro h3 {
+  margin-top: 2px;
+  font-size: 1.05rem;
+}
+
+.intro p:last-child {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.preferenceList {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.preferenceRow {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.9fr) minmax(260px, 1.1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 14px;
+}
+
+.preferenceRow + .preferenceRow {
+  border-top: 1px solid var(--line);
+}
+
+.toggleLabel {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.toggleInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggleTrack {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border: 1px solid color-mix(in srgb, var(--muted) 60%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted) 16%, var(--surface));
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.toggleTrack::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  content: "";
+  transition:
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.toggleInput:checked + .toggleTrack {
+  border-color: color-mix(in srgb, var(--cyan) 75%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 38%, var(--surface));
+}
+
+.toggleInput:checked + .toggleTrack::after {
+  background: var(--text);
+  transform: translateX(14px);
+}
+
+.toggleInput:focus-visible + .toggleTrack {
+  outline: 2px solid color-mix(in srgb, var(--cyan) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.preferenceCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preferenceCopy strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.preferenceCopy span,
+.field > span,
+.timeZone span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.field input,
+.field select {
+  width: 100%;
+}
+
+.reportFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 0.62fr);
+  gap: 10px;
+}
+
+.deliveryRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, auto);
+  align-items: end;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 12px 14px;
+}
+
+.timeZone {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  min-width: 0;
+  padding-bottom: 5px;
+  text-align: right;
+}
+
+.timeZone strong {
+  max-width: 100%;
+  color: var(--text);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+@media (max-width: 760px) {
+  .preferenceRow,
+  .deliveryRow {
+    grid-template-columns: 1fr;
+  }
+
+  .preferenceRow {
+    gap: 12px;
+  }
+
+  .timeZone {
+    justify-items: start;
+    padding-bottom: 0;
+    text-align: left;
+  }
+}
+
+@media (max-width: 480px) {
+  .reportFields {
+    grid-template-columns: 1fr;
+  }
+}
