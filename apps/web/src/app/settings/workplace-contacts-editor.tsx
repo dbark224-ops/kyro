@@ -13,6 +13,7 @@ import {
   type PhoneRegion,
 } from "../../lib/crm/identity";
 import { useState } from "react";
+import scheduleStyles from "./schedule-settings.module.css";
 
 type WorkplaceContactsEditorProps = {
   addLabel?: string;
@@ -536,6 +537,10 @@ export function WorkplaceContactsEditor({
     selectedContact,
     businessWorkingHoursSchedule,
   );
+  const selectedScheduleColumns = [
+    selectedSchedule.slice(0, 4),
+    selectedSchedule.slice(4, 8),
+  ];
   const phoneInputPlaceholder = phonePlaceholder(defaultPhoneRegion);
   const privatePhoneInputPlaceholder =
     privatePhonePlaceholder(defaultPhoneRegion);
@@ -916,57 +921,77 @@ export function WorkplaceContactsEditor({
                     Set to business default
                   </button>
                 </div>
-                <div className="workplace-contact-schedule-grid">
-                  {selectedSchedule.map((day) => {
-                    const dayLabel =
-                      BUSINESS_HOUR_DAYS.find(
-                        (option) => option.key === day.day,
-                      )?.shortLabel ?? day.day;
+                <div
+                  className={`${scheduleStyles.scheduleGrid} ${scheduleStyles.twoColumn} workplace-contact-schedule-grid`}
+                >
+                  {selectedScheduleColumns.map((days, columnIndex) => (
+                    <div
+                      className={scheduleStyles.scheduleColumn}
+                      key={columnIndex}
+                    >
+                      {days.map((day) => {
+                        const dayLabel =
+                          BUSINESS_HOUR_DAYS.find(
+                            (option) => option.key === day.day,
+                          )?.shortLabel ?? day.day;
 
-                    return (
-                      <div className="workplace-contact-schedule-row" key={day.day}>
-                        <label className="workplace-contact-schedule-day">
-                          <input
-                            checked={day.enabled}
-                            disabled={!isEditingSelectedContact}
-                            onChange={(event) =>
-                              updateSelectedSchedule(day.day, {
-                                enabled: event.currentTarget.checked,
-                              })
-                            }
-                            type="checkbox"
-                          />
-                          <span>{dayLabel}</span>
-                        </label>
-                        <label>
-                          <span>Start</span>
-                          <input
-                            disabled={!isEditingSelectedContact || !day.enabled}
-                            onChange={(event) =>
-                              updateSelectedSchedule(day.day, {
-                                startTime: event.currentTarget.value,
-                              })
-                            }
-                            type="time"
-                            value={day.startTime}
-                          />
-                        </label>
-                        <label>
-                          <span>End</span>
-                          <input
-                            disabled={!isEditingSelectedContact || !day.enabled}
-                            onChange={(event) =>
-                              updateSelectedSchedule(day.day, {
-                                endTime: event.currentTarget.value,
-                              })
-                            }
-                            type="time"
-                            value={day.endTime}
-                          />
-                        </label>
-                      </div>
-                    );
-                  })}
+                        return (
+                          <div
+                            className={`${scheduleStyles.scheduleRow} ${scheduleStyles.compactRow} workplace-contact-schedule-row`}
+                            key={day.day}
+                          >
+                            <label
+                              className={`${scheduleStyles.scheduleDay} ${scheduleStyles.alignedDay} workplace-contact-schedule-day`}
+                            >
+                              <input
+                                checked={day.enabled}
+                                disabled={!isEditingSelectedContact}
+                                onChange={(event) =>
+                                  updateSelectedSchedule(day.day, {
+                                    enabled: event.currentTarget.checked,
+                                  })
+                                }
+                                type="checkbox"
+                              />
+                              <span>{dayLabel}</span>
+                            </label>
+                            <label>
+                              <span>Start</span>
+                              <input
+                                className={`${scheduleStyles.timeInput} ${scheduleStyles.compactTime}`}
+                                disabled={
+                                  !isEditingSelectedContact || !day.enabled
+                                }
+                                onChange={(event) =>
+                                  updateSelectedSchedule(day.day, {
+                                    startTime: event.currentTarget.value,
+                                  })
+                                }
+                                type="time"
+                                value={day.startTime}
+                              />
+                            </label>
+                            <label>
+                              <span>End</span>
+                              <input
+                                className={`${scheduleStyles.timeInput} ${scheduleStyles.compactTime}`}
+                                disabled={
+                                  !isEditingSelectedContact || !day.enabled
+                                }
+                                onChange={(event) =>
+                                  updateSelectedSchedule(day.day, {
+                                    endTime: event.currentTarget.value,
+                                  })
+                                }
+                                type="time"
+                                value={day.endTime}
+                              />
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               </div>
               <label className="workplace-contact-field-wide">

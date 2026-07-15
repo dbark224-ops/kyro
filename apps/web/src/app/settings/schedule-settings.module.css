@@ -1,0 +1,56 @@
+.scheduleGrid.twoColumn {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.scheduleColumn {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 7px;
+}
+
+.scheduleRow.compactRow {
+  display: grid;
+  grid-template-columns: minmax(56px, 0.65fr) repeat(2, minmax(106px, 1fr));
+  min-width: 0;
+  align-items: end;
+  gap: 6px;
+}
+
+.scheduleDay.alignedDay {
+  align-self: center;
+  justify-self: start;
+  min-width: 0;
+}
+
+.timeInput.compactTime {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0 !important;
+  padding-inline: 6px;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.phoneAssistantContacts {
+  min-width: 0;
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .scheduleGrid.twoColumn {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .scheduleRow.compactRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scheduleDay.alignedDay {
+    grid-column: 1 / -1;
+  }
+}

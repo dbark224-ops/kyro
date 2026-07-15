@@ -7,6 +7,7 @@ import {
   type WorkplaceContactSettings,
 } from "../../lib/workspace/general-settings";
 import { useMemo, useState } from "react";
+import scheduleStyles from "./schedule-settings.module.css";
 
 type BusinessAvailabilityEditorProps = {
   contactHoursSchedule: BusinessHoursScheduleSettings;
@@ -122,17 +123,27 @@ function SchedulePicker({
           <span>{description}</span>
         </div>
       </header>
-      <div className="availability-day-grid">
+      <div
+        className={`${scheduleStyles.scheduleGrid} ${scheduleStyles.twoColumn} availability-day-grid`}
+      >
         {scheduleColumns.map((days, columnIndex) => (
-          <div className="availability-day-column" key={columnIndex}>
+          <div
+            className={`${scheduleStyles.scheduleColumn} availability-day-column`}
+            key={columnIndex}
+          >
             {days.map((day) => {
               const label =
                 BUSINESS_HOUR_DAYS.find((option) => option.key === day.day)
                   ?.label ?? day.day;
 
               return (
-                <div className="availability-day-row" key={day.day}>
-                  <label className="availability-day-toggle">
+                <div
+                  className={`${scheduleStyles.scheduleRow} ${scheduleStyles.compactRow} availability-day-row`}
+                  key={day.day}
+                >
+                  <label
+                    className={`${scheduleStyles.scheduleDay} ${scheduleStyles.alignedDay} availability-day-toggle`}
+                  >
                     <input
                       checked={day.enabled}
                       onChange={(event) =>
@@ -149,6 +160,7 @@ function SchedulePicker({
                   <label>
                     <span>Start</span>
                     <input
+                      className={`${scheduleStyles.timeInput} ${scheduleStyles.compactTime}`}
                       disabled={!day.enabled}
                       onChange={(event) =>
                         onChange(
@@ -164,6 +176,7 @@ function SchedulePicker({
                   <label>
                     <span>End</span>
                     <input
+                      className={`${scheduleStyles.timeInput} ${scheduleStyles.compactTime}`}
                       disabled={!day.enabled}
                       onChange={(event) =>
                         onChange(

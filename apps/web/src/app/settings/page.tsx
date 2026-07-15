@@ -115,6 +115,7 @@ import {
   type NotificationSettings,
 } from "../../lib/notifications/settings";
 import notificationStyles from "./notification-settings.module.css";
+import scheduleStyles from "./schedule-settings.module.css";
 import { isKyroEmailVerified } from "../../lib/auth/email-verification";
 import {
   quoteTemplateCatalog,
@@ -4457,14 +4458,16 @@ function VoiceSettingsDetail({
             type="hidden"
             value={voiceSettings.vapiOutboundAssistantId ?? ""}
           />
-          <WorkplaceContactsEditor
-            businessWorkingHoursSchedule={businessWorkingHoursSchedule}
-            contacts={workplaceContacts}
-            defaultEmail={userEmail}
-            defaultPhoneRegion={defaultPhoneRegion}
-            description="These workplace contacts are used to recognize internal callers and decide who Kyro can alert when calls need a human."
-            title="User and team contacts"
-          />
+          <div className={scheduleStyles.phoneAssistantContacts}>
+            <WorkplaceContactsEditor
+              businessWorkingHoursSchedule={businessWorkingHoursSchedule}
+              contacts={workplaceContacts}
+              defaultEmail={userEmail}
+              defaultPhoneRegion={defaultPhoneRegion}
+              description="These workplace contacts are used to recognize internal callers and decide who Kyro can alert when calls need a human."
+              title="User and team contacts"
+            />
+          </div>
         </fieldset>
 
         <div
