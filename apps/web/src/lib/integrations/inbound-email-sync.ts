@@ -1,5 +1,6 @@
 import { selectModelRoute } from "@kyro/ai";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { openAiReasoningRequest } from "../ai/openai-models";
 import { runStubAiTriage } from "../ai/triage";
 import { buildEmailLeadTitle, formatServiceType } from "../crm/display";
 import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
@@ -994,6 +995,11 @@ async function classifyWithOpenAi({
           "You are Kyro's inbound email classifier for a trades/service CRM. Return compact JSON matching the requested contract.",
         max_output_tokens: 420,
         model,
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_INBOUND_EMAIL_CLASSIFIER_REASONING_EFFORT",
+          "low",
+        ),
         text: {
           format: {
             name: "kyro_inbound_email_classification",

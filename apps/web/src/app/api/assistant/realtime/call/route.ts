@@ -16,7 +16,7 @@ function envValue(key: string) {
 }
 
 function realtimeModel() {
-  return envValue("OPENAI_REALTIME_MODEL") || "gpt-realtime-2";
+  return envValue("OPENAI_REALTIME_MODEL") || "gpt-realtime-2.1";
 }
 
 function realtimeStyleInstructions() {

@@ -7,6 +7,10 @@ import {
   usageEventTotals,
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
+import {
+  openAiLowCostModel,
+  openAiReasoningRequest,
+} from "../ai/openai-models";
 
 export const PRONUNCIATION_CATEGORIES = [
   "person",
@@ -109,13 +113,7 @@ function openAiApiKey() {
 }
 
 function pronunciationAliasModel() {
-  return (
-    envValue("OPENAI_PRONUNCIATION_ALIAS_MODEL") ||
-    envValue("OPENAI_LOW_COST_MODEL") ||
-    envValue("OPENAI_ASSISTANT_MODEL") ||
-    envValue("OPENAI_MODEL") ||
-    "gpt-4.1-mini"
-  );
+  return envValue("OPENAI_PRONUNCIATION_ALIAS_MODEL") || openAiLowCostModel();
 }
 
 function pronunciationAliasTimeoutMs() {
@@ -742,6 +740,11 @@ async function enrichPronunciationCandidatesWithAliases({
           "You maintain Kyro's pronunciation vocabulary for a trades/service CRM. Return compact JSON matching the schema. Be conservative and useful.",
         max_output_tokens: 520,
         model,
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_PRONUNCIATION_ALIAS_REASONING_EFFORT",
+          "none",
+        ),
         text: {
           format: {
             name: "kyro_pronunciation_aliases",

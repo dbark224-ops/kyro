@@ -34,7 +34,8 @@ export async function POST(request: Request) {
   const body = objectRecord(await request.json().catch(() => ({})));
   const name = textValue(body.name);
   const rawArguments = objectRecord(body.arguments);
-  const prompt = textValue(rawArguments.prompt) ?? textValue(rawArguments.query);
+  const prompt =
+    textValue(rawArguments.prompt) ?? textValue(rawArguments.query);
 
   if (
     name !== "kyro_context_lookup" &&
@@ -42,7 +43,10 @@ export async function POST(request: Request) {
     name !== "kyro_web_search" &&
     name !== "kyro_check_recent_email"
   ) {
-    return Response.json({ error: "Unsupported realtime tool." }, { status: 400 });
+    return Response.json(
+      { error: "Unsupported realtime tool." },
+      { status: 400 },
+    );
   }
 
   if (
@@ -50,7 +54,10 @@ export async function POST(request: Request) {
     name !== "kyro_update_contact" &&
     !prompt
   ) {
-    return Response.json({ error: "Tool prompt is required." }, { status: 400 });
+    return Response.json(
+      { error: "Tool prompt is required." },
+      { status: 400 },
+    );
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -58,7 +65,9 @@ export async function POST(request: Request) {
   if (name === "kyro_check_recent_email") {
     const providerArg = textValue(rawArguments.provider);
     const provider: InboundEmailProvider | undefined =
-      providerArg === "google" || providerArg === "microsoft" ? providerArg : undefined;
+      providerArg === "google" || providerArg === "microsoft"
+        ? providerArg
+        : undefined;
     const result = await syncInboundEmail({
       provider,
       supabase,
@@ -100,12 +109,16 @@ export async function POST(request: Request) {
 
   if (name === "kyro_web_search") {
     if (!assistantWebSearchEnabled()) {
-      return Response.json({ error: "Web search is disabled." }, { status: 403 });
+      return Response.json(
+        { error: "Web search is disabled." },
+        { status: 403 },
+      );
     }
 
     const result = await runAssistantWebSearch({ prompt: prompt ?? "" });
 
     if (!result.fallbackReason) {
+      const model = result.model;
       const tokenUsage =
         result.tokenUsage ??
         openAiUsageFromTokenCounts({
@@ -126,11 +139,7 @@ export async function POST(request: Request) {
           userId: user.id,
           workspaceId: workspace.id,
         },
-        model:
-          process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
-          process.env.OPENAI_BALANCED_MODEL?.trim() ||
-          process.env.ASSISTANT_MODEL?.trim() ||
-          "gpt-4.1-mini",
+        model,
         provider: "openai",
         service: "llm",
         usage: tokenUsage,
@@ -146,11 +155,7 @@ export async function POST(request: Request) {
               userId: user.id,
               workspaceId: workspace.id,
             },
-            model:
-              process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
-              process.env.OPENAI_BALANCED_MODEL?.trim() ||
-              process.env.ASSISTANT_MODEL?.trim() ||
-              "gpt-4.1-mini",
+            model,
           }),
         );
       }
@@ -164,11 +169,7 @@ export async function POST(request: Request) {
           estimated_cost: String(totals.costSnapshot),
           input_refs: { prompt, source: "realtime_tool" },
           mode: "tool",
-          model:
-            process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
-            process.env.OPENAI_BALANCED_MODEL?.trim() ||
-            process.env.ASSISTANT_MODEL?.trim() ||
-            "gpt-4.1-mini",
+          model,
           output: {
             sourceCount: result.sources.length,
             webSearchUsed: result.webSearchUsed,

@@ -231,7 +231,10 @@ function metadataString(value: unknown, key: string) {
   return typeof candidate === "string" ? candidate.trim() : "";
 }
 
-function displayUserName(user: { email?: string | null; user_metadata?: unknown }) {
+function displayUserName(user: {
+  email?: string | null;
+  user_metadata?: unknown;
+}) {
   const metadataFirstName =
     metadataString(user.user_metadata, "first_name") ||
     metadataString(user.user_metadata, "firstName");
@@ -847,61 +850,64 @@ function CalendarSettingsDetail({
           />
           <div className="settings-grid">
             <label className="setting-card">
-            Default view
-            <select defaultValue={settings.defaultView} name="calendarDefaultView">
-              {CALENDAR_VIEWS.map((view) => (
-                <option key={view} value={view}>
-                  {formatLabel(view)}
-                </option>
-              ))}
-            </select>
+              Default view
+              <select
+                defaultValue={settings.defaultView}
+                name="calendarDefaultView"
+              >
+                {CALENDAR_VIEWS.map((view) => (
+                  <option key={view} value={view}>
+                    {formatLabel(view)}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="setting-card">
-            Default event type
-            <select
-              defaultValue={settings.defaultEventType}
-              name="calendarDefaultEventType"
-            >
-              {CALENDAR_EVENT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {formatLabel(type)}
-                </option>
-              ))}
-            </select>
+              Default event type
+              <select
+                defaultValue={settings.defaultEventType}
+                name="calendarDefaultEventType"
+              >
+                {CALENDAR_EVENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {formatLabel(type)}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="setting-card">
-            Default duration (mins)
-            <input
-              defaultValue={settings.defaultDurationMinutes}
-              min={5}
-              name="calendarDefaultDurationMinutes"
-              step={5}
-              type="number"
-            />
+              Default duration (mins)
+              <input
+                defaultValue={settings.defaultDurationMinutes}
+                min={5}
+                name="calendarDefaultDurationMinutes"
+                step={5}
+                type="number"
+              />
             </label>
             <label className="setting-card">
-            Buffer before (mins)
-            <input
-              defaultValue={settings.bufferMinutesBefore}
-              min={0}
-              name="calendarBufferMinutesBefore"
-              step={5}
-              type="number"
-            />
+              Buffer before (mins)
+              <input
+                defaultValue={settings.bufferMinutesBefore}
+                min={0}
+                name="calendarBufferMinutesBefore"
+                step={5}
+                type="number"
+              />
             </label>
             <label className="setting-card">
-            Buffer after (mins)
-            <input
-              defaultValue={settings.bufferMinutesAfter}
-              min={0}
-              name="calendarBufferMinutesAfter"
-              step={5}
-              type="number"
-            />
+              Buffer after (mins)
+              <input
+                defaultValue={settings.bufferMinutesAfter}
+                min={0}
+                name="calendarBufferMinutesAfter"
+                step={5}
+                type="number"
+              />
             </label>
             <article className="setting-card">
-            <strong>Workspace timezone</strong>
-            <span>{timeZone}</span>
+              <strong>Workspace timezone</strong>
+              <span>{timeZone}</span>
             </article>
           </div>
         </>
@@ -939,10 +945,15 @@ function CalendarSettingsDetail({
           <div className="settings-grid">
             <label className="setting-card">
               Sync provider
-              <select defaultValue={settings.syncProvider} name="calendarSyncProvider">
+              <select
+                defaultValue={settings.syncProvider}
+                name="calendarSyncProvider"
+              >
                 {CALENDAR_SYNC_PROVIDERS.map((provider) => (
                   <option key={provider} value={provider}>
-                    {provider === "auto" ? "Auto select connected calendar" : formatLabel(provider)}
+                    {provider === "auto"
+                      ? "Auto select connected calendar"
+                      : formatLabel(provider)}
                   </option>
                 ))}
               </select>
@@ -978,7 +989,9 @@ function CalendarSettingsDetail({
                 name="calendarSyncDeletedEventsToExternal"
                 type="checkbox"
               />
-              <span>Delete Google/Outlook events when Kyro events are deleted</span>
+              <span>
+                Delete Google/Outlook events when Kyro events are deleted
+              </span>
             </label>
             <label className="compact-checkbox-row setting-card">
               <input
@@ -994,7 +1007,8 @@ function CalendarSettingsDetail({
 
       <div className="settings-footer compact-settings-footer">
         <span>
-          Kyro calendar remains the scheduling record; connected calendars mirror it.
+          Kyro calendar remains the scheduling record; connected calendars
+          mirror it.
         </span>
         <SettingsSubmitButton>Save</SettingsSubmitButton>
       </div>
@@ -5371,8 +5385,12 @@ function modelUsageDescription(row: UsageBreakdownRow) {
     return "Used when Kyro searches the internet to answer with current information. Search calls can also add model-token cost when result content is used.";
   }
 
-  if (model.includes("gpt-4.1-mini")) {
-    return "Kyro's lightweight OpenAI text model for assistant replies, settings help, email drafting, document/template edits, classification, and tool-aware work.";
+  if (model.includes("gpt-5.6") || model.includes("gpt-5")) {
+    return "Kyro's OpenAI reasoning model family for assistant replies, settings help, email drafting, document/template edits, classification, and tool-aware work.";
+  }
+
+  if (model.includes("gpt-4.1")) {
+    return "Kyro's older OpenAI text model family for assistant replies, drafting, classification, and tool-aware work.";
   }
 
   if (model === "n/a") {
@@ -5861,7 +5879,9 @@ export default async function SettingsPage({
           workspaceName={workspace.name}
         />
       </SettingsDetailShell>
-    ) : selectedSection === "calendar" && calendarSettings && generalSettings ? (
+    ) : selectedSection === "calendar" &&
+      calendarSettings &&
+      generalSettings ? (
       <SettingsDetailShell
         eyebrow="Calendar"
         title={selectedNestedTitle ?? "Calendar"}

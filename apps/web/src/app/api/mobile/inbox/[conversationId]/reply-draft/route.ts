@@ -4,6 +4,10 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../../../lib/mobile/context";
+import {
+  openAiBalancedModel,
+  openAiReasoningRequest,
+} from "../../../../../../lib/ai/openai-models";
 
 export const dynamic = "force-dynamic";
 
@@ -62,18 +66,15 @@ function mobileMissingInfo(
   }
 
   return Array.from(
-    new Set(
-      missing
-        .map((item) => item.trim().toLowerCase())
-        .filter(Boolean),
-    ),
+    new Set(missing.map((item) => item.trim().toLowerCase()).filter(Boolean)),
   );
 }
 
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { conversationId } = await context.params;
-    const { supabase, workspace } = await requireMobileWorkspaceContext(request);
+    const { supabase, workspace } =
+      await requireMobileWorkspaceContext(request);
     const payload = (await request.json().catch(() => null)) as {
       prompt?: unknown;
     } | null;
@@ -115,6 +116,8 @@ export async function POST(request: Request, context: RouteContext) {
       });
     }
 
+    const model =
+      process.env.OPENAI_REPLY_DRAFT_MODEL?.trim() || openAiBalancedModel();
     const response = await fetch("https://api.openai.com/v1/responses", {
       body: JSON.stringify({
         input: [
@@ -142,10 +145,12 @@ export async function POST(request: Request, context: RouteContext) {
           },
         ],
         max_output_tokens: 700,
-        model:
-          process.env.OPENAI_REPLY_DRAFT_MODEL?.trim() ||
-          process.env.OPENAI_ASSISTANT_MODEL?.trim() ||
-          "gpt-4.1-mini",
+        model,
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_REPLY_DRAFT_REASONING_EFFORT",
+          "low",
+        ),
       }),
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -153,12 +158,10 @@ export async function POST(request: Request, context: RouteContext) {
       },
       method: "POST",
     });
-    const data = (await response.json().catch(() => null)) as
-      | {
-          error?: { message?: string };
-          output_text?: string;
-        }
-      | null;
+    const data = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+      output_text?: string;
+    } | null;
 
     if (!response.ok) {
       throw new Error(
@@ -183,9 +186,7 @@ function fallbackDraftBody(
   prompt: string | null,
 ) {
   const name =
-    profile.contact?.name?.split(" ")[0] ??
-    profile.contact?.company ??
-    "there";
+    profile.contact?.name?.split(" ")[0] ?? profile.contact?.company ?? "there";
   const contextLine = prompt
     ? `\n\n${prompt}`
     : mobileMissingInfo(profile).length

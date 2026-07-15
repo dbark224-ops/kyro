@@ -139,7 +139,7 @@ Current OpenAI metering behaviour:
 - OpenAI Realtime voice turns read token usage from the `response.done` event and
   split it into text input, audio input, cached input, text output, audio output,
   and reasoning rows. This keeps live voice costing aligned with the actual
-  `gpt-realtime-2` usage rather than a local estimate.
+  `gpt-realtime-2.1` / `gpt-realtime-2` usage rather than a local estimate.
 - OpenAI text-to-speech uses direct environment pricing when
   `OPENAI_TTS_UNIT_COST_PER_SECOND_USD` is configured. Otherwise the default
   `gpt-4o-mini-tts` path estimates text-input and audio-output cost from the current

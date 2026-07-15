@@ -126,6 +126,31 @@ describe("OpenAI usage metering", () => {
       assert.equal(rows[1].metadata.billingCategory, "cached_input");
     }));
 
+  it("prices GPT-5.6 Luna text usage from the current model catalog", () =>
+    withoutPriceEnv(() => {
+      const usage = openAiUsageFromResponse({
+        usage: {
+          input_tokens: 1000,
+          output_tokens: 100,
+        },
+      });
+      const events = buildLlmUsageEvents({
+        context: {
+          workspaceId: "00000000-0000-4000-8000-000000000003",
+        },
+        model: "gpt-5.6-luna",
+        provider: "openai",
+        usage,
+      });
+
+      assert.equal(usageEventTotals(events).costSnapshot, 0.0016);
+      assert.equal(
+        events[0].metadata?.priceSource,
+        "openai_api_pricing_2026_07_15:gpt-5.6-luna",
+      );
+      assert.equal(events[0].metadata?.priceEstimated, false);
+    }));
+
   it("supports legacy Chat Completions usage fields", () => {
     const usage = openAiUsageFromResponse({
       usage: {
@@ -320,7 +345,7 @@ describe("OpenAI usage metering", () => {
           userId: "00000000-0000-4000-8000-000000000002",
           workspaceId: "00000000-0000-4000-8000-000000000003",
         },
-        model: "gpt-realtime-2",
+        model: "gpt-realtime-2.1",
         usage,
       });
 
@@ -338,6 +363,10 @@ describe("OpenAI usage metering", () => {
       assert.equal(
         toUsageEventRows(events)[0].provider_usage_id,
         "resp_realtime_123",
+      );
+      assert.equal(
+        events[0].metadata?.priceSource,
+        "openai_api_pricing_2026_07_15:gpt-realtime-2.1",
       );
       assert.equal(usageEventTotals(events).costSnapshot, 0.04796);
     }));

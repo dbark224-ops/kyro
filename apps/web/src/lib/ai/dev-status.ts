@@ -1,15 +1,15 @@
+import { openAiBalancedModel } from "./openai-models";
+
 export type LlmDevStatus = {
   label: string;
   tone: "connected" | "offline" | "stub";
   detail: string;
 };
 
-let cachedStatus:
-  | {
-      expiresAt: number;
-      value: LlmDevStatus | null;
-    }
-  | null = null;
+let cachedStatus: {
+  expiresAt: number;
+  value: LlmDevStatus | null;
+} | null = null;
 let pendingStatus: Promise<LlmDevStatus | null> | null = null;
 
 function envValue(key: string) {
@@ -17,7 +17,10 @@ function envValue(key: string) {
 }
 
 function ollamaBaseUrl() {
-  return (envValue("OLLAMA_BASE_URL") || "http://127.0.0.1:11434").replace(/\/$/, "");
+  return (envValue("OLLAMA_BASE_URL") || "http://127.0.0.1:11434").replace(
+    /\/$/,
+    "",
+  );
 }
 
 function ollamaModel() {
@@ -25,7 +28,7 @@ function ollamaModel() {
 }
 
 function openAiModel() {
-  return envValue("ASSISTANT_MODEL") || envValue("OPENAI_MODEL") || "gpt-4.1-mini";
+  return openAiBalancedModel();
 }
 
 function aiProvider() {
@@ -61,7 +64,7 @@ export async function getLlmDevStatus(): Promise<LlmDevStatus | null> {
       label: envValue("OPENAI_API_KEY")
         ? `LLM: ${openAiModel()} via OpenAI`
         : "LLM: OpenAI key missing",
-      tone: envValue("OPENAI_API_KEY") ? "connected" : "offline"
+      tone: envValue("OPENAI_API_KEY") ? "connected" : "offline",
     };
   }
 
@@ -69,7 +72,7 @@ export async function getLlmDevStatus(): Promise<LlmDevStatus | null> {
     return {
       detail: "Deterministic fallback is active.",
       label: "LLM: stub mode",
-      tone: "stub"
+      tone: "stub",
     };
   }
 
@@ -81,7 +84,7 @@ export async function getLlmDevStatus(): Promise<LlmDevStatus | null> {
     try {
       const response = await fetch(`${ollamaBaseUrl()}/api/tags`, {
         cache: "no-store",
-        signal: controller.signal
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -95,32 +98,37 @@ export async function getLlmDevStatus(): Promise<LlmDevStatus | null> {
         }>;
       };
       const modelAvailable = (payload.models ?? []).some(
-        (item) => item.name === model || item.model === model
+        (item) => item.name === model || item.model === model,
       );
       const value: LlmDevStatus = {
         detail: modelAvailable
           ? "Local Ollama endpoint is reachable."
           : "Ollama is reachable, but this model was not listed.",
-        label: modelAvailable ? `LLM: ${model} connected` : `LLM: ${model} missing`,
-        tone: modelAvailable ? "connected" : "offline"
+        label: modelAvailable
+          ? `LLM: ${model} connected`
+          : `LLM: ${model} missing`,
+        tone: modelAvailable ? "connected" : "offline",
       };
 
       cachedStatus = {
         expiresAt: Date.now() + 15_000,
-        value
+        value,
       };
 
       return value;
     } catch (error) {
       const value: LlmDevStatus = {
-        detail: error instanceof Error ? error.message : "Local Ollama health check failed.",
+        detail:
+          error instanceof Error
+            ? error.message
+            : "Local Ollama health check failed.",
         label: "LLM: local offline",
-        tone: "offline"
+        tone: "offline",
       };
 
       cachedStatus = {
         expiresAt: Date.now() + 5_000,
-        value
+        value,
       };
 
       return value;

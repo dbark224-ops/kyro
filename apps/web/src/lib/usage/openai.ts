@@ -2,7 +2,7 @@ import { createUsageEvent } from "@kyro/api";
 import type { UsageEventCreate, UsageType } from "@kyro/contracts";
 import { applyUsageMarkup, roundUsageMoney, usageMarkupRate } from "./pricing";
 
-const PRICE_SOURCE = "openai_api_pricing_2026_05_24";
+const PRICE_SOURCE = "openai_api_pricing_2026_07_15";
 const IMAGE_PRICE_SOURCE = "openai_api_pricing_2026_05_27";
 const WEB_SEARCH_NON_REASONING_COST_PER_1K_CALLS = 25;
 const WEB_SEARCH_REASONING_COST_PER_1K_CALLS = 10;
@@ -171,6 +171,22 @@ const OPENAI_TEXT_MODEL_PRICES: Array<{
   price: ModelPrice;
 }> = [
   {
+    match: "gpt-5.6-sol",
+    price: { inputPer1M: 5, cachedInputPer1M: null, outputPer1M: 30 },
+  },
+  {
+    match: "gpt-5.6-terra",
+    price: { inputPer1M: 2.5, cachedInputPer1M: null, outputPer1M: 15 },
+  },
+  {
+    match: "gpt-5.6-luna",
+    price: { inputPer1M: 1, cachedInputPer1M: null, outputPer1M: 6 },
+  },
+  {
+    match: "gpt-5.6",
+    price: { inputPer1M: 5, cachedInputPer1M: null, outputPer1M: 30 },
+  },
+  {
     match: "gpt-5.5-pro",
     price: { inputPer1M: 30, cachedInputPer1M: null, outputPer1M: 180 },
   },
@@ -325,8 +341,8 @@ function modelPrice(model: string) {
 
   return {
     estimated: true,
-    price: { inputPer1M: 0.4, cachedInputPer1M: 0.1, outputPer1M: 1.6 },
-    source: `${PRICE_SOURCE}:fallback:gpt-4.1-mini`,
+    price: { inputPer1M: 1, cachedInputPer1M: null, outputPer1M: 6 },
+    source: `${PRICE_SOURCE}:fallback:gpt-5.6-luna`,
   };
 }
 
@@ -403,14 +419,19 @@ function realtimeUnitCostFor(input: { model: string; usageType: UsageType }) {
   const per1M =
     modelSpecific ?? generic ?? defaults[key] ?? defaults.TEXT_INPUT;
   const normalizedModel = input.model.trim().toLowerCase();
+  const realtimeCatalogModel = normalizedModel.startsWith("gpt-realtime-2.1")
+    ? "gpt-realtime-2.1"
+    : normalizedModel === "gpt-realtime-2" ||
+        normalizedModel.startsWith("gpt-realtime-2-")
+      ? "gpt-realtime-2"
+      : null;
   const source =
     modelSpecific !== null
       ? `env:${prefix}_${key}`
       : generic !== null
         ? `env:OPENAI_REALTIME_${key}`
-        : normalizedModel === "gpt-realtime-2" ||
-            normalizedModel.startsWith("gpt-realtime-2-")
-          ? `${PRICE_SOURCE}:gpt-realtime-2`
+        : realtimeCatalogModel
+          ? `${PRICE_SOURCE}:${realtimeCatalogModel}`
           : `${PRICE_SOURCE}:fallback:gpt-realtime-2`;
 
   return {
@@ -984,7 +1005,11 @@ export function buildLlmUsageEvents(input: {
     }
 
     const unit = unitCostFor({ model: input.model, provider, usageType });
-    const price = priceQuantity(quantity, unit.unitCost, common.usageMarkupRate);
+    const price = priceQuantity(
+      quantity,
+      unit.unitCost,
+      common.usageMarkupRate,
+    );
 
     rows.push({
       actionId: common.actionId ?? undefined,

@@ -9,6 +9,7 @@ import {
   openAiUsageFromResponse,
   type OpenAiTokenUsage,
 } from "../usage/openai";
+import { openAiReasoningRequest } from "../ai/openai-models";
 
 export type AssistantToolName =
   | "action_execution"
@@ -313,11 +314,7 @@ function toolSchema(tool: ToolDefinition) {
         mode: {
           description:
             "Use edit_previous_image for requests like 'make it nighttime' after an image. Use recall_previous_image for 'where is it' or 'show it again'. Otherwise direct.",
-          enum: [
-            "direct",
-            "edit_previous_image",
-            "recall_previous_image",
-          ],
+          enum: ["direct", "edit_previous_image", "recall_previous_image"],
           type: "string",
         },
         prompt: {
@@ -472,6 +469,11 @@ export async function planAssistantToolCall({
         max_output_tokens: 180,
         model: route.model,
         parallel_tool_calls: false,
+        ...openAiReasoningRequest(
+          route.model,
+          "OPENAI_TOOL_PLANNER_REASONING_EFFORT",
+          "low",
+        ),
         tools: TOOL_DEFINITIONS.map(toolSchema),
       }),
       headers: {

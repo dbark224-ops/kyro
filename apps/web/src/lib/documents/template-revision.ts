@@ -7,6 +7,10 @@ import {
   openAiProviderUsageId,
   openAiUsageFromResponse,
 } from "../usage/openai";
+import {
+  openAiBalancedModel,
+  openAiReasoningRequest,
+} from "../ai/openai-models";
 
 export type DocumentTemplateRevisionPayload = {
   description: string;
@@ -40,11 +44,7 @@ function openAiApiKey() {
 }
 
 function documentTemplateModel() {
-  return (
-    envValue("OPENAI_DOCUMENT_TEMPLATE_MODEL") ||
-    envValue("OPENAI_LOW_COST_MODEL") ||
-    "gpt-4.1-mini"
-  );
+  return envValue("OPENAI_DOCUMENT_TEMPLATE_MODEL") || openAiBalancedModel();
 }
 
 function textValue(value: unknown) {
@@ -185,7 +185,9 @@ export function parseDocumentTemplateRevision(
   );
 
   return {
-    description: (textValue(parsed.description) ?? "Custom quote template.").slice(0, 220),
+    description: (
+      textValue(parsed.description) ?? "Custom quote template."
+    ).slice(0, 220),
     label: (textValue(parsed.label) ?? "Custom quote template").slice(0, 120),
     lineItems: lineItems.map((item) => ({
       description: item.description,
@@ -225,6 +227,11 @@ export async function runDocumentTemplateRevision(input: {
         "You revise deterministic quote document templates for Kyro, a trades/service CRM. Return compact JSON only.",
       max_output_tokens: 1800,
       model,
+      ...openAiReasoningRequest(
+        model,
+        "OPENAI_DOCUMENT_TEMPLATE_REASONING_EFFORT",
+        "medium",
+      ),
       text: {
         format: {
           name: "kyro_document_template_revision",
@@ -243,7 +250,13 @@ export async function runDocumentTemplateRevision(input: {
                     unit: { type: ["string", "null"] },
                     unitPrice: { type: ["number", "null"] },
                   },
-                  required: ["description", "quantity", "unit", "unitPrice", "notes"],
+                  required: [
+                    "description",
+                    "quantity",
+                    "unit",
+                    "unitPrice",
+                    "notes",
+                  ],
                   type: "object",
                 },
                 type: "array",

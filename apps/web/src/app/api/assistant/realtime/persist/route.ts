@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   const assistantTranscript = textValue(body.assistantTranscript);
   const links = normalizeAssistantLinks(body.links);
   const uiBlocks = normalizeAssistantUiBlocks(body.uiBlocks);
-  const model = textValue(body.model) ?? "gpt-realtime-2";
+  const model = textValue(body.model) ?? "gpt-realtime-2.1";
   const provider = textValue(body.provider) ?? "openai";
   const inputSource = textValue(body.inputSource) ?? "realtime_voice";
   const assistantSource =
@@ -43,7 +43,9 @@ export async function POST(request: NextRequest) {
       ? "assistant.vapi_internal_voice"
       : "assistant.realtime_voice";
   const assistantIntent =
-    inputSource === "vapi_internal_voice" ? "vapi_internal_voice" : "realtime_voice";
+    inputSource === "vapi_internal_voice"
+      ? "vapi_internal_voice"
+      : "realtime_voice";
   const responseId = textValue(body.responseId);
   const realtimeUsage = openAiRealtimeUsageFromResponse({
     id: responseId,
@@ -55,7 +57,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (!userTranscript && !assistantTranscript) {
-    return Response.json({ error: "No realtime transcript to save." }, { status: 400 });
+    return Response.json(
+      { error: "No realtime transcript to save." },
+      { status: 400 },
+    );
   }
 
   const context = await getApiWorkspaceContext(request);
@@ -183,21 +188,21 @@ export async function POST(request: NextRequest) {
       }
 
       const aiRunId = String(aiRun.id);
-      const { error: usageError } = await supabase
-        .from("usage_events")
-        .insert(
-          toUsageEventRows(
-            usageEvents.map((event) => ({
-              ...event,
-              aiRunId,
-              sourceId: aiRunId,
-              sourceType: "ai_run",
-            })),
-          ),
-        );
+      const { error: usageError } = await supabase.from("usage_events").insert(
+        toUsageEventRows(
+          usageEvents.map((event) => ({
+            ...event,
+            aiRunId,
+            sourceId: aiRunId,
+            sourceType: "ai_run",
+          })),
+        ),
+      );
 
       if (usageError) {
-        throw new Error(`Unable to record realtime usage: ${usageError.message}`);
+        throw new Error(
+          `Unable to record realtime usage: ${usageError.message}`,
+        );
       }
 
       usageRecorded = true;

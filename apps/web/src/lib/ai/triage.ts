@@ -26,6 +26,7 @@ import {
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
+import { openAiLowCostModel, openAiReasoningRequest } from "./openai-models";
 
 export type AiRunItem = {
   id: string;
@@ -163,7 +164,7 @@ function titleCaseJobType(value: string | null) {
       .map((part) =>
         part === "/" || part === "-"
           ? part
-          : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`
+          : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`,
       )
       .join("");
   });
@@ -187,7 +188,7 @@ function isGenericJobType(value: string | null) {
     /^(?:new\s+)?(?:enquiry|inquiry|lead|message|request)(?:\s+from\s+.+)?$/,
     /^(?:quote\s+)?(?:enquiry|inquiry|request)(?:\s+from\s+.+)?$/,
     /^(?:manual\s+)?inbound(?:\s+(?:enquiry|inquiry))?(?:\s+from\s+.+)?$/,
-    /^new\s+(?:enquiry|inquiry)\s+from\s+.+$/
+    /^new\s+(?:enquiry|inquiry)\s+from\s+.+$/,
   ].some((pattern) => pattern.test(normalized));
 }
 
@@ -208,7 +209,8 @@ function normalizeJobTypeCandidate(value: string | null) {
 }
 
 function quoteAwareLabel(base: string, text: string) {
-  return /\b(quote|estimate|price|pricing)\b/i.test(text) && !/\bquote\b/i.test(base)
+  return /\b(quote|estimate|price|pricing)\b/i.test(text) &&
+    !/\bquote\b/i.test(base)
     ? `${base} Quote`
     : base;
 }
@@ -352,19 +354,21 @@ function inferAddress(text: string, context: StubAiTriageContext) {
 
   return firstMatch(text, [
     /\b(?:at|address is|job is at|located at)\s+([0-9][a-z0-9\s,'/-]+(?:street|st|road|rd|avenue|ave|drive|dr|court|ct|lane|ln|place|pl|terrace|tce|way)\b[^\n.]*)/i,
-    /\b([0-9]{1,5}\s+[a-z0-9\s,'/-]+(?:street|st|road|rd|avenue|ave|drive|dr|court|ct|lane|ln|place|pl|terrace|tce|way)\b[^\n.]*)/i
+    /\b([0-9]{1,5}\s+[a-z0-9\s,'/-]+(?:street|st|road|rd|avenue|ave|drive|dr|court|ct|lane|ln|place|pl|terrace|tce|way)\b[^\n.]*)/i,
   ]);
 }
 
 function inferPreferredTime(text: string) {
   return firstMatch(text, [
     /\b((?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:morning|afternoon|evening|night))?)\b/i,
-    /\b((?:next week|this week|as soon as possible|asap|morning|afternoon|evening))\b/i
+    /\b((?:next week|this week|as soon as possible|asap|morning|afternoon|evening))\b/i,
   ]);
 }
 
 function inferUrgency(text: string): InquiryFacts["urgency"] {
-  return /\b(urgent|emergency|asap|burst|flood|no hot water|leaking badly)\b/i.test(text)
+  return /\b(urgent|emergency|asap|burst|flood|no hot water|leaking badly)\b/i.test(
+    text,
+  )
     ? "urgent"
     : "normal";
 }
@@ -386,9 +390,7 @@ function triageSourceText(context: StubAiTriageContext) {
 
 function inferEmail(text: string) {
   return normalizeContactEmail(
-    firstMatch(text, [
-      /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i,
-    ]),
+    firstMatch(text, [/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i]),
   );
 }
 
@@ -406,7 +408,9 @@ function inferPhone(text: string, defaultPhoneRegion?: PhoneRegion) {
 }
 
 function hasEmailSignal(context: StubAiTriageContext, text: string) {
-  return Boolean(normalizeContactEmail(context.contactEmail) ?? inferEmail(text));
+  return Boolean(
+    normalizeContactEmail(context.contactEmail) ?? inferEmail(text),
+  );
 }
 
 function hasPhoneSignal(context: StubAiTriageContext, text: string) {
@@ -481,7 +485,10 @@ function applyRequiredInquiryInfo(
     } else if (hasPhone && !hasEmail) {
       missingInfo = withMissingInfo(missingInfo, "Email address");
     } else if (!hasEmail && !hasPhone) {
-      missingInfo = withMissingInfo(missingInfo, "Email address or phone number");
+      missingInfo = withMissingInfo(
+        missingInfo,
+        "Email address or phone number",
+      );
     }
   }
 
@@ -492,14 +499,20 @@ function applyRequiredInquiryInfo(
 }
 
 function inferFit(text: string, jobType: string | null): InquiryFacts["fit"] {
-  if (/\b(not interested|wrong number|not needed|cancel|do not contact)\b/i.test(text)) {
+  if (
+    /\b(not interested|wrong number|not needed|cancel|do not contact)\b/i.test(
+      text,
+    )
+  ) {
     return "not_fit";
   }
 
   return jobType ? "likely_fit" : "needs_review";
 }
 
-export function extractInquiryFacts(context: StubAiTriageContext): InquiryFacts {
+export function extractInquiryFacts(
+  context: StubAiTriageContext,
+): InquiryFacts {
   const text = triageSourceText(context);
   const jobType = titleCaseJobType(inferJobType(text, context));
   const address = inferAddress(text, context);
@@ -513,7 +526,7 @@ export function extractInquiryFacts(context: StubAiTriageContext): InquiryFacts 
     jobType,
     missingInfo: [],
     preferredTime,
-    urgency: inferUrgency(text)
+    urgency: inferUrgency(text),
   };
 
   return applyRequiredInquiryInfo(facts, context);
@@ -595,7 +608,10 @@ function replyMentionsMissingInfo(body: string, item: string) {
   }
 }
 
-function sentenceMentionsAnyMissingInfo(sentence: string, missingInfo: string[]) {
+function sentenceMentionsAnyMissingInfo(
+  sentence: string,
+  missingInfo: string[],
+) {
   return missingInfo.some((item) => replyMentionsMissingInfo(sentence, item));
 }
 
@@ -618,7 +634,9 @@ function mergeMissingInfoIntoReplyBody(body: string, facts: InquiryFacts) {
 }
 
 function missingInfoNotAskedFor(body: string, facts: InquiryFacts) {
-  return facts.missingInfo.filter((item) => !replyMentionsMissingInfo(body, item));
+  return facts.missingInfo.filter(
+    (item) => !replyMentionsMissingInfo(body, item),
+  );
 }
 
 export function ensureReplyDraftCoversMissingInfo(
@@ -660,8 +678,7 @@ function buildReplyRepairPrompt(input: {
 
   return JSON.stringify(
     {
-      task:
-        "Rewrite this customer reply so it naturally asks for every required missing detail. Return a complete replacement draft, not notes.",
+      task: "Rewrite this customer reply so it naturally asks for every required missing detail. Return a complete replacement draft, not notes.",
       outputContract: {
         subject: "string|null",
         body: "string",
@@ -728,7 +745,10 @@ async function repairReplyDraftWithOpenAi(input: {
 
   if (!apiKey) {
     return {
-      replyDraft: ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts),
+      replyDraft: ensureReplyDraftCoversMissingInfo(
+        input.replyDraft,
+        input.facts,
+      ),
     };
   }
 
@@ -739,7 +759,7 @@ async function repairReplyDraftWithOpenAi(input: {
     missingInfo: input.facts.missingInfo,
     subject: input.replyDraft.subject,
   });
-  const model = openAiTriageModel("gpt-4.1-mini");
+  const model = openAiTriageModel();
   const response = await fetch("https://api.openai.com/v1/responses", {
     body: JSON.stringify({
       input: prompt,
@@ -747,6 +767,11 @@ async function repairReplyDraftWithOpenAi(input: {
         "You repair Kyro customer reply drafts. Return compact JSON matching the requested contract.",
       max_output_tokens: openAiReplyRepairMaxOutputTokens(),
       model,
+      ...openAiReasoningRequest(
+        model,
+        "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
+        "low",
+      ),
       text: {
         format: {
           name: "kyro_reply_repair",
@@ -774,7 +799,10 @@ async function repairReplyDraftWithOpenAi(input: {
 
   if (!response.ok) {
     return {
-      replyDraft: ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts),
+      replyDraft: ensureReplyDraftCoversMissingInfo(
+        input.replyDraft,
+        input.facts,
+      ),
     };
   }
 
@@ -782,7 +810,10 @@ async function repairReplyDraftWithOpenAi(input: {
 
   if (!content) {
     return {
-      replyDraft: ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts),
+      replyDraft: ensureReplyDraftCoversMissingInfo(
+        input.replyDraft,
+        input.facts,
+      ),
     };
   }
 
@@ -796,7 +827,8 @@ async function repairReplyDraftWithOpenAi(input: {
       }
     : ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts);
   const validatedDraft =
-    repairedDraft.body && missingInfoNotAskedFor(repairedDraft.body, input.facts).length === 0
+    repairedDraft.body &&
+    missingInfoNotAskedFor(repairedDraft.body, input.facts).length === 0
       ? repairedDraft
       : ensureReplyDraftCoversMissingInfo(repairedDraft, input.facts);
 
@@ -820,8 +852,8 @@ function buildQuoteLineItems(facts: InquiryFacts) {
       unit: "job",
       unitPrice: null,
       total: null,
-      notes: "Draft placeholder. Pricing to be confirmed by the user."
-    }
+      notes: "Draft placeholder. Pricing to be confirmed by the user.",
+    },
   ];
 }
 
@@ -830,7 +862,9 @@ function aiProviderMode() {
 }
 
 function ollamaBaseUrl() {
-  return (process.env.OLLAMA_BASE_URL?.trim() || "http://127.0.0.1:11434").replace(/\/$/, "");
+  return (
+    process.env.OLLAMA_BASE_URL?.trim() || "http://127.0.0.1:11434"
+  ).replace(/\/$/, "");
 }
 
 function ollamaModel() {
@@ -856,14 +890,8 @@ function openAiApiKey() {
   return process.env.OPENAI_API_KEY?.trim() ?? "";
 }
 
-function openAiTriageModel(fallbackModel: string) {
-  return (
-    process.env.OPENAI_TRIAGE_MODEL?.trim() ||
-    process.env.OPENAI_LOW_COST_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
-    fallbackModel ||
-    "gpt-4.1-mini"
-  );
+function openAiTriageModel() {
+  return process.env.OPENAI_TRIAGE_MODEL?.trim() || openAiLowCostModel();
 }
 
 function openAiTriageMaxOutputTokens() {
@@ -963,9 +991,10 @@ function normalizeLocalFacts(
   fallback: InquiryFacts,
   context: StubAiTriageContext,
 ): InquiryFacts {
-  const raw = value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   const modelJobType = normalizeJobTypeCandidate(textValue(raw.jobType));
   const facts = {
     address: textValue(raw.address) ?? fallback.address,
@@ -974,15 +1003,14 @@ function normalizeLocalFacts(
     jobType: modelJobType ?? fallback.jobType,
     missingInfo: normalizeStringArray(raw.missingInfo),
     preferredTime: textValue(raw.preferredTime) ?? fallback.preferredTime,
-    urgency: normalizeUrgency(raw.urgency ?? fallback.urgency)
+    urgency: normalizeUrgency(raw.urgency ?? fallback.urgency),
   };
 
   return applyRequiredInquiryInfo(facts, context);
 }
 
 function buildOllamaPrompt(context: StubAiTriageContext) {
-  const replyWriting =
-    context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  const replyWriting = context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
 
   return JSON.stringify(
     {
@@ -998,12 +1026,12 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
           urgency: "low|normal|urgent",
           budget: "string|null",
           fit: "likely_fit|needs_review|not_fit",
-          missingInfo: ["string"]
+          missingInfo: ["string"],
         },
         replyDraft: {
           subject: "string|null",
-          body: "string|null"
-        }
+          body: "string|null",
+        },
       },
       rules: [
         "Return JSON only.",
@@ -1019,19 +1047,22 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "If required info is missing, put it in missingInfo and make the replyDraft ask for those details clearly.",
         "Apply replyWriting to the replyDraft tone, wording style, length, sign-off, trade phrasing, and reusable instructions.",
         ...replyWritingPromptRules(replyWriting).map(
-          (rule) => `Writing style - ${rule}`
-        )
+          (rule) => `Writing style - ${rule}`,
+        ),
       ],
       authoritativeInquiryFacts: context.inquiryFactsOverride ?? null,
       replyWriting,
-      context
+      context,
     },
     null,
-    2
+    2,
   );
 }
 
-function buildStubDecision(context: StubAiTriageContext, fallbackReason?: string): TriageDecision {
+function buildStubDecision(
+  context: StubAiTriageContext,
+  fallbackReason?: string,
+): TriageDecision {
   const inquiryFacts = context.inquiryFactsOverride
     ? applyRequiredInquiryInfo(context.inquiryFactsOverride, context)
     : extractInquiryFacts(context);
@@ -1044,16 +1075,21 @@ function buildStubDecision(context: StubAiTriageContext, fallbackReason?: string
     providerUsed: "stub",
     replyDraft: {
       body: buildReplyBody(inquiryFacts),
-      subject: inquiryFacts.missingInfo.length > 0 ? "A few details for your quote" : "Thanks for the details"
+      subject:
+        inquiryFacts.missingInfo.length > 0
+          ? "A few details for your quote"
+          : "Thanks for the details",
     },
     summary:
       context.summary ??
       context.threadSummary ??
-      "Stub triage identified a likely inbound lead and prepared a reply draft."
+      "Stub triage identified a likely inbound lead and prepared a reply draft.",
   };
 }
 
-async function runOllamaTriage(context: StubAiTriageContext): Promise<TriageDecision> {
+async function runOllamaTriage(
+  context: StubAiTriageContext,
+): Promise<TriageDecision> {
   const fallbackFacts = context.inquiryFactsOverride
     ? applyRequiredInquiryInfo(context.inquiryFactsOverride, context)
     : extractInquiryFacts(context);
@@ -1070,26 +1106,26 @@ async function runOllamaTriage(context: StubAiTriageContext): Promise<TriageDeci
           {
             role: "system",
             content:
-              "You are Kyro's trades CRM triage engine. Return compact JSON matching the requested contract."
+              "You are Kyro's trades CRM triage engine. Return compact JSON matching the requested contract.",
           },
           {
             role: "user",
-            content: prompt
-          }
+            content: prompt,
+          },
         ],
         model: ollamaModel(),
         options: {
           num_predict: ollamaNumPredict(),
-          temperature: 0.1
+          temperature: 0.1,
         },
         stream: false,
-        think: ollamaThinkEnabled()
+        think: ollamaThinkEnabled(),
       }),
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       method: "POST",
-      signal: controller.signal
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -1097,9 +1133,10 @@ async function runOllamaTriage(context: StubAiTriageContext): Promise<TriageDeci
     }
 
     const payload = (await response.json()) as Record<string, unknown>;
-    const message = payload.message && typeof payload.message === "object"
-      ? (payload.message as Record<string, unknown>)
-      : {};
+    const message =
+      payload.message && typeof payload.message === "object"
+        ? (payload.message as Record<string, unknown>)
+        : {};
     const content = textValue(message.content);
 
     if (!content) {
@@ -1119,18 +1156,22 @@ async function runOllamaTriage(context: StubAiTriageContext): Promise<TriageDeci
           ? payload.prompt_eval_count
           : estimateTokens(prompt),
       outputTokens:
-        typeof payload.eval_count === "number" ? payload.eval_count : estimateTokens(content),
+        typeof payload.eval_count === "number"
+          ? payload.eval_count
+          : estimateTokens(content),
       providerUsed: "ollama",
       replyDraft: {
         body: textValue(replyDraft.body) ?? buildReplyBody(facts),
         subject:
           textValue(replyDraft.subject) ??
-          (facts.missingInfo.length > 0 ? "A few details for your quote" : "Thanks for the details")
+          (facts.missingInfo.length > 0
+            ? "A few details for your quote"
+            : "Thanks for the details"),
       },
       summary:
         textValue(parsed.summary) ??
         context.summary ??
-        "Local Ollama triage extracted inquiry facts and prepared action proposals."
+        "Local Ollama triage extracted inquiry facts and prepared action proposals.",
     };
   } catch (error) {
     throw new Error(describeOllamaError(error, timeoutMs));
@@ -1141,14 +1182,13 @@ async function runOllamaTriage(context: StubAiTriageContext): Promise<TriageDeci
 
 async function runOpenAiTriage(
   context: StubAiTriageContext,
-  fallbackModel: string
 ): Promise<TriageDecision> {
   const apiKey = openAiApiKey();
   const fallbackFacts = context.inquiryFactsOverride
     ? applyRequiredInquiryInfo(context.inquiryFactsOverride, context)
     : extractInquiryFacts(context);
   const prompt = buildOllamaPrompt(context);
-  const model = openAiTriageModel(fallbackModel);
+  const model = openAiTriageModel();
 
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured for inbound triage.");
@@ -1161,6 +1201,7 @@ async function runOpenAiTriage(
         "You are Kyro's trades CRM triage engine. Return compact JSON matching the requested contract.",
       max_output_tokens: openAiTriageMaxOutputTokens(),
       model,
+      ...openAiReasoningRequest(model, "OPENAI_TRIAGE_REASONING_EFFORT", "low"),
       text: {
         format: {
           name: "kyro_inbound_triage",
@@ -1172,14 +1213,20 @@ async function runOpenAiTriage(
                 properties: {
                   address: { type: ["string", "null"] },
                   budget: { type: ["string", "null"] },
-                  fit: { enum: ["likely_fit", "needs_review", "not_fit"], type: "string" },
+                  fit: {
+                    enum: ["likely_fit", "needs_review", "not_fit"],
+                    type: "string",
+                  },
                   jobType: { type: ["string", "null"] },
                   missingInfo: {
                     items: { type: "string" },
-                    type: "array"
+                    type: "array",
                   },
                   preferredTime: { type: ["string", "null"] },
-                  urgency: { enum: ["low", "normal", "urgent"], type: "string" }
+                  urgency: {
+                    enum: ["low", "normal", "urgent"],
+                    type: "string",
+                  },
                 },
                 required: [
                   "jobType",
@@ -1188,34 +1235,34 @@ async function runOpenAiTriage(
                   "urgency",
                   "budget",
                   "fit",
-                  "missingInfo"
+                  "missingInfo",
                 ],
-                type: "object"
+                type: "object",
               },
               replyDraft: {
                 additionalProperties: false,
                 properties: {
                   body: { type: ["string", "null"] },
-                  subject: { type: ["string", "null"] }
+                  subject: { type: ["string", "null"] },
                 },
                 required: ["subject", "body"],
-                type: "object"
+                type: "object",
               },
-              summary: { type: "string" }
+              summary: { type: "string" },
             },
             required: ["summary", "inquiryFacts", "replyDraft"],
-            type: "object"
+            type: "object",
           },
           strict: true,
-          type: "json_schema"
-        }
-      }
+          type: "json_schema",
+        },
+      },
     }),
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
-    method: "POST"
+    method: "POST",
   });
   const payload = await response.json().catch(() => ({}));
 
@@ -1243,34 +1290,38 @@ async function runOpenAiTriage(
       body: textValue(replyDraft.body) ?? buildReplyBody(facts),
       subject:
         textValue(replyDraft.subject) ??
-        (facts.missingInfo.length > 0 ? "A few details for your quote" : "Thanks for the details")
+        (facts.missingInfo.length > 0
+          ? "A few details for your quote"
+          : "Thanks for the details"),
     },
     summary:
       textValue(parsed.summary) ??
       context.summary ??
-      "OpenAI triage extracted inquiry facts and prepared action proposals."
+      "OpenAI triage extracted inquiry facts and prepared action proposals.",
   };
 }
 
-async function resolveTriageDecision(context: StubAiTriageContext, routeModel: string) {
+async function resolveTriageDecision(context: StubAiTriageContext) {
   if (["local", "ollama"].includes(aiProviderMode())) {
     try {
       return await runOllamaTriage(context);
     } catch (error) {
       return buildStubDecision(
         context,
-        error instanceof Error ? error.message : "Local Ollama triage failed."
+        error instanceof Error ? error.message : "Local Ollama triage failed.",
       );
     }
   }
 
   if (aiProviderMode() === "openai") {
     try {
-      return await runOpenAiTriage(context, routeModel);
+      return await runOpenAiTriage(context);
     } catch (error) {
       return buildStubDecision(
         context,
-        error instanceof Error ? error.message : "OpenAI triage request failed."
+        error instanceof Error
+          ? error.message
+          : "OpenAI triage request failed.",
       );
     }
   }
@@ -1283,7 +1334,7 @@ function buildActionProposals(
   eventId: string,
   context: StubAiTriageContext,
   facts: InquiryFacts,
-  replyDraft: TriageDecision["replyDraft"]
+  replyDraft: TriageDecision["replyDraft"],
 ) {
   const baseInput = {
     sourceAiRunId: aiRunId,
@@ -1295,7 +1346,7 @@ function buildActionProposals(
     inquiryFacts: facts,
     threadMessageCount: context.threadMessageCount ?? null,
     threadSummary: context.threadSummary ?? null,
-    dryRun: true
+    dryRun: true,
   };
   const proposals: ProposedActionInput[] = [
     {
@@ -1303,26 +1354,29 @@ function buildActionProposals(
         ...baseInput,
         subject:
           replyDraft.subject ??
-          (facts.missingInfo.length > 0 ? "A few details for your quote" : "Thanks for the details"),
-        body: replyDraft.body ?? buildReplyBody(facts)
+          (facts.missingInfo.length > 0
+            ? "A few details for your quote"
+            : "Thanks for the details"),
+        body: replyDraft.body ?? buildReplyBody(facts),
       },
-      policyReason: "Stub AI triage drafts outbound replies but never sends them.",
+      policyReason:
+        "Stub AI triage drafts outbound replies but never sends them.",
       targetId: context.conversationId ?? null,
       targetType: "conversation",
-      type: "draft_reply"
-    }
+      type: "draft_reply",
+    },
   ];
 
   if (facts.fit === "not_fit") {
     proposals.push({
       input: {
         ...baseInput,
-        reason: "The conversation indicates the inquiry should be closed."
+        reason: "The conversation indicates the inquiry should be closed.",
       },
       policyReason: "Lead closure proposals require user approval.",
       targetId: context.leadId ?? null,
       targetType: "lead",
-      type: "mark_not_fit"
+      type: "mark_not_fit",
     });
 
     return proposals;
@@ -1334,12 +1388,12 @@ function buildActionProposals(
         ...baseInput,
         address: facts.address,
         preferredTime: facts.preferredTime,
-        title: `Site visit for ${facts.jobType ?? "quote inquiry"}`
+        title: `Site visit for ${facts.jobType ?? "quote inquiry"}`,
       },
       policyReason: "Calendar or booking work is dry-run only for now.",
       targetId: context.conversationId ?? null,
       targetType: "conversation",
-      type: "book_site_visit"
+      type: "book_site_visit",
     });
   }
 
@@ -1352,16 +1406,19 @@ function buildActionProposals(
           lineItems: buildQuoteLineItems(facts),
           notes: [
             facts.address ? `Job address: ${facts.address}` : null,
-            facts.preferredTime ? `Preferred time: ${facts.preferredTime}` : null,
+            facts.preferredTime
+              ? `Preferred time: ${facts.preferredTime}`
+              : null,
             facts.budget ? `Mentioned budget: ${facts.budget}` : null,
-            "Pricing is intentionally blank until the user confirms it."
-          ].filter(Boolean)
-        }
+            "Pricing is intentionally blank until the user confirms it.",
+          ].filter(Boolean),
+        },
       },
-      policyReason: "Quote drafts are internal documents and require user approval before creation.",
+      policyReason:
+        "Quote drafts are internal documents and require user approval before creation.",
       targetId: context.conversationId ?? null,
       targetType: "conversation",
-      type: "create_quote_draft"
+      type: "create_quote_draft",
     });
   }
 
@@ -1462,16 +1519,20 @@ export async function runStubAiTriage(
   supabase: SupabaseClient,
   user: User,
   workspaceId: string,
-  context: StubAiTriageContext = {}
+  context: StubAiTriageContext = {},
 ) {
   const routeRequest: ModelRouteRequest = {
     workspaceId,
     userId: user.id,
     taskType: "inbound_triage",
     riskLevel: "low",
-    requiredCapabilities: ["classification", "lead_extraction", "action_proposal"],
+    requiredCapabilities: [
+      "classification",
+      "lead_extraction",
+      "action_proposal",
+    ],
     latencyTargetMs: 1500,
-    estimatedInputTokens: 900
+    estimatedInputTokens: 900,
   };
   const route = selectModelRoute(routeRequest);
   const idempotencyKey = `ai.triage.stub.${crypto.randomUUID()}`;
@@ -1491,16 +1552,18 @@ export async function runStubAiTriage(
         leadId: context.leadId ?? null,
         conversationId: context.conversationId ?? null,
         messageId: context.messageId ?? null,
-        threadMessageCount: context.threadMessageCount ?? null
+        threadMessageCount: context.threadMessageCount ?? null,
       },
       status: "processed",
-      processed_at: new Date().toISOString()
+      processed_at: new Date().toISOString(),
     })
     .select("id,type,status")
     .single();
 
   if (eventError || !event) {
-    throw new Error(`Unable to record AI triage event: ${eventError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to record AI triage event: ${eventError?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -1512,8 +1575,8 @@ export async function runStubAiTriage(
     entityId: String(event.id),
     after: {
       type: event.type,
-      status: event.status
-    }
+      status: event.status,
+    },
   });
 
   const { data: aiRun, error: aiRunError } = await supabase
@@ -1536,18 +1599,20 @@ export async function runStubAiTriage(
         messageId: context.messageId ?? null,
         threadMessageCount: context.threadMessageCount ?? null,
         threadSummary: context.threadSummary ?? null,
-        source: context.source ?? "dashboard_smoke_test"
+        source: context.source ?? "dashboard_smoke_test",
       },
       output: {},
       tool_calls: [],
       usage: {},
-      estimated_cost: "0.0003"
+      estimated_cost: "0.0003",
     })
     .select("id")
     .single();
 
   if (aiRunError || !aiRun) {
-    throw new Error(`Unable to create AI run: ${aiRunError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create AI run: ${aiRunError?.message ?? "unknown error"}`,
+    );
   }
 
   const aiRunId = String(aiRun.id);
@@ -1562,19 +1627,19 @@ export async function runStubAiTriage(
     after: {
       provider: route.provider,
       model: route.model,
-      taskType: routeRequest.taskType
-    }
+      taskType: routeRequest.taskType,
+    },
   });
 
   const communicationSettings = await getCommunicationSettings(
     supabase,
-    workspaceId
+    workspaceId,
   );
   const triageContext: StubAiTriageContext = {
     ...context,
-    replyWriting: context.replyWriting ?? communicationSettings.replyWriting
+    replyWriting: context.replyWriting ?? communicationSettings.replyWriting,
   };
-  const rawTriageDecision = await resolveTriageDecision(triageContext, route.model);
+  const rawTriageDecision = await resolveTriageDecision(triageContext);
   const inquiryFacts = applyRequiredInquiryInfo(
     rawTriageDecision.inquiryFacts,
     triageContext,
@@ -1593,28 +1658,34 @@ export async function runStubAiTriage(
       : rawTriageDecision.repairUsage,
     replyDraft: repairedDraft.replyDraft,
   };
-  const { error: routeError } = await supabase.from("model_route_decisions").insert({
-    workspace_id: workspaceId,
-    user_id: user.id,
-    ai_run_id: aiRunId,
-    task_type: routeRequest.taskType,
-    risk_level: routeRequest.riskLevel,
-    selected_provider: route.provider,
-    selected_model: route.model,
-    fallback_used:
-      (route.provider === "ollama" && triageDecision.providerUsed !== "ollama") ||
-      (route.provider === "openai" && triageDecision.providerUsed !== "openai"),
-    decision_reason: route.reason,
-    budget_snapshot: {
-      fallbackReason: triageDecision.fallbackReason ?? null,
-      estimatedInputTokens: routeRequest.estimatedInputTokens,
-      providerUsed: triageDecision.providerUsed,
-      replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
-    }
-  });
+  const { error: routeError } = await supabase
+    .from("model_route_decisions")
+    .insert({
+      workspace_id: workspaceId,
+      user_id: user.id,
+      ai_run_id: aiRunId,
+      task_type: routeRequest.taskType,
+      risk_level: routeRequest.riskLevel,
+      selected_provider: route.provider,
+      selected_model: route.model,
+      fallback_used:
+        (route.provider === "ollama" &&
+          triageDecision.providerUsed !== "ollama") ||
+        (route.provider === "openai" &&
+          triageDecision.providerUsed !== "openai"),
+      decision_reason: route.reason,
+      budget_snapshot: {
+        fallbackReason: triageDecision.fallbackReason ?? null,
+        estimatedInputTokens: routeRequest.estimatedInputTokens,
+        providerUsed: triageDecision.providerUsed,
+        replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
+      },
+    });
 
   if (routeError) {
-    throw new Error(`Unable to record model route decision: ${routeError.message}`);
+    throw new Error(
+      `Unable to record model route decision: ${routeError.message}`,
+    );
   }
 
   const inputTokens = triageDecision.inputTokens ?? 900;
@@ -1646,7 +1717,10 @@ export async function runStubAiTriage(
       workspaceId,
     },
     model: route.model,
-    provider: triageDecision.providerUsed === "openai" ? "openai" : triageDecision.providerUsed,
+    provider:
+      triageDecision.providerUsed === "openai"
+        ? "openai"
+        : triageDecision.providerUsed,
     service: "llm",
     usage: tokenUsage,
   });
@@ -1697,7 +1771,7 @@ export async function runStubAiTriage(
     String(event.id),
     triageContext,
     inquiryFacts,
-    triageDecision.replyDraft
+    triageDecision.replyDraft,
   );
   const output = {
     classification: "new_lead_follow_up",
@@ -1710,7 +1784,7 @@ export async function runStubAiTriage(
     replyRepairUsed: Boolean(triageDecision.repairUsage?.length),
     summary: triageDecision.summary,
     threadMessageCount: triageContext.threadMessageCount ?? null,
-    proposedActionTypes: actionProposals.map((proposal) => proposal.type)
+    proposedActionTypes: actionProposals.map((proposal) => proposal.type),
   };
 
   const { error: completeError } = await supabase
@@ -1728,7 +1802,7 @@ export async function runStubAiTriage(
       },
       actual_cost: String(usageTotals.costSnapshot),
       latency_ms: 320,
-      completed_at: new Date().toISOString()
+      completed_at: new Date().toISOString(),
     })
     .eq("id", aiRunId);
 
@@ -1747,8 +1821,8 @@ export async function runStubAiTriage(
       status: "completed",
       output,
       actualCost: usageTotals.costSnapshot,
-      customerCharge: usageTotals.customerChargeSnapshot
-    }
+      customerCharge: usageTotals.customerChargeSnapshot,
+    },
   });
 
   if (context.conversationId) {
@@ -1777,18 +1851,20 @@ export async function runStubAiTriage(
           metadata: {
             authoritativeFactsUsed: Boolean(context.inquiryFactsOverride),
             fallbackReason: triageDecision.fallbackReason ?? null,
-            providerUsed: triageDecision.providerUsed
-          }
+            providerUsed: triageDecision.providerUsed,
+          },
         },
         {
-          onConflict: "workspace_id,conversation_id"
-        }
+          onConflict: "workspace_id,conversation_id",
+        },
       )
       .select("id")
       .single();
 
     if (factsError || !factsRecord) {
-      throw new Error(`Unable to save inquiry facts: ${factsError?.message ?? "unknown error"}`);
+      throw new Error(
+        `Unable to save inquiry facts: ${factsError?.message ?? "unknown error"}`,
+      );
     }
 
     await insertAuditLog(supabase, {
@@ -1801,11 +1877,11 @@ export async function runStubAiTriage(
       after: {
         conversationId: context.conversationId,
         inquiryFacts,
-        source: triageDecision.providerUsed
+        source: triageDecision.providerUsed,
       },
       metadata: {
-        aiRunId
-      }
+        aiRunId,
+      },
     });
   }
 
@@ -1827,14 +1903,16 @@ export async function runStubAiTriage(
         result: {},
         policy_snapshot: {
           mode: "require_approval",
-          reason: proposal.policyReason
-        }
-      }))
+          reason: proposal.policyReason,
+        },
+      })),
     )
     .select("id,type,status");
 
   if (actionError || !actions || actions.length === 0) {
-    throw new Error(`Unable to create AI proposed action: ${actionError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create AI proposed action: ${actionError?.message ?? "unknown error"}`,
+    );
   }
 
   for (const action of actions) {
@@ -1847,28 +1925,32 @@ export async function runStubAiTriage(
       entityId: String(action.id),
       after: {
         type: action.type,
-        status: action.status
+        status: action.status,
       },
       metadata: {
         aiRunId,
-        route
-      }
+        route,
+      },
     });
   }
 
-  const primaryAction = actions.find((action) => String(action.type) === "draft_reply") ?? actions[0];
+  const primaryAction =
+    actions.find((action) => String(action.type) === "draft_reply") ??
+    actions[0];
 
   if (context.conversationId) {
     const { error: conversationError } = await supabase
       .from("conversations")
       .update({
-        status: "reply_drafted"
+        status: "reply_drafted",
       })
       .eq("workspace_id", workspaceId)
       .eq("id", context.conversationId);
 
     if (conversationError) {
-      throw new Error(`Unable to mark conversation reply drafted: ${conversationError.message}`);
+      throw new Error(
+        `Unable to mark conversation reply drafted: ${conversationError.message}`,
+      );
     }
 
     await insertAuditLog(supabase, {
@@ -1881,11 +1963,11 @@ export async function runStubAiTriage(
       after: {
         status: "reply_drafted",
         actionId: String(primaryAction.id),
-        proposedActionCount: actions.length
+        proposedActionCount: actions.length,
       },
       metadata: {
-        aiRunId
-      }
+        aiRunId,
+      },
     });
   }
 
@@ -1894,11 +1976,14 @@ export async function runStubAiTriage(
     actionId: String(primaryAction.id),
     actionIds: actions.map((action) => String(action.id)),
     actualCost: usageTotals.costSnapshot,
-    customerCharge: usageTotals.customerChargeSnapshot
+    customerCharge: usageTotals.customerChargeSnapshot,
   };
 }
 
-export async function getAiLedger(supabase: SupabaseClient, workspaceId: string) {
+export async function getAiLedger(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
   const [aiRuns, usageEvents, routeDecisions] = await Promise.all([
     supabase
       .from("ai_runs")
@@ -1908,16 +1993,20 @@ export async function getAiLedger(supabase: SupabaseClient, workspaceId: string)
       .limit(5),
     supabase
       .from("usage_events")
-      .select("id,service,usage_type,quantity,cost_snapshot,customer_charge_snapshot,currency,created_at")
+      .select(
+        "id,service,usage_type,quantity,cost_snapshot,customer_charge_snapshot,currency,created_at",
+      )
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
       .limit(5),
     supabase
       .from("model_route_decisions")
-      .select("id,task_type,selected_provider,selected_model,decision_reason,created_at")
+      .select(
+        "id,task_type,selected_provider,selected_model,decision_reason,created_at",
+      )
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(5)
+      .limit(5),
   ]);
 
   if (aiRuns.error) {
@@ -1925,11 +2014,15 @@ export async function getAiLedger(supabase: SupabaseClient, workspaceId: string)
   }
 
   if (usageEvents.error) {
-    throw new Error(`Unable to load usage events: ${usageEvents.error.message}`);
+    throw new Error(
+      `Unable to load usage events: ${usageEvents.error.message}`,
+    );
   }
 
   if (routeDecisions.error) {
-    throw new Error(`Unable to load route decisions: ${routeDecisions.error.message}`);
+    throw new Error(
+      `Unable to load route decisions: ${routeDecisions.error.message}`,
+    );
   }
 
   return {
@@ -1939,8 +2032,11 @@ export async function getAiLedger(supabase: SupabaseClient, workspaceId: string)
       status: String(run.status),
       provider: String(run.provider),
       model: String(run.model),
-      actualCost: run.actual_cost === null || run.actual_cost === undefined ? null : String(run.actual_cost),
-      createdAt: String(run.created_at)
+      actualCost:
+        run.actual_cost === null || run.actual_cost === undefined
+          ? null
+          : String(run.actual_cost),
+      createdAt: String(run.created_at),
     })) satisfies AiRunItem[],
     usageEvents: (usageEvents.data ?? []).map((usage) => ({
       id: String(usage.id),
@@ -1950,7 +2046,7 @@ export async function getAiLedger(supabase: SupabaseClient, workspaceId: string)
       costSnapshot: String(usage.cost_snapshot),
       customerChargeSnapshot: String(usage.customer_charge_snapshot),
       currency: String(usage.currency),
-      createdAt: String(usage.created_at)
+      createdAt: String(usage.created_at),
     })) satisfies UsageLedgerItem[],
     routeDecisions: (routeDecisions.data ?? []).map((decision) => ({
       id: String(decision.id),
@@ -1958,7 +2054,7 @@ export async function getAiLedger(supabase: SupabaseClient, workspaceId: string)
       selectedProvider: String(decision.selected_provider),
       selectedModel: String(decision.selected_model),
       decisionReason: String(decision.decision_reason),
-      createdAt: String(decision.created_at)
-    })) satisfies ModelRouteItem[]
+      createdAt: String(decision.created_at),
+    })) satisfies ModelRouteItem[],
   };
 }

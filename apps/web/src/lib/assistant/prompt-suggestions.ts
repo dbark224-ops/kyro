@@ -7,6 +7,10 @@ import {
   usageEventTotals,
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
+import {
+  openAiLowCostModel,
+  openAiReasoningRequest,
+} from "../ai/openai-models";
 
 export const DEFAULT_ASSISTANT_PROMPT_SUGGESTIONS = [
   "Show me leads needing reply",
@@ -62,11 +66,7 @@ function openAiApiKey() {
 }
 
 function suggestionModel() {
-  return (
-    envValue("ASSISTANT_SUGGESTION_MODEL") ||
-    envValue("ASSISTANT_MODEL") ||
-    "gpt-4.1-mini"
-  );
+  return envValue("ASSISTANT_SUGGESTION_MODEL") || openAiLowCostModel();
 }
 
 function textValue(value: unknown) {
@@ -195,8 +195,9 @@ export function rotateAssistantPromptSuggestions(
   const day = Math.floor(now.getTime() / 86_400_000);
   const start = day % suggestions.length;
 
-  return Array.from({ length: visibleCount }, (_, index) =>
-    suggestions[(start + index) % suggestions.length],
+  return Array.from(
+    { length: visibleCount },
+    (_, index) => suggestions[(start + index) % suggestions.length],
   );
 }
 
@@ -271,7 +272,9 @@ async function loadPromptSamples({
     .limit(240);
 
   if (error) {
-    throw new Error(`Unable to load assistant prompt history: ${error.message}`);
+    throw new Error(
+      `Unable to load assistant prompt history: ${error.message}`,
+    );
   }
 
   const byDay = new Map<string, PromptSample[]>();
@@ -488,9 +491,14 @@ async function generateSuggestionsWithOpenAi({
     body: JSON.stringify({
       input,
       instructions:
-        "You are Kyro's prompt suggestion curator. Output strict JSON only: {\"suggestions\":[\"...\"]}. Never include customer-specific details.",
+        'You are Kyro\'s prompt suggestion curator. Output strict JSON only: {"suggestions":["..."]}. Never include customer-specific details.',
       max_output_tokens: 420,
       model,
+      ...openAiReasoningRequest(
+        model,
+        "OPENAI_PROMPT_SUGGESTION_REASONING_EFFORT",
+        "none",
+      ),
     }),
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -709,9 +717,7 @@ export async function refreshAssistantPromptSuggestionsForUser({
     sampleCount: samples.length,
     setId: String(data.id),
     source:
-      generation.source === "openai"
-        ? `${trigger}_llm`
-        : `${trigger}_fallback`,
+      generation.source === "openai" ? `${trigger}_llm` : `${trigger}_fallback`,
     suggestions: generation.suggestions,
     visibleSuggestions: rotateAssistantPromptSuggestions(
       generation.suggestions,

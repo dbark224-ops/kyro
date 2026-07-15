@@ -50,7 +50,8 @@ function envValue(key: string) {
 }
 
 function assistantProviderMode() {
-  const configuredProvider = envValue("ASSISTANT_PROVIDER") || envValue("AI_PROVIDER");
+  const configuredProvider =
+    envValue("ASSISTANT_PROVIDER") || envValue("AI_PROVIDER");
 
   if (configuredProvider) {
     return configuredProvider.toLowerCase();
@@ -94,6 +95,31 @@ function routeAssistantModel(
   return route;
 }
 
+function routeAssistantPlannerModel(
+  workspace: WorkspaceInput,
+  user: User,
+): AssistantModelRoute {
+  const provider = assistantProviderMode();
+
+  if (["ollama", "local"].includes(provider)) {
+    return {
+      model: assistantModel(),
+      provider: "ollama",
+      reason: "Local Ollama assistant provider selected for development.",
+    };
+  }
+
+  return selectModelRoute({
+    estimatedInputTokens: 900,
+    latencyTargetMs: 1500,
+    requiredCapabilities: ["tool_selection", "action_planning"],
+    riskLevel: "low",
+    taskType: "action_planning",
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+}
+
 export async function runAssistantTurn({
   contextSnapshots = [],
   inputSource = "typed",
@@ -113,12 +139,13 @@ export async function runAssistantTurn({
   }
 
   const route = routeAssistantModel(workspace, user);
+  const plannerRoute = routeAssistantPlannerModel(workspace, user);
   const toolPlan = await planAssistantToolCall({
     contextSnapshots,
     inputSource,
     prompt: trimmedPrompt,
     recentMessages,
-    route,
+    route: plannerRoute,
     threadSummary,
   });
   const command = await resolveAssistantCommand({
@@ -205,8 +232,8 @@ export async function runAssistantTurn({
     command.intent === "calendar_event" && Boolean(command.mutation);
   const assistantContent =
     commandHasGeneratedImageBlock || commandNeedsExactMutationAnswer
-    ? command.fallbackAnswer
-    : modelOutput.text;
+      ? command.fallbackAnswer
+      : modelOutput.text;
   const toolCalls = [
     ...commandToolCalls,
     ...webSearchToToolCalls(modelOutput, trimmedPrompt),
@@ -234,7 +261,9 @@ export async function runAssistantTurn({
         recentMessageCount: recentMessages.length,
         contextSnapshotCount: contextSnapshots.length,
         toolPlannerFallbackReason: toolPlan.fallbackReason ?? null,
+        toolPlannerModel: plannerRoute.model,
         toolPlannerModelPlanned: toolPlan.modelPlanned,
+        toolPlannerProvider: plannerRoute.provider,
         toolPlannerSelection: toolPlan.selection,
         webSearchSourceCount: webSourceLinks.length,
         webSearchUsed: Boolean(modelOutput.webSearchUsed),
@@ -271,6 +300,7 @@ export async function runAssistantTurn({
               selectedTool: toolPlan.selection?.name ?? null,
               source: "assistant.tool_planner",
               contextSnapshotCount: contextSnapshots.length,
+              routeReason: plannerRoute.reason,
             },
             providerUsageId: toolPlan.providerUsageId,
             sourceId: aiRunId,
@@ -279,8 +309,8 @@ export async function runAssistantTurn({
             userId: user.id,
             workspaceId: workspace.id,
           },
-          model: route.model,
-          provider: route.provider,
+          model: plannerRoute.model,
+          provider: plannerRoute.provider,
           service: "llm",
           usage: toolPlan.tokenUsage,
         })

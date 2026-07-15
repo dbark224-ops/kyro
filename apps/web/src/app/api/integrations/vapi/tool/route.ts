@@ -56,7 +56,9 @@ import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
 
 export const dynamic = "force-dynamic";
 
-type VoiceContactMatch = Awaited<ReturnType<typeof lookupVoiceContactsForTool>>[number];
+type VoiceContactMatch = Awaited<
+  ReturnType<typeof lookupVoiceContactsForTool>
+>[number];
 
 type DraftSmsActionRow = {
   id: string;
@@ -164,14 +166,18 @@ function contactCardsForVoiceTool(
 }
 
 function shouldAttachContactCardsForVoicePrompt(prompt: string) {
-  return /\b(card|contact|profile|details?|pull up|open|show me)\b/i.test(prompt);
+  return /\b(card|contact|profile|details?|pull up|open|show me)\b/i.test(
+    prompt,
+  );
 }
 
 function hasContactPreviewLink(uiBlocks: unknown) {
   return linksFromBlocks(normalizeAssistantUiBlocks(uiBlocks)).some((link) => {
     try {
       const url = new URL(link.href, "http://kyro.local");
-      return url.pathname === "/contacts" || /^\/contacts\/[^/]+$/.test(url.pathname);
+      return (
+        url.pathname === "/contacts" || /^\/contacts\/[^/]+$/.test(url.pathname)
+      );
     } catch {
       return false;
     }
@@ -207,8 +213,8 @@ function phoneComparisonKeys(value: string | null) {
     normalizeContactPhoneForRegion(value, "AU")?.replace(/\D/g, "") ?? null;
 
   return new Set(
-    [rawDigits, normalizedDigits].filter(
-      (candidate): candidate is string => Boolean(candidate),
+    [rawDigits, normalizedDigits].filter((candidate): candidate is string =>
+      Boolean(candidate),
     ),
   );
 }
@@ -345,7 +351,9 @@ function vapiToolNotificationContext(payload: Record<string, unknown> | null) {
       purpose: textValue(metadata.purpose),
       selectedAssistantId: textValue(metadata.selectedAssistantId),
       source: textValue(metadata.source),
-      threadId: payload ? vapiToolThreadId(payload) : textValue(metadata.threadId),
+      threadId: payload
+        ? vapiToolThreadId(payload)
+        : textValue(metadata.threadId),
       toolCallId: toolCall?.id,
       toolName: toolCall?.name,
     },
@@ -390,7 +398,10 @@ async function notifyVapiToolIssue({
       },
     });
   } catch (notificationError) {
-    console.error("Unable to send Vapi tool bug notification", notificationError);
+    console.error(
+      "Unable to send Vapi tool bug notification",
+      notificationError,
+    );
   }
 }
 
@@ -659,7 +670,9 @@ async function findOrCreateVapiSmsConversation({
     .maybeSingle();
 
   if (existingChannelError) {
-    throw new Error(`Unable to load SMS channel: ${existingChannelError.message}`);
+    throw new Error(
+      `Unable to load SMS channel: ${existingChannelError.message}`,
+    );
   }
 
   let channelId = existingChannel?.id ? String(existingChannel.id) : null;
@@ -737,7 +750,10 @@ function smsRecipientPhone(args: Record<string, unknown>) {
   );
 }
 
-function smsRecipientName(args: Record<string, unknown>, prompt: string | null) {
+function smsRecipientName(
+  args: Record<string, unknown>,
+  prompt: string | null,
+) {
   return (
     textValue(args.contactName) ??
     textValue(args.customerName) ??
@@ -774,7 +790,9 @@ async function findOrCreateSmsContactByPhone({
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to load SMS recipient contact: ${existingError.message}`);
+    throw new Error(
+      `Unable to load SMS recipient contact: ${existingError.message}`,
+    );
   }
 
   if (existing) {
@@ -884,9 +902,14 @@ async function sendExplicitSmsForTool({
 }) {
   const contact = contacts[0];
 
-  if (!contact.phone && !textValue(args.phoneNumber) && !textValue(args.toNumber)) {
+  if (
+    !contact.phone &&
+    !textValue(args.phoneNumber) &&
+    !textValue(args.toNumber)
+  ) {
     return {
-      answer: "I found that contact, but they do not have a phone number saved yet.",
+      answer:
+        "I found that contact, but they do not have a phone number saved yet.",
       contacts,
       ok: false,
       uiBlocks: contactCardsForVoiceTool(contacts),
@@ -924,7 +947,8 @@ async function sendExplicitSmsForTool({
     workspaceId,
   });
 
-  const sentTo = contact.name ?? contact.company ?? contact.phone ?? "the contact";
+  const sentTo =
+    contact.name ?? contact.company ?? contact.phone ?? "the contact";
   const externallySent = Boolean(result.externalSend && !result.dryRun);
 
   return {
@@ -1025,11 +1049,7 @@ async function recordWebSearchUsage({
     return;
   }
 
-  const model =
-    process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
-    process.env.OPENAI_BALANCED_MODEL?.trim() ||
-    process.env.ASSISTANT_MODEL?.trim() ||
-    "gpt-4.1-mini";
+  const model = result.model;
   const tokenUsage =
     result.tokenUsage ??
     openAiUsageFromTokenCounts({
@@ -1180,7 +1200,10 @@ export async function POST(request: Request) {
         "Kyro's voice tools received an invalid tool request. The development team has been notified.",
     });
 
-    return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid JSON payload." },
+      { status: 400 },
+    );
   }
 
   let toolCallId: string | null = null;
@@ -1191,10 +1214,13 @@ export async function POST(request: Request) {
     const workspaceId = vapiToolWorkspaceId(payload);
 
     if (!workspaceId) {
-      return toolResponse({
-        ok: false,
-        message: "Kyro could not resolve a workspace for this tool call.",
-      }, toolCallId);
+      return toolResponse(
+        {
+          ok: false,
+          message: "Kyro could not resolve a workspace for this tool call.",
+        },
+        toolCallId,
+      );
     }
 
     const supabase = createServiceSupabaseClient();
@@ -1508,7 +1534,8 @@ export async function POST(request: Request) {
     if (isExplicitSmsTool) {
       if (!userId) {
         return completedToolResponse({
-          answer: "I could not send that SMS because Kyro could not identify the user.",
+          answer:
+            "I could not send that SMS because Kyro could not identify the user.",
           ok: false,
           message: "Kyro needs a user id to send SMS messages.",
         });
@@ -1569,8 +1596,7 @@ export async function POST(request: Request) {
 
       if (contacts.length === 0) {
         return completedToolResponse({
-          answer:
-            "I could not find a matching contact to send that SMS to.",
+          answer: "I could not find a matching contact to send that SMS to.",
           ok: false,
           uiBlocks: [],
         });
@@ -1671,7 +1697,8 @@ export async function POST(request: Request) {
       if (!prompt || !userId) {
         return completedToolResponse({
           ok: false,
-          message: "Kyro needs a prompt and user id for assistant context tools.",
+          message:
+            "Kyro needs a prompt and user id for assistant context tools.",
         });
       }
 
@@ -1697,10 +1724,7 @@ export async function POST(request: Request) {
         });
 
         if (contacts.length > 0) {
-          uiBlocks = [
-            ...uiBlocks,
-            ...contactCardsForVoiceTool(contacts),
-          ];
+          uiBlocks = [...uiBlocks, ...contactCardsForVoiceTool(contacts)];
           const firstContact = contacts[0];
           answer =
             contacts.length === 1

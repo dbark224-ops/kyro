@@ -5,6 +5,10 @@ import {
   openAiUsageFromResponse,
   type OpenAiTokenUsage,
 } from "../usage/openai";
+import {
+  openAiBalancedModel,
+  openAiReasoningRequest,
+} from "../ai/openai-models";
 
 type WebSearchInput = {
   apiKey?: string;
@@ -161,7 +165,9 @@ function responseUsedWebSearch(payload: unknown) {
     ? (objectRecord(payload).output as unknown[])
     : [];
 
-  return output.some((item) => textValue(objectRecord(item).type) === "web_search_call");
+  return output.some(
+    (item) => textValue(objectRecord(item).type) === "web_search_call",
+  );
 }
 
 export function assistantWebSearchEnabled() {
@@ -239,11 +245,7 @@ export function normalizeAssistantLinks(value: unknown) {
 export async function runAssistantWebSearch({
   apiKey = envValue("OPENAI_API_KEY"),
   maxOutputTokens,
-  model =
-    envValue("ASSISTANT_WEB_SEARCH_MODEL") ||
-    envValue("OPENAI_BALANCED_MODEL") ||
-    envValue("ASSISTANT_MODEL") ||
-    "gpt-4.1-mini",
+  model = envValue("ASSISTANT_WEB_SEARCH_MODEL") || openAiBalancedModel(),
   prompt,
 }: WebSearchInput): Promise<WebSearchResult> {
   const trimmedPrompt = prompt.trim();
@@ -281,6 +283,11 @@ export async function runAssistantWebSearch({
           "You are Kyro's web search tool. Search the public web when needed, answer concisely, and rely only on sourced public information. Cite the sources you use so the response includes url citation annotations for the app to render as source cards. Do not claim access to Kyro CRM data, user accounts, private documents, or actions. Include source-backed wording and avoid unsupported certainty.",
         max_output_tokens: outputTokenLimit,
         model,
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_WEB_SEARCH_REASONING_EFFORT",
+          "low",
+        ),
         tools: [openAiWebSearchTool()],
       }),
       headers: {
@@ -310,7 +317,9 @@ export async function runAssistantWebSearch({
     };
   } catch (error) {
     const fallbackReason =
-      error instanceof Error ? error.message : "OpenAI web search request failed.";
+      error instanceof Error
+        ? error.message
+        : "OpenAI web search request failed.";
 
     return {
       fallbackReason,

@@ -13,6 +13,10 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../../../../lib/usage/openai";
+import {
+  openAiBalancedModel,
+  openAiReasoningRequest,
+} from "../../../../lib/ai/openai-models";
 import { resolveWorkspaceUsageMarkupRate } from "../../../../lib/usage/workspace-markup";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
 
@@ -72,11 +76,7 @@ function openAiApiKey() {
 }
 
 function replyDraftModel() {
-  return (
-    envValue("OPENAI_REPLY_DRAFT_MODEL") ||
-    envValue("OPENAI_LOW_COST_MODEL") ||
-    "gpt-4.1-mini"
-  );
+  return envValue("OPENAI_REPLY_DRAFT_MODEL") || openAiBalancedModel();
 }
 
 function replyDraftMaxOutputTokens() {
@@ -166,8 +166,12 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
     "If the inquiry came by SMS or phone and the CRM profile/thread does not contain an email address, ask for an email address.",
     hasAddress ? null : "Required missing detail: job address.",
     hasPreferredTime ? null : "Required missing detail: preferred day or time.",
-    hasPhone ? null : "Required missing detail for email-originated inquiry: phone number.",
-    hasEmail ? null : "Required missing detail for SMS/phone-originated inquiry: email address.",
+    hasPhone
+      ? null
+      : "Required missing detail for email-originated inquiry: phone number.",
+    hasEmail
+      ? null
+      : "Required missing detail for SMS/phone-originated inquiry: email address.",
     missingInfo.length
       ? `Existing inquiry missing-info labels: ${missingInfo.join(", ")}.`
       : null,
@@ -175,8 +179,7 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
 }
 
 export function buildReplyDraftPrompt(context: ReplyDraftContext) {
-  const replyWriting =
-    context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  const replyWriting = context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
   const promptContext: ReplyDraftContext = {
     ...context,
     replyWriting,
@@ -252,6 +255,11 @@ async function runOpenAiReplyDraft(context: ReplyDraftContext) {
         "You draft customer email replies for Kyro, a trades/service CRM. Apply the workspace writing style in the prompt and return compact JSON matching the schema.",
       max_output_tokens: replyDraftMaxOutputTokens(),
       model,
+      ...openAiReasoningRequest(
+        model,
+        "OPENAI_REPLY_DRAFT_REASONING_EFFORT",
+        "low",
+      ),
       text: {
         format: {
           name: "kyro_reply_draft",

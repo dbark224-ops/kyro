@@ -1796,19 +1796,30 @@ Provider configuration:
 \`\`\`bash
 AI_PROVIDER=openai
 ASSISTANT_PROVIDER=openai
-ASSISTANT_MODEL=gpt-4.1-mini
-OPENAI_MODEL=gpt-4.1-mini
-OPENAI_LOW_COST_MODEL=gpt-4.1-mini
-OPENAI_BALANCED_MODEL=gpt-4.1-mini
-OPENAI_STRONG_MODEL=gpt-4.1
-OPENAI_TRIAGE_MODEL=gpt-4.1-mini
-OPENAI_REPLY_DRAFT_MODEL=gpt-4.1-mini
+ASSISTANT_MODEL=gpt-5.6-terra
+OPENAI_MODEL=
+OPENAI_LOW_COST_MODEL=gpt-5.6-luna
+OPENAI_BALANCED_MODEL=gpt-5.6-terra
+OPENAI_STRONG_MODEL=gpt-5.6-sol
+OPENAI_TRIAGE_MODEL=
+OPENAI_REPLY_DRAFT_MODEL=
 OPENAI_REPLY_DRAFT_MAX_OUTPUT_TOKENS=520
-OPENAI_PRONUNCIATION_ALIAS_MODEL=gpt-4.1-mini
+OPENAI_PRONUNCIATION_ALIAS_MODEL=
 OPENAI_PRONUNCIATION_ALIAS_TIMEOUT_MS=4000
+OPENAI_DOCUMENT_TEMPLATE_MODEL=
 OPENAI_ASSISTANT_MAX_OUTPUT_TOKENS=360
 OPENAI_TRIAGE_MAX_OUTPUT_TOKENS=700
-OPENAI_REALTIME_MODEL=gpt-realtime-2
+OPENAI_ASSISTANT_REASONING_EFFORT=low
+OPENAI_TOOL_PLANNER_REASONING_EFFORT=low
+OPENAI_TRIAGE_REASONING_EFFORT=low
+OPENAI_REPLY_DRAFT_REASONING_EFFORT=low
+OPENAI_REPLY_REPAIR_REASONING_EFFORT=low
+OPENAI_INBOUND_EMAIL_CLASSIFIER_REASONING_EFFORT=low
+OPENAI_DOCUMENT_TEMPLATE_REASONING_EFFORT=medium
+OPENAI_PRONUNCIATION_ALIAS_REASONING_EFFORT=none
+OPENAI_PROMPT_SUGGESTION_REASONING_EFFORT=none
+OPENAI_WEB_SEARCH_REASONING_EFFORT=low
+OPENAI_REALTIME_MODEL=gpt-realtime-2.1
 OPENAI_REALTIME_VOICE=ballad
 OPENAI_REALTIME_STYLE_INSTRUCTIONS=
 OPENAI_REALTIME_VAD_THRESHOLD=0.74
@@ -1837,9 +1848,19 @@ OPENAI_TTS_UNIT_COST_PER_SECOND_USD=
 OPENAI_TTS_MARKUP_RATE=
 \`\`\`
 
+Text and reasoning model routing uses the shared \`@kyro/ai\` tier selector:
+\`gpt-5.6-luna\` for low-cost/background classification and helpers,
+\`gpt-5.6-terra\` for assistant chat, reply drafting, web-search synthesis, and
+document/template editing, and \`gpt-5.6-sol\` for high-risk or action-planning
+routes. The app sets \`reasoning.effort\` explicitly for Responses API calls so
+latency/cost-sensitive paths do not inherit a broad model default. Leave
+task-specific model variables blank unless production needs an override; setting
+\`OPENAI_MODEL\` overrides all text tiers.
+
 OpenAI voice settings expose only voices supported by the realtime voice path, currently \`alloy\`, \`ash\`, \`ballad\`,
 \`coral\`, \`echo\`, \`sage\`, \`shimmer\`, \`verse\`, \`marin\`, and \`cedar\`. The fallback \`/audio/speech\` path uses
-\`gpt-4o-mini-tts\` by default because it supports the shared voice list and promptable speech instructions. The legacy
+\`gpt-4o-mini-tts\` by default because it supports the shared voice list and promptable speech instructions, but the
+OpenAI catalog now marks that TTS model as deprecated, so revisit this before scaling fallback voice playback. The legacy
 ElevenLabs helper code is retained for possible future experimentation, but it is not exposed in Settings and
 \`normalizeVoiceSettings()\` forces the saved provider to OpenAI.
 
