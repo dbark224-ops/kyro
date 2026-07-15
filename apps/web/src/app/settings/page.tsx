@@ -2883,9 +2883,9 @@ function BusinessLogoEditor({
         </label>
       </div>
 
-      <div className="signature-preview-card">
+      <div className="signature-preview-card email-signature-preview-card">
         <strong>Preview</strong>
-        <div className="signature-preview">
+        <div className="signature-preview email-signature-preview">
           {previewLogoSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
