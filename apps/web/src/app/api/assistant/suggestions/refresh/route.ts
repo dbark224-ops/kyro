@@ -1,4 +1,5 @@
 import { refreshAssistantPromptSuggestionsForUser } from "../../../../../lib/assistant/prompt-suggestions";
+import { runBackgroundJobCycle } from "../../../../../lib/background/jobs";
 import {
   envSecrets,
   hasAnyValidRequestSecret,
@@ -66,6 +67,16 @@ async function runScheduledPromptSuggestionRefresh(request: Request) {
   const userId = textValue(url.searchParams.get("userId"));
   const limit = clampLimit(url.searchParams.get("limit"));
   const supabase = createServiceSupabaseClient();
+
+  if (!workspaceId && !userId) {
+    const result = await runBackgroundJobCycle(supabase, {
+      claimLimit: Math.min(limit, 200),
+      jobTypes: ["assistant_suggestions"],
+    });
+
+    return Response.json({ ok: true, ...result });
+  }
+
   let memberQuery = supabase
     .from("workspace_members")
     .select("workspace_id,user_id")

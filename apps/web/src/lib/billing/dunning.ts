@@ -309,14 +309,20 @@ export async function reconcileAndProcessWorkspaceBilling(
 
 export async function processBillingAccessCycle(
   supabase: SupabaseClient,
-  options: { limit?: number } = {},
+  options: { limit?: number; workspaceId?: string | null } = {},
 ) {
   const limit = Math.max(1, Math.min(options.limit ?? 500, 2_000));
-  const { data, error } = await supabase
+  let query = supabase
     .from("workspaces")
     .select("id")
     .order("created_at", { ascending: true })
     .limit(limit);
+
+  if (options.workspaceId) {
+    query = query.eq("id", options.workspaceId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(

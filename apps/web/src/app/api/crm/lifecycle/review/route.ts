@@ -1,4 +1,5 @@
 import { runContactLifecycleReview } from "../../../../../lib/crm/lifecycle-review";
+import { runBackgroundJobCycle } from "../../../../../lib/background/jobs";
 import {
   envSecrets,
   hasAnyValidRequestSecret,
@@ -33,15 +34,22 @@ async function runScheduledLifecycleReview(request: Request) {
   const limit = Number(url.searchParams.get("limit") ?? "100");
   const supabase = createServiceSupabaseClient();
 
+  if (!workspaceId) {
+    const result = await runBackgroundJobCycle(supabase, {
+      claimLimit: 40,
+      jobTypes: ["crm_lifecycle_review"],
+    });
+
+    return Response.json({ ok: true, ...result });
+  }
+
   const workspaceQuery = supabase
     .from("workspaces")
     .select("id")
-    .order("created_at", { ascending: true })
-    .limit(200);
+    .eq("id", workspaceId)
+    .limit(1);
 
-  const { data: workspaces, error } = workspaceId
-    ? await workspaceQuery.eq("id", workspaceId)
-    : await workspaceQuery;
+  const { data: workspaces, error } = await workspaceQuery;
 
   if (error) {
     return Response.json(

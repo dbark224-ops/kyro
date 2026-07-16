@@ -9,6 +9,7 @@ import {
 } from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import { processBillingAccessCycle } from "../../../../../lib/billing/dunning";
+import { runBackgroundJobCycle } from "../../../../../lib/background/jobs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -80,17 +81,42 @@ async function handle(request: NextRequest) {
   const periodEnd = request.nextUrl.searchParams.get("periodEnd");
   const autoCharge = autoChargeEnabled(request);
   const includeDeveloperAccounts = chargeDeveloperAccountsEnabled(request);
+  const workspaceId = request.nextUrl.searchParams.get("workspaceId");
+
+  if (
+    !workspaceId &&
+    !periodStart &&
+    !periodEnd &&
+    autoCharge &&
+    !includeDeveloperAccounts
+  ) {
+    const result = await runBackgroundJobCycle(supabase, {
+      claimLimit: 40,
+      jobTypes: ["billing_cycle"],
+      workspaceId,
+    });
+
+    return NextResponse.json({ ok: true, ...result });
+  }
+
   const cycle = await runKyroBillingCycle({
     autoCharge,
     includeDeveloperAccounts,
     periodEnd: periodEnd || undefined,
     periodStart: periodStart || undefined,
     supabase,
+    workspaceId,
   });
   const retryResults = autoCharge
-    ? await chargeDueKyroInvoices({ includeDeveloperAccounts, supabase })
+    ? await chargeDueKyroInvoices({
+        includeDeveloperAccounts,
+        supabase,
+        workspaceId,
+      })
     : [];
-  const accessResults = await processBillingAccessCycle(supabase);
+  const accessResults = await processBillingAccessCycle(supabase, {
+    workspaceId,
+  });
 
   return NextResponse.json({
     accessChecked: accessResults.length,

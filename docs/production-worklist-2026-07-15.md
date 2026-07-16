@@ -1,14 +1,13 @@
 # Kyro Production Worklist
 
-Updated: 2026-07-15
+Updated: 2026-07-16
 
 This is the live production worklist. Completed build items are removed from the active list after implementation and verification; deferred decisions remain visible so they are not mistaken for missing engineering.
 
 ## Active now
 
-- [ ] Replace fixed-cap background scans with cursor-based or claimed work queues before customer volume can exceed a single run's capacity.
 - [ ] Complete production smoke testing for onboarding, billing/webhooks, inbound and outbound voice, SMS, voicemail overflow, email sync, calendar sync, escalation, and recovery paths.
-- [ ] Add production observability for cron lag, queue age, failed deliveries, provider outages, and billing failures.
+- [ ] Connect an external uptime monitor to the protected `/api/background/health` endpoint so a complete Vercel cron outage is reported outside Kyro itself.
 - [ ] Enable Supabase leaked-password protection in Auth settings and re-run the security advisor.
 
 ## Look at later
@@ -19,7 +18,7 @@ This is the live production worklist. Completed build items are removed from the
 
 ## Operational launch checks
 
-- [ ] Monitor the oldest pending item and processed count for email, calendar, outbox, notifications, billing, and escalation workers.
+- [ ] Monitor background queue age, recurring schedule lag, expired leases, and dead letters through `/api/background/health`; replay resolved dead letters through `/api/background/retry`.
 - [ ] Keep enough pre-purchased Twilio numbers available for expected onboarding demand.
 - [ ] Monitor Stripe webhook failures, unpaid invoices, grace-period accounts, and restricted accounts.
 - [ ] Monitor Vapi/Twilio balances, provider status, failed calls/SMS, voicemail overflow routing, and recording cleanup.

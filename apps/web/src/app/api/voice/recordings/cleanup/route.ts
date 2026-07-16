@@ -2,6 +2,7 @@ import {
   envSecrets,
   hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
+import { runBackgroundJobCycle } from "../../../../../lib/background/jobs";
 import { cleanupExpiredVoiceCallRecordings } from "../../../../../lib/voice/calls";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
@@ -37,6 +38,18 @@ async function runRecordingCleanup(request: Request) {
   const limit = Number(url.searchParams.get("limit") ?? "50");
   const workspaceId = url.searchParams.get("workspaceId");
   const supabase = createServiceSupabaseClient();
+
+  if (!workspaceId) {
+    const result = await runBackgroundJobCycle(supabase, {
+      claimLimit: Number.isFinite(limit)
+        ? Math.min(Math.max(limit, 1), 100)
+        : 40,
+      jobTypes: ["recording_cleanup"],
+    });
+
+    return Response.json({ ok: true, ...result });
+  }
+
   const result = await cleanupExpiredVoiceCallRecordings(supabase, {
     limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 50,
     workspaceId,

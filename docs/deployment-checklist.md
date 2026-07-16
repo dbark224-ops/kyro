@@ -29,7 +29,9 @@ Required for the current product:
 - `GOOGLE_CLIENT_ID`: Google OAuth client id.
 - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret.
 - `INTEGRATION_TOKEN_ENCRYPTION_KEY`: stable secret used to encrypt OAuth refresh tokens.
-- `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`: bearer secret for scheduled email sync and outbox processing.
+- `CRON_SECRET`: bearer secret used by Vercel Cron for the durable background processor and urgent-escalation safety worker.
+- optional `BACKGROUND_JOB_SECRET`: separate bearer secret for manual queue processing, health checks, and dead-letter replay; if omitted these routes accept `CRON_SECRET`.
+- `INBOUND_EMAIL_SYNC_SECRET`: optional legacy/manual-route secret for targeted email sync calls; the production recurring schedule uses the durable background processor.
 - `INBOUND_EMAIL_PUSH_SECRET`: optional bearer secret for Gmail Pub/Sub and Microsoft Graph email push receivers; if omitted, those receivers accept `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`.
 - `OUTBOUND_DELIVERY_SECRET`: optional separate bearer secret for `/api/outbox/process`; if omitted, Kyro accepts `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`.
 - `ASSISTANT_SUGGESTION_REFRESH_SECRET`: optional separate bearer secret for `/api/assistant/suggestions/refresh`; if omitted, Kyro accepts `CRON_SECRET`.
@@ -286,53 +288,46 @@ Run a smoke test for:
 - quote approval link creation and the no-login `/quote/approve/[token]` customer page,
 - inbound email classifier path.
 
-## 7. Scheduled Email Sync
+## 7. Durable Background Work
 
 `vercel.json` registers:
 
 ```json
 {
-  "path": "/api/integrations/email/sync",
+  "path": "/api/background/process",
+  "schedule": "* * * * *"
+}
+```
+
+Urgent escalation remains a separate safety worker so queue pressure cannot delay
+an emergency notification:
+
+```json
+{
+  "path": "/api/escalations/process",
   "schedule": "*/5 * * * *"
 }
 ```
 
-It also registers the outbound delivery processor:
-
-```json
-{
-  "path": "/api/outbox/process",
-  "schedule": "*/5 * * * *"
-}
-```
-
-It also registers the weekly adaptive assistant suggestion refresh:
-
-```json
-{
-  "path": "/api/assistant/suggestions/refresh",
-  "schedule": "0 11 * * 0"
-}
-```
-
-It also registers the Kyro-owned billing runner:
-
-```json
-{
-  "path": "/api/billing/kyro/run",
-  "schedule": "33 4 * * *"
-}
-```
+The processor advances recurring schedules and claims durable jobs for inbound
+email, calendar sync, calendar SMS, CRM lifecycle review, billing access and
+charging, recording cleanup, assistant suggestions, and outbound delivery.
+Claims use leases, retries use exponential backoff, expired leases are
+recoverable, and failed jobs remain as dead letters for operational review.
 
 Before enabling production cron:
 
-- set `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`,
-- set `ASSISTANT_SUGGESTION_REFRESH_SECRET` if the assistant suggestion refresh should not share `CRON_SECRET`,
-- confirm `/api/integrations/email/sync` returns authorized only with the bearer secret,
-- confirm `/api/outbox/process` returns authorized only with `OUTBOUND_DELIVERY_SECRET`, `INBOUND_EMAIL_SYNC_SECRET`, or `CRON_SECRET`,
-- confirm `/api/assistant/suggestions/refresh` returns authorized only with `ASSISTANT_SUGGESTION_REFRESH_SECRET` or `CRON_SECRET`,
-- confirm `/api/billing/kyro/run` returns authorized only with
-  `KYRO_BILLING_RUN_SECRET`, `OUTBOUND_DELIVERY_SECRET`, or `CRON_SECRET`,
+- set `CRON_SECRET` and optionally a separate `BACKGROUND_JOB_SECRET`,
+- confirm `/api/background/process`, `/api/background/health`, and
+  `/api/background/retry` return `401` without a valid bearer secret,
+- invoke `/api/background/process` once with the secret and confirm it returns
+  queue metrics without an expired lease or overdue item,
+- configure an external uptime monitor to call `/api/background/health` with an
+  Authorization bearer header at least every five minutes; alert on non-2xx,
+- confirm the queue contains recurring schedules for every workspace and that
+  new outbound rows create `outbound_delivery` jobs,
+- test one retryable failure, verify exponential retry state, then verify a
+  resolved dead letter can be replayed through `/api/background/retry`,
 - run one manual sync from Settings,
 - check the Settings inbound trace for the latest sync run counts and recent email decisions,
 - confirm reconnect-needed states are visible for accounts with missing scopes or undecryptable tokens,
@@ -355,7 +350,8 @@ Recommended deploy sequence:
 7. Apply migrations with `npm run db:migrate` against production only when ready.
 8. Deploy.
 9. Open Developer -> System Health and confirm required production checks are green or explicitly understood.
-10. Run Developer -> Smoke Test Checklist for sign-in, Settings, Assistant, Voice, Inbox, Gmail connect, Gmail send, generated documents, outbox, Log/audit, and inbound sync.
+10. Confirm `/api/background/health` is healthy and the external monitor can authenticate.
+11. Run Developer -> Smoke Test Checklist for sign-in, Settings, Assistant, Voice, Inbox, Gmail connect, Gmail send, generated documents, outbox, Log/audit, and inbound sync.
 
 ## 9. Current Known Production Gaps
 

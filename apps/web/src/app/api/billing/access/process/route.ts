@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { runBackgroundJobCycle } from "../../../../../lib/background/jobs";
 import { processBillingAccessCycle } from "../../../../../lib/billing/dunning";
 import {
   envSecrets,
@@ -25,13 +26,30 @@ async function handle(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const results = await processBillingAccessCycle(
-    createServiceSupabaseClient(),
-  );
+  const workspaceId = request.nextUrl.searchParams.get("workspaceId");
+  const supabase = createServiceSupabaseClient();
+
+  if (workspaceId) {
+    const results = await processBillingAccessCycle(supabase, {
+      limit: 1,
+      workspaceId,
+    });
+
+    return NextResponse.json({
+      checked: results.length,
+      errors: results.filter((result) => !result.ok).length,
+      ok: true,
+      results,
+    });
+  }
+
+  const results = await runBackgroundJobCycle(supabase, {
+    claimLimit: 40,
+    jobTypes: ["billing_access"],
+  });
 
   return NextResponse.json({
-    checked: results.length,
-    errors: results.filter((result) => !result.ok).length,
+    ...results,
     ok: true,
   });
 }

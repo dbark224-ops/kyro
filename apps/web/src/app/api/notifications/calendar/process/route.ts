@@ -1,3 +1,4 @@
+import { runBackgroundJobCycle } from "../../../../../lib/background/jobs";
 import { processDueCalendarSmsNotifications } from "../../../../../lib/notifications/calendar-sms";
 import {
   envSecrets,
@@ -36,9 +37,19 @@ async function runCalendarNotificationProcessor(request: Request) {
   const limit = Number(url.searchParams.get("limit") ?? "200");
   const workspaceId = url.searchParams.get("workspaceId");
   const supabase = createServiceSupabaseClient();
-  const result = await processDueCalendarSmsNotifications(supabase, {
-    limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 200,
-    workspaceId,
+
+  if (workspaceId) {
+    const result = await processDueCalendarSmsNotifications(supabase, {
+      limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 200,
+      workspaceId,
+    });
+
+    return Response.json({ ok: true, result });
+  }
+
+  const result = await runBackgroundJobCycle(supabase, {
+    claimLimit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 200) : 40,
+    jobTypes: ["calendar_notifications"],
   });
 
   return Response.json(result);

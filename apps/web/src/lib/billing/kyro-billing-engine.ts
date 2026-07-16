@@ -1111,16 +1111,23 @@ export async function runKyroBillingCycle(input: {
   periodEnd?: string;
   periodStart?: string;
   supabase: SupabaseClient;
+  workspaceId?: string | null;
 }) {
   const period =
     input.periodStart && input.periodEnd
       ? { end: input.periodEnd, start: input.periodStart }
       : previousMonthlyBillingPeriod();
-  const { data: workspaces, error } = await input.supabase
+  let workspaceQuery = input.supabase
     .from("workspaces")
     .select("id,name,owner_user_id")
     .order("created_at", { ascending: true })
     .limit(500);
+
+  if (input.workspaceId) {
+    workspaceQuery = workspaceQuery.eq("id", input.workspaceId);
+  }
+
+  const { data: workspaces, error } = await workspaceQuery;
 
   if (error) {
     throw new Error(`Unable to load workspaces for billing: ${error.message}`);
@@ -1173,14 +1180,21 @@ export async function runKyroBillingCycle(input: {
 export async function chargeDueKyroInvoices(input: {
   includeDeveloperAccounts?: boolean;
   supabase: SupabaseClient;
+  workspaceId?: string | null;
 }) {
   const now = Date.now();
-  const { data, error } = await input.supabase
+  let invoiceQuery = input.supabase
     .from("kyro_invoices")
     .select("id,next_retry_at,workspace_id")
     .in("status", ["open", "payment_failed"])
     .gt("total_amount", 0)
     .limit(100);
+
+  if (input.workspaceId) {
+    invoiceQuery = invoiceQuery.eq("workspace_id", input.workspaceId);
+  }
+
+  const { data, error } = await invoiceQuery;
 
   if (error) {
     throw new Error(`Unable to load due Kyro invoices: ${error.message}`);

@@ -1,3 +1,4 @@
+import { runBackgroundJobCycle } from "../../../../lib/background/jobs";
 import { processDueOutboundMessages } from "../../../../lib/communication/outbound";
 import {
   envSecrets,
@@ -36,9 +37,19 @@ async function runOutboxProcessor(request: Request) {
   const limit = Number(url.searchParams.get("limit") ?? "25");
   const workspaceId = url.searchParams.get("workspaceId");
   const supabase = createServiceSupabaseClient();
-  const result = await processDueOutboundMessages(supabase, {
-    limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 25,
-    workspaceId,
+
+  if (workspaceId) {
+    const result = await processDueOutboundMessages(supabase, {
+      limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 25,
+      workspaceId,
+    });
+
+    return Response.json({ ok: true, result });
+  }
+
+  const result = await runBackgroundJobCycle(supabase, {
+    claimLimit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 25,
+    jobTypes: ["outbound_delivery"],
   });
 
   return Response.json(result);

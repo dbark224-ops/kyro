@@ -1,84 +1,56 @@
 import type { User } from "@supabase/supabase-js";
+import { runBackgroundJobCycle } from "../../../../../lib/background/jobs";
 import {
   envSecrets,
   hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
-import { syncInboundEmail } from "../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { syncInboundEmail } from "../../../../../lib/integrations/inbound-email-sync";
 
 export const dynamic = "force-dynamic";
-
-function syncSecret() {
-  return envSecrets("INBOUND_EMAIL_SYNC_SECRET", "CRON_SECRET");
-}
-
-function scheduledUser(ownerUserId: string): User {
-  return { id: ownerUserId } as User;
-}
+export const maxDuration = 300;
 
 async function runScheduledSync(request: Request) {
-  const expectedSecrets = syncSecret();
+  const secrets = envSecrets("INBOUND_EMAIL_SYNC_SECRET", "CRON_SECRET");
 
-  if (expectedSecrets.length === 0) {
-    return Response.json(
-      { error: "INBOUND_EMAIL_SYNC_SECRET or CRON_SECRET is not configured." },
-      { status: 501 },
-    );
-  }
-
-  if (!hasAnyValidRequestSecret(request, expectedSecrets)) {
+  if (secrets.length === 0 || !hasAnyValidRequestSecret(request, secrets)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
+  const url = new URL(request.url);
+  const workspaceId = url.searchParams.get("workspaceId");
   const supabase = createServiceSupabaseClient();
-  const { data: workspaces, error } = await supabase
-    .from("workspaces")
-    .select("id,owner_user_id")
-    .order("created_at", { ascending: true })
-    .limit(200);
 
-  if (error) {
-    return Response.json(
-      { error: `Unable to load workspaces: ${error.message}` },
-      { status: 500 },
-    );
-  }
+  if (workspaceId) {
+    const { data: workspace, error } = await supabase
+      .from("workspaces")
+      .select("id,owner_user_id")
+      .eq("id", workspaceId)
+      .maybeSingle();
 
-  const results = [];
-
-  for (const workspace of workspaces ?? []) {
-    const workspaceId = String(workspace.id);
-    const ownerUserId = String(workspace.owner_user_id);
-
-    try {
-      const result = await syncInboundEmail({
-        supabase,
-        trigger: "scheduled",
-        user: scheduledUser(ownerUserId),
-        workspaceId,
-      });
-
-      results.push({
-        ok: true,
-        result,
-        workspaceId,
-      });
-    } catch (error) {
-      results.push({
-        error:
-          error instanceof Error
-            ? error.message
-            : "Scheduled email sync failed.",
-        ok: false,
-        workspaceId,
-      });
+    if (error || !workspace?.owner_user_id) {
+      return Response.json(
+        { error: error?.message ?? "Workspace owner is unavailable." },
+        { status: error ? 500 : 404 },
+      );
     }
+
+    const result = await syncInboundEmail({
+      supabase,
+      trigger: "scheduled",
+      user: { id: String(workspace.owner_user_id) } as User,
+      workspaceId,
+    });
+
+    return Response.json({ ok: true, result, workspaceId });
   }
 
-  return Response.json({
-    results,
-    workspaceCount: workspaces?.length ?? 0,
+  const result = await runBackgroundJobCycle(supabase, {
+    claimLimit: 40,
+    jobTypes: ["inbound_email_sync"],
   });
+
+  return Response.json({ ok: true, ...result });
 }
 
 export async function GET(request: Request) {

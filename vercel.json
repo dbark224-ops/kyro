@@ -2,44 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/integrations/email/sync",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/integrations/calendar/sync",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/outbox/process",
-      "schedule": "*/5 * * * *"
+      "path": "/api/background/process",
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/escalations/process",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/notifications/calendar/process",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/crm/lifecycle/review",
-      "schedule": "0 */6 * * *"
-    },
-    {
-      "path": "/api/voice/recordings/cleanup",
-      "schedule": "17 3 * * *"
-    },
-    {
-      "path": "/api/billing/kyro/run",
-      "schedule": "33 4 * * *"
-    },
-    {
-      "path": "/api/billing/access/process",
-      "schedule": "12 * * * *"
-    },
-    {
-      "path": "/api/assistant/suggestions/refresh",
-      "schedule": "0 11 * * 0"
     }
   ]
 }

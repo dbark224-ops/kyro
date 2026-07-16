@@ -2324,6 +2324,60 @@ export async function retryOutboundMessage(
   return deliverOutboundQueueItem(supabase, row, input.userId);
 }
 
+export async function processOutboundMessageById(
+  supabase: SupabaseClient,
+  input: {
+    outboundQueueId: string;
+    workspaceId: string;
+  },
+) {
+  const row = await loadOutboundQueueRow(
+    supabase,
+    input.workspaceId,
+    input.outboundQueueId,
+  );
+
+  if (!["queued", "retry_scheduled"].includes(row.status)) {
+    return {
+      error: null,
+      ok: true as const,
+      outboundQueueId: row.id,
+      retryAt: null,
+      skipped: true,
+      status: row.status,
+    };
+  }
+
+  try {
+    const result = await deliverOutboundQueueItem(supabase, row, row.user_id);
+
+    return {
+      error: null,
+      ok: true as const,
+      outboundQueueId: row.id,
+      result,
+      retryAt: null,
+      skipped: false,
+      status: result.outboxStatus,
+    };
+  } catch (error) {
+    const latest = await loadOutboundQueueRow(
+      supabase,
+      input.workspaceId,
+      input.outboundQueueId,
+    );
+
+    return {
+      error: errorMessage(error),
+      ok: false as const,
+      outboundQueueId: latest.id,
+      retryAt: latest.next_attempt_at,
+      skipped: latest.status === "billing_paused",
+      status: latest.status,
+    };
+  }
+}
+
 export async function processDueOutboundMessages(
   supabase: SupabaseClient,
   options: {

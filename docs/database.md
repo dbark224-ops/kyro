@@ -78,6 +78,13 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260625001321_voice_recording_retention.sql`: adds 30-day voice recording
   retention fields and an expiry index so Kyro can delete Vapi call data while
   preserving call transcripts, summaries, and audit rows.
+- `20260716222532_durable_background_jobs.sql`: adds service-only recurring
+  schedules and durable jobs, fair leased claims, exponential retry/dead-letter
+  transitions, replay, queue metrics, workspace/member schedule triggers, and
+  immediate outbound-delivery job registration.
+- `20260716224556_background_queue_schedule_lag_metrics.sql`: extends queue
+  health with overdue recurring-schedule counts and age so a stopped scheduler
+  is visible even when it has not produced queued rows.
 
 CRM profile identity now uses normalized email, normalized phone, and normalized company values. App code normalizes bare local phone numbers with the workspace default phone region before falling back through broader international parsing. Explicit country-coded numbers remain country-safe.
 
@@ -119,7 +126,8 @@ Vapi/Twilio voice now has a first database foundation:
 - completed calls can write `usage_events` rows with `usage_type = voice_call`,
 - Assistant Kyro activity and the mobile app both load call details through
   `/api/voice/calls/[callId]` rather than querying these tables directly.
-- `/api/voice/recordings/cleanup` runs on a daily Vercel cron. It deletes the
+- `/api/voice/recordings/cleanup` supports targeted/manual runs; the durable
+  background scheduler runs the daily production cleanup. It deletes the
   Vapi call data for expired recordings, clears `recording_url` after provider
   deletion succeeds, sets `recording_deleted_at`, and leaves retryable metadata
   when deletion fails.

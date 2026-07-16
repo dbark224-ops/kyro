@@ -87,6 +87,10 @@ All business data is workspace-scoped. The important tables are:
 - `outbound_messages`: durable outbound delivery queue/ledger for user and
   action-triggered sends, including idempotency keys, attempt counts, retry
   scheduling, provider metadata, and last-error state.
+- `background_job_schedules`: service-only recurring schedule definitions for
+  each workspace and scheduled work type.
+- `background_jobs`: service-only durable work queue with priorities, tenant/type
+  lanes, leases, retry/dead-letter state, results, and retention timestamps.
 - `quote_drafts`: internal quote document placeholders created from approved actions.
 - `assistant_threads`: persistent Assistant conversations per workspace/user.
 - `assistant_messages`: saved Assistant/user turns, tool-call records, and UI block records.
@@ -246,9 +250,10 @@ APIs:
 - `GET|POST /api/assistant/suggestions/refresh`: scheduled refresh endpoint
   protected by `ASSISTANT_SUGGESTION_REFRESH_SECRET` or `CRON_SECRET`.
 
-`vercel.json` schedules the refresh weekly. The route uses the service role to
-walk workspace members, but each generated set remains tied to a specific
-workspace and user.
+The durable background scheduler creates one weekly suggestion job per workspace
+member. Member insert/update/delete triggers keep those schedules aligned with
+workspace membership, and each generated set remains tied to a specific workspace
+and user.
 
 ## Current Screens
 
@@ -479,8 +484,9 @@ recent email sync, contact profile updates, and call-note recording; `GET
 web assistant pane; `GET /api/voice/calls/[callId]` returns the same preview
 payload used by the web assistant and mobile app; and `POST /api/voice/outbound`
 queues a workspace-scoped outbound customer call through the configured Vapi
-outbound assistant. `GET|POST /api/voice/recordings/cleanup` runs as a daily
-Vercel cron, deletes expired Vapi call data after 30 days, clears Kyro's
+outbound assistant. `GET|POST /api/voice/recordings/cleanup` supports targeted
+cleanup, while the durable background scheduler runs production cleanup daily.
+It deletes expired Vapi call data after 30 days, clears Kyro's
 recording URL only after provider deletion succeeds, and keeps transcript,
 summary, and audit rows for complaint review. Outbound calls can route across
 multiple workspace-owned
@@ -690,9 +696,9 @@ still being in a lead/client lifecycle stage. Manual user changes set
 review until the user clears the manual override from the CRM profile panel.
 
 The lifecycle review engine can run from CRM profile/list buttons or from the
-protected `/api/crm/lifecycle/review` route. `vercel.json` schedules that route
-every six hours in production, using `CRM_LIFECYCLE_REVIEW_SECRET` or
-`CRON_SECRET`. The review looks at linked leads, messages, quote drafts, quote
+protected `/api/crm/lifecycle/review` route. Production creates one durable
+review job per workspace every six hours; targeted/manual route calls use
+`CRM_LIFECYCLE_REVIEW_SECRET` or `CRON_SECRET`. The review looks at linked leads, messages, quote drafts, quote
 approval links, contact-targeted business actions, and future commercial record
 inputs such as paid invoices, booked jobs, work orders, and billing records.
 When a non-manual profile appears stale, it creates a `review_lifecycle_stage`
@@ -1327,6 +1333,53 @@ scheduled polling during the 10pm-4am quiet window, minimal idempotency events
 for skipped mail with optional human-readable summaries, and automatic promotion
 only for emails classified as business-actionable.
 
+## Durable Background Work
+
+Files:
+
+- `apps/web/src/lib/background/jobs.ts`
+- `apps/web/src/app/api/background/process/route.ts`
+- `apps/web/src/app/api/background/health/route.ts`
+- `apps/web/src/app/api/background/retry/route.ts`
+- `supabase/migrations/20260716222532_durable_background_jobs.sql`
+- `supabase/migrations/20260716224556_background_queue_schedule_lag_metrics.sql`
+
+Production recurring work no longer walks a fixed number of workspaces in each
+specialty cron route. `vercel.json` wakes `/api/background/process` every minute.
+The processor advances due `background_job_schedules`, claims ready
+`background_jobs`, and drains multiple bounded batches while execution time
+remains. Urgent escalation intentionally keeps its own five-minute safety route.
+
+Current durable job types are outbound delivery, inbound email sync, calendar
+sync, calendar SMS notifications, CRM lifecycle review, billing access
+reconciliation, Kyro billing cycles, recording cleanup, and assistant prompt
+suggestions. Outbound queue inserts/updates create jobs immediately through a
+database trigger; recurring work is seeded for existing and newly created
+workspaces.
+
+Queue guarantees:
+
+- schedule and subject-level unique indexes prevent duplicate active work,
+- `FOR UPDATE SKIP LOCKED` claims let overlapping workers cooperate safely,
+- fair lanes rank the first ready job for each workspace/job type before a
+  second job from the same noisy lane,
+- age increases effective priority so lower-priority maintenance cannot starve,
+- claims carry renewable leases and expired leases can be reclaimed,
+- retryable failures use bounded exponential backoff and exhausted/permanent
+  failures remain as dead letters,
+- completed/cancelled history is retained for 30 days and dead letters for 90
+  days before bounded cleanup,
+- `/api/background/retry` manually replays a resolved dead letter,
+- `/api/background/health` reports queue age, recurring schedule lag, failed
+  rows, and expired leases, returning `503` when a service threshold is breached,
+- unhealthy queue/dead-letter events use Kyro's internal bug-notification path.
+
+The worker and operational endpoints accept `BACKGROUND_JOB_SECRET` or
+`CRON_SECRET`. The queue tables have RLS enabled with no end-user policy and
+explicit service-role grants only. An external uptime monitor must call the
+health endpoint so a total Vercel/cron outage is observable outside the system
+that is failing.
+
 ## Manual Inquiry Ingestion
 
 Files:
@@ -1428,8 +1481,8 @@ Important behavior:
   fetched/promoted/observed/duplicate counts, and recent provider email
   decisions. This is deliberately read-only operational visibility, not a second
   queue, and it stays out of the main settings controls because the list can grow.
-- Scheduled polling is exposed through `/api/integrations/email/sync`, protected by `INBOUND_EMAIL_SYNC_SECRET` or Vercel's `CRON_SECRET`, and backed by a server-only Supabase service role client. Vercel Cron calls it with `GET`; manual scheduler/testing calls can still use `POST`.
-- `vercel.json` registers this route to run every five minutes in production. The sync worker still respects each workspace's policy, including quiet-hours rules.
+- Targeted polling remains exposed through `/api/integrations/email/sync`, protected by `INBOUND_EMAIL_SYNC_SECRET` or `CRON_SECRET`, and backed by a server-only Supabase service role client.
+- Production polling is a five-minute recurring schedule in the durable background queue. The one-minute worker wake-up claims each workspace independently, and the sync worker still respects workspace policy including quiet-hours rules.
 - Quiet-hours behavior is intentionally singular: scheduled polling pauses between the configured start and end times, then resumes on the first scheduled poll after quiet hours end. Businesses that need overnight polling should disable quiet hours rather than choose a second behavior mode.
 - Manual Settings checks and assistant-triggered checks bypass the schedule gate so the user or agent can fetch fresh email when context demands it.
 - Every provider message gets an idempotent `events` row before processing; duplicate provider messages are skipped.
