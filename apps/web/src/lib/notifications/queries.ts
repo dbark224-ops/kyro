@@ -8,7 +8,7 @@ import { getConversationList, type ConversationListItem } from "../crm/queries";
 
 export type AppNotificationItem = {
   id: string;
-  source: "inbox";
+  source: "billing" | "escalation" | "inbox";
   title: string;
   detail: string;
   href: string;
@@ -112,7 +112,39 @@ export async function getNotificationSummary(
   options: { limit?: number } = {},
 ): Promise<AppNotificationSummary> {
   const limit = options.limit ?? 8;
-  const conversations = await getConversationList(supabase, workspaceId);
+  const [conversations, escalationStepsResult, billingResult] =
+    await Promise.all([
+      getConversationList(supabase, workspaceId),
+      supabase
+        .from("urgent_escalation_steps")
+        .select(
+          "id,incident_id,status,sent_at,urgent_escalation_incidents!inner(id,title,summary,status,acknowledgement_token,occurred_at)",
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("channel", "app_notification")
+        .eq("status", "sent")
+        .eq("urgent_escalation_incidents.status", "open")
+        .order("sent_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("workspace_billing_access")
+        .select("workspace_id,status,reason,grace_ends_at,latest_failure_at")
+        .eq("workspace_id", workspaceId)
+        .maybeSingle(),
+    ]);
+
+  if (escalationStepsResult.error) {
+    throw new Error(
+      `Unable to load escalation notifications: ${escalationStepsResult.error.message}`,
+    );
+  }
+
+  if (billingResult.error) {
+    throw new Error(
+      `Unable to load billing notification: ${billingResult.error.message}`,
+    );
+  }
+
   const attentionConversations = conversations
     .filter(isInboxAttentionConversation)
     .sort(
@@ -121,16 +153,76 @@ export async function getNotificationSummary(
         dateValue(left.lastMessageAt ?? left.originalInquiryAt),
     );
 
-  return {
-    inboxActionCount: attentionConversations.length,
-    items: attentionConversations.slice(0, limit).map((conversation) => ({
+  const inboxItems: AppNotificationItem[] = attentionConversations.map(
+    (conversation) => ({
       detail: notificationDetail(conversation),
       href: `/inbox?conversationId=${encodeURIComponent(conversation.id)}`,
       id: conversation.id,
       source: "inbox",
       timestamp: conversation.lastMessageAt ?? conversation.originalInquiryAt,
       title: notificationTitle(conversation),
-    })),
-    total: attentionConversations.length,
+    }),
+  );
+  const escalationItems: AppNotificationItem[] = (
+    escalationStepsResult.data ?? []
+  ).flatMap((step) => {
+    const relation = Array.isArray(step.urgent_escalation_incidents)
+      ? step.urgent_escalation_incidents[0]
+      : step.urgent_escalation_incidents;
+
+    if (!relation) {
+      return [];
+    }
+
+    return [
+      {
+        detail: String(
+          relation.summary ?? "Urgent customer work needs acknowledgement.",
+        ),
+        href: `/api/escalations/acknowledge?token=${encodeURIComponent(String(relation.acknowledgement_token))}`,
+        id: String(relation.id),
+        source: "escalation" as const,
+        timestamp: relation.occurred_at ? String(relation.occurred_at) : null,
+        title: String(relation.title ?? "Urgent escalation"),
+      },
+    ];
+  });
+  const billingStatus = billingResult.data?.status
+    ? String(billingResult.data.status)
+    : null;
+  const billingItems: AppNotificationItem[] =
+    billingStatus === "grace" || billingStatus === "restricted"
+      ? [
+          {
+            detail:
+              billingStatus === "restricted"
+                ? "Paid automation is paused until the payment method is updated."
+                : "Update the payment method before the billing grace period ends.",
+            href: "/settings?section=usage&panel=payment-method",
+            id: `${workspaceId}:${billingStatus}`,
+            source: "billing",
+            timestamp: billingResult.data?.latest_failure_at
+              ? String(billingResult.data.latest_failure_at)
+              : null,
+            title:
+              billingStatus === "restricted"
+                ? "Billing needs attention"
+                : "Payment could not be collected",
+          },
+        ]
+      : [];
+  const items = [...billingItems, ...escalationItems, ...inboxItems]
+    .sort(
+      (left, right) => dateValue(right.timestamp) - dateValue(left.timestamp),
+    )
+    .slice(0, limit);
+
+  return {
+    inboxActionCount: attentionConversations.length,
+    items,
+    total:
+      attentionConversations.length +
+      escalationItems.length +
+      billingItems.length,
   };
 }

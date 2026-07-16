@@ -9,10 +9,11 @@ import {
   sendKyroEmailVerification,
 } from "../../../../lib/auth/email-verification";
 import { getAuthCallbackUrl } from "../../../../lib/app-url";
+import { normalizeContactPhoneForRegion } from "../../../../lib/crm/identity";
 import {
-  normalizeContactEmail,
-  normalizeContactPhoneForRegion,
-} from "../../../../lib/crm/identity";
+  reserveSignupBootstrap,
+  updateSignupBootstrap,
+} from "../../../../lib/auth/signup-bootstrap";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 import { createWorkspaceBootstrap } from "../../../../lib/workspace/bootstrap";
@@ -80,28 +81,6 @@ function normalizeTimeZone(value: unknown) {
   }
 }
 
-function metadataString(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function signupPhoneCandidates(user: {
-  phone?: string | null;
-  user_metadata?: Record<string, unknown> | null;
-}) {
-  return [
-    user.phone ?? "",
-    metadataString(user.user_metadata, "kyroMobileNumber"),
-    metadataString(user.user_metadata, "phone"),
-    metadataString(user.user_metadata, "mobileNumber"),
-    metadataString(user.user_metadata, "mobile"),
-    metadataString(user.user_metadata, "publicPhoneNumber"),
-  ].filter(Boolean);
-}
-
 function friendlySignupError(message: string) {
   const normalized = message.toLowerCase();
 
@@ -126,65 +105,26 @@ function errorResponse(message: string, status = 400) {
 
 async function verifySignupIdentityAvailable(input: {
   email: string;
-  mobileCountry: string;
-  mobileNumber: string;
+  normalizedMobileNumber: string;
+  payload: Record<string, unknown>;
 }) {
-  const normalizedEmail = normalizeContactEmail(input.email);
-  const phoneRegion = operatingCountryPhoneRegion(input.mobileCountry);
-  const normalizedPhone = normalizeContactPhoneForRegion(
-    input.mobileNumber,
-    phoneRegion,
-  );
-
-  if (!normalizedEmail) {
-    return "Enter a valid email address.";
-  }
-
-  if (!normalizedPhone) {
-    return "Enter a valid mobile number.";
-  }
-
   const serviceSupabase = createServiceSupabaseClient();
-  const perPage = 1000;
+  const reservation = await reserveSignupBootstrap(serviceSupabase, {
+    email: input.email,
+    payload: input.payload,
+    phone: input.normalizedMobileNumber,
+  });
 
-  for (let page = 1; page <= 50; page += 1) {
-    const { data, error } = await serviceSupabase.auth.admin.listUsers({
-      page,
-      perPage,
-    });
+  const error =
+    reservation.conflict === "email"
+      ? "That email is already attached to a Kyro account. Sign in instead, or use a different email."
+      : reservation.conflict === "phone"
+        ? "That mobile number is already attached to a Kyro account. Use a different number, or contact support if this is your account."
+        : reservation.conflict === "recoverable"
+          ? "Your Kyro account has already been started. Sign in to resume setup; Kyro will restore any missing workspace steps automatically."
+          : null;
 
-    if (error) {
-      return "Kyro could not verify account details right now. Please try again shortly.";
-    }
-
-    const users = data.users ?? [];
-
-    for (const user of users) {
-      const existingEmail = normalizeContactEmail(user.email);
-
-      if (existingEmail && existingEmail === normalizedEmail) {
-        return "That email is already attached to a Kyro account. Sign in instead, or use a different email.";
-      }
-
-      const phoneMatch = signupPhoneCandidates(user).some((candidate) => {
-        const normalizedCandidate = normalizeContactPhoneForRegion(
-          candidate,
-          phoneRegion,
-        );
-        return normalizedCandidate === normalizedPhone;
-      });
-
-      if (phoneMatch) {
-        return "That mobile number is already attached to a Kyro account. Use a different number, or contact support if this is your account.";
-      }
-    }
-
-    if (users.length < perPage) {
-      break;
-    }
-  }
-
-  return null;
+  return { error, reservationId: reservation.id, serviceSupabase };
 }
 
 function validatePayload(
@@ -308,7 +248,10 @@ export async function POST(request: Request) {
       windowSeconds: 15 * 60,
     });
   } catch (rateLimitError) {
-    console.error("Unable to enforce account-creation rate limit", rateLimitError);
+    console.error(
+      "Unable to enforce account-creation rate limit",
+      rateLimitError,
+    );
     return errorResponse("Kyro could not start signup right now.", 503);
   }
 
@@ -325,15 +268,41 @@ export async function POST(request: Request) {
     );
   }
 
-  const duplicateError = await verifySignupIdentityAvailable({
-    email: input.email,
-    mobileCountry: input.mobileCountry,
-    mobileNumber: input.mobileNumber,
-  });
+  let signupReservation;
 
-  if (duplicateError) {
-    return errorResponse(duplicateError, 409);
+  try {
+    signupReservation = await verifySignupIdentityAvailable({
+      email: input.email,
+      normalizedMobileNumber: input.normalizedMobileNumber,
+      payload: {
+        businessLocation: input.businessLocation,
+        businessName: input.businessName,
+        country: input.country,
+        firstName: input.firstName,
+        industry: input.industry,
+        lastName: input.lastName,
+        postcode: input.postcode,
+        serviceArea: input.serviceArea,
+        timeZone: input.timeZone,
+      },
+    });
+  } catch (reservationError) {
+    console.error("Unable to reserve signup identity", reservationError);
+    return errorResponse(
+      "Kyro could not verify account details right now. Please try again shortly.",
+      503,
+    );
   }
+
+  if (signupReservation.error || !signupReservation.reservationId) {
+    return errorResponse(
+      signupReservation.error ?? "Kyro could not reserve this signup.",
+      409,
+    );
+  }
+
+  const signupRecordId = signupReservation.reservationId;
+  const serviceSupabase = signupReservation.serviceSupabase;
 
   const authCallbackUrl = getAuthCallbackUrl(request.headers.get("origin"));
   const supabase = await createServerSupabaseClient();
@@ -350,6 +319,7 @@ export async function POST(request: Request) {
         kyroMobileCountry: input.mobileCountry,
         kyroMobileNumber: input.normalizedMobileNumber,
         kyroIndustry: input.industry,
+        kyroTimeZone: input.timeZone,
         kyroTrialAcknowledgedAt: new Date().toISOString(),
         firstName: input.firstName,
         first_name: input.firstName,
@@ -372,6 +342,15 @@ export async function POST(request: Request) {
       "Kyro could not create the account. Please try again.",
     );
   }
+
+  await updateSignupBootstrap(serviceSupabase, {
+    authUserId: data.user.id,
+    recordId: signupRecordId,
+    stage: "auth_created",
+    status: "auth_created",
+  }).catch((trackingError) => {
+    console.error("Unable to record signup Auth stage", trackingError);
+  });
 
   if (data.user.identities && data.user.identities.length === 0) {
     return errorResponse(
@@ -401,7 +380,24 @@ export async function POST(request: Request) {
         timeZone: input.timeZone,
       },
     );
+    await updateSignupBootstrap(serviceSupabase, {
+      authUserId: data.user.id,
+      recordId: signupRecordId,
+      stage: "workspace_created",
+      status: "workspace_created",
+      workspaceId: workspace.id,
+    });
   } catch (bootstrapError) {
+    await updateSignupBootstrap(serviceSupabase, {
+      authUserId: data.user.id,
+      error:
+        bootstrapError instanceof Error
+          ? bootstrapError.message
+          : "Workspace setup failed.",
+      recordId: signupRecordId,
+      stage: "workspace_bootstrap_failed",
+      status: "failed",
+    }).catch(() => undefined);
     return errorResponse(
       bootstrapError instanceof Error
         ? bootstrapError.message
@@ -416,7 +412,6 @@ export async function POST(request: Request) {
       user: data.user as User,
       workspace,
     });
-    const serviceSupabase = createServiceSupabaseClient();
     let verificationEmailWarning: string | null = null;
 
     try {
@@ -425,11 +420,13 @@ export async function POST(request: Request) {
         user: data.user as User,
       });
     } catch (verificationError) {
-      return errorResponse(
+      verificationEmailWarning =
         verificationError instanceof Error
           ? verificationError.message
-          : "Email verification setup failed.",
-        500,
+          : "Email verification setup needs to be resumed.";
+      console.error(
+        "Unable to record email verification start during signup",
+        verificationError,
       );
     }
 
@@ -452,6 +449,14 @@ export async function POST(request: Request) {
       }
     }
 
+    await updateSignupBootstrap(serviceSupabase, {
+      authUserId: data.user.id,
+      recordId: signupRecordId,
+      stage: "ready_for_payment_method",
+      status: "complete",
+      workspaceId: workspace.id,
+    });
+
     return NextResponse.json({
       clientSecret: setup.clientSecret,
       email: input.email,
@@ -470,11 +475,31 @@ export async function POST(request: Request) {
       workspaceId: workspace.id,
     });
   } catch (billingError) {
-    return errorResponse(
+    const message =
       billingError instanceof Error
         ? billingError.message
-        : "Billing setup failed.",
-      500,
+        : "Billing setup failed.";
+
+    await updateSignupBootstrap(serviceSupabase, {
+      authUserId: data.user.id,
+      error: message,
+      recordId: signupRecordId,
+      stage: "billing_setup_pending",
+      status: "billing_pending",
+      workspaceId: workspace.id,
+    }).catch(() => undefined);
+
+    return NextResponse.json(
+      {
+        email: input.email,
+        ok: true,
+        recoveryUrl: `/sign-in?message=${encodeURIComponent(
+          "Your account is ready. Sign in to resume payment setup in Usage and billing.",
+        )}`,
+        setupDeferred: true,
+        workspaceId: workspace.id,
+      },
+      { status: 202 },
     );
   }
 }

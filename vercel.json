@@ -14,6 +14,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/escalations/process",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/notifications/calendar/process",
       "schedule": "*/5 * * * *"
     },
@@ -28,6 +32,10 @@
     {
       "path": "/api/billing/kyro/run",
       "schedule": "33 4 * * *"
+    },
+    {
+      "path": "/api/billing/access/process",
+      "schedule": "12 * * * *"
     },
     {
       "path": "/api/assistant/suggestions/refresh",

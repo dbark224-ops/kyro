@@ -32,6 +32,7 @@ import {
   verifyVapiToolRequest,
 } from "../../../../../lib/integrations/vapi";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { assertWorkspaceAutomationAllowed } from "../../../../../lib/billing/access";
 import {
   buildLlmUsageEvents,
   buildOpenAiWebSearchCallUsageEvent,
@@ -1243,6 +1244,10 @@ export async function POST(request: Request) {
       "kyro_send_message",
       "kyro_send_contact_sms",
     ]);
+
+    if (vapiToolCanStartOutboundCall(payload)) {
+      await assertWorkspaceAutomationAllowed(workspaceId);
+    }
 
     await recordVoiceToolEvent({
       eventType: `tool.${toolCall.name ?? "unknown"}.requested`,

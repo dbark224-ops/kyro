@@ -1,10 +1,8 @@
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { insertAuditLog } from "../engine/event-action-audit";
-import {
-  applyUsageMarkup,
-  roundUsageMoney,
-} from "../usage/pricing";
+import { applyUsageMarkup, roundUsageMoney } from "../usage/pricing";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   getActivePronunciationEntries,
@@ -178,6 +176,7 @@ export async function transcribeAssistantAudio({
   user,
   workspace,
 }: TranscribeAudioInput): Promise<TranscribeAudioResult> {
+  await assertWorkspaceAutomationAllowed(workspace.id);
   const apiKey = openAiApiKey();
 
   if (!apiKey) {

@@ -9,6 +9,7 @@ import {
   type PhoneRegion,
 } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 
 export type ManualInboundInput = {
@@ -119,7 +120,8 @@ async function profileConflictNote(
   const contactIds = Array.from(
     new Set(
       [match.emailMatchedContactId, match.phoneMatchedContactId].filter(
-        (value): value is string => typeof value === "string" && value.length > 0,
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
       ),
     ),
   );
@@ -147,10 +149,10 @@ async function profileConflictNote(
     ]),
   );
   const emailMatch = match.emailMatchedContactId
-    ? contactsById.get(match.emailMatchedContactId) ?? "Unknown contact"
+    ? (contactsById.get(match.emailMatchedContactId) ?? "Unknown contact")
     : "none";
   const phoneMatch = match.phoneMatchedContactId
-    ? contactsById.get(match.phoneMatchedContactId) ?? "Unknown contact"
+    ? (contactsById.get(match.phoneMatchedContactId) ?? "Unknown contact")
     : "none";
 
   return `Potential profile match conflict. Email matched ${emailMatch}; phone matched ${phoneMatch}.`;
@@ -818,6 +820,34 @@ export async function ingestManualInbound(
     summary: `${
       source === "twilio_sms" ? "Inbound SMS" : "Manual inbound enquiry"
     } from ${input.contactName}: ${input.message.slice(0, 180)}`,
+  });
+
+  await createUrgentEscalationIncident(supabase, workspaceId, {
+    contactId,
+    content: input.message,
+    conversationId: String(conversation.id),
+    existingCustomer: contactResolution.match.status === "attached",
+    leadId: String(lead.id),
+    metadata: {
+      channelType: input.channel?.type ?? "manual_inbound",
+      eventId: String(event.id),
+      source,
+    },
+    priority: hasProfileConflict ? "high" : "normal",
+    sourceId: String(event.id),
+    sourceKey: `${source}:${event.id}`,
+    sourceType: source === "twilio_sms" ? "sms" : "manual",
+    summary: `${source === "twilio_sms" ? "Inbound SMS" : "Inbound enquiry"} from ${input.contactName}: ${input.message.slice(0, 500)}`,
+    title: String(lead.title),
+  }).catch((escalationError) => {
+    console.error("Unable to evaluate manual inbound escalation", {
+      error:
+        escalationError instanceof Error
+          ? escalationError.message
+          : "Unknown escalation error",
+      eventId: String(event.id),
+      workspaceId,
+    });
   });
 
   return {

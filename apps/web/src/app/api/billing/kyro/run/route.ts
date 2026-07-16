@@ -8,6 +8,7 @@ import {
   hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { processBillingAccessCycle } from "../../../../../lib/billing/dunning";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -89,8 +90,11 @@ async function handle(request: NextRequest) {
   const retryResults = autoCharge
     ? await chargeDueKyroInvoices({ includeDeveloperAccounts, supabase })
     : [];
+  const accessResults = await processBillingAccessCycle(supabase);
 
   return NextResponse.json({
+    accessChecked: accessResults.length,
+    accessErrors: accessResults.filter((result) => !result.ok).length,
     autoCharge,
     includeDeveloperAccounts,
     generated: cycle.results.length,

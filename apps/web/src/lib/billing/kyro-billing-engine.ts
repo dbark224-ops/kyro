@@ -5,6 +5,7 @@ import {
   getKyroUserBillingOverview,
   type KyroUserBillingOverview,
 } from "./kyro-user-billing";
+import { reconcileAndProcessWorkspaceBilling } from "./dunning";
 
 export const KYRO_BILLING_INVOICE_FLOW = "kyro_user_billing_invoice";
 
@@ -202,11 +203,27 @@ function addDaysIso(start: Date, days: number) {
   return date.toISOString();
 }
 
+async function refreshBillingAccess(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
+  try {
+    await reconcileAndProcessWorkspaceBilling(supabase, workspaceId);
+  } catch (error) {
+    console.error("Unable to refresh workspace billing access", {
+      error: error instanceof Error ? error.message : error,
+      workspaceId,
+    });
+  }
+}
+
 export function previousMonthlyBillingPeriod(anchor = new Date()) {
   const start = new Date(
     Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - 1, 1),
   );
-  const end = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
+  const end = new Date(
+    Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1),
+  );
 
   return {
     end: end.toISOString(),
@@ -265,7 +282,10 @@ function proratedBasePlanAmount(input: {
   const periodEnd = new Date(input.periodEnd).getTime();
   const billableStart = new Date(input.billableStart).getTime();
   const totalMs = Math.max(1, periodEnd - periodStart);
-  const billableMs = Math.max(0, periodEnd - Math.max(periodStart, billableStart));
+  const billableMs = Math.max(
+    0,
+    periodEnd - Math.max(periodStart, billableStart),
+  );
 
   return roundMoney(monthlyPrice * (billableMs / totalMs));
 }
@@ -392,7 +412,9 @@ function usageLineItems(rows: UsageAggregationRow[]) {
     const provider = textValue(row.provider) ?? "provider";
     const service = textValue(row.service) ?? "service";
     const usageType = textValue(row.usage_type) ?? "usage";
-    const currency = (textValue(row.currency) ?? defaultBillingCurrency()).toUpperCase();
+    const currency = (
+      textValue(row.currency) ?? defaultBillingCurrency()
+    ).toUpperCase();
     const key = [provider, service, usageType, currency].join("|");
     const quantity = numberValue(row.quantity);
     const amount = numberValue(row.customer_charge_snapshot);
@@ -425,7 +447,9 @@ function usageLineItems(rows: UsageAggregationRow[]) {
       current.quantity > 0 ? roundMoney(current.amount / current.quantity) : 0;
     current.metadata = {
       ...metadata,
-      providerCost: roundMoney(numberValue(metadata.providerCost) + providerCost),
+      providerCost: roundMoney(
+        numberValue(metadata.providerCost) + providerCost,
+      ),
       usageEventIds: [...usageEventIds, textValue(row.id)].filter(Boolean),
     };
     groups.set(key, current);
@@ -550,7 +574,9 @@ async function replaceInvoiceLineItems(input: {
     .eq("workspace_id", input.workspaceId);
 
   if (deleteError) {
-    throw new Error(`Unable to refresh invoice line items: ${deleteError.message}`);
+    throw new Error(
+      `Unable to refresh invoice line items: ${deleteError.message}`,
+    );
   }
 
   if (input.items.length === 0) {
@@ -605,7 +631,9 @@ export async function generateKyroBillingInvoice(input: {
     workspaceId: input.workspaceId,
   });
   const items = usageLineItems(usageRows);
-  const usageAmount = roundMoney(items.reduce((total, item) => total + item.amount, 0));
+  const usageAmount = roundMoney(
+    items.reduce((total, item) => total + item.amount, 0),
+  );
   const providerCostAmount = roundMoney(
     items.reduce(
       (total, item) => total + numberValue(item.metadata?.providerCost),
@@ -742,7 +770,9 @@ export async function generateKyroBillingInvoice(input: {
   return {
     billingPeriodId: periodId,
     invoiceId,
-    invoiceNumber: textValue(invoice.invoice_number) ?? invoiceNumber(input.workspaceId, input.periodStart),
+    invoiceNumber:
+      textValue(invoice.invoice_number) ??
+      invoiceNumber(input.workspaceId, input.periodStart),
     status: totalAmount > 0 ? "open" : "paid",
     totalAmount,
     currency,
@@ -817,6 +847,8 @@ export async function chargeKyroInvoice(input: {
       })
       .eq("workspace_id", workspaceId)
       .eq("id", invoiceId);
+
+    await refreshBillingAccess(input.supabase, workspaceId);
 
     return {
       charged: false,
@@ -955,6 +987,7 @@ export async function markKyroInvoicePaid(input: {
     .eq("invoice_id", input.invoiceId);
 
   throwOnDatabaseError(periodResult, "Unable to close Kyro billing period");
+  await refreshBillingAccess(input.supabase, input.workspaceId);
 }
 
 export async function markKyroInvoiceFailed(input: {
@@ -1016,6 +1049,7 @@ export async function markKyroInvoiceFailed(input: {
     periodResult,
     "Unable to mark Kyro billing period failed",
   );
+  await refreshBillingAccess(input.supabase, input.workspaceId);
 }
 
 export async function reconcileKyroInvoicePaymentIntent(input: {
@@ -1078,9 +1112,10 @@ export async function runKyroBillingCycle(input: {
   periodStart?: string;
   supabase: SupabaseClient;
 }) {
-  const period = input.periodStart && input.periodEnd
-    ? { end: input.periodEnd, start: input.periodStart }
-    : previousMonthlyBillingPeriod();
+  const period =
+    input.periodStart && input.periodEnd
+      ? { end: input.periodEnd, start: input.periodStart }
+      : previousMonthlyBillingPeriod();
   const { data: workspaces, error } = await input.supabase
     .from("workspaces")
     .select("id,name,owner_user_id")
@@ -1110,7 +1145,9 @@ export async function runKyroBillingCycle(input: {
       workspaceId,
     });
     const chargeResult =
-      input.autoCharge && autoChargeDecision.allowed && generated.totalAmount > 0
+      input.autoCharge &&
+      autoChargeDecision.allowed &&
+      generated.totalAmount > 0
         ? await chargeKyroInvoice({
             invoiceId: generated.invoiceId,
             supabase: input.supabase,
@@ -1229,22 +1266,22 @@ export async function getKyroBillingEngineOverview(
     );
   }
 
-  const invoices = ((invoicesResult.data ?? []) as Record<string, unknown>[]).map(
-    (invoice) => ({
-      currency: textValue(invoice.currency) ?? defaultBillingCurrency(),
-      dueAt: textValue(invoice.due_at),
-      failedAt: textValue(invoice.failed_at),
-      failureCount: intValue(invoice.failure_count),
-      id: String(invoice.id),
-      invoiceNumber: String(invoice.invoice_number),
-      issuedAt: textValue(invoice.issued_at),
-      lastError: textValue(invoice.last_error),
-      nextRetryAt: textValue(invoice.next_retry_at),
-      paidAt: textValue(invoice.paid_at),
-      status: textValue(invoice.status) ?? "draft",
-      totalAmount: numberValue(invoice.total_amount),
-    }),
-  );
+  const invoices = (
+    (invoicesResult.data ?? []) as Record<string, unknown>[]
+  ).map((invoice) => ({
+    currency: textValue(invoice.currency) ?? defaultBillingCurrency(),
+    dueAt: textValue(invoice.due_at),
+    failedAt: textValue(invoice.failed_at),
+    failureCount: intValue(invoice.failure_count),
+    id: String(invoice.id),
+    invoiceNumber: String(invoice.invoice_number),
+    issuedAt: textValue(invoice.issued_at),
+    lastError: textValue(invoice.last_error),
+    nextRetryAt: textValue(invoice.next_retry_at),
+    paidAt: textValue(invoice.paid_at),
+    status: textValue(invoice.status) ?? "draft",
+    totalAmount: numberValue(invoice.total_amount),
+  }));
   const now = Date.now();
 
   return {

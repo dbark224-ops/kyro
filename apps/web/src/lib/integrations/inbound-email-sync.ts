@@ -1,11 +1,13 @@
 import { selectModelRoute } from "@kyro/ai";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { openAiReasoningRequest } from "../ai/openai-models";
 import { runStubAiTriage } from "../ai/triage";
 import { buildEmailLeadTitle, formatServiceType } from "../crm/display";
 import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
 import { normalizeContactEmail } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
 import {
   buildLlmUsageEvents,
   openAiProviderUsageId,
@@ -2696,6 +2698,40 @@ async function promoteEmailMessage({
     threadSummary: thread.summary,
   });
 
+  await createUrgentEscalationIncident(supabase, workspaceId, {
+    contactId,
+    content: [message.subject, message.bodyText].filter(Boolean).join("\n"),
+    conversationId,
+    existingCustomer: threadMatchStrategy !== "new_conversation",
+    leadId,
+    metadata: {
+      accountEmail: message.accountEmail,
+      externalMessageId: message.externalMessageId,
+      provider: message.provider,
+    },
+    occurredAt: message.receivedAt,
+    priority:
+      /\b(urgent|emergency|asap|immediately|burst|flood|gas leak)\b/i.test(
+        `${message.subject}\n${message.bodyText}`,
+      )
+        ? "urgent"
+        : "normal",
+    sourceId: String(savedMessage.id),
+    sourceKey: `email:${message.provider}:${message.externalMessageId}`,
+    sourceType: "email",
+    summary: `${providerLabel(message.provider)} email from ${contactName}: ${classification.summary}`,
+    title: leadProfile?.title ? String(leadProfile.title) : leadTitle,
+  }).catch((escalationError) => {
+    console.error("Unable to evaluate inbound email escalation", {
+      error:
+        escalationError instanceof Error
+          ? escalationError.message
+          : "Unknown escalation error",
+      messageId: String(savedMessage.id),
+      workspaceId,
+    });
+  });
+
   return {
     actionId: triageResult.actionId,
     aiRunId: triageResult.aiRunId,
@@ -3339,6 +3375,7 @@ export async function syncInboundEmail({
   user: User;
   workspaceId: string;
 }): Promise<InboundEmailSyncResult> {
+  await assertWorkspaceAutomationAllowed(workspaceId);
   const settings = await getInboundEmailSettings(supabase, workspaceId);
   const result: InboundEmailSyncResult = {
     checkedConnections: 0,

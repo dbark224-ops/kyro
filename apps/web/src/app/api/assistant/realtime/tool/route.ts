@@ -17,6 +17,7 @@ import {
   type InboundEmailProvider,
 } from "../../../../../lib/integrations/inbound-email-sync";
 import { requireWorkspaceContext } from "../../../../../lib/workspace/context";
+import { assertWorkspaceAutomationAllowed } from "../../../../../lib/billing/access";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  await assertWorkspaceAutomationAllowed(workspace.id);
 
   if (name === "kyro_check_recent_email") {
     const providerArg = textValue(rawArguments.provider);

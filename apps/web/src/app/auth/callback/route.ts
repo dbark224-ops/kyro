@@ -1,18 +1,9 @@
 import { createServerSupabaseClient } from "../../../lib/supabase/server";
 import { markKyroEmailVerified } from "../../../lib/auth/email-verification";
 import { createServiceSupabaseClient } from "../../../lib/supabase/service";
-import {
-  createWorkspaceBootstrap,
-  getPrimaryWorkspace,
-} from "../../../lib/workspace/bootstrap";
+import { ensureWorkspaceBootstrapForUser } from "../../../lib/workspace/bootstrap";
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
-
-function metadataString(metadata: Record<string, unknown>, key: string) {
-  const value = metadata[key];
-
-  return typeof value === "string" ? value.trim() : "";
-}
 
 function safeNextPath(value: string | null) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
@@ -70,45 +61,19 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const workspace = await getPrimaryWorkspace(supabase);
-      const businessName = metadataString(
-        user.user_metadata,
-        "kyroBusinessName",
-      );
-
-      if (!workspace && businessName) {
-        try {
-          await createWorkspaceBootstrap(supabase, user, {
-            businessLocation: metadataString(
-              user.user_metadata,
-              "kyroBusinessLocation",
-            ),
-            businessName,
-            country: metadataString(user.user_metadata, "kyroBusinessCountry"),
-            industry: metadataString(user.user_metadata, "kyroIndustry"),
-            postcode: metadataString(user.user_metadata, "kyroBusinessPostcode"),
-            publicEmail: user.email ?? undefined,
-            publicPhoneNumber: metadataString(
-              user.user_metadata,
-              "kyroMobileNumber",
-            ),
-            serviceArea: metadataString(
-              user.user_metadata,
-              "kyroBusinessServiceArea",
-            ),
-          });
-        } catch (error) {
-          return NextResponse.redirect(
-            new URL(
-              `/onboarding?error=${encodeURIComponent(
-                error instanceof Error
-                  ? error.message
-                  : "Workspace setup failed.",
-              )}`,
-              requestUrl.origin,
-            ),
-          );
-        }
+      try {
+        await ensureWorkspaceBootstrapForUser(supabase, user);
+      } catch (error) {
+        return NextResponse.redirect(
+          new URL(
+            `/onboarding?error=${encodeURIComponent(
+              error instanceof Error
+                ? error.message
+                : "Workspace setup failed.",
+            )}`,
+            requestUrl.origin,
+          ),
+        );
       }
     }
   }

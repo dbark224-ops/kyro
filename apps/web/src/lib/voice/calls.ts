@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import {
   elevenLabsVapiVoiceOverride,
   elevenLabsVoicePresetById,
@@ -14,11 +15,9 @@ import {
   vapiEndpointUrl,
   vapiWebhookCredentialId,
 } from "../integrations/vapi";
-import {
-  telephonyUsageCost,
-  TWILIO_PROVIDER,
-} from "../integrations/twilio";
+import { telephonyUsageCost, TWILIO_PROVIDER } from "../integrations/twilio";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import {
   DEFAULT_WORKSPACE_GENERAL_SETTINGS,
@@ -341,12 +340,14 @@ function callMetadata(payload: Record<string, unknown>) {
 function callDirection(payload: Record<string, unknown>): VoiceCallDirection {
   const metadata = callMetadata(payload);
   const call = vapiCall(payload);
-  const raw = `${firstText(
-    metadata.direction,
-    call.direction,
-    call.type,
-    payload.direction,
-  ) ?? ""}`.toLowerCase();
+  const raw = `${
+    firstText(
+      metadata.direction,
+      call.direction,
+      call.type,
+      payload.direction,
+    ) ?? ""
+  }`.toLowerCase();
 
   return raw.includes("out") ? "outbound" : "inbound";
 }
@@ -452,11 +453,7 @@ function callTranscript(payload: Record<string, unknown>) {
   const message = vapiMessage(payload);
   const artifact = vapiArtifact(payload);
 
-  return firstText(
-    message.transcript,
-    payload.transcript,
-    artifact.transcript,
-  );
+  return firstText(message.transcript, payload.transcript, artifact.transcript);
 }
 
 function callRecordingUrl(payload: Record<string, unknown>) {
@@ -540,7 +537,10 @@ function durationSeconds(payload: Record<string, unknown>) {
   return duration > 1000 ? Math.round(duration / 1000) : Math.round(duration);
 }
 
-function callCost(payload: Record<string, unknown>, markupRate?: number | null) {
+function callCost(
+  payload: Record<string, unknown>,
+  markupRate?: number | null,
+) {
   const message = vapiMessage(payload);
   const call = vapiCall(payload);
   const cost =
@@ -561,10 +561,7 @@ function callCost(payload: Record<string, unknown>, markupRate?: number | null) 
   };
 }
 
-async function workspaceOwnerId(
-  supabase: SupabaseClient,
-  workspaceId: string,
-) {
+async function workspaceOwnerId(supabase: SupabaseClient, workspaceId: string) {
   const { data, error } = await supabase
     .from("workspaces")
     .select("owner_user_id")
@@ -635,7 +632,9 @@ function normalizedPriority(value: unknown, note: string) {
 
   const lower = note.toLowerCase();
 
-  if (/\b(emergency|urgent|asap|danger|unsafe|flood|burst|gas leak)\b/.test(lower)) {
+  if (
+    /\b(emergency|urgent|asap|danger|unsafe|flood|burst|gas leak)\b/.test(lower)
+  ) {
     return "urgent";
   }
 
@@ -673,7 +672,9 @@ function compactText(value: string | null, maxLength = 220) {
     return null;
   }
 
-  return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}...` : clean;
+  return clean.length > maxLength
+    ? `${clean.slice(0, maxLength - 1)}...`
+    : clean;
 }
 
 function statusDetailFromCall(input: {
@@ -687,8 +688,7 @@ function statusDetailFromCall(input: {
   const hasSummary = Boolean(input.summary);
   const failed = input.status === "failed" || input.status === "missed";
   const partial =
-    failed ||
-    (input.status === "completed" && !hasTranscript && !hasSummary);
+    failed || (input.status === "completed" && !hasTranscript && !hasSummary);
 
   return {
     endedReason: input.endedReason,
@@ -721,12 +721,12 @@ function assistantSelectionFromMetadata(
       ? reportedAssistantId === expectedVoicemailAssistantId
         ? "reported_assistant_matched"
         : "reported_assistant_mismatch"
-      : textValue(rawSelection.proofStatus) ??
+      : (textValue(rawSelection.proofStatus) ??
         (reportedAssistantId && selectedAssistantId
           ? reportedAssistantId === selectedAssistantId
             ? "reported_assistant_matched"
             : "reported_assistant_mismatch"
-          : "awaiting_reported_assistant");
+          : "awaiting_reported_assistant"));
 
   return {
     ...rawSelection,
@@ -769,8 +769,8 @@ function taskPlanFromCallNote(input: {
     booleanValue(args.createTask) ??
     Boolean(
       explicitTaskTitle ||
-        textValue(args.taskDescription ?? args.description) ||
-        explicitDueAt,
+      textValue(args.taskDescription ?? args.description) ||
+      explicitDueAt,
     );
   const callbackRequested =
     booleanValue(args.callbackRequested) ??
@@ -804,16 +804,16 @@ function taskPlanFromCallNote(input: {
   const taskType =
     explicitTaskType ??
     (complaintFollowUp
-        ? "call_complaint_follow_up"
-        : callbackRequested
-          ? "call_callback"
-          : quoteFollowUp
-            ? "call_quote_follow_up"
-            : bookingFollowUp
-              ? "call_booking_follow_up"
-              : voicemailReview
-                ? "voicemail_overflow_review"
-                : "call_follow_up");
+      ? "call_complaint_follow_up"
+      : callbackRequested
+        ? "call_callback"
+        : quoteFollowUp
+          ? "call_quote_follow_up"
+          : bookingFollowUp
+            ? "call_booking_follow_up"
+            : voicemailReview
+              ? "voicemail_overflow_review"
+              : "call_follow_up");
   const title =
     explicitTaskTitle ??
     (complaintFollowUp
@@ -841,7 +841,7 @@ function taskPlanFromCallNote(input: {
         ? addHoursIso(new Date().toISOString(), 4)
         : voicemailReview
           ? addHoursIso(new Date().toISOString(), 4)
-        : null);
+          : null);
 
   return {
     description,
@@ -874,7 +874,9 @@ function fallbackVoiceCallAutomationTarget(input: {
 
   return {
     contactId: textValue(input.args.contactId ?? metadata.contactId),
-    conversationId: textValue(input.args.conversationId ?? metadata.conversationId),
+    conversationId: textValue(
+      input.args.conversationId ?? metadata.conversationId,
+    ),
     direction,
     fromNumber: from ?? textValue(metadata.callerNumber),
     id: null,
@@ -887,10 +889,7 @@ function fallbackVoiceCallAutomationTarget(input: {
   } satisfies VoiceCallAutomationTarget;
 }
 
-async function workspaceName(
-  supabase: SupabaseClient,
-  workspaceId: string,
-) {
+async function workspaceName(supabase: SupabaseClient, workspaceId: string) {
   const { data, error } = await supabase
     .from("workspaces")
     .select("name")
@@ -1197,7 +1196,9 @@ async function lookupLinkedRows(
   ]);
 
   if (contactResult.error) {
-    throw new Error(`Unable to load voice contact: ${contactResult.error.message}`);
+    throw new Error(
+      `Unable to load voice contact: ${contactResult.error.message}`,
+    );
   }
 
   if (conversationResult.error) {
@@ -1329,7 +1330,9 @@ async function recentOutboundCallContextForCustomer(input: {
       return null;
     }
 
-    throw new Error(`Unable to load recent outbound call context: ${error.message}`);
+    throw new Error(
+      `Unable to load recent outbound call context: ${error.message}`,
+    );
   }
 
   const lines = ((data ?? []) as Record<string, unknown>[])
@@ -1366,7 +1369,9 @@ function rowToPreviewCall(row: Record<string, unknown>) {
     currency: textValue(row.currency) ?? "USD",
     customerNumber: textValue(row.customer_number),
     direction:
-      row.direction === "outbound" ? "outbound" : ("inbound" as VoiceCallDirection),
+      row.direction === "outbound"
+        ? "outbound"
+        : ("inbound" as VoiceCallDirection),
     durationSeconds: numberValue(row.duration_seconds),
     endedAt: textValue(row.ended_at),
     endedReason: textValue(row.ended_reason),
@@ -1380,7 +1385,8 @@ function rowToPreviewCall(row: Record<string, unknown>) {
     recordingDeletedAt: textValue(row.recording_deleted_at),
     recordingExpiresAt: textValue(row.recording_expires_at),
     recordingRetentionDays:
-      numberValue(row.recording_retention_days) ?? VOICE_RECORDING_RETENTION_DAYS,
+      numberValue(row.recording_retention_days) ??
+      VOICE_RECORDING_RETENTION_DAYS,
     recordingUrl: textValue(row.recording_url),
     startedAt: textValue(row.started_at),
     status: (textValue(row.status) ?? "created") as VoiceCallStatus,
@@ -1442,11 +1448,13 @@ export async function getVoiceCallPreview(
     conversation: linkedRows.conversation,
     events: eventsResult.error
       ? []
-      : ((eventsResult.data ?? []) as Record<string, unknown>[]).map((event) => ({
-          createdAt: String(event.created_at),
-          eventType: String(event.event_type),
-          id: String(event.id),
-        })),
+      : ((eventsResult.data ?? []) as Record<string, unknown>[]).map(
+          (event) => ({
+            createdAt: String(event.created_at),
+            eventType: String(event.event_type),
+            id: String(event.id),
+          }),
+        ),
     lead: linkedRows.lead,
   };
 }
@@ -1488,7 +1496,11 @@ async function recordVoiceCallUsageIfNeeded(
     workspaceId: string;
   },
 ) {
-  if (!input.providerCallId && input.providerCost <= 0 && !input.durationSeconds) {
+  if (
+    !input.providerCallId &&
+    input.providerCost <= 0 &&
+    !input.durationSeconds
+  ) {
     return;
   }
 
@@ -1503,7 +1515,9 @@ async function recordVoiceCallUsageIfNeeded(
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to check voice call usage: ${existingError.message}`);
+    throw new Error(
+      `Unable to check voice call usage: ${existingError.message}`,
+    );
   }
 
   if (existing) {
@@ -1574,7 +1588,11 @@ export async function upsertVoiceCallFromVapiEvent(
     userNumbers: settings.phoneAgentUserNumbers,
   });
   const customerNumber = direction === "outbound" ? to : from;
-  const contact = await findContactByPhone(supabase, workspaceId, customerNumber);
+  const contact = await findContactByPhone(
+    supabase,
+    workspaceId,
+    customerNumber,
+  );
   const timing = callTiming(payload);
   const transcript = callTranscript(payload);
   const summary = callSummary(payload);
@@ -1614,7 +1632,9 @@ export async function upsertVoiceCallFromVapiEvent(
     }
   }
 
-  const existingRecordingUrl = textValue(existingByProviderId.data?.recording_url);
+  const existingRecordingUrl = textValue(
+    existingByProviderId.data?.recording_url,
+  );
   const nextRecordingUrl = recordingUrl ?? existingRecordingUrl;
   const nextRecordingDeletedAt = recordingUrl
     ? null
@@ -1631,7 +1651,8 @@ export async function upsertVoiceCallFromVapiEvent(
     conversation_id: textValue(metadata.conversationId),
     contact_id: contact?.id ?? textValue(metadata.contactId),
     lead_id: textValue(metadata.leadId),
-    phone_number_id: matchedWorkspaceNumber?.id ?? textValue(metadata.phoneNumberRowId),
+    phone_number_id:
+      matchedWorkspaceNumber?.id ?? textValue(metadata.phoneNumberRowId),
     direction,
     purpose,
     provider: VAPI_PROVIDER,
@@ -1639,7 +1660,8 @@ export async function upsertVoiceCallFromVapiEvent(
     provider_call_id: providerId,
     provider_assistant_id: reportedAssistantId,
     provider_phone_number_id:
-      providerPhoneNumberId(payload) ?? matchedWorkspaceNumber?.providerPhoneNumberId,
+      providerPhoneNumberId(payload) ??
+      matchedWorkspaceNumber?.providerPhoneNumberId,
     from_number: from,
     to_number: to,
     normalized_from_number: normalizePhone(from),
@@ -1690,7 +1712,11 @@ export async function upsertVoiceCallFromVapiEvent(
         .eq("workspace_id", workspaceId)
         .select("id")
         .single()
-    : await supabase.from("voice_calls").insert(payloadRow).select("id").single();
+    : await supabase
+        .from("voice_calls")
+        .insert(payloadRow)
+        .select("id")
+        .single();
 
   if (result.error || !result.data) {
     throw new Error(
@@ -2004,12 +2030,15 @@ async function loadVoiceCallAutomationTarget(input: {
     contactId: textValue(data.contact_id),
     conversationId: textValue(data.conversation_id),
     direction:
-      data.direction === "outbound" ? "outbound" : ("inbound" as VoiceCallDirection),
+      data.direction === "outbound"
+        ? "outbound"
+        : ("inbound" as VoiceCallDirection),
     fromNumber: textValue(data.from_number),
     id: String(data.id),
     leadId: textValue(data.lead_id),
     providerCallId: textValue(data.provider_call_id),
-    purpose: (textValue(data.purpose) ?? "inbound_customer") as VoiceCallPurpose,
+    purpose: (textValue(data.purpose) ??
+      "inbound_customer") as VoiceCallPurpose,
     summary: textValue(data.summary),
     toNumber: textValue(data.to_number),
     transcript: textValue(data.transcript),
@@ -2485,7 +2514,8 @@ export async function recordVoiceCallPostCallAutomation(input: {
       author_user_id: textValue(input.args.userId),
       body: note,
       contact_id: target.contactId ?? textValue(input.args.contactId),
-      conversation_id: target.conversationId ?? textValue(input.args.conversationId),
+      conversation_id:
+        target.conversationId ?? textValue(input.args.conversationId),
       lead_id: target.leadId ?? textValue(input.args.leadId),
       message_id: target.messageId,
       metadata,
@@ -2595,6 +2625,38 @@ export async function recordVoiceCallPostCallAutomation(input: {
     workspaceId: input.workspaceId,
   });
 
+  await createUrgentEscalationIncident(input.supabase, input.workspaceId, {
+    contactId: target.contactId,
+    content: note,
+    conversationId: target.conversationId,
+    existingCustomer: Boolean(target.contactId),
+    leadId: target.leadId,
+    metadata: {
+      missedOrVoicemail: automationTarget.purpose === "voicemail_overflow",
+      providerCallId: input.providerCallId ?? voiceCall?.providerCallId ?? null,
+      purpose: automationTarget.purpose,
+      voiceCallId: voiceCall?.id ?? null,
+    },
+    priority,
+    sourceId: voiceCall?.id ?? String(noteRow.id),
+    sourceKey: `voice:${input.providerCallId ?? voiceCall?.providerCallId ?? voiceCall?.id ?? noteRow.id}`,
+    sourceType: "voice_call",
+    summary: note.slice(0, 1_500),
+    title:
+      automationTarget.purpose === "voicemail_overflow"
+        ? "Urgent voicemail overflow call"
+        : "Urgent customer call",
+  }).catch((escalationError) => {
+    console.error("Unable to evaluate voice-call escalation", {
+      error:
+        escalationError instanceof Error
+          ? escalationError.message
+          : "Unknown escalation error",
+      providerCallId: input.providerCallId ?? null,
+      workspaceId: input.workspaceId,
+    });
+  });
+
   return {
     conversationId: target.conversationId,
     messageId: target.messageId,
@@ -2605,6 +2667,7 @@ export async function recordVoiceCallPostCallAutomation(input: {
 }
 
 export async function createOutboundVoiceCall(input: {
+  billingBypassReason?: "urgent_escalation" | null;
   contactId?: string | null;
   contextSummary?: string | null;
   conversationId?: string | null;
@@ -2616,6 +2679,10 @@ export async function createOutboundVoiceCall(input: {
   user: User;
   workspaceId: string;
 }) {
+  if (input.billingBypassReason !== "urgent_escalation") {
+    await assertWorkspaceAutomationAllowed(input.workspaceId);
+  }
+
   const settings = await getVoiceSettings(input.supabase, input.workspaceId);
 
   if (!settings.phoneAgentEnabled || !settings.phoneAgentOutboundEnabled) {
@@ -2670,7 +2737,11 @@ export async function createOutboundVoiceCall(input: {
     "";
   const phoneMatchedContact = linkedRows.contact
     ? null
-    : await findContactByPhone(input.supabase, input.workspaceId, customerNumber);
+    : await findContactByPhone(
+        input.supabase,
+        input.workspaceId,
+        customerNumber,
+      );
   const outboundContact = linkedRows.contact ?? phoneMatchedContact;
   const outboundContactId = input.contactId ?? outboundContact?.id ?? null;
   const outboundConversationId = input.conversationId ?? null;
@@ -2852,7 +2923,9 @@ export async function createOutboundVoiceCall(input: {
       .from("voice_calls")
       .update({
         ended_reason:
-          error instanceof Error ? error.message : "Unable to create Vapi call.",
+          error instanceof Error
+            ? error.message
+            : "Unable to create Vapi call.",
         status: "failed",
       })
       .eq("workspace_id", input.workspaceId)
@@ -2928,7 +3001,9 @@ export function vapiToolCallPayload(payload: Record<string, unknown>) {
   };
 }
 
-export function vapiAssistantGuidance(settings: Awaited<ReturnType<typeof getVoiceSettings>>) {
+export function vapiAssistantGuidance(
+  settings: Awaited<ReturnType<typeof getVoiceSettings>>,
+) {
   return {
     escalationMode: settings.phoneAgentEscalationMode,
     humourLevel: settings.phoneAgentHumourLevel,
@@ -2939,12 +3014,17 @@ export function vapiAssistantGuidance(settings: Awaited<ReturnType<typeof getVoi
   };
 }
 
-export function compactTranscriptPreview(value: string | null, maxLength = 160) {
+export function compactTranscriptPreview(
+  value: string | null,
+  maxLength = 160,
+) {
   const clean = value?.replace(/\s+/g, " ").trim();
 
   if (!clean) {
     return null;
   }
 
-  return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}...` : clean;
+  return clean.length > maxLength
+    ? `${clean.slice(0, maxLength - 1)}...`
+    : clean;
 }

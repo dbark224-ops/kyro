@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { selectModelRoute } from "@kyro/ai";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
@@ -137,6 +138,8 @@ export async function runAssistantTurn({
   if (!trimmedPrompt) {
     throw new Error("Ask Kyro something first.");
   }
+
+  await assertWorkspaceAutomationAllowed(workspace.id);
 
   const route = routeAssistantModel(workspace, user);
   const plannerRoute = routeAssistantPlannerModel(workspace, user);

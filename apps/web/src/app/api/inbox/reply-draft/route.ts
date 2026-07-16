@@ -19,6 +19,7 @@ import {
 } from "../../../../lib/ai/openai-models";
 import { resolveWorkspaceUsageMarkupRate } from "../../../../lib/usage/workspace-markup";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
+import { assertWorkspaceAutomationAllowed } from "../../../../lib/billing/access";
 
 type ReplyDraftRequest = {
   conversationId?: unknown;
@@ -440,6 +441,7 @@ export async function POST(request: Request) {
     }
 
     const { supabase, user, workspace } = await requireWorkspaceContext();
+    await assertWorkspaceAutomationAllowed(workspace.id);
     const context = conversationId
       ? await conversationContext(
           supabase,

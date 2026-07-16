@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import {
   assertSmsSendAllowed,
   recordSmsRecipientPreference,
@@ -25,10 +26,7 @@ import {
   getWorkspaceGeneralSettings,
   type WorkspaceGeneralSettings,
 } from "../workspace/general-settings";
-import {
-  getNotificationSettings,
-  type NotificationSettings,
-} from "./settings";
+import { getNotificationSettings, type NotificationSettings } from "./settings";
 
 type WorkspaceRow = {
   id: string;
@@ -144,7 +142,11 @@ function reminderBody(event: AppointmentRow, timeZone: string) {
     .join(" ");
 }
 
-function digestBody(events: AppointmentRow[], dateKey: string, timeZone: string) {
+function digestBody(
+  events: AppointmentRow[],
+  dateKey: string,
+  timeZone: string,
+) {
   const dateLabel = digestDateLabel(dateKey, timeZone);
 
   if (events.length === 0) {
@@ -153,7 +155,10 @@ function digestBody(events: AppointmentRow[], dateKey: string, timeZone: string)
 
   const eventLines = events
     .slice(0, 8)
-    .map((event) => `${formatEventTime(event.starts_at, timeZone)} ${eventTitle(event)}`);
+    .map(
+      (event) =>
+        `${formatEventTime(event.starts_at, timeZone)} ${eventTitle(event)}`,
+    );
   const overflow =
     events.length > eventLines.length
       ? ` +${events.length - eventLines.length} more`
@@ -189,8 +194,10 @@ function notificationRecipientPhone(
   }
 
   return (
-    normalizeContactPhoneForRegion(rawPhone, generalSettings.defaultPhoneRegion) ??
-    rawPhone
+    normalizeContactPhoneForRegion(
+      rawPhone,
+      generalSettings.defaultPhoneRegion,
+    ) ?? rawPhone
   );
 }
 
@@ -267,6 +274,7 @@ async function sendCalendarSmsDelivery(
     workspaceId: string;
   },
 ) {
+  await assertWorkspaceAutomationAllowed(input.workspaceId);
   await assertSmsSendAllowed(supabase, {
     phoneNumber: input.recipientPhone,
     workspaceId: input.workspaceId,
@@ -277,7 +285,9 @@ async function sendCalendarSmsDelivery(
     input.workspaceId,
   );
   const senderNumber =
-    workspaceSmsNumber?.phoneNumber ?? getTwilioConfig()?.defaultFromNumber ?? null;
+    workspaceSmsNumber?.phoneNumber ??
+    getTwilioConfig()?.defaultFromNumber ??
+    null;
 
   if (!senderNumber) {
     throw new Error("No Kyro SMS sender number is available.");
@@ -395,7 +405,9 @@ async function loadUpcomingReminderEvents(
   const to = new Date(now.getTime() + REMINDER_LOOKAHEAD_MS).toISOString();
   const { data, error } = await supabase
     .from("conversation_appointments")
-    .select("id,title,description,status,appointment_type,starts_at,ends_at,location")
+    .select(
+      "id,title,description,status,appointment_type,starts_at,ends_at,location",
+    )
     .eq("workspace_id", workspaceId)
     .eq("status", "scheduled")
     .not("starts_at", "is", null)
@@ -428,7 +440,9 @@ async function loadEventsForDigestDate(
   );
   const { data, error } = await supabase
     .from("conversation_appointments")
-    .select("id,title,description,status,appointment_type,starts_at,ends_at,location")
+    .select(
+      "id,title,description,status,appointment_type,starts_at,ends_at,location",
+    )
     .eq("workspace_id", input.workspaceId)
     .eq("status", "scheduled")
     .not("starts_at", "is", null)
@@ -496,8 +510,7 @@ async function processWorkspaceReminders(
       ].join(":"),
       metadata: {
         eventStartsAt: event.starts_at,
-        reminderMinutes:
-          input.notificationSettings.calendarSmsReminderMinutes,
+        reminderMinutes: input.notificationSettings.calendarSmsReminderMinutes,
         timeZone,
       },
       notificationType: "calendar_event_reminder",

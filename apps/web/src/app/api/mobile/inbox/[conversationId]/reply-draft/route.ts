@@ -8,6 +8,7 @@ import {
   openAiBalancedModel,
   openAiReasoningRequest,
 } from "../../../../../../lib/ai/openai-models";
+import { assertWorkspaceAutomationAllowed } from "../../../../../../lib/billing/access";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,7 @@ export async function POST(request: Request, context: RouteContext) {
     const { conversationId } = await context.params;
     const { supabase, workspace } =
       await requireMobileWorkspaceContext(request);
+    await assertWorkspaceAutomationAllowed(workspace.id);
     const payload = (await request.json().catch(() => null)) as {
       prompt?: unknown;
     } | null;

@@ -569,8 +569,18 @@ export function CreateAccountForm() {
       method: "POST",
     });
     const payload = (await response.json().catch(() => null)) as
-      | (BillingSetupState & { error?: string; ok?: boolean })
+      | (Partial<BillingSetupState> & {
+          error?: string;
+          ok?: boolean;
+          recoveryUrl?: string;
+          setupDeferred?: boolean;
+        })
       | null;
+
+    if (response.ok && payload?.recoveryUrl) {
+      window.location.assign(payload.recoveryUrl);
+      return true;
+    }
 
     if (!response.ok || !payload?.clientSecret || !payload.publishableKey) {
       setIsSubmitting(false);
@@ -580,15 +590,15 @@ export function CreateAccountForm() {
 
     setBillingSetup({
       clientSecret: payload.clientSecret,
-      email: payload.email,
+      email: payload.email ?? "",
       publishableKey: payload.publishableKey,
-      redirectAfterSetup: payload.redirectAfterSetup,
-      requiresEmailVerification: payload.requiresEmailVerification,
-      setupIntentId: payload.setupIntentId,
-      trialEndsAt: payload.trialEndsAt,
+      redirectAfterSetup: payload.redirectAfterSetup ?? "/dashboard",
+      requiresEmailVerification: payload.requiresEmailVerification ?? true,
+      setupIntentId: payload.setupIntentId ?? "",
+      trialEndsAt: payload.trialEndsAt ?? "",
       verificationEmailWarning: payload.verificationEmailWarning ?? null,
-      verificationRedirectUrl: payload.verificationRedirectUrl,
-      workspaceId: payload.workspaceId,
+      verificationRedirectUrl: payload.verificationRedirectUrl ?? "",
+      workspaceId: payload.workspaceId ?? "",
     });
     setIsSubmitting(false);
     setFormMessage("");

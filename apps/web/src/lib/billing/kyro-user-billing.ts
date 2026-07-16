@@ -163,6 +163,14 @@ export async function getKyroUserBillingOverview(
   };
 }
 
+export async function getKyroUserBillingSettings(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
+  const row = await loadPolicy(supabase, workspaceId);
+  return normalizeSettings(row?.settings ?? null);
+}
+
 export async function createKyroUserBillingSetupUrl({
   cancelPath,
   successPath,

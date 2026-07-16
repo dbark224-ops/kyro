@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  assertWorkspaceAutomationAllowed,
+  BillingAccessRestrictedError,
+} from "../billing/access";
+import {
   sendConnectedEmailMessage,
   type EmailAttachment,
   type EmailSendResult,
@@ -136,6 +140,7 @@ export type OutboundDeliveryStatus =
   | "sent"
   | "failed"
   | "retry_scheduled"
+  | "billing_paused"
   | "dismissed";
 
 export type RecordOutboundMessageResult = {
@@ -531,6 +536,7 @@ function normalizeDeliveryStatus(value: string): OutboundDeliveryStatus {
     value === "sent" ||
     value === "failed" ||
     value === "retry_scheduled" ||
+    value === "billing_paused" ||
     value === "dismissed"
   ) {
     return value;
@@ -1422,7 +1428,8 @@ async function markOutboundSent(
     .from("outbound_messages")
     .update({
       channel_id: result.channelId,
-      failed_at: finalStatus === "failed" ? (currentRow?.failed_at ?? sentAt) : null,
+      failed_at:
+        finalStatus === "failed" ? (currentRow?.failed_at ?? sentAt) : null,
       last_error: finalError,
       next_attempt_at: null,
       provider: result.provider,
@@ -1478,6 +1485,23 @@ async function deliverOutboundQueueItem(
   row: OutboundQueueRow,
   actorId: string | null,
 ): Promise<RecordOutboundMessageResult> {
+  try {
+    await assertWorkspaceAutomationAllowed(row.workspace_id);
+  } catch (error) {
+    if (error instanceof BillingAccessRestrictedError) {
+      await supabase
+        .from("outbound_messages")
+        .update({
+          last_error: error.message,
+          next_attempt_at: null,
+          status: "billing_paused",
+        })
+        .eq("id", row.id)
+        .in("status", ["queued", "retry_scheduled", "failed"]);
+    }
+
+    throw error;
+  }
   const started = await startOutboundAttempt(supabase, row, actorId);
 
   if (started.alreadySent) {
@@ -1868,7 +1892,8 @@ async function deliverOutboundQueueItem(
             contentType: quoteDraftAttachment.contentType,
             filename: quoteDraftAttachment.filename,
             generatedAt: quoteDraftAttachment.generatedAt ?? now,
-            generatedDocumentId: quoteDraftAttachment.generatedDocumentId ?? null,
+            generatedDocumentId:
+              quoteDraftAttachment.generatedDocumentId ?? null,
             quoteVersion: quoteDraftAttachment.quoteVersion ?? null,
             renderer: "pdf-lib",
             sizeBytes: quoteDraftAttachment.sizeBytes,
@@ -1950,7 +1975,8 @@ async function deliverOutboundQueueItem(
           : null;
       const usageType =
         channelType === "sms" ? "outbound_sms" : "outbound_email";
-      const usageService = channelType === "sms" ? "sms" : (externalService ?? "email");
+      const usageService =
+        channelType === "sms" ? "sms" : (externalService ?? "email");
       const usageCost = telephonyCost?.cost ?? 0;
       const usageMarkup = telephonyCost?.markup ?? 0;
       const usageCustomerCharge = telephonyCost?.customerCharge ?? 0;

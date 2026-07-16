@@ -8,7 +8,11 @@ import {
   normalizeContactEmail,
   normalizeContactPhoneForRegion,
 } from "../../lib/crm/identity";
-import { createWorkspaceBootstrap } from "../../lib/workspace/bootstrap";
+import {
+  createWorkspaceBootstrap,
+  ensureWorkspaceBootstrapForUser,
+} from "../../lib/workspace/bootstrap";
+import { reserveSignupBootstrap } from "../../lib/auth/signup-bootstrap";
 import { isOperatingCountry } from "../../lib/workspace/operating-countries";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
@@ -62,28 +66,6 @@ function safeRedirectPath(path: string, fallback: string) {
   return path;
 }
 
-function metadataString(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function signupPhoneCandidates(user: {
-  phone?: string | null;
-  user_metadata?: Record<string, unknown> | null;
-}) {
-  return [
-    user.phone ?? "",
-    metadataString(user.user_metadata, "kyroMobileNumber"),
-    metadataString(user.user_metadata, "phone"),
-    metadataString(user.user_metadata, "mobileNumber"),
-    metadataString(user.user_metadata, "mobile"),
-    metadataString(user.user_metadata, "publicPhoneNumber"),
-  ].filter(Boolean);
-}
-
 async function verifySignupIdentityAvailable(input: {
   country: string;
   email: string;
@@ -115,52 +97,21 @@ async function verifySignupIdentityAvailable(input: {
     );
   }
 
-  const perPage = 1000;
+  const reservation = await reserveSignupBootstrap(serviceSupabase, {
+    email: normalizedEmail,
+    payload: { source: "legacy_server_action" },
+    phone: normalizedPhone,
+  });
 
-  for (let page = 1; page <= 50; page += 1) {
-    const { data, error } = await serviceSupabase.auth.admin.listUsers({
-      page,
-      perPage,
-    });
-
-    if (error) {
-      redirectWithError(
-        input.failurePath,
-        "Kyro could not verify account details right now. Please try again shortly.",
-      );
-    }
-
-    const users = data.users ?? [];
-
-    for (const user of users) {
-      const existingEmail = normalizeContactEmail(user.email);
-
-      if (existingEmail && existingEmail === normalizedEmail) {
-        redirectWithError(
-          input.failurePath,
-          "That email is already attached to a Kyro account. Sign in instead, or use a different email.",
-        );
-      }
-
-      const phoneMatch = signupPhoneCandidates(user).some((candidate) => {
-        const normalizedCandidate = normalizeContactPhoneForRegion(
-          candidate,
-          input.country,
-        );
-        return normalizedCandidate === normalizedPhone;
-      });
-
-      if (phoneMatch) {
-        redirectWithError(
-          input.failurePath,
-          "That mobile number is already attached to a Kyro account. Use a different number, or contact support if this is your account.",
-        );
-      }
-    }
-
-    if (users.length < perPage) {
-      break;
-    }
+  if (reservation.conflict) {
+    redirectWithError(
+      input.failurePath,
+      reservation.conflict === "phone"
+        ? "That mobile number is already attached to a Kyro account. Use a different number, or contact support if this is your account."
+        : reservation.conflict === "recoverable"
+          ? "Your Kyro account has already been started. Sign in to resume setup."
+          : "That email is already attached to a Kyro account. Sign in instead, or use a different email.",
+    );
   }
 }
 
@@ -173,13 +124,26 @@ export async function signInAction(formData: FormData) {
   }
 
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
 
   if (error) {
     redirectWithError("/sign-in", friendlySignInError(error.message));
+  }
+
+  if (data.user) {
+    try {
+      await ensureWorkspaceBootstrapForUser(supabase, data.user);
+    } catch (bootstrapError) {
+      redirectWithError(
+        "/onboarding",
+        bootstrapError instanceof Error
+          ? bootstrapError.message
+          : "Kyro could not resume workspace setup.",
+      );
+    }
   }
 
   revalidatePath("/", "layout");
@@ -194,9 +158,7 @@ export async function requestPasswordResetAction(formData: FormData) {
   }
 
   const requestHeaders = await headers();
-  const callbackUrl = new URL(
-    getAuthCallbackUrl(requestHeaders.get("origin")),
-  );
+  const callbackUrl = new URL(getAuthCallbackUrl(requestHeaders.get("origin")));
   callbackUrl.searchParams.set("next", "/reset-password");
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {

@@ -1,5 +1,6 @@
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
   applyUsageMarkup,
@@ -590,6 +591,7 @@ export async function synthesizeAssistantSpeech({
   user,
   workspace,
 }: SynthesizeAssistantSpeechInput): Promise<SynthesizeAssistantSpeechResult> {
+  await assertWorkspaceAutomationAllowed(workspace.id);
   const input = sanitizeSpeechText(text);
 
   if (!input) {

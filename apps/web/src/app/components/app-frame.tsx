@@ -24,6 +24,7 @@ import { hasSupabaseEnv } from "../../lib/env";
 import {
   EMPTY_NOTIFICATION_SUMMARY,
   getNotificationSummary,
+  type AppNotificationItem,
 } from "../../lib/notifications/queries";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { usageWindowStart } from "../../lib/usage/queries";
@@ -485,6 +486,18 @@ function formatNotificationTime(value: string | null) {
   }).format(date);
 }
 
+function notificationSourceLabel(source: AppNotificationItem["source"]) {
+  if (source === "escalation") {
+    return "Urgent escalation";
+  }
+
+  if (source === "billing") {
+    return "Billing";
+  }
+
+  return "Inbox";
+}
+
 async function AppNavLinks({
   active,
   items = navItems,
@@ -594,7 +607,9 @@ async function NotificationBell() {
                 href={item.href}
                 key={`${item.source}-${item.id}`}
               >
-                <span className="notification-source">Inbox</span>
+                <span className="notification-source">
+                  {notificationSourceLabel(item.source)}
+                </span>
                 <strong>{item.title}</strong>
                 <span>{item.detail}</span>
                 <small>{formatNotificationTime(item.timestamp)}</small>
