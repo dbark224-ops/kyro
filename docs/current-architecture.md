@@ -1376,9 +1376,11 @@ Queue guarantees:
 
 The worker and operational endpoints accept `BACKGROUND_JOB_SECRET` or
 `CRON_SECRET`. The queue tables have RLS enabled with no end-user policy and
-explicit service-role grants only. An external uptime monitor must call the
-health endpoint so a total Vercel/cron outage is observable outside the system
-that is failing.
+explicit service-role grants only. Better Stack independently checks the public
+site and the authenticated health endpoint every three minutes. The health
+monitor uses a dedicated production-only `BACKGROUND_JOB_SECRET`, so a total
+Vercel/cron outage is observable outside the system that is failing without
+sharing the broader cron credential.
 
 ## Manual Inquiry Ingestion
 
