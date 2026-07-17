@@ -69,6 +69,7 @@ export function MarketingFooter() {
         <Link href="/contact">Contact</Link>
         <Link href="/legal/privacy">Privacy</Link>
         <Link href="/legal/terms">Terms</Link>
+        <Link href="/account/delete">Delete account</Link>
       </nav>
     </footer>
   );

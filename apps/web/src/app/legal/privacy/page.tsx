@@ -8,12 +8,12 @@ export const metadata: Metadata = {
     "Privacy policy for Kyro, an AI assistant for sole traders and small service businesses.",
 };
 
-const updatedAt = "May 31, 2026";
+const updatedAt = "July 16, 2026";
 
 export default function PrivacyPage() {
   return (
     <MarketingPageShell
-      copy={`Last updated ${updatedAt}. This policy explains how Kyro handles business, customer, usage, and app data.`}
+      copy={`Last updated ${updatedAt}. This policy explains how Kyro handles account, business, customer, usage, voice, file, integration, and mobile app data.`}
       eyebrow="Legal"
       title="Privacy Policy"
     >
@@ -31,16 +31,43 @@ export default function PrivacyPage() {
 
         <h2>Information We Collect</h2>
         <p>
-          Kyro may collect account information, workspace and business details,
-          customer contact details, job notes, addresses, enquiries, messages,
-          call records, quote and document data, uploaded files, app activity,
-          device and log data, usage events, billing records, and integration
-          metadata.
+          Kyro may collect account information such as name, email address,
+          sign-in details, verification status, workspace membership, support
+          requests, and account preferences.
         </p>
         <p>
-          Kyro also processes AI interaction data, including prompts,
-          instructions, generated drafts, summaries, model routing decisions,
-          and usage required to operate the assistant.
+          Kyro may collect workspace and business information, including
+          business name, industry, service area, operating hours, public contact
+          details, brand settings, assistant instructions, pronunciation
+          preferences, and other settings used to run your assistant.
+        </p>
+        <p>
+          Kyro may process customer and job information that you add or connect,
+          including customer names, phone numbers, email addresses, addresses,
+          enquiry details, job notes, messages, quote drafts, documents,
+          payment request details, uploaded files, photos, and customer history.
+        </p>
+        <p>
+          Kyro may process voice, call, email, SMS, and assistant interaction
+          data, including call metadata, transcripts, recordings where enabled,
+          message content, AI prompts, assistant instructions, generated drafts,
+          summaries, tool actions, audit events, and usage records.
+        </p>
+        <p>
+          The mobile app may request access to device permissions only when a
+          feature needs them, such as microphone access for voice assistant
+          calls, contacts access when you choose to import selected contacts,
+          camera or photo library access when you attach images, document
+          picker access when you attach files, and Face ID or device biometric
+          unlock for local app locking. Kyro does not receive or store your
+          biometric identifiers.
+        </p>
+        <p>
+          Kyro may collect technical, analytics, billing, and security data,
+          including device and browser information, app activity, API logs,
+          error logs, IP address, usage events, payment provider metadata,
+          invoice records, and data needed to prevent abuse and keep the
+          service reliable.
         </p>
 
         <h2>How We Use Information</h2>
@@ -51,6 +78,11 @@ export default function PrivacyPage() {
           support, improve reliability, prevent abuse, and calculate usage-based
           billing.
         </p>
+        <p>
+          We may also use information to verify accounts, troubleshoot issues,
+          improve product quality, maintain security logs, satisfy legal and
+          accounting obligations, and communicate with you about the service.
+        </p>
 
         <h2>AI Providers And Service Providers</h2>
         <p>
@@ -58,6 +90,22 @@ export default function PrivacyPage() {
           including hosting, database, authentication, storage, analytics,
           payments, communications, voice, email, SMS, and AI model providers.
           These providers process data so Kyro can deliver the service.
+        </p>
+        <p>
+          Depending on the features you enable, this may include providers for
+          Supabase authentication and database services, Vercel hosting, Stripe
+          payments, Google or Microsoft email/calendar integrations, Twilio SMS
+          or phone infrastructure, Vapi or voice infrastructure, Resend email,
+          and AI model providers. We do not sell personal information.
+        </p>
+
+        <h2>Connected Accounts And Customer Data</h2>
+        <p>
+          If you connect third-party accounts, Kyro uses the connection to
+          provide the feature you enabled, such as reading relevant emails,
+          syncing messages, generating replies, preparing customer follow-ups,
+          or creating payment and document workflows. You are responsible for
+          making sure you have permission to add customer information to Kyro.
         </p>
 
         <h2>Data Security</h2>
@@ -73,17 +121,25 @@ export default function PrivacyPage() {
         <p>
           We keep data while it is needed to operate Kyro, meet legal or billing
           obligations, resolve disputes, maintain audit records, and support
-          customers. Users may request deletion of account or workspace data
-          through the contact page, subject to legal, security, and billing
-          retention requirements.
+          customers. Users may request deletion of account or workspace data on
+          the <Link href="/account/delete">account deletion page</Link>, subject
+          to legal, security, and billing retention requirements.
         </p>
 
         <h2>Your Choices</h2>
         <p>
           You can request access, correction, export, or deletion of your data
-          by contacting Kyro. Some data may need to be retained where required
-          for security, accounting, legal compliance, or legitimate business
-          records.
+          through the <Link href="/contact">contact page</Link> or the{" "}
+          <Link href="/account/delete">account deletion page</Link>. Some data
+          may need to be retained where required for security, accounting, legal
+          compliance, or legitimate business records.
+        </p>
+
+        <h2>Children</h2>
+        <p>
+          Kyro is intended for business use and is not directed to children.
+          Users must not submit information about children unless it is lawful
+          and necessary for their business use of Kyro.
         </p>
 
         <h2>Changes</h2>

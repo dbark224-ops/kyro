@@ -13,7 +13,38 @@ export default function ContactPage() {
       eyebrow="Contact"
       title="Contact Kyro"
     >
-      <section className="marketing-section">
+      <section className="marketing-section marketing-contact-layout">
+        <div className="marketing-contact-card">
+          <p className="marketing-eyebrow">Support</p>
+          <h2>Need help with Kyro?</h2>
+          <p>
+            For app review, account access, support, billing, or setup
+            questions, contact Kyro directly.
+          </p>
+          <dl className="marketing-contact-details">
+            <div>
+              <dt>Email</dt>
+              <dd>
+                <a href="mailto:hello@workflowautomation.au">
+                  hello@workflowautomation.au
+                </a>
+              </dd>
+            </div>
+            <div>
+              <dt>Australia</dt>
+              <dd>
+                <a href="tel:+61474783952">0474783952</a>
+              </dd>
+            </div>
+            <div>
+              <dt>International</dt>
+              <dd>
+                <a href="tel:+15755712705">+15755712705</a>
+              </dd>
+            </div>
+          </dl>
+        </div>
+
         <form action="#" className="marketing-contact-form">
           <label>
             Name

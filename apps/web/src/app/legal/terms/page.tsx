@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "Terms of service for Kyro, an AI assistant for sole traders and small service businesses.",
 };
 
-const updatedAt = "May 31, 2026";
+const updatedAt = "July 16, 2026";
 
 export default function TermsPage() {
   return (
@@ -25,14 +25,22 @@ export default function TermsPage() {
           provide accurate account information, keep your login details secure,
           and remain responsible for activity in your workspace.
         </p>
+        <p>
+          The mobile app is intended for people who already have access to a
+          Kyro workspace. Account setup, onboarding, billing, and workspace
+          configuration may happen on the web or through Kyro-assisted setup
+          before mobile sign-in is available.
+        </p>
 
         <h2>AI Assistant Actions</h2>
         <p>
           Kyro can help draft emails, SMS, quote documents, tasks, summaries,
-          follow-ups, and call workflows. You are responsible for reviewing
-          assistant outputs and approving any business action before it is sent
-          or relied on, unless you have configured Kyro to take that action
-          automatically.
+          follow-ups, and call workflows. Kyro may also perform configured
+          actions for you, such as sending approved messages, preparing
+          documents, creating records, making or receiving calls, and chasing
+          next steps. You are responsible for reviewing assistant outputs and
+          approving any business action before it is sent or relied on, unless
+          you have configured Kyro to take that action automatically.
         </p>
         <p>
           AI-generated content may be incomplete, incorrect, or unsuitable for a
@@ -44,7 +52,17 @@ export default function TermsPage() {
         <p>
           You are responsible for making sure any emails, SMS, calls, quotes,
           invoices, and customer messages sent through Kyro comply with the laws
-          and permissions that apply to your business.
+          and permissions that apply to your business, including consent,
+          calling, recording, anti-spam, privacy, and trade-specific obligations.
+        </p>
+
+        <h2>Connected Services</h2>
+        <p>
+          Kyro may integrate with third-party services for authentication,
+          hosting, payments, voice, SMS, email, documents, storage, analytics,
+          and AI models. Those services may have their own terms and limits.
+          Kyro is not responsible for outages, policy changes, or failures
+          caused by third-party providers outside Kyro&apos;s control.
         </p>
 
         <h2>Billing And Trials</h2>
@@ -53,6 +71,11 @@ export default function TermsPage() {
           based on metered usage, including AI, voice, SMS, document, storage,
           and other service usage. Billing details, rates, and payment timing
           may be shown in the product or invoice records.
+        </p>
+        <p>
+          You are responsible for keeping billing details current and paying
+          charges incurred by your workspace. We may pause or limit service if
+          payment fails or usage creates unusual risk.
         </p>
 
         <h2>Acceptable Use</h2>
@@ -69,6 +92,20 @@ export default function TermsPage() {
           you add to Kyro. Kyro may process that content to provide the service,
           operate the AI assistant, generate outputs, maintain audit logs,
           provide support, and calculate usage.
+        </p>
+        <p>
+          You must have the rights and permissions needed to upload, connect, or
+          process customer data, contact lists, emails, files, recordings,
+          photos, and business content through Kyro.
+        </p>
+
+        <h2>Account Deletion</h2>
+        <p>
+          You can initiate account deletion through the{" "}
+          <Link href="/account/delete">account deletion page</Link>. Deletion
+          may remove or anonymise account and workspace data where possible,
+          subject to records Kyro must retain for legal, tax, billing, security,
+          dispute, or audit purposes.
         </p>
 
         <h2>Availability</h2>
