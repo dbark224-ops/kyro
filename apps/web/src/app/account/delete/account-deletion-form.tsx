@@ -137,7 +137,7 @@ export function AccountDeletionForm() {
           value={form.reason}
         />
       </label>
-      <label className="hidden-field" tabIndex={-1}>
+      <label aria-hidden="true" className="hidden-field" tabIndex={-1}>
         Company website
         <input
           autoComplete="off"
