@@ -107,14 +107,17 @@ export async function loadSettingsPageData(
   const showSenderRules =
     selectedSection === "integrations" && query?.senderRules === "1";
   const settingsFocus = typeof query?.focus === "string" ? query.focus : null;
+  const needsPhoneSettings =
+    selectedSection === "integrations" &&
+    (activeIntegrationPanel === "phone-numbers" ||
+      activeIntegrationPanel === "phone-sms");
   const needsGeneralSettings =
     selectedSection === "general" ||
     selectedSection === "usage" ||
     selectedSection === "calendar" ||
     selectedSection === "notifications" ||
     (selectedSection === "developer" && isDeveloperAccount) ||
-    (selectedSection === "integrations" &&
-      activeIntegrationPanel === "phone-sms");
+    needsPhoneSettings;
   const needsCommunicationSettings =
     (selectedSection === "general" && selectedPanel === "email-signature") ||
     (selectedSection === "integrations" &&
@@ -137,6 +140,9 @@ export async function loadSettingsPageData(
 
     return serviceSupabase;
   };
+  const generalSettingsPromise = needsGeneralSettings
+    ? getWorkspaceGeneralSettings(supabase, workspace.id)
+    : Promise.resolve(null);
 
   const [
     communicationSettings,
@@ -162,24 +168,24 @@ export async function loadSettingsPageData(
     needsCommunicationSettings
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
-    selectedSection === "integrations" && activeIntegrationPanel === "phone-sms"
-      ? getWorkspaceGeneralSettings(supabase, workspace.id)
+    needsPhoneSettings
+      ? generalSettingsPromise
           .then((settings) =>
-            getAvailableWorkspacePhoneNumbersFromPool(
-              getServiceSupabase(),
-              operatingCountryPhoneRegion(
-                settings.businessProfile.operatingCountry,
-              ) ?? settings.defaultPhoneRegion,
-            ),
+            settings
+              ? getAvailableWorkspacePhoneNumbersFromPool(
+                  getServiceSupabase(),
+                  operatingCountryPhoneRegion(
+                    settings.businessProfile.operatingCountry,
+                  ) ?? settings.defaultPhoneRegion,
+                )
+              : [],
           )
           .catch(() => [])
       : Promise.resolve([]),
     selectedSection === "calendar"
       ? getCalendarSettings(supabase, workspace.id)
       : Promise.resolve(null),
-    needsGeneralSettings
-      ? getWorkspaceGeneralSettings(supabase, workspace.id)
-      : Promise.resolve(null),
+    generalSettingsPromise,
     needsEmailProviderOverview
       ? getGoogleIntegrationOverview(supabase, workspace.id)
       : Promise.resolve(null),
@@ -197,7 +203,7 @@ export async function loadSettingsPageData(
     selectedSection === "notifications"
       ? getNotificationSettings(supabase, workspace.id)
       : Promise.resolve(null),
-    selectedSection === "integrations" && activeIntegrationPanel === "phone-sms"
+    needsPhoneSettings
       ? getTwilioTelephonyOverview(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "integrations" && activeIntegrationPanel === "stripe"

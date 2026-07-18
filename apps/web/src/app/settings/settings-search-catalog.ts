@@ -443,15 +443,25 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "tone wording email reply concise friendly professional voice style",
   }),
   searchEntry({
+    id: "kyro-phone-number",
+    section: "integrations",
+    panel: "phone-numbers",
+    group: "Connected accounts / Kyro phone number",
+    title: "Get or manage a Kyro phone number",
+    description: "Choose a public assistant number from the Kyro number pool.",
+    keywords:
+      "buy purchase get choose assign activate disconnect public assistant pool local number",
+  }),
+  searchEntry({
     id: "phone-sms",
     section: "integrations",
     panel: "phone-sms",
     group: "Connected accounts / Phone and SMS",
-    title: "Phone and SMS number",
+    title: "Phone and SMS operations",
     description:
-      "Set up the public Kyro assistant number and calling capabilities.",
+      "Review inbound and outbound SMS readiness, consent and delivery setup.",
     keywords:
-      "buy purchase assign active number twilio vapi inbound outbound texting calling",
+      "active number inbound outbound texting calling consent opt out delivery status",
   }),
   searchEntry({
     id: "stripe-payments",

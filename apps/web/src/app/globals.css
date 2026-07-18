@@ -13012,6 +13012,46 @@ button:disabled {
     color-mix(in srgb, var(--surface) 90%, var(--background));
 }
 
+.phone-number-route-card {
+  border-color: color-mix(in srgb, var(--cyan) 44%, var(--line));
+}
+
+.phone-number-route-row,
+.public-assistant-number-content {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.phone-number-route-row > div,
+.public-assistant-number-content > div {
+  min-width: 0;
+}
+
+.phone-number-route-row strong,
+.phone-number-route-row span {
+  display: block;
+}
+
+.phone-number-route-row span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 3px;
+}
+
+.phone-number-route-button {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  min-height: 38px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .phone-number-active-panel,
 .phone-number-choice {
   align-items: center;
