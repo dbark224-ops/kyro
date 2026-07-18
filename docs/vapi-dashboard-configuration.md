@@ -122,7 +122,11 @@ The dynamic `assistant-request` response receives:
 - current-time variables from `buildVapiCurrentTimeContext`
 
 Before the assistant speaks, Kyro performs an indexed phone-number lookup against
-the workspace CRM and the configured workplace-contact numbers. The response
+the workspace CRM and the configured workplace-contact numbers. Business Profile
+workplace contacts are the source of truth for internal caller recognition; Kyro
+also merges any legacy Voice settings number entries for backward compatibility.
+This prevents a stale or empty duplicated Voice policy from demoting a configured
+owner or team member to an unknown customer. The response
 overrides the inbound assistant's first message with `caller_greeting`: a usable
 recognized name receives `Hey {first name}`; unknown callers and matches without
 a usable name receive `Hi, this is {business name}. You're speaking with Kyro!`.

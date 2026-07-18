@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildVapiCallerRecognition } from "./vapi-caller-recognition";
+import {
+  buildVapiCallerRecognition,
+  buildVapiInternalNumberDetails,
+} from "./vapi-caller-recognition";
 import type { VapiUserIdentity } from "./vapi-user-context";
 
 const accountUser: VapiUserIdentity = {
@@ -12,6 +15,62 @@ const accountUser: VapiUserIdentity = {
 };
 
 describe("Vapi inbound caller recognition", () => {
+  it("uses Business Profile workplace contacts as the internal caller source of truth", () => {
+    const result = buildVapiInternalNumberDetails({
+      voiceNumberDetails: [],
+      voiceNumbers: [],
+      workplaceContacts: [
+        {
+          name: "David Barker",
+          phoneNumber: "+1 (575) 571-2705",
+          privatePhoneNumber: "+1 (575) 555-0199",
+          role: "Owner",
+        },
+      ],
+    });
+
+    assert.deepEqual(result, [
+      {
+        name: "David Barker",
+        phoneNumber: "+1 (575) 571-2705",
+        role: "Owner",
+      },
+      {
+        name: "David Barker",
+        phoneNumber: "+1 (575) 555-0199",
+        role: "Owner",
+      },
+    ]);
+  });
+
+  it("deduplicates legacy voice numbers behind the workplace contact", () => {
+    const result = buildVapiInternalNumberDetails({
+      voiceNumberDetails: [
+        {
+          name: null,
+          phoneNumber: "+15755712705",
+          role: null,
+        },
+      ],
+      voiceNumbers: ["+1 575 571 2705"],
+      workplaceContacts: [
+        {
+          name: "David Barker",
+          phoneNumber: "+1 (575) 571-2705",
+          role: "Owner",
+        },
+      ],
+    });
+
+    assert.deepEqual(result, [
+      {
+        name: "David Barker",
+        phoneNumber: "+1 (575) 571-2705",
+        role: "Owner",
+      },
+    ]);
+  });
+
   it("greets a configured internal caller by first name", () => {
     const result = buildVapiCallerRecognition({
       businessName: "WFA Plumbing",

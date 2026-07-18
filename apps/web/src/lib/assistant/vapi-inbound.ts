@@ -29,6 +29,7 @@ import {
 } from "./vapi-user-context";
 import {
   buildVapiCallerRecognition,
+  buildVapiInternalNumberDetails,
   type VapiInboundCrmContact,
 } from "./vapi-caller-recognition";
 
@@ -627,10 +628,15 @@ export async function buildVapiAssistantRequestResponse(
     supabase,
     workspace.ownerUserId,
   );
+  const internalNumberDetails = buildVapiInternalNumberDetails({
+    voiceNumberDetails: settings.phoneAgentUserNumberDetails,
+    voiceNumbers: settings.phoneAgentUserNumbers,
+    workplaceContacts: generalSettings.businessProfile.workplaceContacts,
+  });
   const purpose = voicePurpose({
     callerNumber: from,
     matchedNumber,
-    userNumbers: settings.phoneAgentUserNumbers,
+    userNumbers: internalNumberDetails.map((entry) => entry.phoneNumber),
   });
   const assistantId = assistantIdForPurpose(purpose, settings);
 
@@ -661,7 +667,7 @@ export async function buildVapiAssistantRequestResponse(
     callerNumber: from,
     crmContact: inboundCrmContact,
     internalCaller: purpose === "inbound_user",
-    internalNumberDetails: settings.phoneAgentUserNumberDetails,
+    internalNumberDetails,
     userIdentity,
   });
   const assistantSelection = assistantSelectionProof({
@@ -680,7 +686,7 @@ export async function buildVapiAssistantRequestResponse(
           kyroNumber: to,
           pronunciationGuide,
           teamNumberContext: teamNumberContext(
-            settings.phoneAgentUserNumberDetails,
+            internalNumberDetails,
           ),
           userIdentity,
           workspaceName: businessName,

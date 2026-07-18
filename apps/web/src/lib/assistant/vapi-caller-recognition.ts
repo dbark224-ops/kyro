@@ -21,8 +21,60 @@ export type VapiCallerRecognition = {
   voicemailGreeting: string;
 };
 
+type VapiWorkplaceContact = {
+  name?: string | null;
+  phoneNumber?: string | null;
+  privatePhoneNumber?: string | null;
+  role?: string | null;
+  tradeSpecialty?: string | null;
+};
+
 function normalizedPhone(value: string | null | undefined) {
   return normalizeContactPhoneForRegion(value, null);
+}
+
+export function buildVapiInternalNumberDetails(input: {
+  voiceNumberDetails: PhoneAgentUserNumberDetail[];
+  voiceNumbers: string[];
+  workplaceContacts: VapiWorkplaceContact[];
+}) {
+  const rows: PhoneAgentUserNumberDetail[] = [];
+  const seen = new Set<string>();
+  const add = (
+    phoneNumber: string | null | undefined,
+    name: string | null | undefined,
+    role: string | null | undefined,
+  ) => {
+    const cleanPhone = phoneNumber?.trim() ?? "";
+    const identity = normalizedPhone(cleanPhone) ?? cleanPhone;
+
+    if (!cleanPhone || !identity || seen.has(identity)) {
+      return;
+    }
+
+    seen.add(identity);
+    rows.push({
+      name: name?.trim() || null,
+      phoneNumber: cleanPhone,
+      role: role?.trim() || null,
+    });
+  };
+
+  for (const contact of input.workplaceContacts) {
+    const role = contact.role || contact.tradeSpecialty;
+    add(contact.phoneNumber, contact.name, role);
+    add(contact.privatePhoneNumber, contact.name, role);
+  }
+
+  for (const detail of input.voiceNumberDetails) {
+    add(detail.phoneNumber, detail.name, detail.role);
+  }
+
+  for (const phoneNumber of input.voiceNumbers) {
+    add(phoneNumber, null, null);
+  }
+
+  return rows;
 }
 
 function usableFirstName(value: string | null | undefined) {
