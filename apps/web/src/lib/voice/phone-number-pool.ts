@@ -470,6 +470,17 @@ export async function releaseWorkspacePhoneNumberToPool(input: {
   delete metadata.assignedToWorkspaceId;
   delete metadata.assignmentSource;
 
+  if (metadata.voicePurpose === "voicemail_overflow") {
+    delete metadata.voicePurpose;
+  }
+
+  if (metadata.purpose === "voicemail_overflow") {
+    delete metadata.purpose;
+  }
+
+  delete metadata.voicemailOverflowEnabledAt;
+  delete metadata.voicemailOverflowEnabledBy;
+
   const { data: releasedRow, error: releaseError } = await input.supabase
     .from("workspace_phone_numbers")
     .update({
