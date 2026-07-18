@@ -3,7 +3,6 @@ import type { SettingsSection } from "./settings-shell";
 export type IntegrationSettingsPanel =
   | "inbound-email"
   | "outbound"
-  | "phone-numbers"
   | "phone-sms"
   | "stripe"
   | "email-accounts"
@@ -95,9 +94,12 @@ export function defaultSettingsPanel(section: SettingsSection | null) {
 export function normalizeIntegrationPanel(
   value: string | null,
 ): IntegrationSettingsPanel {
+  if (value === "phone-numbers") {
+    return "phone-sms";
+  }
+
   if (
     value === "outbound" ||
-    value === "phone-numbers" ||
     value === "phone-sms" ||
     value === "stripe" ||
     value === "email-accounts" ||

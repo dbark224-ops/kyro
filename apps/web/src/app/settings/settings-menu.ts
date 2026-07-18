@@ -205,14 +205,7 @@ export function buildSettingsNestedItems({
         title: "Outbound communication",
       },
       {
-        detail: "Choose and manage the number customers call or text",
-        href: settingsPanelHref("integrations", "phone-numbers", activeWindow),
-        key: "phone-numbers",
-        selected: activeIntegrationPanel === "phone-numbers",
-        title: "Kyro phone number",
-      },
-      {
-        detail: "Inbound, outbound, consent, and delivery status",
+        detail: "Kyro number, calls, SMS, consent, and delivery status",
         href: settingsPanelHref("integrations", "phone-sms", activeWindow),
         key: "phone-sms",
         selected: activeIntegrationPanel === "phone-sms",

@@ -20,11 +20,11 @@ test("finds payment method from credit card language", () => {
   assert.ok(results.some((result) => result.id === "payment-method"));
 });
 
-test("finds the dedicated Kyro number screen from purchase language", () => {
+test("finds the combined Phone and SMS screen from purchase language", () => {
   const [result] = searchSettings("buy a phone number");
 
-  assert.equal(result?.id, "kyro-phone-number");
-  assert.equal(result?.panel, "phone-numbers");
+  assert.equal(result?.id, "phone-sms");
+  assert.equal(result?.panel, "phone-sms");
 });
 
 test("finds email accounts from provider names", () => {

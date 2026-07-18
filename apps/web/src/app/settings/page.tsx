@@ -1471,11 +1471,11 @@ function MicrosoftIntegrationSettings({
 
 function twilioStatusLabel(overview: TwilioTelephonyOverview) {
   if (!overview.migrationReady) {
-    return "Migration needed";
+    return "Needs attention";
   }
 
   if (!overview.configured) {
-    return "Keys needed";
+    return "Unavailable";
   }
 
   if (overview.numbers.some((number) => number.capabilities.sms)) {
@@ -1488,12 +1488,10 @@ function twilioStatusLabel(overview: TwilioTelephonyOverview) {
 function TwilioTelephonySettings({
   availableNumbers,
   generalSettings,
-  numberManagementOnly = false,
   overview,
 }: Readonly<{
   availableNumbers: WorkspacePhoneNumberPoolRow[];
   generalSettings: WorkspaceGeneralSettings;
-  numberManagementOnly?: boolean;
   overview: TwilioTelephonyOverview;
 }>) {
   const activeSmsNumberCount = overview.numbers.filter(
@@ -1510,22 +1508,22 @@ function TwilioTelephonySettings({
   const inboundStatusLabel = inboundSmsReady
     ? "Active"
     : !overview.configured
-      ? "Keys needed"
+      ? "Unavailable"
       : !hasActiveSmsNumber
         ? "Number needed"
         : !overview.inboundSmsWebhookUrl
-          ? "App URL needed"
+          ? "Needs attention"
           : !overview.compliance.tableReady
-            ? "Migration needed"
+            ? "Needs attention"
             : "Needs setup";
   const outboundStatusLabel = outboundSmsReady
     ? "Active"
     : !overview.configured
-      ? "Keys needed"
+      ? "Unavailable"
       : !hasActiveSmsNumber
         ? "Number needed"
         : !overview.compliance.tableReady
-          ? "Migration needed"
+          ? "Needs attention"
           : "Needs setup";
   const activeVoiceSmsNumber = overview.numbers.find(
     (number) => number.capabilities.sms && number.capabilities.voice,
@@ -1540,279 +1538,238 @@ function TwilioTelephonySettings({
 
   return (
     <>
-      {numberManagementOnly ? (
-        <section className="setting-card phone-number-enable-card assistant-number-card">
-          <SettingCardHeading
-            info={
-              <>
-                This is the public assistant-facing number customers can call or
-                message. It receives SMS, sends SMS, receives calls, and makes
-                assistant calls when the matching voice number is configured.
-              </>
-            }
-          >
-            Phone and SMS assistant number
-          </SettingCardHeading>
-          {activeVoiceSmsNumber ? (
-            <div className="phone-number-active-panel">
-              <div>
-                <strong>{activeVoiceSmsNumber.phoneNumber}</strong>
-                <span>
-                  {[
-                    "Public assistant number",
-                    activeVoiceSmsNumber.friendlyName,
-                    activeVoiceSmsNumber.countryCode,
-                    "SMS + voice enabled",
-                  ]
-                    .filter(Boolean)
-                    .join(" - ")}
-                </span>
-              </div>
-              <div className="phone-number-active-actions">
-                <span className="pill success">Enabled</span>
-                <form
-                  action={disconnectWorkspacePhoneSmsAction}
-                  className="phone-number-disconnect-form"
-                >
-                  <input
-                    name="phoneNumberId"
-                    type="hidden"
-                    value={activeVoiceSmsNumber.id}
-                  />
-                  <button className="text-button danger" type="submit">
-                    Disconnect
-                  </button>
-                </form>
-              </div>
-            </div>
-          ) : (
-            <form
-              action={enableWorkspacePhoneSmsAction}
-              className="settings-form"
-            >
-              <p className="empty-copy">
-                No public assistant number is active yet. Choose a Kyro number
-                to receive customer calls and messages. A one-time{" "}
-                <strong>US$6</strong> setup charge will be added to the usage
-                ledger when the number is assigned.
-              </p>
-              {availableNumbers.length > 0 ? (
-                <div className="phone-number-choice-list">
-                  {availableNumbers.map((number, index) => (
-                    <label className="phone-number-choice" key={number.id}>
-                      <input
-                        defaultChecked={index === 0}
-                        name="phoneNumberId"
-                        type="radio"
-                        value={number.id}
-                      />
-                      <span>
-                        <strong>{number.phoneNumber}</strong>
-                        <small>
-                          {[
-                            number.friendlyName,
-                            number.region,
-                            number.countryCode,
-                            number.vapiPhoneNumberId ? "Voice linked" : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" - ")}
-                        </small>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              ) : (
-                <p className="form-alert">
-                  No available {phoneRegion} voice-and-SMS numbers are in the
-                  Kyro pool yet.
-                </p>
-              )}
-              <div className="settings-footer compact-settings-footer">
-                <span>
-                  Once assigned, this becomes the workspace&apos;s public
-                  assistant number.
-                </span>
-                <SettingsSubmitButton
-                  disabled={availableNumbers.length === 0}
-                  pendingLabel="Enabling..."
-                >
-                  Get this Kyro number
-                </SettingsSubmitButton>
-              </div>
-            </form>
-          )}
-        </section>
-      ) : (
-        <section className="setting-card assistant-number-card phone-number-route-card">
-          <SettingCardHeading
-            info={
-              <>
-                This is the public number customers use to call or message the
-                Kyro assistant.
-              </>
-            }
-          >
-            Kyro phone number
-          </SettingCardHeading>
-          <div className="phone-number-route-row">
+      <section className="setting-card phone-number-enable-card assistant-number-card">
+        <SettingCardHeading
+          info={
+            <>
+              This is the public assistant-facing number customers can call or
+              message. It receives SMS, sends SMS, receives calls, and makes
+              assistant calls when the matching voice number is configured.
+            </>
+          }
+        >
+          Phone and SMS assistant number
+        </SettingCardHeading>
+        {activeVoiceSmsNumber ? (
+          <div className="phone-number-active-panel">
             <div>
-              <strong>
-                {activeVoiceSmsNumber?.phoneNumber ?? "No number assigned"}
-              </strong>
+              <strong>{activeVoiceSmsNumber.phoneNumber}</strong>
               <span>
-                {activeVoiceSmsNumber
-                  ? "Voice and SMS are available on this number."
-                  : "Choose a number before enabling customer calls or SMS."}
+                {[
+                  "Public assistant number",
+                  activeVoiceSmsNumber.friendlyName,
+                  activeVoiceSmsNumber.countryCode,
+                  "SMS + voice enabled",
+                ]
+                  .filter(Boolean)
+                  .join(" - ")}
               </span>
             </div>
-            <SmartPrefetchLink
-              className="secondary-button phone-number-route-button"
-              href={settingsPanelHref("integrations", "phone-numbers")}
-            >
-              {activeVoiceSmsNumber
-                ? "Manage Kyro number"
-                : "Get a Kyro number"}
-            </SmartPrefetchLink>
+            <div className="phone-number-active-actions">
+              <span className="pill success">Enabled</span>
+              <form
+                action={disconnectWorkspacePhoneSmsAction}
+                className="phone-number-disconnect-form"
+              >
+                <input
+                  name="phoneNumberId"
+                  type="hidden"
+                  value={activeVoiceSmsNumber.id}
+                />
+                <button className="text-button danger" type="submit">
+                  Disconnect
+                </button>
+              </form>
+            </div>
           </div>
-        </section>
-      )}
+        ) : (
+          <form
+            action={enableWorkspacePhoneSmsAction}
+            className="settings-form"
+          >
+            <p className="empty-copy">
+              No public assistant number is active yet. Choose a Kyro number to
+              receive customer calls and messages. A one-time{" "}
+              <strong>US$6</strong> setup charge will be added to the usage
+              ledger when the number is assigned.
+            </p>
+            {availableNumbers.length > 0 ? (
+              <div className="phone-number-choice-list">
+                {availableNumbers.map((number, index) => (
+                  <label className="phone-number-choice" key={number.id}>
+                    <input
+                      defaultChecked={index === 0}
+                      name="phoneNumberId"
+                      type="radio"
+                      value={number.id}
+                    />
+                    <span>
+                      <strong>{number.phoneNumber}</strong>
+                      <small>
+                        {[
+                          number.friendlyName,
+                          number.region,
+                          number.countryCode,
+                          number.vapiPhoneNumberId ? "Voice linked" : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" - ")}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="form-alert">
+                No available {phoneRegion} voice-and-SMS numbers are in the Kyro
+                pool yet.
+              </p>
+            )}
+            <div className="settings-footer compact-settings-footer">
+              <span>
+                Once assigned, this becomes the workspace&apos;s public
+                assistant number.
+              </span>
+              <SettingsSubmitButton
+                disabled={availableNumbers.length === 0}
+                pendingLabel="Enabling..."
+              >
+                Get this Kyro number
+              </SettingsSubmitButton>
+            </div>
+          </form>
+        )}
+      </section>
 
-      {numberManagementOnly ? null : (
-        <>
-          <div className="integration-summary-grid">
-            <article className="setting-card sms-readiness-card">
-              <SettingCardHeading
-                info={
-                  <>
-                    Kyro-owned numbers receive customer SMS and promote useful
-                    messages into the same CRM pipeline as email.
-                  </>
-                }
-              >
-                Inbound SMS
-              </SettingCardHeading>
-              <div
-                className={`settings-status-pill ${
-                  inboundSmsReady ? "ready" : "warning"
-                }`}
-              >
-                {inboundStatusLabel}
-              </div>
-              <div className="mini-status-grid">
-                <span>
-                  <strong>
-                    {hasActiveSmsNumber ? "Connected" : "Missing"}
-                  </strong>
-                  Workspace number
-                </span>
-                <span>
-                  <strong>
-                    {overview.inboundSmsWebhookUrl ? "Ready" : "Check"}
-                  </strong>
-                  Inbound routing
-                </span>
-                <span>
-                  <strong>
-                    {overview.compliance.tableReady ? "Active" : "Check"}
-                  </strong>
-                  Consent guard
-                </span>
-              </div>
-            </article>
-            <article className="setting-card sms-readiness-card">
-              <SettingCardHeading
-                info={
-                  <>
-                    Approved or user-triggered SMS replies send through the
-                    workspace&apos;s active SMS-capable number.
-                  </>
-                }
-              >
-                Outbound SMS
-              </SettingCardHeading>
-              <div
-                className={`settings-status-pill ${
-                  outboundSmsReady ? "ready" : "warning"
-                }`}
-              >
-                {outboundStatusLabel}
-              </div>
-              <div className="mini-status-grid">
-                <span>
-                  <strong>{hasActiveSmsNumber ? "Ready" : "Missing"}</strong>
-                  Sending number
-                </span>
-                <span>
-                  <strong>
-                    {overview.configured ? "Connected" : "Keys needed"}
-                  </strong>
-                  Messaging service
-                </span>
-                <span>
-                  <strong>
-                    {overview.compliance.tableReady ? "Active" : "Check"}
-                  </strong>
-                  Opt-out guard
-                </span>
-              </div>
-            </article>
-            <article className="setting-card">
-              <SettingCardHeading
-                info={
-                  <>
-                    Kyro records inbound SMS consent signals, separates trusted
-                    staff/operator command texts from customer messages, and
-                    blocks outbound SMS to opted-out or blocked recipients
-                    before Twilio is called.
-                  </>
-                }
-              >
-                SMS compliance guard
-              </SettingCardHeading>
-              <div className="mini-status-grid">
-                <span>
-                  <strong>{overview.compliance.trackedRecipients}</strong>
-                  Tracked recipients
-                </span>
-                <span>
-                  <strong>{overview.compliance.optedOutRecipients}</strong>
-                  Opted out
-                </span>
-                <span>
-                  <strong>{overview.compliance.staffInternalRecipients}</strong>
-                  Staff/operator
-                </span>
-              </div>
-            </article>
+      <div className="integration-summary-grid">
+        <article className="setting-card sms-readiness-card">
+          <SettingCardHeading
+            info={
+              <>
+                Kyro-owned numbers receive customer SMS and promote useful
+                messages into the same CRM pipeline as email.
+              </>
+            }
+          >
+            Inbound SMS
+          </SettingCardHeading>
+          <div
+            className={`settings-status-pill ${
+              inboundSmsReady ? "ready" : "warning"
+            }`}
+          >
+            {inboundStatusLabel}
           </div>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{hasActiveSmsNumber ? "Connected" : "Missing"}</strong>
+              Workspace number
+            </span>
+            <span>
+              <strong>
+                {overview.inboundSmsWebhookUrl ? "Ready" : "Check"}
+              </strong>
+              Inbound routing
+            </span>
+            <span>
+              <strong>
+                {overview.compliance.tableReady ? "Active" : "Check"}
+              </strong>
+              Consent guard
+            </span>
+          </div>
+        </article>
+        <article className="setting-card sms-readiness-card">
+          <SettingCardHeading
+            info={
+              <>
+                Approved or user-triggered SMS replies send through the
+                workspace&apos;s active SMS-capable number.
+              </>
+            }
+          >
+            Outbound SMS
+          </SettingCardHeading>
+          <div
+            className={`settings-status-pill ${
+              outboundSmsReady ? "ready" : "warning"
+            }`}
+          >
+            {outboundStatusLabel}
+          </div>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{hasActiveSmsNumber ? "Ready" : "Missing"}</strong>
+              Sending number
+            </span>
+            <span>
+              <strong>
+                {overview.configured ? "Connected" : "Unavailable"}
+              </strong>
+              Messaging service
+            </span>
+            <span>
+              <strong>
+                {overview.compliance.tableReady ? "Active" : "Check"}
+              </strong>
+              Opt-out guard
+            </span>
+          </div>
+        </article>
+        <article className="setting-card">
+          <SettingCardHeading
+            info={
+              <>
+                Kyro records inbound SMS consent signals, separates trusted
+                staff/operator command texts from customer messages, and blocks
+                outbound SMS to opted-out or blocked recipients before a message
+                is sent.
+              </>
+            }
+          >
+            SMS compliance guard
+          </SettingCardHeading>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{overview.compliance.trackedRecipients}</strong>
+              Tracked recipients
+            </span>
+            <span>
+              <strong>{overview.compliance.optedOutRecipients}</strong>
+              Opted out
+            </span>
+            <span>
+              <strong>{overview.compliance.staffInternalRecipients}</strong>
+              Staff/operator
+            </span>
+          </div>
+        </article>
+      </div>
 
-          {!overview.migrationReady ? (
-            <p className="form-alert">
-              Phone and SMS storage is not ready yet. Kyro has been notified.
-            </p>
-          ) : null}
-          {!overview.configured ? (
-            <p className="form-alert">
-              Phone and SMS are temporarily unavailable. Kyro has been notified.
-            </p>
-          ) : null}
-          {!overview.compliance.tableReady ? (
-            <p className="form-alert">
-              SMS consent controls are temporarily unavailable. Kyro has been
-              notified.
-            </p>
-          ) : null}
-          {overview.configured && !overview.inboundSmsWebhookUrl ? (
-            <p className="form-alert">
-              Inbound SMS routing is temporarily unavailable. Kyro has been
-              notified.
-            </p>
-          ) : null}
-        </>
-      )}
+      {!overview.migrationReady ? (
+        <p className="form-alert">
+          Phone and SMS storage is not ready yet. Kyro has been notified.
+        </p>
+      ) : null}
+      {!overview.configured ? (
+        <p className="form-alert">
+          Phone and SMS are temporarily unavailable. Kyro has been notified.
+        </p>
+      ) : null}
+      {!overview.compliance.tableReady ? (
+        <p className="form-alert">
+          SMS consent controls are temporarily unavailable. Kyro has been
+          notified.
+        </p>
+      ) : null}
+      {overview.configured && !overview.inboundSmsWebhookUrl ? (
+        <p className="form-alert">
+          Inbound SMS routing is temporarily unavailable. Kyro has been
+          notified.
+        </p>
+      ) : null}
 
-      {numberManagementOnly && supportingPhoneNumbers.length > 0 ? (
+      {supportingPhoneNumbers.length > 0 ? (
         <div className="usage-ledger compact">
           {supportingPhoneNumbers.map((number) => (
             <div className="usage-ledger-row" key={number.id}>
@@ -3260,7 +3217,7 @@ function GeneralSettingsDetail({
               )}
               <SmartPrefetchLink
                 className="secondary-button phone-number-route-button"
-                href={settingsPanelHref("integrations", "phone-numbers")}
+                href={settingsPanelHref("integrations", "phone-sms")}
               >
                 {operationalPhoneNumbers.length
                   ? "Manage Kyro number"
@@ -3963,15 +3920,6 @@ function WorkspaceIntegrationsSettings({
             workspaceName={workspaceName}
           />
         </ProviderDetails>
-      ) : null}
-
-      {activePanel === "phone-numbers" && twilioOverview && generalSettings ? (
-        <TwilioTelephonySettings
-          availableNumbers={availablePhoneNumbers}
-          generalSettings={generalSettings}
-          numberManagementOnly
-          overview={twilioOverview}
-        />
       ) : null}
 
       {activePanel === "phone-sms" && twilioOverview && generalSettings ? (
@@ -4730,7 +4678,7 @@ function VoicemailOverflowSettings({
         <p className="form-alert compact-alert">
           Kyro needs a voice-capable assistant number before voicemail overflow
           can be enabled.{" "}
-          <Link href="/settings?section=integrations&panel=phone-numbers">
+          <Link href="/settings?section=integrations&panel=phone-sms">
             Get a Kyro number
           </Link>
         </p>

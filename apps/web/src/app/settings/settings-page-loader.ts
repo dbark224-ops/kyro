@@ -109,8 +109,7 @@ export async function loadSettingsPageData(
   const settingsFocus = typeof query?.focus === "string" ? query.focus : null;
   const needsPhoneSettings =
     selectedSection === "integrations" &&
-    (activeIntegrationPanel === "phone-numbers" ||
-      activeIntegrationPanel === "phone-sms");
+    activeIntegrationPanel === "phone-sms";
   const needsGeneralSettings =
     selectedSection === "general" ||
     selectedSection === "usage" ||
