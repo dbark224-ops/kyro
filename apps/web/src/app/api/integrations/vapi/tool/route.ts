@@ -13,6 +13,10 @@ import {
 } from "../../../../../lib/assistant/web-search";
 import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
 import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
+import {
+  resolveVapiToolAuthorization,
+  VAPI_EXTERNAL_CALLER_REFUSAL,
+} from "../../../../../lib/assistant/vapi-tool-authorization";
 import { updateContactFromAssistantTool } from "../../../../../lib/crm/contact-update-tool";
 import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
 import {
@@ -187,15 +191,12 @@ function hasContactPreviewLink(uiBlocks: unknown) {
 
 function vapiToolCanStartOutboundCall(payload: Record<string, unknown>) {
   const metadata = vapiToolCallMetadata(payload);
-  const purpose = textValue(metadata.purpose);
-  const callerRole = textValue(metadata.callerRole);
-  const source = textValue(metadata.source);
 
-  if (callerRole === "internal_user" || purpose === "inbound_user") {
-    return true;
-  }
-
-  return source === "kyro.vapi_internal_voice";
+  return resolveVapiToolAuthorization({
+    callerRole: textValue(metadata.callerRole),
+    purpose: textValue(metadata.purpose),
+    source: textValue(metadata.source),
+  }).trustedInternal;
 }
 
 function vapiCall(payload: Record<string, unknown>) {
@@ -1277,6 +1278,23 @@ export async function POST(request: Request) {
 
       return toolResponse(result, toolCallId);
     };
+
+    const metadata = vapiToolCallMetadata(payload);
+    const toolAuthorization = resolveVapiToolAuthorization({
+      callerRole: textValue(metadata.callerRole),
+      purpose: textValue(metadata.purpose),
+      source: textValue(metadata.source),
+      toolName: toolCall.name,
+    });
+
+    if (!toolAuthorization.allowed) {
+      return completedToolResponse({
+        answer: VAPI_EXTERNAL_CALLER_REFUSAL,
+        denied: true,
+        message: VAPI_EXTERNAL_CALLER_REFUSAL,
+        ok: false,
+      });
+    }
 
     if (toolCall.name === "kyro_lookup_contact") {
       const contacts = await lookupVoiceContactsForTool({
