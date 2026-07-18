@@ -6,6 +6,7 @@ import {
   validateTwilioWebhookSignature,
   TWILIO_PROVIDER,
 } from "../../../../../lib/integrations/twilio";
+import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
   const supabase = createServiceSupabaseClient();
   const { data: outbound, error } = await supabase
     .from("outbound_messages")
-    .select("id,workspace_id,metadata,status")
+    .select("id,workspace_id,metadata,source,status")
     .eq("provider", TWILIO_PROVIDER)
     .eq("provider_message_id", messageSid)
     .order("created_at", { ascending: false })
@@ -159,6 +160,81 @@ export async function POST(request: Request) {
     status: "processed",
     processed_at: now,
   });
+
+  if (outbound.source === "inbound_voice_inquiry") {
+    const voiceCallId = textValue(metadata.voiceCallId);
+    const conversationId = textValue(metadata.conversationId);
+    const eventType = failed
+      ? "notification.inbound_inquiry.delivery_failed"
+      : succeeded
+        ? "notification.inbound_inquiry.delivered"
+        : "notification.inbound_inquiry.status";
+
+    if (voiceCallId) {
+      const { error: voiceEventError } = await supabase
+        .from("voice_call_events")
+        .insert({
+          event_type: eventType,
+          payload: {
+            conversationId,
+            errorCode,
+            errorMessage,
+            messageSid,
+            outboundQueueId: outbound.id,
+            status: messageStatus,
+            to: textValue(params.To),
+          },
+          provider: TWILIO_PROVIDER,
+          voice_call_id: voiceCallId,
+          workspace_id: outbound.workspace_id,
+        });
+
+      if (voiceEventError) {
+        console.error("Unable to record inbound inquiry SMS delivery status", {
+          error: voiceEventError.message,
+          messageSid,
+          voiceCallId,
+          workspaceId: outbound.workspace_id,
+        });
+      }
+    }
+
+    if (failed) {
+      await sendInternalBugNotification({
+        context: {
+          workspaceId: outbound.workspace_id,
+        },
+        input: {
+          context: {
+            conversationId,
+            errorCode,
+            messageSid,
+            outboundQueueId: outbound.id,
+            status: messageStatus,
+            voiceCallId,
+          },
+          eventKey: `inbound-voice-notification:${messageSid}:${messageStatus}`,
+          kind: "Inbound inquiry SMS delivery failed",
+          rawMessage:
+            errorMessage ??
+            `Twilio SMS ${messageStatus}${errorCode ? ` (${errorCode})` : ""}`,
+          severity: "error",
+          source: "twilio.status.inbound_voice_inquiry",
+          visibleMessage:
+            "Kyro captured the inquiry, but the SMS notification was not delivered.",
+        },
+      }).catch((notificationError) => {
+        console.error("Unable to send inbound inquiry delivery bug alert", {
+          error:
+            notificationError instanceof Error
+              ? notificationError.message
+              : "Unknown notification error",
+          messageSid,
+          workspaceId: outbound.workspace_id,
+        });
+      });
+    }
+  }
 
   return twilioWebhookResponse();
 }

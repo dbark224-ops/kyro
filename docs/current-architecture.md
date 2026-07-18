@@ -1861,7 +1861,11 @@ These are not bugs:
   levels 2 and 3; the workspace comes from trusted call metadata, not model
   arguments.
 - Useful external phone inquiries create their normal Inbox/work-queue record
-  and also attempt a metered SMS notification to the primary workplace contact.
+  and also enqueue a metered SMS notification to the primary workplace contact.
+  These alerts use the durable outbound queue, an idempotency key tied to the
+  call, and Twilio delivery callbacks. Final delivery failures update the outbox,
+  attach a failure event to the voice call, and send Kyro's internal bug alert;
+  the actionable Inbox notification remains available as the in-app fallback.
   Suggested appointment times reserve availability inside Kyro but do not sync
   to Google or Outlook until approved.
 - AI triage and Assistant narration can use OpenAI in this local setup; local Ollama remains a development option on machines that support it.

@@ -105,7 +105,11 @@ type RecordOutboundDirectSmsInput = {
   workplaceContactId?: string | null;
   body: string;
   source: string;
+  consentNote?: string | null;
   idempotencyKey?: string | null;
+  metadata?: Record<string, unknown> | null;
+  replyEventPayload?: Record<string, unknown> | null;
+  replyEventType?: string | null;
   settingsSnapshot?: Record<string, unknown> | null;
 };
 
@@ -2358,7 +2362,9 @@ export async function recordOutboundDirectSms(
   }
 
   await recordSmsRecipientPreference(supabase, {
-    consentNote: "Internal workplace contact selected by a Kyro user.",
+    consentNote:
+      textValue(input.consentNote) ??
+      "Internal workplace contact selected by a Kyro user.",
     metadata: {
       recipientName: input.recipientName ?? null,
       workplaceContactId: input.workplaceContactId ?? null,
@@ -2385,14 +2391,18 @@ export async function recordOutboundDirectSms(
     settingsSnapshot: input.settingsSnapshot ?? null,
     source: input.source,
     metadata: {
+      ...(input.metadata ?? {}),
       deliveryMode: "event",
       replyEventPayload: {
+        ...(input.replyEventPayload ?? {}),
         body,
         channelType: "sms",
         recipientName: input.recipientName ?? null,
         workplaceContactId: input.workplaceContactId ?? null,
       },
-      replyEventType: "outbound.workplace_contact_sms.sent",
+      replyEventType:
+        textValue(input.replyEventType) ??
+        "outbound.workplace_contact_sms.sent",
     },
   });
 

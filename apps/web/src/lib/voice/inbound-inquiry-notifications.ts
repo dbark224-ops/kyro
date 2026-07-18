@@ -1,19 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicAppUrl } from "../app-url";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
-import {
-  assertSmsSendAllowed,
-  recordSmsRecipientPreference,
-} from "../communication/sms-compliance";
+import { recordOutboundDirectSms } from "../communication/outbound";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import {
   getActiveWorkspaceSmsNumber,
   getTwilioConfig,
-  sendTwilioSmsMessage,
-  telephonyUsageCost,
-  TWILIO_PROVIDER,
 } from "../integrations/twilio";
-import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 
 type InquiryNotificationOutcome = "booked" | "captured" | "proposed";
@@ -68,18 +61,20 @@ async function primaryNotificationRecipient(
     contacts[0] ??
     null;
   const configuredPhone = configured
-    ? textValue(configured.privatePhoneNumber) ??
-      textValue(configured.phoneNumber)
+    ? (textValue(configured.privatePhoneNumber) ??
+      textValue(configured.phoneNumber))
     : null;
 
   if (configuredPhone) {
     return {
+      contactId: configured?.id ?? null,
       name: textValue(configured?.name) ?? "Primary workplace contact",
       phoneNumber:
         normalizeContactPhoneForRegion(
           configuredPhone,
           settings.defaultPhoneRegion,
         ) ?? configuredPhone,
+      userId: textValue(workspaceResult.data?.owner_user_id),
     };
   }
 
@@ -98,16 +93,16 @@ async function primaryNotificationRecipient(
   }
 
   return {
+    contactId: null,
     name:
       textValue(metadata.first_name) ??
       textValue(metadata.name) ??
       textValue(metadata.full_name) ??
       "Workspace owner",
     phoneNumber:
-      normalizeContactPhoneForRegion(
-        ownerPhone,
-        settings.defaultPhoneRegion,
-      ) ?? ownerPhone,
+      normalizeContactPhoneForRegion(ownerPhone, settings.defaultPhoneRegion) ??
+      ownerPhone,
+    userId: ownerUserId,
   };
 }
 
@@ -180,23 +175,6 @@ export async function notifyInboundVoiceInquiry(
     return { notified: false, reason: "recipient_missing" } as const;
   }
 
-  await recordSmsRecipientPreference(input.supabase, {
-    consentNote: "Primary workplace contact for inbound Kyro inquiries.",
-    metadata: {
-      conversationId: input.conversationId ?? null,
-      providerCallId: input.providerCallId ?? null,
-      voiceCallId: input.voiceCallId ?? null,
-    },
-    phoneNumber: recipient.phoneNumber,
-    source: "inbound_voice_inquiry",
-    status: "staff_internal",
-    touch: "outbound",
-    workspaceId: input.workspaceId,
-  });
-  await assertSmsSendAllowed(input.supabase, {
-    phoneNumber: recipient.phoneNumber,
-    workspaceId: input.workspaceId,
-  });
   const workspaceNumber = await getActiveWorkspaceSmsNumber(
     input.supabase,
     input.workspaceId,
@@ -207,30 +185,44 @@ export async function notifyInboundVoiceInquiry(
     null;
 
   if (samePhoneNumber(from, recipient.phoneNumber)) {
-    return { notified: false, reason: "recipient_is_workspace_number" } as const;
+    return {
+      notified: false,
+      reason: "recipient_is_workspace_number",
+    } as const;
   }
 
-  const result = await sendTwilioSmsMessage({
-    body: notificationBody(input),
-    from,
-    to: recipient.phoneNumber,
-  });
-  const usage = telephonyUsageCost({
-    direction: "outbound",
-    kind: "sms",
-    markupRate: await resolveWorkspaceUsageMarkupRate(
-      input.supabase,
-      input.workspaceId,
-      "TWILIO_MARKUP_RATE",
-    ),
-    providerPrice: result.price,
-    providerCurrency: result.priceUnit,
-  });
+  if (!recipient.userId) {
+    return { notified: false, reason: "workspace_owner_missing" } as const;
+  }
+
   const sourceId =
-    input.voiceCallId ??
-    input.providerCallId ??
-    input.conversationId ??
-    result.messageId;
+    input.voiceCallId ?? input.providerCallId ?? input.conversationId;
+  const result = await recordOutboundDirectSms(input.supabase, {
+    body: notificationBody(input),
+    consentNote: "Primary workplace contact for inbound Kyro inquiries.",
+    idempotencyKey: `inbound_voice_inquiry.${input.workspaceId}.${sourceId ?? "unknown"}`,
+    metadata: {
+      conversationId: input.conversationId ?? null,
+      notificationType: "inbound_voice_inquiry",
+      outcome: input.outcome ?? "captured",
+      providerCallId: input.providerCallId ?? null,
+      voiceCallId: input.voiceCallId ?? null,
+    },
+    recipientName: recipient.name,
+    recipientPhone: recipient.phoneNumber,
+    replyEventPayload: {
+      conversationId: input.conversationId ?? null,
+      outcome: input.outcome ?? "captured",
+      providerCallId: input.providerCallId ?? null,
+      voiceCallId: input.voiceCallId ?? null,
+    },
+    replyEventType: "outbound.inbound_voice_inquiry.sent",
+    source: "inbound_voice_inquiry",
+    userId: recipient.userId,
+    workplaceContactId: recipient.contactId,
+    workspaceId: input.workspaceId,
+  });
+  const providerMessageId = result.externalMessageId ?? null;
 
   const { error: notificationEventError } = await input.supabase
     .from("voice_call_events")
@@ -238,9 +230,11 @@ export async function notifyInboundVoiceInquiry(
       event_type: "notification.inbound_inquiry.sent",
       payload: {
         conversationId: input.conversationId ?? null,
+        outboundQueueId: result.outboundQueueId,
+        outboxStatus: result.outboxStatus,
         outcome: input.outcome ?? "captured",
         providerCallId: input.providerCallId ?? null,
-        providerMessageId: result.messageId,
+        providerMessageId,
         recipientName: recipient.name,
       },
       provider: "kyro",
@@ -254,37 +248,9 @@ export async function notifyInboundVoiceInquiry(
     );
   }
 
-  const { error: usageError } = await input.supabase.from("usage_events").insert({
-    cost_snapshot: String(usage.cost),
-    currency: usage.currency,
-    customer_charge_snapshot: String(usage.customerCharge),
-    markup_snapshot: String(usage.markup),
-    metadata: {
-      conversationId: input.conversationId ?? null,
-      notificationType: "inbound_voice_inquiry",
-      recipientName: recipient.name,
-      voiceCallId: input.voiceCallId ?? null,
-    },
-    provider: TWILIO_PROVIDER,
-    provider_usage_id: result.messageId,
-    quantity: "1",
-    service: "sms",
-    source_id: sourceId,
-    source_type: "voice_call",
-    unit: "message",
-    unit_cost_snapshot: String(usage.cost),
-    usage_type: "outbound_sms",
-    workspace_id: input.workspaceId,
-  });
-
-  if (usageError) {
-    throw new Error(
-      `Unable to meter inbound inquiry notification: ${usageError.message}`,
-    );
-  }
-
   return {
     notified: true,
-    providerMessageId: result.messageId,
+    outboundQueueId: result.outboundQueueId,
+    providerMessageId,
   } as const;
 }
