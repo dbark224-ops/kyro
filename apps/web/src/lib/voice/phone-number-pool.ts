@@ -194,7 +194,7 @@ export async function getAvailableWorkspacePhoneNumbersFromPool(
     .eq("country_code", countryCode)
     .eq("status", "available")
     .order("created_at", { ascending: true })
-    .limit(20);
+    .limit(100);
 
   if (error) {
     if (tableMissing(error)) {

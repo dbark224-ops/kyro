@@ -13012,6 +13012,211 @@ button:disabled {
     color-mix(in srgb, var(--surface) 90%, var(--background));
 }
 
+.assistant-number-empty-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assistant-number-empty-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.assistant-number-empty-row strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.assistant-number-empty-row span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.phone-number-picker-open {
+  flex: 0 0 auto;
+  min-height: 36px;
+  white-space: nowrap;
+}
+
+.phone-number-picker-backdrop {
+  position: fixed;
+  z-index: 90;
+  display: grid;
+  padding: 20px;
+  background: rgb(6 10 18 / 0.62);
+  inset: 0;
+  place-items: center;
+}
+
+.phone-number-picker-modal {
+  display: grid;
+  width: min(620px, 100%);
+  max-height: min(78vh, 680px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  box-shadow: 0 28px 84px rgb(0 0 0 / 0.34);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.phone-number-picker-header {
+  display: flex;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.phone-number-picker-header h2 {
+  margin: 2px 0 0;
+  font-size: 1.1rem;
+}
+
+.phone-number-picker-close {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.phone-number-picker-close:hover,
+.phone-number-picker-close:focus-visible {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.phone-number-picker-toolbar {
+  display: grid;
+  padding: 12px 18px;
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.phone-number-picker-toolbar input {
+  width: 100%;
+  min-width: 0;
+}
+
+.phone-number-picker-form {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.phone-number-picker-list {
+  display: grid;
+  min-height: 0;
+  padding: 0 18px 14px;
+  overflow-y: auto;
+  align-content: start;
+  gap: 8px;
+}
+
+.phone-number-picker-option {
+  display: grid;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 48%, var(--surface));
+  cursor: pointer;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.phone-number-picker-option:hover {
+  border-color: color-mix(in srgb, var(--cyan) 68%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
+}
+
+.phone-number-picker-option:has(input:checked) {
+  border-color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 10%, var(--surface));
+}
+
+.phone-number-picker-option input {
+  margin: 0;
+  accent-color: var(--cyan);
+}
+
+.phone-number-picker-option span {
+  min-width: 0;
+}
+
+.phone-number-picker-option strong,
+.phone-number-picker-option small {
+  display: block;
+}
+
+.phone-number-picker-option small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.phone-number-picker-empty {
+  padding: 18px 0;
+  text-align: center;
+}
+
+.phone-number-picker-footer {
+  display: flex;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.phone-number-picker-footer > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.phone-number-picker-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .assistant-number-empty-row,
+  .phone-number-picker-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .phone-number-picker-open,
+  .phone-number-picker-submit {
+    width: 100%;
+  }
+
+  .phone-number-picker-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .phone-number-picker-toolbar .pill {
+    justify-self: start;
+  }
+}
+
 .public-assistant-number-content {
   align-items: center;
   display: flex;

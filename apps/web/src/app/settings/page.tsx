@@ -7,7 +7,6 @@ import {
   disconnectWorkspacePhoneSmsAction,
   disableVoicemailOverflowNumberAction,
   enableVoicemailOverflowNumberAction,
-  enableWorkspacePhoneSmsAction,
   connectStripePaymentsAction,
   openKyroBillingPortalAction,
   startKyroBillingSetupAction,
@@ -28,6 +27,7 @@ import {
   upsertInboundEmailSenderRuleSettingsAction,
 } from "./actions";
 import { InboundEmailAutosaveForm } from "./inbound-email-autosave-form";
+import { PhoneNumberPicker } from "./phone-number-picker";
 import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
 import { EscalationSettingsEditor } from "./escalation-settings-editor";
@@ -1580,6 +1580,9 @@ function TwilioTelephonySettings({
     operatingCountryPhoneRegion(
       generalSettings.businessProfile.operatingCountry,
     ) ?? generalSettings.defaultPhoneRegion;
+  const availableRegionalNumbers = availableNumbers.filter(
+    (number) => number.countryCode === phoneRegion,
+  );
 
   return (
     <>
@@ -1628,61 +1631,18 @@ function TwilioTelephonySettings({
             </div>
           </div>
         ) : (
-          <form
-            action={enableWorkspacePhoneSmsAction}
-            className="settings-form"
-          >
-            <p className="empty-copy">
-              No public assistant number is active yet. Choose a Kyro number to
-              receive customer calls and messages. A one-time{" "}
-              <strong>US$6</strong> setup charge will be added to the usage
-              ledger when the number is assigned.
-            </p>
-            {availableNumbers.length > 0 ? (
-              <div className="phone-number-choice-list">
-                {availableNumbers.map((number, index) => (
-                  <label className="phone-number-choice" key={number.id}>
-                    <input
-                      defaultChecked={index === 0}
-                      name="phoneNumberId"
-                      type="radio"
-                      value={number.id}
-                    />
-                    <span>
-                      <strong>{number.phoneNumber}</strong>
-                      <small>
-                        {[
-                          number.friendlyName,
-                          number.region,
-                          number.countryCode,
-                          number.vapiPhoneNumberId ? "Voice linked" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" - ")}
-                      </small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <p className="form-alert">
-                No available {phoneRegion} voice-and-SMS numbers are in the Kyro
-                pool yet.
-              </p>
-            )}
-            <div className="settings-footer compact-settings-footer">
+          <div className="assistant-number-empty-row">
+            <div>
+              <strong>No public assistant number assigned</strong>
               <span>
-                Once assigned, this becomes the workspace&apos;s public
-                assistant number.
+                Choose a {phoneRegion} number for customer calls and messages.
               </span>
-              <SettingsSubmitButton
-                disabled={availableNumbers.length === 0}
-                pendingLabel="Enabling..."
-              >
-                Get this Kyro number
-              </SettingsSubmitButton>
             </div>
-          </form>
+            <PhoneNumberPicker
+              numbers={availableRegionalNumbers}
+              phoneRegion={phoneRegion}
+            />
+          </div>
         )}
       </section>
 
