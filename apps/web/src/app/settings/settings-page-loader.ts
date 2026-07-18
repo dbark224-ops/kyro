@@ -220,7 +220,9 @@ export async function loadSettingsPageData(
     selectedSection === "usage"
       ? getUsageReport(supabase, workspace.id, activeWindow)
       : Promise.resolve(null),
-    selectedSection === "voice" || selectedSection === "developer"
+    selectedSection === "voice" ||
+    selectedSection === "developer" ||
+    needsPhoneSettings
       ? getVoiceSettings(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "usage"

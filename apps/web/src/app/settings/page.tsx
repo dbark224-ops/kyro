@@ -1489,10 +1489,12 @@ function TwilioTelephonySettings({
   availableNumbers,
   generalSettings,
   overview,
+  voiceSettings,
 }: Readonly<{
   availableNumbers: WorkspacePhoneNumberPoolRow[];
   generalSettings: WorkspaceGeneralSettings;
   overview: TwilioTelephonyOverview;
+  voiceSettings: VoiceSettings;
 }>) {
   const activeSmsNumberCount = overview.numbers.filter(
     (number) => number.capabilities.sms,
@@ -1505,6 +1507,49 @@ function TwilioTelephonySettings({
     overview.compliance.tableReady;
   const outboundSmsReady =
     overview.configured && hasActiveSmsNumber && overview.compliance.tableReady;
+  const hasActiveVoiceNumber = overview.numbers.some(
+    (number) => number.capabilities.voice,
+  );
+  const voiceRoutingReady = Boolean(
+    hasActiveVoiceNumber && voiceSettings.vapiPhoneNumberId,
+  );
+  const inboundPhoneReady = Boolean(
+    voiceSettings.phoneAgentEnabled &&
+    voiceSettings.phoneAgentInboundEnabled &&
+    voiceRoutingReady &&
+    voiceSettings.vapiInboundAssistantId,
+  );
+  const outboundPhoneReady = Boolean(
+    voiceSettings.phoneAgentEnabled &&
+    voiceSettings.phoneAgentOutboundEnabled &&
+    voiceRoutingReady &&
+    voiceSettings.vapiOutboundAssistantId,
+  );
+  const phoneStatusLabel = (ready: boolean, directionEnabled: boolean) => {
+    if (ready) {
+      return "Active";
+    }
+
+    if (!hasActiveVoiceNumber) {
+      return "Number needed";
+    }
+
+    if (!voiceSettings.phoneAgentEnabled || !directionEnabled) {
+      return "Off";
+    }
+
+    return "Needs attention";
+  };
+  const phoneAssistantStatus = (
+    directionEnabled: boolean,
+    assistantId: string | null,
+  ) => {
+    if (!voiceSettings.phoneAgentEnabled || !directionEnabled) {
+      return "Off";
+    }
+
+    return assistantId ? "Active" : "Check";
+  };
   const inboundStatusLabel = inboundSmsReady
     ? "Active"
     : !overview.configured
@@ -1642,6 +1687,88 @@ function TwilioTelephonySettings({
       </section>
 
       <div className="integration-summary-grid">
+        <article className="setting-card sms-readiness-card">
+          <SettingCardHeading
+            info={
+              <>
+                Customer calls to the Kyro number use the configured inbound
+                phone assistant and workspace call settings.
+              </>
+            }
+          >
+            Inbound calls
+          </SettingCardHeading>
+          <div
+            className={`settings-status-pill ${
+              inboundPhoneReady ? "ready" : "warning"
+            }`}
+          >
+            {phoneStatusLabel(
+              inboundPhoneReady,
+              voiceSettings.phoneAgentInboundEnabled,
+            )}
+          </div>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{hasActiveVoiceNumber ? "Connected" : "Missing"}</strong>
+              Calling number
+            </span>
+            <span>
+              <strong>{voiceRoutingReady ? "Ready" : "Check"}</strong>
+              Call routing
+            </span>
+            <span>
+              <strong>
+                {phoneAssistantStatus(
+                  voiceSettings.phoneAgentInboundEnabled,
+                  voiceSettings.vapiInboundAssistantId,
+                )}
+              </strong>
+              Inbound assistant
+            </span>
+          </div>
+        </article>
+        <article className="setting-card sms-readiness-card">
+          <SettingCardHeading
+            info={
+              <>
+                User-requested customer calls use the configured outbound phone
+                assistant and the workspace&apos;s Kyro number.
+              </>
+            }
+          >
+            Outbound calls
+          </SettingCardHeading>
+          <div
+            className={`settings-status-pill ${
+              outboundPhoneReady ? "ready" : "warning"
+            }`}
+          >
+            {phoneStatusLabel(
+              outboundPhoneReady,
+              voiceSettings.phoneAgentOutboundEnabled,
+            )}
+          </div>
+          <div className="mini-status-grid">
+            <span>
+              <strong>{hasActiveVoiceNumber ? "Ready" : "Missing"}</strong>
+              Calling number
+            </span>
+            <span>
+              <strong>{voiceRoutingReady ? "Ready" : "Check"}</strong>
+              Call routing
+            </span>
+            <span>
+              <strong>
+                {phoneAssistantStatus(
+                  voiceSettings.phoneAgentOutboundEnabled,
+                  voiceSettings.vapiOutboundAssistantId,
+                )}
+              </strong>
+              Outbound assistant
+            </span>
+          </div>
+        </article>
         <article className="setting-card sms-readiness-card">
           <SettingCardHeading
             info={
@@ -3809,6 +3936,7 @@ function WorkspaceIntegrationsSettings({
   showSenderRules,
   stripeOverview,
   twilioOverview,
+  voiceSettings,
   workspaceName,
 }: Readonly<{
   activePanel: IntegrationSettingsPanel;
@@ -3828,6 +3956,7 @@ function WorkspaceIntegrationsSettings({
   showSenderRules: boolean;
   stripeOverview: WorkspaceStripePaymentOverview | null;
   twilioOverview: TwilioTelephonyOverview | null;
+  voiceSettings: VoiceSettings | null;
   workspaceName: string;
 }>) {
   const googleConnections = googleOverview?.connections ?? [];
@@ -3922,7 +4051,10 @@ function WorkspaceIntegrationsSettings({
         </ProviderDetails>
       ) : null}
 
-      {activePanel === "phone-sms" && twilioOverview && generalSettings ? (
+      {activePanel === "phone-sms" &&
+      twilioOverview &&
+      generalSettings &&
+      voiceSettings ? (
         <ProviderDetails
           description={
             twilioOverview.numbers.length > 0
@@ -3941,6 +4073,7 @@ function WorkspaceIntegrationsSettings({
             availableNumbers={availablePhoneNumbers}
             generalSettings={generalSettings}
             overview={twilioOverview}
+            voiceSettings={voiceSettings}
           />
         </ProviderDetails>
       ) : null}
@@ -5892,6 +6025,7 @@ export default async function SettingsPage({
           generalSettings={generalSettings}
           stripeOverview={stripeOverview}
           twilioOverview={twilioOverview}
+          voiceSettings={voiceSettings}
           workspaceName={workspace.name}
         />
       </SettingsDetailShell>
