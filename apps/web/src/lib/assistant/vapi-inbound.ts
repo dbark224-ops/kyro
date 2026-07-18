@@ -625,6 +625,7 @@ export async function buildVapiAssistantRequestResponse(
     workspace.ownerUserId,
   );
   const internalNumberDetails = buildVapiInternalNumberDetails({
+    accountUser: userIdentity,
     voiceNumberDetails: settings.phoneAgentUserNumberDetails,
     voiceNumbers: settings.phoneAgentUserNumbers,
     workplaceContacts: generalSettings.businessProfile.workplaceContacts,

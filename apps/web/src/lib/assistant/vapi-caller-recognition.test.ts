@@ -15,6 +15,23 @@ const accountUser: VapiUserIdentity = {
 };
 
 describe("Vapi inbound caller recognition", () => {
+  it("automatically trusts the mobile number captured for the account user", () => {
+    const result = buildVapiInternalNumberDetails({
+      accountUser,
+      voiceNumberDetails: [],
+      voiceNumbers: [],
+      workplaceContacts: [],
+    });
+
+    assert.deepEqual(result, [
+      {
+        name: "David Barker",
+        phoneNumber: "+15755550123",
+        role: null,
+      },
+    ]);
+  });
+
   it("uses Business Profile workplace contacts as the internal caller source of truth", () => {
     const result = buildVapiInternalNumberDetails({
       voiceNumberDetails: [],
@@ -66,6 +83,29 @@ describe("Vapi inbound caller recognition", () => {
       {
         name: "David Barker",
         phoneNumber: "+1 (575) 571-2705",
+        role: "Owner",
+      },
+    ]);
+  });
+
+  it("keeps the workplace contact label when it matches the account number", () => {
+    const result = buildVapiInternalNumberDetails({
+      accountUser,
+      voiceNumberDetails: [],
+      voiceNumbers: [],
+      workplaceContacts: [
+        {
+          name: "David Barker",
+          phoneNumber: "+1 (575) 555-0123",
+          role: "Owner",
+        },
+      ],
+    });
+
+    assert.deepEqual(result, [
+      {
+        name: "David Barker",
+        phoneNumber: "+1 (575) 555-0123",
         role: "Owner",
       },
     ]);

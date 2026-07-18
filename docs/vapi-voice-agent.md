@@ -90,12 +90,13 @@ Settings -> Voice stores:
 
 These settings are saved in the existing `assistant_voice` workspace policy.
 
-When `phoneAgentUserNumbers` contains one or more trusted caller numbers, Kyro
-uses those numbers to switch inbound calls into internal-user mode. Calls from
-those numbers should use the internal assistant behaviour, broader tool access,
-and the main Assistant-thread context. Calls from all other numbers stay in
-external-caller mode and must not be treated as internal just because the caller
-claims to be the business owner or staff.
+Kyro automatically trusts the normalized mobile number captured for the account
+user during signup. Workplace contacts and legacy `phoneAgentUserNumbers` entries
+add other trusted team numbers. Calls from those numbers switch into
+internal-user mode with broader tool access and the main Assistant-thread
+context. Calls from all other numbers stay in external-caller mode and must not
+be treated as internal just because the caller claims to be the business owner or
+staff.
 
 ## Database Tables
 

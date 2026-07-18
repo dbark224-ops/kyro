@@ -34,6 +34,7 @@ function normalizedPhone(value: string | null | undefined) {
 }
 
 export function buildVapiInternalNumberDetails(input: {
+  accountUser?: Pick<VapiUserIdentity, "name" | "phone"> | null;
   voiceNumberDetails: PhoneAgentUserNumberDetail[];
   voiceNumbers: string[];
   workplaceContacts: VapiWorkplaceContact[];
@@ -65,6 +66,8 @@ export function buildVapiInternalNumberDetails(input: {
     add(contact.phoneNumber, contact.name, role);
     add(contact.privatePhoneNumber, contact.name, role);
   }
+
+  add(input.accountUser?.phone, input.accountUser?.name, null);
 
   for (const detail of input.voiceNumberDetails) {
     add(detail.phoneNumber, detail.name, detail.role);

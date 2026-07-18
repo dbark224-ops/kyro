@@ -79,9 +79,9 @@ The internal web/mobile Vapi session receives:
 `user_phone` and `kyro_user_phone` identify the Kyro account user. They come from
 the mobile number captured during signup and stored on the user's Supabase Auth
 record. They are not the Business Profile public phone number or the assigned
-Kyro assistant number. Inbound internal-caller authorization remains driven by
-the workplace contacts configured under Settings -> Voice assistant -> Phone
-assistant.
+Kyro assistant number. Kyro automatically includes this signup number in the
+internal-caller allowlist. Workplace contacts configured under Settings -> Voice
+assistant -> Phone assistant add any other trusted staff numbers.
 
 ### Inbound Customer And Voicemail Overflow
 
@@ -122,11 +122,12 @@ The dynamic `assistant-request` response receives:
 - current-time variables from `buildVapiCurrentTimeContext`
 
 Before the assistant speaks, Kyro performs an indexed phone-number lookup against
-the workspace CRM and the configured workplace-contact numbers. Business Profile
-workplace contacts are the source of truth for internal caller recognition; Kyro
-also merges any legacy Voice settings number entries for backward compatibility.
-This prevents a stale or empty duplicated Voice policy from demoting a configured
-owner or team member to an unknown customer. The response
+the workspace CRM, the signup mobile number, and configured workplace-contact
+numbers. The account user's signup mobile number is always trusted for that
+workspace. Business Profile workplace contacts add trusted staff numbers, and
+Kyro also merges legacy Voice settings entries for backward compatibility. This
+prevents a stale or empty duplicated Voice policy from demoting the account user
+or a configured team member to an unknown customer. The response
 overrides the inbound assistant's first message with `caller_greeting`: a usable
 recognized name receives `Hey {first name}`; unknown callers and matches without
 a usable name receive `Hi, this is {business name}. You're speaking with Kyro!`.
