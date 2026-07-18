@@ -119,6 +119,7 @@ import {
   type OutboundCallRequestResolution,
 } from "../voice/outbound-call-requests";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
+import { addDaysToDateKey, isoRangeForDateKeyRange } from "../timezone";
 
 type WorkspaceInput = {
   id: string;
@@ -2854,6 +2855,13 @@ type ParsedCalendarSchedule = {
   timeZone: string;
 };
 
+type ParsedCalendarDayRange = {
+  dateLabel: string;
+  from: string;
+  timeZone: string;
+  to: string;
+};
+
 type CalendarTargetResolution =
   | { event: CalendarEventItem; kind: "selected" }
   | { candidates: CalendarEventItem[]; kind: "ambiguous" }
@@ -2966,6 +2974,10 @@ function isGenericCalendarTitle(value: string) {
 
   return (
     !/[a-z]/i.test(value) ||
+    new RegExp(
+      `^(?:(?:this|next)\\s+)?${CALENDAR_TITLE_WEEKDAY}$`,
+      "i",
+    ).test(value.trim()) ||
     /^(calendar )?(event|appointment|booking|entry|calendar entry|reminder)( in (the|my) calendar)?$/.test(
       text,
     ) ||
@@ -3023,10 +3035,51 @@ function fallbackCalendarTitle(prompt: string, contact: ContactListItem | null) 
   return `Appointment with ${contactName}`;
 }
 
+function explicitCalendarTitle(prompt: string) {
+  const quoted = prompt.match(
+    /\b(?:titled|named|called)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”)/i,
+  );
+  const unquoted = quoted
+    ? null
+    : prompt.match(/\b(?:titled|named|called)\s+(.+)$/i);
+  const described =
+    quoted || unquoted
+      ? null
+      : prompt.match(/\b(?:it is|it's|this is)\s+(?:the\s+|an?\s+)?(.+)$/i);
+  const raw =
+    quoted?.slice(1).find((value) => Boolean(value?.trim())) ??
+    unquoted?.[1] ??
+    described?.[1];
+
+  if (!raw) {
+    return null;
+  }
+
+  const candidate = stripCalendarTitleTiming(raw)
+    .replace(/^["'“”]+|["'“”.,;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (candidate.length < 2 || isGenericCalendarTitle(candidate)) {
+    return null;
+  }
+
+  return sentenceCaseCalendarTitle(compactCalendarTitle(candidate)).slice(
+    0,
+    90,
+  );
+}
+
 export function cleanCalendarTitle(
   prompt: string,
   contact: ContactListItem | null,
 ) {
+  const explicitTitle = explicitCalendarTitle(prompt);
+
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
   let candidate = prompt.replace(/\s+/g, " ").trim();
 
   candidate = candidate
@@ -3189,10 +3242,14 @@ function nextWeekdayDateParts(
   return addDaysToLocalDate(now, adjustedOffset);
 }
 
-function calendarDateFromPrompt(prompt: string, timeZone: string) {
+function calendarDateFromPrompt(
+  prompt: string,
+  timeZone: string,
+  nowDate = new Date(),
+) {
   const raw = prompt.toLowerCase();
   const text = normalized(prompt);
-  const now = zonedDateParts(new Date(), timeZone);
+  const now = zonedDateParts(nowDate, timeZone);
   const isoDate = raw.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
 
   if (isoDate) {
@@ -3248,7 +3305,7 @@ function calendarDateFromPrompt(prompt: string, timeZone: string) {
   }
 
   const dayMonthDate = raw.match(
-    /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:,?\s+(\d{4}))?\b/i,
+    /\b(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:,?\s+(\d{4}))?\b/i,
   );
 
   if (dayMonthDate) {
@@ -3291,6 +3348,65 @@ function calendarDateFromPrompt(prompt: string, timeZone: string) {
   }
 
   return null;
+}
+
+export function calendarDateRangeFromPrompt(
+  prompt: string,
+  {
+    now = new Date(),
+    timeZone = "UTC",
+  }: {
+    now?: Date;
+    timeZone?: string;
+  } = {},
+): ParsedCalendarDayRange | null {
+  const safeZone = safeTimeZone(timeZone);
+  const date = calendarDateFromPrompt(prompt, safeZone, now);
+
+  if (!date) {
+    return null;
+  }
+
+  const dateKey = `${date.year}-${String(date.month).padStart(2, "0")}-${String(
+    date.day,
+  ).padStart(2, "0")}`;
+  const range = isoRangeForDateKeyRange(
+    { from: dateKey, to: addDaysToDateKey(dateKey, 1) },
+    safeZone,
+  );
+
+  return {
+    dateLabel: new Intl.DateTimeFormat("en-US", {
+      day: "numeric",
+      month: "long",
+      timeZone: safeZone,
+      weekday: "long",
+      year: "numeric",
+    }).format(new Date(range.from)),
+    from: range.from,
+    timeZone: safeZone,
+    to: range.to,
+  };
+}
+
+function calendarDateRangeFromPrompts(
+  prompt: string,
+  fallbackPrompt: string | null | undefined,
+  timeZone: string,
+) {
+  const primary = calendarDateRangeFromPrompt(prompt, { timeZone });
+
+  if (primary) {
+    return primary;
+  }
+
+  const fallback = fallbackPrompt?.trim();
+
+  if (!fallback || fallback === prompt.trim()) {
+    return null;
+  }
+
+  return calendarDateRangeFromPrompt(fallback, { timeZone });
 }
 
 function calendarTimeFromPrompt(prompt: string) {
@@ -4043,6 +4159,11 @@ async function calendarCommand({
     defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
     timeZone,
   });
+  const requestedDay = calendarDateRangeFromPrompts(
+    prompt,
+    userPrompt,
+    timeZone,
+  );
 
   if (wantsCalendarDraftFinalize(prompt, recentMessages)) {
     const resolution = await resolveCalendarTargetEvent({
@@ -4569,12 +4690,28 @@ async function calendarCommand({
   const now = new Date();
   const to = new Date(now.getTime() + 30 * 24 * 60 * 60_000);
   const events = await getCalendarEvents(supabase, workspace.id, {
-    from: now.toISOString(),
-    to: to.toISOString(),
+    from: requestedDay?.from ?? now.toISOString(),
+    to: requestedDay?.to ?? to.toISOString(),
   });
-  const top = events
-    .filter((event) => event.status !== "cancelled")
-    .slice(0, 8);
+  const activeEvents = events.filter((event) => event.status !== "cancelled");
+  const top = activeEvents.slice(0, 8);
+  const requestedDayAnswer = requestedDay
+    ? top.length > 0
+      ? `You have ${activeEvents.length} calendar event${
+          activeEvents.length === 1 ? "" : "s"
+        } on ${requestedDay.dateLabel}: ${top
+          .map(
+            (event) =>
+              `${event.title} at ${new Intl.DateTimeFormat("en-US", {
+                hour: "numeric",
+                minute: "2-digit",
+                timeZone,
+                timeZoneName: "short",
+              }).format(new Date(event.startsAt ?? requestedDay.from))}`,
+          )
+          .join(", ")}.`
+      : `You have no scheduled calendar events on ${requestedDay.dateLabel}.`
+    : null;
 
   return {
     context: {
@@ -4595,12 +4732,16 @@ async function calendarCommand({
           title: event.title,
         })),
       ),
-      range: "next_30_days",
+      range: requestedDay?.dateLabel ?? "next_30_days",
+      rangeFrom: requestedDay?.from ?? now.toISOString(),
+      rangeTo: requestedDay?.to ?? to.toISOString(),
+      workspaceTimeZone: timeZone,
     },
     fallbackAnswer:
-      top.length > 0
+      requestedDayAnswer ??
+      (top.length > 0
         ? `You have ${top.length} calendar event${top.length === 1 ? "" : "s"} coming up in the next 30 days.`
-        : "There are no scheduled calendar events in the next 30 days.",
+        : "There are no scheduled calendar events in the next 30 days."),
     intent: "calendar_event",
     links: [
       rowLink(
@@ -4620,11 +4761,11 @@ async function calendarCommand({
     uiBlocks: [
       ...summaryCardsBlock("Calendar summary", [
         {
-          detail: "Next 30 days",
+          detail: requestedDay?.dateLabel ?? "Next 30 days",
           href: "/calendar",
           label: "Events",
           tone: top.length > 0 ? "cyan" : "success",
-          value: String(top.length),
+          value: String(activeEvents.length),
         },
       ]),
       ...timelineBlock(

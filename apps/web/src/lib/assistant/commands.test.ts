@@ -4,6 +4,7 @@ import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
   assistantDate,
+  calendarDateRangeFromPrompt,
   calendarConversationReferenceFromRecentMessages,
   calendarLinkIntentFromPrompt,
   cleanCalendarTitle,
@@ -557,6 +558,47 @@ describe("assistant calendar helpers", () => {
         null,
       ),
       "Site inspection for Jane",
+    );
+    assert.equal(
+      cleanCalendarTitle(
+        'Create a calendar event for Saturday July 25 2026 at 9:00 am titled "Sponsor event"',
+        null,
+      ),
+      "Sponsor event",
+    );
+    assert.equal(
+      cleanCalendarTitle(
+        "Can you create a calendar event Saturday 25th of July at 9am, it's a sponsor event",
+        null,
+      ),
+      "Sponsor event",
+    );
+  });
+
+  it("resolves exact calendar lookup days in the workspace timezone", () => {
+    assert.deepEqual(
+      calendarDateRangeFromPrompt("Do I have any events on 2nd of August?", {
+        now: new Date("2026-07-17T18:00:00.000Z"),
+        timeZone: "America/Denver",
+      }),
+      {
+        dateLabel: "Sunday, August 2, 2026",
+        from: "2026-08-02T06:00:00.000Z",
+        timeZone: "America/Denver",
+        to: "2026-08-03T06:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      calendarDateRangeFromPrompt("What is on my calendar August 3?", {
+        now: new Date("2026-07-17T18:00:00.000Z"),
+        timeZone: "America/Denver",
+      }),
+      {
+        dateLabel: "Monday, August 3, 2026",
+        from: "2026-08-03T06:00:00.000Z",
+        timeZone: "America/Denver",
+        to: "2026-08-04T06:00:00.000Z",
+      },
     );
   });
 
