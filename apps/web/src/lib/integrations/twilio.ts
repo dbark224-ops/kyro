@@ -435,7 +435,8 @@ export async function sendTwilioSmsMessage(input: {
 
   const body = input.body.trim();
   const to = input.to.trim();
-  const from = input.from?.trim() ?? config.defaultFromNumber;
+  const requestedFrom = input.from?.trim() || null;
+  const from = requestedFrom ?? config.defaultFromNumber;
 
   if (!body) {
     throw new Error("Unable to send SMS because the message body is empty.");
@@ -458,6 +459,10 @@ export async function sendTwilioSmsMessage(input: {
 
   if (config.messagingServiceSid) {
     form.set("MessagingServiceSid", config.messagingServiceSid);
+
+    if (requestedFrom) {
+      form.set("From", requestedFrom);
+    }
   } else if (from) {
     form.set("From", from);
   }
