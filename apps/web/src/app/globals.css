@@ -7744,6 +7744,11 @@ button.voice-card {
   min-height: 0;
 }
 
+.inbox-preview-loading-panel {
+  align-content: start;
+  padding-top: 22px;
+}
+
 .inbox-preview-loading-overlay {
   position: absolute;
   z-index: 6;
@@ -9035,6 +9040,7 @@ button:disabled {
 }
 
 .conversation-workflow-panel {
+  container: conversation-workflow / inline-size;
   display: grid;
   gap: 14px;
 }
@@ -9047,7 +9053,122 @@ button:disabled {
 
 .workflow-item-card {
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
+}
+
+.conversation-workflow-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.conversation-workflow-current,
+.conversation-workflow-create {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.conversation-workflow-create {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.conversation-workflow-section-heading {
+  align-items: end;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.conversation-workflow-section-heading h3,
+.conversation-workflow-section-heading p {
+  margin: 0;
+}
+
+.conversation-workflow-section-heading h3 {
+  font-size: 0.94rem;
+}
+
+.conversation-workflow-section-heading > span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.conversation-workflow-forms {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.conversation-workflow-forms > form {
+  align-content: start;
+}
+
+.conversation-workflow-form-heading,
+.workflow-item-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.conversation-workflow-form-heading span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.workflow-item-main strong,
+.workflow-item-main p {
+  overflow-wrap: anywhere;
+}
+
+.workflow-item-card .workflow-item-kind {
+  color: var(--cyan);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.workflow-item-meta {
+  display: block;
+}
+
+.workflow-item-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.conversation-workflow-forms label,
+.conversation-workflow-forms input,
+.conversation-workflow-forms select {
+  min-width: 0;
+}
+
+.conversation-workflow-empty {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-control);
+  padding: 14px;
+}
+
+@container conversation-workflow (max-width: 840px) {
+  .conversation-workflow-forms {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container conversation-workflow (max-width: 520px) {
+  .workflow-item-card,
+  .message-workflow-inline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workflow-item-actions {
+    justify-content: flex-start;
+  }
 }
 
 .message-attachment-pill {

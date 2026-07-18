@@ -88,6 +88,7 @@ export function ConversationWorkflowPanel({
     (appointment) =>
       appointment.status === "suggested" || appointment.status === "scheduled",
   );
+  const activeCount = openTasks.length + activeAppointments.length;
 
   return (
     <section
@@ -102,25 +103,31 @@ export function ConversationWorkflowPanel({
           <p className="eyebrow">Workflow</p>
           <h2>Tasks and appointments</h2>
         </div>
-        <span className="pill">
-          {openTasks.length + activeAppointments.length} active
-        </span>
+        <span className="pill">{activeCount} active</span>
       </div>
 
       <div className="conversation-workflow-grid">
-        <div className="conversation-workflow-list">
-          {activeAppointments.length > 0 ? (
-            activeAppointments.map((appointment) => (
+        <section className="conversation-workflow-current">
+          <div className="conversation-workflow-section-heading">
+            <div>
+              <p className="eyebrow">Open work</p>
+              <h3>Current tasks and visits</h3>
+            </div>
+          </div>
+
+          <div className="conversation-workflow-list">
+            {activeAppointments.map((appointment) => (
               <article className="workflow-item-card" key={appointment.id}>
-                <div>
+                <div className="workflow-item-main">
+                  <span className="workflow-item-kind">Site visit</span>
                   <strong>{appointment.title}</strong>
-                  <span>
-                    {formatLabel(appointment.status)} ·{" "}
+                  <span className="workflow-item-meta">
+                    {formatLabel(appointment.status)} -{" "}
                     {formatDate(appointment.startsAt)}
                   </span>
                   {appointment.location ? <p>{appointment.location}</p> : null}
                 </div>
-                <div className="action-row">
+                <div className="workflow-item-actions">
                   <Link
                     className="secondary-button compact link-button"
                     href={calendarEventHref(appointment.id, appointment.startsAt)}
@@ -153,116 +160,139 @@ export function ConversationWorkflowPanel({
                   </form>
                 </div>
               </article>
-            ))
-          ) : (
-            <p className="empty-copy">No active appointments yet.</p>
-          )}
+            ))}
 
-          {openTasks.length > 0
-            ? openTasks.map((task) => (
-                <article className="workflow-item-card" key={task.id}>
-                  <div>
-                    <strong>{task.title}</strong>
-                    <span>
-                      {formatLabel(task.priority)} · {formatDate(task.dueAt)}
-                    </span>
-                    {task.description ? <p>{task.description}</p> : null}
-                  </div>
-                  <form action={completeConversationTaskAction}>
-                    <input
-                      name="conversationId"
-                      type="hidden"
-                      value={review.conversation.id}
-                    />
-                    <input name="taskId" type="hidden" value={task.id} />
-                    <input name="redirectTo" type="hidden" value={redirectTo} />
-                    <button className="secondary-button compact" type="submit">
-                      Complete
-                    </button>
-                  </form>
-                </article>
-              ))
-            : null}
-        </div>
+            {openTasks.map((task) => (
+              <article className="workflow-item-card" key={task.id}>
+                <div className="workflow-item-main">
+                  <span className="workflow-item-kind">Task</span>
+                  <strong>{task.title}</strong>
+                  <span className="workflow-item-meta">
+                    {formatLabel(task.priority)} - {formatDate(task.dueAt)}
+                  </span>
+                  {task.description ? <p>{task.description}</p> : null}
+                </div>
+                <form
+                  action={completeConversationTaskAction}
+                  className="workflow-item-actions"
+                >
+                  <input
+                    name="conversationId"
+                    type="hidden"
+                    value={review.conversation.id}
+                  />
+                  <input name="taskId" type="hidden" value={task.id} />
+                  <input name="redirectTo" type="hidden" value={redirectTo} />
+                  <button className="secondary-button compact" type="submit">
+                    Complete
+                  </button>
+                </form>
+              </article>
+            ))}
 
-        <div className="conversation-workflow-forms">
-          <form action={createConversationTaskAction}>
-            <input
-              name="conversationId"
-              type="hidden"
-              value={review.conversation.id}
-            />
-            <input name="taskType" type="hidden" value="manual_task" />
-            <input name="redirectTo" type="hidden" value={redirectTo} />
-            <label>
-              Task
-              <input
-                name="title"
-                placeholder="e.g. Follow up with customer"
-                required
-                type="text"
-              />
-            </label>
-            <div className="message-workflow-inline">
-              <label>
-                Due
-                <input name="dueAt" type="datetime-local" />
-              </label>
-              <label>
-                Priority
-                <select defaultValue="normal" name="priority">
-                  <option value="low">Low</option>
-                  <option value="normal">Normal</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </label>
+            {activeCount === 0 ? (
+              <p className="empty-copy conversation-workflow-empty">
+                No open tasks or site visits.
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="conversation-workflow-create">
+          <div className="conversation-workflow-section-heading">
+            <div>
+              <p className="eyebrow">Add to workflow</p>
+              <h3>Create the next action</h3>
             </div>
-            <button className="secondary-button compact" type="submit">
-              Save task
-            </button>
-          </form>
+          </div>
 
-          <form action={createConversationAppointmentAction}>
-            <input
-              name="conversationId"
-              type="hidden"
-              value={review.conversation.id}
-            />
-            <input name="redirectTo" type="hidden" value={redirectTo} />
-            <label>
-              Site visit title
+          <div className="conversation-workflow-forms">
+            <form action={createConversationTaskAction}>
+              <div className="conversation-workflow-form-heading">
+                <strong>New task</strong>
+                <span>Add a follow-up or internal action.</span>
+              </div>
               <input
-                defaultValue={defaultSiteVisitTitle(review)}
-                name="title"
-                required
-                type="text"
+                name="conversationId"
+                type="hidden"
+                value={review.conversation.id}
               />
-            </label>
-            <label>
-              Location
-              <input
-                defaultValue={defaultLocation(review)}
-                name="location"
-                placeholder="Job address"
-                type="text"
-              />
-            </label>
-            <div className="message-workflow-inline">
+              <input name="taskType" type="hidden" value="manual_task" />
+              <input name="redirectTo" type="hidden" value={redirectTo} />
               <label>
-                Start
-                <input name="startsAt" type="datetime-local" />
+                Task title
+                <input
+                  name="title"
+                  placeholder="e.g. Follow up with customer"
+                  required
+                  type="text"
+                />
+              </label>
+              <div className="message-workflow-inline">
+                <label>
+                  Due
+                  <input name="dueAt" type="datetime-local" />
+                </label>
+                <label>
+                  Priority
+                  <select defaultValue="normal" name="priority">
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </label>
+              </div>
+              <button className="secondary-button compact" type="submit">
+                Add task
+              </button>
+            </form>
+
+            <form action={createConversationAppointmentAction}>
+              <div className="conversation-workflow-form-heading">
+                <strong>Schedule site visit</strong>
+                <span>Add a visit to the Kyro calendar.</span>
+              </div>
+              <input
+                name="conversationId"
+                type="hidden"
+                value={review.conversation.id}
+              />
+              <input name="redirectTo" type="hidden" value={redirectTo} />
+              <label>
+                Site visit title
+                <input
+                  defaultValue={defaultSiteVisitTitle(review)}
+                  name="title"
+                  required
+                  type="text"
+                />
               </label>
               <label>
-                End
-                <input name="endsAt" type="datetime-local" />
+                Location
+                <input
+                  defaultValue={defaultLocation(review)}
+                  name="location"
+                  placeholder="Job address"
+                  type="text"
+                />
               </label>
-            </div>
-            <button className="secondary-button compact" type="submit">
-              Save site visit
-            </button>
-          </form>
-        </div>
+              <div className="message-workflow-inline">
+                <label>
+                  Start
+                  <input name="startsAt" type="datetime-local" />
+                </label>
+                <label>
+                  End
+                  <input name="endsAt" type="datetime-local" />
+                </label>
+              </div>
+              <button className="secondary-button compact" type="submit">
+                Add site visit
+              </button>
+            </form>
+          </div>
+        </section>
       </div>
     </section>
   );
