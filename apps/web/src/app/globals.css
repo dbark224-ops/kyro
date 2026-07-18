@@ -10567,15 +10567,49 @@ button:disabled {
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .workplace-contact-form-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
 
-.workplace-contact-form-grid .workplace-contact-field-wide {
+.workplace-contact-form-grid .workplace-contact-field-half {
+  grid-column: span 3;
+}
+
+.workplace-contact-form-grid .workplace-contact-field-third {
   grid-column: span 2;
+}
+
+.workplace-contact-primary-toggle-top {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--cyan) 6%, var(--surface));
+  color: var(--text);
+  cursor: pointer;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.workplace-contact-primary-toggle-top input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.workplace-contact-primary-toggle-top:has(input:disabled) {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .workplace-contact-form-grid input,
@@ -10687,9 +10721,14 @@ button:disabled {
   opacity: 1;
 }
 
-@container workplace-contact (max-width: 860px) {
+@container workplace-contact (max-width: 720px) {
   .workplace-contact-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workplace-contact-form-grid .workplace-contact-field-half,
+  .workplace-contact-form-grid .workplace-contact-field-third {
+    grid-column: auto;
   }
 
   .workplace-contact-schedule-grid {
@@ -10711,6 +10750,10 @@ button:disabled {
     max-height: none;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
     overflow: visible;
+  }
+
+  .workplace-contact-form-grid {
+    grid-template-columns: 1fr;
   }
 }
 

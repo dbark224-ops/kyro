@@ -64,16 +64,6 @@ const PHONE_PLACEHOLDER_BY_REGION: Partial<Record<PhoneRegion, string>> = {
   US: "(555) 123-4567",
 };
 
-const PRIVATE_PHONE_PLACEHOLDER_BY_REGION: Partial<Record<PhoneRegion, string>> =
-  {
-    AU: "+61 400 000 000",
-    CA: "+1 555 123 4567",
-    GB: "+44 7123 456789",
-    IE: "+353 85 123 4567",
-    NZ: "+64 21 123 4567",
-    US: "+1 555 123 4567",
-  };
-
 const WORKPLACE_DAY_KEY_BY_BUSINESS_DAY = new Map(
   BUSINESS_HOUR_DAYS.map((day) => [
     day.key,
@@ -148,7 +138,6 @@ function contactSearchText(contact: WorkplaceContactSettings, index: number) {
     contactLabel(contact, index),
     contact.email,
     contact.phoneNumber,
-    contact.privatePhoneNumber,
     contact.tradeSpecialty,
     contact.vehicleRegistration,
   ]
@@ -168,7 +157,6 @@ function contactMetaLine(contact: WorkplaceContactSettings) {
 function contactDetailCount(contact: WorkplaceContactSettings) {
   return [
     contact.phoneNumber,
-    contact.privatePhoneNumber,
     contact.email,
     contact.activeDays,
     contact.workingHours,
@@ -430,12 +418,6 @@ function phonePlaceholder(defaultPhoneRegion: PhoneRegion) {
   return PHONE_PLACEHOLDER_BY_REGION[defaultPhoneRegion] ?? "+1 555 123 4567";
 }
 
-function privatePhonePlaceholder(defaultPhoneRegion: PhoneRegion) {
-  return (
-    PRIVATE_PHONE_PLACEHOLDER_BY_REGION[defaultPhoneRegion] ?? "+1 555 123 4567"
-  );
-}
-
 export function WorkplaceContactsEditor({
   addLabel = "Add contact",
   businessWorkingHoursSchedule,
@@ -542,8 +524,6 @@ export function WorkplaceContactsEditor({
     selectedSchedule.slice(4, 8),
   ];
   const phoneInputPlaceholder = phonePlaceholder(defaultPhoneRegion);
-  const privatePhoneInputPlaceholder =
-    privatePhonePlaceholder(defaultPhoneRegion);
 
   function updateSelectedSchedule(
     dayKey: BusinessHoursDaySettings["day"],
@@ -739,6 +719,21 @@ export function WorkplaceContactsEditor({
                 <p>{contactMetaLine(selectedContact)}</p>
               </div>
               <div className="workplace-contact-form-actions">
+                <label className="workplace-contact-primary-toggle-top">
+                  <input
+                    checked={selectedContact.primaryEscalationContact}
+                    disabled={!isEditingSelectedContact}
+                    onChange={(event) => {
+                      if (event.currentTarget.checked) {
+                        updateSelectedContact({
+                          primaryEscalationContact: true,
+                        });
+                      }
+                    }}
+                    type="checkbox"
+                  />
+                  <span>Primary escalation contact</span>
+                </label>
                 <button
                   className="text-button"
                   onClick={() =>
@@ -767,7 +762,7 @@ export function WorkplaceContactsEditor({
                   : "crm-lead-form-grid workplace-contact-form-grid locked"
               }
             >
-              <label className="workplace-contact-field-wide">
+              <label className="workplace-contact-field-half">
                 Name
                 <input
                   disabled={!isEditingSelectedContact}
@@ -778,7 +773,7 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.name}
                 />
               </label>
-              <label>
+              <label className="workplace-contact-field-half">
                 Role
                 <input
                   disabled={!isEditingSelectedContact}
@@ -789,26 +784,7 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.role}
                 />
               </label>
-              <label>
-                Preferred channel
-                <select
-                  disabled={!isEditingSelectedContact}
-                  onChange={(event) =>
-                    updateSelectedContact({
-                      preferredChannel: event.currentTarget
-                        .value as WorkplaceContactChannel,
-                    })
-                  }
-                  value={selectedContact.preferredChannel}
-                >
-                  {WORKPLACE_CONTACT_CHANNELS.map((channel) => (
-                    <option key={channel} value={channel}>
-                      {WORKPLACE_CONTACT_CHANNEL_LABELS[channel]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="workplace-contact-field-wide">
+              <label className="workplace-contact-field-third">
                 Phone
                 <input
                   disabled={!isEditingSelectedContact}
@@ -832,31 +808,7 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.phoneNumber}
                 />
               </label>
-              <label className="workplace-contact-field-wide">
-                Private escalation number
-                <input
-                  disabled={!isEditingSelectedContact}
-                  onBlur={(event) => {
-                    const normalized = normalizeContactPhoneForRegion(
-                      event.currentTarget.value,
-                      defaultPhoneRegion,
-                    );
-
-                    if (normalized) {
-                      updateSelectedContact({ privatePhoneNumber: normalized });
-                    }
-                  }}
-                  onChange={(event) =>
-                    updateSelectedContact({
-                      privatePhoneNumber: event.currentTarget.value,
-                    })
-                  }
-                  placeholder={`Optional private number, e.g. ${privatePhoneInputPlaceholder}`}
-                  type="tel"
-                  value={selectedContact.privatePhoneNumber}
-                />
-              </label>
-              <label className="workplace-contact-field-wide">
+              <label className="workplace-contact-field-third">
                 Email
                 <input
                   disabled={!isEditingSelectedContact}
@@ -881,7 +833,20 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.email}
                 />
               </label>
-              <label>
+              <label className="workplace-contact-field-third">
+                Vehicle registration
+                <input
+                  disabled={!isEditingSelectedContact}
+                  onChange={(event) =>
+                    updateSelectedContact({
+                      vehicleRegistration: event.currentTarget.value,
+                    })
+                  }
+                  placeholder="Optional"
+                  value={selectedContact.vehicleRegistration}
+                />
+              </label>
+              <label className="workplace-contact-field-third">
                 Trade or specialty
                 <input
                   disabled={!isEditingSelectedContact}
@@ -894,18 +859,40 @@ export function WorkplaceContactsEditor({
                   value={selectedContact.tradeSpecialty}
                 />
               </label>
-              <label>
-                Vehicle registration
-                <input
+              <label className="workplace-contact-field-third">
+                Preferred channel
+                <select
                   disabled={!isEditingSelectedContact}
                   onChange={(event) =>
                     updateSelectedContact({
-                      vehicleRegistration: event.currentTarget.value,
+                      preferredChannel: event.currentTarget
+                        .value as WorkplaceContactChannel,
                     })
                   }
-                  placeholder="Optional"
-                  value={selectedContact.vehicleRegistration}
-                />
+                  value={selectedContact.preferredChannel}
+                >
+                  {WORKPLACE_CONTACT_CHANNELS.map((channel) => (
+                    <option key={channel} value={channel}>
+                      {WORKPLACE_CONTACT_CHANNEL_LABELS[channel]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="workplace-contact-field-third">
+                Escalation eligible
+                <select
+                  disabled={!isEditingSelectedContact}
+                  onChange={(event) =>
+                    updateSelectedContact({
+                      receivesEscalations:
+                        event.currentTarget.value !== "false",
+                    })
+                  }
+                  value={String(selectedContact.receivesEscalations)}
+                >
+                  <option value="true">Can receive escalations</option>
+                  <option value="false">Do not escalate to this person</option>
+                </select>
               </label>
               <div className="workplace-contact-schedule-field full-row">
                 <div className="workplace-contact-schedule-header">
@@ -994,37 +981,6 @@ export function WorkplaceContactsEditor({
                   ))}
                 </div>
               </div>
-              <label className="workplace-contact-field-wide">
-                Escalation eligible
-                <select
-                  disabled={!isEditingSelectedContact}
-                  onChange={(event) =>
-                    updateSelectedContact({
-                      receivesEscalations:
-                        event.currentTarget.value !== "false",
-                    })
-                  }
-                  value={String(selectedContact.receivesEscalations)}
-                >
-                  <option value="true">Can receive escalations</option>
-                  <option value="false">Do not escalate to this person</option>
-                </select>
-              </label>
-              <label className="compact-checkbox-row workplace-contact-primary-toggle full-row">
-                <input
-                  checked={selectedContact.primaryEscalationContact}
-                  disabled={!isEditingSelectedContact}
-                  onChange={(event) => {
-                    if (event.currentTarget.checked) {
-                      updateSelectedContact({
-                        primaryEscalationContact: true,
-                      });
-                    }
-                  }}
-                  type="checkbox"
-                />
-                <span>Primary escalation contact</span>
-              </label>
               <label className="full-row">
                 Notes
                 <textarea
