@@ -38,7 +38,7 @@ describe("urgent escalation trigger detection", () => {
     );
   });
 
-  it("does not treat an ordinary request as an urgent escalation", () => {
+  it("does not treat an ordinary renovation request as an urgent escalation", () => {
     assert.deepEqual(
       detectUrgentEscalationTriggers(
         {
@@ -48,7 +48,36 @@ describe("urgent escalation trigger detection", () => {
         },
         { afterHours: false },
       ),
-      ["high_value_lead"],
+      [],
+    );
+  });
+
+  it("ignores Kyro-generated voice-call titles during classification", () => {
+    assert.deepEqual(
+      detectUrgentEscalationTriggers(
+        {
+          content:
+            "Bathroom renovation quote request. Caller wants a site visit and quote.",
+          sourceKey: "voice:test-generated-title",
+          sourceType: "voice_call",
+          title: "Urgent customer call",
+        },
+        { afterHours: true },
+      ),
+      [],
+    );
+  });
+
+  it("still detects strong high-value project signals", () => {
+    assert.ok(
+      detectUrgentEscalationTriggers(
+        {
+          content: "We need a quote for a whole-house renovation.",
+          sourceKey: "email:test-high-value",
+          sourceType: "email",
+        },
+        { afterHours: false },
+      ).includes("high_value_lead"),
     );
   });
 
