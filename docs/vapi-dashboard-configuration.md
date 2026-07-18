@@ -20,12 +20,12 @@ use Bearer Token authentication with the `Authorization` header.
 
 ## Assistant Roles
 
-| Role | Kyro setting/env source | Purpose |
-| --- | --- | --- |
-| Internal voice | `vapiInternalAssistantId` or `VAPI_INTERNAL_ASSISTANT_ID` | Authenticated web/mobile `/voice-vapi` conversations with the business user. |
-| Inbound customer | `vapiInboundAssistantId` or `VAPI_INBOUND_ASSISTANT_ID` | External callers who call the Kyro number directly. |
-| Voicemail overflow | `vapiVoicemailAssistantId` or `VAPI_VOICEMAIL_OVERFLOW_ASSISTANT_ID` | Missed/unanswered personal-phone calls forwarded to a Kyro number. |
-| Outbound customer | `vapiOutboundAssistantId` or `VAPI_OUTBOUND_ASSISTANT_ID` | Kyro-initiated calls to customers, leads, suppliers, or other external contacts. |
+| Role               | Kyro setting/env source                                              | Purpose                                                                          |
+| ------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Internal voice     | `vapiInternalAssistantId` or `VAPI_INTERNAL_ASSISTANT_ID`            | Authenticated web/mobile `/voice-vapi` conversations with the business user.     |
+| Inbound customer   | `vapiInboundAssistantId` or `VAPI_INBOUND_ASSISTANT_ID`              | External callers who call the Kyro number directly.                              |
+| Voicemail overflow | `vapiVoicemailAssistantId` or `VAPI_VOICEMAIL_OVERFLOW_ASSISTANT_ID` | Missed/unanswered personal-phone calls forwarded to a Kyro number.               |
+| Outbound customer  | `vapiOutboundAssistantId` or `VAPI_OUTBOUND_ASSISTANT_ID`            | Kyro-initiated calls to customers, leads, suppliers, or other external contacts. |
 
 The concrete Vapi assistant ids are stored in production Vercel env vars or in
 Settings -> Voice provider ids. The repo should not hard-code them.
@@ -76,12 +76,27 @@ The internal web/mobile Vapi session receives:
 - `workspace_name`
 - current-time variables from `buildVapiCurrentTimeContext`
 
+`user_phone` and `kyro_user_phone` identify the Kyro account user. They come from
+the mobile number captured during signup and stored on the user's Supabase Auth
+record. They are not the Business Profile public phone number or the assigned
+Kyro assistant number. Inbound internal-caller authorization remains driven by
+the workplace contacts configured under Settings -> Voice assistant -> Phone
+assistant.
+
 ### Inbound Customer And Voicemail Overflow
 
 The dynamic `assistant-request` response receives:
 
 - `business_name`
+- `caller_contact_company`
+- `caller_contact_id`
+- `caller_contact_name`
+- `caller_contact_type`
+- `caller_first_name`
+- `caller_greeting`
+- `caller_is_known`
 - `caller_number`
+- `caller_recognition_kind`
 - `caller_role`
 - `kyro_context`
 - `kyro_number`
@@ -104,6 +119,16 @@ The dynamic `assistant-request` response receives:
 - `workspace_id`
 - `workspace_name`
 - current-time variables from `buildVapiCurrentTimeContext`
+
+Before the assistant speaks, Kyro performs an indexed phone-number lookup against
+the workspace CRM and the configured workplace-contact numbers. The response
+overrides the inbound assistant's first message with `caller_greeting`: a usable
+recognized name receives `Hey {first name}`; unknown callers and matches without
+a usable name receive `Hi, this is {business name}. You're speaking with Kyro!`.
+CRM recognition only personalizes the call. It never promotes an external CRM
+contact to `internal_user`; that role still requires an exact configured
+workplace-contact number match. Voicemail overflow keeps its dedicated saved
+assistant greeting while receiving the same caller-recognition variables.
 
 ### Outbound Customer
 
@@ -151,18 +176,18 @@ Every Kyro custom tool should use:
 
 Configure these tool names exactly:
 
-| Tool | Use on | Notes |
-| --- | --- | --- |
-| `kyro_lookup_contact` | Internal, inbound, voicemail, outbound | Looks up CRM contacts by phone number or query. |
-| `kyro_update_contact` | Internal only | Requires `userId`; backend handles ambiguity and audit logging. |
-| `kyro_record_call_note` | Internal, inbound, voicemail, outbound | Creates a phone conversation/message snapshot when needed, an internal CRM note, optional follow-up task, audit logs, and the raw Vapi event. |
-| `kyro_context_lookup` | Internal | Calls the normal Kyro assistant command/context layer. |
-| `kyro_assistant_command` | Internal | Alias for `kyro_context_lookup`. Optional if `kyro_context_lookup` exists. |
-| `kyro_web_search` | Internal | Uses Kyro's approved web-search path for current public info. |
-| `kyro_check_recent_email` | Internal | Runs the bounded Gmail/Outlook inbound email sync check. |
-| `kyro_send_sms` | Internal, plus restricted external same-caller cases | Backend blocks untrusted external sends except safe caller/contact-limited cases. |
-| `kyro_send_drafted_sms` | Internal | Sends existing drafted SMS actions after trusted internal instruction. |
-| `kyro_start_outbound_call` | Internal only | Backend blocks external customer/voicemail contexts from starting arbitrary outbound calls. |
+| Tool                       | Use on                                               | Notes                                                                                                                                         |
+| -------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kyro_lookup_contact`      | Internal, inbound, voicemail, outbound               | Looks up CRM contacts by phone number or query.                                                                                               |
+| `kyro_update_contact`      | Internal only                                        | Requires `userId`; backend handles ambiguity and audit logging.                                                                               |
+| `kyro_record_call_note`    | Internal, inbound, voicemail, outbound               | Creates a phone conversation/message snapshot when needed, an internal CRM note, optional follow-up task, audit logs, and the raw Vapi event. |
+| `kyro_context_lookup`      | Internal                                             | Calls the normal Kyro assistant command/context layer.                                                                                        |
+| `kyro_assistant_command`   | Internal                                             | Alias for `kyro_context_lookup`. Optional if `kyro_context_lookup` exists.                                                                    |
+| `kyro_web_search`          | Internal                                             | Uses Kyro's approved web-search path for current public info.                                                                                 |
+| `kyro_check_recent_email`  | Internal                                             | Runs the bounded Gmail/Outlook inbound email sync check.                                                                                      |
+| `kyro_send_sms`            | Internal, plus restricted external same-caller cases | Backend blocks untrusted external sends except safe caller/contact-limited cases.                                                             |
+| `kyro_send_drafted_sms`    | Internal                                             | Sends existing drafted SMS actions after trusted internal instruction.                                                                        |
+| `kyro_start_outbound_call` | Internal only                                        | Backend blocks external customer/voicemail contexts from starting arbitrary outbound calls.                                                   |
 
 ## Tool Arguments
 
