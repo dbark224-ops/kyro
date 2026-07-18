@@ -219,12 +219,16 @@ Required: `workspaceId`, `note`
 Optional: `priority`, `createTask`, `taskTitle`, `taskDescription`,
 `taskType`, `dueAt`, `followUpAt`, `callbackAt`, `bookingAt`,
 `callbackRequested`, `quoteRequested`, `bookingRequested`, `complaint`,
-`contactId`, `conversationId`, `leadId`, `voiceCallId`, `callId`
+`contactId`, `conversationId`, `leadId`, `voiceCallId`, `callId`, `callerName`,
+`customerName`, `address`, `jobAddress`, `serviceAddress`, `location`, `email`,
+`customerEmail`
 
 Backend behaviour:
 
 - creates or reuses a `vapi_voice` phone channel,
 - creates or reopens a phone conversation when the call is not already linked,
+- promotes structured caller identity details, or labeled `Caller`, `Address`,
+  and `Email` note fields, into blank or placeholder CRM contact fields,
 - creates a message snapshot for the voice call,
 - creates an internal `conversation_notes` row,
 - infers a `conversation_tasks` row for callbacks, quote follow-up, booking/site

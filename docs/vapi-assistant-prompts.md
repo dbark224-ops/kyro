@@ -743,6 +743,14 @@ Vapi metadata:
   "properties": {
     "workspaceId": { "type": "string" },
     "note": { "type": "string" },
+    "callerName": { "type": "string" },
+    "customerName": { "type": "string" },
+    "address": { "type": "string" },
+    "jobAddress": { "type": "string" },
+    "serviceAddress": { "type": "string" },
+    "location": { "type": "string" },
+    "email": { "type": "string" },
+    "customerEmail": { "type": "string" },
     "priority": {
       "type": "string",
       "enum": ["normal", "urgent", "follow_up"]

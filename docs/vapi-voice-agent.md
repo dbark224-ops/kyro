@@ -150,6 +150,8 @@ workspace users by RLS.
 `kyro_record_call_note` post-call automation
 
 - Creates or reuses a `vapi_voice` phone channel.
+- Promotes captured caller names, addresses, and email addresses into blank or
+  placeholder CRM contact fields without overwriting established profile data.
 - Creates or reopens a phone conversation if the voice call is not already
   linked to one.
 - Creates one message snapshot per voice call so the call has a normal Inbox/CRM

@@ -30,6 +30,10 @@ import {
   vapiUserVariableValues,
   type VapiUserIdentity,
 } from "../assistant/vapi-user-context";
+import {
+  isPlaceholderVoiceContactName,
+  voiceCallProfileFacts,
+} from "./call-note-profile";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
@@ -1167,6 +1171,36 @@ async function findContactByPhone(
     : null;
 }
 
+async function findContactById(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  contactId: string,
+) {
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id,name,company,email,phone,address,contact_type")
+    .eq("workspace_id", workspaceId)
+    .eq("id", contactId)
+    .is("merged_into_contact_id", null)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load voice contact: ${error.message}`);
+  }
+
+  return data
+    ? {
+        address: textValue(data.address),
+        company: textValue(data.company),
+        contactType: textValue(data.contact_type),
+        email: textValue(data.email),
+        id: String(data.id),
+        name: textValue(data.name),
+        phone: textValue(data.phone),
+      }
+    : null;
+}
+
 async function lookupLinkedRows(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -2258,15 +2292,6 @@ function callCustomerNumber(call: VoiceCallAutomationTarget | null) {
     : (call.fromNumber ?? call.toNumber);
 }
 
-function callerDisplayName(args: Record<string, unknown>) {
-  return firstText(
-    args.contactName,
-    args.callerName,
-    args.customerName,
-    args.name,
-  );
-}
-
 function callServiceType(args: Record<string, unknown>, note: string) {
   return (
     firstText(args.serviceType, args.jobType, args.workType, args.issueType) ??
@@ -2324,10 +2349,17 @@ async function ensureVoiceCallCrmArtifacts(input: {
 
   const customerNumber = callCustomerNumber(call);
   const normalizedCustomerNumber = normalizePhone(customerNumber);
+  const profileFacts = voiceCallProfileFacts({
+    args: input.args,
+    note: input.note,
+  });
   let contactId = call.contactId;
+  let existingContact = contactId
+    ? await findContactById(input.supabase, input.workspaceId, contactId)
+    : null;
 
-  if (!contactId) {
-    const existingContact = await findContactByPhone(
+  if (!existingContact) {
+    existingContact = await findContactByPhone(
       input.supabase,
       input.workspaceId,
       customerNumber,
@@ -2336,22 +2368,16 @@ async function ensureVoiceCallCrmArtifacts(input: {
     contactId = existingContact?.id ?? null;
   }
 
-  if (!contactId && (customerNumber || callerDisplayName(input.args))) {
+  if (!contactId && (customerNumber || profileFacts.name)) {
     const name =
-      callerDisplayName(input.args) ??
+      profileFacts.name ??
       (customerNumber ? "Unknown phone caller" : "Unknown caller");
-    const address = firstText(
-      input.args.address,
-      input.args.jobAddress,
-      input.args.serviceAddress,
-    );
-    const email = firstText(input.args.email, input.args.customerEmail);
     const { data: contact, error } = await input.supabase
       .from("contacts")
       .insert({
-        address,
+        address: profileFacts.address,
         contact_type: "lead",
-        email,
+        email: profileFacts.email,
         lifecycle_reason: "Created from Vapi post-call automation.",
         lifecycle_source: "ai",
         lifecycle_stage: "lead",
@@ -2387,13 +2413,63 @@ async function ensureVoiceCallCrmArtifacts(input: {
         source: "vapi_phone_call",
       },
     });
+  } else if (contactId && existingContact) {
+    const updates: {
+      address?: string;
+      email?: string;
+      name?: string;
+      updated_at?: string;
+    } = {};
+
+    if (
+      profileFacts.name &&
+      isPlaceholderVoiceContactName(existingContact.name)
+    ) {
+      updates.name = profileFacts.name;
+    }
+
+    if (profileFacts.address && !existingContact.address) {
+      updates.address = profileFacts.address;
+    }
+
+    if (profileFacts.email && !existingContact.email) {
+      updates.email = profileFacts.email;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString();
+      const { error } = await input.supabase
+        .from("contacts")
+        .update(updates)
+        .eq("workspace_id", input.workspaceId)
+        .eq("id", contactId);
+
+      if (error) {
+        throw new Error(`Unable to enrich caller contact: ${error.message}`);
+      }
+
+      await insertAuditLog(input.supabase, {
+        workspaceId: input.workspaceId,
+        actorType: "ai",
+        actorId: textValue(input.args.userId) ?? undefined,
+        action: "voice_call.contact_enriched",
+        entityType: "contact",
+        entityId: contactId,
+        before: {
+          address: existingContact.address,
+          email: existingContact.email,
+          name: existingContact.name,
+        },
+        after: updates,
+      });
+    }
   }
 
   let leadId = call.leadId;
 
   if (!leadId && contactId && shouldCreateLeadForCall(input)) {
     const displayName =
-      callerDisplayName(input.args) ?? customerNumber ?? "unknown caller";
+      profileFacts.name ?? customerNumber ?? "unknown caller";
     const serviceType = callServiceType(input.args, input.note);
     const title =
       firstText(input.args.leadTitle) ??
