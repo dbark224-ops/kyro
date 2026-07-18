@@ -13218,16 +13218,49 @@ button:disabled {
 }
 
 .public-assistant-number-content {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: space-between;
+  display: grid;
   min-width: 0;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .public-assistant-number-content > div {
   min-width: 0;
+}
+
+.public-assistant-number-card {
+  padding: 14px;
+}
+
+.public-assistant-number-main,
+.public-assistant-number-list {
+  display: grid;
+  gap: 8px;
+}
+
+.public-assistant-number-list > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.public-assistant-number-list strong {
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.public-assistant-number-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.public-assistant-number-meta > span:first-child {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .phone-number-route-button {
@@ -13238,6 +13271,17 @@ button:disabled {
   min-height: 38px;
   text-decoration: none;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .public-assistant-number-content {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .phone-number-route-button {
+    width: 100%;
+  }
 }
 
 .phone-number-active-panel,

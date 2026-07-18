@@ -3272,36 +3272,36 @@ function GeneralSettingsDetail({
           </div>
 
           <section
-            className="signature-editor"
+            className="signature-editor public-assistant-number-card"
             style={visibleWhen(showPublicDetails)}
           >
-            <div>
-              <p className="eyebrow">Assistant phone number</p>
-            </div>
             <div className="public-assistant-number-content">
-              {operationalPhoneNumbers.length ? (
-                <div className="detail-list compact-detail-list">
-                  {operationalPhoneNumbers.map((number) => (
-                    <div
-                      className="operational-phone-number-row"
-                      key={number.id}
-                    >
-                      <div>
+              <div className="public-assistant-number-main">
+                <p className="eyebrow">Assistant phone number</p>
+                {operationalPhoneNumbers.length ? (
+                  <div className="public-assistant-number-list">
+                    {operationalPhoneNumbers.map((number) => (
+                      <div key={number.id}>
                         <strong>{number.phoneNumber}</strong>
-                        <span>
-                          {number.friendlyName ?? "Kyro assistant number"} -{" "}
-                          {phoneCapabilitiesLabel(number)} -{" "}
-                          {formatLabel(number.status)}
-                        </span>
+                        <div className="public-assistant-number-meta">
+                          <span>{phoneCapabilitiesLabel(number)}</span>
+                          <span
+                            className={`settings-status-pill ${
+                              number.status === "active" ? "ready" : "warning"
+                            }`}
+                          >
+                            {formatLabel(number.status)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="empty-copy">
-                  No assistant phone number is assigned yet.
-                </p>
-              )}
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">
+                    No assistant phone number is assigned yet.
+                  </p>
+                )}
+              </div>
               <SmartPrefetchLink
                 className="secondary-button phone-number-route-button"
                 href={settingsPanelHref("integrations", "phone-sms")}
