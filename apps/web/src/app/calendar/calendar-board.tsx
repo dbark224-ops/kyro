@@ -482,7 +482,7 @@ function DateTimeInput({
   const [value, setValue] = useState(dateTimeLocalValue(defaultValue, timeZone));
 
   return (
-    <label>
+    <label className={styles.dateTimeField}>
       {label}
       <input
         name={`${name}Local`}

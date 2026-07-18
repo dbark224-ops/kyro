@@ -543,6 +543,14 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.formGrid > * {
+  min-width: 0;
+}
+
+.editorPanel:not(.editorPanelModal) .dateTimeField {
+  grid-column: 1 / -1;
+}
+
 .fullWidth {
   grid-column: 1 / -1;
 }
@@ -562,10 +570,14 @@
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   border: 1px solid var(--line);
   border-radius: 9px;
+  box-sizing: border-box;
   color: var(--text);
   font: inherit;
+  max-width: 100%;
   min-height: 38px;
+  min-width: 0;
   padding: 8px 10px;
+  width: 100%;
 }
 
 .editorForm textarea {
