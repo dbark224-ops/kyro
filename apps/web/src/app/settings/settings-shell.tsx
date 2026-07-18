@@ -3,12 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SettingsRoutePrefetcher } from "./settings-route-prefetcher";
-import {
-  useMemo,
-  useState,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+import { SettingsSearch } from "./settings-search";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 const intentPrefetchedSettingsRoutes = new Set<string>();
 
@@ -115,6 +111,13 @@ export function SettingsShell({
             <h2>Workspace controls</h2>
           </div>
         </div>
+
+        <SettingsSearch
+          currentHref={currentHref}
+          includeDeveloper={items.some((item) => item.section === "developer")}
+          onNavigate={setPendingHref}
+          onPrefetch={prefetchRouteOnIntent}
+        />
 
         <div className="settings-menu-list">
           {items.map((item) => (
