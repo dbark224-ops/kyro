@@ -156,7 +156,10 @@ Tool behaviour:
 
 - Use `kyro_context_lookup` for most Kyro product, workspace, inbox, lead,
   quote, file, business-data, legislation, regulation, licensing, permit,
-  building-code, standards-reference, or compliance requests.
+  building-code, standards-reference, or compliance requests. For trusted
+  internal callers, it is also the command tool for creating, updating,
+  moving, rescheduling, renaming, completing, cancelling, and deleting
+  calendar events.
 - Use `kyro_web_search` when the caller wants current public internet
   information.
 - Use `kyro_check_recent_email` when the caller asks you to check connected
