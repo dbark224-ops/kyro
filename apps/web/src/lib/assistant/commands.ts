@@ -4806,10 +4806,12 @@ export function looksLikeDirectWorkplaceSmsRequest(prompt: string) {
   const text = normalized(prompt);
   const hasSendInstruction = /\b(send|text)\b/.test(text);
   const hasSmsChannel = /\b(sms|text|text message)\b/.test(text);
-  const hasWorkplaceTarget =
-    /\b(primary workplace contact|workplace contact|primary escalation contact|team contact|staff contact)\b/.test(
-      text,
-    );
+  const hasContactTarget = /\b(contact|team member|staff member|employee)\b/.test(
+    text,
+  );
+  const hasInternalQualifier =
+    /\b(workplace|team|staff|internal|escalation)\b/.test(text);
+  const hasWorkplaceTarget = hasContactTarget && hasInternalQualifier;
 
   return hasSendInstruction && hasSmsChannel && hasWorkplaceTarget;
 }
@@ -5043,6 +5045,10 @@ async function workQueueCommand({
 }
 
 export function looksLikeActionExecutionRequest(prompt: string) {
+  if (looksLikeDirectWorkplaceSmsRequest(prompt)) {
+    return false;
+  }
+
   const text = normalized(prompt);
 
   if (

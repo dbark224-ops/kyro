@@ -704,13 +704,20 @@ describe("assistant LLM-first command routing", () => {
   });
 
   it("recognizes direct workplace SMS instructions without treating them as pending replies", () => {
-    const prompt =
-      "can you send the primary workplace contact an sms, i want to test if that functionality is working";
+    const prompts = [
+      "can you send the primary workplace contact an sms, i want to test if that functionality is working",
+      "can you send the primary workplace escalation contact an sms, i want to test if that functionality is working",
+      "text the primary escalation workplace contact to test SMS",
+      "send our internal staff contact a text message",
+    ];
 
-    assert.equal(looksLikeDirectWorkplaceSmsRequest(prompt), true);
-    assert.equal(looksLikeActionExecutionRequest(prompt), false);
+    for (const prompt of prompts) {
+      assert.equal(looksLikeDirectWorkplaceSmsRequest(prompt), true, prompt);
+      assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
+    }
+
     assert.equal(
-      assistantSmsBodyFromPrompt(prompt),
+      assistantSmsBodyFromPrompt(prompts[0]),
       "This is a test SMS from Kyro.",
     );
     assert.equal(

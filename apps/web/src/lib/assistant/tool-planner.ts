@@ -472,6 +472,8 @@ export async function planAssistantToolCall({
           "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
           "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",
           "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
+          "Use kyro_action_execution only to execute an existing pending work-queue action, draft reply, or approval. Never use it to create a new outbound message.",
+          "When the logged-in user directly asks to send or test an SMS to a workplace, team, staff, internal, primary, or escalation contact, call kyro_sms_send. This remains true when qualifiers appear in a different order, such as 'primary workplace escalation contact'.",
           "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
         ].join(" "),
         max_output_tokens: 180,

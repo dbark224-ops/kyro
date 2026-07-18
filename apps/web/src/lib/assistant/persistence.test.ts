@@ -4,12 +4,14 @@ import { extractSuggestedMemory } from "./persistence";
 
 describe("assistant memory suggestions", () => {
   it("does not suggest one-off action requests as lasting memory", () => {
-    assert.equal(
-      extractSuggestedMemory(
-        "can you send the primary workplace contact an sms, i want to test if that functionality is working",
-      ),
-      null,
-    );
+    const prompts = [
+      "can you send the primary workplace contact an sms, i want to test if that functionality is working",
+      "can you send the primary workplace escalation contact an sms, i want to test if that functionality is working",
+    ];
+
+    for (const prompt of prompts) {
+      assert.equal(extractSuggestedMemory(prompt), null, prompt);
+    }
   });
 
   it("keeps high-confidence durable preferences eligible for approval", () => {
