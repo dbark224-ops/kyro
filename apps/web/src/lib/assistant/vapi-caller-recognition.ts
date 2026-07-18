@@ -18,6 +18,7 @@ export type VapiCallerRecognition = {
   kind: "crm_contact" | "internal_user" | "unknown";
   name: string;
   recognized: boolean;
+  voicemailGreeting: string;
 };
 
 function normalizedPhone(value: string | null | undefined) {
@@ -71,6 +72,12 @@ function genericGreeting(businessName: string) {
   return `Hi, this is ${businessName}. You're speaking with Kyro!`;
 }
 
+function voicemailGreeting(businessName: string, firstName: string) {
+  return firstName
+    ? `Hey ${firstName}, you've reached ${businessName}. No one was able to answer, but I can help or take a message.`
+    : `Hi, you've reached ${businessName}. You're speaking with Kyro. No one was able to answer, but I can help or take a message.`;
+}
+
 export function buildVapiCallerRecognition(input: {
   businessName: string;
   callerNumber: string | null;
@@ -111,5 +118,6 @@ export function buildVapiCallerRecognition(input: {
     kind,
     name,
     recognized: kind !== "unknown",
+    voicemailGreeting: voicemailGreeting(input.businessName, firstName),
   };
 }

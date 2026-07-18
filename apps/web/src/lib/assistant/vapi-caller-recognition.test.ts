@@ -31,6 +31,10 @@ describe("Vapi inbound caller recognition", () => {
     assert.equal(result.kind, "internal_user");
     assert.equal(result.firstName, "David");
     assert.equal(result.greeting, "Hey David");
+    assert.equal(
+      result.voicemailGreeting,
+      "Hey David, you've reached WFA Plumbing. No one was able to answer, but I can help or take a message.",
+    );
   });
 
   it("greets a matched CRM caller without granting internal status", () => {
@@ -51,6 +55,10 @@ describe("Vapi inbound caller recognition", () => {
     assert.equal(result.kind, "crm_contact");
     assert.equal(result.firstName, "Maria");
     assert.equal(result.greeting, "Hey Maria");
+    assert.equal(
+      result.voicemailGreeting,
+      "Hey Maria, you've reached WFA Plumbing. No one was able to answer, but I can help or take a message.",
+    );
   });
 
   it("falls back to the business greeting when a match has no usable name", () => {
@@ -74,6 +82,10 @@ describe("Vapi inbound caller recognition", () => {
       result.greeting,
       "Hi, this is WFA Plumbing. You're speaking with Kyro!",
     );
+    assert.equal(
+      result.voicemailGreeting,
+      "Hi, you've reached WFA Plumbing. You're speaking with Kyro. No one was able to answer, but I can help or take a message.",
+    );
   });
 
   it("uses the generic greeting for an unknown caller", () => {
@@ -91,6 +103,10 @@ describe("Vapi inbound caller recognition", () => {
     assert.equal(
       result.greeting,
       "Hi, this is WFA Plumbing. You're speaking with Kyro!",
+    );
+    assert.equal(
+      result.voicemailGreeting,
+      "Hi, you've reached WFA Plumbing. You're speaking with Kyro. No one was able to answer, but I can help or take a message.",
     );
   });
 });

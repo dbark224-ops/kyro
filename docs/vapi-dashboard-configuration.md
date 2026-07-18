@@ -118,6 +118,7 @@ The dynamic `assistant-request` response receives:
 - `voice_verbosity`
 - `workspace_id`
 - `workspace_name`
+- `voicemail_greeting`
 - current-time variables from `buildVapiCurrentTimeContext`
 
 Before the assistant speaks, Kyro performs an indexed phone-number lookup against
@@ -125,10 +126,11 @@ the workspace CRM and the configured workplace-contact numbers. The response
 overrides the inbound assistant's first message with `caller_greeting`: a usable
 recognized name receives `Hey {first name}`; unknown callers and matches without
 a usable name receive `Hi, this is {business name}. You're speaking with Kyro!`.
+Voicemail overflow receives the route-specific `voicemail_greeting`, which
+acknowledges the missed call and can greet a recognized CRM caller by first name.
 CRM recognition only personalizes the call. It never promotes an external CRM
-contact to `internal_user`; that role still requires an exact configured
-workplace-contact number match. Voicemail overflow keeps its dedicated saved
-assistant greeting while receiving the same caller-recognition variables.
+contact to `internal_user`; voicemail overflow always remains an external-caller
+route even when the number belongs to a known contact.
 
 ### Outbound Customer
 

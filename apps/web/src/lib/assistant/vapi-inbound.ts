@@ -727,12 +727,11 @@ export async function buildVapiAssistantRequestResponse(
   return {
     assistantId,
     assistantOverrides: {
-      ...(purpose === "voicemail_overflow"
-        ? {}
-        : {
-            firstMessage: callerRecognition.greeting,
-            firstMessageMode: "assistant-speaks-first",
-          }),
+      firstMessage:
+        purpose === "voicemail_overflow"
+          ? callerRecognition.voicemailGreeting
+          : callerRecognition.greeting,
+      firstMessageMode: "assistant-speaks-first",
       metadata,
       server: webhookUrl
         ? {
@@ -756,6 +755,7 @@ export async function buildVapiAssistantRequestResponse(
         caller_is_known: callerRecognition.recognized ? "true" : "false",
         caller_number: from ?? "",
         caller_recognition_kind: callerRecognition.kind,
+        voicemail_greeting: callerRecognition.voicemailGreeting,
         caller_role:
           purpose === "inbound_user" ? "internal_user" : "external_caller",
         assistant_selection_purpose: purpose,
