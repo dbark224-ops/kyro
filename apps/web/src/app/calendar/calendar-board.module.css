@@ -154,6 +154,54 @@
   width: 14px;
 }
 
+.calendarRefreshButton {
+  align-items: center;
+  background: color-mix(in srgb, var(--cyan) 11%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--cyan) 56%, var(--line));
+  border-radius: 999px;
+  color: var(--cyan);
+  cursor: pointer;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  margin-right: 5px;
+  padding: 0;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+  width: 34px;
+}
+
+.calendarRefreshButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cyan) 18%, var(--surface));
+  border-color: var(--cyan);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.calendarRefreshButton:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.calendarRefreshButton:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.calendarRefreshButton span,
+.calendarRefreshButton svg {
+  display: block;
+  height: 16px;
+  width: 16px;
+}
+
+.refreshIconSpinning {
+  animation: calendarPendingSpin 680ms linear infinite;
+}
+
 .calendarTitle h2,
 .editorHeader h2 {
   font-size: clamp(1.05rem, 1.2vw, 1.35rem);

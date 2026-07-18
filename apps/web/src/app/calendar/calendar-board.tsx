@@ -468,6 +468,25 @@ function ChevronIcon({
   );
 }
 
+function RefreshIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 16 16"
+    >
+      <path
+        d="M13.1 5.7A5.5 5.5 0 1 0 13.4 9M13.1 2.8v2.9h-2.9"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  );
+}
+
 function DateTimeInput({
   defaultValue,
   label,
@@ -1077,6 +1096,7 @@ export function CalendarBoard({
 }: CalendarBoardProps) {
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
+  const [isRefreshing, startRefresh] = useTransition();
   const [currentAnchorDate, setCurrentAnchorDate] = useState(anchorDate);
   const anchor = useMemo(
     () => dateKeyToPlainDate(currentAnchorDate),
@@ -1193,7 +1213,9 @@ export function CalendarBoard({
       event.externalSyncStatus &&
       event.externalSyncStatus !== "synced",
   ).length;
-  const calendarIsPending = Boolean(pendingHref || isNavigating);
+  const calendarIsPending = Boolean(
+    pendingHref || isNavigating || isRefreshing,
+  );
 
   return (
     <div className={styles.calendarShell}>
@@ -1232,6 +1254,26 @@ export function CalendarBoard({
               </p>
             </div>
             <div className={styles.calendarHeaderActions}>
+              <button
+                aria-busy={isRefreshing}
+                aria-label="Refresh calendar"
+                className={styles.calendarRefreshButton}
+                disabled={isRefreshing}
+                onClick={() => {
+                  setPendingHref(null);
+                  startRefresh(() => router.refresh());
+                }}
+                title="Refresh calendar"
+                type="button"
+              >
+                <span
+                  className={
+                    isRefreshing ? styles.refreshIconSpinning : undefined
+                  }
+                >
+                  <RefreshIcon />
+                </span>
+              </button>
               <button
                 className={`secondary-button compact ${styles.calendarNavButton}`}
                 onClick={() =>
