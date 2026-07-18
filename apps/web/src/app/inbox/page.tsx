@@ -39,6 +39,7 @@ import {
   InboxPreviewTransitionShell,
 } from "./inbox-preview-loading";
 import { InboxSubmitButton } from "./inbox-submit-button";
+import { InboxRefreshButton } from "./inbox-refresh-button";
 import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
@@ -1590,6 +1591,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
               <h2>Work queue</h2>
             </div>
             <div className="inbox-work-queue-actions">
+              <InboxRefreshButton />
               <span className="pill">
                 {sortedConversations.length === 0
                   ? "0 shown"
