@@ -36,6 +36,7 @@ export type AssistantToolName =
   | "quote_send"
   | "quote_send_ready_list"
   | "settings_update"
+  | "sms_send"
   | "usage_summary"
   | "web_search"
   | "work_queue";
@@ -148,6 +149,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Prepare an approval-gated outbound phone call to a contact, customer, or phone number with clear instructions for what Kyro should say.",
     name: "outbound_call",
+  },
+  {
+    description:
+      "Send an SMS directly to a workplace contact when the logged-in user explicitly instructs Kyro to send it. Preserve the requested recipient and exact message. A request to test SMS may use a short Kyro test message. Do not use this for pending customer replies in the work queue.",
+    name: "sms_send",
   },
   {
     description:
@@ -321,6 +327,8 @@ function toolSchema(tool: ToolDefinition) {
           description:
             tool.name === "calendar_event"
               ? "The concise calendar instruction to pass to Kyro. For calendar reads, preserve the exact date and year the user supplied and do not invent or substitute a weekday. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, location, and job details. Keep event titles compact and do not include date/time wording as part of the title. When the user describes the event purpose, preserve it as an explicit title, for example 'it's a sponsor event' becomes 'titled Sponsor event'. For finalize/save/confirm follow-ups, preserve that action instead of rewriting it into a generic calendar lookup. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation in the current prompt. Do not add this/current customer wording from stale recentMessages. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am', which Kyro should title as 'Meeting - Starbucks'. Example: 'add a meeting at the NM MVD on the 2nd of August at 2pm' becomes 'meeting at NM MVD on 2nd August at 2pm', which Kyro should title as 'Meeting - NM MVD'."
+              : tool.name === "sms_send"
+                ? "The direct workplace-contact SMS instruction. Preserve the exact workplace contact name or primary-contact wording and the exact requested message. If the user is testing SMS without specifying copy, preserve that it is a test."
               : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
           type: "string",
         },

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
+  assistantSmsBodyFromPrompt,
   assistantDate,
   calendarDateRangeFromPrompt,
   calendarConversationReferenceFromRecentMessages,
@@ -17,6 +18,7 @@ import {
   looksLikeQuoteHistoryRequest,
   looksLikeQuoteSendReadyListRequest,
   looksLikeQuoteSendRequest,
+  looksLikeDirectWorkplaceSmsRequest,
   parseAssistantCalendarTime,
   parseAssistantCalendarTimeFromPrompts,
   resolveAssistantCommand,
@@ -689,6 +691,7 @@ describe("assistant LLM-first command routing", () => {
       "what action should I take",
       "show me the leads that need replies",
       "which messages are pending",
+      "can you send the primary workplace contact an sms, i want to test if that functionality is working",
     ];
 
     for (const prompt of positivePrompts) {
@@ -698,6 +701,24 @@ describe("assistant LLM-first command routing", () => {
     for (const prompt of negativePrompts) {
       assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
     }
+  });
+
+  it("recognizes direct workplace SMS instructions without treating them as pending replies", () => {
+    const prompt =
+      "can you send the primary workplace contact an sms, i want to test if that functionality is working";
+
+    assert.equal(looksLikeDirectWorkplaceSmsRequest(prompt), true);
+    assert.equal(looksLikeActionExecutionRequest(prompt), false);
+    assert.equal(
+      assistantSmsBodyFromPrompt(prompt),
+      "This is a test SMS from Kyro.",
+    );
+    assert.equal(
+      assistantSmsBodyFromPrompt(
+        'Send the primary workplace contact an SMS saying "The supplier is here."',
+      ),
+      "The supplier is here.",
+    );
   });
 
   it("treats a successful no-tool planner decision as general chat", async () => {

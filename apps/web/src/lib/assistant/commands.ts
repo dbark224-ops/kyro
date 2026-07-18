@@ -10,6 +10,8 @@ import {
   type ConversationListItem,
   type QuoteDraftListItem,
 } from "../crm/queries";
+import { normalizeContactPhoneForRegion } from "../crm/identity";
+import { recordOutboundDirectSms } from "../communication/outbound";
 import {
   createCalendarEventRecord,
   deleteCalendarEventRecord,
@@ -1749,6 +1751,13 @@ async function resolvePlannedAssistantCommand({
         user,
         workspace,
       });
+    case "sms_send":
+      return workplaceSmsCommand({
+        prompt: plannedPrompt,
+        supabase,
+        user,
+        workspace,
+      });
     case "calendar_event":
       return calendarCommand({
         prompt: plannedPrompt,
@@ -1825,6 +1834,10 @@ export async function resolveAssistantCommand({
   workspace,
 }: CommandInput): Promise<AssistantCommandResult> {
   const text = normalized(prompt);
+
+  if (looksLikeDirectWorkplaceSmsRequest(prompt)) {
+    return workplaceSmsCommand({ prompt, supabase, user, workspace });
+  }
 
   if (looksLikeActionExecutionRequest(prompt)) {
     return executeApprovedWorkQueueRepliesCommand({
@@ -4789,6 +4802,184 @@ async function calendarCommand({
   };
 }
 
+export function looksLikeDirectWorkplaceSmsRequest(prompt: string) {
+  const text = normalized(prompt);
+  const hasSendInstruction = /\b(send|text)\b/.test(text);
+  const hasSmsChannel = /\b(sms|text|text message)\b/.test(text);
+  const hasWorkplaceTarget =
+    /\b(primary workplace contact|workplace contact|primary escalation contact|team contact|staff contact)\b/.test(
+      text,
+    );
+
+  return hasSendInstruction && hasSmsChannel && hasWorkplaceTarget;
+}
+
+function cleanSmsBody(value: string) {
+  return value
+    .trim()
+    .replace(/^[\s"'“”‘’:,;-]+/, "")
+    .replace(/[\s"'“”‘’]+$/, "")
+    .trim();
+}
+
+export function assistantSmsBodyFromPrompt(prompt: string) {
+  const explicitBodyPatterns = [
+    /\b(?:saying|that says|with (?:the )?(?:message|text))\s*[:,-]?\s*(.+)$/i,
+    /\b(?:sms|text message)\s*[:-]\s*(.+)$/i,
+  ];
+
+  for (const pattern of explicitBodyPatterns) {
+    const match = prompt.match(pattern);
+    const body = match?.[1] ? cleanSmsBody(match[1]) : "";
+
+    if (body) {
+      return body;
+    }
+  }
+
+  if (/\btest(?:ing)?\b/i.test(prompt)) {
+    return "This is a test SMS from Kyro.";
+  }
+
+  return null;
+}
+
+async function workplaceSmsCommand({
+  prompt,
+  supabase,
+  user,
+  workspace,
+}: Pick<CommandInput, "prompt" | "supabase" | "user" | "workspace">) {
+  const settings = await getWorkspaceGeneralSettings(supabase, workspace.id);
+  const contacts = settings.businessProfile.workplaceContacts;
+  const text = normalized(prompt);
+  const primaryRequested =
+    /\b(primary workplace contact|primary escalation contact)\b/.test(text);
+  const namedMatches = contacts
+    .filter((contact) => {
+      const name = normalized(contact.name);
+
+      return Boolean(name && text.includes(name));
+    })
+    .sort((left, right) => right.name.length - left.name.length);
+  const contact = primaryRequested
+    ? (contacts.find((item) => item.primaryEscalationContact) ??
+      contacts[0] ??
+      null)
+    : (namedMatches[0] ?? (contacts.length === 1 ? contacts[0] : null));
+  const settingsLink = rowLink(
+    "Workplace contacts",
+    "/settings?section=general&panel=workplace-contacts",
+    "Choose a contact and phone number",
+  );
+
+  if (!contact) {
+    return {
+      context: {
+        contactCount: contacts.length,
+        reason: "A workplace SMS needs one resolved workplace contact.",
+      },
+      fallbackAnswer:
+        contacts.length > 1
+          ? "Which workplace contact should I text?"
+          : "Add a workplace contact with a phone number before I send this SMS.",
+      intent: "sms_send",
+      links: [settingsLink],
+      title: "Choose workplace contact",
+    } satisfies AssistantCommandResult;
+  }
+
+  const recipientName = textValue(contact.name) ?? "workplace contact";
+  const recipientPhone = textValue(contact.phoneNumber);
+
+  if (!recipientPhone) {
+    return {
+      context: {
+        contactId: contact.id,
+        contactName: recipientName,
+        reason: "The selected workplace contact has no phone number.",
+      },
+      fallbackAnswer: `${recipientName} does not have a phone number saved yet.`,
+      intent: "sms_send",
+      links: [settingsLink],
+      title: "Phone number needed",
+    } satisfies AssistantCommandResult;
+  }
+
+  const body = assistantSmsBodyFromPrompt(prompt);
+
+  if (!body) {
+    return {
+      context: {
+        contactId: contact.id,
+        contactName: recipientName,
+        recipientPhone,
+      },
+      fallbackAnswer: `What would you like the SMS to ${recipientName} to say?`,
+      intent: "sms_send",
+      links: [],
+      title: "SMS message needed",
+    } satisfies AssistantCommandResult;
+  }
+
+  const normalizedPhone =
+    normalizeContactPhoneForRegion(
+      recipientPhone,
+      settings.defaultPhoneRegion,
+    ) ?? recipientPhone;
+  const result = await recordOutboundDirectSms(supabase, {
+    body,
+    recipientName,
+    recipientPhone: normalizedPhone,
+    source: "assistant.workplace_contact_sms",
+    userId: user.id,
+    workplaceContactId: contact.id,
+    workspaceId: workspace.id,
+  });
+
+  if (!result.externalSend) {
+    return {
+      context: {
+        contactId: contact.id,
+        contactName: recipientName,
+        outboundQueueId: result.outboundQueueId,
+        reason: "No active external SMS provider accepted the message.",
+      },
+      fallbackAnswer:
+        "Kyro could not reach the SMS service. Check the workspace Phone and SMS setup and try again.",
+      intent: "sms_send",
+      links: [
+        rowLink(
+          "Phone and SMS",
+          "/settings?section=integrations&panel=phone-sms",
+          "Check SMS setup",
+        ),
+      ],
+      title: "SMS not sent",
+    } satisfies AssistantCommandResult;
+  }
+
+  return {
+    context: {
+      body,
+      contactId: contact.id,
+      contactName: recipientName,
+      outboundQueueId: result.outboundQueueId,
+      provider: result.provider,
+      recipientPhone: normalizedPhone,
+    },
+    fallbackAnswer: `Sent an SMS to ${recipientName}.`,
+    intent: "sms_send",
+    links: [],
+    mutation: {
+      entityId: result.outboundRecordId,
+      entityType: "outbound_sms",
+      label: `SMS sent to ${recipientName}`,
+    },
+    title: "SMS sent",
+  } satisfies AssistantCommandResult;
+}
+
 async function workQueueCommand({
   supabase,
   workspace,
@@ -4872,22 +5063,20 @@ export function looksLikeActionExecutionRequest(prompt: string) {
     return false;
   }
 
-  const hasExecutionVerb =
-    /\b(action|handle|execute|approve|send|deal with|take care of|sort)\b/.test(
-      text,
-    ) ||
-    /\b(reply|respond)\s+(to\s+)?(it|that|this|them|these|those|both|all|everything|ones?|replies|drafts?|leads?|inquiries|messages)\b/.test(
-      text,
-    ) ||
-    /\b(do)\s+(it|that|this|them|these|those|both|all|everything|ones?)\b/.test(
+  const directExecutionTarget =
+    /\b(action|handle|execute|approve|send|deal with|take care of|sort)\s+(?:the\s+)?(?:(?:it|that|this|them|these|those|both|everything|ones?)\b|(?:all|both)?\s*(?:the\s+)?(?:pending\s+)?(?:replies|drafts?|leads?|inquiries|messages|approvals?|work queue|queue)\b)/.test(
       text,
     );
-  const hasFollowUpTarget =
-    /\b(it|that|this|them|these|those|both|all|everything|ones?|replies|drafts?|leads?|inquiries|messages|work queue|queue|pending|approvals?)\b/.test(
+  const directReplyTarget =
+    /\b(reply|respond)\s+(?:to\s+)?(?:it|that|this|them|these|those|both|all|everything|ones?|replies|drafts?|leads?|inquiries|messages)\b/.test(
+      text,
+    );
+  const directDoTarget =
+    /\bdo\s+(it|that|this|them|these|those|both|all|everything|ones?)\b/.test(
       text,
     );
 
-  return hasExecutionVerb && hasFollowUpTarget;
+  return directExecutionTarget || directReplyTarget || directDoTarget;
 }
 
 function requestedActionLimit(prompt: string) {

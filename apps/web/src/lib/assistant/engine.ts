@@ -232,7 +232,8 @@ export async function runAssistantTurn({
     (block) => block.type === "link_cards",
   );
   const commandNeedsExactMutationAnswer =
-    command.intent === "calendar_event" && Boolean(command.mutation);
+    ["calendar_event", "sms_send"].includes(command.intent) &&
+    Boolean(command.mutation);
   const assistantContent =
     commandHasGeneratedImageBlock || commandNeedsExactMutationAnswer
       ? command.fallbackAnswer

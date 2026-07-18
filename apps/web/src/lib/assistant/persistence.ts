@@ -1059,7 +1059,7 @@ function extractExplicitMemory(prompt: string) {
   return null;
 }
 
-function extractSuggestedMemory(prompt: string) {
+export function extractSuggestedMemory(prompt: string) {
   if (extractExplicitMemory(prompt)) {
     return null;
   }
@@ -1067,7 +1067,13 @@ function extractSuggestedMemory(prompt: string) {
   const cleaned = prompt.trim().replace(/\s+/g, " ");
   const text = cleaned.toLowerCase();
   const durablePreference =
-    /\b(?:i|we)\s+(?:prefer|usually|normally|like|want|don't|do not|always|never)\b/.test(
+    /\b(?:i|we)\s+(?:prefer|usually|normally|always|never)\b/.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:don't|do not)\s+(?:usually|normally|ever|want\s+(?:kyro|you)\s+to)\b/.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+want\s+(?:kyro|you)\s+to\s+(?:always|never|usually|normally)\b/.test(
       text,
     ) ||
     /\b(?:please|can you)\s+(?:always|never)\b/.test(text) ||

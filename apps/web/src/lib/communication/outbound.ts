@@ -97,6 +97,18 @@ type RecordOutboundEventEmailInput = {
   replyEventType?: string | null;
 };
 
+type RecordOutboundDirectSmsInput = {
+  workspaceId: string;
+  userId: string;
+  recipientPhone: string;
+  recipientName?: string | null;
+  workplaceContactId?: string | null;
+  body: string;
+  source: string;
+  idempotencyKey?: string | null;
+  settingsSnapshot?: Record<string, unknown> | null;
+};
+
 type OutboundQueueRow = {
   id: string;
   workspace_id: string;
@@ -2301,6 +2313,86 @@ export async function recordOutboundEventEmail(
       replyEventPayload: input.replyEventPayload ?? {},
       replyEventType:
         textValue(input.replyEventType) ?? "outbound.filtered_email.reply_sent",
+    },
+  });
+
+  return deliverOutboundQueueItem(supabase, queued.row, input.userId);
+}
+
+export async function recordOutboundDirectSms(
+  supabase: SupabaseClient,
+  input: RecordOutboundDirectSmsInput,
+): Promise<RecordOutboundMessageResult> {
+  const body = textValue(input.body);
+  const recipientPhone = textValue(input.recipientPhone);
+
+  if (!body) {
+    throw new Error("Unable to send SMS because the message is empty.");
+  }
+
+  if (!recipientPhone) {
+    throw new Error("Unable to send SMS because the recipient is empty.");
+  }
+
+  const idempotencyKey =
+    textValue(input.idempotencyKey) ??
+    `direct_sms.${input.workspaceId}.${crypto.randomUUID()}`;
+  const existingRow = await loadOutboundQueueRowByIdempotency(
+    supabase,
+    input.workspaceId,
+    idempotencyKey,
+  );
+
+  if (existingRow) {
+    if (existingRow.status === "sent") {
+      const stored = storedResultFromRow(existingRow);
+
+      if (stored) {
+        return stored;
+      }
+
+      throw new Error("This SMS has already been sent.");
+    }
+
+    return deliverOutboundQueueItem(supabase, existingRow, input.userId);
+  }
+
+  await recordSmsRecipientPreference(supabase, {
+    consentNote: "Internal workplace contact selected by a Kyro user.",
+    metadata: {
+      recipientName: input.recipientName ?? null,
+      workplaceContactId: input.workplaceContactId ?? null,
+    },
+    phoneNumber: recipientPhone,
+    source: input.source,
+    status: "staff_internal",
+    touch: "outbound",
+    workspaceId: input.workspaceId,
+  });
+
+  const queued = await enqueueOutboundDelivery(supabase, {
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    conversationId: null,
+    eventId: null,
+    channelType: "sms",
+    recipient: recipientPhone,
+    subject: null,
+    body,
+    htmlBody: null,
+    attachments: [],
+    idempotencyKey,
+    settingsSnapshot: input.settingsSnapshot ?? null,
+    source: input.source,
+    metadata: {
+      deliveryMode: "event",
+      replyEventPayload: {
+        body,
+        channelType: "sms",
+        recipientName: input.recipientName ?? null,
+        workplaceContactId: input.workplaceContactId ?? null,
+      },
+      replyEventType: "outbound.workplace_contact_sms.sent",
     },
   });
 
