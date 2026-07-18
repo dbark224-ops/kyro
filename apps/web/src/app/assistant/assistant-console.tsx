@@ -33,6 +33,7 @@ import type { AssistantExternalActivityItem } from "../../lib/assistant/external
 import Image from "next/image";
 import Link from "next/link";
 import { MessageAttachmentList } from "../components/message-attachments";
+import { CallLogLauncher } from "../components/call-log-modal";
 import { ContactProfilePanel } from "../components/contact-profile-panel";
 import { ReplyGenerator } from "../inbox/reply-generator";
 import {
@@ -40,6 +41,10 @@ import {
   formatServiceType,
 } from "../../lib/crm/display";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
+import {
+  voiceCallIdFromMessageMetadata,
+  voiceCallMessageBody,
+} from "../../lib/voice/call-message";
 
 const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -3133,12 +3138,16 @@ function ConversationPreview({
                   </time>
                 </div>
                 {message.subject ? <strong>{message.subject}</strong> : null}
-                <p>{message.bodyText ?? "No message body."}</p>
+                <p>
+                  {voiceCallMessageBody(message.bodyText, message.metadata) ??
+                    "No message body."}
+                </p>
                 <MessageAttachmentList metadata={message.metadata} />
                 <AssistantMessageWorkflowSummary
                   message={message}
                   notes={profile.notes}
                   tasks={profile.tasks}
+                  timeZone={timeZone}
                 />
               </article>
             ))
@@ -3225,6 +3234,7 @@ function AssistantMessageWorkflowSummary({
   message,
   notes,
   tasks,
+  timeZone,
 }: {
   message: Extract<
     AssistantResourcePreview,
@@ -3238,6 +3248,7 @@ function AssistantMessageWorkflowSummary({
     AssistantResourcePreview,
     { type: "conversation" }
   >["profile"]["tasks"];
+  timeZone: string;
 }) {
   const messageTasks = tasks.filter((task) => task.messageId === message.id);
   const messageNotes = notes.filter((note) => note.messageId === message.id);
@@ -3251,8 +3262,9 @@ function AssistantMessageWorkflowSummary({
     (task) =>
       task.taskType === "message_resolution" && task.status === "completed",
   );
+  const voiceCallId = voiceCallIdFromMessageMetadata(message.metadata);
 
-  return (
+  const workflowControls = (
     <details className="message-workflow-controls">
       <summary>
         <span>Message controls</span>
@@ -3281,6 +3293,15 @@ function AssistantMessageWorkflowSummary({
         ) : null}
       </div>
     </details>
+  );
+
+  return (
+    <>
+      {voiceCallId ? (
+        <CallLogLauncher callId={voiceCallId} timeZone={timeZone} />
+      ) : null}
+      {workflowControls}
+    </>
   );
 }
 
@@ -4378,6 +4399,10 @@ function channelLabel(
 
   if (channelType === "email") {
     return "Email";
+  }
+
+  if (channelDisplayName?.toLowerCase().includes("vapi")) {
+    return "Phone";
   }
 
   return channelDisplayName ?? formatLabel(channelType);

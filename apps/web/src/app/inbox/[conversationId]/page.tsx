@@ -29,6 +29,7 @@ import {
   formatServiceType,
   titleCaseBusinessText,
 } from "../../../lib/crm/display";
+import { voiceCallMessageBody } from "../../../lib/voice/call-message";
 import {
   formatDisplayMoney,
   type DisplayCurrencySettings,
@@ -190,6 +191,10 @@ function channelLabel(
 
   if (channelType === "email") {
     return "Email";
+  }
+
+  if (channelDisplayName?.toLowerCase().includes("vapi")) {
+    return "Phone";
   }
 
   return channelDisplayName ?? formatLabel(channelType);
@@ -1123,7 +1128,10 @@ export default async function ConversationReviewPage({
                     </span>
                   </div>
                   {message.subject ? <h3>{message.subject}</h3> : null}
-                  <p>{message.bodyText ?? "No message body."}</p>
+                  <p>
+                    {voiceCallMessageBody(message.bodyText, message.metadata) ??
+                      "No message body."}
+                  </p>
                   {textValue(message.metadata.attachmentQuoteDraftId) ? (
                     <div className="message-attachment-pill">
                       Quote draft attached
@@ -1140,6 +1148,7 @@ export default async function ConversationReviewPage({
                     notes={review.notes}
                     redirectTo={redirectTo}
                     tasks={review.tasks}
+                    timeZone={generalSettings.timeZone}
                   />
                 </div>
               ))

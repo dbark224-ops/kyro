@@ -34,6 +34,7 @@ import {
   isPlaceholderVoiceContactName,
   voiceCallProfileFacts,
 } from "./call-note-profile";
+import { buildVoiceCallInboxBody } from "./call-message";
 import { notifyInboundVoiceInquiry } from "./inbound-inquiry-notifications";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
@@ -2237,15 +2238,7 @@ async function ensureVoiceCallConversation(input: {
     };
   }
 
-  const body = [
-    input.note,
-    call.summary ? `Summary: ${call.summary}` : null,
-    !call.summary && call.transcript
-      ? `Transcript: ${compactText(call.transcript, 900)}`
-      : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n\n");
+  const body = buildVoiceCallInboxBody(input.note, call.summary);
   const { data: message, error: messageError } = await input.supabase
     .from("messages")
     .insert({

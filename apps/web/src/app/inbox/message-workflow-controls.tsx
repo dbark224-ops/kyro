@@ -4,6 +4,8 @@ import {
   createInternalNoteAction,
   resolveMessageAction,
 } from "./actions";
+import { voiceCallIdFromMessageMetadata } from "../../lib/voice/call-message";
+import { CallLogLauncher } from "../components/call-log-modal";
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -32,12 +34,14 @@ export function MessageWorkflowControls({
   notes,
   redirectTo,
   tasks,
+  timeZone,
 }: {
   conversationId: string;
   message: ConversationReview["messages"][number];
   notes: ConversationReview["notes"];
   redirectTo: string;
   tasks: ConversationReview["tasks"];
+  timeZone?: string | null;
 }) {
   const messageTasks = tasks.filter((task) => task.messageId === message.id);
   const messageNotes = notes.filter((note) => note.messageId === message.id);
@@ -51,8 +55,9 @@ export function MessageWorkflowControls({
     (task) =>
       task.taskType === "message_resolution" && task.status === "completed",
   );
+  const voiceCallId = voiceCallIdFromMessageMetadata(message.metadata);
 
-  return (
+  const workflowControls = (
     <details className="message-workflow-controls">
       <summary>
         <span>Message controls</span>
@@ -153,5 +158,14 @@ export function MessageWorkflowControls({
         </div>
       </div>
     </details>
+  );
+
+  return (
+    <>
+      {voiceCallId ? (
+        <CallLogLauncher callId={voiceCallId} timeZone={timeZone} />
+      ) : null}
+      {workflowControls}
+    </>
   );
 }

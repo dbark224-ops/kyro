@@ -22,6 +22,7 @@ import {
   type InboundEmailSenderRule,
 } from "../../lib/integrations/inbound-email-settings";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
+import { voiceCallMessageBody } from "../../lib/voice/call-message";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import {
@@ -299,6 +300,10 @@ function channelLabel(
 
   if (channelType === "email") {
     return "Email";
+  }
+
+  if (channelDisplayName?.toLowerCase().includes("vapi")) {
+    return "Phone";
   }
 
   return channelDisplayName ?? formatLabel(channelType);
@@ -1291,7 +1296,10 @@ function InboxSplitPreview({
                     </span>
                   </div>
                   {message.subject ? <strong>{message.subject}</strong> : null}
-                  <p>{message.bodyText ?? "No message body recorded."}</p>
+                  <p>
+                    {voiceCallMessageBody(message.bodyText, message.metadata) ??
+                      "No message body recorded."}
+                  </p>
                   <MessageAttachmentList metadata={message.metadata} />
                   <MessageWorkflowControls
                     conversationId={profile.conversation.id}
@@ -1299,6 +1307,7 @@ function InboxSplitPreview({
                     notes={profile.notes}
                     redirectTo={redirectTo}
                     tasks={profile.tasks}
+                    timeZone={timeZone}
                   />
                 </article>
               ))}
