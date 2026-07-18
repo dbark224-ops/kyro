@@ -332,9 +332,17 @@ function eventType(payload: Record<string, unknown>) {
 }
 
 function callMetadata(payload: Record<string, unknown>) {
+  const message = vapiMessage(payload);
   const call = vapiCall(payload);
+  const callAssistantOverrides = objectRecord(call.assistantOverrides);
+  const messageAssistantOverrides = objectRecord(message.assistantOverrides);
 
-  return objectRecord(call.metadata ?? payload.metadata);
+  return {
+    ...objectRecord(payload.metadata),
+    ...objectRecord(messageAssistantOverrides.metadata),
+    ...objectRecord(callAssistantOverrides.metadata),
+    ...objectRecord(call.metadata),
+  };
 }
 
 function callDirection(payload: Record<string, unknown>): VoiceCallDirection {
