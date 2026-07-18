@@ -1039,6 +1039,23 @@ export async function syncAppointmentToExternalCalendar({
     return { ok: true, skipped: true, status: "disabled" };
   }
 
+  if (appointment.status === "suggested") {
+    await markAppointmentExternalSync(
+      supabase,
+      workspaceId,
+      appointment.id,
+      {
+        error: null,
+        eventId: appointment.external_event_id,
+        provider:
+          appointment.external_calendar_provider as ExternalCalendarProvider | null,
+        status: "not_synced",
+      },
+      appointment.external_calendar_id ?? settings.externalCalendarId,
+    );
+    return { ok: true, skipped: true, status: "draft" };
+  }
+
   if (!appointment.starts_at) {
     await markAppointmentExternalSync(
       supabase,

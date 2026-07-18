@@ -76,4 +76,33 @@ describe("Vapi tool request metadata", () => {
     assert.equal(metadata.callerRole, "external_caller");
     assert.equal(metadata.purpose, "inbound_customer");
   });
+
+  it("keeps trusted call identifiers authoritative over tool arguments", () => {
+    const payload = {
+      message: {
+        call: {
+          metadata: {
+            threadId: "trusted-thread",
+            userId: "trusted-user",
+            workspaceId: "trusted-workspace",
+          },
+        },
+        toolCallList: [
+          {
+            function: {
+              arguments: {
+                threadId: "spoofed-thread",
+                userId: "spoofed-user",
+                workspaceId: "spoofed-workspace",
+              },
+              name: "kyro_request_booking",
+            },
+          },
+        ],
+      },
+    };
+
+    assert.equal(vapiToolWorkspaceId(payload), "trusted-workspace");
+    assert.equal(vapiToolUserId(payload), "trusted-user");
+  });
 });

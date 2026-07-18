@@ -34,6 +34,7 @@ import {
   isPlaceholderVoiceContactName,
   voiceCallProfileFacts,
 } from "./call-note-profile";
+import { notifyInboundVoiceInquiry } from "./inbound-inquiry-notifications";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
@@ -2741,6 +2742,37 @@ export async function recordVoiceCallPostCallAutomation(input: {
     });
   });
 
+  if (
+    automationTarget.purpose === "inbound_customer" ||
+    automationTarget.purpose === "voicemail_overflow"
+  ) {
+    const profileFacts = voiceCallProfileFacts({
+      args: input.args,
+      note,
+    });
+
+    await notifyInboundVoiceInquiry({
+      contactName: profileFacts.name,
+      conversationId: target.conversationId,
+      outcome: "captured",
+      providerCallId:
+        input.providerCallId ?? voiceCall?.providerCallId ?? null,
+      summary: note,
+      supabase: input.supabase,
+      voiceCallId: voiceCall?.id ?? null,
+      workspaceId: input.workspaceId,
+    }).catch((notificationError) => {
+      console.error("Unable to notify workspace about inbound voice inquiry", {
+        error:
+          notificationError instanceof Error
+            ? notificationError.message
+            : "Unknown notification error",
+        providerCallId: input.providerCallId ?? null,
+        workspaceId: input.workspaceId,
+      });
+    });
+  }
+
   return {
     conversationId: target.conversationId,
     messageId: target.messageId,
@@ -3025,7 +3057,7 @@ export function vapiToolWorkspaceId(payload: Record<string, unknown>) {
   const args = jsonRecord(toolFunction.arguments ?? toolCall.arguments);
   const metadata = callMetadata(payload);
 
-  return firstText(args.workspaceId, metadata.workspaceId, payload.workspaceId);
+  return firstText(metadata.workspaceId, payload.workspaceId, args.workspaceId);
 }
 
 export function vapiToolCallMetadata(payload: Record<string, unknown>) {
@@ -3038,7 +3070,7 @@ export function vapiToolUserId(payload: Record<string, unknown>) {
   const args = jsonRecord(toolFunction.arguments ?? toolCall.arguments);
   const metadata = callMetadata(payload);
 
-  return firstText(args.userId, metadata.userId, payload.userId);
+  return firstText(metadata.userId, payload.userId, args.userId);
 }
 
 export function vapiToolThreadId(payload: Record<string, unknown>) {
@@ -3047,7 +3079,7 @@ export function vapiToolThreadId(payload: Record<string, unknown>) {
   const args = jsonRecord(toolFunction.arguments ?? toolCall.arguments);
   const metadata = callMetadata(payload);
 
-  return firstText(args.threadId, metadata.threadId, payload.threadId);
+  return firstText(metadata.threadId, payload.threadId, args.threadId);
 }
 
 function firstToolCall(payload: Record<string, unknown>) {

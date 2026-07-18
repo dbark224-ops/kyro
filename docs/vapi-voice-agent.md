@@ -170,6 +170,7 @@ workspace users by RLS.
   - `kyro_lookup_contact`
   - `kyro_update_contact`
   - `kyro_record_call_note`
+  - `kyro_request_booking`
   - `kyro_context_lookup` / `kyro_assistant_command`
   - `kyro_web_search`
   - `kyro_check_recent_email`
@@ -398,6 +399,29 @@ Recommended Vapi tool definitions:
     `callbackAt`, or `bookingAt`, optional
   - `contactId`, `conversationId`, `leadId`, `voiceCallId`, or `callId`,
     optional linking hints
+
+`kyro_request_booking`
+
+- Purpose: safely check availability and handle a caller's own quote/job
+  appointment according to the workspace's inbound inquiry autonomy setting.
+- Install on: inbound customer and voicemail overflow assistants.
+- Delivery: Kyro appends this authenticated tool at call time for autonomy
+  levels 2 and 3, so it does not need to be manually attached in Vapi.
+- Arguments:
+  - `action` string: `check_availability` or `request_booking`
+  - `requestedStart` string, optional ISO 8601 date/time
+  - `requestedEnd` string, optional ISO 8601 date/time
+  - `windowStart` and `windowEnd` strings, optional availability window
+  - `durationMinutes` number, optional
+  - `title` string, optional concise event title without date/time wording
+  - `eventType` string, optional
+  - `serviceType` / `jobType` string, optional
+  - `address` string, optional
+  - `note` string, optional
+- Behaviour: server-side policy enforcement limits external callers to their
+  own inquiry. Capture-and-notify refuses calendar access, propose mode creates
+  a Kyro-only draft, and book mode creates a scheduled event only when the slot
+  is inside working hours and conflict-free.
 
 `kyro_update_contact`
 

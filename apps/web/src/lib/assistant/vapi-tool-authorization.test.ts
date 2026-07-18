@@ -35,6 +35,16 @@ describe("Vapi voice tool authorization", () => {
     assert.deepEqual(result, { allowed: true, trustedInternal: false });
   });
 
+  it("allows external callers to use the policy-gated booking tool", () => {
+    const result = resolveVapiToolAuthorization({
+      callerRole: "external_caller",
+      purpose: "inbound_customer",
+      toolName: "kyro_request_booking",
+    });
+
+    assert.deepEqual(result, { allowed: true, trustedInternal: false });
+  });
+
   for (const toolName of [
     "kyro_assistant_command",
     "kyro_check_recent_email",

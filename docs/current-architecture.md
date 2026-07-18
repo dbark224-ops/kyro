@@ -990,8 +990,10 @@ web-search results are rendered as source link cards and metered as both model
 tokens and `web_search_calls`. External SMS now has a Twilio send/receive
 foundation, Vapi phone-call records/routes exist for configured workspaces, and
 outbound customer calls can be prepared from Assistant or started from trusted
-internal voice/SMS contexts through the same Vapi call ledger. Calendar tools
-are still provider-needed, approval-gated future tools.
+internal voice/SMS contexts through the same Vapi call ledger. Internal text and
+voice assistants can read and manage the Kyro calendar, while external inbound
+callers are limited to the server-enforced inquiry-handling policy described in
+the voice architecture section below.
 
 Assistant voice input uses the browser `MediaRecorder` API only for capture. Audio is posted to
 `/api/assistant/transcribe`, where the server calls OpenAI's audio transcription endpoint with the configured
@@ -1847,6 +1849,21 @@ These are not bugs:
   voicemail overflow, user-to-Kyro calls, outbound calls, transcripts,
   recordings, and activity previews. Live Vapi assistants, phone numbers,
   webhook secrets, and production prompt tuning still need to be configured.
+- Inbound and voicemail assistants use a workspace-level autonomy policy:
+  `capture_notify` (default), `propose_for_approval`, or
+  `book_from_calendar`. External callers remain unable to use general Kyro
+  workspace tools. The dedicated `kyro_request_booking` endpoint exposes only
+  bounded availability for the caller's own inquiry, requires CRM capture
+  before mutation, creates either a suggested draft or scheduled event, and
+  applies working hours, buffers, collision checks, idempotency, billing access,
+  CRM linking, notification, usage, and calendar writeback rules server-side.
+  Kyro appends this authenticated function to Vapi calls only for autonomy
+  levels 2 and 3; the workspace comes from trusted call metadata, not model
+  arguments.
+- Useful external phone inquiries create their normal Inbox/work-queue record
+  and also attempt a metered SMS notification to the primary workplace contact.
+  Suggested appointment times reserve availability inside Kyro but do not sync
+  to Google or Outlook until approved.
 - AI triage and Assistant narration can use OpenAI in this local setup; local Ollama remains a development option on machines that support it.
 - Voice mode has both a WebRTC/OpenAI Realtime path and a separate Vapi browser runtime testbed. The native mobile shell, deeper barge-in tuning, and final user-facing voice controls are still future work.
 - Pronunciation vocabulary supports Settings management, previews, prompt injection, lightweight usage counts, and background suggestions; pronunciation preflight gates for customer-facing phone calls are still future work.

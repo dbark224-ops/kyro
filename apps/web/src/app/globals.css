@@ -9430,6 +9430,7 @@ button:disabled {
 }
 
 .settings-detail-panel {
+  container: settings-detail / inline-size;
   display: grid;
   max-height: calc(100vh - 132px);
   overflow: hidden;
@@ -10704,6 +10705,95 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.phone-inquiry-mode-fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 34%, transparent);
+  padding: 10px;
+}
+
+.phone-inquiry-mode-fieldset legend {
+  padding: 0 5px;
+  font-weight: 850;
+}
+
+.phone-inquiry-mode-fieldset > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.phone-inquiry-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.phone-inquiry-mode-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  cursor: pointer;
+  padding: 9px;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.phone-inquiry-mode-card:has(input:checked) {
+  border-color: color-mix(in srgb, var(--cyan) 72%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 9%, var(--surface));
+}
+
+.phone-inquiry-mode-card input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.phone-inquiry-mode-number {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 58%, var(--line));
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.phone-inquiry-mode-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.phone-inquiry-mode-copy small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+@container settings-detail (max-width: 720px) {
+  .phone-inquiry-mode-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-switch-row {

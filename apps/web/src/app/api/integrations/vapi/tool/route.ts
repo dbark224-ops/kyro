@@ -57,6 +57,10 @@ import {
   vapiToolWorkspaceId,
 } from "../../../../../lib/voice/calls";
 import { resolveOutboundCallRequest } from "../../../../../lib/voice/outbound-call-requests";
+import {
+  INBOUND_BOOKING_TOOL_NAME,
+  requestInboundVoiceBooking,
+} from "../../../../../lib/voice/inbound-booking";
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
 
 export const dynamic = "force-dynamic";
@@ -1836,6 +1840,23 @@ export async function POST(request: Request) {
         ok: true,
         result,
       });
+    }
+
+    if (toolCall.name === INBOUND_BOOKING_TOOL_NAME) {
+      const action =
+        textValue(args.action) === "request_booking"
+          ? "request_booking"
+          : "check_availability";
+      const result = await requestInboundVoiceBooking({
+        action,
+        args,
+        idempotencyKey: toolCall.id,
+        providerCallId: toolCall.callId,
+        supabase,
+        workspaceId,
+      });
+
+      return completedToolResponse(result);
     }
 
     if (toolCall.name === "kyro_record_call_note") {

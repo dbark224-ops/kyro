@@ -145,6 +145,12 @@ Done:
 - [x] Post-call automation can create the normal phone conversation/message
   snapshot, internal note, contact/lead linkage, and inferred task.
 - [x] Assistant activity can show call purpose, status, and outcome metadata.
+- [x] Phone Assistant settings expose capture-and-notify, propose-for-approval,
+  and direct calendar-booking autonomy, with capture-and-notify as the default.
+- [x] External booking uses a dedicated server-enforced tool rather than the
+  internal calendar command surface.
+- [x] Captured external inquiries attempt an immediate metered SMS notification
+  to the primary workplace contact while retaining the normal Inbox alert.
 
 Still to test:
 
@@ -157,6 +163,13 @@ Still to test:
 - [ ] Confirm `kyro_record_call_note` creates a normal Inbox/CRM phone
   conversation, internal note, and inferred task for callbacks, quotes,
   bookings, complaints, or urgent work.
+- [ ] In each inquiry-handling mode, confirm the assistant respectively captures
+  without offering times, creates a Kyro-only draft, or confirms only a free
+  calendar slot.
+- [ ] Confirm busy/out-of-hours requests return bounded alternatives without
+  revealing existing event details.
+- [ ] Confirm the primary workplace contact receives one notification SMS per
+  call and its Twilio cost appears in the usage ledger.
 
 Done means:
 

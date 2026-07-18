@@ -188,6 +188,7 @@ Configure these tool names exactly:
 | `kyro_lookup_contact`      | Internal, inbound, voicemail, outbound               | Looks up CRM contacts by phone number or query.                                                                                               |
 | `kyro_update_contact`      | Internal only                                        | Requires `userId`; backend handles ambiguity and audit logging.                                                                               |
 | `kyro_record_call_note`    | Internal, inbound, voicemail, outbound               | Creates a phone conversation/message snapshot when needed, an internal CRM note, optional follow-up task, audit logs, and the raw Vapi event. |
+| `kyro_request_booking`     | Inbound and voicemail                                 | External-safe calendar tool appended per call by Kyro for autonomy levels 2 and 3. The backend exposes only free slots and either creates a draft or confirms the booking. |
 | `kyro_context_lookup`      | Internal                                             | Primary Kyro command/context tool. Reads live workspace data and performs trusted internal actions, including calendar create, update, reschedule, and delete. |
 | `kyro_assistant_command`   | Internal                                             | Legacy alias for `kyro_context_lookup`. Do not reference it in prompts unless the alias is actually installed on that assistant.              |
 | `kyro_web_search`          | Internal                                             | Uses Kyro's approved web-search path for current public info.                                                                                 |
@@ -234,6 +235,40 @@ Backend behaviour:
 - infers a `conversation_tasks` row for callbacks, quote follow-up, booking/site
   visit follow-up, complaints, and urgent calls,
 - records audit logs and keeps the raw `voice_call_events` payload.
+- notifies the primary workplace contact by SMS for external inbound inquiries
+  when a staff recipient and Kyro SMS sender are available; the SMS is metered
+  through the normal Twilio usage path.
+
+### `kyro_request_booking`
+
+Required: `action`
+
+`action` must be `check_availability` or `request_booking`.
+
+Optional: `requestedStart`, `requestedEnd`, `windowStart`, `windowEnd`,
+`durationMinutes`, `title`, `eventType`, `serviceType`, `jobType`, `address`,
+`note`
+
+Use ISO 8601 values with an offset for date/time arguments whenever possible.
+Workspace-local date/time strings are interpreted in Kyro's workspace timezone.
+
+Backend behaviour:
+
+- Kyro appends the authenticated tool at call time only for
+  `propose_for_approval` and `book_from_calendar`; no separate dashboard tool
+  installation is required,
+- the workspace is resolved from trusted Vapi call metadata rather than an
+  LLM-supplied argument,
+- rejects the tool when inbound inquiry handling is `capture_notify`,
+- returns only available times and never exposes existing event details,
+- requires `kyro_record_call_note` to capture/link the caller before a booking
+  can be created,
+- creates a `suggested` Kyro draft in `propose_for_approval` mode,
+- creates a confirmed `scheduled` event in `book_from_calendar` mode,
+- applies working hours, calendar buffers, collision checks, billing access,
+  idempotency, CRM linkage, external calendar writeback, notifications, and
+  usage paths on the server,
+- keeps suggested events out of Google and Outlook until approved.
 
 ### `kyro_context_lookup` / `kyro_assistant_command`
 
@@ -288,7 +323,10 @@ All Vapi assistants should:
 - avoid promising prices, attendance times, job acceptance, or availability
   unless Kyro context or the caller explicitly provides it,
 - call `kyro_record_call_note` before ending when the call contains useful
-  business context.
+  business context,
+- for normal customer quote/job scheduling, obey the `inbound_inquiry_mode`
+  and the policy text supplied in `{{kyro_context}}`; never use the booking tool
+  to inspect or change unrelated/internal calendar data.
 
 ## Manual Dashboard Validation
 

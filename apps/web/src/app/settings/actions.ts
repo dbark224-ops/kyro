@@ -18,6 +18,7 @@ import {
   PHONE_AGENT_DEMEANORS,
   PHONE_AGENT_ESCALATION_MODES,
   PHONE_AGENT_HUMOUR_LEVELS,
+  PHONE_AGENT_INBOUND_INQUIRY_MODES,
   PHONE_AGENT_VERBOSITIES,
   VOICE_SETTINGS_POLICY_TYPE,
   getVoiceSettings,
@@ -2084,6 +2085,10 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     formData,
     "phoneAgentEscalationMode",
   );
+  const phoneAgentInboundInquiryMode = formString(
+    formData,
+    "phoneAgentInboundInquiryMode",
+  );
   const elevenLabsVoicePresetId = formString(
     formData,
     "elevenLabsVoicePresetId",
@@ -2143,6 +2148,17 @@ export async function updateVoiceSettingsAction(formData: FormData) {
   }
 
   if (
+    !PHONE_AGENT_INBOUND_INQUIRY_MODES.includes(
+      phoneAgentInboundInquiryMode as never,
+    )
+  ) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Inbound inquiry handling setting is invalid.",
+    );
+  }
+
+  if (
     !ELEVENLABS_VOICE_PRESETS.some(
       (preset) => preset.id === elevenLabsVoicePresetId,
     )
@@ -2162,6 +2178,7 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     phoneAgentEscalationMode,
     phoneAgentHumourLevel,
     phoneAgentInboundEnabled: formBoolean(formData, "phoneAgentInboundEnabled"),
+    phoneAgentInboundInquiryMode,
     phoneAgentOutboundEnabled: formBoolean(
       formData,
       "phoneAgentOutboundEnabled",

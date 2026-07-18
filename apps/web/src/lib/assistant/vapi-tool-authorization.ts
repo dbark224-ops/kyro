@@ -30,7 +30,9 @@ export function resolveVapiToolAuthorization(
   }
 
   return {
-    allowed: normalized(input.toolName) === "kyro_record_call_note",
+    allowed: ["kyro_record_call_note", "kyro_request_booking"].includes(
+      normalized(input.toolName),
+    ),
     trustedInternal: false,
   };
 }

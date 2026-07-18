@@ -46,6 +46,7 @@ import {
   PHONE_AGENT_DEMEANORS,
   PHONE_AGENT_ESCALATION_MODES,
   PHONE_AGENT_HUMOUR_LEVELS,
+  PHONE_AGENT_INBOUND_INQUIRY_MODES,
   PHONE_AGENT_VERBOSITIES,
   type VoiceSettings,
 } from "../../lib/assistant/voice-settings";
@@ -4516,6 +4517,55 @@ function VoiceSettingsDetail({
                 <span aria-hidden="true" className="settings-switch" />
               </label>
             </div>
+
+            <fieldset className="phone-inquiry-mode-fieldset">
+              <legend>Inbound inquiry handling</legend>
+              <p>
+                Choose how far Kyro can take a customer inquiry before a person
+                steps in.
+              </p>
+              <div className="phone-inquiry-mode-grid">
+                {PHONE_AGENT_INBOUND_INQUIRY_MODES.map((mode, index) => {
+                  const content = {
+                    book_from_calendar: {
+                      description:
+                        "Check the Kyro calendar and confirm an available time with the caller.",
+                      label: "Book from calendar",
+                    },
+                    capture_notify: {
+                      description:
+                        "Capture the inquiry, add it to the work queue, and text the primary workplace contact.",
+                      label: "Capture and notify",
+                    },
+                    propose_for_approval: {
+                      description:
+                        "Check availability and create a draft time for the business to approve.",
+                      label: "Propose for approval",
+                    },
+                  }[mode];
+
+                  return (
+                    <label className="phone-inquiry-mode-card" key={mode}>
+                      <input
+                        defaultChecked={
+                          voiceSettings.phoneAgentInboundInquiryMode === mode
+                        }
+                        name="phoneAgentInboundInquiryMode"
+                        type="radio"
+                        value={mode}
+                      />
+                      <span className="phone-inquiry-mode-number">
+                        {index + 1}
+                      </span>
+                      <span className="phone-inquiry-mode-copy">
+                        <strong>{content.label}</strong>
+                        <small>{content.description}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
           </div>
 
           <input

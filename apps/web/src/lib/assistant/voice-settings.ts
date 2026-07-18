@@ -49,6 +49,14 @@ export const PHONE_AGENT_ESCALATION_MODES = [
 export type PhoneAgentEscalationMode =
   (typeof PHONE_AGENT_ESCALATION_MODES)[number];
 
+export const PHONE_AGENT_INBOUND_INQUIRY_MODES = [
+  "capture_notify",
+  "propose_for_approval",
+  "book_from_calendar",
+] as const;
+export type PhoneAgentInboundInquiryMode =
+  (typeof PHONE_AGENT_INBOUND_INQUIRY_MODES)[number];
+
 export type ElevenLabsVoicePreset = {
   accent: string;
   id: string;
@@ -164,6 +172,8 @@ export const DEFAULT_PHONE_AGENT_VERBOSITY: PhoneAgentVerbosity = "balanced";
 export const DEFAULT_PHONE_AGENT_HUMOUR_LEVEL: PhoneAgentHumourLevel = "light";
 export const DEFAULT_PHONE_AGENT_ESCALATION_MODE: PhoneAgentEscalationMode =
   "request_callback";
+export const DEFAULT_PHONE_AGENT_INBOUND_INQUIRY_MODE: PhoneAgentInboundInquiryMode =
+  "capture_notify";
 
 export type VoiceSettings = {
   elevenLabsModel: string;
@@ -181,6 +191,7 @@ export type VoiceSettings = {
   phoneAgentEscalationMode: PhoneAgentEscalationMode;
   phoneAgentHumourLevel: PhoneAgentHumourLevel;
   phoneAgentInboundEnabled: boolean;
+  phoneAgentInboundInquiryMode: PhoneAgentInboundInquiryMode;
   phoneAgentOutboundEnabled: boolean;
   phoneAgentUserNumberDetails: PhoneAgentUserNumberDetail[];
   phoneAgentUserNumbers: string[];
@@ -445,6 +456,11 @@ export function normalizeVoiceSettings(value: unknown): VoiceSettings {
     phoneAgentInboundEnabled: booleanValue(
       settings.phoneAgentInboundEnabled,
       true,
+    ),
+    phoneAgentInboundInquiryMode: enumValue(
+      PHONE_AGENT_INBOUND_INQUIRY_MODES,
+      settings.phoneAgentInboundInquiryMode,
+      DEFAULT_PHONE_AGENT_INBOUND_INQUIRY_MODE,
     ),
     phoneAgentOutboundEnabled: booleanValue(
       settings.phoneAgentOutboundEnabled,
