@@ -1,10 +1,14 @@
 import { AppFrame } from "../components/app-frame";
-import { AddressAutocompleteField } from "../components/address-autocomplete-field";
 import { runContactLifecycleReviewAction } from "../contacts/actions";
-import { createManualInboundAction } from "../inbound/actions";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import { getTwilioTelephonyOverview } from "../../lib/integrations/twilio";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import {
+  DeveloperMockInquiryForms,
+  type DeveloperMockMode,
+} from "./mock-inquiry-forms";
 
 export const dynamic = "force-dynamic";
 
@@ -12,21 +16,53 @@ type DeveloperPageProps = {
   searchParams?: Promise<{
     engine_error?: string;
     engine_message?: string;
+    mock?: string;
   }>;
 };
+
+function mockMode(value: string | undefined): DeveloperMockMode {
+  return value === "email" || value === "sms" ? value : "manual";
+}
 
 export default async function DeveloperPage({
   searchParams,
 }: DeveloperPageProps) {
-  const [query, { supabase, workspace }] = await Promise.all([
+  const [query, { supabase, user, workspace }] = await Promise.all([
     searchParams,
     requireWorkspaceContext(),
   ]);
-  const twilioOverview = await getTwilioTelephonyOverview(
-    supabase,
-    workspace.id,
-  );
-  const submissionKey = crypto.randomUUID();
+
+  if (!developerAccessEnabled(user)) {
+    redirect("/");
+  }
+
+  const [twilioOverview, emailConnectionResult] = await Promise.all([
+    getTwilioTelephonyOverview(supabase, workspace.id),
+    supabase
+      .from("integration_connections")
+      .select("id,provider,account_email")
+      .eq("workspace_id", workspace.id)
+      .eq("status", "connected")
+      .in("provider", ["google", "microsoft"])
+      .order("last_connected_at", { ascending: false }),
+  ]);
+  const emailConnections = (emailConnectionResult.data ?? [])
+    .filter(
+      (connection) =>
+        connection.provider === "google" || connection.provider === "microsoft",
+    )
+    .map((connection) => ({
+      accountEmail: connection.account_email,
+      id: String(connection.id),
+      provider: connection.provider as "google" | "microsoft",
+    }));
+  const phoneNumbers = twilioOverview.numbers
+    .filter((number) => number.status === "active")
+    .map((number) => ({
+      friendlyName: number.friendlyName,
+      id: number.id,
+      phoneNumber: number.phoneNumber,
+    }));
 
   return (
     <AppFrame active="Developer">
@@ -54,81 +90,16 @@ export default async function DeveloperPage({
             <span className="pill">Dev tool</span>
           </div>
 
-          <form action={createManualInboundAction} className="developer-form">
-            <input name="redirectTo" type="hidden" value="/developer" />
-            <input name="submissionKey" type="hidden" value={submissionKey} />
-
-            <div className="document-form-grid">
-              <label>
-                Contact name
-                <input
-                  name="contactName"
-                  placeholder="Jamie Redknapp"
-                  required
-                  type="text"
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  name="email"
-                  placeholder="customer@example.com"
-                  type="email"
-                />
-              </label>
-              <label>
-                Phone
-                <input name="phone" placeholder="0400 000 000" type="text" />
-              </label>
-              <label>
-                Company
-                <input name="company" placeholder="Optional" type="text" />
-              </label>
-              <label>
-                Contact type
-                <select defaultValue="client" name="contactType">
-                  <option value="client">Client</option>
-                  <option value="supplier">Supplier</option>
-                  <option value="contractor">Contractor</option>
-                  <option value="builder">Builder</option>
-                  <option value="property_manager">Property manager</option>
-                  <option value="other">Other</option>
-                </select>
-              </label>
-              <label>
-                Service type
-                <input
-                  name="serviceType"
-                  placeholder="Bathroom quote, blocked drain, hot water..."
-                  type="text"
-                />
-              </label>
-              <AddressAutocompleteField
-                className="full-row"
-                label="Address"
-                name="address"
-                placeholder="Site or contact address"
-              />
-              <label className="full-row">
-                Inquiry message
-                <textarea
-                  name="message"
-                  placeholder="Paste or type the inbound inquiry here..."
-                  required
-                />
-              </label>
-            </div>
-
-            <div className="settings-footer">
-              <span>
-                Creates the contact/profile, lead, conversation, message, AI
-                triage, actions, audit, and usage rows.
-              </span>
-              <button className="primary-button compact" type="submit">
-                Ingest mock inquiry
-              </button>
-            </div>
-          </form>
+          <DeveloperMockInquiryForms
+            emailConnections={emailConnections}
+            initialMode={mockMode(query?.mock)}
+            phoneNumbers={phoneNumbers}
+            submissionKeys={{
+              email: crypto.randomUUID(),
+              manual: crypto.randomUUID(),
+              sms: crypto.randomUUID(),
+            }}
+          />
         </article>
 
         <aside className="side-stack">
@@ -142,7 +113,7 @@ export default async function DeveloperPage({
             <div className="detail-list">
               <div>
                 <span>Mock inbound</span>
-                <strong>Manual inquiry ingestion</strong>
+                <strong>Structured, email, and SMS ingestion</strong>
               </div>
               <div>
                 <span>Outbound</span>

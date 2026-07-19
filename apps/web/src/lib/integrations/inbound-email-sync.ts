@@ -70,7 +70,7 @@ type OAuthTokenSet = {
   tokenType?: string | null;
 };
 
-type InboundEmailMessage = {
+export type InboundEmailMessage = {
   accountEmail: string | null;
   attachments: InboundEmailAttachment[];
   automated: boolean;
@@ -90,7 +90,7 @@ type InboundEmailMessage = {
   toEmails: string[];
 };
 
-type InboundEmailAttachment = {
+export type InboundEmailAttachment = {
   attachmentId: string | null;
   contentBase64?: string | null;
   contentType: string | null;
@@ -161,6 +161,28 @@ export type InboundEmailSyncResult = {
   promotedMessages: number;
   skippedBySchedule: number;
   trigger: InboundEmailSyncTrigger;
+};
+
+export type MockInboundEmailInput = {
+  attachments?: Array<
+    Omit<InboundEmailAttachment, "provider"> & {
+      provider?: InboundEmailProvider;
+    }
+  >;
+  automated?: boolean;
+  bodyHtml?: string | null;
+  bodyText: string;
+  connectionId: string;
+  externalMessageId?: string | null;
+  externalThreadId?: string | null;
+  fromEmail: string;
+  fromName?: string | null;
+  headers?: Record<string, string>;
+  providerMessageId?: string | null;
+  receivedAt?: string | null;
+  snippet?: string | null;
+  subject: string;
+  toEmails?: string[];
 };
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
@@ -3219,6 +3241,129 @@ async function loadEmailConnections({
   return (data ?? []) as ProviderConnectionRow[];
 }
 
+function emptyInboundEmailSyncResult(
+  trigger: InboundEmailSyncTrigger,
+): InboundEmailSyncResult {
+  return {
+    checkedConnections: 0,
+    duplicates: 0,
+    errors: [],
+    fetchedMessages: 0,
+    needsReconnect: [],
+    observedMessages: 0,
+    promotedConversations: [],
+    promotedMessages: 0,
+    skippedBySchedule: 0,
+    trigger,
+  };
+}
+
+function normalizedMockHeaders(headers: Record<string, string> | undefined) {
+  return Object.fromEntries(
+    Object.entries(headers ?? {})
+      .map(([key, value]) => [key.trim().toLowerCase(), value.trim()])
+      .filter(([key, value]) => Boolean(key && value)),
+  );
+}
+
+export async function ingestMockInboundEmail({
+  input,
+  supabase,
+  user,
+  workspaceId,
+}: {
+  input: MockInboundEmailInput;
+  supabase: SupabaseClient;
+  user: User;
+  workspaceId: string;
+}) {
+  await assertWorkspaceAutomationAllowed(workspaceId);
+  const connections = await loadEmailConnections({ supabase, workspaceId });
+  const connection = connections.find(
+    (candidate) => candidate.id === input.connectionId,
+  );
+  const provider = connection ? providerFromConnection(connection) : null;
+
+  if (!connection || !provider) {
+    throw new Error(
+      "Choose a connected Gmail or Outlook inbox before ingesting a mock email.",
+    );
+  }
+
+  const externalMessageId =
+    textValue(input.externalMessageId) ?? `mock-${crypto.randomUUID()}`;
+  const receivedAtValue = textValue(input.receivedAt);
+  const receivedAt =
+    receivedAtValue && !Number.isNaN(new Date(receivedAtValue).getTime())
+      ? new Date(receivedAtValue).toISOString()
+      : new Date().toISOString();
+  const headers = normalizedMockHeaders(input.headers);
+
+  if (!headers["message-id"]) {
+    headers["message-id"] = `<${externalMessageId}@mock.kyro.local>`;
+  }
+
+  const message: InboundEmailMessage = {
+    accountEmail: connection.account_email,
+    attachments: (input.attachments ?? []).map((attachment) => ({
+      ...attachment,
+      provider,
+    })),
+    automated: Boolean(input.automated),
+    bodyHtml: textValue(input.bodyHtml),
+    bodyText: input.bodyText.trim(),
+    connectionId: connection.id,
+    externalMessageId,
+    externalThreadId: textValue(input.externalThreadId),
+    fromEmail: input.fromEmail.trim(),
+    fromName: textValue(input.fromName),
+    headers,
+    provider,
+    providerMessageId:
+      textValue(input.providerMessageId) ?? externalMessageId,
+    receivedAt,
+    snippet: textValue(input.snippet) ?? input.bodyText.trim().slice(0, 240),
+    subject: input.subject.trim(),
+    toEmails:
+      input.toEmails?.map((email) => email.trim()).filter(Boolean) ??
+      [connection.account_email].filter((email): email is string =>
+        Boolean(email),
+      ),
+  };
+  const settings = await getInboundEmailSettings(supabase, workspaceId);
+  const result = emptyInboundEmailSyncResult("manual");
+
+  result.checkedConnections = 1;
+  result.fetchedMessages = 1;
+  await processMessage({
+    connection,
+    message,
+    result,
+    settings,
+    supabase,
+    user,
+    workspaceId,
+  });
+
+  await insertAuditLog(supabase, {
+    workspaceId,
+    actorType: "user",
+    actorId: user.id,
+    action: "inbound.email_mock.completed",
+    entityType: "workspace",
+    entityId: workspaceId,
+    after: {
+      duplicates: result.duplicates,
+      observedMessages: result.observedMessages,
+      promotedMessages: result.promotedMessages,
+      provider,
+      subject: message.subject,
+    },
+  });
+
+  return result;
+}
+
 async function syncConnection({
   connection,
   result,
@@ -3377,18 +3522,7 @@ export async function syncInboundEmail({
 }): Promise<InboundEmailSyncResult> {
   await assertWorkspaceAutomationAllowed(workspaceId);
   const settings = await getInboundEmailSettings(supabase, workspaceId);
-  const result: InboundEmailSyncResult = {
-    checkedConnections: 0,
-    duplicates: 0,
-    errors: [],
-    fetchedMessages: 0,
-    needsReconnect: [],
-    observedMessages: 0,
-    promotedConversations: [],
-    promotedMessages: 0,
-    skippedBySchedule: 0,
-    trigger,
-  };
+  const result = emptyInboundEmailSyncResult(trigger);
   const connections = await loadEmailConnections({
     provider,
     supabase,
