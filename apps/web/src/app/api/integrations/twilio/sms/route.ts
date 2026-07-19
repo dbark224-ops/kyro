@@ -1,5 +1,10 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
+import {
+  isTrustedInternalMessagingSender,
+  processInternalAssistantMessage,
+  type InternalMessagingWorkspace,
+} from "../../../../../lib/assistant/internal-messaging";
 import { ingestManualInbound } from "../../../../../lib/inbound/manual";
 import {
   findWorkspaceNumberForInboundSms,
@@ -16,15 +21,21 @@ import {
   recordSmsRecipientPreference,
   smsConsentCommand,
 } from "../../../../../lib/communication/sms-compliance";
-import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
-import { createOutboundVoiceCall } from "../../../../../lib/voice/calls";
 import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
-import {
-  looksLikeOutboundCallRequest,
-  resolveOutboundCallRequest,
-} from "../../../../../lib/voice/outbound-call-requests";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+type ServiceSupabase = ReturnType<typeof createServiceSupabaseClient>;
+
+type InternalSmsMessage = {
+  body: string;
+  eventId: string;
+  from: string;
+  messageSid: string;
+  to: string;
+  workspace: InternalMessagingWorkspace;
+};
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -85,13 +96,13 @@ export async function GET() {
   });
 }
 
-async function workspaceOwnerUserId(
-  supabase: ReturnType<typeof createServiceSupabaseClient>,
+async function loadMessagingWorkspace(
+  supabase: ServiceSupabase,
   workspaceId: string,
 ) {
   const { data, error } = await supabase
     .from("workspaces")
-    .select("owner_user_id")
+    .select("id,name,owner_user_id")
     .eq("id", workspaceId)
     .maybeSingle();
 
@@ -99,7 +110,17 @@ async function workspaceOwnerUserId(
     throw new Error(`Unable to load workspace owner: ${error.message}`);
   }
 
-  return textValue(data?.owner_user_id);
+  const ownerUserId = textValue(data?.owner_user_id);
+
+  if (!data || !ownerUserId) {
+    return null;
+  }
+
+  return {
+    id: String(data.id),
+    name: textValue(data.name) ?? "Kyro workspace",
+    ownerUserId,
+  } satisfies InternalMessagingWorkspace;
 }
 
 async function findExistingContactName(
@@ -130,43 +151,8 @@ async function findExistingContactName(
   return textValue(data?.name) ?? textValue(data?.company);
 }
 
-function phoneComparisonKeys(value: string) {
-  const rawDigits = value.replace(/\D/g, "");
-  const normalizedDigits =
-    normalizeContactPhoneForRegion(value, "AU")?.replace(/\D/g, "") ?? null;
-
-  return new Set(
-    [rawDigits, normalizedDigits].filter(
-      (candidate): candidate is string => Boolean(candidate),
-    ),
-  );
-}
-
-function phoneKeySetsOverlap(left: Set<string>, right: Set<string>) {
-  for (const value of left) {
-    if (right.has(value)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-async function isInternalSmsSender(
-  supabase: ReturnType<typeof createServiceSupabaseClient>,
-  workspaceId: string,
-  from: string,
-) {
-  const settings = await getVoiceSettings(supabase, workspaceId);
-  const fromKeys = phoneComparisonKeys(from);
-
-  return settings.phoneAgentUserNumbers.some((phoneNumber) =>
-    phoneKeySetsOverlap(fromKeys, phoneComparisonKeys(phoneNumber)),
-  );
-}
-
 async function recordInboundSmsUsage(
-  supabase: ReturnType<typeof createServiceSupabaseClient>,
+  supabase: ServiceSupabase,
   input: {
     eventId: string | null;
     from: string;
@@ -211,6 +197,91 @@ async function recordInboundSmsUsage(
   });
 }
 
+async function reserveInternalSmsEvent(
+  supabase: ServiceSupabase,
+  input: {
+    body: string;
+    from: string;
+    messageSid: string;
+    to: string;
+    workspaceId: string;
+  },
+) {
+  const { data, error } = await supabase
+    .from("events")
+    .insert({
+      idempotency_key: `twilio.sms.internal.${input.messageSid}`,
+      payload: {
+        body: input.body,
+        classification: "staff_operator",
+        from: input.from,
+        messageSid: input.messageSid,
+        to: input.to,
+        transport: "sms",
+      },
+      source: "twilio.webhook",
+      status: "pending",
+      type: "inbound.internal_sms.received",
+      workspace_id: input.workspaceId,
+    })
+    .select("id")
+    .single();
+
+  if (error?.code === "23505") {
+    return null;
+  }
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to reserve internal SMS message: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  return String(data.id);
+}
+
+async function markInternalSmsEvent(
+  supabase: ServiceSupabase,
+  eventId: string,
+  status: "failed" | "processed",
+) {
+  const { error } = await supabase
+    .from("events")
+    .update({
+      processed_at: new Date().toISOString(),
+      status,
+    })
+    .eq("id", eventId);
+
+  if (error) {
+    console.error("Unable to update internal SMS event status", {
+      error: error.message,
+      eventId,
+      status,
+    });
+  }
+}
+
+async function processInternalSmsMessage(input: InternalSmsMessage) {
+  const supabase = createServiceSupabaseClient();
+
+  try {
+    await processInternalAssistantMessage({
+      eventId: input.eventId,
+      from: input.from,
+      messageSid: input.messageSid,
+      prompt: input.body,
+      supabase,
+      transport: "sms",
+      workspace: input.workspace,
+    });
+    await markInternalSmsEvent(supabase, input.eventId, "processed");
+  } catch (error) {
+    console.error("Internal SMS assistant turn failed", error);
+    await markInternalSmsEvent(supabase, input.eventId, "failed");
+  }
+}
+
 export async function POST(request: Request) {
   const params = await formParams(request);
 
@@ -240,13 +311,71 @@ export async function POST(request: Request) {
     return twilioWebhookResponse();
   }
 
-  const ownerUserId = await workspaceOwnerUserId(
+  const workspace = await loadMessagingWorkspace(
     supabase,
     workspaceNumber.workspaceId,
   );
 
-  if (!ownerUserId) {
+  if (!workspace) {
     throw new Error("Unable to process inbound SMS without a workspace owner.");
+  }
+
+  if (
+    await isTrustedInternalMessagingSender(
+      supabase,
+      workspaceNumber.workspaceId,
+      from,
+    )
+  ) {
+    const eventId = await reserveInternalSmsEvent(supabase, {
+      body,
+      from,
+      messageSid,
+      to,
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    if (!eventId) {
+      return twilioWebhookResponse();
+    }
+
+    await recordSmsRecipientPreference(supabase, {
+      channelNumberId: workspaceNumber.id,
+      consentNote: "Trusted staff/operator SMS message.",
+      metadata: {
+        classification: "staff_operator",
+        from,
+        messageSid,
+        provider: TWILIO_PROVIDER,
+        to,
+      },
+      phoneNumber: from,
+      source: "twilio_internal_sms",
+      status: "staff_internal",
+      touch: "inbound",
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    await recordInboundSmsUsage(supabase, {
+      eventId,
+      from,
+      messageSid,
+      to,
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    after(() =>
+      processInternalSmsMessage({
+        body,
+        eventId,
+        from,
+        messageSid,
+        to,
+        workspace,
+      }),
+    );
+
+    return twilioWebhookResponse();
   }
 
   const consentCommand = smsConsentCommand(body);
@@ -283,66 +412,6 @@ export async function POST(request: Request) {
     return twilioWebhookResponse();
   }
 
-  if (
-    looksLikeOutboundCallRequest(body) &&
-    (await isInternalSmsSender(supabase, workspaceNumber.workspaceId, from))
-  ) {
-    await recordSmsRecipientPreference(supabase, {
-      channelNumberId: workspaceNumber.id,
-      consentNote: "Trusted staff/operator SMS command.",
-      metadata: {
-        classification: "staff_operator",
-        from,
-        messageSid,
-        provider: TWILIO_PROVIDER,
-        to,
-      },
-      phoneNumber: from,
-      source: "twilio_internal_sms",
-      status: "staff_internal",
-      touch: "inbound",
-      workspaceId: workspaceNumber.workspaceId,
-    });
-
-    await recordInboundSmsUsage(supabase, {
-      eventId: null,
-      from,
-      messageSid,
-      to,
-      workspaceId: workspaceNumber.workspaceId,
-    });
-
-    const resolution = await resolveOutboundCallRequest({
-      contextSummary: `Internal SMS request from ${from}: ${body}`,
-      prompt: body,
-      supabase,
-      workspaceId: workspaceNumber.workspaceId,
-    });
-
-    if (resolution.status === "ready") {
-      await createOutboundVoiceCall({
-        contactId: resolution.contactId,
-        contextSummary: resolution.contextSummary,
-        conversationId: resolution.conversationId,
-        instructions: resolution.instructions,
-        leadId: resolution.leadId,
-        phoneNumber: resolution.phoneNumber,
-        supabase,
-        user: scheduledUser(ownerUserId),
-        workspaceId: workspaceNumber.workspaceId,
-      });
-    } else {
-      console.warn("Internal SMS outbound call request was not ready", {
-        from,
-        messageSid,
-        resolutionStatus: resolution.status,
-        workspaceId: workspaceNumber.workspaceId,
-      });
-    }
-
-    return twilioWebhookResponse();
-  }
-
   await recordSmsRecipientPreference(supabase, {
     channelNumberId: workspaceNumber.id,
     metadata: {
@@ -358,11 +427,14 @@ export async function POST(request: Request) {
   });
 
   const contactName =
-    (await findExistingContactName(supabase, workspaceNumber.workspaceId, from)) ??
-    from;
+    (await findExistingContactName(
+      supabase,
+      workspaceNumber.workspaceId,
+      from,
+    )) ?? from;
   const result = await ingestManualInbound(
     supabase,
-    scheduledUser(ownerUserId),
+    scheduledUser(workspace.ownerUserId),
     workspaceNumber.workspaceId,
     {
       channel: {

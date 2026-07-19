@@ -1,17 +1,9 @@
 import { after, NextResponse } from "next/server";
-import type { User } from "@supabase/supabase-js";
-import { runAssistantTurn } from "../../../../../lib/assistant/engine";
 import {
-  appendAssistantTurnMessage,
-  appendUserAssistantMessage,
-  getAssistantTurnContext,
-  getOrCreateAssistantThread,
-  updateAssistantThreadSummary,
-} from "../../../../../lib/assistant/persistence";
-import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
-import { recordOutboundDirectSms } from "../../../../../lib/communication/outbound";
-import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
-import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
+  isTrustedInternalMessagingSender,
+  processInternalAssistantMessage,
+  trustedInternalPhoneMatches,
+} from "../../../../../lib/assistant/internal-messaging";
 import {
   getTwilioConfig,
   telephonyUsageCost,
@@ -44,16 +36,6 @@ type SandboxMessage = {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function barePhone(value: string) {
-  return value.replace(/^whatsapp:/i, "").trim();
-}
-
-function normalizedPhone(value: string) {
-  return (
-    normalizeContactPhoneForRegion(barePhone(value), null) ?? barePhone(value)
-  );
 }
 
 async function formParams(request: Request) {
@@ -120,18 +102,6 @@ async function loadSandboxWorkspace(supabase: ServiceSupabase) {
   };
 }
 
-async function loadOwnerUser(supabase: ServiceSupabase, ownerUserId: string) {
-  const { data, error } = await supabase.auth.admin.getUserById(ownerUserId);
-
-  if (error || !data.user) {
-    throw new Error(
-      `Unable to load WhatsApp Sandbox user: ${error?.message ?? "unknown error"}`,
-    );
-  }
-
-  return data.user;
-}
-
 async function trustedInternalSender(
   supabase: ServiceSupabase,
   workspaceId: string,
@@ -143,16 +113,12 @@ async function trustedInternalSender(
 
   if (
     !expectedRecipient ||
-    normalizedPhone(from) !== normalizedPhone(expectedRecipient)
+    !trustedInternalPhoneMatches(from, [expectedRecipient])
   ) {
     return false;
   }
 
-  const voiceSettings = await getVoiceSettings(supabase, workspaceId);
-
-  return voiceSettings.phoneAgentUserNumbers.some(
-    (phoneNumber) => normalizedPhone(phoneNumber) === normalizedPhone(from),
-  );
+  return isTrustedInternalMessagingSender(supabase, workspaceId, from);
 }
 
 async function reserveInboundEvent(
@@ -260,112 +226,22 @@ async function markInboundEvent(
 
 async function processSandboxMessage(input: SandboxMessage) {
   const supabase = createServiceSupabaseClient();
-  let user: User | null = null;
 
   try {
-    user = await loadOwnerUser(supabase, input.workspace.ownerUserId);
     await recordInboundUsage(supabase, input);
-
-    const workspace = {
-      id: input.workspace.id,
-      name: input.workspace.name,
-    };
-    const thread = await getOrCreateAssistantThread(supabase, workspace, user);
-    const threadId = String(thread.id);
-    const prompt = input.body;
-
-    await appendUserAssistantMessage({
-      content: prompt,
-      inputSource: "whatsapp",
+    await processInternalAssistantMessage({
+      eventId: input.eventId,
+      from: input.from,
+      messageSid: input.messageSid,
+      prompt: input.body,
       supabase,
-      threadId,
-      user,
-      workspaceId: workspace.id,
+      transport: "whatsapp_sandbox",
+      workspace: input.workspace,
     });
-
-    const context = await getAssistantTurnContext({
-      prompt,
-      supabase,
-      threadId,
-      user,
-      workspaceId: workspace.id,
-    });
-    const result = await runAssistantTurn({
-      contextSnapshots: context.contextSnapshots,
-      inputSource: "whatsapp",
-      memories: context.memories,
-      prompt,
-      recentMessages: context.recentMessages,
-      supabase,
-      threadId,
-      threadSummary: context.summary,
-      user,
-      workspace,
-    });
-
-    await appendAssistantTurnMessage({
-      result,
-      supabase,
-      threadId,
-      user,
-      workspaceId: workspace.id,
-    });
-    await updateAssistantThreadSummary({
-      prompt,
-      result,
-      supabase,
-      threadId,
-      workspaceId: workspace.id,
-    });
-
-    await recordOutboundDirectSms(supabase, {
-      body: result.content,
-      consentNote:
-        "Trusted internal user testing Kyro through WhatsApp Sandbox.",
-      idempotencyKey: `whatsapp.sandbox.reply.${input.messageSid}`,
-      metadata: {
-        inboundEventId: input.eventId,
-        inboundMessageSid: input.messageSid,
-        transport: "whatsapp_sandbox",
-      },
-      recipientName: user.user_metadata?.full_name ?? user.email ?? "Kyro user",
-      recipientPhone: barePhone(input.from),
-      source: "assistant.whatsapp_sandbox",
-      userId: user.id,
-      workspaceId: workspace.id,
-    });
-
     await markInboundEvent(supabase, input.eventId, "processed");
   } catch (error) {
     console.error("WhatsApp Sandbox assistant turn failed", error);
     await markInboundEvent(supabase, input.eventId, "failed");
-
-    await sendInternalBugNotification({
-      context: {
-        userEmail: user?.email ?? null,
-        userId: input.workspace.ownerUserId,
-        workspaceId: input.workspace.id,
-        workspaceName: input.workspace.name,
-      },
-      input: {
-        context: {
-          inboundEventId: input.eventId,
-          messageSid: input.messageSid,
-          transport: "whatsapp_sandbox",
-        },
-        eventKey: `whatsapp-sandbox-${input.messageSid}`,
-        kind: "WhatsApp Sandbox assistant failure",
-        rawMessage: error instanceof Error ? error.message : String(error),
-        severity: "error",
-        source: "api.integrations.twilio.whatsapp",
-        visibleMessage: "Kyro did not return a WhatsApp Sandbox response.",
-      },
-    }).catch((notificationError) => {
-      console.error(
-        "Unable to send WhatsApp Sandbox failure notification",
-        notificationError,
-      );
-    });
   }
 }
 
