@@ -150,6 +150,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
     "For web_search, answer from commandResult.fallbackAnswer and commandResult.context.sources. Do not run a second web search.",
     "Use threadSummary, recentMessages, longTermContextSnapshots, and relevantMemories only when they help answer the current userPrompt.",
     "Treat recentMessages as live follow-up context only when they are clearly fresh, roughly within the last 30 minutes. Older messages are background continuity only; do not use them to infer current CRM/contact/calendar associations unless the user explicitly asks about older context.",
+    "When actor.kind is trusted_internal_messaging_sender, actor is the authenticated sender of this SMS or WhatsApp thread. First-person references such as me, my number, or ring me refer to that actor. Never replace that identity with a similarly named CRM contact.",
     "longTermContextSnapshots are compacted older assistant context. Prefer them for continuity over pretending the current prompt is isolated. If they are insufficient and the user asks about older discussion, say you can search assistant history.",
     "Do not invent CRM records, dates, prices, or real-world business actions.",
     "Keep CRM answers short and operational. Casual answers can sound like a normal chat.",
@@ -183,6 +184,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
 
   return JSON.stringify(
     {
+      actor: input.actor ?? null,
       currentTime: input.currentTime,
       userPrompt: input.prompt,
       threadSummary: input.threadSummary ?? null,

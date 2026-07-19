@@ -136,7 +136,17 @@ export type AssistantToolCallRecord = {
   result: Record<string, unknown>;
 };
 
+export type AssistantRequestActor = {
+  displayName: string | null;
+  firstName: string | null;
+  kind: "trusted_internal_messaging_sender";
+  phoneNumber: string;
+  role: string | null;
+  userId: string;
+};
+
 export type AssistantModelInput = {
+  actor?: AssistantRequestActor | null;
   prompt: string;
   command: AssistantCommandResult;
   contextSnapshots?: AssistantContextSnapshot[];

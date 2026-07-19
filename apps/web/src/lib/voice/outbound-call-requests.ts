@@ -54,6 +54,10 @@ function stripPhone(value: string) {
 }
 
 export function looksLikeOutboundCallRequest(prompt: string) {
+  if (looksLikeSelfOutboundCallRequest(prompt)) {
+    return true;
+  }
+
   const text = normalized(prompt);
   const hasCallVerb = /\b(call|phone|ring|dial)\b/.test(text);
   const hasOutboundAction =
@@ -62,6 +66,14 @@ export function looksLikeOutboundCallRequest(prompt: string) {
     );
 
   return hasCallVerb && hasOutboundAction;
+}
+
+export function looksLikeSelfOutboundCallRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return /\b(?:call|phone|ring|dial)\s+(?:me|myself|my\s+(?:number|phone|mobile))\b/.test(
+    text,
+  );
 }
 
 export function outboundCallInstructionsFromPrompt(prompt: string) {
@@ -155,7 +167,9 @@ function rankedContacts(prompt: string, contacts: readonly ContactListItem[]) {
 }
 
 export async function resolveOutboundCallRequest({
+  authoritativeRecipient = false,
   contactId,
+  contactName,
   contacts,
   contextSummary = null,
   conversationId = null,
@@ -166,7 +180,9 @@ export async function resolveOutboundCallRequest({
   supabase,
   workspaceId,
 }: {
+  authoritativeRecipient?: boolean;
   contactId?: string | null;
+  contactName?: string | null;
   contacts?: readonly ContactListItem[];
   contextSummary?: string | null;
   conversationId?: string | null;
@@ -177,18 +193,26 @@ export async function resolveOutboundCallRequest({
   supabase: SupabaseClient;
   workspaceId: string;
 }): Promise<OutboundCallRequestResolution> {
-  const loadedContacts = contacts ?? (await getContactList(supabase, workspaceId));
+  const loadedContacts =
+    contacts ??
+    (authoritativeRecipient && !contactId
+      ? []
+      : await getContactList(supabase, workspaceId));
   const requestedPhone = textValue(phoneNumber) ?? directPhoneFromPrompt(prompt);
   const requestedInstructions =
     textValue(instructions) ?? outboundCallInstructionsFromPrompt(prompt);
   const explicitContact =
     contactId && loadedContacts.find((contact) => contact.id === contactId);
-  const ranked = explicitContact
-    ? [{ contact: explicitContact, score: 200 }]
-    : rankedContacts(prompt, loadedContacts);
+  const ranked = authoritativeRecipient
+    ? []
+    : explicitContact
+      ? [{ contact: explicitContact, score: 200 }]
+      : rankedContacts(prompt, loadedContacts);
   const best = ranked[0];
   const selectedContact =
-    best && best.score >= 80
+    authoritativeRecipient
+      ? null
+      : best && best.score >= 80
       ? best.contact
       : requestedPhone
         ? null
@@ -216,7 +240,11 @@ export async function resolveOutboundCallRequest({
   if (!resolvedPhone) {
     return {
       contactId: selectedContact?.id ?? null,
-      contactName: selectedContact?.name ?? selectedContact?.company ?? null,
+      contactName:
+        textValue(contactName) ??
+        selectedContact?.name ??
+        selectedContact?.company ??
+        null,
       conversationId,
       instructions: requestedInstructions,
       leadId,
@@ -232,7 +260,11 @@ export async function resolveOutboundCallRequest({
   if (!requestedInstructions) {
     return {
       contactId: selectedContact?.id ?? contactId ?? null,
-      contactName: selectedContact?.name ?? selectedContact?.company ?? null,
+      contactName:
+        textValue(contactName) ??
+        selectedContact?.name ??
+        selectedContact?.company ??
+        null,
       conversationId,
       instructions: null,
       leadId,
@@ -245,7 +277,11 @@ export async function resolveOutboundCallRequest({
 
   return {
     contactId: selectedContact?.id ?? contactId ?? null,
-    contactName: selectedContact?.name ?? selectedContact?.company ?? null,
+    contactName:
+      textValue(contactName) ??
+      selectedContact?.name ??
+      selectedContact?.company ??
+      null,
     contextSummary: textValue(contextSummary),
     conversationId,
     instructions: requestedInstructions,

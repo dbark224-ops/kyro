@@ -2,6 +2,7 @@ import type {
   AssistantContextSnapshot,
   AssistantModelRoute,
   AssistantRecentMessage,
+  AssistantRequestActor,
 } from "./types";
 import {
   estimateTokens,
@@ -330,6 +331,8 @@ function toolSchema(tool: ToolDefinition) {
               ? "The concise calendar instruction to pass to Kyro. For calendar reads, preserve the exact date and year the user supplied and do not invent or substitute a weekday. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, any explicit duration, location, and job details. Event purpose plus date and time is enough to create immediately; never omit the tool call merely because duration or location is missing. Kyro applies the workspace default duration and does not require a location. Keep event titles compact and do not include date/time wording as part of the title. When the user describes the event purpose, preserve it as an explicit title, for example 'it's a sponsor event' becomes 'titled Sponsor event'. For finalize/save/confirm follow-ups, preserve that action instead of rewriting it into a generic calendar lookup. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation in the current prompt. Do not add this/current customer wording from stale recentMessages. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am', which Kyro should title as 'Meeting - Starbucks'. Example: 'add a meeting at the NM MVD on the 2nd of August at 2pm' becomes 'meeting at NM MVD on 2nd August at 2pm', which Kyro should title as 'Meeting - NM MVD'."
               : tool.name === "sms_send"
                 ? "The direct workplace-contact SMS instruction. Preserve the exact workplace contact name or primary-contact wording and the exact requested message. If the user is testing SMS without specifying copy, preserve that it is a test."
+              : tool.name === "outbound_call"
+                ? "The outbound call instruction. Preserve first-person recipient wording such as me, myself, or my number exactly; actor supplies the authenticated internal sender identity. Preserve the requested call purpose or message."
               : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
           type: "string",
         },
@@ -348,6 +351,7 @@ function toolSchema(tool: ToolDefinition) {
 }
 
 function plannerPrompt({
+  actor,
   contextSnapshots,
   currentTime,
   inputSource,
@@ -355,6 +359,7 @@ function plannerPrompt({
   recentMessages,
   threadSummary,
 }: {
+  actor?: AssistantRequestActor | null;
   contextSnapshots?: readonly AssistantContextSnapshot[];
   currentTime: AssistantCurrentTimeContext;
   inputSource?: string;
@@ -364,6 +369,7 @@ function plannerPrompt({
 }) {
   return JSON.stringify(
     {
+      actor: actor ?? null,
       currentTime,
       inputSource: inputSource ?? "typed",
       compactedContext: (contextSnapshots ?? []).map((snapshot) => ({
@@ -419,6 +425,7 @@ export function parseAssistantToolPlanResponse(
 }
 
 export async function planAssistantToolCall({
+  actor = null,
   contextSnapshots = [],
   currentTime,
   inputSource,
@@ -427,6 +434,7 @@ export async function planAssistantToolCall({
   route,
   threadSummary = null,
 }: {
+  actor?: AssistantRequestActor | null;
   contextSnapshots?: AssistantContextSnapshot[];
   currentTime: AssistantCurrentTimeContext;
   inputSource?: string;
@@ -447,6 +455,7 @@ export async function planAssistantToolCall({
 
   const apiKey = openAiApiKey();
   const input = plannerPrompt({
+    actor,
     contextSnapshots,
     currentTime,
     inputSource,
@@ -476,6 +485,7 @@ export async function planAssistantToolCall({
           "For normal conversation, jokes, opinions, broad reasoning, or casual chat, do not call a tool.",
           "Use compactedContext for continuity. If the user asks about older assistant chat history, what was discussed before, or where an older generated/saved thing went and recentMessages are insufficient, call kyro_history_search.",
           "Use recentMessages to understand immediate follow-ups, but only treat them as live intent when the relevant message is from roughly the last 30 minutes. Older messages are background and must not create implicit CRM/contact/calendar associations.",
+          "When actor.kind is trusted_internal_messaging_sender, actor is the authenticated sender of this SMS or WhatsApp thread. First-person references such as me, my number, or call/ring me refer to that actor, never to a similarly named CRM contact.",
           "If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
           "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
           "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",

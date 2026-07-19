@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { recordOutboundDirectSms } from "../communication/outbound";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { sendInternalBugNotification } from "../internal-notifications";
@@ -10,7 +10,9 @@ import {
   getOrCreateAssistantThread,
   updateAssistantThreadSummary,
 } from "./persistence";
-import { getVoiceSettings } from "./voice-settings";
+import { getVoiceSettings, type VoiceSettings } from "./voice-settings";
+import { vapiUserIdentityFromUser } from "./vapi-user-context";
+import type { AssistantRequestActor } from "./types";
 
 export type InternalMessagingWorkspace = {
   id: string;
@@ -51,6 +53,33 @@ export async function isTrustedInternalMessagingSender(
   return trustedInternalPhoneMatches(from, voiceSettings.phoneAgentUserNumbers);
 }
 
+export function trustedInternalMessagingActor({
+  from,
+  user,
+  voiceSettings,
+}: {
+  from: string;
+  user: User;
+  voiceSettings: Pick<VoiceSettings, "phoneAgentUserNumberDetails">;
+}): AssistantRequestActor {
+  const senderPhone = normalizedPhone(from);
+  const matchingDetail = voiceSettings.phoneAgentUserNumberDetails.find(
+    (detail) => normalizedPhone(detail.phoneNumber) === senderPhone,
+  );
+  const accountIdentity = vapiUserIdentityFromUser(user);
+  const displayName = matchingDetail?.name || accountIdentity.name || null;
+
+  return {
+    displayName,
+    firstName:
+      displayName?.split(/\s+/)[0] || accountIdentity.firstName || null,
+    kind: "trusted_internal_messaging_sender",
+    phoneNumber: senderPhone,
+    role: matchingDetail?.role ?? null,
+    userId: user.id,
+  };
+}
+
 export async function processInternalAssistantMessage(input: {
   eventId: string;
   from: string;
@@ -75,6 +104,15 @@ export async function processInternalAssistantMessage(input: {
 
     const user = data.user;
     userEmail = user.email ?? null;
+    const voiceSettings = await getVoiceSettings(
+      input.supabase,
+      input.workspace.id,
+    );
+    const actor = trustedInternalMessagingActor({
+      from: input.from,
+      user,
+      voiceSettings,
+    });
     const workspace = {
       id: input.workspace.id,
       name: input.workspace.name,
@@ -103,6 +141,7 @@ export async function processInternalAssistantMessage(input: {
       workspaceId: workspace.id,
     });
     const result = await runAssistantTurn({
+      actor,
       contextSnapshots: context.contextSnapshots,
       inputSource: input.transport,
       memories: context.memories,

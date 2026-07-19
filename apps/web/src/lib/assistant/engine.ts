@@ -27,6 +27,7 @@ import type {
   AssistantMemoryItem,
   AssistantModelRoute,
   AssistantRecentMessage,
+  AssistantRequestActor,
   AssistantToolCallRecord,
   AssistantTurnResult,
 } from "./types";
@@ -37,6 +38,7 @@ type WorkspaceInput = {
 };
 
 type RunAssistantTurnInput = {
+  actor?: AssistantRequestActor | null;
   contextSnapshots?: AssistantContextSnapshot[];
   inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
@@ -125,6 +127,7 @@ function routeAssistantPlannerModel(
 }
 
 export async function runAssistantTurn({
+  actor = null,
   contextSnapshots = [],
   inputSource = "typed",
   memories = [],
@@ -155,6 +158,7 @@ export async function runAssistantTurn({
   const route = routeAssistantModel(workspace, user);
   const plannerRoute = routeAssistantPlannerModel(workspace, user);
   const toolPlan = await planAssistantToolCall({
+    actor,
     contextSnapshots,
     currentTime,
     inputSource,
@@ -164,6 +168,7 @@ export async function runAssistantTurn({
     threadSummary,
   });
   const command = await resolveAssistantCommand({
+    actor,
     currentTime,
     prompt: trimmedPrompt,
     recentMessages,
@@ -226,6 +231,7 @@ export async function runAssistantTurn({
 
   const aiRunId = String(aiRun.id);
   const modelOutput = await runAssistantModel(route, {
+    actor,
     command,
     contextSnapshots,
     currentTime,

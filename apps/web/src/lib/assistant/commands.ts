@@ -104,6 +104,7 @@ import type {
   AssistantCommandResult,
   AssistantLink,
   AssistantRecentMessage,
+  AssistantRequestActor,
   AssistantUiBlock,
 } from "./types";
 import {
@@ -117,6 +118,7 @@ import {
 import { runAssistantWebSearch } from "./web-search";
 import {
   looksLikeOutboundCallRequest,
+  looksLikeSelfOutboundCallRequest,
   resolveOutboundCallRequest,
   type OutboundCallRequestResolution,
 } from "../voice/outbound-call-requests";
@@ -133,6 +135,7 @@ type WorkspaceInput = {
 };
 
 type CommandInput = {
+  actor?: AssistantRequestActor | null;
   currentTime?: AssistantCurrentTimeContext;
   prompt: string;
   recentMessages?: AssistantRecentMessage[];
@@ -1625,6 +1628,7 @@ async function generatedImageRecallCommand({
 }
 
 async function resolvePlannedAssistantCommand({
+  actor = null,
   currentTime,
   prompt,
   recentMessages = [],
@@ -1750,7 +1754,10 @@ async function resolvePlannedAssistantCommand({
       });
     case "outbound_call":
       return outboundCallCommand({
-        prompt: plannedPrompt,
+        actor,
+        prompt: looksLikeSelfOutboundCallRequest(prompt)
+          ? prompt
+          : plannedPrompt,
         recentMessages,
         supabase,
         threadId,
@@ -1831,6 +1838,7 @@ async function resolvePlannedAssistantCommand({
 }
 
 export async function resolveAssistantCommand({
+  actor = null,
   currentTime,
   prompt,
   recentMessages = [],
@@ -1858,6 +1866,7 @@ export async function resolveAssistantCommand({
   }
 
   const plannedCommand = await resolvePlannedAssistantCommand({
+    actor,
     currentTime,
     prompt,
     recentMessages,
@@ -1892,6 +1901,7 @@ export async function resolveAssistantCommand({
 
   if (looksLikeOutboundCallRequest(prompt)) {
     return outboundCallCommand({
+      actor,
       prompt,
       recentMessages,
       supabase,
@@ -2059,19 +2069,30 @@ export async function resolveAssistantCommand({
 }
 
 async function outboundCallCommand({
+  actor = null,
   prompt,
   recentMessages = [],
   supabase,
   threadId = null,
   workspace,
 }: CommandInput): Promise<AssistantCommandResult> {
+  const selfRecipient =
+    actor?.kind === "trusted_internal_messaging_sender" &&
+    looksLikeSelfOutboundCallRequest(prompt)
+      ? actor
+      : null;
   const resolution = await resolveOutboundCallRequest({
-    contactId: recentContactIdFromMessages(recentMessages),
+    authoritativeRecipient: Boolean(selfRecipient),
+    contactId: selfRecipient
+      ? null
+      : recentContactIdFromMessages(recentMessages),
+    contactName: selfRecipient?.displayName ?? null,
     contextSummary: outboundCallContextFromRecentMessages({
       prompt,
       recentMessages,
     }),
     prompt,
+    phoneNumber: selfRecipient?.phoneNumber ?? null,
     supabase,
     workspaceId: workspace.id,
   });
@@ -2131,10 +2152,15 @@ async function outboundCallCommand({
   }
 
   if (resolution.status === "missing_instructions") {
+    const recognizedRecipient = selfRecipient
+      ? selfRecipient.displayName ?? selfRecipient.firstName ?? "you"
+      : null;
+
     return {
       context: { outboundCall: resolution },
-      fallbackAnswer:
-        "I have the phone number, but I need to know what you want Kyro to say on the call.",
+      fallbackAnswer: recognizedRecipient
+        ? `I know you mean ${recognizedRecipient} at ${selfRecipient?.phoneNumber}. What would you like Kyro to help with on the call?`
+        : "I have the phone number, but I need to know what you want Kyro to say on the call.",
       intent: "outbound_call_prepare",
       links: resolution.contactId
         ? [
