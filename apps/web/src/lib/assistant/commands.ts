@@ -2946,6 +2946,32 @@ function wantsCalendarUpdate(prompt: string) {
   );
 }
 
+export function calendarOperationFromPrompts(
+  plannedPrompt: string,
+  userPrompt: string | null | undefined,
+  recentMessages: AssistantRecentMessage[] = [],
+) {
+  const operationPrompt = userPrompt?.trim() || plannedPrompt;
+
+  if (wantsCalendarDraftFinalize(operationPrompt, recentMessages)) {
+    return "finalize" as const;
+  }
+
+  if (wantsCalendarCreate(operationPrompt)) {
+    return "create" as const;
+  }
+
+  if (wantsCalendarDelete(operationPrompt)) {
+    return "delete" as const;
+  }
+
+  if (wantsCalendarUpdate(operationPrompt)) {
+    return "update" as const;
+  }
+
+  return "read" as const;
+}
+
 function inferCalendarEventType(prompt: string) {
   const text = normalized(prompt);
 
@@ -4263,8 +4289,13 @@ async function calendarCommand({
     timeZone,
     turnNow,
   );
+  const operation = calendarOperationFromPrompts(
+    prompt,
+    userPrompt,
+    recentMessages,
+  );
 
-  if (wantsCalendarDraftFinalize(prompt, recentMessages)) {
+  if (operation === "finalize") {
     const resolution = await resolveCalendarTargetEvent({
       prompt,
       recentMessages,
@@ -4475,7 +4506,7 @@ async function calendarCommand({
     };
   }
 
-  if (wantsCalendarCreate(prompt)) {
+  if (operation === "create") {
     const contacts = await getContactList(supabase, workspace.id);
     const linked = await calendarLinkedContext({
       contacts,
@@ -4584,7 +4615,7 @@ async function calendarCommand({
     };
   }
 
-  if (wantsCalendarDelete(prompt)) {
+  if (operation === "delete") {
     const resolution = await resolveCalendarTargetEvent({
       prompt,
       recentMessages,
@@ -4649,7 +4680,7 @@ async function calendarCommand({
     };
   }
 
-  if (wantsCalendarUpdate(prompt)) {
+  if (operation === "update") {
     const resolution = await resolveCalendarTargetEvent({
       prompt,
       recentMessages,

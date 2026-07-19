@@ -8,6 +8,7 @@ import {
   calendarDateRangeFromPrompt,
   calendarConversationReferenceFromRecentMessages,
   calendarLinkIntentFromPrompt,
+  calendarOperationFromPrompts,
   cleanCalendarTitle,
   documentTemplateControlIntent,
   looksLikeCalendarFollowUpRequest,
@@ -397,6 +398,30 @@ describe("assistant generated image follow-up helpers", () => {
 });
 
 describe("assistant calendar helpers", () => {
+  it("keeps the original calendar mutation after planner cleanup", () => {
+    assert.equal(
+      calendarOperationFromPrompts(
+        "go to Home Depot and pay the account on Sunday 19 July 2026 at 11:00 AM, titled Home Depot - Pay account",
+        "Can you create an event for me to go to Home Depot and pay that account too at 11am",
+      ),
+      "create",
+    );
+    assert.equal(
+      calendarOperationFromPrompts(
+        "Home Depot - Pay account on Sunday 19 July 2026 at 12:00 PM",
+        "Move the Home Depot event to midday",
+      ),
+      "update",
+    );
+    assert.equal(
+      calendarOperationFromPrompts(
+        "Home Depot - Pay account on Sunday 19 July 2026",
+        "Delete the Home Depot event",
+      ),
+      "delete",
+    );
+  });
+
   it("does not infer contact links from ordinary event titles", () => {
     assert.deepEqual(
       calendarLinkIntentFromPrompt(
