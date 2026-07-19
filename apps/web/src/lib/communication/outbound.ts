@@ -14,6 +14,7 @@ import {
   getTwilioConfig,
   sendTwilioSmsMessage,
   telephonyUsageCost,
+  twilioSmsDeliveryState,
   TWILIO_PROVIDER,
   TWILIO_SMS_SERVICE,
   TWILIO_STATUS_WEBHOOK_PATH,
@@ -1426,18 +1427,20 @@ async function markOutboundSent(
 
   const currentMetadata = objectRecord(currentRow?.metadata ?? row.metadata);
   const twilioStatus = objectRecord(currentMetadata.twilioStatus);
-  const providerStatus = textValue(twilioStatus.rawStatus)?.toLowerCase();
+  const providerDelivery = twilioSmsDeliveryState({
+    errorCode: twilioStatus.errorCode,
+    status: twilioStatus.rawStatus,
+  });
+  const providerStatus = providerDelivery.normalizedStatus;
   const providerFailed =
-    currentRow?.status === "failed" ||
-    providerStatus === "failed" ||
-    providerStatus === "undelivered";
+    currentRow?.status === "failed" || providerDelivery.failed;
   const finalStatus: OutboundDeliveryStatus = providerFailed
     ? "failed"
     : "sent";
   const finalError =
     finalStatus === "failed"
       ? (textValue(currentRow?.last_error) ??
-        `Twilio SMS ${providerStatus ?? "failed"}`)
+        `Twilio SMS failed${providerDelivery.errorCode ? ` (${providerDelivery.errorCode})` : providerStatus ? ` (${providerStatus})` : ""}`)
       : null;
 
   const { error: updateError } = await supabase

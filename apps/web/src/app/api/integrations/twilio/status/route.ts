@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   getTwilioConfig,
+  twilioSmsDeliveryState,
   twilioWebhookCanonicalUrlCandidates,
   twilioWebhookResponse,
   validateTwilioWebhookSignature,
@@ -14,9 +15,6 @@ export const dynamic = "force-dynamic";
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
-
-const FINAL_FAILED_STATUSES = new Set(["failed", "undelivered"]);
-const FINAL_SUCCESS_STATUSES = new Set(["delivered", "sent"]);
 
 async function formParams(request: Request) {
   const form = await request.formData();
@@ -97,11 +95,12 @@ export async function POST(request: Request) {
   }
 
   const now = new Date().toISOString();
-  const normalizedStatus = messageStatus.toLowerCase();
-  const failed = FINAL_FAILED_STATUSES.has(normalizedStatus);
-  const succeeded = FINAL_SUCCESS_STATUSES.has(normalizedStatus);
   const errorCode = textValue(params.ErrorCode);
   const errorMessage = textValue(params.ErrorMessage);
+  const { failed, succeeded } = twilioSmsDeliveryState({
+    errorCode,
+    status: messageStatus,
+  });
   const metadata =
     outbound.metadata && typeof outbound.metadata === "object"
       ? (outbound.metadata as Record<string, unknown>)
@@ -126,7 +125,7 @@ export async function POST(request: Request) {
     updatePayload.failed_at = now;
     updatePayload.last_error =
       errorMessage ??
-      `Twilio SMS ${messageStatus}${errorCode ? ` (${errorCode})` : ""}`;
+      `Twilio SMS ${failed ? "failed" : messageStatus}${errorCode ? ` (${errorCode})` : ""}`;
   } else if (succeeded) {
     updatePayload.status = "sent";
     updatePayload.failed_at = null;

@@ -69,8 +69,36 @@ export type TwilioSmsSendResult = {
   to: string;
 };
 
+export type TwilioSmsDeliveryState = {
+  errorCode: string | null;
+  failed: boolean;
+  normalizedStatus: string | null;
+  succeeded: boolean;
+};
+
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function twilioSmsDeliveryState(input: {
+  errorCode?: unknown;
+  status?: unknown;
+}): TwilioSmsDeliveryState {
+  const errorCode = textValue(input.errorCode);
+  const normalizedStatus = textValue(input.status)?.toLowerCase() ?? null;
+  const failed =
+    Boolean(errorCode) ||
+    normalizedStatus === "failed" ||
+    normalizedStatus === "undelivered";
+
+  return {
+    errorCode,
+    failed,
+    normalizedStatus,
+    succeeded:
+      !failed &&
+      (normalizedStatus === "delivered" || normalizedStatus === "sent"),
+  };
 }
 
 function numberValue(value: unknown) {

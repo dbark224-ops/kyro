@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { sendTwilioSmsMessage } from "./twilio";
+import { sendTwilioSmsMessage, twilioSmsDeliveryState } from "./twilio";
 
 const originalFetch = globalThis.fetch;
 const originalEnvironment = {
@@ -100,4 +100,26 @@ test("allows the Messaging Service to select a sender when none is requested", a
     from: null,
     to: "+15755712705",
   });
+});
+
+test("treats an error-bearing queued callback as failed", () => {
+  assert.deepEqual(
+    twilioSmsDeliveryState({
+      errorCode: "30034",
+      status: "queued",
+    }),
+    {
+      errorCode: "30034",
+      failed: true,
+      normalizedStatus: "queued",
+      succeeded: false,
+    },
+  );
+});
+
+test("classifies clean delivery statuses without hiding failures", () => {
+  assert.equal(twilioSmsDeliveryState({ status: "delivered" }).succeeded, true);
+  assert.equal(twilioSmsDeliveryState({ status: "sent" }).succeeded, true);
+  assert.equal(twilioSmsDeliveryState({ status: "queued" }).succeeded, false);
+  assert.equal(twilioSmsDeliveryState({ status: "undelivered" }).failed, true);
 });
