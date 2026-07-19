@@ -6,6 +6,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -1149,6 +1150,9 @@ export function CalendarBoard({
   const [weekSettingsError, setWeekSettingsError] = useState<string | null>(
     null,
   );
+  const weekSettingsRef = useRef<HTMLDetailsElement>(null);
+  const weekDaysSelectRef = useRef<HTMLSelectElement>(null);
+  const weekDaysSelectOpenRef = useRef(false);
   const visibleRange = useMemo(
     () => rangeForView(anchor, currentView, weekLayout, weekDaysBefore),
     [anchor, currentView, weekDaysBefore, weekLayout],
@@ -1170,6 +1174,46 @@ export function CalendarBoard({
       router.prefetch(href);
     });
   }, [prefetchedHrefs, router]);
+
+  useEffect(() => {
+    const handleWeekSettingsPointerDown = (event: PointerEvent) => {
+      const weekSettings = weekSettingsRef.current;
+      if (!weekSettings?.open) {
+        return;
+      }
+
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      const weekDaysSelect = weekDaysSelectRef.current;
+      const clickedInsideSelect = weekDaysSelect?.contains(target) ?? false;
+
+      if (weekDaysSelectOpenRef.current && !clickedInsideSelect) {
+        weekDaysSelectOpenRef.current = false;
+        weekDaysSelect?.blur();
+        return;
+      }
+
+      if (!weekSettings.contains(target)) {
+        weekSettings.open = false;
+      }
+    };
+
+    document.addEventListener(
+      "pointerdown",
+      handleWeekSettingsPointerDown,
+      true,
+    );
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handleWeekSettingsPointerDown,
+        true,
+      );
+    };
+  }, []);
 
   const selectEvent = (eventId: string) => {
     setCreateOpen(false);
@@ -1351,7 +1395,15 @@ export function CalendarBoard({
                 </span>
               </button>
               {currentView === "week" ? (
-                <details className={styles.calendarWeekSettings}>
+                <details
+                  className={styles.calendarWeekSettings}
+                  onToggle={(event) => {
+                    if (!event.currentTarget.open) {
+                      weekDaysSelectOpenRef.current = false;
+                    }
+                  }}
+                  ref={weekSettingsRef}
+                >
                   <summary
                     aria-label="Week layout settings"
                     title="Week layout settings"
@@ -1381,12 +1433,20 @@ export function CalendarBoard({
                         Days around today
                         <select
                           disabled={isSavingWeekSettings}
-                          onChange={(event) =>
+                          onBlur={() => {
+                            weekDaysSelectOpenRef.current = false;
+                          }}
+                          onChange={(event) => {
+                            weekDaysSelectOpenRef.current = false;
                             saveWeekSettings(
                               weekLayout,
                               Number(event.target.value),
-                            )
-                          }
+                            );
+                          }}
+                          onPointerDown={() => {
+                            weekDaysSelectOpenRef.current = true;
+                          }}
+                          ref={weekDaysSelectRef}
                           value={weekDaysBefore}
                         >
                           {Array.from({ length: 7 }, (_, daysBefore) => (
