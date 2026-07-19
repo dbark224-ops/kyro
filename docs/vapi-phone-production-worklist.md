@@ -1,6 +1,6 @@
 # Vapi Phone Production Worklist
 
-Last updated: 2026-06-25
+Last updated: 2026-07-18
 
 This is the working checklist for getting Kyro's Vapi/Twilio phone layer from
 backend-complete to production-confident. Use it as the running source of truth
@@ -188,6 +188,9 @@ Done:
 - [x] Internal assistant routing is separated from external customer routing.
 - [x] Internal calls can access the safer internal tool set when the caller is
   trusted.
+- [x] Live trusted-caller testing confirmed the internal voice assistant can
+  read the Kyro calendar and create calendar events. The same two capabilities
+  also passed through the WhatsApp test channel.
 
 Still to test:
 
@@ -196,6 +199,8 @@ Still to test:
 - [ ] Confirm Kyro selects `inbound_user`.
 - [ ] Confirm internal tools work for CRM lookup, recent messages, SMS,
   outbound call requests, email checks, and context lookup.
+- [ ] Confirm calendar event moving, editing, and deletion through the internal
+  voice assistant; reading and creation are already proven.
 - [ ] Confirm internal `kyro_record_call_note` saves notes/tasks without
   exposing internal context to external callers.
 - [ ] Confirm an unconfigured number cannot access internal behaviour.
