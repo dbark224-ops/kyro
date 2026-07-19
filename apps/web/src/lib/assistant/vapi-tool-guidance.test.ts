@@ -11,6 +11,11 @@ describe("Vapi internal tool guidance", () => {
 
     assert.equal(VAPI_INTERNAL_COMMAND_TOOL, "kyro_context_lookup");
     assert.match(guidance, /create, update, move, reschedule/);
+    assert.match(guidance, /event purpose, date, and time are enough/);
+    assert.match(
+      guidance,
+      /workspace default duration and leaves location blank/,
+    );
     assert.match(guidance, /cannot reschedule or edit calendar events/);
     assert.doesNotMatch(guidance, /kyro_assistant_command/);
   });

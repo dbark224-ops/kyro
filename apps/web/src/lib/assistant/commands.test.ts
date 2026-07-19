@@ -645,7 +645,40 @@ describe("assistant calendar helpers", () => {
 
     assert.equal(parsed?.startsAt, "2026-07-14T20:00:00.000Z");
     assert.equal(parsed?.endsAt, "2026-07-14T21:30:00.000Z");
+    assert.equal(parsed?.durationMinutes, 90);
+    assert.equal(parsed?.durationSource, "default");
     assert.equal(parsed?.timeZone, "America/Denver");
+  });
+
+  it("uses an explicit calendar duration instead of the workspace default", () => {
+    const parsed = parseAssistantCalendarTime(
+      "Add a supplier call on July 14 2026 at 2pm for 30 minutes",
+      {
+        defaultDurationMinutes: 60,
+        timeZone: "America/Denver",
+      },
+    );
+
+    assert.equal(parsed?.startsAt, "2026-07-14T20:00:00.000Z");
+    assert.equal(parsed?.endsAt, "2026-07-14T20:30:00.000Z");
+    assert.equal(parsed?.durationMinutes, 30);
+    assert.equal(parsed?.durationSource, "prompt");
+  });
+
+  it("understands natural hour durations without requiring a location", () => {
+    const parsed = parseAssistantCalendarTime(
+      "Create a planning meeting tomorrow at 10am for an hour and a half",
+      {
+        defaultDurationMinutes: 60,
+        now: new Date("2026-07-18T18:00:00.000Z"),
+        timeZone: "America/Denver",
+      },
+    );
+
+    assert.equal(parsed?.startsAt, "2026-07-19T16:00:00.000Z");
+    assert.equal(parsed?.endsAt, "2026-07-19T17:30:00.000Z");
+    assert.equal(parsed?.durationMinutes, 90);
+    assert.equal(parsed?.durationSource, "prompt");
   });
 
   it("formats assistant calendar confirmations in the workspace timezone", () => {

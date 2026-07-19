@@ -2873,6 +2873,8 @@ type CalendarLocalDateParts = {
 type ParsedCalendarSchedule = {
   assumedMeridiem: "am" | "pm" | null;
   dateLabel: string;
+  durationMinutes: number;
+  durationSource: "default" | "prompt";
   endsAt: string;
   startsAt: string;
   timeZone: string;
@@ -3493,6 +3495,56 @@ function calendarTimeFromPrompt(prompt: string) {
   return null;
 }
 
+function calendarDurationMinutesFromPrompt(prompt: string) {
+  const raw = prompt.toLowerCase();
+
+  if (/\b(?:for\s+)?(?:an?|one)\s+hour\s+and\s+(?:a\s+)?half\b/.test(raw)) {
+    return 90;
+  }
+
+  if (/\b(?:for\s+)?half\s+(?:an?\s+)?hour\b/.test(raw)) {
+    return 30;
+  }
+
+  const numericDuration = raw.match(
+    /\b(?:for\s+)?(\d+(?:\.\d+)?)\s*(?:-\s*)?(hours?|hrs?|minutes?|mins?)\b/,
+  );
+
+  if (numericDuration) {
+    const amount = Number(numericDuration[1]);
+    const unit = numericDuration[2];
+
+    if (Number.isFinite(amount) && amount > 0) {
+      return Math.round(amount * (unit.startsWith("h") ? 60 : 1));
+    }
+  }
+
+  const wordDuration = raw.match(
+    /\b(?:for\s+)?(one|two|three|four|five|six|seven|eight)\s+(hours?|minutes?)\b/,
+  );
+
+  if (!wordDuration) {
+    return null;
+  }
+
+  const amount =
+    ["one", "two", "three", "four", "five", "six", "seven", "eight"].indexOf(
+      wordDuration[1],
+    ) + 1;
+
+  return amount * (wordDuration[2].startsWith("hour") ? 60 : 1);
+}
+
+function calendarDurationLabel(durationMinutes: number) {
+  if (durationMinutes % 60 === 0) {
+    const hours = durationMinutes / 60;
+
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+
+  return `${durationMinutes} minutes`;
+}
+
 export function parseAssistantCalendarTime(
   prompt: string,
   {
@@ -3526,12 +3578,18 @@ export function parseAssistantCalendarTime(
     return null;
   }
 
-  const durationMinutes = Math.max(5, Math.min(720, defaultDurationMinutes));
+  const requestedDuration = calendarDurationMinutesFromPrompt(prompt);
+  const durationMinutes = Math.max(
+    5,
+    Math.min(720, requestedDuration ?? defaultDurationMinutes),
+  );
   const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
 
   return {
     assumedMeridiem: time.assumedMeridiem,
     dateLabel: date.label,
+    durationMinutes,
+    durationSource: requestedDuration === null ? "default" : "prompt",
     endsAt: endsAt.toISOString(),
     startsAt: startsAt.toISOString(),
     timeZone: safeZone,
@@ -4486,6 +4544,8 @@ async function calendarCommand({
         scheduledEndsAtLocal: scheduled?.endsAt
           ? assistantDate(scheduled.endsAt, timeZone)
           : null,
+        scheduledDurationMinutes: scheduled?.durationMinutes ?? null,
+        scheduledDurationSource: scheduled?.durationSource ?? null,
         skippedLinkReason: linked.skippedLinkReason,
         status: scheduled?.startsAt ? "scheduled" : "suggested",
         suggestedContactId: linked.suggestedContact?.id ?? null,
@@ -4499,7 +4559,13 @@ async function calendarCommand({
         ? `I created ${title} for ${assistantDate(
             scheduled.startsAt,
             timeZone,
-          )}.${assumedTime}${suggestedContactQuestion}`
+          )} and set it for ${calendarDurationLabel(
+            scheduled.durationMinutes,
+          )}.${assumedTime}${
+            scheduled.durationSource === "default"
+              ? " A location and any extra details can be added later."
+              : ""
+          }${suggestedContactQuestion}`
         : `I drafted ${title}. Open it to add the date and time before saving it to the calendar.${suggestedContactQuestion}`,
       intent: "calendar_event",
       links: [link],
