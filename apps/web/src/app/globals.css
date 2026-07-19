@@ -3811,6 +3811,10 @@ h2 {
   justify-items: stretch;
 }
 
+.assistant-workspace.has-activity.activity-collapsed {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
+}
+
 .assistant-command-panel {
   display: grid;
   min-width: 0;
@@ -4402,6 +4406,11 @@ h2 {
   height: 100%;
 }
 
+.assistant-activity-rail.is-collapsed {
+  align-self: start;
+  height: auto;
+}
+
 .assistant-preview-rail {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -4449,6 +4458,10 @@ h2 {
   justify-self: end;
   color: var(--muted);
   font-weight: 750;
+}
+
+.assistant-activity-collapsed .assistant-activity-toggle {
+  justify-self: end;
 }
 
 .assistant-generated-files-launcher {
@@ -5075,6 +5088,46 @@ a.assistant-summary-card:focus-visible {
 .assistant-activity-header h2 {
   margin: 2px 0 0;
   font-size: 1rem;
+}
+
+.assistant-activity-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assistant-activity-toggle {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.assistant-activity-toggle:hover {
+  border-color: color-mix(in srgb, var(--cyan) 62%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 9%, var(--surface));
+  color: var(--text);
+}
+
+.assistant-activity-toggle:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.assistant-activity-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
 }
 
 .assistant-activity-list {

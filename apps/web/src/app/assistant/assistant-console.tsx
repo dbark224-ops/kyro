@@ -55,6 +55,7 @@ const FALLBACK_QUICK_PROMPTS = [
 const MAX_VISIBLE_QUICK_PROMPTS = 3;
 const MAX_QUICK_PROMPT_LABEL_CHARS = 34;
 const MAX_ATTACHMENT_TEXT_BYTES = 48 * 1024;
+const ACTIVITY_COLLAPSED_STORAGE_KEY = "kyro:assistant-activity-collapsed";
 type VoiceCompletionMode = "draft" | "send";
 type PendingAssistantActivity = "image_generation" | null;
 
@@ -101,6 +102,27 @@ function quickPromptLabel(prompt: string) {
   }
 
   return `${normalized.slice(0, MAX_QUICK_PROMPT_LABEL_CHARS - 1).trimEnd()}...`;
+}
+
+function readStoredActivityCollapsed() {
+  try {
+    return (
+      window.localStorage.getItem(ACTIVITY_COLLAPSED_STORAGE_KEY) === "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredActivityCollapsed(isCollapsed: boolean) {
+  try {
+    window.localStorage.setItem(
+      ACTIVITY_COLLAPSED_STORAGE_KEY,
+      isCollapsed ? "true" : "false",
+    );
+  } catch {
+    // Activity remains usable when browser storage is unavailable.
+  }
 }
 
 export type PreviewState =
@@ -196,6 +218,7 @@ export function AssistantConsole({
   const [expandedImage, setExpandedImage] = useState<GeneratedImage | null>(
     null,
   );
+  const [isActivityCollapsed, setIsActivityCollapsed] = useState(false);
   const visibleOptimisticMessage = useMemo(
     () =>
       optimisticMessage &&
@@ -218,6 +241,19 @@ export function AssistantConsole({
       ? promptSuggestions
       : FALLBACK_QUICK_PROMPTS
   ).slice(0, MAX_VISIBLE_QUICK_PROMPTS);
+
+  useEffect(() => {
+    if (!readStoredActivityCollapsed()) {
+      return;
+    }
+
+    window.queueMicrotask(() => setIsActivityCollapsed(true));
+  }, []);
+
+  function updateActivityCollapsed(isCollapsed: boolean) {
+    setIsActivityCollapsed(isCollapsed);
+    writeStoredActivityCollapsed(isCollapsed);
+  }
 
   const updateMemorySuggestion = (
     memoryId: string,
@@ -921,7 +957,11 @@ export function AssistantConsole({
   return (
     <section
       className={`assistant-workspace${
-        isPreviewOpen ? " has-preview" : " has-activity"
+        isPreviewOpen
+          ? " has-preview"
+          : ` has-activity${
+              isActivityCollapsed ? " activity-collapsed" : ""
+            }`
       }`}
     >
       <section className="panel assistant-command-panel">
@@ -1115,11 +1155,23 @@ export function AssistantConsole({
           />
         </div>
       ) : (
-        <div className="assistant-activity-rail">
-          <AssistantExternalActivityPane
-            items={externalActivityItems}
-            onOpenPreview={openResourcePreview}
-          />
+        <div
+          className={`assistant-activity-rail${
+            isActivityCollapsed ? " is-collapsed" : ""
+          }`}
+        >
+          {isActivityCollapsed ? (
+            <AssistantActivityCollapsedBar
+              items={externalActivityItems}
+              onExpand={() => updateActivityCollapsed(false)}
+            />
+          ) : (
+            <AssistantExternalActivityPane
+              items={externalActivityItems}
+              onCollapse={() => updateActivityCollapsed(true)}
+              onOpenPreview={openResourcePreview}
+            />
+          )}
         </div>
       )}
       <AssistantImageLightbox
@@ -1962,9 +2014,11 @@ function AssistantTypingIndicator({
 
 function AssistantExternalActivityPane({
   items,
+  onCollapse,
   onOpenPreview,
 }: {
   items: AssistantExternalActivityItem[];
+  onCollapse: () => void;
   onOpenPreview: (link: AssistantLink) => void;
 }) {
   return (
@@ -1973,7 +2027,18 @@ function AssistantExternalActivityPane({
         <div>
           <h2>Kyro activity</h2>
         </div>
-        <span className="pill">{items.length} shown</span>
+        <div className="assistant-activity-header-actions">
+          <span className="pill">{items.length} shown</span>
+          <button
+            aria-label="Minimize Kyro activity"
+            className="assistant-activity-toggle"
+            onClick={onCollapse}
+            title="Minimize Kyro activity"
+            type="button"
+          >
+            <MinimizePanelIcon />
+          </button>
+        </div>
       </header>
 
       {items.length > 0 ? (
@@ -2052,15 +2117,45 @@ function AssistantExternalActivityPane({
 
 function AssistantActivityCollapsedBar({
   items,
+  onExpand,
 }: {
   items: AssistantExternalActivityItem[];
+  onExpand?: () => void;
 }) {
   return (
     <aside className="assistant-activity-collapsed" aria-label="Kyro activity">
       <span>Kyro activity</span>
       <strong>{items.length} recent</strong>
-      <small>Close the work panel to expand</small>
+      {onExpand ? (
+        <button
+          aria-label="Expand Kyro activity"
+          className="assistant-activity-toggle"
+          onClick={onExpand}
+          title="Expand Kyro activity"
+          type="button"
+        >
+          <ExpandPanelIcon />
+        </button>
+      ) : (
+        <small>Close the work panel to expand</small>
+      )}
     </aside>
+  );
+}
+
+function MinimizePanelIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M6 12h12" />
+    </svg>
+  );
+}
+
+function ExpandPanelIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
   );
 }
 
