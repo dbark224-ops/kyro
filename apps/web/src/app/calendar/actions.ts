@@ -11,6 +11,14 @@ import {
   resolveCalendarLinkedEntities,
   updateCalendarEventRecord,
 } from "../../lib/calendar/events";
+import {
+  CALENDAR_SETTINGS_POLICY_TYPE,
+  CALENDAR_WEEK_LAYOUTS,
+  getCalendarSettings,
+  normalizeCalendarSettings,
+  type CalendarWeekLayout,
+} from "../../lib/calendar/settings";
+import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 
 function formString(formData: FormData, key: string) {
@@ -144,7 +152,11 @@ export async function updateCalendarEventAction(formData: FormData) {
   const redirectTo = safeCalendarRedirect(formString(formData, "redirectTo"));
 
   if (!appointmentId) {
-    redirectWithCalendarMessage("engine_error", "Choose an event to update.", redirectTo);
+    redirectWithCalendarMessage(
+      "engine_error",
+      "Choose an event to update.",
+      redirectTo,
+    );
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -166,7 +178,9 @@ export async function updateCalendarEventAction(formData: FormData) {
   } catch (error) {
     redirectWithCalendarMessage(
       "engine_error",
-      error instanceof Error ? error.message : "Unable to update calendar event.",
+      error instanceof Error
+        ? error.message
+        : "Unable to update calendar event.",
       redirectTo,
     );
   }
@@ -183,7 +197,11 @@ export async function deleteCalendarEventAction(formData: FormData) {
   const redirectTo = safeCalendarRedirect(formString(formData, "redirectTo"));
 
   if (!appointmentId) {
-    redirectWithCalendarMessage("engine_error", "Choose an event to delete.", redirectTo);
+    redirectWithCalendarMessage(
+      "engine_error",
+      "Choose an event to delete.",
+      redirectTo,
+    );
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -202,7 +220,9 @@ export async function deleteCalendarEventAction(formData: FormData) {
   } catch (error) {
     redirectWithCalendarMessage(
       "engine_error",
-      error instanceof Error ? error.message : "Unable to delete calendar event.",
+      error instanceof Error
+        ? error.message
+        : "Unable to delete calendar event.",
       redirectTo,
     );
   }
@@ -212,4 +232,69 @@ export async function deleteCalendarEventAction(formData: FormData) {
     "Calendar event deleted.",
     redirectTo,
   );
+}
+
+export async function updateCalendarWeekLayoutAction(input: {
+  weekDaysBefore: number;
+  weekLayout: CalendarWeekLayout;
+}) {
+  if (!CALENDAR_WEEK_LAYOUTS.includes(input.weekLayout)) {
+    throw new Error("Choose a valid calendar week layout.");
+  }
+
+  if (
+    !Number.isInteger(input.weekDaysBefore) ||
+    input.weekDaysBefore < 0 ||
+    input.weekDaysBefore > 6
+  ) {
+    throw new Error("Choose between zero and six days before the focus day.");
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const beforeSettings = await getCalendarSettings(supabase, workspace.id);
+  const settings = normalizeCalendarSettings({
+    ...beforeSettings,
+    weekDaysBefore: input.weekDaysBefore,
+    weekLayout: input.weekLayout,
+  });
+  const { data, error } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: CALENDAR_SETTINGS_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to save calendar week layout: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    action: "calendar_week_layout.updated",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      weekDaysBefore: settings.weekDaysBefore,
+      weekLayout: settings.weekLayout,
+    },
+    before: {
+      weekDaysBefore: beforeSettings.weekDaysBefore,
+      weekLayout: beforeSettings.weekLayout,
+    },
+    entityId: String(data.id),
+    entityType: "workspace_policy",
+    workspaceId: workspace.id,
+  });
+
+  return {
+    weekDaysBefore: settings.weekDaysBefore,
+    weekLayout: settings.weekLayout,
+  };
 }

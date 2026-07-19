@@ -5,6 +5,9 @@ export const CALENDAR_SETTINGS_POLICY_TYPE = "calendar_settings";
 export const CALENDAR_VIEWS = ["day", "week", "month"] as const;
 export type CalendarView = (typeof CALENDAR_VIEWS)[number];
 
+export const CALENDAR_WEEK_LAYOUTS = ["rolling", "fixed"] as const;
+export type CalendarWeekLayout = (typeof CALENDAR_WEEK_LAYOUTS)[number];
+
 export const CALENDAR_EVENT_TYPES = [
   "quote_visit",
   "job",
@@ -35,6 +38,8 @@ export type CalendarSettings = {
   syncDeletedEventsToExternal: boolean;
   syncProvider: CalendarSyncProvider;
   syncUpdatedEventsToExternal: boolean;
+  weekDaysBefore: number;
+  weekLayout: CalendarWeekLayout;
 };
 
 export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
@@ -49,6 +54,8 @@ export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
   syncDeletedEventsToExternal: true,
   syncProvider: "auto",
   syncUpdatedEventsToExternal: true,
+  weekDaysBefore: 2,
+  weekLayout: "rolling",
 };
 
 function objectRecord(value: unknown) {
@@ -81,7 +88,12 @@ function booleanValue(value: unknown, fallback = false) {
   return fallback;
 }
 
-function integerValue(value: unknown, fallback: number, min: number, max: number) {
+function integerValue(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+) {
   const parsed =
     typeof value === "number"
       ? value
@@ -104,6 +116,17 @@ function normalizeCalendarView(
 
   return CALENDAR_VIEWS.includes(view as CalendarView)
     ? (view as CalendarView)
+    : fallback;
+}
+
+function normalizeCalendarWeekLayout(
+  value: unknown,
+  fallback: CalendarWeekLayout,
+): CalendarWeekLayout {
+  const layout = textValue(value);
+
+  return CALENDAR_WEEK_LAYOUTS.includes(layout as CalendarWeekLayout)
+    ? (layout as CalendarWeekLayout)
     : fallback;
 }
 
@@ -158,7 +181,10 @@ export function normalizeCalendarSettings(
       settings.defaultEventType,
       fallback.defaultEventType,
     ),
-    defaultView: normalizeCalendarView(settings.defaultView, fallback.defaultView),
+    defaultView: normalizeCalendarView(
+      settings.defaultView,
+      fallback.defaultView,
+    ),
     externalCalendarId:
       textValue(settings.externalCalendarId) ?? fallback.externalCalendarId,
     importExternalUpdates: booleanValue(
@@ -173,10 +199,23 @@ export function normalizeCalendarSettings(
       settings.syncDeletedEventsToExternal,
       fallback.syncDeletedEventsToExternal,
     ),
-    syncProvider: normalizeSyncProvider(settings.syncProvider, fallback.syncProvider),
+    syncProvider: normalizeSyncProvider(
+      settings.syncProvider,
+      fallback.syncProvider,
+    ),
     syncUpdatedEventsToExternal: booleanValue(
       settings.syncUpdatedEventsToExternal,
       fallback.syncUpdatedEventsToExternal,
+    ),
+    weekDaysBefore: integerValue(
+      settings.weekDaysBefore,
+      fallback.weekDaysBefore,
+      0,
+      6,
+    ),
+    weekLayout: normalizeCalendarWeekLayout(
+      settings.weekLayout,
+      fallback.weekLayout,
     ),
   };
 }

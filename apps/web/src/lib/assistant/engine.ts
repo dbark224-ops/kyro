@@ -13,6 +13,7 @@ import {
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { resolveAssistantCommand } from "./commands";
 import { runAssistantModel } from "./providers";
+import { projectAssistantResultForSurface } from "./response-surface";
 import {
   planAssistantToolCall,
   type AssistantToolPlanResult,
@@ -429,24 +430,28 @@ export async function runAssistantTurn({
     },
   });
 
-  return {
-    content: assistantContent,
-    fallbackReason: modelOutput.fallbackReason,
-    id: aiRunId,
-    intent: command.intent,
-    links: resultLinks,
-    model: route.model,
-    provider: route.provider,
-    role: "assistant",
-    toolCalls,
-    uiBlocks: [
-      ...commandUiBlocks,
-      ...(commandHasGeneratedImageBlock || commandHasLinkCardsBlock
-        ? []
-        : linkCardsBlock(command.title, command.links)),
-      ...linkCardsBlock("Web sources", webSourceLinks),
-    ],
-  };
+  return projectAssistantResultForSurface(
+    {
+      content: assistantContent,
+      fallbackReason: modelOutput.fallbackReason,
+      id: aiRunId,
+      intent: command.intent,
+      links: resultLinks,
+      model: route.model,
+      provider: route.provider,
+      role: "assistant",
+      toolCalls,
+      uiBlocks: [
+        ...commandUiBlocks,
+        ...(commandHasGeneratedImageBlock || commandHasLinkCardsBlock
+          ? []
+          : linkCardsBlock(command.title, command.links)),
+        ...linkCardsBlock("Web sources", webSourceLinks),
+      ],
+    },
+    inputSource,
+    command.fallbackAnswer,
+  );
 }
 
 function webSearchToToolCalls(

@@ -15,6 +15,7 @@ import {
   createCalendarEventAction,
   deleteCalendarEventAction,
   updateCalendarEventAction,
+  updateCalendarWeekLayoutAction,
 } from "./actions";
 import {
   googleMapsDirectionsUrl,
@@ -24,9 +25,13 @@ import {
 import {
   CALENDAR_EVENT_TYPES,
   type CalendarSettings,
+  type CalendarWeekLayout,
   type CalendarView,
 } from "../../lib/calendar/settings";
-import { dateKeyRangeContainsRange } from "../../lib/calendar/navigation-range";
+import {
+  calendarWeekVisibleRange,
+  dateKeyRangeContainsRange,
+} from "../../lib/calendar/navigation-range";
 import type { CalendarReadiness } from "../../lib/calendar/readiness";
 import {
   addDaysToDateKey,
@@ -37,7 +42,6 @@ import {
   isoFromDateKeyAndMinutes,
   isoFromDateTimeLocalInTimeZone,
   rangeForCalendarViewDateKey,
-  startOfWeekDateKey,
   todayDateKey,
   type DateKeyRange,
 } from "../../lib/timezone";
@@ -74,8 +78,7 @@ const TIMELINE_START_MINUTES =
   TIMELINE_VISIBLE_START_HOUR * 60 - TIMELINE_BUFFER_MINUTES;
 const TIMELINE_END_MINUTES =
   TIMELINE_VISIBLE_END_HOUR * 60 + TIMELINE_BUFFER_MINUTES;
-const TIMELINE_TOTAL_MINUTES =
-  TIMELINE_END_MINUTES - TIMELINE_START_MINUTES;
+const TIMELINE_TOTAL_MINUTES = TIMELINE_END_MINUTES - TIMELINE_START_MINUTES;
 const TIMELINE_MIN_EVENT_MINUTES = 34;
 const TIMELINE_CREATE_SLOT_MINUTES = 30;
 const TIMELINE_LABEL_HOURS = Array.from(
@@ -85,10 +88,6 @@ const TIMELINE_LABEL_HOURS = Array.from(
 
 function addDays(date: Date, days: number) {
   return dateKeyToPlainDate(addDaysToDateKey(formatDateParam(date), days));
-}
-
-function startOfWeek(date: Date) {
-  return dateKeyToPlainDate(startOfWeekDateKey(formatDateParam(date)));
 }
 
 function addMonths(date: Date, months: number) {
@@ -166,10 +165,7 @@ function timelinePercent(minutes: number) {
 }
 
 function clampTimelineMinutes(minutes: number) {
-  return Math.max(
-    0,
-    Math.min(24 * 60 - TIMELINE_CREATE_SLOT_MINUTES, minutes),
-  );
+  return Math.max(0, Math.min(24 * 60 - TIMELINE_CREATE_SLOT_MINUTES, minutes));
 }
 
 function timelineClickMinutes(position: TimelineClickPosition) {
@@ -180,8 +176,7 @@ function timelineClickMinutes(position: TimelineClickPosition) {
           Math.max(0, (position.clientY - position.top) / position.height),
         )
       : 0;
-  const rawMinutes =
-    TIMELINE_START_MINUTES + TIMELINE_TOTAL_MINUTES * ratio;
+  const rawMinutes = TIMELINE_START_MINUTES + TIMELINE_TOTAL_MINUTES * ratio;
   const rounded =
     Math.round(rawMinutes / TIMELINE_CREATE_SLOT_MINUTES) *
     TIMELINE_CREATE_SLOT_MINUTES;
@@ -300,13 +295,14 @@ function viewHref(view: CalendarView, date: Date) {
   return `/calendar?${params.toString()}`;
 }
 
-function adjacentCalendarHrefs(view: CalendarView, anchor: Date, timeZone: string) {
+function adjacentCalendarHrefs(
+  view: CalendarView,
+  anchor: Date,
+  timeZone: string,
+) {
   const adjacentDates =
     view === "month"
-      ? [-1, 1].map(
-          (offset) =>
-            addMonths(anchor, offset),
-        )
+      ? [-1, 1].map((offset) => addMonths(anchor, offset))
       : view === "week"
         ? [-14, -7, 7, 14].map((offset) => addDays(anchor, offset))
         : [-2, -1, 1, 2].map((offset) => addDays(anchor, offset));
@@ -323,8 +319,20 @@ function adjacentCalendarHrefs(view: CalendarView, anchor: Date, timeZone: strin
   ];
 }
 
-function rangeForView(anchor: Date, view: CalendarView) {
-  const range = rangeForCalendarViewDateKey(formatDateParam(anchor), view);
+function rangeForView(
+  anchor: Date,
+  view: CalendarView,
+  weekLayout: CalendarWeekLayout = "rolling",
+  weekDaysBefore = 2,
+) {
+  const anchorDateKey = formatDateParam(anchor);
+  const range =
+    view === "week"
+      ? calendarWeekVisibleRange(anchorDateKey, {
+          weekDaysBefore,
+          weekLayout,
+        })
+      : rangeForCalendarViewDateKey(anchorDateKey, view);
 
   return {
     from: dateKeyToPlainDate(range.from),
@@ -332,7 +340,13 @@ function rangeForView(anchor: Date, view: CalendarView) {
   };
 }
 
-function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
+function rangeLabel(
+  anchor: Date,
+  view: CalendarView,
+  timeZone: string,
+  weekLayout: CalendarWeekLayout,
+  weekDaysBefore: number,
+) {
   const anchorNoon = new Date(
     isoFromCalendarDayAndMinutes(anchor, 12 * 60, timeZone),
   );
@@ -355,7 +369,12 @@ function rangeLabel(anchor: Date, view: CalendarView, timeZone: string) {
     }).format(anchorNoon);
   }
 
-  const start = startOfWeek(anchor);
+  const start = dateKeyToPlainDate(
+    calendarWeekVisibleRange(formatDateParam(anchor), {
+      weekDaysBefore,
+      weekLayout,
+    }).from,
+  );
   const end = addDays(start, 6);
   const startNoon = new Date(
     isoFromCalendarDayAndMinutes(start, 12 * 60, timeZone),
@@ -451,12 +470,7 @@ function ChevronIcon({
   direction,
 }: Readonly<{ direction: "next" | "previous" }>) {
   return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      focusable="false"
-      viewBox="0 0 16 16"
-    >
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 16 16">
       <path
         d={direction === "previous" ? "M10 3 5 8l5 5" : "m6 3 5 5-5 5"}
         stroke="currentColor"
@@ -470,18 +484,26 @@ function ChevronIcon({
 
 function RefreshIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      focusable="false"
-      viewBox="0 0 16 16"
-    >
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 16 16">
       <path
         d="M13.1 5.7A5.5 5.5 0 1 0 13.4 9M13.1 2.8v2.9h-2.9"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="1.7"
+      />
+    </svg>
+  );
+}
+
+function WeekSettingsIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 16 16">
+      <path
+        d="M3 4h10M3 8h10M3 12h10M6 2.8v2.4M10 6.8v2.4M7 10.8v2.4"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.5"
       />
     </svg>
   );
@@ -498,7 +520,9 @@ function DateTimeInput({
   name: string;
   timeZone: string;
 }>) {
-  const [value, setValue] = useState(dateTimeLocalValue(defaultValue, timeZone));
+  const [value, setValue] = useState(
+    dateTimeLocalValue(defaultValue, timeZone),
+  );
 
   return (
     <label className={styles.dateTimeField}>
@@ -715,6 +739,8 @@ function WeekView({
   onCreateAt,
   onSelect,
   timeZone,
+  weekDaysBefore,
+  weekLayout,
 }: Readonly<{
   activeEventId: string | null;
   anchor: Date;
@@ -722,8 +748,15 @@ function WeekView({
   onCreateAt: (day: Date, position: TimelineClickPosition) => void;
   onSelect: (eventId: string) => void;
   timeZone: string;
+  weekDaysBefore: number;
+  weekLayout: CalendarWeekLayout;
 }>) {
-  const start = startOfWeek(anchor);
+  const start = dateKeyToPlainDate(
+    calendarWeekVisibleRange(formatDateParam(anchor), {
+      weekDaysBefore,
+      weekLayout,
+    }).from,
+  );
   const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
 
   return (
@@ -827,8 +860,7 @@ function eventStartForNew(settings: CalendarSettings, timeZone: string) {
   const nowIso = new Date().toISOString();
   const todayKey = dateKeyInTimeZone(nowIso, timeZone);
   const currentMinutes = minutesInTimeZone(nowIso, timeZone);
-  const roundedStartMinutes =
-    (Math.floor(currentMinutes / 60) + 1) * 60;
+  const roundedStartMinutes = (Math.floor(currentMinutes / 60) + 1) * 60;
   const startDayOffset = Math.floor(roundedStartMinutes / (24 * 60));
   const startMinutes = roundedStartMinutes % (24 * 60);
   const start = isoFromDateKeyAndMinutes(
@@ -1097,6 +1129,7 @@ export function CalendarBoard({
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const [isRefreshing, startRefresh] = useTransition();
+  const [isSavingWeekSettings, startWeekSettingsSave] = useTransition();
   const [currentAnchorDate, setCurrentAnchorDate] = useState(anchorDate);
   const anchor = useMemo(
     () => dateKeyToPlainDate(currentAnchorDate),
@@ -1109,9 +1142,16 @@ export function CalendarBoard({
   const [createOpen, setCreateOpen] = useState(false);
   const [createTimes, setCreateTimes] = useState<NewEventTimes | null>(null);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [weekLayout, setWeekLayout] = useState<CalendarWeekLayout>(
+    settings.weekLayout,
+  );
+  const [weekDaysBefore, setWeekDaysBefore] = useState(settings.weekDaysBefore);
+  const [weekSettingsError, setWeekSettingsError] = useState<string | null>(
+    null,
+  );
   const visibleRange = useMemo(
-    () => rangeForView(anchor, currentView),
-    [anchor, currentView],
+    () => rangeForView(anchor, currentView, weekLayout, weekDaysBefore),
+    [anchor, currentView, weekDaysBefore, weekLayout],
   );
   const visibleEvents = useMemo(
     () => eventsInRange(events, visibleRange, timeZone),
@@ -1157,6 +1197,32 @@ export function CalendarBoard({
       }),
     );
   };
+  const saveWeekSettings = (
+    nextWeekLayout: CalendarWeekLayout,
+    nextWeekDaysBefore: number,
+  ) => {
+    const previousWeekLayout = weekLayout;
+    const previousWeekDaysBefore = weekDaysBefore;
+
+    setWeekLayout(nextWeekLayout);
+    setWeekDaysBefore(nextWeekDaysBefore);
+    setWeekSettingsError(null);
+    startWeekSettingsSave(async () => {
+      try {
+        const saved = await updateCalendarWeekLayoutAction({
+          weekDaysBefore: nextWeekDaysBefore,
+          weekLayout: nextWeekLayout,
+        });
+
+        setWeekLayout(saved.weekLayout);
+        setWeekDaysBefore(saved.weekDaysBefore);
+      } catch {
+        setWeekLayout(previousWeekLayout);
+        setWeekDaysBefore(previousWeekDaysBefore);
+        setWeekSettingsError("Calendar layout could not be saved.");
+      }
+    });
+  };
   const commitLocalNavigation = ({
     href,
     nextAnchorDate,
@@ -1177,17 +1243,19 @@ export function CalendarBoard({
   const navigateCalendar = (nextView: CalendarView, nextDate: Date) => {
     const nextAnchorDate = formatDateParam(nextDate);
     const href = viewHref(nextView, nextDate);
+    const nextVisibleRange =
+      nextView === "week"
+        ? calendarWeekVisibleRange(nextAnchorDate, {
+            weekDaysBefore,
+            weekLayout,
+          })
+        : rangeForCalendarViewDateKey(nextAnchorDate, nextView);
 
     if (href === currentHref) {
       return;
     }
 
-    if (
-      dateKeyRangeContainsRange(
-        preloadedRange,
-        rangeForCalendarViewDateKey(nextAnchorDate, nextView),
-      )
-    ) {
+    if (dateKeyRangeContainsRange(preloadedRange, nextVisibleRange)) {
       commitLocalNavigation({ href, nextAnchorDate, nextView });
       return;
     }
@@ -1232,7 +1300,15 @@ export function CalendarBoard({
             <div className={styles.calendarTitleCluster}>
               <div className={styles.calendarTitleLine}>
                 <div className={styles.calendarTitle}>
-                  <h2>{rangeLabel(anchor, currentView, timeZone)}</h2>
+                  <h2>
+                    {rangeLabel(
+                      anchor,
+                      currentView,
+                      timeZone,
+                      weekLayout,
+                      weekDaysBefore,
+                    )}
+                  </h2>
                 </div>
                 <div className={styles.viewSwitch} aria-label="Calendar view">
                   {(["day", "week", "month"] as const).map((nextView) => (
@@ -1274,11 +1350,72 @@ export function CalendarBoard({
                   <RefreshIcon />
                 </span>
               </button>
+              {currentView === "week" ? (
+                <details className={styles.calendarWeekSettings}>
+                  <summary
+                    aria-label="Week layout settings"
+                    title="Week layout settings"
+                  >
+                    <WeekSettingsIcon />
+                  </summary>
+                  <div className={styles.calendarWeekSettingsMenu}>
+                    <label className={styles.calendarWeekSettingsToggle}>
+                      <span>
+                        <strong>Rolling week</strong>
+                        <small>Keep today inside the seven-day view.</small>
+                      </span>
+                      <input
+                        checked={weekLayout === "rolling"}
+                        disabled={isSavingWeekSettings}
+                        onChange={(event) =>
+                          saveWeekSettings(
+                            event.target.checked ? "rolling" : "fixed",
+                            weekDaysBefore,
+                          )
+                        }
+                        type="checkbox"
+                      />
+                    </label>
+                    {weekLayout === "rolling" ? (
+                      <label className={styles.calendarWeekSettingsSelect}>
+                        Days around today
+                        <select
+                          disabled={isSavingWeekSettings}
+                          onChange={(event) =>
+                            saveWeekSettings(
+                              weekLayout,
+                              Number(event.target.value),
+                            )
+                          }
+                          value={weekDaysBefore}
+                        >
+                          {Array.from({ length: 7 }, (_, daysBefore) => (
+                            <option key={daysBefore} value={daysBefore}>
+                              {daysBefore} before / {6 - daysBefore} after
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    {isSavingWeekSettings ? (
+                      <small className={styles.calendarWeekSettingsStatus}>
+                        Saving...
+                      </small>
+                    ) : null}
+                    {weekSettingsError ? (
+                      <small
+                        className={styles.calendarWeekSettingsError}
+                        role="alert"
+                      >
+                        {weekSettingsError}
+                      </small>
+                    ) : null}
+                  </div>
+                </details>
+              ) : null}
               <button
                 className={`secondary-button compact ${styles.calendarNavButton}`}
-                onClick={() =>
-                  navigateCalendar(currentView, previousDate)
-                }
+                onClick={() => navigateCalendar(currentView, previousDate)}
                 type="button"
               >
                 <ChevronIcon direction="previous" />
@@ -1286,9 +1423,7 @@ export function CalendarBoard({
               </button>
               <button
                 className="secondary-button compact"
-                onClick={() =>
-                  navigateCalendar(currentView, todayDate)
-                }
+                onClick={() => navigateCalendar(currentView, todayDate)}
                 type="button"
               >
                 Today
@@ -1338,6 +1473,8 @@ export function CalendarBoard({
               onCreateAt={createEventFromTimeline}
               onSelect={selectEvent}
               timeZone={timeZone}
+              weekDaysBefore={weekDaysBefore}
+              weekLayout={weekLayout}
             />
           ) : null}
           {currentView === "day" ? (

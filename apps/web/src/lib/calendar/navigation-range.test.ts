@@ -1,10 +1,39 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { rangeForCalendarViewDateKey } from "../timezone";
 import {
   calendarNavigationPreloadRange,
+  calendarWeekVisibleRange,
   dateKeyRangeContainsRange,
 } from "./navigation-range";
-import { rangeForCalendarViewDateKey } from "../timezone";
+
+describe("calendar week layouts", () => {
+  it("builds a rolling seven-day range around the anchor day", () => {
+    assert.deepEqual(
+      calendarWeekVisibleRange("2026-07-19", {
+        weekDaysBefore: 2,
+        weekLayout: "rolling",
+      }),
+      {
+        from: "2026-07-17",
+        to: "2026-07-24",
+      },
+    );
+  });
+
+  it("retains a fixed Monday-to-Sunday option", () => {
+    assert.deepEqual(
+      calendarWeekVisibleRange("2026-07-19", {
+        weekDaysBefore: 2,
+        weekLayout: "fixed",
+      }),
+      {
+        from: "2026-07-13",
+        to: "2026-07-20",
+      },
+    );
+  });
+});
 
 describe("calendar navigation preload ranges", () => {
   it("loads the surrounding month grids for fast local navigation", () => {
