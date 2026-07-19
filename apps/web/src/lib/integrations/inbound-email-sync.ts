@@ -8,6 +8,7 @@ import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminder
 import { normalizeContactEmail } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
+import { notifyInboundInquiry } from "../voice/inbound-inquiry-notifications";
 import {
   buildLlmUsageEvents,
   openAiProviderUsageId,
@@ -3175,6 +3176,26 @@ async function processMessage({
       conversationId: promoted.conversationId,
       provider: message.provider,
       subject: message.subject,
+    });
+
+    await notifyInboundInquiry({
+      channel: "email",
+      contactName: message.fromName ?? message.fromEmail,
+      conversationId: promoted.conversationId,
+      sourceId: String(event.id),
+      summary: safeSummaryText(message),
+      supabase,
+      workspaceId,
+    }).catch((notificationError) => {
+      console.error("Unable to notify workspace about inbound email", {
+        conversationId: promoted.conversationId,
+        error:
+          notificationError instanceof Error
+            ? notificationError.message
+            : "Unknown notification error",
+        eventId: String(event.id),
+        workspaceId,
+      });
     });
   } catch (error) {
     const messageText =

@@ -10,6 +10,7 @@ import {
 } from "../communication/sms-compliance";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { ingestManualInbound } from "../inbound/manual";
+import { notifyInboundInquiry } from "../voice/inbound-inquiry-notifications";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
@@ -451,6 +452,28 @@ export async function processInboundSmsPayload(
     to: input.to,
     workspaceId: workspaceNumber.workspaceId,
   });
+
+  if (!result.duplicate) {
+    await notifyInboundInquiry({
+      channel: "sms",
+      contactName,
+      conversationId: result.conversationId,
+      sourceId: input.messageSid,
+      summary: input.body,
+      supabase,
+      workspaceId: workspaceNumber.workspaceId,
+    }).catch((notificationError) => {
+      console.error("Unable to notify workspace about inbound SMS", {
+        conversationId: result.conversationId,
+        error:
+          notificationError instanceof Error
+            ? notificationError.message
+            : "Unknown notification error",
+        messageSid: input.messageSid,
+        workspaceId: workspaceNumber.workspaceId,
+      });
+    });
+  }
 
   return {
     eventId: result.eventId,

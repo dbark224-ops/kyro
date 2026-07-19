@@ -11,12 +11,20 @@ import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 
 type InquiryNotificationOutcome = "booked" | "captured" | "proposed";
 
+export type InquiryNotificationChannel =
+  | "email"
+  | "phone"
+  | "sms"
+  | "voicemail";
+
 type InquiryNotificationInput = {
+  channel?: InquiryNotificationChannel;
   contactName?: string | null;
   conversationId?: string | null;
   eventLabel?: string | null;
   outcome?: InquiryNotificationOutcome;
   providerCallId?: string | null;
+  sourceId?: string | null;
   summary: string;
   supabase: SupabaseClient;
   voiceCallId?: string | null;
@@ -106,41 +114,35 @@ async function primaryNotificationRecipient(
   };
 }
 
-async function notificationAlreadySent(input: InquiryNotificationInput) {
-  let query = input.supabase
-    .from("voice_call_events")
-    .select("id")
-    .eq("workspace_id", input.workspaceId)
-    .eq("event_type", "notification.inbound_inquiry.sent")
-    .limit(1);
-
-  if (input.voiceCallId) {
-    query = query.eq("voice_call_id", input.voiceCallId);
-  } else if (input.providerCallId) {
-    query = query.contains("payload", {
-      providerCallId: input.providerCallId,
-    });
-  } else if (input.conversationId) {
-    query = query.contains("payload", {
-      conversationId: input.conversationId,
-    });
-  } else {
-    return false;
+function channelLabel(channel: InquiryNotificationChannel) {
+  if (channel === "email") {
+    return "email";
   }
 
-  const { data, error } = await query.maybeSingle();
-
-  if (error) {
-    throw new Error(
-      `Unable to inspect inbound inquiry notifications: ${error.message}`,
-    );
+  if (channel === "sms") {
+    return "SMS";
   }
 
-  return Boolean(data?.id);
+  if (channel === "voicemail") {
+    return "voicemail";
+  }
+
+  return "phone";
 }
 
-function notificationBody(input: InquiryNotificationInput) {
+export function buildInboundInquiryNotificationBody(
+  input: Pick<
+    InquiryNotificationInput,
+    | "channel"
+    | "contactName"
+    | "conversationId"
+    | "eventLabel"
+    | "outcome"
+    | "summary"
+  >,
+) {
   const caller = textValue(input.contactName) ?? "A caller";
+  const channel = input.channel ?? "phone";
   const outcome = input.outcome ?? "captured";
   const status =
     outcome === "booked"
@@ -153,18 +155,76 @@ function notificationBody(input: InquiryNotificationInput) {
     : "/inbox";
 
   return compactText(
-    `New Kyro phone inquiry from ${caller}. ${compactText(input.summary, 180)} ${status} ${getPublicAppUrl()}${path}`,
+    `New Kyro ${channelLabel(channel)} inquiry from ${caller}. ${compactText(input.summary, 180)} ${status} ${getPublicAppUrl()}${path}`,
     420,
   );
 }
 
-export async function notifyInboundVoiceInquiry(
+async function recordNotificationEvent(
   input: InquiryNotificationInput,
+  details: {
+    error?: string | null;
+    outboundQueueId?: string | null;
+    providerMessageId?: string | null;
+    reason?: string | null;
+    recipientName?: string | null;
+    status: "failed" | "processed";
+    type: string;
+  },
 ) {
-  if (await notificationAlreadySent(input)) {
-    return { notified: false, reason: "duplicate" } as const;
+  const channel = input.channel ?? "phone";
+  const sourceId =
+    textValue(input.sourceId) ??
+    textValue(input.voiceCallId) ??
+    textValue(input.providerCallId) ??
+    textValue(input.conversationId) ??
+    "unknown";
+  const now = new Date().toISOString();
+  const { error } = await input.supabase.from("events").insert({
+    idempotency_key: `${details.type}.${channel}.${sourceId}`,
+    payload: {
+      channel,
+      conversationId: input.conversationId ?? null,
+      error: details.error ?? null,
+      outboundQueueId: details.outboundQueueId ?? null,
+      outcome: input.outcome ?? "captured",
+      providerCallId: input.providerCallId ?? null,
+      providerMessageId: details.providerMessageId ?? null,
+      reason: details.reason ?? null,
+      recipientName: details.recipientName ?? null,
+      sourceId,
+      voiceCallId: input.voiceCallId ?? null,
+    },
+    processed_at: now,
+    source: "kyro.inbound_inquiry_notification",
+    status: details.status,
+    type: details.type,
+    workspace_id: input.workspaceId,
+  });
+
+  if (error && error.code !== "23505") {
+    throw new Error(
+      `Unable to record inbound inquiry notification event: ${error.message}`,
+    );
   }
 
+  return error?.code !== "23505";
+}
+
+async function recordSkippedNotification(
+  input: InquiryNotificationInput,
+  reason: string,
+) {
+  await recordNotificationEvent(input, {
+    reason,
+    status: "processed",
+    type: `notification.inbound_inquiry.skipped.${reason}`,
+  });
+}
+
+export async function notifyInboundInquiry(
+  input: InquiryNotificationInput,
+) {
   await assertWorkspaceAutomationAllowed(input.workspaceId);
   const recipient = await primaryNotificationRecipient(
     input.supabase,
@@ -172,6 +232,7 @@ export async function notifyInboundVoiceInquiry(
   );
 
   if (!recipient) {
+    await recordSkippedNotification(input, "recipient_missing");
     return { notified: false, reason: "recipient_missing" } as const;
   }
 
@@ -185,6 +246,7 @@ export async function notifyInboundVoiceInquiry(
     null;
 
   if (samePhoneNumber(from, recipient.phoneNumber)) {
+    await recordSkippedNotification(input, "recipient_is_workspace_number");
     return {
       notified: false,
       reason: "recipient_is_workspace_number",
@@ -192,60 +254,101 @@ export async function notifyInboundVoiceInquiry(
   }
 
   if (!recipient.userId) {
+    await recordSkippedNotification(input, "workspace_owner_missing");
     return { notified: false, reason: "workspace_owner_missing" } as const;
   }
 
+  const channel = input.channel ?? "phone";
   const sourceId =
-    input.voiceCallId ?? input.providerCallId ?? input.conversationId;
-  const result = await recordOutboundDirectSms(input.supabase, {
-    body: notificationBody(input),
-    consentNote: "Primary workplace contact for inbound Kyro inquiries.",
-    idempotencyKey: `inbound_voice_inquiry.${input.workspaceId}.${sourceId ?? "unknown"}`,
-    metadata: {
-      conversationId: input.conversationId ?? null,
-      notificationType: "inbound_voice_inquiry",
-      outcome: input.outcome ?? "captured",
-      providerCallId: input.providerCallId ?? null,
-      voiceCallId: input.voiceCallId ?? null,
-    },
-    recipientName: recipient.name,
-    recipientPhone: recipient.phoneNumber,
-    replyEventPayload: {
-      conversationId: input.conversationId ?? null,
-      outcome: input.outcome ?? "captured",
-      providerCallId: input.providerCallId ?? null,
-      voiceCallId: input.voiceCallId ?? null,
-    },
-    replyEventType: "outbound.inbound_voice_inquiry.sent",
-    source: "inbound_voice_inquiry",
-    userId: recipient.userId,
-    workplaceContactId: recipient.contactId,
-    workspaceId: input.workspaceId,
-  });
-  const providerMessageId = result.externalMessageId ?? null;
+    textValue(input.sourceId) ??
+    textValue(input.voiceCallId) ??
+    textValue(input.providerCallId) ??
+    textValue(input.conversationId) ??
+    "unknown";
+  let result: Awaited<ReturnType<typeof recordOutboundDirectSms>>;
 
-  const { error: notificationEventError } = await input.supabase
-    .from("voice_call_events")
-    .insert({
-      event_type: "notification.inbound_inquiry.sent",
-      payload: {
+  try {
+    result = await recordOutboundDirectSms(input.supabase, {
+      body: buildInboundInquiryNotificationBody(input),
+      consentNote: "Primary workplace contact for inbound Kyro inquiries.",
+      idempotencyKey: `inbound_inquiry_notification.${input.workspaceId}.${channel}.${sourceId}`,
+      metadata: {
         conversationId: input.conversationId ?? null,
-        outboundQueueId: result.outboundQueueId,
-        outboxStatus: result.outboxStatus,
+        inquiryChannel: channel,
+        notificationType: "inbound_inquiry",
         outcome: input.outcome ?? "captured",
         providerCallId: input.providerCallId ?? null,
-        providerMessageId,
-        recipientName: recipient.name,
+        sourceId,
+        voiceCallId: input.voiceCallId ?? null,
       },
-      provider: "kyro",
-      voice_call_id: input.voiceCallId ?? null,
-      workspace_id: input.workspaceId,
+      recipientName: recipient.name,
+      recipientPhone: recipient.phoneNumber,
+      replyEventPayload: {
+        conversationId: input.conversationId ?? null,
+        inquiryChannel: channel,
+        outcome: input.outcome ?? "captured",
+        providerCallId: input.providerCallId ?? null,
+        sourceId,
+        voiceCallId: input.voiceCallId ?? null,
+      },
+      replyEventType: "outbound.inbound_inquiry_notification.sent",
+      source: "inbound_inquiry_notification",
+      userId: recipient.userId,
+      workplaceContactId: recipient.contactId,
+      workspaceId: input.workspaceId,
     });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown notification error";
 
-  if (notificationEventError) {
-    throw new Error(
-      `Unable to record inbound inquiry notification: ${notificationEventError.message}`,
-    );
+    await recordNotificationEvent(input, {
+      error: errorMessage,
+      recipientName: recipient.name,
+      status: "failed",
+      type: "notification.inbound_inquiry.failed",
+    });
+    throw error;
+  }
+
+  const providerMessageId = result.externalMessageId ?? null;
+  const recorded = await recordNotificationEvent(input, {
+    outboundQueueId: result.outboundQueueId,
+    providerMessageId,
+    recipientName: recipient.name,
+    status: "processed",
+    type: "notification.inbound_inquiry.sent",
+  });
+
+  if (!recorded) {
+    return { notified: false, reason: "duplicate" } as const;
+  }
+
+  if (input.voiceCallId) {
+    const { error: voiceEventError } = await input.supabase
+      .from("voice_call_events")
+      .insert({
+        event_type: "notification.inbound_inquiry.sent",
+        payload: {
+          channel,
+          conversationId: input.conversationId ?? null,
+          outboundQueueId: result.outboundQueueId,
+          outboxStatus: result.outboxStatus,
+          outcome: input.outcome ?? "captured",
+          providerCallId: input.providerCallId ?? null,
+          providerMessageId,
+          recipientName: recipient.name,
+          sourceId,
+        },
+        provider: "kyro",
+        voice_call_id: input.voiceCallId,
+        workspace_id: input.workspaceId,
+      });
+
+    if (voiceEventError) {
+      throw new Error(
+        `Unable to record inbound voice notification: ${voiceEventError.message}`,
+      );
+    }
   }
 
   return {
@@ -253,4 +356,13 @@ export async function notifyInboundVoiceInquiry(
     outboundQueueId: result.outboundQueueId,
     providerMessageId,
   } as const;
+}
+
+export async function notifyInboundVoiceInquiry(
+  input: Omit<InquiryNotificationInput, "channel">,
+) {
+  return notifyInboundInquiry({
+    ...input,
+    channel: "phone",
+  });
 }

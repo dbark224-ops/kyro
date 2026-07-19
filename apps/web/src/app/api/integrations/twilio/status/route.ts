@@ -160,7 +160,10 @@ export async function POST(request: Request) {
     processed_at: now,
   });
 
-  if (outbound.source === "inbound_voice_inquiry") {
+  if (
+    outbound.source === "inbound_voice_inquiry" ||
+    outbound.source === "inbound_inquiry_notification"
+  ) {
     const voiceCallId = textValue(metadata.voiceCallId);
     const conversationId = textValue(metadata.conversationId);
     const eventType = failed
@@ -218,7 +221,7 @@ export async function POST(request: Request) {
             errorMessage ??
             `Twilio SMS ${messageStatus}${errorCode ? ` (${errorCode})` : ""}`,
           severity: "error",
-          source: "twilio.status.inbound_voice_inquiry",
+          source: "twilio.status.inbound_inquiry_notification",
           visibleMessage:
             "Kyro captured the inquiry, but the SMS notification was not delivered.",
         },
