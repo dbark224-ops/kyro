@@ -1272,26 +1272,29 @@ export async function processNextEvent(
 export async function getEngineQueues(
   supabase: SupabaseClient,
   workspaceId: string,
+  limit = 5,
 ) {
+  const normalizedLimit = Math.max(1, Math.min(250, Math.trunc(limit)));
+
   const [actions, events, auditLogs] = await Promise.all([
     supabase
       .from("actions")
       .select("id,type,status,approval_required,requested_by,created_at")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(15),
+      .limit(Math.max(15, normalizedLimit * 3)),
     supabase
       .from("events")
       .select("id,type,source,status,created_at")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(normalizedLimit),
     supabase
       .from("audit_logs")
       .select("id,action,actor_type,entity_type,created_at")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(normalizedLimit),
   ]);
 
   if (actions.error) {
@@ -1314,7 +1317,7 @@ export async function getEngineQueues(
             String(action.type),
           ),
       )
-      .slice(0, 5)
+      .slice(0, normalizedLimit)
       .map((action) => ({
         id: String(action.id),
         type: String(action.type),

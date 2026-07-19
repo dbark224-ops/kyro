@@ -1983,14 +1983,17 @@ export async function runStubAiTriage(
 export async function getAiLedger(
   supabase: SupabaseClient,
   workspaceId: string,
+  limit = 5,
 ) {
+  const normalizedLimit = Math.max(1, Math.min(250, Math.trunc(limit)));
+
   const [aiRuns, usageEvents, routeDecisions] = await Promise.all([
     supabase
       .from("ai_runs")
       .select("id,task_type,status,provider,model,actual_cost,created_at")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(normalizedLimit),
     supabase
       .from("usage_events")
       .select(
@@ -1998,7 +2001,7 @@ export async function getAiLedger(
       )
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(normalizedLimit),
     supabase
       .from("model_route_decisions")
       .select(
@@ -2006,7 +2009,7 @@ export async function getAiLedger(
       )
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(normalizedLimit),
   ]);
 
   if (aiRuns.error) {

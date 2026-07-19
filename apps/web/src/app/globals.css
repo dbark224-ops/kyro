@@ -6708,6 +6708,11 @@ button.voice-card {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--pink) 14%, transparent);
 }
 
+.log-row.failed .log-marker {
+  background: var(--pink);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pink) 28%, transparent);
+}
+
 .log-row.audit .log-marker,
 .log-row.usage .log-marker {
   background: var(--pink);

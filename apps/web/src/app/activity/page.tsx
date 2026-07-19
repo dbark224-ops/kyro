@@ -1,5 +1,9 @@
 import { AppFrame } from "../components/app-frame";
 import { BrandMark } from "../components/brand-mark";
+import {
+  getAssistantExternalActivity,
+  type AssistantExternalActivityItem,
+} from "../../lib/assistant/external-activity";
 import { getAiLedger } from "../../lib/ai/triage";
 import {
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
@@ -31,6 +35,7 @@ type LogItem = {
     | "ai"
     | "audit"
     | "event"
+    | "failed"
     | "inbound"
     | "outbound"
     | "route"
@@ -43,6 +48,7 @@ type LogFilter =
   | "ai"
   | "audit"
   | "events"
+  | "failed"
   | "inbound"
   | "messages"
   | "outbound"
@@ -74,6 +80,7 @@ const LOG_FILTERS: Array<{ label: string; value: LogFilter }> = [
   { label: "Messages", value: "messages" },
   { label: "Inbound", value: "inbound" },
   { label: "Outbound", value: "outbound" },
+  { label: "Failed", value: "failed" },
   { label: "Actions", value: "actions" },
   { label: "Events", value: "events" },
   { label: "Audit", value: "audit" },
@@ -82,6 +89,7 @@ const LOG_FILTERS: Array<{ label: string; value: LogFilter }> = [
   { label: "Usage", value: "usage" },
 ];
 const LOG_PAGE_SIZE = 10;
+const LOG_SOURCE_LIMIT = 200;
 
 function SetupRequired() {
   return (
@@ -193,91 +201,38 @@ function formatMoney(
   return formatDisplayMoney(value, sourceCurrency, displayCurrencySettings);
 }
 
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+function operationalLogItem(item: AssistantExternalActivityItem): LogItem {
+  const tone = item.tone === "system" ? "audit" : item.tone;
+  const detail = [item.meta, item.subject, item.preview]
+    .filter(Boolean)
+    .join(" - ");
 
-function firstRelation<T>(value: T | T[] | null | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function truncate(value: string | null, maxLength = 120) {
-  if (!value) {
-    return "No message body recorded";
-  }
-
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
-}
-
-async function getRecentMessageLogItems(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  workspaceId: string,
-) {
-  const { data, error } = await supabase
-    .from("messages")
-    .select(
-      "id,direction,subject,body_text,created_at,received_at,sent_at,contact:contacts(name,company,email,phone),channel:channels(type,display_name)",
-    )
-    .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false })
-    .limit(25);
-
-  if (error) {
-    throw new Error(`Unable to load message log: ${error.message}`);
-  }
-
-  return (data ?? []).map((message): LogItem => {
-    const direction = String(message.direction);
-    const contact = firstRelation(message.contact);
-    const channel = firstRelation(message.channel);
-    const contactName =
-      textValue(contact?.name) ??
-      textValue(contact?.company) ??
-      textValue(contact?.email) ??
-      textValue(contact?.phone) ??
-      "Unknown contact";
-    const channelLabel =
-      textValue(channel?.display_name) ?? textValue(channel?.type) ?? "Manual";
-    const subject = textValue(message.subject);
-    const body = textValue(message.body_text);
-    const at =
-      direction === "outbound"
-        ? (message.sent_at ?? message.created_at)
-        : (message.received_at ?? message.created_at);
-
-    return {
-      at: String(at),
-      detail: `${contactName} via ${formatLabel(channelLabel)} - ${truncate(
-        subject ?? body,
-      )}`,
-      id: `message:${message.id}`,
-      meta: formatLabel(channelLabel),
-      searchText: [
-        contactName,
-        channelLabel,
-        direction,
-        subject ?? "",
-        body ?? "",
-      ].join(" "),
-      title: direction === "outbound" ? "Outbound message" : "Inbound message",
-      tone: direction === "outbound" ? "outbound" : "inbound",
-    };
-  });
+  return {
+    at: item.at,
+    detail,
+    id: item.id,
+    meta: tone === "failed" ? "Failed" : item.meta,
+    searchText: [item.title, item.meta, item.subject, item.preview, tone]
+      .filter(Boolean)
+      .join(" "),
+    title: item.title,
+    tone,
+  };
 }
 
 function buildLogItems({
   aiLedger,
   engine,
   displayCurrencySettings,
-  messages,
+  operationalActivity,
 }: {
   aiLedger: Awaited<ReturnType<typeof getAiLedger>>;
   engine: Awaited<ReturnType<typeof getEngineQueues>>;
   displayCurrencySettings: DisplayCurrencySettings;
-  messages: LogItem[];
+  operationalActivity: AssistantExternalActivityItem[];
 }) {
   const items: LogItem[] = [
-    ...messages,
+    ...operationalActivity.map(operationalLogItem),
     ...engine.actions.map((action) => ({
       id: `action:${action.id}`,
       at: action.createdAt,
@@ -353,7 +308,15 @@ function itemMatchesFilter(item: LogItem, filter: LogFilter) {
   }
 
   if (filter === "messages") {
-    return item.tone === "inbound" || item.tone === "outbound";
+    return (
+      item.tone === "failed" ||
+      item.tone === "inbound" ||
+      item.tone === "outbound"
+    );
+  }
+
+  if (filter === "outbound") {
+    return item.tone === "failed" || item.tone === "outbound";
   }
 
   if (filter === "actions") {
@@ -441,9 +404,9 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
   };
   const hasAdvancedSearch = Boolean(
     searchState.source ||
-      searchState.detail ||
-      searchState.from ||
-      searchState.to,
+    searchState.detail ||
+    searchState.from ||
+    searchState.to,
   );
   const hasSearch = Boolean(searchState.q || hasAdvancedSearch);
 
@@ -466,12 +429,12 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
     redirect("/onboarding");
   }
 
-  const [dashboard, engine, aiLedger, messages, generalSettings] =
+  const [dashboard, engine, aiLedger, operationalActivity, generalSettings] =
     await Promise.all([
       getDashboardSnapshot(supabase, workspace),
-      getEngineQueues(supabase, workspace.id),
-      getAiLedger(supabase, workspace.id),
-      getRecentMessageLogItems(supabase, workspace.id),
+      getEngineQueues(supabase, workspace.id, LOG_SOURCE_LIMIT),
+      getAiLedger(supabase, workspace.id, LOG_SOURCE_LIMIT),
+      getAssistantExternalActivity(supabase, workspace.id, LOG_SOURCE_LIMIT),
       getWorkspaceGeneralSettings(supabase, workspace.id).catch(
         () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
       ),
@@ -480,7 +443,7 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
     aiLedger,
     displayCurrencySettings: generalSettings,
     engine,
-    messages,
+    operationalActivity,
   });
   const searchedLogItems = logItems.filter((item) =>
     itemMatchesSearch(item, searchState),
@@ -646,9 +609,9 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
                   ? "No log activity matches this filter."
                   : logItems.length > 0
                     ? "No log activity matches this search."
-                  : "No log activity has been recorded yet."}
+                    : "No log activity has been recorded yet."}
               </p>
-              )}
+            )}
           </div>
 
           {totalPages > 1 ? (
@@ -732,6 +695,9 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
               <span>Messages</span>
               <span>Inbound</span>
               <span>Outbound</span>
+              <span>SMS attempts</span>
+              <span>Failed deliveries</span>
+              <span>Phone calls</span>
               <span>Actions</span>
               <span>AI runs</span>
               <span>Model routing</span>
