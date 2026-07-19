@@ -604,6 +604,26 @@ describe("assistant calendar helpers", () => {
     );
   });
 
+  it("resolves tomorrow from the workspace date across UTC midnight", () => {
+    const now = new Date("2026-07-19T03:31:00.000Z");
+    const prompt = "Add an event tomorrow 19th July 2026 at 9am";
+    const parsed = parseAssistantCalendarTime(prompt, {
+      defaultDurationMinutes: 60,
+      now,
+      timeZone: "America/Denver",
+    });
+    const range = calendarDateRangeFromPrompt(prompt, {
+      now,
+      timeZone: "America/Denver",
+    });
+
+    assert.equal(parsed?.startsAt, "2026-07-19T15:00:00.000Z");
+    assert.equal(parsed?.endsAt, "2026-07-19T16:00:00.000Z");
+    assert.equal(range?.dateLabel, "Sunday, July 19, 2026");
+    assert.equal(range?.from, "2026-07-19T06:00:00.000Z");
+    assert.equal(range?.to, "2026-07-20T06:00:00.000Z");
+  });
+
   it("falls back to the linked contact when the prompt only contains generic calendar words", () => {
     assert.equal(
       cleanCalendarTitle(

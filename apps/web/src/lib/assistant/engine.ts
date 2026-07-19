@@ -11,7 +11,9 @@ import {
   usageEventTotals,
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { resolveAssistantCommand } from "./commands";
+import { buildAssistantCurrentTimeContext } from "./current-time";
 import { runAssistantModel } from "./providers";
 import { projectAssistantResultForSurface } from "./response-surface";
 import {
@@ -142,10 +144,19 @@ export async function runAssistantTurn({
 
   await assertWorkspaceAutomationAllowed(workspace.id);
 
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const currentTime = buildAssistantCurrentTimeContext(
+    generalSettings.timeZone,
+  );
+
   const route = routeAssistantModel(workspace, user);
   const plannerRoute = routeAssistantPlannerModel(workspace, user);
   const toolPlan = await planAssistantToolCall({
     contextSnapshots,
+    currentTime,
     inputSource,
     prompt: trimmedPrompt,
     recentMessages,
@@ -153,6 +164,7 @@ export async function runAssistantTurn({
     threadSummary,
   });
   const command = await resolveAssistantCommand({
+    currentTime,
     prompt: trimmedPrompt,
     recentMessages,
     supabase,
@@ -184,6 +196,8 @@ export async function runAssistantTurn({
       estimated_cost: "0",
       input_refs: {
         commandIntent: command.intent,
+        currentDateKey: currentTime.currentDateKey,
+        currentTimezone: currentTime.currentTimezone,
         inputSource,
         mutation: command.mutation ?? null,
         source: "assistant.page",
@@ -214,6 +228,7 @@ export async function runAssistantTurn({
   const modelOutput = await runAssistantModel(route, {
     command,
     contextSnapshots,
+    currentTime,
     inputSource,
     memories,
     prompt: trimmedPrompt,
@@ -232,11 +247,11 @@ export async function runAssistantTurn({
   const commandHasLinkCardsBlock = commandUiBlocks.some(
     (block) => block.type === "link_cards",
   );
-  const commandNeedsExactMutationAnswer =
-    ["calendar_event", "sms_send"].includes(command.intent) &&
-    Boolean(command.mutation);
+  const commandNeedsExactAnswer =
+    command.intent === "calendar_event" ||
+    (command.intent === "sms_send" && Boolean(command.mutation));
   const assistantContent =
-    commandHasGeneratedImageBlock || commandNeedsExactMutationAnswer
+    commandHasGeneratedImageBlock || commandNeedsExactAnswer
       ? command.fallbackAnswer
       : modelOutput.text;
   const toolCalls = [

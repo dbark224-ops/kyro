@@ -6,6 +6,7 @@ import type {
 } from "../crm/queries";
 import type { OpenAiTokenUsage } from "../usage/openai";
 import type { VoiceCallPreview } from "../voice/calls";
+import type { AssistantCurrentTimeContext } from "./current-time";
 
 export type AssistantLink = {
   label: string;
@@ -139,6 +140,7 @@ export type AssistantModelInput = {
   prompt: string;
   command: AssistantCommandResult;
   contextSnapshots?: AssistantContextSnapshot[];
+  currentTime: AssistantCurrentTimeContext;
   inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
   recentMessages?: AssistantRecentMessage[];

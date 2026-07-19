@@ -122,6 +122,10 @@ import {
 } from "../voice/outbound-call-requests";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { addDaysToDateKey, isoRangeForDateKeyRange } from "../timezone";
+import {
+  buildAssistantCurrentTimeContext,
+  type AssistantCurrentTimeContext,
+} from "./current-time";
 
 type WorkspaceInput = {
   id: string;
@@ -129,6 +133,7 @@ type WorkspaceInput = {
 };
 
 type CommandInput = {
+  currentTime?: AssistantCurrentTimeContext;
   prompt: string;
   recentMessages?: AssistantRecentMessage[];
   supabase: SupabaseClient;
@@ -1620,6 +1625,7 @@ async function generatedImageRecallCommand({
 }
 
 async function resolvePlannedAssistantCommand({
+  currentTime,
   prompt,
   recentMessages = [],
   supabase,
@@ -1760,6 +1766,7 @@ async function resolvePlannedAssistantCommand({
       });
     case "calendar_event":
       return calendarCommand({
+        currentTime,
         prompt: plannedPrompt,
         recentMessages,
         supabase,
@@ -1824,6 +1831,7 @@ async function resolvePlannedAssistantCommand({
 }
 
 export async function resolveAssistantCommand({
+  currentTime,
   prompt,
   recentMessages = [],
   supabase,
@@ -1850,6 +1858,7 @@ export async function resolveAssistantCommand({
   }
 
   const plannedCommand = await resolvePlannedAssistantCommand({
+    currentTime,
     prompt,
     recentMessages,
     supabase,
@@ -1868,6 +1877,7 @@ export async function resolveAssistantCommand({
     looksLikeCalendarFollowUpRequest(prompt, recentMessages)
   ) {
     return calendarCommand({
+      currentTime,
       prompt,
       recentMessages,
       supabase,
@@ -3406,8 +3416,9 @@ function calendarDateRangeFromPrompts(
   prompt: string,
   fallbackPrompt: string | null | undefined,
   timeZone: string,
+  now = new Date(),
 ) {
-  const primary = calendarDateRangeFromPrompt(prompt, { timeZone });
+  const primary = calendarDateRangeFromPrompt(prompt, { now, timeZone });
 
   if (primary) {
     return primary;
@@ -3419,7 +3430,7 @@ function calendarDateRangeFromPrompts(
     return null;
   }
 
-  return calendarDateRangeFromPrompt(fallback, { timeZone });
+  return calendarDateRangeFromPrompt(fallback, { now, timeZone });
 }
 
 function calendarTimeFromPrompt(prompt: string) {
@@ -3486,14 +3497,16 @@ export function parseAssistantCalendarTime(
   prompt: string,
   {
     defaultDurationMinutes = 60,
+    now = new Date(),
     timeZone = "UTC",
   }: {
     defaultDurationMinutes?: number;
+    now?: Date;
     timeZone?: string;
   } = {},
 ): ParsedCalendarSchedule | null {
   const safeZone = safeTimeZone(timeZone);
-  const date = calendarDateFromPrompt(prompt, safeZone);
+  const date = calendarDateFromPrompt(prompt, safeZone, now);
   const time = calendarTimeFromPrompt(prompt);
 
   if (!date || !time) {
@@ -3530,6 +3543,7 @@ export function parseAssistantCalendarTimeFromPrompts(
   fallbackPrompt: string | null | undefined,
   options: {
     defaultDurationMinutes?: number;
+    now?: Date;
     timeZone?: string;
   } = {},
 ) {
@@ -4151,6 +4165,7 @@ function calendarChangeSummary(changes: string[]) {
 }
 
 async function calendarCommand({
+  currentTime,
   prompt,
   recentMessages = [],
   supabase,
@@ -4159,23 +4174,36 @@ async function calendarCommand({
   workspace,
 }: Pick<
   CommandInput,
-  "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
+  | "currentTime"
+  | "prompt"
+  | "recentMessages"
+  | "supabase"
+  | "user"
+  | "workspace"
 > & {
   userPrompt?: string | null;
 }): Promise<AssistantCommandResult> {
   const [calendarSettings, generalSettings] = await Promise.all([
     getCalendarSettings(supabase, workspace.id),
-    getWorkspaceGeneralSettings(supabase, workspace.id),
+    currentTime
+      ? Promise.resolve(null)
+      : getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
-  const timeZone = safeTimeZone(generalSettings.timeZone);
+  const clock =
+    currentTime ??
+    buildAssistantCurrentTimeContext(generalSettings?.timeZone ?? "UTC");
+  const timeZone = clock.currentTimezone;
+  const turnNow = new Date(clock.currentIsoUtc);
   const scheduled = parseAssistantCalendarTimeFromPrompts(prompt, userPrompt, {
     defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
+    now: turnNow,
     timeZone,
   });
   const requestedDay = calendarDateRangeFromPrompts(
     prompt,
     userPrompt,
     timeZone,
+    turnNow,
   );
 
   if (wantsCalendarDraftFinalize(prompt, recentMessages)) {
@@ -4259,6 +4287,7 @@ async function calendarCommand({
         userPrompt ?? prompt,
         {
           defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
+          now: turnNow,
           timeZone,
         },
       );

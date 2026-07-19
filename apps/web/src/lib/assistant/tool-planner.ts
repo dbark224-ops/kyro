@@ -10,6 +10,7 @@ import {
   type OpenAiTokenUsage,
 } from "../usage/openai";
 import { openAiReasoningRequest } from "../ai/openai-models";
+import type { AssistantCurrentTimeContext } from "./current-time";
 
 export type AssistantToolName =
   | "action_execution"
@@ -348,12 +349,14 @@ function toolSchema(tool: ToolDefinition) {
 
 function plannerPrompt({
   contextSnapshots,
+  currentTime,
   inputSource,
   prompt,
   recentMessages,
   threadSummary,
 }: {
   contextSnapshots?: readonly AssistantContextSnapshot[];
+  currentTime: AssistantCurrentTimeContext;
   inputSource?: string;
   prompt: string;
   recentMessages: readonly AssistantRecentMessage[];
@@ -361,6 +364,7 @@ function plannerPrompt({
 }) {
   return JSON.stringify(
     {
+      currentTime,
       inputSource: inputSource ?? "typed",
       compactedContext: (contextSnapshots ?? []).map((snapshot) => ({
         messageCount: snapshot.messageCount,
@@ -416,6 +420,7 @@ export function parseAssistantToolPlanResponse(
 
 export async function planAssistantToolCall({
   contextSnapshots = [],
+  currentTime,
   inputSource,
   prompt,
   recentMessages = [],
@@ -423,6 +428,7 @@ export async function planAssistantToolCall({
   threadSummary = null,
 }: {
   contextSnapshots?: AssistantContextSnapshot[];
+  currentTime: AssistantCurrentTimeContext;
   inputSource?: string;
   prompt: string;
   recentMessages?: AssistantRecentMessage[];
@@ -442,6 +448,7 @@ export async function planAssistantToolCall({
   const apiKey = openAiApiKey();
   const input = plannerPrompt({
     contextSnapshots,
+    currentTime,
     inputSource,
     prompt,
     recentMessages,
@@ -464,6 +471,7 @@ export async function planAssistantToolCall({
         input,
         instructions: [
           "You are Kyro's tool planner. Decide whether the user's message needs a Kyro app tool.",
+          "The structured currentTime object is the authoritative workspace-local clock. Use it for today, tomorrow, weekdays, and past/future decisions. Never use the UTC calendar date in place of currentTime.currentDateKey.",
           "Call exactly one Kyro tool only when tool-backed app state, files, documents, images, settings, email sync, usage, CRM records, or outbound actions are needed.",
           "For normal conversation, jokes, opinions, broad reasoning, or casual chat, do not call a tool.",
           "Use compactedContext for continuity. If the user asks about older assistant chat history, what was discussed before, or where an older generated/saved thing went and recentMessages are insufficient, call kyro_history_search.",

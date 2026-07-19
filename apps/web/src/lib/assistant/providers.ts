@@ -133,6 +133,7 @@ function responseUsage(payload: unknown, prompt: string, text: string) {
 function buildAssistantPrompt(input: AssistantModelInput) {
   const responseSurface = assistantResponseSurface(input.inputSource);
   const rules = [
+    "currentTime is the authoritative workspace-local clock for this turn. Use currentTime.currentDateKey for today, currentTime.tomorrowDateKey for tomorrow, and currentTime.currentTimezone for all relative-date, weekday, and past/future reasoning. Never substitute the UTC calendar date.",
     "For CRM, quote, inquiry, contact, memory, and action requests, use commandResult.context and commandResult.links as the source of truth.",
     "For app_help, answer from commandResult.context.snippets. Prefer user-facing manual snippets, and translate architecture snippets into plain product guidance. For settings explanations, define exactly what the setting controls, say where it is changed, give the practical default recommendation, and mention the tradeoff. Be clear about what exists now versus what is planned.",
     "For settings_update and pronunciation_update, state the completed change plainly and do not imply that high-risk settings can be edited directly.",
@@ -181,6 +182,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
 
   return JSON.stringify(
     {
+      currentTime: input.currentTime,
       userPrompt: input.prompt,
       threadSummary: input.threadSummary ?? null,
       inputSource: input.inputSource ?? "typed",
