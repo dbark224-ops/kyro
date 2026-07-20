@@ -1,0 +1,139 @@
+.page {
+  display: grid;
+  min-height: 100svh;
+  padding: 24px;
+  place-items: center;
+  background: var(--background);
+  color: var(--text);
+}
+
+.panel {
+  display: grid;
+  width: min(100%, 440px);
+  padding: 30px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 52%, var(--line));
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow);
+  gap: 22px;
+}
+
+.logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.copy {
+  display: grid;
+  gap: 8px;
+}
+
+.eyebrow {
+  color: var(--cyan);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.copy h1,
+.copy p {
+  margin: 0;
+}
+
+.copy h1 {
+  font-size: clamp(1.7rem, 7vw, 2.2rem);
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.copy p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.progress {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--line) 82%, transparent);
+}
+
+.progress span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cyan);
+  animation: open-progress 1.05s ease-in-out infinite alternate;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.primary,
+.secondary {
+  min-height: 44px;
+  padding: 0 15px;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 750;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primary {
+  border: 1px solid var(--surface-strong);
+  background: var(--surface-strong);
+  color: var(--background);
+}
+
+.secondary {
+  display: grid;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  place-items: center;
+}
+
+.primary:hover,
+.secondary:hover {
+  border-color: var(--pink);
+}
+
+@keyframes open-progress {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(138%);
+  }
+}
+
+@media (max-width: 520px) {
+  .page {
+    padding: 16px;
+  }
+
+  .panel {
+    padding: 24px;
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress span {
+    animation: none;
+  }
+}

@@ -1977,6 +1977,9 @@ export async function runStubAiTriage(
     actionIds: actions.map((action) => String(action.id)),
     actualCost: usageTotals.costSnapshot,
     customerCharge: usageTotals.customerChargeSnapshot,
+    inquiryFacts,
+    replyDraft: triageDecision.replyDraft,
+    summary: triageDecision.summary,
   };
 }
 

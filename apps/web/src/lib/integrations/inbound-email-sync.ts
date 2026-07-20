@@ -44,10 +44,7 @@ import {
 } from "./token-vault";
 
 export type InboundEmailSyncTrigger =
-  | "assistant"
-  | "manual"
-  | "provider_push"
-  | "scheduled";
+  "assistant" | "manual" | "provider_push" | "scheduled";
 export type InboundEmailProvider = "google" | "microsoft";
 
 type ProviderConnectionRow = {
@@ -2760,11 +2757,15 @@ async function promoteEmailMessage({
     aiRunId: triageResult.aiRunId,
     cancelledActionCount,
     completedFollowUpReminderCount,
+    contactPhone: contactProfile?.phone ? String(contactProfile.phone) : null,
     conversationId,
     duplicate: false,
+    inquiryFacts: triageResult.inquiryFacts,
     leadId,
     messageId: String(savedMessage.id),
+    replyDraft: triageResult.replyDraft,
     threadMatchStrategy,
+    triageSummary: triageResult.summary,
   };
 }
 
@@ -3181,9 +3182,13 @@ async function processMessage({
     await notifyInboundInquiry({
       channel: "email",
       contactName: message.fromName ?? message.fromEmail,
+      contactPhone: promoted.contactPhone,
       conversationId: promoted.conversationId,
+      missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
+      preferredTime: promoted.inquiryFacts?.preferredTime ?? null,
+      preparedReplyAvailable: Boolean(promoted.replyDraft?.body),
       sourceId: String(event.id),
-      summary: safeSummaryText(message),
+      summary: promoted.triageSummary ?? classification.summary,
       supabase,
       workspaceId,
     }).catch((notificationError) => {
@@ -3340,8 +3345,7 @@ export async function ingestMockInboundEmail({
     fromName: textValue(input.fromName),
     headers,
     provider,
-    providerMessageId:
-      textValue(input.providerMessageId) ?? externalMessageId,
+    providerMessageId: textValue(input.providerMessageId) ?? externalMessageId,
     receivedAt,
     snippet: textValue(input.snippet) ?? input.bodyText.trim().slice(0, 240),
     subject: input.subject.trim(),

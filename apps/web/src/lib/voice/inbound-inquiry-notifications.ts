@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicAppUrl } from "../app-url";
+import {
+  appendRealtimeAssistantMessage,
+  getOrCreateAssistantThread,
+} from "../assistant/persistence";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { recordOutboundDirectSms } from "../communication/outbound";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
@@ -12,17 +16,18 @@ import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 type InquiryNotificationOutcome = "booked" | "captured" | "proposed";
 
 export type InquiryNotificationChannel =
-  | "email"
-  | "phone"
-  | "sms"
-  | "voicemail";
+  "email" | "phone" | "sms" | "voicemail";
 
 type InquiryNotificationInput = {
   channel?: InquiryNotificationChannel;
   contactName?: string | null;
+  contactPhone?: string | null;
   conversationId?: string | null;
   eventLabel?: string | null;
+  missingInfo?: string[];
   outcome?: InquiryNotificationOutcome;
+  preferredTime?: string | null;
+  preparedReplyAvailable?: boolean;
   providerCallId?: string | null;
   sourceId?: string | null;
   summary: string;
@@ -58,7 +63,7 @@ async function primaryNotificationRecipient(
     getWorkspaceGeneralSettings(supabase, workspaceId),
     supabase
       .from("workspaces")
-      .select("owner_user_id")
+      .select("name,owner_user_id")
       .eq("id", workspaceId)
       .maybeSingle(),
   ]);
@@ -83,6 +88,7 @@ async function primaryNotificationRecipient(
           settings.defaultPhoneRegion,
         ) ?? configuredPhone,
       userId: textValue(workspaceResult.data?.owner_user_id),
+      workspaceName: textValue(workspaceResult.data?.name) ?? "Kyro workspace",
     };
   }
 
@@ -111,6 +117,7 @@ async function primaryNotificationRecipient(
       normalizeContactPhoneForRegion(ownerPhone, settings.defaultPhoneRegion) ??
       ownerPhone,
     userId: ownerUserId,
+    workspaceName: textValue(workspaceResult.data?.name) ?? "Kyro workspace",
   };
 }
 
@@ -135,29 +142,157 @@ export function buildInboundInquiryNotificationBody(
     InquiryNotificationInput,
     | "channel"
     | "contactName"
+    | "contactPhone"
     | "conversationId"
     | "eventLabel"
+    | "missingInfo"
     | "outcome"
+    | "preferredTime"
+    | "preparedReplyAvailable"
     | "summary"
   >,
 ) {
-  const caller = textValue(input.contactName) ?? "A caller";
+  const caller = textValue(input.contactName) ?? "A new contact";
   const channel = input.channel ?? "phone";
   const outcome = input.outcome ?? "captured";
-  const status =
+  const missingInfo = [...new Set(input.missingInfo ?? [])]
+    .map((item) => textValue(item))
+    .filter((item): item is string => Boolean(item));
+  const preferredTime = textValue(input.preferredTime);
+  const eventLabel = textValue(input.eventLabel);
+  const recommendation =
     outcome === "booked"
-      ? `Kyro booked ${textValue(input.eventLabel) ?? "a calendar time"}.`
+      ? `The booking is set for ${eventLabel ?? "the agreed time"}.`
       : outcome === "proposed"
-        ? `Kyro prepared ${textValue(input.eventLabel) ?? "a draft calendar time"} for approval.`
-        : "Kyro captured the inquiry for review.";
-  const path = input.conversationId
-    ? `/inbox?conversationId=${encodeURIComponent(input.conversationId)}`
-    : "/inbox";
+        ? `Review the proposed ${eventLabel ?? "booking time"}.`
+        : missingInfo.length > 0
+          ? `${preferredTime ? `Confirm ${preferredTime} and ask for` : "Ask for"} ${humanList(
+              missingInfo.map(notificationFactLabel),
+            )}.`
+          : "Review the prepared response and follow up while the inquiry is fresh.";
+  const action = input.preparedReplyAvailable
+    ? "Reply SEND IT and I'll send the prepared response."
+    : outcome === "booked"
+      ? null
+      : "Reply here if you want me to help with the next step.";
+  const contactPhone = textValue(input.contactPhone);
 
-  return compactText(
-    `New Kyro ${channelLabel(channel)} inquiry from ${caller}. ${compactText(input.summary, 180)} ${status} ${getPublicAppUrl()}${path}`,
-    420,
+  return [
+    `New ${channelLabel(channel)} inquiry - ${caller}`,
+    `Summary: ${compactText(input.summary, 190)}`,
+    `I recommend: ${recommendation}`,
+    action,
+    contactPhone ? `Call: ${contactPhone}` : null,
+    `Open in Kyro: ${buildInboundInquiryLink(input.conversationId)}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+function notificationFactLabel(value: string) {
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "preferred time") {
+    return "a suitable day and time";
+  }
+
+  if (normalized === "job address") {
+    return "the job address";
+  }
+
+  if (normalized === "phone number") {
+    return "a callback number";
+  }
+
+  if (normalized === "email address") {
+    return "an email address";
+  }
+
+  if (normalized === "job type") {
+    return "the job details";
+  }
+
+  return value.charAt(0).toLowerCase() + value.slice(1);
+}
+
+function humanList(values: string[]) {
+  if (values.length <= 1) {
+    return values[0] ?? "the remaining details";
+  }
+
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+export function buildInboundInquiryLink(conversationId?: string | null) {
+  const query = conversationId
+    ? `?conversationId=${encodeURIComponent(conversationId)}`
+    : "";
+
+  return `${getPublicAppUrl()}/open/inbox${query}`;
+}
+
+async function saveInquiryBriefingToAssistantThread(
+  input: InquiryNotificationInput,
+  recipient: {
+    userId: string | null;
+    workspaceName: string;
+  },
+  body: string,
+) {
+  if (!recipient.userId || !input.conversationId) {
+    return;
+  }
+
+  const { data, error } = await input.supabase.auth.admin.getUserById(
+    recipient.userId,
   );
+
+  if (error || !data.user) {
+    throw new Error(
+      `Unable to load notification recipient for assistant context: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  const thread = await getOrCreateAssistantThread(
+    input.supabase,
+    {
+      id: input.workspaceId,
+      name: recipient.workspaceName,
+    },
+    data.user,
+  );
+  const contactName = textValue(input.contactName) ?? "New inquiry";
+
+  await appendRealtimeAssistantMessage({
+    content: body,
+    intent: "work_queue",
+    model: "notification-template-v1",
+    provider: "kyro",
+    source: "assistant.inbound_inquiry_notification",
+    supabase: input.supabase,
+    threadId: String(thread.id),
+    uiBlocks: [
+      {
+        items: [
+          {
+            detail: "Prepared response ready",
+            href: `/inbox?conversationId=${encodeURIComponent(input.conversationId)}`,
+            id: input.conversationId,
+            label: contactName,
+            status: "Needs review",
+          },
+        ],
+        title: "New inquiry",
+        type: "approval_queue",
+      },
+    ],
+    user: data.user,
+    workspaceId: input.workspaceId,
+  });
 }
 
 async function recordNotificationEvent(
@@ -222,9 +357,7 @@ async function recordSkippedNotification(
   });
 }
 
-export async function notifyInboundInquiry(
-  input: InquiryNotificationInput,
-) {
+export async function notifyInboundInquiry(input: InquiryNotificationInput) {
   await assertWorkspaceAutomationAllowed(input.workspaceId);
   const recipient = await primaryNotificationRecipient(
     input.supabase,
@@ -266,10 +399,11 @@ export async function notifyInboundInquiry(
     textValue(input.conversationId) ??
     "unknown";
   let result: Awaited<ReturnType<typeof recordOutboundDirectSms>>;
+  const notificationBody = buildInboundInquiryNotificationBody(input);
 
   try {
     result = await recordOutboundDirectSms(input.supabase, {
-      body: buildInboundInquiryNotificationBody(input),
+      body: notificationBody,
       consentNote: "Primary workplace contact for inbound Kyro inquiries.",
       idempotencyKey: `inbound_inquiry_notification.${input.workspaceId}.${channel}.${sourceId}`,
       metadata: {
@@ -322,6 +456,21 @@ export async function notifyInboundInquiry(
   if (!recorded) {
     return { notified: false, reason: "duplicate" } as const;
   }
+
+  await saveInquiryBriefingToAssistantThread(
+    input,
+    recipient,
+    notificationBody,
+  ).catch((contextError) => {
+    console.error("Unable to save inbound inquiry assistant context", {
+      conversationId: input.conversationId,
+      error:
+        contextError instanceof Error
+          ? contextError.message
+          : "Unknown assistant context error",
+      workspaceId: input.workspaceId,
+    });
+  });
 
   if (input.voiceCallId) {
     const { error: voiceEventError } = await input.supabase

@@ -859,5 +859,8 @@ export async function ingestManualInbound(
     eventId: String(event.id),
     aiRunId: aiResult.aiRunId,
     actionId: aiResult.actionId,
+    inquiryFacts: aiResult.inquiryFacts,
+    replyDraft: aiResult.replyDraft,
+    triageSummary: aiResult.summary,
   };
 }

@@ -457,9 +457,13 @@ export async function processInboundSmsPayload(
     await notifyInboundInquiry({
       channel: "sms",
       contactName,
+      contactPhone: input.from,
       conversationId: result.conversationId,
+      missingInfo: result.inquiryFacts?.missingInfo ?? [],
+      preferredTime: result.inquiryFacts?.preferredTime ?? null,
+      preparedReplyAvailable: Boolean(result.replyDraft?.body),
       sourceId: input.messageSid,
-      summary: input.body,
+      summary: result.triageSummary ?? "New SMS inquiry received.",
       supabase,
       workspaceId: workspaceNumber.workspaceId,
     }).catch((notificationError) => {
