@@ -28,6 +28,7 @@ type DeveloperMockInquiryFormsProps = {
   emailConnections: EmailConnectionOption[];
   initialMode: DeveloperMockMode;
   phoneNumbers: PhoneNumberOption[];
+  redirectPaths?: Partial<Record<DeveloperMockMode, string>>;
   submissionKeys: Record<DeveloperMockMode, string>;
 };
 
@@ -61,10 +62,16 @@ function SubmitButton({
   );
 }
 
-function StructuredInquiryForm({ submissionKey }: { submissionKey: string }) {
+function StructuredInquiryForm({
+  redirectTo,
+  submissionKey,
+}: {
+  redirectTo: string;
+  submissionKey: string;
+}) {
   return (
     <form action={createManualInboundAction} className="developer-form">
-      <input name="redirectTo" type="hidden" value="/developer?mock=manual" />
+      <input name="redirectTo" type="hidden" value={redirectTo} />
       <input name="submissionKey" type="hidden" value={submissionKey} />
 
       <div className="document-form-grid">
@@ -79,11 +86,7 @@ function StructuredInquiryForm({ submissionKey }: { submissionKey: string }) {
         </label>
         <label>
           Email
-          <input
-            name="email"
-            placeholder="customer@example.com"
-            type="email"
-          />
+          <input name="email" placeholder="customer@example.com" type="email" />
         </label>
         <label>
           Phone
@@ -141,22 +144,24 @@ function StructuredInquiryForm({ submissionKey }: { submissionKey: string }) {
 
 function EmailInquiryForm({
   connections,
+  redirectTo,
   submissionKey,
 }: {
   connections: EmailConnectionOption[];
+  redirectTo: string;
   submissionKey: string;
 }) {
   const hasConnections = connections.length > 0;
 
   return (
     <form action={createMockEmailInboundAction} className="developer-form">
-      <input name="redirectTo" type="hidden" value="/developer?mock=email" />
+      <input name="redirectTo" type="hidden" value={redirectTo} />
       <input name="submissionKey" type="hidden" value={submissionKey} />
 
       <div className={styles.modeNote}>
         This is the normalized envelope Kyro receives after Gmail or Outlook
-        returns a message. It uses the workspace&apos;s real filtering and triage
-        rules.
+        returns a message. It uses the workspace&apos;s real filtering and
+        triage rules.
       </div>
 
       <div className="document-form-grid">
@@ -168,7 +173,7 @@ function EmailInquiryForm({
             )}
             {connections.map((connection) => (
               <option key={connection.id} value={connection.id}>
-                {connection.provider === "google" ? "Gmail" : "Outlook"} - {" "}
+                {connection.provider === "google" ? "Gmail" : "Outlook"} -{" "}
                 {connection.accountEmail ?? "Connected account"}
               </option>
             ))}
@@ -239,7 +244,11 @@ function EmailInquiryForm({
           </label>
           <label>
             Provider message ID
-            <input name="providerMessageId" placeholder="Auto-generated" type="text" />
+            <input
+              name="providerMessageId"
+              placeholder="Auto-generated"
+              type="text"
+            />
           </label>
           <label>
             Provider thread ID
@@ -247,7 +256,11 @@ function EmailInquiryForm({
           </label>
           <label>
             External message ID
-            <input name="externalMessageId" placeholder="Auto-generated" type="text" />
+            <input
+              name="externalMessageId"
+              placeholder="Auto-generated"
+              type="text"
+            />
           </label>
           <label>
             Header Message-ID
@@ -267,11 +280,19 @@ function EmailInquiryForm({
           </label>
           <label>
             References
-            <input name="references" placeholder="Message IDs separated by spaces" type="text" />
+            <input
+              name="references"
+              placeholder="Message IDs separated by spaces"
+              type="text"
+            />
           </label>
           <label>
             Attachment filename
-            <input name="attachmentFilename" placeholder="plans.pdf" type="text" />
+            <input
+              name="attachmentFilename"
+              placeholder="plans.pdf"
+              type="text"
+            />
           </label>
           <label>
             Attachment content type
@@ -287,7 +308,12 @@ function EmailInquiryForm({
           </label>
           <label>
             Attachment size (bytes)
-            <input min="0" name="attachmentSizeBytes" placeholder="204800" type="number" />
+            <input
+              min="0"
+              name="attachmentSizeBytes"
+              placeholder="204800"
+              type="number"
+            />
           </label>
           <label className={styles.checkboxField}>
             <input name="automated" type="checkbox" />
@@ -301,7 +327,9 @@ function EmailInquiryForm({
           Runs the real email classifier, sender rules, thread matching,
           attachments metadata, CRM promotion, drafts, audit, and usage.
         </span>
-        <SubmitButton disabled={!hasConnections}>Ingest mock email</SubmitButton>
+        <SubmitButton disabled={!hasConnections}>
+          Ingest mock email
+        </SubmitButton>
       </div>
     </form>
   );
@@ -309,16 +337,18 @@ function EmailInquiryForm({
 
 function SmsInquiryForm({
   phoneNumbers,
+  redirectTo,
   submissionKey,
 }: {
   phoneNumbers: PhoneNumberOption[];
+  redirectTo: string;
   submissionKey: string;
 }) {
   const hasNumbers = phoneNumbers.length > 0;
 
   return (
     <form action={createMockSmsInboundAction} className="developer-form">
-      <input name="redirectTo" type="hidden" value="/developer?mock=sms" />
+      <input name="redirectTo" type="hidden" value={redirectTo} />
       <input name="submissionKey" type="hidden" value={submissionKey} />
 
       <div className={styles.modeNote}>
@@ -348,7 +378,11 @@ function SmsInquiryForm({
         </label>
         <label className="full-row">
           Message SID
-          <input name="messageSid" placeholder="Auto-generated when blank" type="text" />
+          <input
+            name="messageSid"
+            placeholder="Auto-generated when blank"
+            type="text"
+          />
         </label>
         <label className="full-row">
           Body
@@ -375,6 +409,7 @@ export function DeveloperMockInquiryForms({
   emailConnections,
   initialMode,
   phoneNumbers,
+  redirectPaths,
   submissionKeys,
 }: DeveloperMockInquiryFormsProps) {
   const [mode, setMode] = useState(initialMode);
@@ -390,7 +425,11 @@ export function DeveloperMockInquiryForms({
 
   return (
     <div>
-      <div className={styles.switcher} aria-label="Mock inquiry type" role="group">
+      <div
+        className={styles.switcher}
+        aria-label="Mock inquiry type"
+        role="group"
+      >
         {modes.map((item) => (
           <button
             aria-pressed={mode === item.value}
@@ -405,17 +444,22 @@ export function DeveloperMockInquiryForms({
       </div>
 
       {mode === "manual" ? (
-        <StructuredInquiryForm submissionKey={submissionKeys.manual} />
+        <StructuredInquiryForm
+          redirectTo={redirectPaths?.manual ?? "/developer?mock=manual"}
+          submissionKey={submissionKeys.manual}
+        />
       ) : null}
       {mode === "email" ? (
         <EmailInquiryForm
           connections={emailConnections}
+          redirectTo={redirectPaths?.email ?? "/developer?mock=email"}
           submissionKey={submissionKeys.email}
         />
       ) : null}
       {mode === "sms" ? (
         <SmsInquiryForm
           phoneNumbers={phoneNumbers}
+          redirectTo={redirectPaths?.sms ?? "/developer?mock=sms"}
           submissionKey={submissionKeys.sms}
         />
       ) : null}

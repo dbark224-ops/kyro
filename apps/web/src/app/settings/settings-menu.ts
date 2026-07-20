@@ -325,6 +325,13 @@ export function buildSettingsNestedItems({
         title: "Developer tools",
       },
       {
+        detail: "Test structured, email, and SMS ingestion",
+        href: settingsPanelHref("developer", "mock-inquiries", activeWindow),
+        key: "mock-inquiries",
+        selected: selectedPanel === "mock-inquiries",
+        title: "Mock inquiries",
+      },
+      {
         detail: "Legacy voice controls and provider IDs",
         href: settingsPanelHref("developer", "provider-ids", activeWindow),
         key: "provider-ids",

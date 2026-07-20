@@ -626,6 +626,17 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     developerOnly: true,
   }),
   searchEntry({
+    id: "mock-inquiries",
+    section: "developer",
+    panel: "mock-inquiries",
+    group: "Developer settings / Mock inquiries",
+    title: "Mock inquiry ingestion",
+    description: "Test structured, email, and SMS inquiry processing.",
+    keywords:
+      "dev testing mock fake inbound lead classifier structured email sms text ingestion",
+    developerOnly: true,
+  }),
+  searchEntry({
     id: "provider-ids",
     section: "developer",
     panel: "provider-ids",

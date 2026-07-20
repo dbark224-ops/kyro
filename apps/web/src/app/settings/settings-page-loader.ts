@@ -35,6 +35,7 @@ export type SettingsPageQuery = {
   engine_message?: string;
   focus?: string;
   inboundTrace?: string;
+  mock?: string;
   panel?: string;
   section?: string;
   senderRules?: string;
@@ -107,6 +108,14 @@ export async function loadSettingsPageData(
   const showSenderRules =
     selectedSection === "integrations" && query?.senderRules === "1";
   const settingsFocus = typeof query?.focus === "string" ? query.focus : null;
+  const needsDeveloperMockInquiries =
+    selectedSection === "developer" &&
+    selectedPanel === "mock-inquiries" &&
+    isDeveloperAccount;
+  const needsDeveloperOperationalSettings =
+    selectedSection === "developer" &&
+    selectedPanel !== "mock-inquiries" &&
+    isDeveloperAccount;
   const needsPhoneSettings =
     selectedSection === "integrations" &&
     activeIntegrationPanel === "phone-sms";
@@ -115,7 +124,7 @@ export async function loadSettingsPageData(
     selectedSection === "usage" ||
     selectedSection === "calendar" ||
     selectedSection === "notifications" ||
-    (selectedSection === "developer" && isDeveloperAccount) ||
+    needsDeveloperOperationalSettings ||
     needsPhoneSettings;
   const needsCommunicationSettings =
     (selectedSection === "general" && selectedPanel === "email-signature") ||
@@ -163,6 +172,7 @@ export async function loadSettingsPageData(
     kyroBillingOverview,
     kyroBillingEngineOverview,
     dashboardTutorialState,
+    developerMockEmailConnectionResult,
   ] = await Promise.all([
     needsCommunicationSettings
       ? getCommunicationSettings(supabase, workspace.id)
@@ -221,20 +231,42 @@ export async function loadSettingsPageData(
       ? getUsageReport(supabase, workspace.id, activeWindow)
       : Promise.resolve(null),
     selectedSection === "voice" ||
-    selectedSection === "developer" ||
+    needsDeveloperOperationalSettings ||
     needsPhoneSettings
       ? getVoiceSettings(supabase, workspace.id)
       : Promise.resolve(null),
     selectedSection === "usage"
       ? getKyroUserBillingOverview(getServiceSupabase(), workspace.id)
       : Promise.resolve(null),
-    selectedSection === "usage" || selectedSection === "developer"
+    selectedSection === "usage" || needsDeveloperOperationalSettings
       ? getKyroBillingEngineOverview(getServiceSupabase(), workspace.id)
       : Promise.resolve(null),
-    selectedSection === "developer" && isDeveloperAccount
+    needsDeveloperOperationalSettings
       ? getDashboardTutorialState(supabase, workspace.id)
       : Promise.resolve({ forceShow: false }),
+    needsDeveloperMockInquiries
+      ? supabase
+          .from("integration_connections")
+          .select("id,provider,account_email")
+          .eq("workspace_id", workspace.id)
+          .eq("status", "connected")
+          .in("provider", ["google", "microsoft"])
+          .order("last_connected_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
   ]);
+
+  const developerMockEmailConnections = (
+    developerMockEmailConnectionResult.data ?? []
+  )
+    .filter(
+      (connection) =>
+        connection.provider === "google" || connection.provider === "microsoft",
+    )
+    .map((connection) => ({
+      accountEmail: connection.account_email,
+      id: String(connection.id),
+      provider: connection.provider as "google" | "microsoft",
+    }));
 
   return {
     activeIntegrationPanel,
@@ -244,6 +276,7 @@ export async function loadSettingsPageData(
     calendarSettings,
     communicationSettings,
     dashboardTutorialState,
+    developerMockEmailConnections,
     documentTemplateSettings,
     generalSettings,
     googleOverview,

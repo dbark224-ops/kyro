@@ -45,8 +45,14 @@ test("tolerates a common pronunciation misspelling", () => {
 
 test("keeps developer results hidden from normal accounts", () => {
   assert.equal(searchSettings("provider ids").length, 0);
+  assert.equal(searchSettings("mock inquiry").length, 0);
   assert.equal(
     searchSettings("provider ids", { includeDeveloper: true })[0]?.id,
     "provider-ids",
+  );
+  assert.ok(
+    searchSettings("mock inquiry", { includeDeveloper: true }).some(
+      (result) => result.id === "mock-inquiries",
+    ),
   );
 });

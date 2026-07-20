@@ -55,7 +55,8 @@ function attachmentMetadata(formData: FormData) {
       filename,
       isInline: false,
       partId: null,
-      sizeBytes: Number.isFinite(parsedSize) && parsedSize >= 0 ? parsedSize : null,
+      sizeBytes:
+        Number.isFinite(parsedSize) && parsedSize >= 0 ? parsedSize : null,
     },
   ] satisfies Array<Omit<InboundEmailAttachment, "provider">>;
 }
@@ -72,6 +73,7 @@ async function requireDeveloperWorkspace() {
 
 function revalidateInboundViews() {
   revalidatePath("/developer");
+  revalidatePath("/settings");
   revalidatePath("/inbox");
   revalidatePath("/assistant");
   revalidatePath("/activity");
@@ -164,8 +166,7 @@ export async function createMockSmsInboundAction(formData: FormData) {
   const to = formString(formData, "to");
   const body = formString(formData, "body");
   const messageSid =
-    formString(formData, "messageSid") ||
-    formString(formData, "submissionKey");
+    formString(formData, "messageSid") || formString(formData, "submissionKey");
 
   if (!from || !to || !body) {
     redirectWithMessage(

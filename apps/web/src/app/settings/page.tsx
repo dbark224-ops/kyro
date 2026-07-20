@@ -157,12 +157,20 @@ import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
 import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
 import { UsageLedgerModal } from "./usage-ledger-modal";
 import { DefaultInvoiceTemplateForm } from "../payments/default-invoice-template-form";
+import {
+  DeveloperMockInquiryForms,
+  type DeveloperMockMode,
+} from "../developer/mock-inquiry-forms";
 
 export const dynamic = "force-dynamic";
 
 type SettingsPageProps = {
   searchParams?: Promise<SettingsPageQuery>;
 };
+
+function developerMockMode(value: string | undefined): DeveloperMockMode {
+  return value === "email" || value === "sms" ? value : "manual";
+}
 
 const COMMON_WORKSPACE_TIME_ZONES = [
   "Australia/Sydney",
@@ -4904,7 +4912,9 @@ function DeveloperSettingsDetail({
           <div>
             <span>Mock inbound</span>
             <strong>
-              <Link href="/developer">Manual inquiry ingestion</Link>
+              <Link href="/settings?section=developer&panel=mock-inquiries">
+                Open mock inquiries
+              </Link>
             </strong>
           </div>
           <div>
@@ -5929,6 +5939,58 @@ function KyroBillingSettingsDetail({
   );
 }
 
+function DeveloperMockInquirySettingsDetail({
+  assignedPhoneNumbers,
+  emailConnections,
+  initialMode,
+}: Readonly<{
+  assignedPhoneNumbers: WorkspacePhoneNumberPoolRow[];
+  emailConnections: Array<{
+    accountEmail: string | null;
+    id: string;
+    provider: "google" | "microsoft";
+  }>;
+  initialMode: DeveloperMockMode;
+}>) {
+  const phoneNumbers = assignedPhoneNumbers
+    .filter((number) => number.status === "active")
+    .map((number) => ({
+      friendlyName: number.friendlyName,
+      id: number.id,
+      phoneNumber: number.phoneNumber,
+    }));
+  const redirectBase = "/settings?section=developer&panel=mock-inquiries";
+
+  return (
+    <div className="settings-form">
+      <article className="panel embedded-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Inbound testing</p>
+            <h2>Mock inquiry</h2>
+          </div>
+          <span className="pill">Developer only</span>
+        </div>
+        <DeveloperMockInquiryForms
+          emailConnections={emailConnections}
+          initialMode={initialMode}
+          phoneNumbers={phoneNumbers}
+          redirectPaths={{
+            email: `${redirectBase}&mock=email`,
+            manual: `${redirectBase}&mock=manual`,
+            sms: `${redirectBase}&mock=sms`,
+          }}
+          submissionKeys={{
+            email: crypto.randomUUID(),
+            manual: crypto.randomUUID(),
+            sms: crypto.randomUUID(),
+          }}
+        />
+      </article>
+    </div>
+  );
+}
+
 export default async function SettingsPage({
   searchParams,
 }: SettingsPageProps) {
@@ -5940,6 +6002,7 @@ export default async function SettingsPage({
     calendarSettings,
     communicationSettings,
     dashboardTutorialState,
+    developerMockEmailConnections,
     documentTemplateSettings,
     generalSettings,
     googleOverview,
@@ -6112,6 +6175,19 @@ export default async function SettingsPage({
             voiceSettings,
           )}
           voiceSettings={voiceSettings}
+        />
+      </SettingsDetailShell>
+    ) : selectedSection === "developer" &&
+      selectedPanel === "mock-inquiries" &&
+      isDeveloperAccount ? (
+      <SettingsDetailShell
+        eyebrow="Developer"
+        title={selectedNestedTitle ?? "Mock inquiries"}
+      >
+        <DeveloperMockInquirySettingsDetail
+          assignedPhoneNumbers={assignedPhoneNumbers}
+          emailConnections={developerMockEmailConnections}
+          initialMode={developerMockMode(query?.mock)}
         />
       </SettingsDetailShell>
     ) : selectedSection === "developer" &&
