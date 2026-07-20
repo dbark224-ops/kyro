@@ -1177,6 +1177,8 @@ export async function executeAction(
       requestedByUserId: user.id,
     },
   });
+
+  return result;
 }
 
 export async function processNextEvent(

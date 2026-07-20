@@ -782,6 +782,24 @@ describe("assistant LLM-first command routing", () => {
     );
   });
 
+  it("matches an email-backed inquiry by its local part without inventing a contact name", () => {
+    assert.deepEqual(
+      recentInquiryConversationForPrompt({
+        conversationIds: ["mikel", "jason"],
+        conversations: [
+          { contactName: "mikelmarino@gmail.com", id: "mikel" },
+          { contactName: "jason123@gmail.com", id: "jason" },
+        ],
+        prompt: "Reply to Mikelmarino saying we can come Tuesday at 10am",
+      }),
+      {
+        ambiguous: false,
+        conversationId: "mikel",
+        matches: ["mikel"],
+      },
+    );
+  });
+
   it("does not guess when the named customer has several recent inquiries", () => {
     assert.deepEqual(
       recentInquiryConversationForPrompt({

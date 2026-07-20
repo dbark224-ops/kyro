@@ -701,7 +701,13 @@ export async function updateCalendarEventRecord({
       ends_at: input.endsAt,
       lead_id: input.leadId,
       location: input.location,
-      metadata: appointmentMetadata(before.metadata, input.locationAddress),
+      metadata: appointmentMetadata(
+        {
+          ...objectRecord(before.metadata),
+          ...objectRecord(input.metadata),
+        },
+        input.locationAddress,
+      ),
       starts_at: input.startsAt,
       status: input.status,
       title: input.title,

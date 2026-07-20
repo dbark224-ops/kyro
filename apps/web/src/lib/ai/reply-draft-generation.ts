@@ -186,6 +186,8 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
       context: promptContext,
       outputContract: {
         body: "string",
+        calendarCommitment:
+          "boolean - true only when this reply commits the business to attend at a concrete date and time",
         subject: "string",
       },
       rules: [
@@ -195,6 +197,8 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
         "Do not invent prices, availability, addresses, phone numbers, or promises not present in context.",
         "Follow the user's direction prompt if provided, unless it conflicts with the available context.",
         "Treat a day or time explicitly supplied by the user in context.prompt as authorized business availability for this reply.",
+        "Set calendarCommitment to true only when the user's instruction and drafted reply make a concrete commitment that the business will attend at a specific date and time, such as 'we can come Tuesday at 10 AM' or confirming a customer's proposed appointment time.",
+        "Set calendarCommitment to false when the reply merely asks what time suits, asks for availability, floats an unconfirmed option, requests missing information, or does not contain a sufficiently specific attendance date and time.",
         "Use a normal email subject beginning with Re: when appropriate.",
         ...replyWritingPromptRules(replyWriting).map(
           (rule) => `Writing style - ${rule}`,
@@ -219,6 +223,7 @@ function parseDraft(text: string, fallbackSubject: string) {
 
   return {
     body,
+    calendarCommitment: parsed.calendarCommitment === true,
     subject: textValue(parsed.subject) ?? fallbackSubject,
   };
 }
@@ -251,9 +256,10 @@ async function runOpenAiReplyDraft(context: ReplyDraftContext) {
             additionalProperties: false,
             properties: {
               body: { type: "string" },
+              calendarCommitment: { type: "boolean" },
               subject: { type: "string" },
             },
-            required: ["subject", "body"],
+            required: ["subject", "body", "calendarCommitment"],
             type: "object",
           },
           strict: true,
@@ -499,6 +505,7 @@ export async function generateReplyDraft({
       model: draft.model,
       output: {
         body: draft.body,
+        calendarCommitment: draft.calendarCommitment,
         subject: draft.subject,
       },
       provider: "openai",
@@ -534,6 +541,7 @@ export async function generateReplyDraft({
 
   return {
     body: draft.body,
+    calendarCommitment: draft.calendarCommitment,
     subject: draft.subject,
   };
 }

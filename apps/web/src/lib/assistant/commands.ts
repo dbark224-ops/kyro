@@ -23,7 +23,10 @@ import {
   type CalendarEventStatus,
   type CalendarEventItem,
 } from "../calendar/events";
-import { getCalendarSettings } from "../calendar/settings";
+import {
+  getCalendarSettings,
+  type CalendarEventType,
+} from "../calendar/settings";
 import {
   DOCUMENT_TEMPLATE_POLICY_TYPE,
   type CustomDocumentTemplate,
@@ -124,7 +127,11 @@ import {
   type OutboundCallRequestResolution,
 } from "../voice/outbound-call-requests";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
-import { addDaysToDateKey, isoRangeForDateKeyRange } from "../timezone";
+import {
+  addDaysToDateKey,
+  dateKeyInTimeZone,
+  isoRangeForDateKeyRange,
+} from "../timezone";
 import {
   buildAssistantCurrentTimeContext,
   type AssistantCurrentTimeContext,
@@ -1840,10 +1847,12 @@ async function resolvePlannedAssistantCommand({
       });
     case "inquiry_reply":
       return replyToRecentInquiryCommand({
+        currentTime,
         prompt: plannedPrompt,
         recentMessages,
         supabase,
         user,
+        userPrompt: prompt,
         workspace,
       });
     default:
@@ -1871,6 +1880,7 @@ export async function resolveAssistantCommand({
 
   if (looksLikeContextualInquiryReplyRequest(prompt, recentMessages)) {
     return replyToRecentInquiryCommand({
+      currentTime,
       prompt,
       recentMessages,
       supabase,
@@ -5527,8 +5537,14 @@ export function recentInquiryConversationForPrompt({
   const promptText = normalized(prompt);
   const namedMatches = available.filter((conversation) => {
     const contactName = normalized(conversation.contactName ?? "");
+    const emailLocalPart = conversation.contactName?.includes("@")
+      ? normalized(conversation.contactName.split("@")[0] ?? "")
+      : "";
 
-    return contactName.length > 1 && promptText.includes(contactName);
+    return (
+      (contactName.length > 1 && promptText.includes(contactName)) ||
+      (emailLocalPart.length > 2 && promptText.includes(emailLocalPart))
+    );
   });
 
   if (namedMatches.length > 1) {
@@ -5546,16 +5562,247 @@ export function recentInquiryConversationForPrompt({
   };
 }
 
+const INQUIRY_COMMITMENT_EVENT_SOURCE = "assistant_inquiry_commitment";
+
+type InquiryCommitmentEventRow = {
+  appointment_type: string | null;
+  contact_id: string | null;
+  conversation_id: string | null;
+  description: string | null;
+  ends_at: string | null;
+  id: string;
+  lead_id: string | null;
+  location: string | null;
+  metadata: unknown;
+  starts_at: string | null;
+  status: string | null;
+  title: string | null;
+};
+
+async function inquiryCommitmentEvent({
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  conversationId: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data, error } = await supabase
+    .from("conversation_appointments")
+    .select(
+      "id,appointment_type,contact_id,conversation_id,description,ends_at,lead_id,location,metadata,starts_at,status,title",
+    )
+    .eq("workspace_id", workspaceId)
+    .eq("conversation_id", conversationId)
+    .in("status", ["suggested", "scheduled"])
+    .order("updated_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(
+      `Unable to load the linked calendar event: ${error.message}`,
+    );
+  }
+
+  return (
+    ((data ?? []) as InquiryCommitmentEventRow[]).find(
+      (event) =>
+        objectRecord(event.metadata).source === INQUIRY_COMMITMENT_EVENT_SOURCE,
+    ) ?? null
+  );
+}
+
+function inquiryCommitmentTitle(conversation: ConversationListItem) {
+  const job = conversationJobLabel(conversation).trim();
+
+  if (!job || job === "General inquiry") {
+    return "Quote visit";
+  }
+
+  const title = /\b(?:quote|quotation|estimate|site visit)\b/i.test(job)
+    ? job
+    : `${job} quote`;
+
+  return `${title.charAt(0).toUpperCase()}${title.slice(1)}`.slice(0, 90);
+}
+
+function inquiryCommitmentDuration(
+  event: InquiryCommitmentEventRow | null,
+  fallbackMinutes: number,
+) {
+  const startsAt = event?.starts_at ? Date.parse(event.starts_at) : Number.NaN;
+  const endsAt = event?.ends_at ? Date.parse(event.ends_at) : Number.NaN;
+  const duration = Math.round((endsAt - startsAt) / 60_000);
+
+  return Number.isFinite(duration) && duration >= 5 && duration <= 720
+    ? duration
+    : fallbackMinutes;
+}
+
+async function upsertInquiryCommitmentCalendarEvent({
+  actionId,
+  conversation,
+  currentTime,
+  prompt,
+  replyBody,
+  supabase,
+  user,
+  workspace,
+}: {
+  actionId: string;
+  conversation: ConversationListItem;
+  currentTime?: AssistantCurrentTimeContext;
+  prompt: string;
+  replyBody: string;
+  supabase: SupabaseClient;
+  user: User;
+  workspace: WorkspaceInput;
+}) {
+  const [calendarSettings, existingEvent, generalSettings] = await Promise.all([
+    getCalendarSettings(supabase, workspace.id),
+    inquiryCommitmentEvent({
+      conversationId: conversation.id,
+      supabase,
+      workspaceId: workspace.id,
+    }),
+    currentTime
+      ? Promise.resolve(null)
+      : getWorkspaceGeneralSettings(supabase, workspace.id),
+  ]);
+  const clock =
+    currentTime ??
+    buildAssistantCurrentTimeContext(generalSettings?.timeZone ?? "UTC");
+  const timeZone = clock.currentTimezone;
+  const now = new Date(clock.currentIsoUtc);
+  const defaultDurationMinutes = inquiryCommitmentDuration(
+    existingEvent,
+    calendarSettings.defaultDurationMinutes,
+  );
+  let schedule = parseAssistantCalendarTimeFromPrompts(
+    prompt,
+    conversation.latestBody,
+    {
+      defaultDurationMinutes,
+      now,
+      timeZone,
+    },
+  );
+
+  if (!schedule && existingEvent?.starts_at) {
+    const existingDate = dateKeyInTimeZone(existingEvent.starts_at, timeZone);
+    schedule = parseAssistantCalendarTime(
+      `${existingDate} ${prompt}\n${conversation.latestBody ?? ""}`,
+      {
+        defaultDurationMinutes,
+        now,
+        timeZone,
+      },
+    );
+  }
+
+  if (!schedule) {
+    return null;
+  }
+
+  const linked = await resolveCalendarLinkedEntities({
+    contactId: existingEvent?.contact_id ?? null,
+    conversationId: conversation.id,
+    leadId: existingEvent?.lead_id ?? null,
+    supabase,
+    workspaceId: workspace.id,
+  });
+  const title = inquiryCommitmentTitle(conversation);
+  const location =
+    conversation.inquiryFacts?.address ?? existingEvent?.location ?? null;
+  const metadata = {
+    actionId,
+    customerConfirmation: "pending_or_confirmed_in_thread",
+    source: INQUIRY_COMMITMENT_EVENT_SOURCE,
+  };
+
+  if (existingEvent) {
+    await updateCalendarEventRecord({
+      appointmentId: existingEvent.id,
+      input: {
+        appointmentType:
+          (existingEvent.appointment_type as CalendarEventType | null) ??
+          calendarSettings.defaultEventType,
+        contactId: linked.contactId,
+        conversationId: conversation.id,
+        description: replyBody,
+        endsAt: schedule.endsAt,
+        leadId: linked.leadId,
+        location,
+        locationAddress: null,
+        metadata,
+        startsAt: schedule.startsAt,
+        status: "scheduled",
+        title,
+      },
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      action: "updated" as const,
+      eventId: existingEvent.id,
+      startsAt: schedule.startsAt,
+      timeZone,
+      title,
+    };
+  }
+
+  const eventId = await createCalendarEventRecord({
+    input: {
+      appointmentType: calendarSettings.defaultEventType,
+      contactId: linked.contactId,
+      conversationId: conversation.id,
+      description: replyBody,
+      endsAt: schedule.endsAt,
+      leadId: linked.leadId,
+      location,
+      locationAddress: null,
+      metadata,
+      startsAt: schedule.startsAt,
+      status: "scheduled",
+      title,
+    },
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+
+  return {
+    action: "created" as const,
+    eventId,
+    startsAt: schedule.startsAt,
+    timeZone,
+    title,
+  };
+}
+
 async function replyToRecentInquiryCommand({
+  currentTime,
   prompt,
   recentMessages = [],
   supabase,
   user,
+  userPrompt = null,
   workspace,
 }: Pick<
   CommandInput,
-  "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
->): Promise<AssistantCommandResult> {
+  | "currentTime"
+  | "prompt"
+  | "recentMessages"
+  | "supabase"
+  | "user"
+  | "workspace"
+> & {
+  userPrompt?: string | null;
+}): Promise<AssistantCommandResult> {
+  const instructionPrompt = userPrompt?.trim() || prompt;
   const conversationIds = recentWorkQueueConversationIds(recentMessages, {
     maxAgeMs: 30 * 60 * 1000,
   });
@@ -5579,7 +5826,7 @@ async function replyToRecentInquiryCommand({
   const selectedConversation = recentInquiryConversationForPrompt({
     conversationIds,
     conversations,
-    prompt,
+    prompt: instructionPrompt,
   });
 
   if (selectedConversation.ambiguous) {
@@ -5603,9 +5850,7 @@ async function replyToRecentInquiryCommand({
 
   const conversationId =
     selectedConversation.conversationId ?? conversationIds[0];
-  const conversation = conversations.find(
-    (item) => item.id === conversationId,
-  );
+  const conversation = conversations.find((item) => item.id === conversationId);
   const customer = conversation
     ? conversationDisplayName(conversation)
     : "the customer";
@@ -5637,7 +5882,7 @@ async function replyToRecentInquiryCommand({
 
   const draft = await generateReplyDraft({
     conversationId: action.conversationId,
-    prompt,
+    prompt: instructionPrompt,
     supabase,
     userId: user.id,
     workspaceId: workspace.id,
@@ -5649,7 +5894,7 @@ async function replyToRecentInquiryCommand({
     gmailExternalSendEnabled: true,
     settingsSnapshot: {
       ...objectRecord(action.input.settingsSnapshot),
-      assistantInstruction: prompt,
+      assistantInstruction: instructionPrompt,
       source: "assistant.contextual_inquiry_reply",
     },
     signatureVariant: "ai_generated",
@@ -5678,7 +5923,7 @@ async function replyToRecentInquiryCommand({
     before: { input: action.input },
     after: { input: after },
     metadata: {
-      assistantInstruction: prompt,
+      assistantInstruction: instructionPrompt,
       conversationId: action.conversationId,
       source: "assistant.contextual_inquiry_reply",
       updatedAt: now,
@@ -5689,32 +5934,94 @@ async function replyToRecentInquiryCommand({
     await approveAction(supabase, user, action.id);
   }
 
-  await executeAction(supabase, user, action.id);
+  const execution = await executeAction(supabase, user, action.id);
+  const externalSend = execution.externalSend === true;
+  let calendarEvent: Awaited<
+    ReturnType<typeof upsertInquiryCommitmentCalendarEvent>
+  > | null = null;
+  let calendarError: string | null = null;
+
+  if (externalSend && draft.calendarCommitment && conversation) {
+    try {
+      calendarEvent = await upsertInquiryCommitmentCalendarEvent({
+        actionId: action.id,
+        conversation,
+        currentTime,
+        prompt: instructionPrompt,
+        replyBody: draft.body,
+        supabase,
+        user,
+        workspace,
+      });
+    } catch (error) {
+      calendarError =
+        error instanceof Error ? error.message : "Calendar update failed.";
+      console.error("Unable to apply inquiry reply calendar commitment", {
+        actionId: action.id,
+        conversationId: action.conversationId,
+        error: calendarError,
+        workspaceId: workspace.id,
+      });
+    }
+  }
+
+  const links = [
+    rowLink(
+      customer,
+      `/inbox?conversationId=${action.conversationId}`,
+      externalSend ? "Reply sent" : "Reply recorded",
+    ),
+    ...(calendarEvent
+      ? [
+          rowLink(
+            calendarEvent.title,
+            calendarEventHrefFromParts(
+              calendarEvent.eventId,
+              calendarEvent.startsAt,
+            ),
+            assistantDate(calendarEvent.startsAt, calendarEvent.timeZone),
+          ),
+        ]
+      : []),
+  ];
+  const fallbackAnswer = !externalSend
+    ? `I updated the response for ${customer}, but Kyro could not confirm that it was delivered externally, so I did not change the calendar.`
+    : calendarError
+      ? `I sent the response to ${customer}, but the linked calendar update needs attention.`
+      : draft.calendarCommitment && !calendarEvent
+        ? `I sent the response to ${customer}. It included an attendance commitment, but I could not identify a reliable date and time to add to the calendar.`
+        : calendarEvent
+          ? `Done. I sent the response to ${customer} and ${
+              calendarEvent.action === "created" ? "added" : "updated"
+            } ${calendarEvent.title} on the calendar for ${assistantDate(
+              calendarEvent.startsAt,
+              calendarEvent.timeZone,
+            )}.`
+          : `Done. I updated the response with your instruction and sent it to ${customer}.`;
 
   return {
     context: {
       actionId: action.id,
       attempted: true,
+      calendarError,
+      calendarEventId: calendarEvent?.eventId ?? null,
+      calendarMutation: calendarEvent?.action ?? null,
+      calendarRequested: draft.calendarCommitment,
       conversationId: action.conversationId,
       customer,
-      instruction: prompt,
+      externalSend,
+      instruction: instructionPrompt,
       subject: draft.subject,
     },
-    fallbackAnswer: `Done. I updated the response with your instruction and sent it to ${customer}.`,
+    fallbackAnswer,
     intent: "inquiry_reply",
-    links: [
-      rowLink(
-        customer,
-        `/inbox?conversationId=${action.conversationId}`,
-        "Reply sent",
-      ),
-    ],
+    links,
     mutation: {
       entityId: action.id,
       entityType: "action",
-      label: "Customer reply sent",
+      label: externalSend ? "Customer reply sent" : "Customer reply recorded",
     },
-    title: "Reply sent",
+    title: externalSend ? "Reply sent" : "Reply recorded",
   };
 }
 

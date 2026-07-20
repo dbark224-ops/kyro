@@ -19,6 +19,10 @@ import {
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
+  isSyntheticInboundEmailName,
+  resolveInboundEmailContactName,
+} from "./inbound-email-identity";
+import {
   GOOGLE_GMAIL_READ_SCOPE,
   GOOGLE_PROVIDER,
   GOOGLE_SERVICE,
@@ -548,7 +552,7 @@ function stripHtml(value: string) {
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/(?:div|li|p|tr)>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -556,7 +560,9 @@ function stripHtml(value: string) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -597,23 +603,11 @@ function parseEmailAddress(value: string | null) {
 }
 
 function contactNameFromMessage(message: InboundEmailMessage) {
-  if (message.fromName) {
-    return message.fromName;
-  }
-
-  if (message.fromEmail) {
-    const local = message.fromEmail.split("@")[0] ?? "Email contact";
-
-    return (
-      local
-        .split(/[._-]/)
-        .filter(Boolean)
-        .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-        .join(" ") || "Email contact"
-    );
-  }
-
-  return "Email contact";
+  return resolveInboundEmailContactName({
+    bodyText: message.bodyText,
+    fromEmail: message.fromEmail,
+    fromName: message.fromName,
+  });
 }
 
 function providerLabel(provider: InboundEmailProvider) {
@@ -2048,12 +2042,23 @@ async function findOrCreateEmailContact({
     }
 
     if (existing) {
-      if (!textValue(existing.name) && message.fromName) {
-        await supabase
+      const resolvedName = contactNameFromMessage(message);
+      const existingName = textValue(existing.name);
+      const shouldReplaceName =
+        !existingName || isSyntheticInboundEmailName(existingName, email);
+
+      if (shouldReplaceName && existingName !== resolvedName) {
+        const { error: updateError } = await supabase
           .from("contacts")
-          .update({ name: message.fromName })
+          .update({ name: resolvedName })
           .eq("workspace_id", workspaceId)
           .eq("id", existing.id);
+
+        if (updateError) {
+          throw new Error(
+            `Unable to update sender identity: ${updateError.message}`,
+          );
+        }
       }
 
       return String(existing.id);
@@ -2458,6 +2463,7 @@ async function promoteEmailMessage({
 
   let leadId = conversation?.lead_id ? String(conversation.lead_id) : null;
   const contactName = contactNameFromMessage(message);
+  const contactLabel = contactName ?? message.fromEmail ?? "email sender";
   const serviceType = formatServiceType(classification.suggestedServiceType);
   const leadTitle = buildEmailLeadTitle({
     contactName,
@@ -2713,7 +2719,7 @@ async function promoteEmailMessage({
       : serviceType,
     source: "email_inbound_sync",
     sourceEventId: eventId,
-    summary: `${providerLabel(message.provider)} email from ${contactName}: ${classification.summary}`,
+    summary: `${providerLabel(message.provider)} email from ${contactLabel}: ${classification.summary}`,
     threadMessageCount: thread.count,
     threadSummary: thread.summary,
   });
@@ -2739,7 +2745,7 @@ async function promoteEmailMessage({
     sourceId: String(savedMessage.id),
     sourceKey: `email:${message.provider}:${message.externalMessageId}`,
     sourceType: "email",
-    summary: `${providerLabel(message.provider)} email from ${contactName}: ${classification.summary}`,
+    summary: `${providerLabel(message.provider)} email from ${contactLabel}: ${classification.summary}`,
     title: leadProfile?.title ? String(leadProfile.title) : leadTitle,
   }).catch((escalationError) => {
     console.error("Unable to evaluate inbound email escalation", {
@@ -3181,7 +3187,8 @@ async function processMessage({
 
     await notifyInboundInquiry({
       channel: "email",
-      contactName: message.fromName ?? message.fromEmail,
+      contactName:
+        contactNameFromMessage(message) ?? message.fromEmail ?? "email sender",
       contactPhone: promoted.contactPhone,
       conversationId: promoted.conversationId,
       missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
