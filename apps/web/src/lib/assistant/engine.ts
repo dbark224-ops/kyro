@@ -14,6 +14,7 @@ import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { resolveAssistantCommand } from "./commands";
 import { buildAssistantCurrentTimeContext } from "./current-time";
+import { assistantContentAfterModel } from "./provider-failure";
 import { runAssistantModel } from "./providers";
 import { projectAssistantResultForSurface } from "./response-surface";
 import {
@@ -257,10 +258,14 @@ export async function runAssistantTurn({
     command.intent === "calendar_event" ||
     command.intent === "inquiry_reply" ||
     (command.intent === "sms_send" && Boolean(command.mutation));
-  const assistantContent =
-    commandHasGeneratedImageBlock || commandNeedsExactAnswer
-      ? command.fallbackAnswer
-      : modelOutput.text;
+  const assistantContent = assistantContentAfterModel({
+    exactAnswer:
+      commandHasGeneratedImageBlock || commandNeedsExactAnswer
+        ? command.fallbackAnswer
+        : null,
+    fallbackReason: modelOutput.fallbackReason,
+    modelText: modelOutput.text,
+  });
   const toolCalls = [
     ...commandToolCalls,
     ...webSearchToToolCalls(modelOutput, trimmedPrompt),
@@ -342,29 +347,31 @@ export async function runAssistantTurn({
           usage: toolPlan.tokenUsage,
         })
       : []),
-    ...buildLlmUsageEvents({
-      context: {
-        aiRunId,
-        metadata: {
-          source: "assistant.turn",
-          contextSnapshotCount: contextSnapshots.length,
-          toolPlannerFallbackReason: toolPlan.fallbackReason ?? null,
-          toolPlannerModelPlanned: toolPlan.modelPlanned,
-          toolPlannerSelection: toolPlan.selection,
-          webSearchUsed: Boolean(modelOutput.webSearchUsed),
-        },
-        providerUsageId: modelOutput.providerUsageId,
-        sourceId: aiRunId,
-        sourceType: "ai_run",
-        usageMarkupRate,
-        userId: user.id,
-        workspaceId: workspace.id,
-      },
-      model: route.model,
-      provider: route.provider,
-      service: "llm",
-      usage: tokenUsage,
-    }),
+    ...(modelOutput.fallbackReason
+      ? []
+      : buildLlmUsageEvents({
+          context: {
+            aiRunId,
+            metadata: {
+              source: "assistant.turn",
+              contextSnapshotCount: contextSnapshots.length,
+              toolPlannerFallbackReason: toolPlan.fallbackReason ?? null,
+              toolPlannerModelPlanned: toolPlan.modelPlanned,
+              toolPlannerSelection: toolPlan.selection,
+              webSearchUsed: Boolean(modelOutput.webSearchUsed),
+            },
+            providerUsageId: modelOutput.providerUsageId,
+            sourceId: aiRunId,
+            sourceType: "ai_run",
+            usageMarkupRate,
+            userId: user.id,
+            workspaceId: workspace.id,
+          },
+          model: route.model,
+          provider: route.provider,
+          service: "llm",
+          usage: tokenUsage,
+        })),
   ];
 
   if (modelOutput.webSearchUsed && route.provider === "openai") {
