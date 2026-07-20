@@ -25,6 +25,11 @@ import {
 import { Screen } from "@/components/Screen";
 import { SectionCard, SectionHeader, StatusPill } from "@/components/ui";
 import { useAuthSession } from "@/features/auth/auth-context";
+import {
+  isValidConversationId,
+  kyroDeepLinkErrorMessages,
+  type KyroDeepLinkOpenError,
+} from "@/features/deep-links/deep-links";
 import type {
   ConversationListItem,
   MobileInboxActionOperation,
@@ -34,7 +39,7 @@ import type {
   MobileInboxReplyResponse,
   MobileInboxResponse,
 } from "@/lib/mobile-api-types";
-import { kyroApiFetch } from "@/lib/kyro-api";
+import { KyroApiError, kyroApiFetch } from "@/lib/kyro-api";
 import {
   mobileInboxConversationQueryOptions,
   mobileInboxQueryOptions,
@@ -45,6 +50,7 @@ export default function InboxScreen() {
   const params = useLocalSearchParams<{
     conversationId?: string;
     filter?: string;
+    openError?: string;
     quoteDraftId?: string;
     review?: string;
   }>();
@@ -59,9 +65,15 @@ export default function InboxScreen() {
     params.filter ?? "all",
   );
   const [timeFilter, setTimeFilter] = useState<InboxTimeFilter>("all");
-  const conversationId =
+  const requestedConversationId =
     typeof params.conversationId === "string" ? params.conversationId : null;
+  const conversationId =
+    requestedConversationId && isValidConversationId(requestedConversationId)
+      ? requestedConversationId
+      : null;
   const isSkippedReviewOpen = params.review === "skipped";
+  const openError =
+    typeof params.openError === "string" ? params.openError : null;
   const inbox = useQuery({
     ...mobileInboxQueryOptions(session),
     enabled: status === "signed-in",
@@ -114,6 +126,45 @@ export default function InboxScreen() {
     },
   });
 
+  useEffect(() => {
+    if (!openError) {
+      return;
+    }
+
+    if (isDeepLinkOpenError(openError)) {
+      setListMessage(kyroDeepLinkErrorMessages[openError]);
+    }
+
+    router.setParams({ openError: undefined });
+  }, [openError, router]);
+
+  useEffect(() => {
+    if (!requestedConversationId || conversationId) {
+      return;
+    }
+
+    setListMessage(kyroDeepLinkErrorMessages["invalid-conversation"]);
+    router.setParams({ conversationId: undefined });
+  }, [conversationId, requestedConversationId, router]);
+
+  useEffect(() => {
+    if (
+      !conversationId ||
+      conversationDetail.isLoading ||
+      !conversationDetail.error
+    ) {
+      return;
+    }
+
+    setListMessage(getConversationOpenFailureMessage(conversationDetail.error));
+    router.setParams({ conversationId: undefined });
+  }, [
+    conversationDetail.error,
+    conversationDetail.isLoading,
+    conversationId,
+    router,
+  ]);
+
   return (
     <Screen
       compactHeaderEmphasis
@@ -157,7 +208,7 @@ export default function InboxScreen() {
         <InboxLoadingState />
       ) : (
         <DataState
-          error={conversationDetail.error ?? inbox.error}
+          error={inbox.error}
           loading={false}
           title="Loading inbox"
         />
@@ -1484,6 +1535,24 @@ function actionExecuteLabel(type: string) {
   }
 
   return "Run";
+}
+
+function isDeepLinkOpenError(value: string): value is KyroDeepLinkOpenError {
+  return Object.prototype.hasOwnProperty.call(
+    kyroDeepLinkErrorMessages,
+    value,
+  );
+}
+
+function getConversationOpenFailureMessage(error: unknown) {
+  if (
+    error instanceof KyroApiError &&
+    (error.status === 400 || error.status === 403 || error.status === 404)
+  ) {
+    return "That conversation is no longer available in this workspace. Showing inbox instead.";
+  }
+
+  return "Unable to open that conversation. Showing inbox instead.";
 }
 
 const styles = StyleSheet.create({

@@ -5,6 +5,10 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { VapiCallProvider } from "@/features/assistant/vapi-call-context";
 import { AppearanceProvider } from "@/features/appearance/appearance-context";
 import { AuthProvider } from "@/features/auth/auth-context";
+import {
+  DeepLinkNavigator,
+  DeepLinkProvider,
+} from "@/features/deep-links/deep-link-context";
 import { CalendarNotificationsProvider } from "@/features/notifications/calendar-notifications-context";
 import {
   AppLockGate,
@@ -34,11 +38,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
         <AppearanceProvider>
           <AuthProvider>
             <AppLockProvider>
-              <CalendarNotificationsProvider>
-                <VapiCallProvider>
-                  <AppLockGate>{children}</AppLockGate>
-                </VapiCallProvider>
-              </CalendarNotificationsProvider>
+              <DeepLinkProvider>
+                <CalendarNotificationsProvider>
+                  <VapiCallProvider>
+                    <AppLockGate>
+                      <DeepLinkNavigator />
+                      {children}
+                    </AppLockGate>
+                  </VapiCallProvider>
+                </CalendarNotificationsProvider>
+              </DeepLinkProvider>
             </AppLockProvider>
           </AuthProvider>
         </AppearanceProvider>
