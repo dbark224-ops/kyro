@@ -23,6 +23,7 @@ import {
   looksLikeDirectWorkplaceSmsRequest,
   parseAssistantCalendarTime,
   parseAssistantCalendarTimeFromPrompts,
+  recentInquiryConversationForPrompt,
   resolveAssistantCommand,
   selectContactForAssistantPrompt,
   selectQuoteDraftForAssistantPrompt,
@@ -763,6 +764,42 @@ describe("outbound call request parsing", () => {
 });
 
 describe("assistant LLM-first command routing", () => {
+  it("selects the named inquiry from a recently listed work queue", () => {
+    assert.deepEqual(
+      recentInquiryConversationForPrompt({
+        conversationIds: ["mikel", "jason"],
+        conversations: [
+          { contactName: "Mikelmerino", id: "mikel" },
+          { contactName: "Jason123", id: "jason" },
+        ],
+        prompt: "Reply to Mikelmerino saying we can come by Tuesday at 10am",
+      }),
+      {
+        ambiguous: false,
+        conversationId: "mikel",
+        matches: ["mikel"],
+      },
+    );
+  });
+
+  it("does not guess when the named customer has several recent inquiries", () => {
+    assert.deepEqual(
+      recentInquiryConversationForPrompt({
+        conversationIds: ["mikel-one", "mikel-two"],
+        conversations: [
+          { contactName: "Mikelmerino", id: "mikel-one" },
+          { contactName: "Mikelmerino", id: "mikel-two" },
+        ],
+        prompt: "Reply to Mikelmerino saying Tuesday at 10am works",
+      }),
+      {
+        ambiguous: true,
+        conversationId: null,
+        matches: ["mikel-one", "mikel-two"],
+      },
+    );
+  });
+
   it("recognizes a natural reply instruction after a fresh inquiry briefing", () => {
     const recentMessages: AssistantRecentMessage[] = [
       {

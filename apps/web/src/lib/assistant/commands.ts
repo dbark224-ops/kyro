@@ -5505,6 +5505,47 @@ async function executableDraftReplyActionsForConversations({
     });
 }
 
+export function recentInquiryConversationForPrompt({
+  conversationIds,
+  conversations,
+  prompt,
+}: {
+  conversationIds: string[];
+  conversations: Array<Pick<ConversationListItem, "contactName" | "id">>;
+  prompt: string;
+}) {
+  const order = new Map(
+    conversationIds.map((conversationId, index) => [conversationId, index]),
+  );
+  const available = conversations
+    .filter((conversation) => order.has(conversation.id))
+    .sort(
+      (left, right) =>
+        (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  const promptText = normalized(prompt);
+  const namedMatches = available.filter((conversation) => {
+    const contactName = normalized(conversation.contactName ?? "");
+
+    return contactName.length > 1 && promptText.includes(contactName);
+  });
+
+  if (namedMatches.length > 1) {
+    return {
+      ambiguous: true,
+      conversationId: null,
+      matches: namedMatches.map((conversation) => conversation.id),
+    };
+  }
+
+  return {
+    ambiguous: false,
+    conversationId: namedMatches[0]?.id ?? available[0]?.id ?? null,
+    matches: namedMatches.map((conversation) => conversation.id),
+  };
+}
+
 async function replyToRecentInquiryCommand({
   prompt,
   recentMessages = [],
@@ -5535,14 +5576,41 @@ async function replyToRecentInquiryCommand({
   }
 
   const conversations = await getConversationList(supabase, workspace.id);
+  const selectedConversation = recentInquiryConversationForPrompt({
+    conversationIds,
+    conversations,
+    prompt,
+  });
+
+  if (selectedConversation.ambiguous) {
+    const matches = conversations.filter((conversation) =>
+      selectedConversation.matches.includes(conversation.id),
+    );
+
+    return {
+      context: {
+        attempted: false,
+        conversationIds: selectedConversation.matches,
+        reason: "The named customer has more than one recent inquiry.",
+      },
+      fallbackAnswer:
+        "I found more than one recent inquiry for that customer. Tell me the job or inquiry you mean and I will use the right one.",
+      intent: "inquiry_reply",
+      links: matches.map(conversationToInquiryLink),
+      title: "Choose an inquiry",
+    };
+  }
+
+  const conversationId =
+    selectedConversation.conversationId ?? conversationIds[0];
   const conversation = conversations.find(
-    (item) => item.id === conversationIds[0],
+    (item) => item.id === conversationId,
   );
   const customer = conversation
     ? conversationDisplayName(conversation)
     : "the customer";
   const [action] = await executableDraftReplyActionsForConversations({
-    conversationIds: [conversationIds[0]],
+    conversationIds: [conversationId],
     supabase,
     workspaceId: workspace.id,
   });
@@ -5551,7 +5619,7 @@ async function replyToRecentInquiryCommand({
     return {
       context: {
         attempted: false,
-        conversationId: conversationIds[0],
+        conversationId,
         reason: "The referenced inquiry no longer has a pending reply action.",
       },
       fallbackAnswer: `I found ${customer}'s inquiry, but there is no pending response available to update and send. Open it in Kyro and I can work from the current conversation.`,
@@ -5559,7 +5627,7 @@ async function replyToRecentInquiryCommand({
       links: [
         rowLink(
           customer,
-          `/inbox?conversationId=${conversationIds[0]}`,
+          `/inbox?conversationId=${conversationId}`,
           "Open inquiry",
         ),
       ],

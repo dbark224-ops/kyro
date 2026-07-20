@@ -178,6 +178,7 @@ export type AssistantTurnResult = {
   id: string;
   role: "assistant";
   content: string;
+  contextLinks?: AssistantLink[];
   intent: string;
   provider: string;
   model: string;

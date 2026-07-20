@@ -36,6 +36,7 @@ test("removes invisible links and UI blocks from text-only results", () => {
   const projected = projectAssistantResultForSurface(result, "sms");
 
   assert.equal(projected.content, result.content);
+  assert.deepEqual(projected.contextLinks, result.links);
   assert.deepEqual(projected.links, []);
   assert.deepEqual(projected.uiBlocks, []);
   assert.deepEqual(projectAssistantResultForSurface(result, "typed"), result);

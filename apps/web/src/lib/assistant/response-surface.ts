@@ -49,6 +49,7 @@ export function projectAssistantResultForSurface(
   return {
     ...result,
     content: plainTextContent(content),
+    contextLinks: result.contextLinks ?? result.links,
     links: [],
     uiBlocks: [],
   };

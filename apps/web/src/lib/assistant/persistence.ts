@@ -281,6 +281,7 @@ export async function appendAssistantTurnMessage({
   user: User;
   workspaceId: string;
 }) {
+  const contextLinks = result.contextLinks ?? result.links;
   const uiBlocks = [
     ...result.uiBlocks,
     ...(memorySaved ? [memoryNoticeBlock(memorySaved)] : []),
@@ -298,8 +299,9 @@ export async function appendAssistantTurnMessage({
     content: result.content,
     intent: result.intent,
     metadata: {
+      contextLinks,
       fallbackReason: result.fallbackReason ?? null,
-      linkCount: result.links.length,
+      linkCount: contextLinks.length,
       source: "assistant.page",
     },
     model: result.model,
@@ -821,6 +823,7 @@ async function touchThread(
 function toThreadMessage(row: AssistantMessageRow): AssistantThreadMessage {
   const metadata = objectRecord(row.metadata);
   const uiBlocks = normalizeUiBlocks(row.ui_blocks);
+  const contextLinks = normalizeAssistantLinks(metadata.contextLinks);
 
   return {
     content: String(row.content),
@@ -828,12 +831,56 @@ function toThreadMessage(row: AssistantMessageRow): AssistantThreadMessage {
     fallbackReason: textValue(metadata.fallbackReason) ?? undefined,
     id: String(row.id),
     intent: textValue(row.intent) ?? undefined,
-    links: linksFromBlocks(uiBlocks),
+    links: dedupeAssistantLinks([
+      ...contextLinks,
+      ...linksFromBlocks(uiBlocks),
+    ]),
     model: textValue(row.model) ?? undefined,
     provider: textValue(row.provider) ?? undefined,
     role: textValue(row.role) === "assistant" ? "assistant" : "user",
     uiBlocks,
   };
+}
+
+function normalizeAssistantLinks(value: unknown): AssistantLink[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const record = objectRecord(item);
+    const href = textValue(record.href);
+    const label = textValue(record.label);
+
+    if (!href || !label) {
+      return [];
+    }
+
+    const meta = textValue(record.meta);
+
+    return [
+      {
+        href,
+        label,
+        ...(meta ? { meta } : {}),
+      },
+    ];
+  });
+}
+
+function dedupeAssistantLinks(links: AssistantLink[]) {
+  const seen = new Set<string>();
+
+  return links.filter((link) => {
+    const key = `${link.href}\u0000${link.label}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 async function refreshAssistantConversationLinks(
