@@ -16,7 +16,10 @@ import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 type InquiryNotificationOutcome = "booked" | "captured" | "proposed";
 
 export type InquiryNotificationChannel =
-  "email" | "phone" | "sms" | "voicemail";
+  | "email"
+  | "phone"
+  | "sms"
+  | "voicemail";
 
 type InquiryNotificationInput = {
   channel?: InquiryNotificationChannel;
@@ -270,6 +273,13 @@ async function saveInquiryBriefingToAssistantThread(
   await appendRealtimeAssistantMessage({
     content: body,
     intent: "work_queue",
+    links: [
+      {
+        href: `/inbox?conversationId=${encodeURIComponent(input.conversationId)}`,
+        label: contactName,
+        meta: "New inquiry",
+      },
+    ],
     model: "notification-template-v1",
     provider: "kyro",
     source: "assistant.inbound_inquiry_notification",

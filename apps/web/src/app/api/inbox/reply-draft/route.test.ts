@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  buildReplyDraftPrompt,
-  type ReplyDraftContext,
-} from "./route";
+import { buildReplyDraftPrompt, type ReplyDraftContext } from "./route";
 
 function parsePrompt(context: ReplyDraftContext) {
   return JSON.parse(buildReplyDraftPrompt(context)) as {
@@ -34,9 +31,7 @@ describe("buildReplyDraftPrompt", () => {
       prompt.context.skippedEmail?.subject,
       "Action required: payment failed",
     );
-    assert.ok(
-      prompt.rules.some((rule) => rule.includes("filtered-out email")),
-    );
+    assert.ok(prompt.rules.some((rule) => rule.includes("filtered-out email")));
     assert.ok(
       prompt.rules.some((rule) => rule.includes("Do not ask for job details")),
     );
@@ -75,6 +70,38 @@ describe("buildReplyDraftPrompt", () => {
     );
   });
 
+  it("treats a time supplied by the user as authorized reply context", () => {
+    const prompt = parsePrompt({
+      contactName: "Mikel",
+      inquiryFacts: {
+        address: null,
+        missingInfo: ["Job address", "Preferred time", "Phone number"],
+        preferredTime: null,
+      },
+      latestSubject: "Renovation quote",
+      prompt: "Reply for me and tell him we can come around Tuesday at 10am.",
+      source: "conversation",
+      thread: [
+        {
+          body: "Could you come out this week to quote the renovation?",
+          direction: "inbound",
+          subject: "Renovation quote",
+        },
+      ],
+    });
+
+    assert.ok(
+      prompt.rules.some((rule) =>
+        rule.includes("Treat a day or time explicitly supplied by the user"),
+      ),
+    );
+    assert.ok(
+      prompt.rules.some((rule) =>
+        rule.includes("unless supplied by the user's reply instruction"),
+      ),
+    );
+  });
+
   it("includes saved outbound writing settings in the draft rules", () => {
     const prompt = parsePrompt({
       contactName: "Sarah",
@@ -102,8 +129,6 @@ describe("buildReplyDraftPrompt", () => {
     assert.ok(
       prompt.rules.some((rule) => rule.includes("Writing style - Tone")),
     );
-    assert.ok(
-      prompt.rules.some((rule) => rule.includes("Ask for photos")),
-    );
+    assert.ok(prompt.rules.some((rule) => rule.includes("Ask for photos")));
   });
 });

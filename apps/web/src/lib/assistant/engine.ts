@@ -255,6 +255,7 @@ export async function runAssistantTurn({
   );
   const commandNeedsExactAnswer =
     command.intent === "calendar_event" ||
+    command.intent === "inquiry_reply" ||
     (command.intent === "sms_send" && Boolean(command.mutation));
   const assistantContent =
     commandHasGeneratedImageBlock || commandNeedsExactAnswer

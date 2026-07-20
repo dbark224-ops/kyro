@@ -12,6 +12,7 @@ import {
   cleanCalendarTitle,
   documentTemplateControlIntent,
   looksLikeCalendarFollowUpRequest,
+  looksLikeContextualInquiryReplyRequest,
   looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
   looksLikeActionExecutionRequest,
@@ -246,11 +247,15 @@ describe("assistant document command helpers", () => {
 
   it("recognises explicit public web search prompts without treating Kyro app data as web search", () => {
     assert.equal(
-      looksLikeWebSearchRequest("Search the web for the latest QLD plumbing rule"),
+      looksLikeWebSearchRequest(
+        "Search the web for the latest QLD plumbing rule",
+      ),
       true,
     );
     assert.equal(
-      looksLikeWebSearchRequest("What is the latest news about Brisbane weather?"),
+      looksLikeWebSearchRequest(
+        "What is the latest news about Brisbane weather?",
+      ),
       true,
     );
     assert.equal(
@@ -461,7 +466,9 @@ describe("assistant calendar helpers", () => {
       },
     );
     assert.deepEqual(
-      calendarLinkIntentFromPrompt("link this event to the current conversation"),
+      calendarLinkIntentFromPrompt(
+        "link this event to the current conversation",
+      ),
       {
         allowNamedContact: false,
         allowRecentConversation: true,
@@ -756,6 +763,63 @@ describe("outbound call request parsing", () => {
 });
 
 describe("assistant LLM-first command routing", () => {
+  it("recognizes a natural reply instruction after a fresh inquiry briefing", () => {
+    const recentMessages: AssistantRecentMessage[] = [
+      {
+        content: "New email inquiry from Mikel.",
+        createdAt: new Date().toISOString(),
+        intent: "work_queue",
+        links: [
+          {
+            href: "/inbox?conversationId=conversation-1",
+            label: "Mikel",
+          },
+        ],
+        role: "assistant",
+      },
+    ];
+
+    assert.equal(
+      looksLikeContextualInquiryReplyRequest(
+        "Can you reply for me, tell him we can come around 10am Tuesday",
+        recentMessages,
+      ),
+      true,
+    );
+    assert.equal(
+      looksLikeContextualInquiryReplyRequest(
+        "What should I reply to him?",
+        recentMessages,
+      ),
+      false,
+    );
+  });
+
+  it("does not bind pronouns to an old inquiry briefing", () => {
+    const recentMessages: AssistantRecentMessage[] = [
+      {
+        content: "New email inquiry from Mikel.",
+        createdAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+        intent: "work_queue",
+        links: [
+          {
+            href: "/inbox?conversationId=conversation-1",
+            label: "Mikel",
+          },
+        ],
+        role: "assistant",
+      },
+    ];
+
+    assert.equal(
+      looksLikeContextualInquiryReplyRequest(
+        "Can you reply for me and tell him Tuesday works?",
+        recentMessages,
+      ),
+      false,
+    );
+  });
+
   it("detects clear follow-up requests to execute listed work queue actions", () => {
     const positivePrompts = [
       "please action both",
@@ -808,7 +872,8 @@ describe("assistant LLM-first command routing", () => {
 
   it("treats a successful no-tool planner decision as general chat", async () => {
     const command = await resolveAssistantCommand({
-      prompt: "do you think image generation will matter for trades businesses?",
+      prompt:
+        "do you think image generation will matter for trades businesses?",
       supabase: emptySupabase(),
       toolPlanModelPlanned: true,
       toolSelection: null,

@@ -26,6 +26,7 @@ export type AssistantToolName =
   | "image_generation"
   | "image_recall"
   | "inbound_email_awareness"
+  | "inquiry_reply"
   | "inquiry_lookup"
   | "legislation_lookup"
   | "memory_save"
@@ -76,6 +77,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Execute clearly approved existing pending actions from the current work queue, such as when the user says action both, send them, approve those replies, or handle all pending replies after Kyro has listed them.",
     name: "action_execution",
+  },
+  {
+    description:
+      "Revise and send the pending response for the exact inquiry Kyro just notified the user about. Use this when the user replies naturally to a fresh inquiry briefing with an instruction such as 'reply for me and tell him Tuesday at 10 works'. Preserve the user's response instruction exactly. Do not use this when there is no recent inquiry briefing or when the user only asks what they should say.",
+    name: "inquiry_reply",
   },
   {
     description:
@@ -331,9 +337,9 @@ function toolSchema(tool: ToolDefinition) {
               ? "The concise calendar instruction to pass to Kyro. For calendar reads, preserve the exact date and year the user supplied and do not invent or substitute a weekday. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, any explicit duration, location, and job details. Event purpose plus date and time is enough to create immediately; never omit the tool call merely because duration or location is missing. Kyro applies the workspace default duration and does not require a location. Keep event titles compact and do not include date/time wording as part of the title. When the user describes the event purpose, preserve it as an explicit title, for example 'it's a sponsor event' becomes 'titled Sponsor event'. For finalize/save/confirm follow-ups, preserve that action instead of rewriting it into a generic calendar lookup. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation in the current prompt. Do not add this/current customer wording from stale recentMessages. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am', which Kyro should title as 'Meeting - Starbucks'. Example: 'add a meeting at the NM MVD on the 2nd of August at 2pm' becomes 'meeting at NM MVD on 2nd August at 2pm', which Kyro should title as 'Meeting - NM MVD'."
               : tool.name === "sms_send"
                 ? "The direct workplace-contact SMS instruction. Preserve the exact workplace contact name or primary-contact wording and the exact requested message. If the user is testing SMS without specifying copy, preserve that it is a test."
-              : tool.name === "outbound_call"
-                ? "The outbound call instruction. Preserve first-person recipient wording such as me, myself, or my number exactly; actor supplies the authenticated internal sender identity. Preserve the requested call purpose or message."
-              : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
+                : tool.name === "outbound_call"
+                  ? "The outbound call instruction. Preserve first-person recipient wording such as me, myself, or my number exactly; actor supplies the authenticated internal sender identity. Preserve the requested call purpose or message."
+                  : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
           type: "string",
         },
         reason: {
@@ -491,6 +497,7 @@ export async function planAssistantToolCall({
           "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",
           "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
           "Use kyro_action_execution only to execute an existing pending work-queue action, draft reply, or approval. Never use it to create a new outbound message.",
+          "If the user replies to a fresh inquiry briefing with a natural instruction to reply, respond, email, message, or tell that customer something, call kyro_inquiry_reply. Preserve every date, time, promise, and requested detail from the user's instruction. Do not require the user to repeat the customer name when the recent briefing identifies one exact inquiry.",
           "When the logged-in user directly asks to send or test an SMS to a workplace, team, staff, internal, primary, or escalation contact, call kyro_sms_send. This remains true when qualifiers appear in a different order, such as 'primary workplace escalation contact'.",
           "When the user directly asks to create a calendar event and supplies an event purpose, date, and time, call kyro_calendar_event immediately. Duration and location are optional; preserve them when supplied, otherwise let Kyro use its configured defaults.",
           "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",

@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { generateReplyDraft } from "../ai/reply-draft-generation";
 import {
   getContactList,
   getContactProfile,
@@ -151,6 +152,7 @@ type ExecutableConversationAction = {
   id: string;
   conversationId: string;
   createdAt: string;
+  input: Record<string, unknown>;
   status: "approved" | "pending_approval";
   subject: string | null;
 };
@@ -1453,8 +1455,10 @@ export function looksLikeImageFollowUpRequest(
   prompt: string,
   recentMessages: readonly AssistantRecentMessage[] = [],
 ) {
-  return Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
-    looksLikeImageEditFollowUpText(prompt);
+  return (
+    Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
+    looksLikeImageEditFollowUpText(prompt)
+  );
 }
 
 function looksLikeDirectImageGenerationCommand(prompt: string) {
@@ -1551,8 +1555,10 @@ function looksLikeGeneratedImageRecallRequest(
   prompt: string,
   recentMessages: readonly AssistantRecentMessage[] = [],
 ) {
-  return Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
-    looksLikeGeneratedImageRecallText(prompt);
+  return (
+    Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
+    looksLikeGeneratedImageRecallText(prompt)
+  );
 }
 
 function generatedImageRecallResult({
@@ -1704,12 +1710,12 @@ async function resolvePlannedAssistantCommand({
               plannedPrompt,
               recentMessages,
             ) ??
-              (await imageFollowUpPromptFromThread({
-                prompt: plannedPrompt,
-                supabase,
-                threadId,
-                workspaceId: workspace.id,
-              })))
+            (await imageFollowUpPromptFromThread({
+              prompt: plannedPrompt,
+              supabase,
+              threadId,
+              workspaceId: workspace.id,
+            })))
           : null;
 
       return imageGenerationCommand({
@@ -1832,6 +1838,14 @@ async function resolvePlannedAssistantCommand({
         user,
         workspace,
       });
+    case "inquiry_reply":
+      return replyToRecentInquiryCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        user,
+        workspace,
+      });
     default:
       return null;
   }
@@ -1853,6 +1867,16 @@ export async function resolveAssistantCommand({
 
   if (looksLikeDirectWorkplaceSmsRequest(prompt)) {
     return workplaceSmsCommand({ prompt, supabase, user, workspace });
+  }
+
+  if (looksLikeContextualInquiryReplyRequest(prompt, recentMessages)) {
+    return replyToRecentInquiryCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
   }
 
   if (looksLikeActionExecutionRequest(prompt)) {
@@ -2153,7 +2177,7 @@ async function outboundCallCommand({
 
   if (resolution.status === "missing_instructions") {
     const recognizedRecipient = selfRecipient
-      ? selfRecipient.displayName ?? selfRecipient.firstName ?? "you"
+      ? (selfRecipient.displayName ?? selfRecipient.firstName ?? "you")
       : null;
 
     return {
@@ -2166,7 +2190,8 @@ async function outboundCallCommand({
         ? [
             {
               href: `/contacts/${resolution.contactId}`,
-              label: resolution.contactName ?? resolution.phoneNumber ?? "Contact",
+              label:
+                resolution.contactName ?? resolution.phoneNumber ?? "Contact",
               meta: resolution.phoneNumber ?? undefined,
             },
           ]
@@ -2330,7 +2355,9 @@ async function webSearchCommand({
         .insert(toUsageEventRows(usageEvents));
 
       if (usageError) {
-        throw new Error(`Unable to record web search usage: ${usageError.message}`);
+        throw new Error(
+          `Unable to record web search usage: ${usageError.message}`,
+        );
       }
     }
 
@@ -2371,7 +2398,9 @@ async function webSearchCommand({
       .eq("id", aiRunId);
 
     if (completeError) {
-      throw new Error(`Unable to complete web search AI run: ${completeError.message}`);
+      throw new Error(
+        `Unable to complete web search AI run: ${completeError.message}`,
+      );
     }
 
     await insertAuditLog(supabase, {
@@ -2436,7 +2465,10 @@ async function helpCommand({
 async function legislationKnowledgeCommand({
   prompt,
   workspace,
-}: Pick<CommandInput, "prompt" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "prompt" | "workspace"
+>): Promise<AssistantCommandResult> {
   const result = await searchLegislationKnowledge({
     prompt,
     workspaceId: workspace.id,
@@ -2487,7 +2519,10 @@ async function legislationKnowledgeCommand({
           detail: `${match.regulator} - ${match.licensingMode.replaceAll("_", " ")}`,
           href: match.officialUrl,
           label: `${match.jurisdictionRegion}: ${match.title}`,
-          tone: match.licensingMode === "metadata_only" ? "warning" : ("cyan" as const),
+          tone:
+            match.licensingMode === "metadata_only"
+              ? "warning"
+              : ("cyan" as const),
         })),
       ),
     ],
@@ -2721,7 +2756,8 @@ async function assistantHistorySearchCommand({
   "prompt" | "supabase" | "threadId" | "user" | "workspace"
 >): Promise<AssistantCommandResult> {
   const resolvedThreadId =
-    threadId ?? (await activeAssistantThreadId(supabase, workspace.id, user.id));
+    threadId ??
+    (await activeAssistantThreadId(supabase, workspace.id, user.id));
   const result = await searchAssistantHistory({
     query: prompt,
     supabase,
@@ -3031,8 +3067,20 @@ const CALENDAR_TITLE_MONTH =
 
 function stripCalendarTitleTiming(value: string) {
   return value
-    .replace(new RegExp(`\\s+\\b(?:on|for)?\\s*(?:this|next)?\\s*${CALENDAR_TITLE_WEEKDAY}\\b.*$`, "i"), "")
-    .replace(new RegExp(`\\s+\\b(?:on|for)?\\s*${CALENDAR_TITLE_MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b.*$`, "i"), "")
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*(?:this|next)?\\s*${CALENDAR_TITLE_WEEKDAY}\\b.*$`,
+        "i",
+      ),
+      "",
+    )
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*${CALENDAR_TITLE_MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b.*$`,
+        "i",
+      ),
+      "",
+    )
     .replace(
       new RegExp(
         `\\s+\\b(?:on|for)?\\s*(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+${CALENDAR_TITLE_MONTH}\\.?(?:,?\\s+\\d{4})?\\b.*$`,
@@ -3042,7 +3090,10 @@ function stripCalendarTitleTiming(value: string) {
     )
     .replace(/\s+\b(?:on|for)\s+\d{4}-\d{1,2}-\d{1,2}\b.*$/i, "")
     .replace(/\s+\b(?:today|tomorrow)\b.*$/i, "")
-    .replace(/\s+\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?\b.*$/i, "")
+    .replace(
+      /\s+\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?\b.*$/i,
+      "",
+    )
     .trim();
 }
 
@@ -3051,10 +3102,9 @@ function isGenericCalendarTitle(value: string) {
 
   return (
     !/[a-z]/i.test(value) ||
-    new RegExp(
-      `^(?:(?:this|next)\\s+)?${CALENDAR_TITLE_WEEKDAY}$`,
-      "i",
-    ).test(value.trim()) ||
+    new RegExp(`^(?:(?:this|next)\\s+)?${CALENDAR_TITLE_WEEKDAY}$`, "i").test(
+      value.trim(),
+    ) ||
     /^(calendar )?(event|appointment|booking|entry|calendar entry|reminder)( in (the|my) calendar)?$/.test(
       text,
     ) ||
@@ -3083,7 +3133,10 @@ function compactCalendarTitle(value: string) {
   return title;
 }
 
-function fallbackCalendarTitle(prompt: string, contact: ContactListItem | null) {
+function fallbackCalendarTitle(
+  prompt: string,
+  contact: ContactListItem | null,
+) {
   const contactName =
     contact?.name ?? contact?.company ?? contact?.email ?? contact?.phone;
 
@@ -3312,8 +3365,7 @@ function nextWeekdayDateParts(
   now: CalendarLocalDateParts,
   forceNextWeek: boolean,
 ) {
-  const offset =
-    (targetDay + 7 - now.weekday) % 7 || (forceNextWeek ? 7 : 0);
+  const offset = (targetDay + 7 - now.weekday) % 7 || (forceNextWeek ? 7 : 0);
   const adjustedOffset = offset === 0 ? 0 : offset;
 
   return addDaysToLocalDate(now, adjustedOffset);
@@ -3717,11 +3769,7 @@ function assistantLinksFromMessage(message: AssistantRecentMessage) {
         return block.cards
           .filter((card) => card.href)
           .map((card) =>
-            rowLink(
-              card.label,
-              card.href as string,
-              card.detail ?? card.value,
-            ),
+            rowLink(card.label, card.href as string, card.detail ?? card.value),
           );
       }
 
@@ -3962,7 +4010,11 @@ function calendarEventSearchText(event: CalendarEventItem) {
   );
 }
 
-function sameLocalDate(leftIso: string | null, rightIso: string, timeZone: string) {
+function sameLocalDate(
+  leftIso: string | null,
+  rightIso: string,
+  timeZone: string,
+) {
   if (!leftIso) {
     return false;
   }
@@ -4022,7 +4074,10 @@ function scoreCalendarTarget(
     }
   }
 
-  if (event.contact?.email && prompt.toLowerCase().includes(event.contact.email)) {
+  if (
+    event.contact?.email &&
+    prompt.toLowerCase().includes(event.contact.email)
+  ) {
     score += 90;
   }
 
@@ -4035,7 +4090,10 @@ function scoreCalendarTarget(
     }
   }
 
-  if (scheduled?.startsAt && sameLocalDate(event.startsAt, scheduled.startsAt, timeZone)) {
+  if (
+    scheduled?.startsAt &&
+    sameLocalDate(event.startsAt, scheduled.startsAt, timeZone)
+  ) {
     score += 35;
   }
 
@@ -4107,9 +4165,7 @@ async function resolveCalendarTargetEvent({
     return { kind: "none" };
   }
 
-  const tied = ranked.filter(
-    (candidate) => best.score - candidate.score <= 8,
-  );
+  const tied = ranked.filter((candidate) => best.score - candidate.score <= 8);
 
   if (tied.length > 1) {
     return {
@@ -4152,8 +4208,7 @@ async function calendarLinkedContext({
       : calendarConversationReferenceFromRecentMessages(recentMessages, {
           requireFresh: false,
         });
-  const conversationId =
-    freshConversationReference?.conversationId ?? null;
+  const conversationId = freshConversationReference?.conversationId ?? null;
 
   if (!explicitContact && !conversationId) {
     if (staleConversationReference) {
@@ -4774,7 +4829,9 @@ async function calendarCommand({
         calendarSettings.defaultDurationMinutes,
       );
       input.status = event.status === "cancelled" ? "scheduled" : input.status;
-      changes.push(`moved it to ${assistantDate(scheduled.startsAt, timeZone)}`);
+      changes.push(
+        `moved it to ${assistantDate(scheduled.startsAt, timeZone)}`,
+      );
     }
 
     if (newTitle) {
@@ -4914,13 +4971,17 @@ async function calendarCommand({
         "/calendar",
         `${top.length} upcoming event${top.length === 1 ? "" : "s"}`,
       ),
-      ...top.slice(0, 4).map((event) =>
-        rowLink(
-          event.title,
-          calendarEventHref(event),
-          event.startsAt ? assistantDate(event.startsAt, timeZone) : event.status,
+      ...top
+        .slice(0, 4)
+        .map((event) =>
+          rowLink(
+            event.title,
+            calendarEventHref(event),
+            event.startsAt
+              ? assistantDate(event.startsAt, timeZone)
+              : event.status,
+          ),
         ),
-      ),
     ],
     title: "Calendar",
     uiBlocks: [
@@ -4958,9 +5019,8 @@ export function looksLikeDirectWorkplaceSmsRequest(prompt: string) {
   const text = normalized(prompt);
   const hasSendInstruction = /\b(send|text)\b/.test(text);
   const hasSmsChannel = /\b(sms|text|text message)\b/.test(text);
-  const hasContactTarget = /\b(contact|team member|staff member|employee)\b/.test(
-    text,
-  );
+  const hasContactTarget =
+    /\b(contact|team member|staff member|employee)\b/.test(text);
   const hasInternalQualifier =
     /\b(workplace|team|staff|internal|escalation)\b/.test(text);
   const hasWorkplaceTarget = hasContactTarget && hasInternalQualifier;
@@ -5275,12 +5335,25 @@ function conversationIdFromHref(href: string) {
 
 function recentWorkQueueConversationIds(
   recentMessages: readonly AssistantRecentMessage[] = [],
+  options: { maxAgeMs?: number } = {},
 ) {
   const ids: string[] = [];
+  const now = Date.now();
 
   for (const message of [...recentMessages].reverse()) {
     if (message.role !== "assistant") {
       continue;
+    }
+
+    if (options.maxAgeMs && message.createdAt) {
+      const createdAt = new Date(message.createdAt).getTime();
+
+      if (
+        Number.isFinite(createdAt) &&
+        Math.max(0, now - createdAt) > options.maxAgeMs
+      ) {
+        continue;
+      }
     }
 
     const hasWorkQueueIntent = message.intent === "work_queue";
@@ -5332,6 +5405,39 @@ function recentWorkQueueConversationIds(
   return ids;
 }
 
+export function looksLikeContextualInquiryReplyRequest(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  if (
+    recentWorkQueueConversationIds(recentMessages, {
+      maxAgeMs: 30 * 60 * 1000,
+    }).length === 0
+  ) {
+    return false;
+  }
+
+  const text = normalized(prompt);
+  const asksForAdvice =
+    /\b(what|how)\s+(?:should|would|could)\s+(?:i|we)\s+(?:reply|respond|say)\b/.test(
+      text,
+    );
+
+  if (asksForAdvice || /\b(draft|prepare|suggest)\b/.test(text)) {
+    return false;
+  }
+
+  return (
+    /\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:reply|respond|email|message|write back|tell)\b/.test(
+      text,
+    ) ||
+    /^(?:please\s+)?(?:reply|respond|email|message|write back|tell)\b/.test(
+      text,
+    ) ||
+    /\b(?:reply|respond)\s+for\s+(?:me|us)\b/.test(text)
+  );
+}
+
 async function executableDraftReplyActionsForConversations({
   conversationIds,
   supabase,
@@ -5377,13 +5483,12 @@ async function executableDraftReplyActionsForConversations({
         conversationId: String(action.target_id),
         createdAt: String(action.created_at),
         id: String(action.id),
+        input,
         status,
         subject: textValue(input.subject),
       } satisfies ExecutableConversationAction;
     })
-    .filter((action): action is ExecutableConversationAction =>
-      Boolean(action),
-    )
+    .filter((action): action is ExecutableConversationAction => Boolean(action))
     .sort((left, right) => {
       const leftConversationIndex =
         conversationOrder.get(left.conversationId) ?? Number.MAX_SAFE_INTEGER;
@@ -5398,6 +5503,151 @@ async function executableDraftReplyActionsForConversations({
         new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
       );
     });
+}
+
+async function replyToRecentInquiryCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const conversationIds = recentWorkQueueConversationIds(recentMessages, {
+    maxAgeMs: 30 * 60 * 1000,
+  });
+
+  if (conversationIds.length === 0) {
+    return {
+      context: {
+        attempted: false,
+        reason:
+          "No recent inquiry notification identified the intended conversation.",
+      },
+      fallbackAnswer:
+        "I can do that, but I need to know which inquiry you mean. Open the work queue or tell me the customer's name.",
+      intent: "inquiry_reply",
+      links: [rowLink("Work queue", "/inbox", "Choose an inquiry")],
+      title: "Choose an inquiry",
+    };
+  }
+
+  const conversations = await getConversationList(supabase, workspace.id);
+  const conversation = conversations.find(
+    (item) => item.id === conversationIds[0],
+  );
+  const customer = conversation
+    ? conversationDisplayName(conversation)
+    : "the customer";
+  const [action] = await executableDraftReplyActionsForConversations({
+    conversationIds: [conversationIds[0]],
+    supabase,
+    workspaceId: workspace.id,
+  });
+
+  if (!action) {
+    return {
+      context: {
+        attempted: false,
+        conversationId: conversationIds[0],
+        reason: "The referenced inquiry no longer has a pending reply action.",
+      },
+      fallbackAnswer: `I found ${customer}'s inquiry, but there is no pending response available to update and send. Open it in Kyro and I can work from the current conversation.`,
+      intent: "inquiry_reply",
+      links: [
+        rowLink(
+          customer,
+          `/inbox?conversationId=${conversationIds[0]}`,
+          "Open inquiry",
+        ),
+      ],
+      title: "No pending response",
+    };
+  }
+
+  const draft = await generateReplyDraft({
+    conversationId: action.conversationId,
+    prompt,
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+  const now = new Date().toISOString();
+  const after = {
+    ...action.input,
+    body: draft.body,
+    gmailExternalSendEnabled: true,
+    settingsSnapshot: {
+      ...objectRecord(action.input.settingsSnapshot),
+      assistantInstruction: prompt,
+      source: "assistant.contextual_inquiry_reply",
+    },
+    signatureVariant: "ai_generated",
+    subject: draft.subject,
+    userEditedDraft: false,
+  };
+  const { error: updateError } = await supabase
+    .from("actions")
+    .update({ input: after })
+    .eq("workspace_id", workspace.id)
+    .eq("id", action.id);
+
+  if (updateError) {
+    throw new Error(
+      `Unable to update the customer reply: ${updateError.message}`,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "draft_reply.updated",
+    entityType: "action",
+    entityId: action.id,
+    before: { input: action.input },
+    after: { input: after },
+    metadata: {
+      assistantInstruction: prompt,
+      conversationId: action.conversationId,
+      source: "assistant.contextual_inquiry_reply",
+      updatedAt: now,
+    },
+  });
+
+  if (action.status === "pending_approval") {
+    await approveAction(supabase, user, action.id);
+  }
+
+  await executeAction(supabase, user, action.id);
+
+  return {
+    context: {
+      actionId: action.id,
+      attempted: true,
+      conversationId: action.conversationId,
+      customer,
+      instruction: prompt,
+      subject: draft.subject,
+    },
+    fallbackAnswer: `Done. I updated the response with your instruction and sent it to ${customer}.`,
+    intent: "inquiry_reply",
+    links: [
+      rowLink(
+        customer,
+        `/inbox?conversationId=${action.conversationId}`,
+        "Reply sent",
+      ),
+    ],
+    mutation: {
+      entityId: action.id,
+      entityType: "action",
+      label: "Customer reply sent",
+    },
+    title: "Reply sent",
+  };
 }
 
 async function executeApprovedWorkQueueRepliesCommand({
@@ -5433,7 +5683,8 @@ async function executeApprovedWorkQueueRepliesCommand({
     return {
       context: {
         attempted: false,
-        reason: "No pending or approved draft replies matched the current work queue.",
+        reason:
+          "No pending or approved draft replies matched the current work queue.",
         requestedLimit: requestedActionLimit(prompt),
       },
       fallbackAnswer:
@@ -6820,9 +7071,7 @@ async function documentTemplateControlCommand({
       fallbackAnswer:
         "There are no reusable templates to edit yet. Create a template first, then Kyro can revise it from chat or voice.",
       intent: "document_template_update",
-      links: [
-        rowLink("Create template", "/files/templates/new", "Documents"),
-      ],
+      links: [rowLink("Create template", "/files/templates/new", "Documents")],
       title: "Edit document template",
     };
   }
@@ -7079,9 +7328,7 @@ async function createQuoteDraftCommand({
       fallbackAnswer:
         "There are no document templates yet. Create a reusable quote template first, then Kyro can start quote drafts from it.",
       intent: "quote_create",
-      links: [
-        rowLink("Create template", "/files/templates/new", "Documents"),
-      ],
+      links: [rowLink("Create template", "/files/templates/new", "Documents")],
       title: "Create quote draft",
     };
   }
