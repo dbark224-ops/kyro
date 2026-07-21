@@ -75,7 +75,8 @@ export type InboundEmailOperationalSummary = {
 
 export const DEFAULT_INBOUND_EMAIL_ACTION_INSTRUCTIONS = [
   "Promote emails that look like customer enquiries, quote requests, booking changes, job updates, supplier/work logistics, urgent service issues, or other business matters Kyro can help action.",
-  "Do not promote personal jokes, family messages, newsletters, receipts, marketing blasts, social notifications, automated system mail, spam, or low-value FYI messages unless they clearly affect the business.",
+  "Do not promote personal jokes, family messages, newsletters, receipts, marketing blasts, social notifications, automated system mail, spam, or low-value FYI messages.",
+  "Software and platform notices about billing, payouts, subscriptions, passwords, security, verification, or account configuration stay out of the CRM even when they ask the owner to take an action.",
   "It is okay for Kyro to be aware that a skipped email existed, but only actionable business mail should become a lead, conversation, or draft reply.",
 ].join(" ");
 

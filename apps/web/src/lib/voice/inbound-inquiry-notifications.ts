@@ -32,6 +32,7 @@ type InquiryNotificationInput = {
   preferredTime?: string | null;
   preparedReplyAvailable?: boolean;
   providerCallId?: string | null;
+  recommendedAction?: string | null;
   sourceId?: string | null;
   summary: string;
   supabase: SupabaseClient;
@@ -152,6 +153,7 @@ export function buildInboundInquiryNotificationBody(
     | "outcome"
     | "preferredTime"
     | "preparedReplyAvailable"
+    | "recommendedAction"
     | "summary"
   >,
 ) {
@@ -163,8 +165,10 @@ export function buildInboundInquiryNotificationBody(
     .filter((item): item is string => Boolean(item));
   const preferredTime = textValue(input.preferredTime);
   const eventLabel = textValue(input.eventLabel);
-  const recommendation =
-    outcome === "booked"
+  const modelRecommendation = textValue(input.recommendedAction);
+  const recommendation = modelRecommendation
+    ? modelRecommendation
+    : outcome === "booked"
       ? `The booking is set for ${eventLabel ?? "the agreed time"}.`
       : outcome === "proposed"
         ? `Review the proposed ${eventLabel ?? "booking time"}.`

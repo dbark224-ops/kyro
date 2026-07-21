@@ -11,18 +11,41 @@ test("labels promoted email inquiries as email notifications", () => {
     missingInfo: ["Job address", "Preferred time"],
     preferredTime: null,
     preparedReplyAvailable: true,
+    recommendedAction:
+      "Offer an early-next-week quote visit and ask Jason to confirm the address and preferred time.",
     summary: "Landscaping quote requested for early next week.",
   });
 
   assert.match(body, /^New email inquiry - Jason/);
   assert.match(
     body,
-    /I recommend: Ask for the job address and a suitable day and time\./,
+    /I recommend: Offer an early-next-week quote visit and ask Jason to confirm the address and preferred time\./,
   );
   assert.match(body, /Reply SEND IT and I'll send the prepared response\./);
   assert.match(body, /Call: \+15755550123/);
   assert.match(body, /\/open\/inbox\?conversationId=conversation-1/);
   assert.match(body, /conversationId=conversation-1/);
+});
+
+test("uses the model recommendation instead of generic missing-info advice", () => {
+  const body = buildInboundInquiryNotificationBody({
+    channel: "email",
+    contactName: "Kyro",
+    contactPhone: null,
+    conversationId: "conversation-account-notice",
+    missingInfo: ["Job address", "Preferred time", "Phone number"],
+    preferredTime: null,
+    preparedReplyAvailable: false,
+    recommendedAction:
+      "Review the Stripe payout settings in the account portal.",
+    summary: "Stripe requested updated payout information.",
+  });
+
+  assert.match(
+    body,
+    /I recommend: Review the Stripe payout settings in the account portal\./,
+  );
+  assert.doesNotMatch(body, /job address|suitable day|callback number/i);
 });
 
 test("labels inbound SMS notifications without phone-call wording", () => {

@@ -48,7 +48,10 @@ import {
 } from "./token-vault";
 
 export type InboundEmailSyncTrigger =
-  "assistant" | "manual" | "provider_push" | "scheduled";
+  | "assistant"
+  | "manual"
+  | "provider_push"
+  | "scheduled";
 export type InboundEmailProvider = "google" | "microsoft";
 
 type ProviderConnectionRow = {
@@ -124,10 +127,20 @@ export type EmailClassificationCategory =
   | "personal_possible_relevance"
   | "spam_or_noise";
 
+export type EmailMessageType =
+  | "automated_account_notice"
+  | "customer_or_lead"
+  | "human_business_correspondence"
+  | "newsletter_or_marketing"
+  | "personal"
+  | "spam_or_noise"
+  | "supplier_or_partner";
+
 export type EmailClassification = {
   actionHint: string | null;
   category: EmailClassificationCategory;
   confidence: number;
+  messageType: EmailMessageType;
   providerUsed: "heuristic" | "manual" | "openai" | "sender_rule";
   promote: boolean;
   reason: string;
@@ -683,7 +696,36 @@ function normalizeClassificationCategory(
   return "business_reference";
 }
 
-function normalizeClassification(
+function normalizeEmailMessageType(
+  value: unknown,
+  fallback: EmailMessageType,
+): EmailMessageType {
+  const messageType = textValue(value);
+
+  if (
+    messageType === "automated_account_notice" ||
+    messageType === "customer_or_lead" ||
+    messageType === "human_business_correspondence" ||
+    messageType === "newsletter_or_marketing" ||
+    messageType === "personal" ||
+    messageType === "spam_or_noise" ||
+    messageType === "supplier_or_partner"
+  ) {
+    return messageType;
+  }
+
+  return fallback;
+}
+
+function isCrmEligibleEmailType(messageType: EmailMessageType) {
+  return (
+    messageType === "customer_or_lead" ||
+    messageType === "human_business_correspondence" ||
+    messageType === "supplier_or_partner"
+  );
+}
+
+export function normalizeEmailClassification(
   value: unknown,
   fallback: EmailClassification,
   providerUsed: EmailClassification["providerUsed"],
@@ -698,13 +740,21 @@ function normalizeClassification(
   );
   const promote =
     typeof raw.promote === "boolean" ? raw.promote : fallback.promote;
+  const messageType = normalizeEmailMessageType(
+    raw.messageType,
+    fallback.messageType,
+  );
 
   return {
     actionHint: textValue(raw.actionHint) ?? fallback.actionHint,
     category,
     confidence,
+    messageType,
     providerUsed,
-    promote: category === "business_actionable" ? promote : false,
+    promote:
+      category === "business_actionable" && isCrmEligibleEmailType(messageType)
+        ? promote
+        : false,
     reason: textValue(raw.reason) ?? fallback.reason,
     suggestedServiceType: formatServiceType(
       textValue(raw.suggestedServiceType) ?? fallback.suggestedServiceType,
@@ -733,6 +783,7 @@ export function classifyInboundEmailHeuristically(
       actionHint: null,
       category: "newsletter_or_automated",
       confidence: 0.82,
+      messageType: "newsletter_or_marketing",
       providerUsed: "heuristic",
       promote: false,
       reason: "Automated, newsletter, or marketing-style email.",
@@ -747,6 +798,7 @@ export function classifyInboundEmailHeuristically(
         "Review as an inbound business email and prepare any useful next step.",
       category: "business_actionable",
       confidence: 0.68,
+      messageType: "customer_or_lead",
       providerUsed: "heuristic",
       promote: true,
       reason:
@@ -761,6 +813,7 @@ export function classifyInboundEmailHeuristically(
       actionHint: null,
       category: "personal_ignore",
       confidence: 0.64,
+      messageType: "personal",
       providerUsed: "heuristic",
       promote: false,
       reason:
@@ -774,6 +827,7 @@ export function classifyInboundEmailHeuristically(
     actionHint: null,
     category: "business_reference",
     confidence: 0.5,
+    messageType: "human_business_correspondence",
     providerUsed: "heuristic",
     promote: false,
     reason:
@@ -798,6 +852,7 @@ export function classificationForSenderRule(
         "Create or update CRM work from this email because the sender has been marked relevant.",
       category: "business_actionable",
       confidence: 1,
+      messageType: "human_business_correspondence",
       providerUsed: "sender_rule",
       promote: true,
       reason: `Sender rule matched ${target}; user marked this sender as relevant.`,
@@ -813,6 +868,7 @@ export function classificationForSenderRule(
     actionHint: null,
     category: "personal_ignore",
     confidence: 1,
+    messageType: "spam_or_noise",
     providerUsed: "sender_rule",
     promote: false,
     reason: `Sender rule matched ${target}; user chose to ignore this sender.`,
@@ -834,16 +890,21 @@ function buildClassifierInput(
       workspacePolicy: settings.actionInstructions,
       rules: [
         "Return JSON only.",
-        "Promote only if Kyro should create or update a lead/conversation/action plan.",
-        "Do not promote personal jokes, newsletters, automated notifications, spam, marketing, or FYI-only mail unless it clearly affects business work.",
+        "Classify the sender/message role before deciding whether it belongs in the CRM.",
+        "Promote only external relationship or service work involving a customer, lead, supplier, partner, or human business correspondent that Kyro should create or update as a lead, conversation, or action plan.",
+        "Automated software or platform messages about billing, payouts, subscriptions, receipts, passwords, account verification, security, or account configuration are automated_account_notice and must not be promoted into the CRM, even when they ask the workspace owner to take an action.",
+        "Do not promote personal jokes, newsletters, automated notifications, spam, marketing, or FYI-only mail.",
         "If uncertain, choose business_reference or personal_possible_relevance instead of business_actionable.",
         "Do not invent customer details, service type, dates, addresses, or urgency.",
+        "actionHint is a concise internal recommendation for the workspace owner based on the actual email. Never recommend collecting trade-job details unless this is genuinely a customer or lead service inquiry.",
       ],
       outputContract: {
         actionHint: "string|null",
         category:
           "business_actionable|business_reference|personal_possible_relevance|personal_ignore|newsletter_or_automated|spam_or_noise",
         confidence: "number 0..1",
+        messageType:
+          "customer_or_lead|supplier_or_partner|human_business_correspondence|automated_account_notice|newsletter_or_marketing|personal|spam_or_noise",
         promote: "boolean",
         reason: "string",
         suggestedServiceType: "string|null",
@@ -1035,6 +1096,18 @@ async function classifyWithOpenAi({
                   type: "string",
                 },
                 confidence: { type: "number" },
+                messageType: {
+                  enum: [
+                    "customer_or_lead",
+                    "supplier_or_partner",
+                    "human_business_correspondence",
+                    "automated_account_notice",
+                    "newsletter_or_marketing",
+                    "personal",
+                    "spam_or_noise",
+                  ],
+                  type: "string",
+                },
                 promote: { type: "boolean" },
                 reason: { type: "string" },
                 suggestedServiceType: { type: ["string", "null"] },
@@ -1044,6 +1117,7 @@ async function classifyWithOpenAi({
                 "category",
                 "promote",
                 "confidence",
+                "messageType",
                 "reason",
                 "summary",
                 "actionHint",
@@ -1081,7 +1155,11 @@ async function classifyWithOpenAi({
       prompt,
       text: content,
     });
-    const classification = normalizeClassification(parsed, fallback, "openai");
+    const classification = normalizeEmailClassification(
+      parsed,
+      fallback,
+      "openai",
+    );
 
     const usageTotals = await recordClassifierUsage({
       aiRunId,
@@ -2790,6 +2868,7 @@ function skippedEventClassification(
       "Review as manually promoted inbound email and prepare any useful next step.",
     category: "business_actionable",
     confidence: 1,
+    messageType: "human_business_correspondence",
     providerUsed: "manual",
     promote: true,
     reason: "User manually promoted this filtered-out email into CRM work.",
@@ -3194,6 +3273,7 @@ async function processMessage({
       missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
       preferredTime: promoted.inquiryFacts?.preferredTime ?? null,
       preparedReplyAvailable: Boolean(promoted.replyDraft?.body),
+      recommendedAction: classification.actionHint,
       sourceId: String(event.id),
       summary: promoted.triageSummary ?? classification.summary,
       supabase,
