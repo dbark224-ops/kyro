@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicAppUrl } from "../app-url";
 import {
   appendRealtimeAssistantMessage,
-  getOrCreateAssistantThread,
+  getOrCreateInternalMessagingThread,
 } from "../assistant/persistence";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { recordOutboundDirectSms } from "../communication/outbound";
@@ -242,9 +242,11 @@ export function buildInboundInquiryLink(conversationId?: string | null) {
   return `${getPublicAppUrl()}/open/inbox${query}`;
 }
 
-async function saveInquiryBriefingToAssistantThread(
+async function saveInquiryBriefingToFieldThread(
   input: InquiryNotificationInput,
   recipient: {
+    name: string;
+    phoneNumber: string;
     userId: string | null;
     workspaceName: string;
   },
@@ -264,13 +266,17 @@ async function saveInquiryBriefingToAssistantThread(
     );
   }
 
-  const thread = await getOrCreateAssistantThread(
+  const thread = await getOrCreateInternalMessagingThread(
     input.supabase,
     {
       id: input.workspaceId,
       name: recipient.workspaceName,
     },
     data.user,
+    {
+      displayName: recipient.name,
+      senderPhone: recipient.phoneNumber,
+    },
   );
   const contactName = textValue(input.contactName) ?? "New inquiry";
 
@@ -471,7 +477,7 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
     return { notified: false, reason: "duplicate" } as const;
   }
 
-  await saveInquiryBriefingToAssistantThread(
+  await saveInquiryBriefingToFieldThread(
     input,
     recipient,
     notificationBody,

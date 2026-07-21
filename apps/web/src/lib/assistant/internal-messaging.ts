@@ -7,7 +7,7 @@ import {
   appendAssistantTurnMessage,
   appendUserAssistantMessage,
   getAssistantTurnContext,
-  getOrCreateAssistantThread,
+  getOrCreateInternalMessagingThread,
   updateAssistantThreadSummary,
 } from "./persistence";
 import { getVoiceSettings, type VoiceSettings } from "./voice-settings";
@@ -117,10 +117,14 @@ export async function processInternalAssistantMessage(input: {
       id: input.workspace.id,
       name: input.workspace.name,
     };
-    const thread = await getOrCreateAssistantThread(
+    const thread = await getOrCreateInternalMessagingThread(
       input.supabase,
       workspace,
       user,
+      {
+        displayName: actor.displayName,
+        senderPhone: actor.phoneNumber ?? normalizedPhone(input.from),
+      },
     );
     const threadId = String(thread.id);
 

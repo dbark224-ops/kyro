@@ -32,11 +32,17 @@ type WorkspaceInput = {
 type AssistantThreadRow = {
   created_at?: unknown;
   id: unknown;
+  metadata?: unknown;
   status?: unknown;
   summary: unknown;
   title?: unknown;
   updated_at?: unknown;
 };
+
+export type AssistantThreadScope = "app" | "field";
+
+const APP_THREAD_SCOPE: AssistantThreadScope = "app";
+const FIELD_THREAD_SCOPE: AssistantThreadScope = "field";
 
 type AssistantMessageRow = {
   created_at: unknown;
@@ -63,47 +69,125 @@ export type AssistantMemorySuggestion = {
   id: string;
 };
 
+export function assistantThreadScope(metadata: unknown): AssistantThreadScope {
+  const record = objectRecord(metadata);
+
+  return textValue(record.threadScope) === FIELD_THREAD_SCOPE ||
+    textValue(record.channelGroup) === "internal_messaging"
+    ? FIELD_THREAD_SCOPE
+    : APP_THREAD_SCOPE;
+}
+
+export function fieldAssistantThreadMatches(
+  metadata: unknown,
+  senderPhone: string,
+) {
+  const record = objectRecord(metadata);
+
+  return (
+    assistantThreadScope(record) === FIELD_THREAD_SCOPE &&
+    textValue(record.senderPhone) === senderPhone
+  );
+}
+
+async function getActiveAssistantThreads(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  userId: string,
+) {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .select("id,title,status,summary,metadata,created_at,updated_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    throw new Error(`Unable to load assistant threads: ${error.message}`);
+  }
+
+  return (data ?? []) as unknown as AssistantThreadRow[];
+}
+
 export async function getOrCreateAssistantThread(
   supabase: SupabaseClient,
   workspace: WorkspaceInput,
   user: User,
 ) {
-  const { data: existing, error: existingError } = await supabase
-    .from("assistant_threads")
-    .select("id,summary")
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(
-      `Unable to load assistant thread: ${existingError.message}`,
-    );
-  }
+  const existing = (
+    await getActiveAssistantThreads(supabase, workspace.id, user.id)
+  ).find(
+    (thread) => assistantThreadScope(thread.metadata) === APP_THREAD_SCOPE,
+  );
 
   if (existing) {
-    return existing as unknown as AssistantThreadRow;
+    return existing;
   }
 
   const { data: created, error: createError } = await supabase
     .from("assistant_threads")
     .insert({
       metadata: {
+        threadScope: APP_THREAD_SCOPE,
         source: "assistant.page",
       },
       title: `${workspace.name} Assistant`,
       user_id: user.id,
       workspace_id: workspace.id,
     })
-    .select("id,summary")
+    .select("id,summary,metadata")
     .single();
 
   if (createError || !created) {
     throw new Error(
       `Unable to create assistant thread: ${createError?.message ?? "unknown error"}`,
+    );
+  }
+
+  return created as unknown as AssistantThreadRow;
+}
+
+export async function getOrCreateInternalMessagingThread(
+  supabase: SupabaseClient,
+  workspace: WorkspaceInput,
+  user: User,
+  input: {
+    displayName?: string | null;
+    senderPhone: string;
+  },
+) {
+  const existing = (
+    await getActiveAssistantThreads(supabase, workspace.id, user.id)
+  ).find((thread) =>
+    fieldAssistantThreadMatches(thread.metadata, input.senderPhone),
+  );
+
+  if (existing) {
+    return existing;
+  }
+
+  const displayName = textValue(input.displayName) ?? "Kyro user";
+  const { data: created, error: createError } = await supabase
+    .from("assistant_threads")
+    .insert({
+      metadata: {
+        channelGroup: "internal_messaging",
+        senderPhone: input.senderPhone,
+        source: "assistant.internal_messaging",
+        threadScope: FIELD_THREAD_SCOPE,
+      },
+      title: `${displayName} - field messages`,
+      user_id: user.id,
+      workspace_id: workspace.id,
+    })
+    .select("id,summary,metadata")
+    .single();
+
+  if (createError || !created) {
+    throw new Error(
+      `Unable to create internal messaging thread: ${createError?.message ?? "unknown error"}`,
     );
   }
 
@@ -124,7 +208,13 @@ export async function getAssistantThreadState({
   workspace: WorkspaceInput;
 }): Promise<AssistantThreadState> {
   const thread = threadId
-    ? await getAssistantThread(supabase, workspace.id, threadId, user.id)
+    ? await getAssistantThread(
+        supabase,
+        workspace.id,
+        threadId,
+        user.id,
+        APP_THREAD_SCOPE,
+      )
     : await getOrCreateAssistantThread(supabase, workspace, user);
   const resolvedThreadId = String(thread.id);
   const [messages, memories, threads] = await Promise.all([
@@ -629,10 +719,11 @@ async function getAssistantThread(
   workspaceId: string,
   threadId: string,
   userId: string,
+  expectedScope?: AssistantThreadScope,
 ) {
   const { data, error } = await supabase
     .from("assistant_threads")
-    .select("id,summary")
+    .select("id,summary,metadata")
     .eq("workspace_id", workspaceId)
     .eq("user_id", userId)
     .eq("id", threadId)
@@ -646,7 +737,16 @@ async function getAssistantThread(
     throw new Error("Assistant thread was not found.");
   }
 
-  return data as unknown as AssistantThreadRow;
+  const thread = data as unknown as AssistantThreadRow;
+
+  if (
+    expectedScope &&
+    assistantThreadScope(thread.metadata) !== expectedScope
+  ) {
+    throw new Error("Assistant thread was not found.");
+  }
+
+  return thread;
 }
 
 export async function createAssistantThread({
@@ -662,6 +762,7 @@ export async function createAssistantThread({
     .from("assistant_threads")
     .insert({
       metadata: {
+        threadScope: APP_THREAD_SCOPE,
         source: "assistant.new_thread",
       },
       title: `${workspace.name} Assistant`,
@@ -691,6 +792,14 @@ export async function archiveAssistantThread({
   user: User;
   workspaceId: string;
 }) {
+  await getAssistantThread(
+    supabase,
+    workspaceId,
+    threadId,
+    user.id,
+    APP_THREAD_SCOPE,
+  );
+
   const { error } = await supabase
     .from("assistant_threads")
     .update({
@@ -712,24 +821,29 @@ async function getAssistantThreadSummaries(
 ): Promise<AssistantThreadSummary[]> {
   const { data, error } = await supabase
     .from("assistant_threads")
-    .select("id,title,status,summary,created_at,updated_at")
+    .select("id,title,status,summary,metadata,created_at,updated_at")
     .eq("workspace_id", workspaceId)
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
-    .limit(20);
+    .limit(100);
 
   if (error) {
     throw new Error(`Unable to load assistant threads: ${error.message}`);
   }
 
-  return ((data ?? []) as unknown as AssistantThreadRow[]).map((thread) => ({
-    createdAt: textValue(thread.created_at) ?? new Date().toISOString(),
-    id: String(thread.id),
-    status: textValue(thread.status) ?? "active",
-    summary: textValue(thread.summary),
-    title: textValue(thread.title) ?? "Assistant thread",
-    updatedAt: textValue(thread.updated_at) ?? new Date().toISOString(),
-  }));
+  return ((data ?? []) as unknown as AssistantThreadRow[])
+    .filter(
+      (thread) => assistantThreadScope(thread.metadata) === APP_THREAD_SCOPE,
+    )
+    .map((thread) => ({
+      createdAt: textValue(thread.created_at) ?? new Date().toISOString(),
+      id: String(thread.id),
+      status: textValue(thread.status) ?? "active",
+      summary: textValue(thread.summary),
+      title: textValue(thread.title) ?? "Assistant thread",
+      updatedAt: textValue(thread.updated_at) ?? new Date().toISOString(),
+    }))
+    .slice(0, 20);
 }
 
 async function getAssistantMessages(
@@ -808,9 +922,7 @@ async function touchThread(
   const { error } = await supabase
     .from("assistant_threads")
     .update({
-      metadata: {
-        lastTouchedBy: "assistant.page",
-      },
+      updated_at: new Date().toISOString(),
     })
     .eq("workspace_id", workspaceId)
     .eq("id", threadId);
