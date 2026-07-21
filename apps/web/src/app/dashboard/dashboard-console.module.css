@@ -179,14 +179,14 @@
   .activityItem.activityItem {
     grid-template-columns: 10px minmax(0, 1fr) max-content;
     align-items: center;
-    gap: 10px;
-    min-height: 50px;
-    padding: 9px 11px;
+    gap: 8px;
+    min-height: 38px;
+    padding: 5px 9px;
   }
 
   .activityCopy {
     align-content: center;
-    gap: 3px;
+    gap: 1px;
   }
 
   .activityTime {

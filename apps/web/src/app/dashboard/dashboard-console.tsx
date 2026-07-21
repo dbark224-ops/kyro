@@ -648,7 +648,16 @@ function timeFilteredActivity(
     isWithinTimeframe(item.at, timeframe, now),
   );
 
-  return filtered.length > 0 ? filtered : data.activity.slice(0, 6);
+  if (filtered.length >= 6) {
+    return filtered;
+  }
+
+  const filteredIds = new Set(filtered.map((item) => item.id));
+  const recentActivity = data.activity.filter(
+    (item) => !filteredIds.has(item.id),
+  );
+
+  return [...filtered, ...recentActivity].slice(0, 6);
 }
 
 function timeFilteredDocuments(

@@ -20620,8 +20620,8 @@ button:disabled {
   html:has(.app-shell) .dashboard-widget-activity .dashboard-activity-item {
     align-items: center;
     gap: 8px;
-    min-height: 50px;
-    padding: 9px 10px;
+    min-height: 38px;
+    padding: 5px 9px;
   }
 }
 
