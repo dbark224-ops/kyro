@@ -20558,6 +20558,7 @@ button:disabled {
   }
 
   html:has(.app-shell) .dashboard-command-centre {
+    grid-template-rows: auto auto minmax(0, 1.72fr) minmax(0, 1.08fr);
     gap: 8px;
     margin-top: -44px;
     min-height: calc(100vh - 56px);
@@ -20610,10 +20611,16 @@ button:disabled {
   }
 
   html:has(.app-shell) .dashboard-work-item,
-  html:has(.app-shell) .dashboard-list-item,
-  html:has(.app-shell) .dashboard-activity-item {
+  html:has(.app-shell) .dashboard-list-item {
     gap: 8px;
     min-height: 0;
+    padding: 9px 10px;
+  }
+
+  html:has(.app-shell) .dashboard-widget-activity .dashboard-activity-item {
+    align-items: center;
+    gap: 8px;
+    min-height: 50px;
     padding: 9px 10px;
   }
 }

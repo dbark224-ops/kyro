@@ -66,6 +66,7 @@
 }
 
 :global(.dashboard-widget-activity .dashboard-activity-list) {
+  grid-auto-rows: max-content;
   gap: 8px;
 }
 
@@ -177,20 +178,26 @@
   (min-width: 761px) and (max-height: 900px) {
   .activityItem.activityItem {
     grid-template-columns: 10px minmax(0, 1fr) max-content;
-    align-items: start;
+    align-items: center;
     gap: 10px;
     min-height: 50px;
     padding: 9px 11px;
   }
 
   .activityCopy {
+    align-content: center;
     gap: 3px;
   }
 
   .activityTime {
+    align-self: center;
     max-width: 6.6rem;
     justify-self: end;
     text-align: right;
+  }
+
+  :global(.dashboard-widget-activity .dashboard-activity-dot) {
+    margin-top: 0;
   }
 
   .activityPreview {
