@@ -155,7 +155,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     description:
-      "Prepare an approval-gated outbound phone call to a contact, customer, or phone number with clear instructions for what Kyro should say.",
+      "Start a phone call. A direct request from the authenticated user to call, phone, ring, or dial me is complete and should immediately start an internal Kyro voice-assistant call without asking for a topic or script. Calls to external contacts remain approval-gated and need clear instructions for what Kyro should say.",
     name: "outbound_call",
   },
   {
@@ -492,6 +492,7 @@ export async function planAssistantToolCall({
           "Use compactedContext for continuity. If the user asks about older assistant chat history, what was discussed before, or where an older generated/saved thing went and recentMessages are insufficient, call kyro_history_search.",
           "Use recentMessages to understand immediate follow-ups, but only treat them as live intent when the relevant message is from roughly the last 30 minutes. Older messages are background and must not create implicit CRM/contact/calendar associations.",
           "When actor.kind is trusted_internal_messaging_sender, actor is the authenticated sender of this SMS or WhatsApp thread. First-person references such as me, my number, or call/ring me refer to that actor, never to a similarly named CRM contact.",
+          "A direct call me, ring me, phone me, or dial me request is a complete low-risk instruction. Select kyro_outbound_call immediately and do not require a call topic, script, or confirmation; Kyro will start the internal voice assistant call to the authenticated account user's saved number.",
           "If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
           "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
           "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",

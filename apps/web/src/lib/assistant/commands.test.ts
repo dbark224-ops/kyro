@@ -25,6 +25,7 @@ import {
   parseAssistantCalendarTimeFromPrompts,
   recentInquiryConversationForPrompt,
   resolveAssistantCommand,
+  selfCallRecipientForAssistant,
   selectContactForAssistantPrompt,
   selectQuoteDraftForAssistantPrompt,
   selectQuoteTemplateForAssistantPrompt,
@@ -760,6 +761,48 @@ describe("outbound call request parsing", () => {
       ),
       "we've actually moved it to monday 10:30 am",
     );
+  });
+
+  it("resolves call me to the signed-in account user's saved phone", () => {
+    const recipient = selfCallRecipientForAssistant({
+      prompt: "Can you call me",
+      user: {
+        id: "user-1",
+        user_metadata: {
+          first_name: "David",
+          last_name: "Barker",
+          phone: "+15755712705",
+        },
+      } as never,
+    });
+
+    assert.deepEqual(recipient, {
+      displayName: "David Barker",
+      firstName: "David",
+      phoneNumber: "+15755712705",
+    });
+  });
+
+  it("keeps the authenticated messaging sender authoritative for call me", () => {
+    const recipient = selfCallRecipientForAssistant({
+      actor: {
+        displayName: "David Barker",
+        firstName: "David",
+        kind: "trusted_internal_messaging_sender",
+        phoneNumber: "+15755712705",
+        role: "Owner",
+        userId: "user-1",
+      },
+      prompt: "Ring me",
+      user: {
+        id: "user-1",
+        user_metadata: {
+          phone: "+15855221939",
+        },
+      } as never,
+    });
+
+    assert.equal(recipient?.phoneNumber, "+15755712705");
   });
 });
 

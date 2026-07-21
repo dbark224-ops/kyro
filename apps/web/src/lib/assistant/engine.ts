@@ -256,6 +256,7 @@ export async function runAssistantTurn({
   );
   const commandNeedsExactAnswer =
     command.intent === "calendar_event" ||
+    command.intent === "internal_self_call" ||
     command.intent === "inquiry_reply" ||
     (command.intent === "sms_send" && Boolean(command.mutation));
   const assistantContent = assistantContentAfterModel({

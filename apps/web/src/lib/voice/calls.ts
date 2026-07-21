@@ -11,6 +11,7 @@ import {
   deleteVapiCallData,
   VAPI_CARRIER_PROVIDER,
   VAPI_PROVIDER,
+  VAPI_TOOL_PATH,
   VAPI_WEBHOOK_PATH,
   vapiEndpointUrl,
   vapiWebhookCredentialId,
@@ -1332,6 +1333,27 @@ function compactOutboundCallContext(input: {
   return lines.join("\n");
 }
 
+function compactInternalUserCallContext(input: {
+  assistantContextSummary?: string | null;
+  currentTimePromptLine: string;
+  userIdentity: VapiUserIdentity;
+  workspaceName: string | null;
+}) {
+  return [
+    `You are Kyro, pronounced like Cairo, the internal voice assistant for ${input.workspaceName ?? "this workspace"}.`,
+    "The authenticated Kyro account user explicitly asked you to call them. Treat this as the same trusted internal assistant session they get when they call Kyro or open the Voice assistant in the app.",
+    input.currentTimePromptLine,
+    vapiUserContextLine(input.userIdentity, "Authenticated Kyro account user"),
+    "Greet the user naturally, then help with whatever they ask. Do not require a prewritten call topic or script.",
+    "Use Kyro tools for live workspace actions and do not claim an action succeeded unless a tool confirms it.",
+    input.assistantContextSummary
+      ? `Recent Assistant context, for continuity only:\n${input.assistantContextSummary}`
+      : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
 function compactCallContextValue(value: unknown, maxLength = 900) {
   const clean = textValue(value)?.replace(/\s+/g, " ").trim();
 
@@ -2462,8 +2484,7 @@ async function ensureVoiceCallCrmArtifacts(input: {
   let leadId = call.leadId;
 
   if (!leadId && contactId && shouldCreateLeadForCall(input)) {
-    const displayName =
-      profileFacts.name ?? customerNumber ?? "unknown caller";
+    const displayName = profileFacts.name ?? customerNumber ?? "unknown caller";
     const serviceType = callServiceType(input.args, input.note);
     const title =
       firstText(input.args.leadTitle) ??
@@ -2748,8 +2769,7 @@ export async function recordVoiceCallPostCallAutomation(input: {
       contactName: profileFacts.name,
       conversationId: target.conversationId,
       outcome: "captured",
-      providerCallId:
-        input.providerCallId ?? voiceCall?.providerCallId ?? null,
+      providerCallId: input.providerCallId ?? voiceCall?.providerCallId ?? null,
       summary: note,
       supabase: input.supabase,
       voiceCallId: voiceCall?.id ?? null,
@@ -2777,6 +2797,7 @@ export async function recordVoiceCallPostCallAutomation(input: {
 
 export async function createOutboundVoiceCall(input: {
   billingBypassReason?: "urgent_escalation" | null;
+  callAudience?: "customer" | "internal_user";
   contactId?: string | null;
   contextSummary?: string | null;
   conversationId?: string | null;
@@ -2793,6 +2814,10 @@ export async function createOutboundVoiceCall(input: {
   }
 
   const settings = await getVoiceSettings(input.supabase, input.workspaceId);
+  const internalUserCall = input.callAudience === "internal_user";
+  const callPurpose: VoiceCallPurpose = internalUserCall
+    ? "inbound_user"
+    : "outbound_customer";
 
   if (!settings.phoneAgentEnabled || !settings.phoneAgentOutboundEnabled) {
     throw new Error("Outbound phone calls are disabled in voice settings.");
@@ -2804,7 +2829,9 @@ export async function createOutboundVoiceCall(input: {
     throw new Error("Add a valid customer phone number before calling.");
   }
 
-  const assistantId = settings.vapiOutboundAssistantId;
+  const assistantId = internalUserCall
+    ? settings.vapiInternalAssistantId
+    : settings.vapiOutboundAssistantId;
   const phoneNumberSelection = await selectOutboundVapiPhoneNumber({
     customerNumber,
     fallbackPhoneNumberId: settings.vapiPhoneNumberId,
@@ -2816,7 +2843,11 @@ export async function createOutboundVoiceCall(input: {
   );
 
   if (!assistantId) {
-    throw new Error("Vapi outbound assistant ID is required before calling.");
+    throw new Error(
+      internalUserCall
+        ? "Vapi internal assistant ID is required before calling the Kyro user."
+        : "Vapi outbound assistant ID is required before calling.",
+    );
   }
 
   if (!phoneNumberSelection) {
@@ -2830,9 +2861,11 @@ export async function createOutboundVoiceCall(input: {
       workspaceOwnerId(input.supabase, input.workspaceId),
       workspaceName(input.supabase, input.workspaceId),
       lookupLinkedRows(input.supabase, input.workspaceId, {
-        contactId: input.contactId ?? null,
-        conversationId: input.conversationId ?? null,
-        leadId: input.leadId ?? null,
+        contactId: internalUserCall ? null : (input.contactId ?? null),
+        conversationId: internalUserCall
+          ? null
+          : (input.conversationId ?? null),
+        leadId: internalUserCall ? null : (input.leadId ?? null),
       }),
       getWorkspaceGeneralSettings(input.supabase, input.workspaceId).catch(
         () => DEFAULT_WORKSPACE_GENERAL_SETTINGS,
@@ -2846,40 +2879,60 @@ export async function createOutboundVoiceCall(input: {
     "";
   const phoneMatchedContact = linkedRows.contact
     ? null
-    : await findContactByPhone(
-        input.supabase,
-        input.workspaceId,
-        customerNumber,
-      );
+    : internalUserCall
+      ? null
+      : await findContactByPhone(
+          input.supabase,
+          input.workspaceId,
+          customerNumber,
+        );
   const outboundContact = linkedRows.contact ?? phoneMatchedContact;
-  const outboundContactId = input.contactId ?? outboundContact?.id ?? null;
-  const outboundConversationId = input.conversationId ?? null;
-  const outboundLeadId = input.leadId ?? null;
-  const callInstructions = textValue(input.instructions);
+  const outboundContactId = internalUserCall
+    ? null
+    : (input.contactId ?? outboundContact?.id ?? null);
+  const outboundConversationId = internalUserCall
+    ? null
+    : (input.conversationId ?? null);
+  const outboundLeadId = internalUserCall ? null : (input.leadId ?? null);
+  const callInstructions = internalUserCall
+    ? "Start a live internal Kyro voice-assistant conversation with the authenticated account user."
+    : textValue(input.instructions);
   const assistantContextSummary = textValue(input.contextSummary);
-  const recentOutboundCallContext = await recentOutboundCallContextForCustomer({
-    contactId: outboundContactId,
-    customerNumber,
-    supabase: input.supabase,
-    workspaceId: input.workspaceId,
-  });
-  const outboundCallContext = compactOutboundCallContext({
-    assistantContextSummary,
-    contact: outboundContact,
-    conversation: linkedRows.conversation,
-    customerNumber,
-    instructions: callInstructions,
-    lead: linkedRows.lead,
-    recentOutboundCallContext,
-    userIdentity,
-    workspaceName: outboundBusinessName || outboundWorkspaceName,
-  });
+  const recentOutboundCallContext = internalUserCall
+    ? null
+    : await recentOutboundCallContextForCustomer({
+        contactId: outboundContactId,
+        customerNumber,
+        supabase: input.supabase,
+        workspaceId: input.workspaceId,
+      });
+  const outboundCallContext = internalUserCall
+    ? compactInternalUserCallContext({
+        assistantContextSummary,
+        currentTimePromptLine: currentTime.promptLine,
+        userIdentity,
+        workspaceName: outboundBusinessName || outboundWorkspaceName,
+      })
+    : compactOutboundCallContext({
+        assistantContextSummary,
+        contact: outboundContact,
+        conversation: linkedRows.conversation,
+        customerNumber,
+        instructions: callInstructions,
+        lead: linkedRows.lead,
+        recentOutboundCallContext,
+        userIdentity,
+        workspaceName: outboundBusinessName || outboundWorkspaceName,
+      });
   const outboundCallContextWithTime = [
-    currentTime.promptLine,
+    internalUserCall ? null : currentTime.promptLine,
     outboundCallContext,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const baseMetadata = {
     assistantContextSummary,
+    callerRole: internalUserCall ? "internal_user" : "external_caller",
     createdByUserId: input.user.id,
     instructions: callInstructions,
     ownerUserId,
@@ -2893,7 +2946,10 @@ export async function createOutboundVoiceCall(input: {
       vapiPhoneNumberId: phoneNumberSelection.phoneNumberId,
       workspacePhoneNumberId: phoneNumberSelection.workspacePhoneNumberId,
     },
-    source: "kyro.outbound_voice",
+    purpose: callPurpose,
+    source: internalUserCall
+      ? "kyro.vapi_internal_voice"
+      : "kyro.outbound_voice",
     threadId: input.threadId ?? null,
     userEmail: userIdentity.email,
     userName: userIdentity.name,
@@ -2908,7 +2964,7 @@ export async function createOutboundVoiceCall(input: {
       lead_id: outboundLeadId,
       phone_number_id: phoneNumberSelection.workspacePhoneNumberId,
       direction: "outbound",
-      purpose: "outbound_customer",
+      purpose: callPurpose,
       provider: VAPI_PROVIDER,
       carrier_provider: VAPI_CARRIER_PROVIDER,
       provider_assistant_id: assistantId,
@@ -2933,12 +2989,32 @@ export async function createOutboundVoiceCall(input: {
   }
 
   const webhookUrl = remotelyReachableUrl(vapiEndpointUrl(VAPI_WEBHOOK_PATH));
+  const toolUrl = remotelyReachableUrl(vapiEndpointUrl(VAPI_TOOL_PATH)) ?? "";
   const webhookCredentialId = vapiWebhookCredentialId();
 
   try {
     const result = await createVapiOutboundCall({
       assistantId,
       assistantOverrides: {
+        ...(internalUserCall
+          ? {
+              firstMessage: userIdentity.firstName
+                ? `Hey ${userIdentity.firstName}, it's Kyro. How can I help?`
+                : "Hey, it's Kyro. How can I help?",
+              firstMessageMode: "assistant-speaks-first",
+              maxDurationSeconds: 1800,
+            }
+          : {}),
+        metadata: {
+          callerRole: internalUserCall ? "internal_user" : "external_caller",
+          purpose: callPurpose,
+          source: internalUserCall
+            ? "kyro.vapi_internal_voice"
+            : "kyro.outbound_voice",
+          threadId: input.threadId ?? null,
+          userId: input.user.id,
+          workspaceId: input.workspaceId,
+        },
         server: webhookUrl
           ? {
               ...(webhookCredentialId
@@ -2966,6 +3042,7 @@ export async function createOutboundVoiceCall(input: {
           customer_phone: customerNumber,
           ...currentTime.variableValues,
           kyro_context: outboundCallContextWithTime,
+          kyro_tool_url: toolUrl,
           lead_id: outboundLeadId ?? "",
           lead_status: linkedRows.lead?.status ?? "",
           lead_title: linkedRows.lead?.title ?? "",
@@ -2997,7 +3074,11 @@ export async function createOutboundVoiceCall(input: {
         assistantContextSummary,
         recentOutboundCallContext,
         phoneNumberSelection: baseMetadata.phoneNumberSelection,
-        purpose: "outbound_customer",
+        callerRole: internalUserCall ? "internal_user" : "external_caller",
+        purpose: callPurpose,
+        source: internalUserCall
+          ? "kyro.vapi_internal_voice"
+          : "kyro.outbound_voice",
         threadId: input.threadId ?? null,
         userId: input.user.id,
         userEmail: userIdentity.email,
@@ -3042,6 +3123,25 @@ export async function createOutboundVoiceCall(input: {
 
     throw error;
   }
+}
+
+export async function createInternalUserVoiceCall(input: {
+  contextSummary?: string | null;
+  phoneNumber: string;
+  supabase: SupabaseClient;
+  threadId?: string | null;
+  user: User;
+  workspaceId: string;
+}) {
+  return createOutboundVoiceCall({
+    callAudience: "internal_user",
+    contextSummary: input.contextSummary,
+    phoneNumber: input.phoneNumber,
+    supabase: input.supabase,
+    threadId: input.threadId,
+    user: input.user,
+    workspaceId: input.workspaceId,
+  });
 }
 
 export function vapiToolWorkspaceId(payload: Record<string, unknown>) {

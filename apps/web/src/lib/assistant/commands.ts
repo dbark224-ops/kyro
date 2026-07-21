@@ -126,6 +126,8 @@ import {
   resolveOutboundCallRequest,
   type OutboundCallRequestResolution,
 } from "../voice/outbound-call-requests";
+import { createInternalUserVoiceCall } from "../voice/calls";
+import { vapiUserIdentityFromUser } from "./vapi-user-context";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import {
   addDaysToDateKey,
@@ -2102,21 +2104,47 @@ export async function resolveAssistantCommand({
   return generalChatCommand({ prompt });
 }
 
+export function selfCallRecipientForAssistant(input: {
+  actor?: AssistantRequestActor | null;
+  prompt: string;
+  user: User;
+}) {
+  if (!looksLikeSelfOutboundCallRequest(input.prompt)) {
+    return null;
+  }
+
+  if (input.actor?.kind === "trusted_internal_messaging_sender") {
+    return {
+      displayName: input.actor.displayName,
+      firstName: input.actor.firstName,
+      phoneNumber: input.actor.phoneNumber,
+    };
+  }
+
+  const accountIdentity = vapiUserIdentityFromUser(input.user);
+
+  return accountIdentity.phone
+    ? {
+        displayName: accountIdentity.name,
+        firstName: accountIdentity.firstName,
+        phoneNumber: accountIdentity.phone,
+      }
+    : null;
+}
+
 async function outboundCallCommand({
   actor = null,
   prompt,
   recentMessages = [],
   supabase,
   threadId = null,
+  user,
   workspace,
 }: CommandInput): Promise<AssistantCommandResult> {
-  const selfRecipient =
-    actor?.kind === "trusted_internal_messaging_sender" &&
-    looksLikeSelfOutboundCallRequest(prompt)
-      ? actor
-      : null;
+  const selfCallRequested = looksLikeSelfOutboundCallRequest(prompt);
+  const selfRecipient = selfCallRecipientForAssistant({ actor, prompt, user });
   const resolution = await resolveOutboundCallRequest({
-    authoritativeRecipient: Boolean(selfRecipient),
+    authoritativeRecipient: selfCallRequested,
     contactId: selfRecipient
       ? null
       : recentContactIdFromMessages(recentMessages),
@@ -2125,6 +2153,9 @@ async function outboundCallCommand({
       prompt,
       recentMessages,
     }),
+    instructions: selfCallRequested
+      ? "Start a live internal Kyro voice-assistant conversation with the authenticated account user."
+      : null,
     prompt,
     phoneNumber: selfRecipient?.phoneNumber ?? null,
     supabase,
@@ -2214,10 +2245,19 @@ async function outboundCallCommand({
   if (resolution.status === "not_found") {
     return {
       context: { outboundCall: resolution },
-      fallbackAnswer:
-        "I couldn't find a matching contact or phone number for that call. Give me the contact name or phone number and what you want Kyro to say.",
+      fallbackAnswer: selfCallRequested
+        ? "I don't have a mobile number saved for your Kyro account yet. Add your number in Business profile, then ask me to call you again."
+        : "I couldn't find a matching contact or phone number for that call. Give me the contact name or phone number and what you want Kyro to say.",
       intent: "outbound_call_prepare",
-      links: [],
+      links: selfCallRequested
+        ? [
+            {
+              href: "/settings?section=profile&panel=core-profile",
+              label: "Add your mobile number",
+              meta: "Business profile",
+            },
+          ]
+        : [],
       title: "Outbound phone call",
       uiBlocks: [],
     };
@@ -2227,6 +2267,37 @@ async function outboundCallCommand({
     OutboundCallRequestResolution,
     { status: "ready" }
   >;
+
+  if (selfCallRequested) {
+    const call = await createInternalUserVoiceCall({
+      contextSummary: readyResolution.contextSummary,
+      phoneNumber: readyResolution.phoneNumber,
+      supabase,
+      threadId,
+      user,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      context: {
+        outboundCall: readyResolution,
+        providerCallId: call.providerCallId,
+        status: call.status,
+        voiceCallId: call.voiceCallId,
+      },
+      fallbackAnswer: "Calling you now.",
+      intent: "internal_self_call",
+      links: [],
+      mutation: {
+        entityId: call.voiceCallId,
+        entityType: "voice_call",
+        label: "Internal voice call started",
+      },
+      title: "Calling you",
+      uiBlocks: [],
+    };
+  }
+
   const recipient =
     readyResolution.contactName ??
     readyResolution.phoneNumber ??
