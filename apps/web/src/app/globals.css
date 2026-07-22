@@ -8580,7 +8580,7 @@ button.voice-card {
 
 .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
   grid-template-columns:
-    90px
+    108px
     150px
     minmax(150px, 1fr)
     70px
