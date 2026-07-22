@@ -148,6 +148,14 @@ function calendarStatusLabel(status: string) {
   }
 }
 
+const CALENDAR_STATUS_OPTIONS = [
+  { label: "Waiting for customer", value: "awaiting_customer" },
+  { label: "Needs business approval", value: "needs_business_approval" },
+  { label: "Confirmed", value: "scheduled" },
+  { label: "Completed", value: "completed" },
+  { label: "Cancelled", value: "cancelled" },
+] as const;
+
 function formatHourLabel(hour: number) {
   const suffix = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 === 0 ? 12 : hour % 12;
@@ -670,19 +678,38 @@ function TimelineEventCard({
       type="button"
     >
       <span className={styles.timelineEventTop}>
-        <span
-          aria-label={calendarStatusLabel(event.status)}
-          className={styles.eventStatusDot}
-          role="img"
-          title={calendarStatusLabel(event.status)}
-        />
+        {compact ? (
+          <span
+            aria-label={calendarStatusLabel(event.status)}
+            className={styles.eventStatusDot}
+            role="img"
+            title={calendarStatusLabel(event.status)}
+          />
+        ) : null}
         <time>{formatTime(event.startsAt, timeZone)}</time>
         <strong>{event.title}</strong>
+        {compact ? null : (
+          <span
+            className={styles.eventStatusPill}
+            data-status={event.status}
+          >
+            {calendarStatusLabel(event.status)}
+          </span>
+        )}
       </span>
       {compact ? null : (
         <>
-          {event.location ? <span>{event.location}</span> : null}
-          {linkedLabel ? <span>{linkedLabel}</span> : null}
+          {event.description ? (
+            <span className={styles.timelineEventNotes}>
+              {event.description}
+            </span>
+          ) : null}
+          {event.location ? (
+            <span className={styles.timelineEventMeta}>{event.location}</span>
+          ) : null}
+          {linkedLabel ? (
+            <span className={styles.timelineEventMeta}>{linkedLabel}</span>
+          ) : null}
         </>
       )}
     </button>
@@ -1029,13 +1056,11 @@ function EventEditor({
               {event?.status === "suggested" ? (
                 <option value="suggested">Draft</option>
               ) : null}
-              <option value="awaiting_customer">Waiting for customer</option>
-              <option value="needs_business_approval">
-                Needs business approval
-              </option>
-              <option value="scheduled">Confirmed</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
+              {CALENDAR_STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
             </select>
           </label>
           <DateTimeInput

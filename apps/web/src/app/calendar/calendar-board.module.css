@@ -414,7 +414,8 @@
   min-height: 36px;
   min-width: 0;
   overflow: hidden;
-  padding: 5px 7px 6px;
+  padding: 5px 7px 6px 18px;
+  position: relative;
   text-align: left;
   transition:
     border-color 150ms ease,
@@ -444,6 +445,11 @@
   border-color: color-mix(in srgb, var(--pink) 68%, var(--line));
 }
 
+.eventCard[data-status="completed"],
+.timelineEvent[data-status="completed"] {
+  border-color: color-mix(in srgb, #5b8ff9 64%, var(--line));
+}
+
 .eventCard[data-status="cancelled"],
 .timelineEvent[data-status="cancelled"] {
   opacity: 0.62;
@@ -462,6 +468,14 @@
   width: 6px;
 }
 
+.eventCard .eventStatusDot,
+.timelineEvent[data-compact="true"] .eventStatusDot {
+  left: 7px;
+  margin: 0;
+  position: absolute;
+  top: 8px;
+}
+
 .eventCard[data-status="awaiting_customer"] .eventStatusDot,
 .timelineEvent[data-status="awaiting_customer"] .eventStatusDot {
   background: #ffd166;
@@ -475,6 +489,16 @@
 .eventCard[data-status="needs_business_approval"] .eventStatusDot,
 .timelineEvent[data-status="needs_business_approval"] .eventStatusDot {
   background: var(--pink);
+}
+
+.eventCard[data-status="completed"] .eventStatusDot,
+.timelineEvent[data-status="completed"] .eventStatusDot {
+  background: #5b8ff9;
+}
+
+.eventCard[data-status="cancelled"] .eventStatusDot,
+.timelineEvent[data-status="cancelled"] .eventStatusDot {
+  background: #8a93a6;
 }
 
 .eventCardPrimary {
@@ -529,7 +553,7 @@
 .eventCard[data-condensed="true"] {
   gap: 0;
   max-height: 28px;
-  padding: 4px 6px;
+  padding: 4px 6px 4px 18px;
 }
 
 .eventCard[data-condensed="true"] > span {
@@ -677,11 +701,13 @@
 
 .timelineEvent[data-compact="true"] {
   align-content: center;
-  padding: 5px 6px;
+  padding: 5px 6px 5px 18px;
 }
 
 .timelineEventTop {
-  display: block;
+  align-items: center;
+  display: flex;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -698,7 +724,8 @@
   display: inline-block;
   font-size: 0.62rem;
   font-weight: 900;
-  margin-right: 5px;
+  flex: 0 0 auto;
+  margin-right: 0;
   vertical-align: baseline;
   white-space: nowrap;
 }
@@ -709,13 +736,14 @@
 }
 
 .timelineEventTop strong {
-  display: inline;
+  display: block;
+  flex: 1 1 auto;
   font-size: 0.7rem;
   line-height: 1.14;
   min-width: 0;
   overflow: hidden;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .timelineEvent[data-compact="true"] .timelineEventTop strong {
@@ -724,14 +752,61 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-height: 1.05;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
-.timelineEvent span:not(.timelineEventTop) {
+.timelineEventMeta,
+.timelineEventNotes {
   color: var(--muted);
   font-size: 0.64rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.timelineEventNotes {
+  color: color-mix(in srgb, var(--text) 76%, var(--muted));
+}
+
+.eventStatusPill {
+  align-items: center;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--muted) 40%, var(--line));
+  border-radius: 999px;
+  color: var(--text);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.eventStatusPill[data-status="awaiting_customer"] {
+  background: color-mix(in srgb, #ffd166 15%, transparent);
+  border-color: #ffd166;
+}
+
+.eventStatusPill[data-status="scheduled"] {
+  background: color-mix(in srgb, #32d583 13%, transparent);
+  border-color: #32d583;
+}
+
+.eventStatusPill[data-status="needs_business_approval"] {
+  background: color-mix(in srgb, var(--pink) 13%, transparent);
+  border-color: var(--pink);
+}
+
+.eventStatusPill[data-status="completed"] {
+  background: color-mix(in srgb, #5b8ff9 14%, transparent);
+  border-color: #5b8ff9;
+}
+
+.eventStatusPill[data-status="cancelled"] {
+  background: color-mix(in srgb, #8a93a6 14%, transparent);
+  border-color: #8a93a6;
 }
 
 .editorPanel {
