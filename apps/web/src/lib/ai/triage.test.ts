@@ -4,6 +4,7 @@ import {
   buildReplyBody,
   ensureReplyDraftCoversMissingInfo,
   extractInquiryFacts,
+  outboundReplyChannelForInquiryContext,
   type InquiryFacts,
 } from "./triage";
 
@@ -18,10 +19,7 @@ describe("inbound inquiry requirements", () => {
     });
 
     assert.equal(facts.jobType, "Room Addition Quote");
-    assert.deepEqual(facts.missingInfo, [
-      "Job address",
-      "Phone number",
-    ]);
+    assert.deepEqual(facts.missingInfo, ["Job address", "Phone number"]);
     assert.match(buildReplyBody(facts), /job address/i);
     assert.match(buildReplyBody(facts), /phone number/i);
   });
@@ -48,6 +46,23 @@ describe("inbound inquiry requirements", () => {
 
     assert.equal(facts.missingInfo.includes("Email address"), true);
     assert.match(buildReplyBody(facts), /email address/i);
+  });
+
+  it("keeps SMS inquiries on SMS for generated replies", () => {
+    assert.equal(
+      outboundReplyChannelForInquiryContext({
+        inboundChannelType: "sms",
+        source: "developer.mock_sms",
+      }),
+      "sms",
+    );
+    assert.equal(
+      outboundReplyChannelForInquiryContext({
+        inboundChannelType: "email",
+        source: "gmail.poll",
+      }),
+      "email",
+    );
   });
 
   it("folds missing requirements into one natural reply ask", () => {

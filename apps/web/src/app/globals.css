@@ -6737,6 +6737,28 @@ button.voice-card {
   padding: 12px;
 }
 
+.log-row-button {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.log-row-button:hover,
+.log-row-button.selected {
+  border-color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 7%, var(--surface));
+}
+
+.log-row-button:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
 .log-marker {
   width: 10px;
   height: 10px;
@@ -8882,6 +8904,10 @@ button:disabled {
 .detail-list {
   display: grid;
   gap: 12px;
+}
+
+.activity-detail-panel .detail-list strong {
+  overflow-wrap: anywhere;
 }
 
 .pagination-bar {

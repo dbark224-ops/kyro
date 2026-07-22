@@ -171,6 +171,7 @@ export async function runAssistantTurn({
   const command = await resolveAssistantCommand({
     actor,
     currentTime,
+    inputSource,
     prompt: trimmedPrompt,
     recentMessages,
     supabase,

@@ -147,6 +147,7 @@ type WorkspaceInput = {
 type CommandInput = {
   actor?: AssistantRequestActor | null;
   currentTime?: AssistantCurrentTimeContext;
+  inputSource?: string;
   prompt: string;
   recentMessages?: AssistantRecentMessage[];
   supabase: SupabaseClient;
@@ -1645,6 +1646,7 @@ async function generatedImageRecallCommand({
 async function resolvePlannedAssistantCommand({
   actor = null,
   currentTime,
+  inputSource = "typed",
   prompt,
   recentMessages = [],
   supabase,
@@ -1849,10 +1851,13 @@ async function resolvePlannedAssistantCommand({
       });
     case "inquiry_reply":
       return replyToRecentInquiryCommand({
+        actor,
         currentTime,
+        inputSource,
         prompt: plannedPrompt,
         recentMessages,
         supabase,
+        threadId,
         user,
         userPrompt: prompt,
         workspace,
@@ -1865,6 +1870,7 @@ async function resolvePlannedAssistantCommand({
 export async function resolveAssistantCommand({
   actor = null,
   currentTime,
+  inputSource = "typed",
   prompt,
   recentMessages = [],
   supabase,
@@ -1882,10 +1888,13 @@ export async function resolveAssistantCommand({
 
   if (looksLikeContextualInquiryReplyRequest(prompt, recentMessages)) {
     return replyToRecentInquiryCommand({
+      actor,
       currentTime,
+      inputSource,
       prompt,
       recentMessages,
       supabase,
+      threadId,
       user,
       workspace,
     });
@@ -1904,6 +1913,7 @@ export async function resolveAssistantCommand({
   const plannedCommand = await resolvePlannedAssistantCommand({
     actor,
     currentTime,
+    inputSource,
     prompt,
     recentMessages,
     supabase,
@@ -5855,19 +5865,25 @@ async function upsertInquiryCommitmentCalendarEvent({
 }
 
 async function replyToRecentInquiryCommand({
+  actor = null,
   currentTime,
+  inputSource = "typed",
   prompt,
   recentMessages = [],
   supabase,
+  threadId = null,
   user,
   userPrompt = null,
   workspace,
 }: Pick<
   CommandInput,
   | "currentTime"
+  | "actor"
+  | "inputSource"
   | "prompt"
   | "recentMessages"
   | "supabase"
+  | "threadId"
   | "user"
   | "workspace"
 > & {
@@ -5966,6 +5982,14 @@ async function replyToRecentInquiryCommand({
     settingsSnapshot: {
       ...objectRecord(action.input.settingsSnapshot),
       assistantInstruction: instructionPrompt,
+      assistantRequestOrigin: threadId
+        ? {
+            inputSource,
+            phoneNumber: actor?.phoneNumber ?? null,
+            threadId,
+            userId: user.id,
+          }
+        : null,
       source: "assistant.contextual_inquiry_reply",
     },
     signatureVariant: "ai_generated",
@@ -6005,7 +6029,47 @@ async function replyToRecentInquiryCommand({
     await approveAction(supabase, user, action.id);
   }
 
-  const execution = await executeAction(supabase, user, action.id);
+  let execution: Awaited<ReturnType<typeof executeAction>>;
+
+  try {
+    execution = await executeAction(supabase, user, action.id);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "The delivery attempt failed.";
+    const reason = /does not have an email address/i.test(errorMessage)
+      ? "the contact does not have an email address"
+      : /does not have a phone number/i.test(errorMessage)
+        ? "the contact does not have a phone number"
+        : "the delivery provider did not complete the send";
+
+    return {
+      context: {
+        actionId: action.id,
+        attempted: true,
+        conversationId: action.conversationId,
+        customer,
+        deliveryError: errorMessage,
+        externalSend: false,
+        instruction: instructionPrompt,
+        subject: draft.subject,
+      },
+      fallbackAnswer: `I prepared this reply for ${customer}: “${draft.body}” It was not sent because ${reason}. The reply remains available in Kyro so you can retry it or choose another channel.`,
+      intent: "inquiry_reply",
+      links: [
+        rowLink(
+          customer,
+          `/inbox?conversationId=${action.conversationId}`,
+          "Reply not sent",
+        ),
+      ],
+      mutation: {
+        entityId: action.id,
+        entityType: "action",
+        label: "Reply not sent",
+      },
+      title: "Reply not sent",
+    };
+  }
   const externalSend = execution.externalSend === true;
   let calendarEvent: Awaited<
     ReturnType<typeof upsertInquiryCommitmentCalendarEvent>

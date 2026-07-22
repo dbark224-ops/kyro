@@ -439,6 +439,18 @@ function channelKind(context: StubAiTriageContext) {
     .toLowerCase();
 }
 
+export function outboundReplyChannelForInquiryContext(
+  context: StubAiTriageContext,
+) {
+  const channel = channelKind(context);
+
+  if (channel.includes("sms")) {
+    return "sms" as const;
+  }
+
+  return "email" as const;
+}
+
 function applyRequiredInquiryInfo(
   facts: InquiryFacts,
   context: StubAiTriageContext,
@@ -1347,6 +1359,7 @@ function buildActionProposals(
     threadMessageCount: context.threadMessageCount ?? null,
     threadSummary: context.threadSummary ?? null,
     dryRun: true,
+    channelType: outboundReplyChannelForInquiryContext(context),
   };
   const proposals: ProposedActionInput[] = [
     {

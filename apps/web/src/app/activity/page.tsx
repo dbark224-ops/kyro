@@ -1,6 +1,12 @@
 import { AppFrame } from "../components/app-frame";
 import { BrandMark } from "../components/brand-mark";
 import {
+  ActivitySelectedDetail,
+  ActivitySelectionProvider,
+  ActivityTimeline,
+  type ActivityTimelineItem,
+} from "./activity-timeline";
+import {
   getAssistantExternalActivity,
   type AssistantExternalActivityItem,
 } from "../../lib/assistant/external-activity";
@@ -23,24 +29,7 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-type LogItem = {
-  id: string;
-  at: string;
-  title: string;
-  detail: string;
-  meta: string;
-  searchText?: string;
-  tone:
-    | "action"
-    | "ai"
-    | "audit"
-    | "event"
-    | "failed"
-    | "inbound"
-    | "outbound"
-    | "route"
-    | "usage";
-};
+type LogItem = ActivityTimelineItem;
 
 type LogFilter =
   | "all"
@@ -174,15 +163,6 @@ function logHref({
   const query = params.toString();
 
   return query ? `/activity?${query}` : "/activity";
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
 }
 
 function formatLabel(value: string) {
@@ -435,13 +415,12 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
       getEngineQueues(supabase, workspace.id, LOG_SOURCE_LIMIT),
       getAiLedger(supabase, workspace.id, LOG_SOURCE_LIMIT),
       getAssistantExternalActivity(supabase, workspace.id, LOG_SOURCE_LIMIT),
-      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
-        () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
-      ),
+      getWorkspaceGeneralSettings(supabase, workspace.id).catch(() => null),
     ]);
   const logItems = buildLogItems({
     aiLedger,
-    displayCurrencySettings: generalSettings,
+    displayCurrencySettings:
+      generalSettings ?? DEFAULT_DISPLAY_CURRENCY_SETTINGS,
     engine,
     operationalActivity,
   });
@@ -462,7 +441,9 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
     pageStart,
     pageStart + LOG_PAGE_SIZE,
   );
-  const latestItem = filteredLogItems[0] ?? searchedLogItems[0] ?? logItems[0];
+  const initialItem =
+    paginatedLogItems[0] ?? filteredLogItems[0] ?? searchedLogItems[0] ?? null;
+  const activityTimeZone = generalSettings?.timeZone ?? "UTC";
 
   return (
     <AppFrame active="Activity">
@@ -491,222 +472,191 @@ export default async function ActivityPage({ searchParams }: LogPageProps) {
         </div>
       </header>
 
-      <section className="log-layout activity-workspace">
-        <article className="panel page-panel activity-log-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Activity</p>
-              <h2>Workspace timeline</h2>
-            </div>
-            <span className="pill">
-              {filteredLogItems.length === 0
-                ? "0 shown"
-                : `${pageStart + 1}-${Math.min(
-                    pageStart + LOG_PAGE_SIZE,
-                    filteredLogItems.length,
-                  )} of ${filteredLogItems.length}`}
-            </span>
-          </div>
-
-          <nav className="filter-bar log-filter-bar" aria-label="Log filters">
-            {LOG_FILTERS.map((filter) => (
-              <Link
-                className={
-                  activeFilter === filter.value
-                    ? "filter-pill active"
-                    : "filter-pill"
-                }
-                href={logHref({ filter: filter.value, search: searchState })}
-                key={filter.value}
-                prefetch={false}
-              >
-                {filter.label}
-                <span>{filterCounts.get(filter.value) ?? 0}</span>
-              </Link>
-            ))}
-          </nav>
-
-          <form action="/activity" className="log-search-form" method="get">
-            {activeFilter !== "all" ? (
-              <input name="filter" type="hidden" value={activeFilter} />
-            ) : null}
-            <label className="log-search-field">
-              Search
-              <input
-                defaultValue={searchState.q}
-                name="q"
-                placeholder="Customer, message, action, model..."
-                type="search"
-              />
-            </label>
-            <button className="secondary-button compact" type="submit">
-              Apply
-            </button>
-            {hasSearch ? (
-              <Link
-                className="secondary-button compact"
-                href={logHref({ filter: activeFilter })}
-                prefetch={false}
-              >
-                Clear
-              </Link>
-            ) : null}
-            <details className="log-advanced-search" open={hasAdvancedSearch}>
-              <summary>Advanced search</summary>
-              <div className="log-advanced-grid">
-                <label>
-                  Type / source
-                  <input
-                    defaultValue={searchState.source}
-                    name="source"
-                    placeholder="inbound, email, ai, audit..."
-                    type="search"
-                  />
-                </label>
-                <label>
-                  Detail contains
-                  <input
-                    defaultValue={searchState.detail}
-                    name="detail"
-                    placeholder="customer, body, status..."
-                    type="search"
-                  />
-                </label>
-                <label>
-                  From
-                  <input
-                    defaultValue={searchState.from}
-                    name="from"
-                    type="date"
-                  />
-                </label>
-                <label>
-                  To
-                  <input defaultValue={searchState.to} name="to" type="date" />
-                </label>
+      <ActivitySelectionProvider
+        initialItem={initialItem}
+        key={initialItem?.id ?? "empty-activity"}
+        timeZone={activityTimeZone}
+      >
+        <section className="log-layout activity-workspace">
+          <article className="panel page-panel activity-log-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Activity</p>
+                <h2>Workspace timeline</h2>
               </div>
-            </details>
-          </form>
+              <span className="pill">
+                {filteredLogItems.length === 0
+                  ? "0 shown"
+                  : `${pageStart + 1}-${Math.min(
+                      pageStart + LOG_PAGE_SIZE,
+                      filteredLogItems.length,
+                    )} of ${filteredLogItems.length}`}
+              </span>
+            </div>
 
-          <div className="log-feed">
-            {paginatedLogItems.length > 0 ? (
-              paginatedLogItems.map((item) => (
-                <article className={`log-row ${item.tone}`} key={item.id}>
-                  <div className="log-marker" aria-hidden="true" />
-                  <div className="log-main">
-                    <div className="log-summary-row">
-                      <strong>{item.title}</strong>
-                      <span>{item.detail}</span>
-                    </div>
-                  </div>
-                  <time>{formatDate(item.at)}</time>
-                  <span className="pill">{item.meta}</span>
-                </article>
-              ))
-            ) : (
-              <p className="empty-copy">
-                {searchedLogItems.length > 0
+            <nav className="filter-bar log-filter-bar" aria-label="Log filters">
+              {LOG_FILTERS.map((filter) => (
+                <Link
+                  className={
+                    activeFilter === filter.value
+                      ? "filter-pill active"
+                      : "filter-pill"
+                  }
+                  href={logHref({ filter: filter.value, search: searchState })}
+                  key={filter.value}
+                  prefetch={false}
+                >
+                  {filter.label}
+                  <span>{filterCounts.get(filter.value) ?? 0}</span>
+                </Link>
+              ))}
+            </nav>
+
+            <form action="/activity" className="log-search-form" method="get">
+              {activeFilter !== "all" ? (
+                <input name="filter" type="hidden" value={activeFilter} />
+              ) : null}
+              <label className="log-search-field">
+                Search
+                <input
+                  defaultValue={searchState.q}
+                  name="q"
+                  placeholder="Customer, message, action, model..."
+                  type="search"
+                />
+              </label>
+              <button className="secondary-button compact" type="submit">
+                Apply
+              </button>
+              {hasSearch ? (
+                <Link
+                  className="secondary-button compact"
+                  href={logHref({ filter: activeFilter })}
+                  prefetch={false}
+                >
+                  Clear
+                </Link>
+              ) : null}
+              <details className="log-advanced-search" open={hasAdvancedSearch}>
+                <summary>Advanced search</summary>
+                <div className="log-advanced-grid">
+                  <label>
+                    Type / source
+                    <input
+                      defaultValue={searchState.source}
+                      name="source"
+                      placeholder="inbound, email, ai, audit..."
+                      type="search"
+                    />
+                  </label>
+                  <label>
+                    Detail contains
+                    <input
+                      defaultValue={searchState.detail}
+                      name="detail"
+                      placeholder="customer, body, status..."
+                      type="search"
+                    />
+                  </label>
+                  <label>
+                    From
+                    <input
+                      defaultValue={searchState.from}
+                      name="from"
+                      type="date"
+                    />
+                  </label>
+                  <label>
+                    To
+                    <input
+                      defaultValue={searchState.to}
+                      name="to"
+                      type="date"
+                    />
+                  </label>
+                </div>
+              </details>
+            </form>
+
+            <ActivityTimeline
+              emptyCopy={
+                searchedLogItems.length > 0
                   ? "No log activity matches this filter."
                   : logItems.length > 0
                     ? "No log activity matches this search."
-                    : "No log activity has been recorded yet."}
-              </p>
-            )}
-          </div>
+                    : "No log activity has been recorded yet."
+              }
+              items={paginatedLogItems}
+            />
 
-          {totalPages > 1 ? (
-            <nav aria-label="Activity pagination" className="pagination-bar">
-              <Link
-                aria-disabled={currentPage === 1}
-                className={
-                  currentPage === 1
-                    ? "secondary-button compact disabled"
-                    : "secondary-button compact"
-                }
-                href={logHref({
-                  filter: activeFilter,
-                  page: currentPage - 1,
-                  search: searchState,
-                })}
-                prefetch={false}
-              >
-                Previous
-              </Link>
-              <span className="pagination-label">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Link
-                aria-disabled={currentPage === totalPages}
-                className={
-                  currentPage === totalPages
-                    ? "secondary-button compact disabled"
-                    : "secondary-button compact"
-                }
-                href={logHref({
-                  filter: activeFilter,
-                  page: currentPage + 1,
-                  search: searchState,
-                })}
-                prefetch={false}
-              >
-                Next
-              </Link>
-            </nav>
-          ) : null}
-        </article>
-
-        <aside className="side-stack">
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Latest</p>
-                <h2>Most recent event</h2>
-              </div>
-            </div>
-            {latestItem ? (
-              <div className="detail-list">
-                <div>
-                  <span>Type</span>
-                  <strong>{formatLabel(latestItem.tone)}</strong>
-                </div>
-                <div>
-                  <span>When</span>
-                  <strong>{formatDate(latestItem.at)}</strong>
-                </div>
-                <div>
-                  <span>Summary</span>
-                  <strong>{latestItem.title}</strong>
-                  <small>{latestItem.detail}</small>
-                </div>
-              </div>
-            ) : (
-              <p className="empty-copy">Nothing has happened yet.</p>
-            )}
+            {totalPages > 1 ? (
+              <nav aria-label="Activity pagination" className="pagination-bar">
+                <Link
+                  aria-disabled={currentPage === 1}
+                  className={
+                    currentPage === 1
+                      ? "secondary-button compact disabled"
+                      : "secondary-button compact"
+                  }
+                  href={logHref({
+                    filter: activeFilter,
+                    page: currentPage - 1,
+                    search: searchState,
+                  })}
+                  prefetch={false}
+                >
+                  Previous
+                </Link>
+                <span className="pagination-label">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Link
+                  aria-disabled={currentPage === totalPages}
+                  className={
+                    currentPage === totalPages
+                      ? "secondary-button compact disabled"
+                      : "secondary-button compact"
+                  }
+                  href={logHref({
+                    filter: activeFilter,
+                    page: currentPage + 1,
+                    search: searchState,
+                  })}
+                  prefetch={false}
+                >
+                  Next
+                </Link>
+              </nav>
+            ) : null}
           </article>
 
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Scope</p>
-                <h2>What appears here</h2>
+          <aside className="side-stack">
+            <ActivitySelectedDetail />
+
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Scope</p>
+                  <h2>What appears here</h2>
+                </div>
               </div>
-            </div>
-            <div className="module-list">
-              <span>Messages</span>
-              <span>Inbound</span>
-              <span>Outbound</span>
-              <span>SMS attempts</span>
-              <span>Failed deliveries</span>
-              <span>Phone calls</span>
-              <span>Actions</span>
-              <span>AI runs</span>
-              <span>Model routing</span>
-              <span>Usage events</span>
-              <span>Audit logs</span>
-            </div>
-          </article>
-        </aside>
-      </section>
+              <div className="module-list">
+                <span>Messages</span>
+                <span>Inbound</span>
+                <span>Outbound</span>
+                <span>SMS attempts</span>
+                <span>Failed deliveries</span>
+                <span>Phone calls</span>
+                <span>Actions</span>
+                <span>AI runs</span>
+                <span>Model routing</span>
+                <span>Usage events</span>
+                <span>Audit logs</span>
+              </div>
+            </article>
+          </aside>
+        </section>
+      </ActivitySelectionProvider>
     </AppFrame>
   );
 }

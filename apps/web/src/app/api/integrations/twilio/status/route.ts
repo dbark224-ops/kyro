@@ -8,6 +8,10 @@ import {
   TWILIO_PROVIDER,
 } from "../../../../../lib/integrations/twilio";
 import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
+import {
+  assistantDeliveryOrigin,
+  reportAssistantDeliveryFailure,
+} from "../../../../../lib/assistant/delivery-feedback";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -79,7 +83,9 @@ export async function POST(request: Request) {
   const supabase = createServiceSupabaseClient();
   const { data: outbound, error } = await supabase
     .from("outbound_messages")
-    .select("id,workspace_id,metadata,source,status")
+    .select(
+      "id,workspace_id,user_id,recipient,metadata,settings_snapshot,source,status",
+    )
     .eq("provider", TWILIO_PROVIDER)
     .eq("provider_message_id", messageSid)
     .order("created_at", { ascending: false })
@@ -105,10 +111,20 @@ export async function POST(request: Request) {
     outbound.metadata && typeof outbound.metadata === "object"
       ? (outbound.metadata as Record<string, unknown>)
       : {};
+  const deliveryOrigin = assistantDeliveryOrigin(outbound.settings_snapshot);
+  const shouldReportAssistantFailure = Boolean(
+    failed &&
+    deliveryOrigin &&
+    !metadata.suppressFailureFeedback &&
+    !metadata.assistantFailureFeedbackAt,
+  );
 
   const updatePayload: Record<string, unknown> = {
     metadata: {
       ...metadata,
+      ...(shouldReportAssistantFailure
+        ? { assistantFailureFeedbackAt: now }
+        : {}),
       twilioStatus: {
         at: now,
         errorCode,
@@ -236,6 +252,28 @@ export async function POST(request: Request) {
         });
       });
     }
+  }
+
+  if (shouldReportAssistantFailure && deliveryOrigin) {
+    await reportAssistantDeliveryFailure({
+      errorCode,
+      errorMessage,
+      origin: deliveryOrigin,
+      outboundQueueId: String(outbound.id),
+      recipient: outbound.recipient,
+      supabase,
+      workspaceId: String(outbound.workspace_id),
+    }).catch((feedbackError) => {
+      console.error("Unable to report assistant-requested SMS failure", {
+        error:
+          feedbackError instanceof Error
+            ? feedbackError.message
+            : String(feedbackError),
+        messageSid,
+        outboundQueueId: outbound.id,
+        workspaceId: outbound.workspace_id,
+      });
+    });
   }
 
   return twilioWebhookResponse();
