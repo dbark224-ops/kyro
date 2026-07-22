@@ -37,6 +37,7 @@ import {
 import { ConversationWorkflowPanel } from "./conversation-workflow-panel";
 import {
   InboxConversationLink,
+  InboxPreviewCloseLink,
   InboxPreviewTransitionShell,
 } from "./inbox-preview-loading";
 import { InboxSubmitButton } from "./inbox-submit-button";
@@ -1212,12 +1213,12 @@ function InboxSplitPreview({
           >
             Open full screen
           </SmartPrefetchLink>
-          <SmartPrefetchLink
+          <InboxPreviewCloseLink
             className="secondary-button compact inbox-preview-close-button"
             href={closeHref}
           >
             Close
-          </SmartPrefetchLink>
+          </InboxPreviewCloseLink>
         </div>
       </header>
 
@@ -1228,7 +1229,8 @@ function InboxSplitPreview({
               {formatLabel(profile.conversation.status)}
             </span>
             <span>
-              Last message {formatDate(profile.conversation.lastMessageAt, timeZone)}
+              Last message{" "}
+              {formatDate(profile.conversation.lastMessageAt, timeZone)}
             </span>
           </div>
           {canIgnoreConversation(profile.conversation.status) ? (
@@ -1290,7 +1292,9 @@ function InboxSplitPreview({
                     </span>
                     <span>
                       {formatDate(
-                        message.receivedAt ?? message.sentAt ?? message.createdAt,
+                        message.receivedAt ??
+                          message.sentAt ??
+                          message.createdAt,
                         timeZone,
                       )}
                     </span>
@@ -1743,44 +1747,45 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     label={jobType}
                     selected={isSelected}
                   >
-                    <div className="data-main">
-                      <span
-                        aria-label={
-                          conversation.senderAddress
-                            ? `From ${conversation.senderAddress}`
-                            : "Sender unavailable"
-                        }
-                        className="conversation-row-from"
-                        title={conversation.senderAddress ?? undefined}
-                      >
-                        {conversation.senderAddress ?? "Unknown sender"}
-                      </span>
-                      <div className="conversation-row-title">
-                        <strong>{jobType}</strong>
-                      </div>
-                      <span className="conversation-message-preview">
-                        {messagePreview}
-                      </span>
+                    <time className="conversation-row-time">
+                      {formatDate(
+                        conversation.originalInquiryAt,
+                        generalSettings.timeZone,
+                      )}
+                    </time>
+                    <span
+                      aria-label={
+                        conversation.senderAddress
+                          ? `From ${conversation.senderAddress}`
+                          : "Sender unavailable"
+                      }
+                      className="conversation-row-from"
+                      title={conversation.senderAddress ?? undefined}
+                    >
+                      {conversation.senderAddress ?? "Unknown sender"}
+                    </span>
+                    <div className="conversation-row-title">
+                      <strong>{jobType}</strong>
                     </div>
-                    <div className="data-meta">
-                      <span
-                        aria-hidden={rowMeta ? undefined : "true"}
-                        className="conversation-row-extra"
-                      >
-                        {rowMeta}
-                      </span>
-                      <time>{formatDate(conversation.originalInquiryAt)}</time>
-                      <span
-                        className={
-                          conversation.leadPriority === "high" ||
-                          conversation.followUpIsDue
-                            ? "pill warning"
-                            : "pill"
-                        }
-                      >
-                        {conversation.nextActionLabel}
-                      </span>
-                    </div>
+                    <span className="conversation-message-preview">
+                      {messagePreview}
+                    </span>
+                    <span
+                      aria-hidden={rowMeta ? undefined : "true"}
+                      className="conversation-row-extra"
+                    >
+                      {rowMeta}
+                    </span>
+                    <span
+                      className={
+                        conversation.leadPriority === "high" ||
+                        conversation.followUpIsDue
+                          ? "pill warning conversation-row-status"
+                          : "pill conversation-row-status"
+                      }
+                    >
+                      {conversation.nextActionLabel}
+                    </span>
                   </InboxConversationLink>
                 );
               })

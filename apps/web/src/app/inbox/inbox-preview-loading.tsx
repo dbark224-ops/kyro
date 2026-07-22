@@ -1,10 +1,11 @@
 "use client";
 
 import type { MouseEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 
 const INBOX_PREVIEW_LOADING_EVENT = "kyro:inbox-preview-loading";
+const INBOX_PREVIEW_CLOSE_EVENT = "kyro:inbox-preview-close";
 
 type PendingPreview = {
   conversationId: string;
@@ -84,6 +85,36 @@ export function InboxConversationLink({
       className={className}
       href={href}
       onClick={handleClick}
+      preload
+    >
+      {children}
+    </SmartPrefetchLink>
+  );
+}
+
+export function InboxPreviewCloseLink({
+  children,
+  className,
+  href,
+}: {
+  children: ReactNode;
+  className?: string;
+  href: string;
+}) {
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    if (!shouldHandleClick(event)) {
+      return;
+    }
+
+    window.dispatchEvent(new Event(INBOX_PREVIEW_CLOSE_EVENT));
+  }
+
+  return (
+    <SmartPrefetchLink
+      className={className}
+      href={href}
+      onClick={handleClick}
+      preload
     >
       {children}
     </SmartPrefetchLink>
@@ -100,18 +131,41 @@ export function InboxPreviewTransitionShell({
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(
     null,
   );
+  const [closedConversationId, setClosedConversationId] = useState<
+    string | null
+  >(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const handleLoading = (event: Event) => {
+      setClosedConversationId(null);
       setPendingPreview((event as InboxPreviewLoadingEvent).detail);
+      document
+        .querySelector(".inbox-workspace[data-preview-hidden='true']")
+        ?.removeAttribute("data-preview-hidden");
+    };
+    const handleClose = () => {
+      setPendingPreview(null);
+      setClosedConversationId(selectedConversationId ?? "closed");
+      shellRef.current
+        ?.closest(".inbox-workspace")
+        ?.setAttribute("data-preview-hidden", "true");
     };
 
     window.addEventListener(INBOX_PREVIEW_LOADING_EVENT, handleLoading);
+    window.addEventListener(INBOX_PREVIEW_CLOSE_EVENT, handleClose);
 
     return () => {
       window.removeEventListener(INBOX_PREVIEW_LOADING_EVENT, handleLoading);
+      window.removeEventListener(INBOX_PREVIEW_CLOSE_EVENT, handleClose);
     };
-  }, []);
+  }, [selectedConversationId]);
+
+  const optimisticallyClosed = Boolean(
+    closedConversationId &&
+    (closedConversationId === selectedConversationId ||
+      !selectedConversationId),
+  );
 
   useEffect(() => {
     if (!pendingPreview) {
@@ -133,7 +187,7 @@ export function InboxPreviewTransitionShell({
       : pendingPreview;
   const shouldShowPending = Boolean(visiblePendingPreview);
 
-  if (!children && !shouldShowPending) {
+  if (optimisticallyClosed || (!children && !shouldShowPending)) {
     return null;
   }
 
@@ -141,6 +195,7 @@ export function InboxPreviewTransitionShell({
     <div
       className="inbox-preview-transition-shell"
       data-loading={shouldShowPending ? "true" : undefined}
+      ref={shellRef}
     >
       {children}
       {shouldShowPending ? (
@@ -157,8 +212,7 @@ export function InboxPreviewTransitionShell({
             <div>
               <strong>Opening conversation</strong>
               <span>
-                {visiblePendingPreview?.label ??
-                  "Loading the latest thread..."}
+                {visiblePendingPreview?.label ?? "Loading the latest thread..."}
               </span>
             </div>
           </div>

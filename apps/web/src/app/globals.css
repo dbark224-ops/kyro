@@ -7756,6 +7756,10 @@ button.voice-card {
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
 }
 
+.inbox-workspace[data-preview-hidden="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .crm-workspace {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
@@ -8489,11 +8493,11 @@ button.voice-card {
   position: relative;
   min-height: 46px;
   grid-template-columns:
-    minmax(118px, 0.72fr)
-    minmax(150px, 0.9fr)
-    minmax(0, 1fr)
-    72px
     108px
+    200px
+    minmax(190px, 240px)
+    minmax(0, 1fr)
+    82px
     minmax(104px, 124px);
   gap: 10px;
   align-items: center;
@@ -8518,26 +8522,31 @@ button.voice-card {
   pointer-events: none;
 }
 
-.conversation-row .data-main,
-.conversation-row .data-meta {
-  display: contents;
-}
-
 .conversation-row .conversation-row-title {
   min-width: 0;
   flex-wrap: nowrap;
 }
 
 .conversation-row .conversation-row-title strong,
-.conversation-row .data-main span,
-.conversation-row .data-meta span {
+.conversation-row > span,
+.conversation-row > time {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.conversation-row .conversation-row-from {
+.conversation-row .conversation-row-time {
   grid-column: 1;
+  justify-self: start;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: left;
+}
+
+.conversation-row .conversation-row-from {
+  grid-column: 2;
   min-width: 0;
   color: var(--muted);
   font-size: 0.75rem;
@@ -8545,33 +8554,25 @@ button.voice-card {
 }
 
 .conversation-row .conversation-row-title {
-  grid-column: 2;
+  grid-column: 3;
 }
 
 .conversation-row .conversation-message-preview {
-  grid-column: 3;
+  grid-column: 4;
   min-width: 0;
-}
-
-.conversation-row .data-main span {
-  display: block;
-  margin-top: 0;
+  color: var(--muted);
 }
 
 .conversation-row .conversation-row-extra {
-  grid-column: 4;
+  grid-column: 5;
   min-height: 1em;
   justify-self: end;
+  color: var(--muted);
+  font-size: 0.8125rem;
   text-align: right;
 }
 
-.conversation-row .data-meta time {
-  grid-column: 5;
-  justify-self: start;
-  text-align: left;
-}
-
-.conversation-row .data-meta .pill {
+.conversation-row .conversation-row-status {
   grid-column: 6;
   max-width: 100%;
   justify-self: end;
@@ -8579,66 +8580,53 @@ button.voice-card {
 
 .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
   grid-template-columns:
-    minmax(100px, 0.72fr)
+    90px
+    150px
+    150px
     minmax(0, 1fr)
-    auto
-    auto
-    minmax(104px, max-content);
-  gap: 10px;
+    64px
+    104px;
+  gap: 6px;
   align-items: center;
   min-height: 42px;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .data-main {
-  display: contents;
-}
-
-.inbox-workspace:has(.inbox-preview-transition-shell)
-  .conversation-row
-  .data-meta {
-  display: contents;
-}
-
-.inbox-workspace:has(.inbox-preview-transition-shell)
-  .conversation-row
-  .conversation-message-preview {
-  display: none;
-}
-
-.inbox-workspace:has(.inbox-preview-transition-shell)
-  .conversation-row
-  .conversation-row-from {
+  .conversation-row-time {
   grid-column: 1;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .conversation-row-title {
+  .conversation-row-from {
   grid-column: 2;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .conversation-row-extra {
+  .conversation-row-title {
   grid-column: 3;
-  justify-self: end;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .data-meta
-  time {
+  .conversation-message-preview {
+  display: block;
   grid-column: 4;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .conversation-row-extra {
+  grid-column: 5;
   justify-self: end;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .data-meta
-  .pill {
-  grid-column: 5;
+  .conversation-row-status {
+  grid-column: 6;
   justify-self: end;
 }
 
@@ -8647,19 +8635,16 @@ button.voice-card {
   .conversation-row-extra,
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .data-meta
-  time,
+  .conversation-row-time,
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .data-meta
-  .pill {
+  .conversation-row-status {
   max-width: 100%;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .data-meta
-  .pill {
+  .conversation-row-status {
   white-space: nowrap;
   text-align: center;
 }
@@ -17002,16 +16987,23 @@ button:disabled {
 
   .conversation-row {
     min-height: 86px;
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 8px;
     border-radius: var(--radius-card);
     padding: 12px;
   }
 
-  .conversation-row .data-main {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 6px;
+  .conversation-row .conversation-row-time {
+    grid-column: 1;
+  }
+
+  .conversation-row .conversation-row-from {
+    grid-column: 2;
+  }
+
+  .conversation-row .conversation-row-title,
+  .conversation-row .conversation-message-preview {
+    grid-column: 1 / -1;
   }
 
   .conversation-row .conversation-row-title,
@@ -17020,34 +17012,16 @@ button:disabled {
     white-space: normal;
   }
 
-  .conversation-row .conversation-row-from,
-  .conversation-row .conversation-row-title,
-  .conversation-row .conversation-message-preview {
-    grid-column: auto;
-  }
-
-  .conversation-row .data-meta {
-    display: grid;
-    grid-template-columns: auto auto;
-    justify-content: flex-start;
-    justify-items: start;
-    gap: 7px;
+  .conversation-row .conversation-row-extra {
+    grid-column: 1;
+    min-height: 0;
+    justify-self: start;
     text-align: left;
   }
 
-  .conversation-row .conversation-row-extra {
-    grid-column: auto;
-    min-height: 0;
-  }
-
-  .conversation-row .conversation-message-preview,
-  .conversation-row .data-meta time {
-    grid-column: auto;
-  }
-
-  .conversation-row .data-meta .pill {
-    grid-column: 1 / -1;
-    justify-self: start;
+  .conversation-row .conversation-row-status {
+    grid-column: 2;
+    justify-self: end;
     white-space: normal;
   }
 

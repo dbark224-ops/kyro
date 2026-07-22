@@ -43,12 +43,14 @@ export function SmartPrefetchLink({
   onFocus,
   onMouseEnter,
   onTouchStart,
+  preload = false,
   ...props
 }: Readonly<
   Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
     children: ReactNode;
     className?: string;
     href: string;
+    preload?: boolean;
   }
 >) {
   const router = useRouter();
@@ -96,7 +98,7 @@ export function SmartPrefetchLink({
       onFocus={handleFocus}
       onMouseEnter={handleMouseEnter}
       onTouchStart={handleTouchStart}
-      prefetch={false}
+      prefetch={preload}
       {...props}
     >
       {children}
