@@ -119,14 +119,9 @@ type InboxPageProps = {
 const FILTERS = [
   { value: "all", label: "All" },
   { value: "needs_reply", label: "Needs reply" },
-  { value: "missing_info", label: "Missing info" },
   { value: "follow_up_due", label: "Follow-up due" },
-  { value: "ready_to_quote", label: "Ready to quote" },
-  { value: "site_visit_needed", label: "Site visit needed" },
   { value: "awaiting_customer", label: "Awaiting customer" },
   { value: "resolved", label: "Resolved" },
-  { value: "needs_review", label: "Needs review" },
-  { value: "needs_approval", label: "Needs approval" },
 ] as const;
 
 const SORT_OPTIONS = [
@@ -1567,18 +1562,6 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       return true;
     }
 
-    if (activeFilter === "needs_approval") {
-      return conversation.pendingApprovalCount > 0;
-    }
-
-    if (activeFilter === "needs_reply") {
-      return conversation.workflowBucket === "needs_reply";
-    }
-
-    if (activeFilter === "missing_info") {
-      return Boolean(conversation.inquiryFacts?.missingInfo.length);
-    }
-
     return conversation.workflowBucket === activeFilter;
   });
   const sortedConversations = [...filteredConversations].sort((left, right) => {
@@ -1626,22 +1609,9 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       filter.value,
       filter.value === "all"
         ? conversations.length
-        : filter.value === "needs_approval"
-          ? conversations.filter(
-              (conversation) => conversation.pendingApprovalCount > 0,
-            ).length
-          : filter.value === "needs_reply"
-            ? conversations.filter(
-                (conversation) => conversation.workflowBucket === "needs_reply",
-              ).length
-            : filter.value === "missing_info"
-              ? conversations.filter((conversation) =>
-                  Boolean(conversation.inquiryFacts?.missingInfo.length),
-                ).length
-              : conversations.filter(
-                  (conversation) =>
-                    conversation.workflowBucket === filter.value,
-                ).length,
+        : conversations.filter(
+            (conversation) => conversation.workflowBucket === filter.value,
+          ).length,
     ]),
   );
   const needsReplyCount = inboxConversations.filter(
