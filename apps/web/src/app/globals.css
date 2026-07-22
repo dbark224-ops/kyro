@@ -8830,6 +8830,20 @@ button.voice-card {
   font-size: inherit;
 }
 
+.conversation-row.junk-conversation-row {
+  grid-template-columns:
+    108px
+    200px
+    minmax(190px, 240px)
+    minmax(0, 1fr)
+    58px
+    minmax(158px, 168px);
+}
+
+.junk-category-pill {
+  white-space: nowrap;
+}
+
 .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
   grid-template-columns:
     108px
@@ -8840,6 +8854,16 @@ button.voice-card {
   gap: 8px;
   align-items: center;
   min-height: 42px;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row.junk-conversation-row {
+  grid-template-columns:
+    108px
+    142px
+    minmax(132px, 1fr)
+    48px
+    minmax(158px, 168px);
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
@@ -17241,6 +17265,12 @@ button:disabled {
     gap: 8px;
     border-radius: var(--radius-card);
     padding: 12px;
+  }
+
+  .conversation-row.junk-conversation-row,
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row.junk-conversation-row {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .conversation-row .conversation-row-time {

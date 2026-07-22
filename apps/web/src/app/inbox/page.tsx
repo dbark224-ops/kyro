@@ -2017,6 +2017,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     <InboxConversationLink
                       className={[
                         "data-row conversation-row",
+                        "junk-conversation-row",
                         isSelected ? "active" : null,
                       ]
                         .filter(Boolean)
@@ -2059,7 +2060,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                           ? `${email.replyCount} replies`
                           : ""}
                       </span>
-                      <span className="pill conversation-row-status">
+                      <span className="pill conversation-row-status junk-category-pill">
                         {formatLabel(email.category)}
                       </span>
                     </InboxConversationLink>
