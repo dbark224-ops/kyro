@@ -17,11 +17,11 @@ function CompactBlock({
   title,
 }: Readonly<{
   children: ReactNode;
-  title: string;
+  title?: string;
 }>) {
   return (
     <section className="assistant-compact-block">
-      <h4>{title}</h4>
+      {title ? <h4>{title}</h4> : null}
       {children}
     </section>
   );
@@ -62,7 +62,9 @@ function CompactRowBody({
     <>
       <span className="assistant-compact-main">
         <strong className="assistant-compact-label">{label}</strong>
-        {value ? <strong className="assistant-compact-value">{value}</strong> : null}
+        {value ? (
+          <strong className="assistant-compact-value">{value}</strong>
+        ) : null}
       </span>
       {meta ? <span className="assistant-compact-meta">{meta}</span> : null}
     </>
@@ -108,7 +110,7 @@ function blockFallbackText(block: AssistantUiBlock) {
 function renderBlock(block: AssistantUiBlock, maxItems: number, key: string) {
   if (block.type === "link_cards") {
     return (
-      <CompactBlock key={key} title={block.title}>
+      <CompactBlock key={key}>
         <div className="assistant-compact-list">
           {block.links.slice(0, maxItems).map((link) => (
             <CompactRow href={link.href} key={`${link.href}-${link.label}`}>
@@ -240,12 +242,11 @@ export function AssistantCompactBlocks({
   maxItems?: number;
   message: AssistantThreadMessage;
 }>) {
-  const blocks =
-    message.uiBlocks?.length
-      ? message.uiBlocks
-      : message.links?.length
-        ? [linksAsBlock(message.links)]
-        : [];
+  const blocks = message.uiBlocks?.length
+    ? message.uiBlocks
+    : message.links?.length
+      ? [linksAsBlock(message.links)]
+      : [];
 
   if (!blocks.length) {
     return null;
