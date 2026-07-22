@@ -86,9 +86,18 @@ export function ConversationWorkflowPanel({
   const openTasks = visibleTasks.filter((task) => task.status === "open");
   const activeAppointments = review.appointments.filter(
     (appointment) =>
-      appointment.status === "suggested" || appointment.status === "scheduled",
+      appointment.status === "suggested" ||
+      appointment.status === "awaiting_customer" ||
+      appointment.status === "needs_business_approval" ||
+      appointment.status === "scheduled",
   );
-  const activeCount = openTasks.length + activeAppointments.length;
+  const pendingFutureSteps = review.futureSteps.filter(
+    (step) => step.status === "waiting" || step.status === "needs_action",
+  );
+  const activeCount =
+    openTasks.length +
+    activeAppointments.length +
+    pendingFutureSteps.filter((step) => !step.calendarEventId).length;
 
   return (
     <section
@@ -130,7 +139,10 @@ export function ConversationWorkflowPanel({
                 <div className="workflow-item-actions">
                   <Link
                     className="secondary-button compact link-button"
-                    href={calendarEventHref(appointment.id, appointment.startsAt)}
+                    href={calendarEventHref(
+                      appointment.id,
+                      appointment.startsAt,
+                    )}
                     prefetch={false}
                   >
                     Calendar
@@ -190,7 +202,52 @@ export function ConversationWorkflowPanel({
               </article>
             ))}
 
-            {activeCount === 0 ? (
+            {pendingFutureSteps.map((step) => {
+              const appointment = step.calendarEventId
+                ? review.appointments.find(
+                    (candidate) => candidate.id === step.calendarEventId,
+                  )
+                : null;
+              const label =
+                typeof step.metadata.displayLabel === "string"
+                  ? step.metadata.displayLabel
+                  : step.status === "needs_action"
+                    ? "Customer response needs review"
+                    : "Waiting for the customer";
+
+              return (
+                <article
+                  className="workflow-future-step"
+                  data-status={step.status}
+                  key={step.id}
+                >
+                  <span className="workflow-future-step-dot" />
+                  <div>
+                    <span className="workflow-item-kind">Automation</span>
+                    <strong>{label}</strong>
+                    <span>
+                      {step.status === "needs_action"
+                        ? "Kyro paused here for a business decision."
+                        : "Kyro will update the event when the customer replies."}
+                    </span>
+                  </div>
+                  {appointment ? (
+                    <Link
+                      className="secondary-button compact link-button"
+                      href={calendarEventHref(
+                        appointment.id,
+                        appointment.startsAt,
+                      )}
+                      prefetch={false}
+                    >
+                      Calendar
+                    </Link>
+                  ) : null}
+                </article>
+              );
+            })}
+
+            {activeCount === 0 && pendingFutureSteps.length === 0 ? (
               <p className="empty-copy conversation-workflow-empty">
                 No open tasks or site visits.
               </p>

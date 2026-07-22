@@ -138,6 +138,7 @@ import {
   buildAssistantCurrentTimeContext,
   type AssistantCurrentTimeContext,
 } from "./current-time";
+import { upsertCalendarConfirmationFutureStep } from "../workflow/inquiry-future-steps";
 
 type WorkspaceInput = {
   id: string;
@@ -5676,7 +5677,12 @@ async function inquiryCommitmentEvent({
     )
     .eq("workspace_id", workspaceId)
     .eq("conversation_id", conversationId)
-    .in("status", ["suggested", "scheduled"])
+    .in("status", [
+      "suggested",
+      "awaiting_customer",
+      "needs_business_approval",
+      "scheduled",
+    ])
     .order("updated_at", { ascending: false })
     .limit(20);
 
@@ -5798,9 +5804,33 @@ async function upsertInquiryCommitmentCalendarEvent({
     conversation.inquiryFacts?.address ?? existingEvent?.location ?? null;
   const metadata = {
     actionId,
-    customerConfirmation: "pending_or_confirmed_in_thread",
+    customerConfirmation: "awaiting_customer",
     source: INQUIRY_COMMITMENT_EVENT_SOURCE,
   };
+
+  async function saveFutureStep(eventId: string) {
+    const startsAt = Date.parse(schedule!.startsAt);
+    const minimumWait = Date.now() + 15 * 60 * 1000;
+    const standardWait = Date.now() + 24 * 60 * 60 * 1000;
+    const beforeAppointment = startsAt - 2 * 60 * 60 * 1000;
+    const expiresAt = Number.isFinite(startsAt)
+      ? new Date(
+          Math.max(minimumWait, Math.min(standardWait, beforeAppointment)),
+        ).toISOString()
+      : new Date(standardWait).toISOString();
+
+    await upsertCalendarConfirmationFutureStep({
+      calendarEventId: eventId,
+      contactId: linked.contactId,
+      conversationId: conversation.id,
+      expiresAt,
+      leadId: linked.leadId,
+      messageId: null,
+      offeredTimeLabel: replyBody,
+      supabase,
+      workspaceId: workspace.id,
+    });
+  }
 
   if (existingEvent) {
     await updateCalendarEventRecord({
@@ -5818,13 +5848,15 @@ async function upsertInquiryCommitmentCalendarEvent({
         locationAddress: null,
         metadata,
         startsAt: schedule.startsAt,
-        status: "scheduled",
+        status: "awaiting_customer",
         title,
       },
       supabase,
       userId: user.id,
       workspaceId: workspace.id,
     });
+
+    await saveFutureStep(existingEvent.id);
 
     return {
       action: "updated" as const,
@@ -5847,13 +5879,15 @@ async function upsertInquiryCommitmentCalendarEvent({
       locationAddress: null,
       metadata,
       startsAt: schedule.startsAt,
-      status: "scheduled",
+      status: "awaiting_customer",
       title,
     },
     supabase,
     userId: user.id,
     workspaceId: workspace.id,
   });
+
+  await saveFutureStep(eventId);
 
   return {
     action: "created" as const,
@@ -6128,10 +6162,10 @@ async function replyToRecentInquiryCommand({
         : calendarEvent
           ? `Done. I sent the response to ${customer} and ${
               calendarEvent.action === "created" ? "added" : "updated"
-            } ${calendarEvent.title} on the calendar for ${assistantDate(
+            } a tentative ${calendarEvent.title} on the calendar for ${assistantDate(
               calendarEvent.startsAt,
               calendarEvent.timeZone,
-            )}.`
+            )}. It is marked as waiting for the customer until they confirm.`
           : `Done. I updated the response with your instruction and sent it to ${customer}.`;
 
   return {

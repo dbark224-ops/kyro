@@ -18,6 +18,7 @@ import { syncInboundEmail } from "../integrations/inbound-email-sync";
 import { sendInternalBugNotification } from "../internal-notifications";
 import { processDueCalendarSmsNotifications } from "../notifications/calendar-sms";
 import { cleanupExpiredVoiceCallRecordings } from "../voice/calls";
+import { processExpiredInquiryFutureSteps } from "../workflow/inquiry-future-steps";
 
 export const BACKGROUND_JOB_TYPES = [
   "outbound_delivery",
@@ -295,16 +296,28 @@ async function dispatchBackgroundJob(
     }
 
     case "calendar_notifications": {
-      const result = await processDueCalendarSmsNotifications(supabase, {
-        limit: 1,
-        workspaceId: workspace.id,
-      });
+      const [result, futureSteps] = await Promise.all([
+        processDueCalendarSmsNotifications(supabase, {
+          limit: 1,
+          workspaceId: workspace.id,
+        }),
+        processExpiredInquiryFutureSteps(supabase, {
+          limit: 100,
+          workspaceId: workspace.id,
+        }),
+      ]);
 
-      if (result.errors.length > 0) {
-        throw new Error(result.errors.map((item) => item.error).join("; "));
+      if (result.errors.length > 0 || futureSteps.errors.length > 0) {
+        throw new Error(
+          [...result.errors, ...futureSteps.errors]
+            .map((item) => item.error)
+            .join("; "),
+        );
       }
 
-      return { result: serializeResult(result) };
+      return {
+        result: serializeResult({ notifications: result, futureSteps }),
+      };
     }
 
     case "crm_lifecycle_review": {

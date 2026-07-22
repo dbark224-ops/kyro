@@ -429,6 +429,54 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--pink) 30%, transparent);
 }
 
+.eventCard[data-status="awaiting_customer"],
+.timelineEvent[data-status="awaiting_customer"] {
+  border-color: color-mix(in srgb, #ffd166 64%, var(--line));
+}
+
+.eventCard[data-status="scheduled"],
+.timelineEvent[data-status="scheduled"] {
+  border-color: color-mix(in srgb, #32d583 58%, var(--line));
+}
+
+.eventCard[data-status="needs_business_approval"],
+.timelineEvent[data-status="needs_business_approval"] {
+  border-color: color-mix(in srgb, var(--pink) 68%, var(--line));
+}
+
+.eventCard[data-status="cancelled"],
+.timelineEvent[data-status="cancelled"] {
+  opacity: 0.62;
+}
+
+.eventStatusDot,
+.eventCard .eventStatusDot,
+.timelineEvent .eventStatusDot {
+  background: var(--muted);
+  border-radius: 999px;
+  display: inline-block;
+  height: 6px;
+  margin-right: 5px;
+  overflow: visible;
+  vertical-align: 0.08em;
+  width: 6px;
+}
+
+.eventCard[data-status="awaiting_customer"] .eventStatusDot,
+.timelineEvent[data-status="awaiting_customer"] .eventStatusDot {
+  background: #ffd166;
+}
+
+.eventCard[data-status="scheduled"] .eventStatusDot,
+.timelineEvent[data-status="scheduled"] .eventStatusDot {
+  background: #32d583;
+}
+
+.eventCard[data-status="needs_business_approval"] .eventStatusDot,
+.timelineEvent[data-status="needs_business_approval"] .eventStatusDot {
+  background: var(--pink);
+}
+
 .eventCardPrimary {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;

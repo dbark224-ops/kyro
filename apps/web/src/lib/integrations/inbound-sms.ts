@@ -9,12 +9,14 @@ import {
   smsConsentCommand,
 } from "../communication/sms-compliance";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
+import { ingestManualConversationFollowUp } from "../inbound/follow-up";
 import { ingestManualInbound } from "../inbound/manual";
 import { notifyInboundInquiry } from "../voice/inbound-inquiry-notifications";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   findWorkspaceNumberForInboundSms,
+  findOrCreateTwilioSmsChannel,
   telephonyUsageCost,
   TWILIO_PROVIDER,
 } from "./twilio";
@@ -32,6 +34,7 @@ export type InboundSmsProcessingResult = {
   eventId: string | null;
   status:
     | "duplicate"
+    | "external_follow_up"
     | "external_inquiry"
     | "internal_message"
     | "opt_in"
@@ -101,7 +104,7 @@ async function loadMessagingWorkspace(
   } satisfies InternalMessagingWorkspace;
 }
 
-async function findExistingContactName(
+async function findExistingContact(
   supabase: ServiceSupabase,
   workspaceId: string,
   from: string,
@@ -114,7 +117,7 @@ async function findExistingContactName(
 
   const { data, error } = await supabase
     .from("contacts")
-    .select("name,company")
+    .select("id,name,company")
     .eq("workspace_id", workspaceId)
     .eq("normalized_phone", normalizedPhone)
     .is("merged_into_contact_id", null)
@@ -126,7 +129,35 @@ async function findExistingContactName(
     throw new Error(`Unable to match inbound SMS contact: ${error.message}`);
   }
 
-  return textValue(data?.name) ?? textValue(data?.company);
+  return data
+    ? {
+        id: String(data.id),
+        name: textValue(data.name) ?? textValue(data.company),
+      }
+    : null;
+}
+
+async function findPendingCustomerWorkflow(
+  supabase: ServiceSupabase,
+  workspaceId: string,
+  contactId: string,
+) {
+  const { data, error } = await supabase
+    .from("inquiry_future_steps")
+    .select("conversation_id")
+    .eq("workspace_id", workspaceId)
+    .eq("contact_id", contactId)
+    .eq("status", "waiting")
+    .eq("trigger_type", "customer_reply")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to match inbound SMS workflow: ${error.message}`);
+  }
+
+  return data?.conversation_id ? String(data.conversation_id) : null;
 }
 
 async function recordInboundSmsUsage(
@@ -404,12 +435,64 @@ export async function processInboundSmsPayload(
     workspaceId: workspaceNumber.workspaceId,
   });
 
-  const contactName =
-    (await findExistingContactName(
+  const existingContact = await findExistingContact(
+    supabase,
+    workspaceNumber.workspaceId,
+    input.from,
+  );
+  const contactName = existingContact?.name ?? input.from;
+  const pendingConversationId = existingContact
+    ? await findPendingCustomerWorkflow(
+        supabase,
+        workspaceNumber.workspaceId,
+        existingContact.id,
+      )
+    : null;
+
+  if (pendingConversationId) {
+    const channelId = await findOrCreateTwilioSmsChannel(supabase, {
+      phoneNumber: workspaceNumber.phoneNumber,
+      providerPhoneNumberId: workspaceNumber.providerPhoneNumberId,
+      workspaceId: workspaceNumber.workspaceId,
+    });
+    const followUp = await ingestManualConversationFollowUp(
       supabase,
+      scheduledUser(workspace.ownerUserId),
       workspaceNumber.workspaceId,
-      input.from,
-    )) ?? input.from;
+      {
+        actorType: "system",
+        channelId,
+        conversationId: pendingConversationId,
+        eventSource: "twilio.webhook",
+        eventType: "inbound.sms.follow_up.received",
+        inboundChannelType: "sms",
+        message: input.body,
+        messageMetadata: {
+          from: input.from,
+          messageSid: input.messageSid,
+          provider: TWILIO_PROVIDER,
+          to: input.to,
+        },
+        subject: "Customer SMS reply",
+        submissionKey: input.messageSid,
+      },
+    );
+
+    await recordInboundSmsUsage(supabase, {
+      eventId: followUp.eventId,
+      from: input.from,
+      messageSid: input.messageSid,
+      to: input.to,
+      workspaceId: workspaceNumber.workspaceId,
+    });
+
+    return {
+      eventId: followUp.eventId,
+      status: followUp.duplicate ? "duplicate" : "external_follow_up",
+      workspaceId: workspaceNumber.workspaceId,
+    };
+  }
+
   const result = await ingestManualInbound(
     supabase,
     scheduledUser(workspace.ownerUserId),

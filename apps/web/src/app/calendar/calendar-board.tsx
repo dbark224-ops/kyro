@@ -129,6 +129,25 @@ function formatTime(value: string | null, timeZone: string) {
   }).format(new Date(value));
 }
 
+function calendarStatusLabel(status: string) {
+  switch (status) {
+    case "awaiting_customer":
+      return "Waiting for customer";
+    case "needs_business_approval":
+      return "Needs your approval";
+    case "scheduled":
+      return "Confirmed";
+    case "completed":
+      return "Completed";
+    case "cancelled":
+      return "Cancelled";
+    case "suggested":
+      return "Draft";
+    default:
+      return "Calendar event";
+  }
+}
+
 function formatHourLabel(hour: number) {
   const suffix = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 === 0 ? 12 : hour % 12;
@@ -563,11 +582,18 @@ function EventCard({
       className={styles.eventCard}
       data-active={active}
       data-condensed={condensed}
+      data-status={event.status}
       onClick={onSelect}
-      title={event.title}
+      title={`${event.title} - ${calendarStatusLabel(event.status)}`}
       type="button"
     >
       <div className={styles.eventCardPrimary}>
+        <span
+          aria-label={calendarStatusLabel(event.status)}
+          className={styles.eventStatusDot}
+          role="img"
+          title={calendarStatusLabel(event.status)}
+        />
         <time>{formatTime(event.startsAt, timeZone)}</time>
         <strong>{truncateCalendarTitle(event.title, condensed)}</strong>
       </div>
@@ -635,6 +661,7 @@ function TimelineEventCard({
       data-active={active}
       data-compact={compact}
       data-edge={metrics.edge}
+      data-status={event.status}
       onClick={(event) => {
         event.stopPropagation();
         onSelect();
@@ -643,6 +670,12 @@ function TimelineEventCard({
       type="button"
     >
       <span className={styles.timelineEventTop}>
+        <span
+          aria-label={calendarStatusLabel(event.status)}
+          className={styles.eventStatusDot}
+          role="img"
+          title={calendarStatusLabel(event.status)}
+        />
         <time>{formatTime(event.startsAt, timeZone)}</time>
         <strong>{event.title}</strong>
       </span>
@@ -996,7 +1029,11 @@ function EventEditor({
               {event?.status === "suggested" ? (
                 <option value="suggested">Draft</option>
               ) : null}
-              <option value="scheduled">Scheduled</option>
+              <option value="awaiting_customer">Waiting for customer</option>
+              <option value="needs_business_approval">
+                Needs business approval
+              </option>
+              <option value="scheduled">Confirmed</option>
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>

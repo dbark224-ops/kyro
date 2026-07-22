@@ -645,6 +645,7 @@ async function upsertGoogleEvent({
             kyroConversationId: appointment.conversation_id ?? "",
             kyroContactId: appointment.contact_id ?? "",
             kyroLeadId: appointment.lead_id ?? "",
+            kyroStatus: appointment.status ?? "scheduled",
             kyroWorkspaceId: workspaceId,
           },
         },
@@ -652,6 +653,12 @@ async function upsertGoogleEvent({
         start: { dateTime: startsAt, timeZone },
         end: { dateTime: endsAt, timeZone },
         summary: textValue(appointment.title) ?? "Kyro appointment",
+        status: ["awaiting_customer", "needs_business_approval"].includes(
+          appointment.status ?? "",
+        )
+          ? "tentative"
+          : "confirmed",
+        transparency: "opaque",
       }),
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -784,6 +791,11 @@ async function upsertMicrosoftEvent({
           ? { displayName: textValue(appointment.location) }
           : undefined,
         subject: textValue(appointment.title) ?? "Kyro appointment",
+        showAs: ["awaiting_customer", "needs_business_approval"].includes(
+          appointment.status ?? "",
+        )
+          ? "tentative"
+          : "busy",
         start: { dateTime: microsoftDateTime(startsAt), timeZone: "UTC" },
       }),
       headers: {
@@ -1392,8 +1404,7 @@ function externalFallbackEndAt(
   }
 
   return new Date(
-    new Date(startsAt).getTime() +
-      settings.defaultDurationMinutes * 60_000,
+    new Date(startsAt).getTime() + settings.defaultDurationMinutes * 60_000,
   ).toISOString();
 }
 
@@ -1431,7 +1442,10 @@ async function listGoogleCalendarEvents({
 
     if (!response.ok) {
       throw new Error(
-        calendarProviderSyncErrorMessage(await readApiError(response), "google"),
+        calendarProviderSyncErrorMessage(
+          await readApiError(response),
+          "google",
+        ),
       );
     }
 
@@ -1506,9 +1520,9 @@ function microsoftCalendarViewUrl(
         )}/calendarView`
       : "https://graph.microsoft.com/v1.0/me/calendarView";
   const params = new URLSearchParams({
-    "$select":
+    $select:
       "id,subject,bodyPreview,body,location,start,end,isCancelled,lastModifiedDateTime",
-    "$top": "100",
+    $top: "100",
     endDateTime: to,
     startDateTime: from,
   });
@@ -1611,10 +1625,15 @@ async function loadExistingExternalAppointment({
 }) {
   const select =
     "id,metadata,external_calendar_provider,external_event_id,external_event_etag,status,starts_at,ends_at,title,location";
-  const kyroAppointmentId = textValue(event.privateProperties.kyroAppointmentId);
+  const kyroAppointmentId = textValue(
+    event.privateProperties.kyroAppointmentId,
+  );
   const kyroWorkspaceId = textValue(event.privateProperties.kyroWorkspaceId);
 
-  if (kyroAppointmentId && (!kyroWorkspaceId || kyroWorkspaceId === workspaceId)) {
+  if (
+    kyroAppointmentId &&
+    (!kyroWorkspaceId || kyroWorkspaceId === workspaceId)
+  ) {
     const { data, error } = await supabase
       .from("conversation_appointments")
       .select(select)
@@ -1640,7 +1659,9 @@ async function loadExistingExternalAppointment({
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Unable to match external calendar event: ${error.message}`);
+    throw new Error(
+      `Unable to match external calendar event: ${error.message}`,
+    );
   }
 
   return data ? (data as ExternalCalendarImportExistingRow) : null;
@@ -1683,7 +1704,9 @@ async function updateExistingExternalAppointment({
       .eq("id", existing.id);
 
     if (error) {
-      throw new Error(`Unable to cancel external calendar event: ${error.message}`);
+      throw new Error(
+        `Unable to cancel external calendar event: ${error.message}`,
+      );
     }
 
     return "cancelled" as const;
@@ -1700,7 +1723,10 @@ async function updateExistingExternalAppointment({
 
   const endsAt = externalFallbackEndAt(
     startsAt,
-    providerDateTimeToIso(event.endsAt, event.endsAtTimeZone ?? workspaceTimeZone),
+    providerDateTimeToIso(
+      event.endsAt,
+      event.endsAtTimeZone ?? workspaceTimeZone,
+    ),
     settings,
   );
   const { error } = await supabase
@@ -1732,7 +1758,9 @@ async function updateExistingExternalAppointment({
     .eq("id", existing.id);
 
   if (error) {
-    throw new Error(`Unable to update external calendar event: ${error.message}`);
+    throw new Error(
+      `Unable to update external calendar event: ${error.message}`,
+    );
   }
 
   return "updated" as const;
@@ -1771,7 +1799,10 @@ async function insertExternalAppointment({
   const importedAt = new Date().toISOString();
   const endsAt = externalFallbackEndAt(
     startsAt,
-    providerDateTimeToIso(event.endsAt, event.endsAtTimeZone ?? workspaceTimeZone),
+    providerDateTimeToIso(
+      event.endsAt,
+      event.endsAtTimeZone ?? workspaceTimeZone,
+    ),
     settings,
   );
   const { error } = await supabase.from("conversation_appointments").insert({
@@ -1802,7 +1833,9 @@ async function insertExternalAppointment({
   });
 
   if (error) {
-    throw new Error(`Unable to import external calendar event: ${error.message}`);
+    throw new Error(
+      `Unable to import external calendar event: ${error.message}`,
+    );
   }
 
   return "imported" as const;

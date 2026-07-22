@@ -197,6 +197,7 @@ export async function createMockSmsInboundAction(formData: FormData) {
 
   let resultStatus:
     | "duplicate"
+    | "external_follow_up"
     | "external_inquiry"
     | "internal_message"
     | "opt_in"
@@ -223,15 +224,17 @@ export async function createMockSmsInboundAction(formData: FormData) {
   const message =
     resultStatus === "internal_message"
       ? "Mock SMS recognized as an internal user message and processed by the assistant."
-      : resultStatus === "external_inquiry"
-        ? "Mock SMS ingested as an external inquiry and queued for triage."
-        : resultStatus === "opt_out"
-          ? "Mock SMS processed as an opt-out command."
-          : resultStatus === "opt_in"
-            ? "Mock SMS processed as an opt-in command."
-            : resultStatus === "duplicate"
-              ? "Duplicate mock SMS ignored."
-              : "Mock SMS did not match a workspace number.";
+      : resultStatus === "external_follow_up"
+        ? "Mock SMS attached to the existing inquiry and advanced its waiting workflow."
+        : resultStatus === "external_inquiry"
+          ? "Mock SMS ingested as an external inquiry and queued for triage."
+          : resultStatus === "opt_out"
+            ? "Mock SMS processed as an opt-out command."
+            : resultStatus === "opt_in"
+              ? "Mock SMS processed as an opt-in command."
+              : resultStatus === "duplicate"
+                ? "Duplicate mock SMS ignored."
+                : "Mock SMS did not match a workspace number.";
 
   redirectWithMessage(redirectTo, "engine_message", message);
 }

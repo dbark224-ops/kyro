@@ -445,7 +445,9 @@ export const workspacePhoneNumbers = pgTable(
       "workspace_phone_numbers_pool_provider_number_idx",
     )
       .on(table.provider, table.normalizedPhone)
-      .where(sql`${table.workspaceId} is null and ${table.status} <> 'released'`),
+      .where(
+        sql`${table.workspaceId} is null and ${table.status} <> 'released'`,
+      ),
   }),
 );
 
@@ -780,6 +782,72 @@ export const conversationAppointments = pgTable(
   }),
 );
 
+export const inquiryFutureSteps = pgTable(
+  "inquiry_future_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    contactId: uuid("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    leadId: uuid("lead_id").references(() => leads.id, {
+      onDelete: "set null",
+    }),
+    calendarEventId: uuid("calendar_event_id").references(
+      () => conversationAppointments.id,
+      { onDelete: "set null" },
+    ),
+    kind: text("kind").notNull().default("calendar_confirmation"),
+    status: text("status").notNull().default("waiting"),
+    triggerType: text("trigger_type").notNull().default("customer_reply"),
+    triggerPayload: jsonb("trigger_payload").notNull().default({}),
+    actionType: text("action_type").notNull().default("confirm_calendar_event"),
+    actionPayload: jsonb("action_payload").notNull().default({}),
+    requiresApproval: boolean("requires_approval").notNull().default(false),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    inquiryFutureStepsWorkspaceStatusIdx: index(
+      "inquiry_future_steps_workspace_status_idx",
+    ).on(table.workspaceId, table.status, table.dueAt),
+    inquiryFutureStepsConversationIdx: index(
+      "inquiry_future_steps_conversation_idx",
+    ).on(table.workspaceId, table.conversationId, table.createdAt),
+    inquiryFutureStepsContactIdx: index("inquiry_future_steps_contact_idx").on(
+      table.contactId,
+    ),
+    inquiryFutureStepsConversationFkIdx: index(
+      "inquiry_future_steps_conversation_fk_idx",
+    ).on(table.conversationId),
+    inquiryFutureStepsLeadIdx: index("inquiry_future_steps_lead_idx").on(
+      table.leadId,
+    ),
+    inquiryFutureStepsMessageIdx: index("inquiry_future_steps_message_idx").on(
+      table.messageId,
+    ),
+    inquiryFutureStepsActiveCalendarEventIdx: uniqueIndex(
+      "inquiry_future_steps_active_calendar_event_idx",
+    )
+      .on(table.calendarEventId)
+      .where(
+        sql`${table.calendarEventId} is not null and ${table.status} in ('waiting', 'needs_action')`,
+      ),
+  }),
+);
+
 export const conversationNotes = pgTable(
   "conversation_notes",
   {
@@ -906,21 +974,16 @@ export const voiceCalls = pgTable(
     transcript: text("transcript"),
     summary: text("summary"),
     endedReason: text("ended_reason"),
-    costProviderAmount: numeric("cost_provider_amount")
-      .notNull()
-      .default("0"),
-    costCustomerAmount: numeric("cost_customer_amount")
-      .notNull()
-      .default("0"),
+    costProviderAmount: numeric("cost_provider_amount").notNull().default("0"),
+    costCustomerAmount: numeric("cost_customer_amount").notNull().default("0"),
     currency: text("currency").notNull().default("USD"),
     metadata: jsonb("metadata").notNull().default({}),
     ...timestamps,
   },
   (table) => ({
-    voiceCallsWorkspaceCreatedIdx: index("voice_calls_workspace_created_idx").on(
-      table.workspaceId,
-      table.createdAt,
-    ),
+    voiceCallsWorkspaceCreatedIdx: index(
+      "voice_calls_workspace_created_idx",
+    ).on(table.workspaceId, table.createdAt),
     voiceCallsWorkspaceStatusIdx: index("voice_calls_workspace_status_idx").on(
       table.workspaceId,
       table.status,
@@ -961,11 +1024,9 @@ export const voiceCallEvents = pgTable(
     voiceCallEventsWorkspaceCreatedIdx: index(
       "voice_call_events_workspace_created_idx",
     ).on(table.workspaceId, table.createdAt),
-    voiceCallEventsCallCreatedIdx: index("voice_call_events_call_created_idx").on(
-      table.workspaceId,
-      table.voiceCallId,
-      table.createdAt,
-    ),
+    voiceCallEventsCallCreatedIdx: index(
+      "voice_call_events_call_created_idx",
+    ).on(table.workspaceId, table.voiceCallId, table.createdAt),
   }),
 );
 
@@ -1266,7 +1327,7 @@ export const assistantMemories = pgTable(
       "assistant_memories_source_thread_idx",
     ).on(table.workspaceId, table.sourceThreadId),
   }),
-  );
+);
 
 export const assistantContextSnapshots = pgTable(
   "assistant_context_snapshots",
@@ -1315,12 +1376,7 @@ export const assistantContextSnapshots = pgTable(
     ),
     assistantContextSnapshotsWorkspacePeriodIdx: index(
       "assistant_context_snapshots_workspace_period_idx",
-    ).on(
-      table.workspaceId,
-      table.userId,
-      table.snapshotType,
-      table.periodEnd,
-    ),
+    ).on(table.workspaceId, table.userId, table.snapshotType, table.periodEnd),
   }),
 );
 

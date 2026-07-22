@@ -9501,6 +9501,43 @@ button:disabled {
   padding: 14px;
 }
 
+.workflow-future-step {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px dashed color-mix(in srgb, #ffd166 52%, var(--line));
+  border-radius: var(--radius-control);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 12px;
+}
+
+.workflow-future-step[data-status="needs_action"] {
+  border-color: color-mix(in srgb, var(--pink) 58%, var(--line));
+}
+
+.workflow-future-step > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflow-future-step > div > span:last-child {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.workflow-future-step-dot {
+  background: #ffd166;
+  border-radius: 999px;
+  height: 8px;
+  width: 8px;
+}
+
+.workflow-future-step[data-status="needs_action"] .workflow-future-step-dot {
+  background: var(--pink);
+}
+
 @container conversation-workflow (max-width: 840px) {
   .conversation-workflow-forms {
     grid-template-columns: minmax(0, 1fr);
@@ -9515,6 +9552,15 @@ button:disabled {
 
   .workflow-item-actions {
     justify-content: flex-start;
+  }
+
+  .workflow-future-step {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .workflow-future-step > a {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 

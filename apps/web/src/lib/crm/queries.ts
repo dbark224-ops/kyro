@@ -21,6 +21,7 @@ const REVIEW_QUOTE_DRAFT_LIMIT = 30;
 const REVIEW_OUTBOUND_LIMIT = 30;
 const REVIEW_TASK_LIMIT = 80;
 const REVIEW_APPOINTMENT_LIMIT = 40;
+const REVIEW_FUTURE_STEP_LIMIT = 30;
 const REVIEW_NOTE_LIMIT = 120;
 
 export type LeadListItem = {
@@ -437,6 +438,28 @@ export type ConversationReview = {
     startsAt: string | null;
     endsAt: string | null;
     location: string | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  futureSteps: Array<{
+    id: string;
+    conversationId: string;
+    messageId: string | null;
+    contactId: string | null;
+    leadId: string | null;
+    calendarEventId: string | null;
+    kind: string;
+    status: string;
+    triggerType: string;
+    triggerPayload: Record<string, unknown>;
+    actionType: string;
+    actionPayload: Record<string, unknown>;
+    requiresApproval: boolean;
+    dueAt: string | null;
+    expiresAt: string | null;
+    completedAt: string | null;
+    cancelledAt: string | null;
     metadata: Record<string, unknown>;
     createdAt: string;
     updatedAt: string;
@@ -2152,7 +2175,10 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function isUnavailableRelationError(error: { code?: string; message?: string }) {
+function isUnavailableRelationError(error: {
+  code?: string;
+  message?: string;
+}) {
   const message = error.message?.toLowerCase() ?? "";
 
   return (
@@ -3078,6 +3104,7 @@ export async function getConversationReview(
     actions,
     tasks,
     appointments,
+    futureSteps,
     notes,
     outboundMessages,
     quoteDrafts,
@@ -3146,6 +3173,15 @@ export async function getConversationReview(
       .order("created_at", { ascending: false })
       .limit(REVIEW_APPOINTMENT_LIMIT),
     supabase
+      .from("inquiry_future_steps")
+      .select(
+        "id,conversation_id,message_id,contact_id,lead_id,calendar_event_id,kind,status,trigger_type,trigger_payload,action_type,action_payload,requires_approval,due_at,expires_at,completed_at,cancelled_at,metadata,created_at,updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(REVIEW_FUTURE_STEP_LIMIT),
+    supabase
       .from("conversation_notes")
       .select(
         "id,conversation_id,message_id,contact_id,lead_id,author_user_id,body,visibility,metadata,created_at,updated_at",
@@ -3212,6 +3248,12 @@ export async function getConversationReview(
     );
   }
 
+  if (futureSteps.error) {
+    throw new Error(
+      `Unable to load inquiry workflow: ${futureSteps.error.message}`,
+    );
+  }
+
   if (notes.error) {
     throw new Error(`Unable to load internal notes: ${notes.error.message}`);
   }
@@ -3245,6 +3287,9 @@ export async function getConversationReview(
   const appointmentIds = uniqueIds(
     (appointments.data ?? []).map((appointment) => String(appointment.id)),
   );
+  const futureStepIds = uniqueIds(
+    (futureSteps.data ?? []).map((step) => String(step.id)),
+  );
   const noteIds = uniqueIds((notes.data ?? []).map((note) => String(note.id)));
   const outboundMessageIds = uniqueIds(
     (outboundMessages.data ?? []).map((message) => String(message.id)),
@@ -3271,6 +3316,7 @@ export async function getConversationReview(
     ...actionIds,
     ...taskIds,
     ...appointmentIds,
+    ...futureStepIds,
     ...noteIds,
     ...quoteDraftIds,
     inquiryFactsId,
@@ -3496,6 +3542,30 @@ export async function getConversationReview(
       metadata: objectRecord(appointment.metadata),
       createdAt: String(appointment.created_at),
       updatedAt: String(appointment.updated_at),
+    })),
+    futureSteps: (futureSteps.data ?? []).map((step) => ({
+      id: String(step.id),
+      conversationId: String(step.conversation_id),
+      messageId: step.message_id ? String(step.message_id) : null,
+      contactId: step.contact_id ? String(step.contact_id) : null,
+      leadId: step.lead_id ? String(step.lead_id) : null,
+      calendarEventId: step.calendar_event_id
+        ? String(step.calendar_event_id)
+        : null,
+      kind: String(step.kind),
+      status: String(step.status),
+      triggerType: String(step.trigger_type),
+      triggerPayload: objectRecord(step.trigger_payload),
+      actionType: String(step.action_type),
+      actionPayload: objectRecord(step.action_payload),
+      requiresApproval: Boolean(step.requires_approval),
+      dueAt: step.due_at ? String(step.due_at) : null,
+      expiresAt: step.expires_at ? String(step.expires_at) : null,
+      completedAt: step.completed_at ? String(step.completed_at) : null,
+      cancelledAt: step.cancelled_at ? String(step.cancelled_at) : null,
+      metadata: objectRecord(step.metadata),
+      createdAt: String(step.created_at),
+      updatedAt: String(step.updated_at),
     })),
     notes: (notes.data ?? []).map((note) => ({
       id: String(note.id),

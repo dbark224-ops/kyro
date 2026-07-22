@@ -4,9 +4,16 @@ import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminder
 import { insertAuditLog } from "../engine/event-action-audit";
 
 export type ManualFollowUpInput = {
+  actorType?: "system" | "user";
+  channelId?: string | null;
   submissionKey?: string;
   conversationId: string;
+  eventSource?: string;
+  eventType?: string;
+  inboundChannelType?: string;
   message: string;
+  messageMetadata?: Record<string, unknown>;
+  subject?: string;
 };
 
 function nullableText(value?: string | null) {
@@ -113,8 +120,8 @@ export async function ingestManualConversationFollowUp(
     .from("events")
     .insert({
       workspace_id: workspaceId,
-      type: "inbound.manual_follow_up.received",
-      source: "web.inbox",
+      type: input.eventType ?? "inbound.manual_follow_up.received",
+      source: input.eventSource ?? "web.inbox",
       idempotency_key: idempotencyKey,
       payload: {
         stage: "received",
@@ -152,14 +159,15 @@ export async function ingestManualConversationFollowUp(
     .insert({
       workspace_id: workspaceId,
       conversation_id: conversation.id,
-      channel_id: conversation.channel_id ?? null,
+      channel_id: input.channelId ?? conversation.channel_id ?? null,
       contact_id: conversation.contact_id ?? null,
       direction: "inbound",
-      subject: "Follow-up message",
+      subject: input.subject ?? "Follow-up message",
       body_text: messageText,
       received_at: now,
       metadata: {
-        source: "manual_follow_up",
+        ...input.messageMetadata,
+        source: input.eventSource ?? "manual_follow_up",
         eventId: event.id,
       },
     })
@@ -190,8 +198,8 @@ export async function ingestManualConversationFollowUp(
 
   await insertAuditLog(supabase, {
     workspaceId,
-    actorType: "user",
-    actorId: user.id,
+    actorType: input.actorType ?? "user",
+    actorId: input.actorType === "system" ? undefined : user.id,
     action:
       previousStatus === "resolved"
         ? "conversation.reopened_by_inbound"
@@ -319,7 +327,7 @@ export async function ingestManualConversationFollowUp(
 
   const threadSummary = buildThreadSummary(threadMessages ?? []);
   const aiResult = await runStubAiTriage(supabase, user, workspaceId, {
-    source: "manual_follow_up",
+    source: input.eventSource ?? "manual_follow_up",
     sourceEventId: String(event.id),
     contactId: conversation.contact_id
       ? String(conversation.contact_id)
@@ -342,7 +350,7 @@ export async function ingestManualConversationFollowUp(
     contactPhone: contactProfile.data?.phone
       ? String(contactProfile.data.phone)
       : null,
-    inboundChannelType: "manual_follow_up",
+    inboundChannelType: input.inboundChannelType ?? "manual_follow_up",
     summary: `Follow-up inbound message received. Full thread now has ${
       threadMessages?.length ?? 1
     } messages.`,
@@ -352,8 +360,8 @@ export async function ingestManualConversationFollowUp(
 
   await insertAuditLog(supabase, {
     workspaceId,
-    actorType: "user",
-    actorId: user.id,
+    actorType: input.actorType ?? "user",
+    actorId: input.actorType === "system" ? undefined : user.id,
     action: "inbound.manual_follow_up.ingested",
     entityType: "event",
     entityId: String(event.id),

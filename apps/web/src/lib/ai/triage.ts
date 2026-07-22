@@ -26,6 +26,14 @@ import {
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
+import {
+  applyInquiryFutureStepDecision,
+  classifyFutureStepFallback,
+  getActiveInquiryFutureStep,
+  normalizeFutureStepDecision,
+  type ActiveFutureStepContext,
+  type FutureStepDecision,
+} from "../workflow/inquiry-future-steps";
 import { openAiLowCostModel, openAiReasoningRequest } from "./openai-models";
 
 export type AiRunItem = {
@@ -73,8 +81,10 @@ export type StubAiTriageContext = {
   defaultPhoneRegion?: PhoneRegion;
   inboundChannelType?: string | null;
   summary?: string;
+  latestMessage?: string;
   threadMessageCount?: number;
   threadSummary?: string;
+  futureStep?: ActiveFutureStepContext | null;
   inquiryFactsOverride?: InquiryFacts;
   replyWriting?: ReplyWritingSettings;
 };
@@ -99,6 +109,7 @@ type ProposedActionInput = {
 
 type TriageDecision = {
   inquiryFacts: InquiryFacts;
+  futureStepDecision: FutureStepDecision;
   summary: string;
   replyDraft: {
     subject: string | null;
@@ -382,6 +393,7 @@ function triageSourceText(context: StubAiTriageContext) {
     context.leadTitle,
     context.serviceType,
     context.summary,
+    context.latestMessage,
     context.threadSummary,
   ]
     .filter(Boolean)
@@ -856,19 +868,6 @@ async function repairReplyDraftWithOpenAi(input: {
   };
 }
 
-function buildQuoteLineItems(facts: InquiryFacts) {
-  return [
-    {
-      description: facts.jobType ?? "Trade service",
-      quantity: 1,
-      unit: "job",
-      unitPrice: null,
-      total: null,
-      notes: "Draft placeholder. Pricing to be confirmed by the user.",
-    },
-  ];
-}
-
 function aiProviderMode() {
   return process.env.AI_PROVIDER?.trim().toLowerCase() ?? "stub";
 }
@@ -1031,6 +1030,11 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         : "Extract trade inquiry facts and draft a concise customer reply.",
       outputContract: {
         summary: "string",
+        futureStepDecision: {
+          outcome: "confirmed|countered|cancelled|unrelated",
+          requestedTime: "string|null",
+          reason: "string|null",
+        },
         inquiryFacts: {
           jobType: "string|null",
           address: "string|null",
@@ -1057,6 +1061,8 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "For email-originated inquiries, if the customer has no phone number in the thread or CRM profile, put Phone number in missingInfo and ask for it in replyDraft.",
         "For SMS or phone-originated inquiries, if the customer has no email address in the thread or CRM profile, put Email address in missingInfo and ask for it in replyDraft.",
         "If required info is missing, put it in missingInfo and make the replyDraft ask for those details clearly.",
+        "If context.futureStep is present, classify only the latestMessage against that pending workflow. Use confirmed only when the customer accepts the offered appointment, countered when they reject it or propose a different time, cancelled when they abandon it, and unrelated when the reply does not resolve that workflow.",
+        "Never use an older thread message to resolve a futureStep. If context.futureStep is absent, futureStepDecision.outcome must be unrelated.",
         "Apply replyWriting to the replyDraft tone, wording style, length, sign-off, trade phrasing, and reusable instructions.",
         ...replyWritingPromptRules(replyWriting).map(
           (rule) => `Writing style - ${rule}`,
@@ -1081,6 +1087,9 @@ function buildStubDecision(
 
   return {
     fallbackReason,
+    futureStepDecision: context.futureStep
+      ? classifyFutureStepFallback(context.latestMessage ?? "")
+      : normalizeFutureStepDecision(null),
     inquiryFacts,
     inputTokens: 900,
     outputTokens: 180,
@@ -1162,6 +1171,9 @@ async function runOllamaTriage(
       : normalizeLocalFacts(parsed.inquiryFacts, fallbackFacts, context);
 
     return {
+      futureStepDecision: normalizeFutureStepDecision(
+        parsed.futureStepDecision,
+      ),
       inquiryFacts: facts,
       inputTokens:
         typeof payload.prompt_eval_count === "number"
@@ -1251,6 +1263,19 @@ async function runOpenAiTriage(
                 ],
                 type: "object",
               },
+              futureStepDecision: {
+                additionalProperties: false,
+                properties: {
+                  outcome: {
+                    enum: ["confirmed", "countered", "cancelled", "unrelated"],
+                    type: "string",
+                  },
+                  reason: { type: ["string", "null"] },
+                  requestedTime: { type: ["string", "null"] },
+                },
+                required: ["outcome", "requestedTime", "reason"],
+                type: "object",
+              },
               replyDraft: {
                 additionalProperties: false,
                 properties: {
@@ -1262,7 +1287,12 @@ async function runOpenAiTriage(
               },
               summary: { type: "string" },
             },
-            required: ["summary", "inquiryFacts", "replyDraft"],
+            required: [
+              "summary",
+              "inquiryFacts",
+              "replyDraft",
+              "futureStepDecision",
+            ],
             type: "object",
           },
           strict: true,
@@ -1296,6 +1326,7 @@ async function runOpenAiTriage(
 
   return {
     ...responseUsage(payload, prompt, content),
+    futureStepDecision: normalizeFutureStepDecision(parsed.futureStepDecision),
     inquiryFacts: facts,
     providerUsed: "openai",
     replyDraft: {
@@ -1393,46 +1424,6 @@ function buildActionProposals(
     });
 
     return proposals;
-  }
-
-  if (facts.address && facts.preferredTime) {
-    proposals.push({
-      input: {
-        ...baseInput,
-        address: facts.address,
-        preferredTime: facts.preferredTime,
-        title: `Site visit for ${facts.jobType ?? "quote inquiry"}`,
-      },
-      policyReason: "Calendar or booking work is dry-run only for now.",
-      targetId: context.conversationId ?? null,
-      targetType: "conversation",
-      type: "book_site_visit",
-    });
-  }
-
-  if (facts.jobType && facts.address) {
-    proposals.push({
-      input: {
-        ...baseInput,
-        quoteDraft: {
-          title: `${facts.jobType} quote draft`,
-          lineItems: buildQuoteLineItems(facts),
-          notes: [
-            facts.address ? `Job address: ${facts.address}` : null,
-            facts.preferredTime
-              ? `Preferred time: ${facts.preferredTime}`
-              : null,
-            facts.budget ? `Mentioned budget: ${facts.budget}` : null,
-            "Pricing is intentionally blank until the user confirms it.",
-          ].filter(Boolean),
-        },
-      },
-      policyReason:
-        "Quote drafts are internal documents and require user approval before creation.",
-      targetId: context.conversationId ?? null,
-      targetType: "conversation",
-      type: "create_quote_draft",
-    });
   }
 
   return proposals;
@@ -1644,12 +1635,37 @@ export async function runStubAiTriage(
     },
   });
 
-  const communicationSettings = await getCommunicationSettings(
-    supabase,
-    workspaceId,
-  );
+  const [communicationSettings, futureStep, latestMessageResult] =
+    await Promise.all([
+      getCommunicationSettings(supabase, workspaceId),
+      context.conversationId
+        ? getActiveInquiryFutureStep(
+            supabase,
+            workspaceId,
+            context.conversationId,
+          )
+        : Promise.resolve(null),
+      context.messageId
+        ? supabase
+            .from("messages")
+            .select("body")
+            .eq("workspace_id", workspaceId)
+            .eq("id", context.messageId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+  if (latestMessageResult.error) {
+    throw new Error(
+      `Unable to load the latest inbound message: ${latestMessageResult.error.message}`,
+    );
+  }
+
   const triageContext: StubAiTriageContext = {
     ...context,
+    futureStep,
+    latestMessage:
+      textValue(latestMessageResult.data?.body) ?? context.latestMessage,
     replyWriting: context.replyWriting ?? communicationSettings.replyWriting,
   };
   const rawTriageDecision = await resolveTriageDecision(triageContext);
@@ -1779,6 +1795,19 @@ export async function runStubAiTriage(
     workspaceId,
   });
 
+  const futureStepTransition =
+    futureStep && triageContext.conversationId
+      ? await applyInquiryFutureStepDecision({
+          actorId: aiRunId,
+          conversationId: triageContext.conversationId,
+          decision: triageDecision.futureStepDecision,
+          messageId: triageContext.messageId,
+          step: futureStep,
+          supabase,
+          workspaceId,
+        })
+      : null;
+
   const actionProposals = buildActionProposals(
     aiRunId,
     String(event.id),
@@ -1790,6 +1819,8 @@ export async function runStubAiTriage(
     classification: "new_lead_follow_up",
     confidence: triageDecision.providerUsed === "ollama" ? 0.76 : 0.86,
     fallbackReason: triageDecision.fallbackReason ?? null,
+    futureStepDecision: triageDecision.futureStepDecision,
+    futureStepTransition,
     inquiryFacts,
     authoritativeFactsUsed: Boolean(triageContext.inquiryFactsOverride),
     providerUsed: triageDecision.providerUsed,
@@ -1865,6 +1896,9 @@ export async function runStubAiTriage(
             authoritativeFactsUsed: Boolean(context.inquiryFactsOverride),
             fallbackReason: triageDecision.fallbackReason ?? null,
             providerUsed: triageDecision.providerUsed,
+            quoteRequested: /\b(?:quote|estimate|pricing)\b/i.test(
+              triageSourceText(triageContext),
+            ),
           },
         },
         {

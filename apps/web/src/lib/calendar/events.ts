@@ -2,6 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseAddressFormData } from "../addresses/form";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
+  getActiveCalendarFutureStepId,
+  resolveCalendarFutureStepFromUserMutation,
+} from "../workflow/inquiry-future-steps";
+import {
   deleteAppointmentFromExternalCalendar,
   syncAppointmentToExternalCalendar,
 } from "./provider-sync";
@@ -13,6 +17,8 @@ export { normalizeCalendarEventType } from "./settings";
 
 export const CALENDAR_EVENT_STATUSES = [
   "suggested",
+  "awaiting_customer",
+  "needs_business_approval",
   "scheduled",
   "completed",
   "cancelled",
@@ -244,7 +250,7 @@ export function googleMapsDirectionsUrl(
   const destination =
     address?.latitude && address.longitude
       ? `${address.latitude},${address.longitude}`
-      : address?.formattedAddress ?? location;
+      : (address?.formattedAddress ?? location);
 
   return destination
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
@@ -420,11 +426,9 @@ export async function getCalendarEventById(
     return null;
   }
 
-  const [event] = await hydrateCalendarEvents(
-    supabase,
-    workspaceId,
-    [data as CalendarAppointmentRow],
-  );
+  const [event] = await hydrateCalendarEvents(supabase, workspaceId, [
+    data as CalendarAppointmentRow,
+  ]);
 
   return event ?? null;
 }
@@ -482,7 +486,9 @@ export async function getCalendarEntityOptions(
   ]);
 
   if (contacts.error) {
-    throw new Error(`Unable to load calendar contacts: ${contacts.error.message}`);
+    throw new Error(
+      `Unable to load calendar contacts: ${contacts.error.message}`,
+    );
   }
 
   if (leads.error) {
@@ -630,7 +636,10 @@ export async function createCalendarEventRecord({
       ends_at: input.endsAt,
       lead_id: input.leadId,
       location: input.location,
-      metadata: appointmentMetadata(input.metadata ?? { source: "calendar" }, input.locationAddress),
+      metadata: appointmentMetadata(
+        input.metadata ?? { source: "calendar" },
+        input.locationAddress,
+      ),
       starts_at: input.startsAt,
       status: input.status,
       title: input.title,
@@ -735,6 +744,14 @@ export async function updateCalendarEventRecord({
     supabase,
     workspaceId,
   });
+
+  await resolveCalendarFutureStepFromUserMutation({
+    calendarEventId: appointmentId,
+    status: input.status,
+    supabase,
+    userId,
+    workspaceId,
+  });
 }
 
 export async function deleteCalendarEventRecord({
@@ -748,6 +765,11 @@ export async function deleteCalendarEventRecord({
   userId: string;
   workspaceId: string;
 }) {
+  const futureStepId = await getActiveCalendarFutureStepId(
+    supabase,
+    workspaceId,
+    appointmentId,
+  );
   const externalDelete = await deleteAppointmentFromExternalCalendar({
     appointmentId,
     supabase,
@@ -763,6 +785,15 @@ export async function deleteCalendarEventRecord({
   if (error) {
     throw new Error(`Unable to delete calendar event: ${error.message}`);
   }
+
+  await resolveCalendarFutureStepFromUserMutation({
+    calendarEventId: appointmentId,
+    futureStepId,
+    status: "cancelled",
+    supabase,
+    userId,
+    workspaceId,
+  });
 
   await insertAuditLog(supabase, {
     workspaceId,
