@@ -416,11 +416,6 @@ export function DeveloperMockInquiryForms({
 
   function selectMode(nextMode: DeveloperMockMode) {
     setMode(nextMode);
-    const url = new URL(window.location.href);
-    url.searchParams.set("mock", nextMode);
-    url.searchParams.delete("engine_error");
-    url.searchParams.delete("engine_message");
-    window.history.replaceState(null, "", url);
   }
 
   return (
