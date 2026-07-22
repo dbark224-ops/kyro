@@ -40,6 +40,7 @@ export function InboxConversationLink({
   conversationId,
   href,
   label,
+  preload = false,
   selected,
 }: {
   children: ReactNode;
@@ -47,6 +48,7 @@ export function InboxConversationLink({
   conversationId: string;
   href: string;
   label?: string;
+  preload?: boolean;
   selected: boolean;
 }) {
   const [pendingHref, setPendingHref] = useState<string | null>(null);
@@ -85,7 +87,7 @@ export function InboxConversationLink({
       className={className}
       href={href}
       onClick={handleClick}
-      preload
+      preload={preload}
     >
       {children}
     </SmartPrefetchLink>

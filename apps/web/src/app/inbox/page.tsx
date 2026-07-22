@@ -1697,7 +1697,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
           <div className="data-list">
             {paginatedConversations.length > 0 ? (
-              paginatedConversations.map((conversation) => {
+              paginatedConversations.map((conversation, conversationIndex) => {
                 const jobType =
                   titleCaseBusinessText(conversation.inquiryFacts?.jobType) ??
                   formatServiceType(conversation.leadServiceType) ??
@@ -1745,6 +1745,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     key={conversation.id}
                     conversationId={conversation.id}
                     label={jobType}
+                    preload={conversationIndex < 3}
                     selected={isSelected}
                   >
                     <time className="conversation-row-time">

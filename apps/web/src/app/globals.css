@@ -8498,7 +8498,7 @@ button.voice-card {
     minmax(190px, 240px)
     minmax(0, 1fr)
     82px
-    minmax(104px, 124px);
+    minmax(120px, 140px);
   gap: 10px;
   align-items: center;
   padding: 8px 12px 8px 18px;
@@ -8582,11 +8582,10 @@ button.voice-card {
   grid-template-columns:
     90px
     150px
-    150px
-    minmax(0, 1fr)
-    64px
-    104px;
-  gap: 6px;
+    minmax(150px, 1fr)
+    70px
+    minmax(124px, 136px);
+  gap: 8px;
   align-items: center;
   min-height: 42px;
 }
@@ -8612,21 +8611,20 @@ button.voice-card {
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .conversation-message-preview {
-  display: block;
-  grid-column: 4;
+  display: none;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .conversation-row-extra {
-  grid-column: 5;
+  grid-column: 4;
   justify-self: end;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .conversation-row-status {
-  grid-column: 6;
+  grid-column: 5;
   justify-self: end;
 }
 

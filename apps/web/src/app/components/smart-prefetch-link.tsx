@@ -9,6 +9,7 @@ import type {
   ReactNode,
   TouchEvent,
 } from "react";
+import { useEffect } from "react";
 
 const intentPrefetchedRoutes = new Set<string>();
 
@@ -54,6 +55,25 @@ export function SmartPrefetchLink({
   }
 >) {
   const router = useRouter();
+
+  useEffect(() => {
+    if (
+      !preload ||
+      !isInternalHref(href) ||
+      shouldSkipPrefetch() ||
+      intentPrefetchedRoutes.has(href)
+    ) {
+      return;
+    }
+
+    intentPrefetchedRoutes.add(href);
+
+    try {
+      router.prefetch(href);
+    } catch {
+      intentPrefetchedRoutes.delete(href);
+    }
+  }, [href, preload, router]);
 
   const prefetchOnIntent = () => {
     if (
