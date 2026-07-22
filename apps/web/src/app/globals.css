@@ -3127,12 +3127,12 @@ textarea:focus {
 }
 
 .nav-link.primary {
-  border: 3px solid color-mix(in srgb, var(--pink) 48%, var(--cyan));
+  border: 2px solid color-mix(in srgb, var(--pink) 48%, var(--cyan));
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
     linear-gradient(135deg, var(--cyan), var(--purple), var(--pink)) border-box;
   color: var(--text);
-  font-weight: 900;
+  font-weight: inherit;
 }
 
 .nav-link.active,
