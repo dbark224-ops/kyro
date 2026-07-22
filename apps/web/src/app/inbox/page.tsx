@@ -1744,6 +1744,17 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     selected={isSelected}
                   >
                     <div className="data-main">
+                      <span
+                        aria-label={
+                          conversation.senderAddress
+                            ? `From ${conversation.senderAddress}`
+                            : "Sender unavailable"
+                        }
+                        className="conversation-row-from"
+                        title={conversation.senderAddress ?? undefined}
+                      >
+                        {conversation.senderAddress ?? "Unknown sender"}
+                      </span>
                       <div className="conversation-row-title">
                         <strong>{jobType}</strong>
                       </div>

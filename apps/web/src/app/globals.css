@@ -8489,11 +8489,12 @@ button.voice-card {
   position: relative;
   min-height: 46px;
   grid-template-columns:
-    minmax(190px, 260px)
+    minmax(118px, 0.72fr)
+    minmax(150px, 0.9fr)
     minmax(0, 1fr)
-    82px
-    122px
-    minmax(112px, 132px);
+    72px
+    108px
+    minmax(104px, 124px);
   gap: 10px;
   align-items: center;
   padding: 8px 12px 8px 18px;
@@ -8535,12 +8536,20 @@ button.voice-card {
   white-space: nowrap;
 }
 
-.conversation-row .conversation-row-title {
+.conversation-row .conversation-row-from {
   grid-column: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.conversation-row .conversation-row-title {
+  grid-column: 2;
 }
 
 .conversation-row .conversation-message-preview {
-  grid-column: 2;
+  grid-column: 3;
   min-width: 0;
 }
 
@@ -8550,26 +8559,31 @@ button.voice-card {
 }
 
 .conversation-row .conversation-row-extra {
-  grid-column: 3;
+  grid-column: 4;
   min-height: 1em;
   justify-self: end;
   text-align: right;
 }
 
 .conversation-row .data-meta time {
-  grid-column: 4;
+  grid-column: 5;
   justify-self: start;
   text-align: left;
 }
 
 .conversation-row .data-meta .pill {
-  grid-column: 5;
+  grid-column: 6;
   max-width: 100%;
   justify-self: end;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
-  grid-template-columns: minmax(0, 1fr) auto auto minmax(104px, max-content);
+  grid-template-columns:
+    minmax(100px, 0.72fr)
+    minmax(0, 1fr)
+    auto
+    auto
+    minmax(104px, max-content);
   gap: 10px;
   align-items: center;
   min-height: 42px;
@@ -8595,21 +8609,19 @@ button.voice-card {
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .conversation-row-title {
+  .conversation-row-from {
   grid-column: 1;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .conversation-row-extra {
+  .conversation-row-title {
   grid-column: 2;
-  justify-self: end;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
-  .data-meta
-  time {
+  .conversation-row-extra {
   grid-column: 3;
   justify-self: end;
 }
@@ -8617,8 +8629,16 @@ button.voice-card {
 .inbox-workspace:has(.inbox-preview-transition-shell)
   .conversation-row
   .data-meta
-  .pill {
+  time {
   grid-column: 4;
+  justify-self: end;
+}
+
+.inbox-workspace:has(.inbox-preview-transition-shell)
+  .conversation-row
+  .data-meta
+  .pill {
+  grid-column: 5;
   justify-self: end;
 }
 
@@ -16998,6 +17018,12 @@ button:disabled {
   .conversation-row .conversation-row-title strong,
   .conversation-row .conversation-message-preview {
     white-space: normal;
+  }
+
+  .conversation-row .conversation-row-from,
+  .conversation-row .conversation-row-title,
+  .conversation-row .conversation-message-preview {
+    grid-column: auto;
   }
 
   .conversation-row .data-meta {

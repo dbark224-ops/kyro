@@ -80,6 +80,7 @@ export type ConversationListItem = {
   status: string;
   originalInquiryAt: string | null;
   originalInquiryBody: string | null;
+  senderAddress: string | null;
   lastMessageAt: string | null;
   contactName: string | null;
   leadTitle: string | null;
@@ -1257,7 +1258,7 @@ export async function getConversationList(
       ? supabase
           .from("messages")
           .select(
-            "id,conversation_id,direction,subject,body_text,created_at,received_at,sent_at",
+            "id,conversation_id,direction,subject,body_text,metadata,created_at,received_at,sent_at",
           )
           .eq("workspace_id", workspaceId)
           .in("conversation_id", conversationIds)
@@ -1267,7 +1268,7 @@ export async function getConversationList(
     contactIds.length > 0
       ? supabase
           .from("contacts")
-          .select("id,name,email")
+          .select("id,name,email,phone")
           .eq("workspace_id", workspaceId)
           .in("id", contactIds)
       : Promise.resolve({ data: [], error: null }),
@@ -1423,14 +1424,19 @@ export async function getConversationList(
   }
 
   const contactsById = new Map(
-    (contactsResult.data ?? []).map((contact) => [
-      String(contact.id),
-      contact.name
-        ? String(contact.name)
-        : contact.email
-          ? String(contact.email)
-          : "Unknown contact",
-    ]),
+    (contactsResult.data ?? []).map((contact) => {
+      const email = textValue(contact.email);
+      const phone = textValue(contact.phone);
+
+      return [
+        String(contact.id),
+        {
+          email,
+          name: textValue(contact.name) ?? email ?? phone ?? "Unknown contact",
+          phone,
+        },
+      ] as const;
+    }),
   );
   const leadsById = new Map(
     (leadsResult.data ?? []).map((lead) => [
@@ -1563,6 +1569,14 @@ export async function getConversationList(
     const originalInquiry =
       originalInquiryByConversation.get(String(conversation.id)) ??
       earliestMessageByConversation.get(String(conversation.id));
+    const contact = contactsById.get(String(conversation.contact_id));
+    const originalInquiryMetadata = objectRecord(originalInquiry?.metadata);
+    const senderAddress =
+      textValue(originalInquiryMetadata.fromEmail) ??
+      textValue(originalInquiryMetadata.from) ??
+      contact?.email ??
+      contact?.phone ??
+      null;
     const lead = leadsById.get(String(conversation.lead_id));
     const actionSummary = actionsByConversation.get(
       String(conversation.id),
@@ -1622,10 +1636,11 @@ export async function getConversationList(
         : latestMessage?.body_text
           ? String(latestMessage.body_text)
           : null,
+      senderAddress,
       lastMessageAt: conversation.last_message_at
         ? String(conversation.last_message_at)
         : null,
-      contactName: contactsById.get(String(conversation.contact_id)) ?? null,
+      contactName: contact?.name ?? null,
       leadTitle: lead?.title ?? null,
       leadPriority: lead?.priority ?? null,
       leadNextStep: lead?.nextStep ?? null,
