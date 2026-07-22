@@ -62,6 +62,35 @@ type CommunicationSettings = Awaited<
   ReturnType<typeof getCommunicationSettings>
 >;
 
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="m19 6-1 14H6L5 6" />
+      <path d="M10 11v5M14 11v5" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
 export const dynamic = "force-dynamic";
 
 type InboxPageProps = {
@@ -1226,14 +1255,15 @@ function InboxSplitPreview({
               title="Move to Deleted"
               type="submit"
             >
-              <span aria-hidden="true">×</span>
+              <TrashIcon />
             </button>
           </form>
           <InboxPreviewCloseLink
             className="secondary-button compact inbox-preview-close-button"
             href={closeHref}
           >
-            Close
+            <CloseIcon />
+            <span className="sr-only">Close conversation</span>
           </InboxPreviewCloseLink>
         </div>
       </header>
@@ -1414,7 +1444,7 @@ function ConversationDeleteButton({
         title="Move to Deleted"
         type="submit"
       >
-        <span aria-hidden="true">×</span>
+        <TrashIcon />
       </button>
     </form>
   );
@@ -1460,7 +1490,8 @@ function DeletedConversationSplitPreview({
             className="secondary-button compact inbox-preview-close-button"
             href={closeHref}
           >
-            Close
+            <CloseIcon />
+            <span className="sr-only">Close conversation</span>
           </InboxPreviewCloseLink>
         </div>
       </header>
@@ -1529,7 +1560,8 @@ function JunkEmailSplitPreview({
             className="secondary-button compact inbox-preview-close-button"
             href={closeHref}
           >
-            Close
+            <CloseIcon />
+            <span className="sr-only">Close message</span>
           </InboxPreviewCloseLink>
         </div>
       </header>

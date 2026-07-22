@@ -7842,14 +7842,9 @@ button.voice-card {
 }
 
 .conversation-row-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
-  gap: 4px;
+  position: relative;
+  display: block;
   min-width: 0;
-}
-
-.conversation-row-shell.deleted {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .conversation-row-shell .conversation-row {
@@ -7857,18 +7852,21 @@ button.voice-card {
 }
 
 .conversation-delete-form {
-  display: grid;
-  place-items: center;
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 2;
+  display: block;
+  transform: translateY(-50%);
 }
 
-.conversation-delete-button,
-.inbox-preview-delete-button {
+.conversation-delete-button {
   display: inline-grid;
   place-items: center;
-  width: 28px;
+  width: 24px;
   height: 28px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 0;
   background: transparent;
   color: color-mix(in srgb, var(--muted) 72%, transparent);
   padding: 0;
@@ -7876,24 +7874,50 @@ button.voice-card {
   font-size: 1.25rem;
   line-height: 1;
   cursor: pointer;
-  transition:
-    background-color 140ms ease,
-    color 140ms ease;
+  transition: color 140ms ease;
+}
+
+.conversation-delete-button svg,
+.inbox-preview-delete-button svg,
+.inbox-preview-close-button svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .conversation-delete-button:hover,
-.conversation-delete-button:focus-visible,
-.inbox-preview-delete-button:hover,
-.inbox-preview-delete-button:focus-visible {
-  background: color-mix(in srgb, var(--pink) 14%, transparent);
+.conversation-delete-button:focus-visible {
+  background: transparent;
   color: var(--pink);
   outline: none;
 }
 
 .inbox-preview-delete-button {
+  display: inline-grid;
+  place-items: center;
   width: 34px;
   height: 34px;
   border: 1px solid color-mix(in srgb, var(--pink) 28%, var(--line));
+  border-radius: 50%;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  padding: 0;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.inbox-preview-delete-button:hover,
+.inbox-preview-delete-button:focus-visible {
+  background: color-mix(in srgb, var(--pink) 14%, transparent);
+  color: var(--pink);
+  outline: none;
 }
 
 .mailbox-simple-preview .assistant-preview-body {
@@ -7913,7 +7937,13 @@ button.voice-card {
 }
 
 .inbox-preview-close-button {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  place-items: center;
   background: color-mix(in srgb, var(--background) 64%, var(--pink) 10%);
+  padding: 0;
 }
 
 .inbox-preview-transition-shell {
@@ -8622,6 +8652,11 @@ button.voice-card {
   gap: 10px;
   align-items: center;
   padding: 8px 12px 8px 18px;
+  font-size: 0.75rem;
+}
+
+.conversation-row-shell:not(.deleted) .conversation-row {
+  padding-right: 42px;
 }
 
 .conversation-row[aria-busy="true"] {
@@ -8659,7 +8694,7 @@ button.voice-card {
   grid-column: 1;
   justify-self: start;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: inherit;
   font-weight: 800;
   line-height: 1.1;
   text-align: left;
@@ -8669,7 +8704,7 @@ button.voice-card {
   grid-column: 2;
   min-width: 0;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: inherit;
   font-weight: 750;
 }
 
@@ -8677,10 +8712,15 @@ button.voice-card {
   grid-column: 3;
 }
 
+.conversation-row .conversation-row-title strong {
+  font-size: inherit;
+}
+
 .conversation-row .conversation-message-preview {
   grid-column: 4;
   min-width: 0;
   color: var(--muted);
+  font-size: inherit;
 }
 
 .conversation-row .conversation-row-extra {
@@ -8688,7 +8728,7 @@ button.voice-card {
   min-height: 1em;
   justify-self: end;
   color: var(--muted);
-  font-size: 0.8125rem;
+  font-size: inherit;
   text-align: right;
 }
 
@@ -8696,6 +8736,7 @@ button.voice-card {
   grid-column: 6;
   max-width: 100%;
   justify-self: end;
+  font-size: inherit;
 }
 
 .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
