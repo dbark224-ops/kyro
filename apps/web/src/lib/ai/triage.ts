@@ -1519,6 +1519,31 @@ async function patchContactFromExtractedInquiryFacts({
   });
 }
 
+export async function loadLatestInboundMessageBody(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  messageId?: string | null,
+) {
+  if (!messageId) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("body_text")
+    .eq("workspace_id", workspaceId)
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Unable to load the latest inbound message: ${error.message}`,
+    );
+  }
+
+  return textValue(data?.body_text);
+}
+
 export async function runStubAiTriage(
   supabase: SupabaseClient,
   user: User,
@@ -1635,7 +1660,7 @@ export async function runStubAiTriage(
     },
   });
 
-  const [communicationSettings, futureStep, latestMessageResult] =
+  const [communicationSettings, futureStep, latestMessageBody] =
     await Promise.all([
       getCommunicationSettings(supabase, workspaceId),
       context.conversationId
@@ -1645,27 +1670,17 @@ export async function runStubAiTriage(
             context.conversationId,
           )
         : Promise.resolve(null),
-      context.messageId
-        ? supabase
-            .from("messages")
-            .select("body")
-            .eq("workspace_id", workspaceId)
-            .eq("id", context.messageId)
-            .maybeSingle()
-        : Promise.resolve({ data: null, error: null }),
+      loadLatestInboundMessageBody(
+        supabase,
+        workspaceId,
+        context.messageId,
+      ),
     ]);
-
-  if (latestMessageResult.error) {
-    throw new Error(
-      `Unable to load the latest inbound message: ${latestMessageResult.error.message}`,
-    );
-  }
 
   const triageContext: StubAiTriageContext = {
     ...context,
     futureStep,
-    latestMessage:
-      textValue(latestMessageResult.data?.body) ?? context.latestMessage,
+    latestMessage: latestMessageBody ?? context.latestMessage,
     replyWriting: context.replyWriting ?? communicationSettings.replyWriting,
   };
   const rawTriageDecision = await resolveTriageDecision(triageContext);

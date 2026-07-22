@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildReplyBody,
   ensureReplyDraftCoversMissingInfo,
   extractInquiryFacts,
+  loadLatestInboundMessageBody,
   outboundReplyChannelForInquiryContext,
   type InquiryFacts,
 } from "./triage";
@@ -87,5 +89,41 @@ describe("inbound inquiry requirements", () => {
     assert.match(draft.body ?? "", /preferred day or time/i);
     assert.match(draft.body ?? "", /phone number/i);
     assert.doesNotMatch(draft.body ?? "", /could you also/i);
+  });
+});
+
+describe("latest inbound message loading", () => {
+  it("reads the canonical body_text column used by the messages table", async () => {
+    let selectedColumn = "";
+    const query = {
+      eq() {
+        return query;
+      },
+      maybeSingle() {
+        return Promise.resolve({
+          data: { body_text: "Landscaping enquiry body" },
+          error: null,
+        });
+      },
+      select(column: string) {
+        selectedColumn = column;
+        return query;
+      },
+    };
+    const supabase = {
+      from(table: string) {
+        assert.equal(table, "messages");
+        return query;
+      },
+    } as unknown as SupabaseClient;
+
+    const body = await loadLatestInboundMessageBody(
+      supabase,
+      "workspace-1",
+      "message-1",
+    );
+
+    assert.equal(selectedColumn, "body_text");
+    assert.equal(body, "Landscaping enquiry body");
   });
 });
