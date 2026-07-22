@@ -10150,6 +10150,25 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.reply-channel-attachment-grid {
+  grid-template-columns: minmax(116px, 0.28fr) minmax(0, 1fr);
+}
+
+.reply-channel-attachment-grid .manual-reply-channel-field {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.reply-channel-attachment-grid .attachment-field {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.reply-channel-attachment-grid .manual-reply-subject-field {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
 .attachment-control-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 44px;
@@ -17135,6 +17154,13 @@ button:disabled {
   .mini-facts-grid {
     grid-template-columns: 1fr;
     grid-column: auto;
+  }
+
+  .reply-channel-attachment-grid .manual-reply-channel-field,
+  .reply-channel-attachment-grid .attachment-field,
+  .reply-channel-attachment-grid .manual-reply-subject-field {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .quote-preview-row,

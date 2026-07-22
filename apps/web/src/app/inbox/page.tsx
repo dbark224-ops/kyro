@@ -1004,7 +1004,7 @@ function InboxReplyComposer({
             />
             <input name="submissionKey" type="hidden" value={submissionKey} />
             <input name="redirectTo" type="hidden" value={redirectTo} />
-            <div className="mini-facts-grid">
+            <div className="mini-facts-grid reply-channel-attachment-grid">
               <ManualReplyChannelFields
                 allowedChannels={settings.allowedChannels}
                 defaultChannel={defaultChannel}

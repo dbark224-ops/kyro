@@ -23,7 +23,7 @@ export function ManualReplyChannelFields({
 
   return (
     <>
-      <label>
+      <label className="manual-reply-channel-field">
         <strong>Channel</strong>
         <select
           defaultValue={defaultChannel}

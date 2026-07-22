@@ -1132,8 +1132,8 @@ export default async function ConversationReviewPage({
                     value={latestDraftReply.id}
                   />
                 ) : null}
-                <div className="mini-facts-grid">
-                  <label>
+                <div className="mini-facts-grid reply-channel-attachment-grid">
+                  <label className="manual-reply-channel-field">
                     <strong>Channel</strong>
                     <select
                       name="channelType"
