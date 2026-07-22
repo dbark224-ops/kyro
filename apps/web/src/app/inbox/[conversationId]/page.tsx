@@ -7,11 +7,10 @@ import {
   sendDraftReplyAction,
   updateInquiryFactsAction,
   updateConversationStatusAction,
-  updateDraftReplyAction,
 } from "../actions";
+import { ConversationHistory } from "../conversation-history";
+import { ConversationMessageThread } from "../conversation-message-thread";
 import { ConversationWorkflowPanel } from "../conversation-workflow-panel";
-import { InboxSubmitButton } from "../inbox-submit-button";
-import { MessageWorkflowControls } from "../message-workflow-controls";
 import { ReplyGenerator } from "../reply-generator";
 import {
   approveAndExecuteDashboardAction,
@@ -29,7 +28,6 @@ import {
   formatServiceType,
   titleCaseBusinessText,
 } from "../../../lib/crm/display";
-import { voiceCallMessageBody } from "../../../lib/voice/call-message";
 import {
   formatDisplayMoney,
   type DisplayCurrencySettings,
@@ -1097,326 +1095,170 @@ export default async function ConversationReviewPage({
             </button>
           </form>
 
-          <div className="message-list">
-            {review.messages.length > 0 ? (
-              review.messages.map((message) => (
-                <div
-                  className={
-                    message.direction === "outbound"
-                      ? "message-row outbound"
-                      : "message-row inbound"
-                  }
-                  key={message.id}
-                >
-                  <div className="message-meta">
-                    <div className="message-channel">
-                      <strong>{formatLabel(message.direction)}</strong>
-                      <span className="channel-pill">
-                        {channelLabel(
-                          message.channelType,
-                          message.channelDisplayName,
-                        )}
-                      </span>
-                    </div>
-                    <span>
-                      {formatDate(
-                        message.receivedAt ??
-                          message.sentAt ??
-                          message.createdAt,
-                        generalSettings.timeZone,
-                      )}
-                    </span>
-                  </div>
-                  {message.subject ? <h3>{message.subject}</h3> : null}
-                  <p>
-                    {voiceCallMessageBody(message.bodyText, message.metadata) ??
-                      "No message body."}
-                  </p>
-                  {textValue(message.metadata.attachmentQuoteDraftId) ? (
-                    <div className="message-attachment-pill">
-                      Quote draft attached
-                    </div>
-                  ) : null}
-                  {message.metadata.dryRun ? (
-                    <div className="message-attachment-pill warning">
-                      External send disabled
-                    </div>
-                  ) : null}
-                  <MessageWorkflowControls
-                    conversationId={conversationId}
-                    message={message}
-                    notes={review.notes}
-                    redirectTo={redirectTo}
-                    tasks={review.tasks}
-                    timeZone={generalSettings.timeZone}
-                  />
-                </div>
-              ))
-            ) : (
-              <p className="empty-copy">
-                No messages found for this conversation.
-              </p>
-            )}
-          </div>
+          <ConversationMessageThread
+            messages={review.messages}
+            timeZone={generalSettings.timeZone}
+          />
         </article>
 
         <aside className="side-stack">
-          <article className="panel outbound-composer-panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Outbound</p>
-                <h2>Composer</h2>
-              </div>
-              <span className="pill warning">Gmail active for email</span>
-            </div>
-
-            <form
-              action={createMockOutboundMessageAction}
-              className="outbound-composer-form"
-              encType="multipart/form-data"
-            >
-              <input
-                name="conversationId"
-                type="hidden"
-                value={conversationId}
-              />
-              <div className="mini-facts-grid">
-                <label>
-                  <strong>Channel</strong>
-                  <select
-                    name="channelType"
-                    defaultValue={communicationSettings.allowedChannels[0]}
-                  >
-                    {OUTBOUND_CHANNELS.map((channel) => (
-                      <option
-                        disabled={
-                          !communicationSettings.allowedChannels.includes(
+          <details className="panel conversation-reply-disclosure standalone">
+            <summary>
+              <span>{latestDraftReply ? "Reply drafted" : "Reply"}</span>
+              <span aria-hidden="true" className="conversation-disclosure-icon">
+                ⌄
+              </span>
+            </summary>
+            <div className="conversation-reply-editor">
+              <form
+                action={
+                  latestDraftReply
+                    ? sendDraftReplyAction
+                    : createMockOutboundMessageAction
+                }
+                className="outbound-composer-form"
+                encType="multipart/form-data"
+              >
+                <input
+                  name="conversationId"
+                  type="hidden"
+                  value={conversationId}
+                />
+                <input name="redirectTo" type="hidden" value={redirectTo} />
+                {latestDraftReply ? (
+                  <input
+                    name="actionId"
+                    type="hidden"
+                    value={latestDraftReply.id}
+                  />
+                ) : null}
+                <div className="mini-facts-grid">
+                  <label>
+                    <strong>Channel</strong>
+                    <select
+                      name="channelType"
+                      defaultValue={communicationSettings.allowedChannels[0]}
+                    >
+                      {OUTBOUND_CHANNELS.map((channel) => (
+                        <option
+                          disabled={
+                            !communicationSettings.allowedChannels.includes(
+                              channel,
+                            )
+                          }
+                          key={channel}
+                          value={channel}
+                        >
+                          {formatLabel(channel)}
+                          {communicationSettings.allowedChannels.includes(
                             channel,
                           )
-                        }
-                        key={channel}
-                        value={channel}
-                      >
-                        {formatLabel(channel)}
-                        {communicationSettings.allowedChannels.includes(channel)
-                          ? ""
-                          : " disabled"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="attachment-field">
-                  <strong>Attach</strong>
-                  <div className="attachment-control-row">
-                    <select
-                      aria-label="Attach Kyro hosted file"
-                      name="attachmentQuoteDraftId"
-                      defaultValue={attachedQuoteDraftId}
-                    >
-                      <option value="">No attachment</option>
-                      {review.quoteDrafts.map((quoteDraft) => (
-                        <option key={quoteDraft.id} value={quoteDraft.id}>
-                          {quoteDraft.title}
+                            ? ""
+                            : " disabled"}
                         </option>
                       ))}
                     </select>
-                    <label
-                      className="local-attachment-button"
-                      title="Attach local files, up to 5 files and 10 MB total"
-                    >
-                      <input
-                        aria-label="Attach local files"
-                        multiple
-                        name="localAttachments"
-                        type="file"
-                      />
-                      <svg
-                        aria-hidden="true"
-                        fill="none"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        width="18"
+                  </label>
+                  <div className="attachment-field">
+                    <strong>Attach</strong>
+                    <div className="attachment-control-row">
+                      <select
+                        aria-label="Attach Kyro hosted file"
+                        name="attachmentQuoteDraftId"
+                        defaultValue={attachedQuoteDraftId}
                       >
-                        <path
-                          d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
+                        <option value="">No attachment</option>
+                        {review.quoteDrafts.map((quoteDraft) => (
+                          <option key={quoteDraft.id} value={quoteDraft.id}>
+                            {quoteDraft.title}
+                          </option>
+                        ))}
+                      </select>
+                      <label
+                        className="local-attachment-button"
+                        title="Attach local files, up to 5 files and 10 MB total"
+                      >
+                        <input
+                          aria-label="Attach local files"
+                          multiple
+                          name="localAttachments"
+                          type="file"
                         />
-                      </svg>
-                    </label>
+                        <svg
+                          aria-hidden="true"
+                          fill="none"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          width="18"
+                        >
+                          <path
+                            d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                          />
+                        </svg>
+                      </label>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <label>
-                Subject
-                <input
-                  defaultValue={composerSubject}
-                  name="subject"
-                  type="text"
-                />
-              </label>
-              <label>
-                Message
-                <textarea
-                  defaultValue={composerBody}
-                  name="body"
-                  placeholder="Write the outbound message..."
-                  required
-                />
-              </label>
-              <ReplyGenerator conversationId={conversationId} />
-              <div className="outbound-policy-strip">
-                <div className="email-signature-control">
-                  <label className="signature-include-control">
-                    <input
-                      defaultChecked
-                      name="includeSignature"
-                      type="checkbox"
-                    />
-                    <span>Signature</span>
-                  </label>
-                  <select
-                    aria-label="Email signature"
-                    defaultValue="manual"
-                    name="signatureVariant"
-                  >
-                    <option value="manual">User signature</option>
-                    <option value="ai_generated">Assistant signature</option>
-                  </select>
+                <label>
+                  Subject
+                  <input
+                    defaultValue={composerSubject}
+                    name="subject"
+                    type="text"
+                  />
+                </label>
+                <label>
+                  Message
+                  <textarea
+                    defaultValue={composerBody}
+                    name="body"
+                    placeholder="Write the outbound message..."
+                    required
+                  />
+                </label>
+                <ReplyGenerator conversationId={conversationId} />
+                <div className="outbound-policy-strip">
+                  <div className="email-signature-control">
+                    <label className="signature-include-control">
+                      <input
+                        defaultChecked
+                        name="includeSignature"
+                        type="checkbox"
+                      />
+                      <span>Signature</span>
+                    </label>
+                    <select
+                      aria-label="Email signature"
+                      defaultValue="manual"
+                      name="signatureVariant"
+                    >
+                      <option value="manual">User signature</option>
+                      <option value="ai_generated">Assistant signature</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
-              <button className="primary-button compact" type="submit">
-                Send outbound
-              </button>
-            </form>
-          </article>
+                <button className="primary-button compact" type="submit">
+                  Send reply
+                </button>
+              </form>
+            </div>
+          </details>
 
           <ConversationWorkflowPanel redirectTo={redirectTo} review={review} />
 
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Actions</p>
-                <h2>Proposed actions</h2>
+          {otherActions.length > 0 ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Actions</p>
+                  <h2>Proposed actions</h2>
+                </div>
               </div>
-            </div>
 
-            <div className="draft-reply-list">
-              {draftReplyActions.length > 0 ? (
-                draftReplyActions.map((action) => {
-                  const draftSubject = textValue(action.input.subject) ?? "";
-                  const draftBody = textValue(action.input.body) ?? "";
-                  const draftAttachmentId =
-                    textValue(action.input.attachmentQuoteDraftId) ?? "";
-                  const canEdit = action.status === "pending_approval";
-
-                  return (
-                    <div className="draft-reply-card" key={action.id}>
-                      <div className="draft-reply-header">
-                        <span className="pill">
-                          {formatLabel(action.status)}
-                        </span>
-                        {textValue(action.input.attachmentQuoteDraftId) ? (
-                          <span className="pill">PDF attached</span>
-                        ) : null}
-                        <span>Created {formatDate(action.createdAt)}</span>
-                      </div>
-                      <form
-                        action={
-                          canEdit
-                            ? sendDraftReplyAction
-                            : executeDashboardAction
-                        }
-                        className="draft-reply-form"
-                      >
-                        <input
-                          name="actionId"
-                          type="hidden"
-                          value={action.id}
-                        />
-                        <input
-                          name="conversationId"
-                          type="hidden"
-                          value={conversationId}
-                        />
-                        <input
-                          name="redirectTo"
-                          type="hidden"
-                          value={redirectTo}
-                        />
-                        <div className="draft-reply-field-row">
-                          <label>
-                            Subject
-                            <input
-                              defaultValue={draftSubject}
-                              name="subject"
-                              readOnly={!canEdit}
-                              type="text"
-                            />
-                          </label>
-                          <label>
-                            Attach
-                            <select
-                              defaultValue={draftAttachmentId}
-                              disabled={!canEdit}
-                              name="attachmentQuoteDraftId"
-                            >
-                              <option value="">No attachment</option>
-                              {review.quoteDrafts.map((quoteDraft) => (
-                                <option
-                                  key={quoteDraft.id}
-                                  value={quoteDraft.id}
-                                >
-                                  {quoteDraft.title}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </div>
-                        <label>
-                          Reply draft
-                          <textarea
-                            defaultValue={draftBody}
-                            name="body"
-                            readOnly={!canEdit}
-                          />
-                        </label>
-                        {canEdit ? (
-                          <ReplyGenerator conversationId={conversationId} />
-                        ) : null}
-                        <div className="action-button-row">
-                          {canEdit ? (
-                            <button
-                              className="secondary-button compact"
-                              formAction={updateDraftReplyAction}
-                              type="submit"
-                            >
-                              Save edits
-                            </button>
-                          ) : null}
-                          {action.status === "pending_approval" ||
-                          action.status === "approved" ? (
-                            <InboxSubmitButton
-                              label="Send generated reply"
-                              pendingLabel="Sending reply..."
-                            />
-                          ) : null}
-                          {action.status === "completed" ? (
-                            <span className="pill">Sent</span>
-                          ) : null}
-                        </div>
-                      </form>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="empty-copy">No draft reply action yet.</p>
-              )}
-            </div>
-
-            {otherActions.length > 0 ? (
               <div className="secondary-action-list">
                 {otherActions.map((action) => (
                   <ProposedActionCard
@@ -1427,8 +1269,13 @@ export default async function ConversationReviewPage({
                   />
                 ))}
               </div>
-            ) : null}
-          </article>
+            </article>
+          ) : null}
+
+          <ConversationHistory
+            profile={review}
+            timeZone={generalSettings.timeZone}
+          />
 
           {review.quoteDrafts.length > 0 ? (
             <article className="panel quote-drafts-panel">

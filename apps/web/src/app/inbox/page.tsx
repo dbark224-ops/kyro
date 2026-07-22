@@ -20,7 +20,6 @@ import {
   type InboundEmailSenderRule,
 } from "../../lib/integrations/inbound-email-settings";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
-import { voiceCallMessageBody } from "../../lib/voice/call-message";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import {
@@ -30,11 +29,12 @@ import {
   ignoreConversationNotificationAction,
   promoteSkippedEmailToWorkItemAction,
   restoreConversationAction,
-  retryOutboundDeliveryAction,
   sendDraftReplyAction,
   updateDraftReplyAction,
 } from "./actions";
 import { ConversationWorkflowPanel } from "./conversation-workflow-panel";
+import { ConversationHistory } from "./conversation-history";
+import { ConversationMessageThread } from "./conversation-message-thread";
 import {
   InboxConversationLink,
   InboxPreviewCloseLink,
@@ -43,7 +43,6 @@ import {
 import { InboxSubmitButton } from "./inbox-submit-button";
 import { InboxRefreshButton } from "./inbox-refresh-button";
 import { InboxMailboxTransition } from "./inbox-mailbox-transition";
-import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
@@ -316,33 +315,6 @@ function stringValues(value: unknown) {
   return arrayValue(value)
     .map((item) => textValue(item))
     .filter((item): item is string => Boolean(item));
-}
-
-function channelLabel(
-  channelType: string | null,
-  channelDisplayName: string | null,
-) {
-  if (channelType === "manual_inbound") {
-    return "Manual";
-  }
-
-  if (channelType === "sms") {
-    return "SMS";
-  }
-
-  if (channelType === "phone") {
-    return "Phone";
-  }
-
-  if (channelType === "email") {
-    return "Email";
-  }
-
-  if (channelDisplayName?.toLowerCase().includes("vapi")) {
-    return "Phone";
-  }
-
-  return channelDisplayName ?? formatLabel(channelType);
 }
 
 function confidenceLabel(value: number | null) {
@@ -807,7 +779,7 @@ function InboxDraftReplyAction({
     textValue(action.input.attachmentQuoteDraftId) ?? "";
 
   return (
-    <article className="assistant-preview-row draft-reply-inline-card">
+    <div className="draft-reply-inline-card unified-reply-draft">
       <form
         action={canEdit ? sendDraftReplyAction : executeDashboardAction}
         className="draft-reply-form"
@@ -916,7 +888,7 @@ function InboxDraftReplyAction({
           ) : null}
         </div>
       </form>
-    </article>
+    </div>
   );
 }
 
@@ -977,11 +949,13 @@ function defaultReplySubject(profile: ConversationReview) {
   return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 }
 
-function InboxManualReplyComposer({
+function InboxReplyComposer({
+  draftAction,
   profile,
   redirectTo,
   settings,
 }: {
+  draftAction?: ConversationReview["actions"][number];
   profile: ConversationReview;
   redirectTo: string;
   settings: CommunicationSettings;
@@ -995,199 +969,133 @@ function InboxManualReplyComposer({
   }));
 
   return (
-    <details className="assistant-preview-panel manual-reply-disclosure">
+    <details className="conversation-reply-disclosure">
       <summary>
-        <div>
-          <h3>Manual reply</h3>
-          <span>
-            Open if you want a completely manual response or another channel.
-          </span>
-        </div>
-        <span>Open</span>
+        <span>{draftAction ? "Reply drafted" : "Reply"}</span>
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="16"
+          viewBox="0 0 24 24"
+          width="16"
+        >
+          <path
+            d="m9 18 6-6-6-6"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+          />
+        </svg>
       </summary>
-      <form
-        action={createMockOutboundMessageAction}
-        className="outbound-composer-form inbox-preview-composer"
-        encType="multipart/form-data"
-      >
-        <input
-          name="conversationId"
-          type="hidden"
-          value={profile.conversation.id}
-        />
-        <input name="submissionKey" type="hidden" value={submissionKey} />
-        <input name="redirectTo" type="hidden" value={redirectTo} />
-        <div className="mini-facts-grid">
-          <ManualReplyChannelFields
-            allowedChannels={settings.allowedChannels}
-            defaultChannel={defaultChannel}
-            defaultSubject={defaultSubject}
-            options={channelOptions}
+      <div className="conversation-reply-editor">
+        {draftAction ? (
+          <InboxDraftReplyAction
+            action={draftAction}
+            conversationId={profile.conversation.id}
+            quoteDrafts={profile.quoteDrafts}
+            redirectTo={redirectTo}
           />
-          <div className="attachment-field">
-            <strong>Attach</strong>
-            <div className="attachment-control-row">
-              <select
-                aria-label="Attach Kyro hosted file"
-                defaultValue=""
-                name="attachmentQuoteDraftId"
-              >
-                <option value="">No attachment</option>
-                {profile.quoteDrafts.map((quoteDraft) => (
-                  <option key={quoteDraft.id} value={quoteDraft.id}>
-                    {quoteDraft.title}
-                  </option>
-                ))}
-              </select>
-              <label
-                className="local-attachment-button"
-                title="Attach local files, up to 5 files and 10 MB total"
-              >
-                <input
-                  aria-label="Attach local files"
-                  multiple
-                  name="localAttachments"
-                  type="file"
-                />
-                <svg
-                  aria-hidden="true"
-                  fill="none"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  width="18"
-                >
-                  <path
-                    d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                  />
-                </svg>
-              </label>
+        ) : (
+          <form
+            action={createMockOutboundMessageAction}
+            className="outbound-composer-form inbox-preview-composer"
+            encType="multipart/form-data"
+          >
+            <input
+              name="conversationId"
+              type="hidden"
+              value={profile.conversation.id}
+            />
+            <input name="submissionKey" type="hidden" value={submissionKey} />
+            <input name="redirectTo" type="hidden" value={redirectTo} />
+            <div className="mini-facts-grid">
+              <ManualReplyChannelFields
+                allowedChannels={settings.allowedChannels}
+                defaultChannel={defaultChannel}
+                defaultSubject={defaultSubject}
+                options={channelOptions}
+              />
+              <div className="attachment-field">
+                <strong>Attach</strong>
+                <div className="attachment-control-row">
+                  <select
+                    aria-label="Attach Kyro hosted file"
+                    defaultValue=""
+                    name="attachmentQuoteDraftId"
+                  >
+                    <option value="">No attachment</option>
+                    {profile.quoteDrafts.map((quoteDraft) => (
+                      <option key={quoteDraft.id} value={quoteDraft.id}>
+                        {quoteDraft.title}
+                      </option>
+                    ))}
+                  </select>
+                  <label
+                    className="local-attachment-button"
+                    title="Attach local files, up to 5 files and 10 MB total"
+                  >
+                    <input
+                      aria-label="Attach local files"
+                      multiple
+                      name="localAttachments"
+                      type="file"
+                    />
+                    <svg
+                      aria-hidden="true"
+                      fill="none"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      width="18"
+                    >
+                      <path
+                        d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                      />
+                    </svg>
+                  </label>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <label>
-          Reply
-          <textarea
-            name="body"
-            placeholder="Type the reply you want recorded in this conversation..."
-            required
-          />
-        </label>
-        <ReplyGenerator conversationId={profile.conversation.id} />
-        <div className="outbound-policy-strip">
-          <div className="email-signature-control">
-            <label className="signature-include-control">
-              <input defaultChecked name="includeSignature" type="checkbox" />
-              <span>Signature</span>
+            <label>
+              Reply
+              <textarea
+                name="body"
+                placeholder="Type the reply you want recorded in this conversation..."
+                required
+              />
             </label>
-            <select
-              aria-label="Email signature"
-              defaultValue="manual"
-              name="signatureVariant"
-            >
-              <option value="manual">User signature</option>
-              <option value="ai_generated">Assistant signature</option>
-            </select>
-          </div>
-        </div>
-        <button className="primary-button compact" type="submit">
-          Send reply
-        </button>
-      </form>
-    </details>
-  );
-}
-
-function deliveryStatusLabel(status: string) {
-  if (status === "retry_scheduled") {
-    return "Retry scheduled";
-  }
-
-  return formatLabel(status);
-}
-
-function deliveryStatusClass(status: string) {
-  if (status === "sent") {
-    return "pill success";
-  }
-
-  if (status === "failed" || status === "retry_scheduled") {
-    return "pill warning";
-  }
-
-  return "pill subtle";
-}
-
-function OutboundDeliveryPanel({
-  deliveries,
-  conversationId,
-  redirectTo,
-  timeZone,
-}: {
-  deliveries: ConversationReview["outboundMessages"];
-  conversationId: string;
-  redirectTo: string;
-  timeZone: string;
-}) {
-  if (deliveries.length === 0) {
-    return null;
-  }
-
-  return (
-    <InboxPreviewPanel title="Outbound delivery">
-      <div className="assistant-preview-list compact outbound-delivery-list">
-        {deliveries.map((delivery) => {
-          const deliveryMeta = [
-            formatLabel(delivery.channelType),
-            delivery.provider ? formatLabel(delivery.provider) : null,
-            delivery.sentAt
-              ? `Sent ${formatDate(delivery.sentAt, timeZone)}`
-              : `Attempt ${delivery.attemptCount}/${delivery.maxAttempts}`,
-            delivery.lastError ??
-              (delivery.recipient ? `To ${delivery.recipient}` : null),
-          ].filter(Boolean);
-
-          return (
-            <article
-              className="assistant-preview-row outbound-delivery-row"
-              key={delivery.id}
-            >
-              <div>
-                <strong>{delivery.subject ?? "Outbound message"}</strong>
-                <span>{deliveryMeta.join(" - ")}</span>
+            <ReplyGenerator conversationId={profile.conversation.id} />
+            <div className="outbound-policy-strip">
+              <div className="email-signature-control">
+                <label className="signature-include-control">
+                  <input
+                    defaultChecked
+                    name="includeSignature"
+                    type="checkbox"
+                  />
+                  <span>Signature</span>
+                </label>
+                <select
+                  aria-label="Email signature"
+                  defaultValue="manual"
+                  name="signatureVariant"
+                >
+                  <option value="manual">User signature</option>
+                  <option value="ai_generated">Assistant signature</option>
+                </select>
               </div>
-              <div className="delivery-actions">
-                <span className={deliveryStatusClass(delivery.status)}>
-                  {deliveryStatusLabel(delivery.status)}
-                </span>
-                {delivery.status === "failed" ||
-                delivery.status === "retry_scheduled" ? (
-                  <form action={retryOutboundDeliveryAction}>
-                    <input
-                      name="conversationId"
-                      type="hidden"
-                      value={conversationId}
-                    />
-                    <input
-                      name="outboundQueueId"
-                      type="hidden"
-                      value={delivery.id}
-                    />
-                    <input name="redirectTo" type="hidden" value={redirectTo} />
-                    <button className="secondary-button compact" type="submit">
-                      Retry
-                    </button>
-                  </form>
-                ) : null}
-              </div>
-            </article>
-          );
-        })}
+            </div>
+            <button className="primary-button compact" type="submit">
+              Send reply
+            </button>
+          </form>
+        )}
       </div>
-    </InboxPreviewPanel>
+    </details>
   );
 }
 
@@ -1209,8 +1117,22 @@ function InboxSplitPreview({
     profile.contact?.name ??
     profile.messages[0]?.subject ??
     "Conversation";
+  const draftReplyAction = profile.actions
+    .filter(
+      (action) =>
+        action.type === "draft_reply" &&
+        (action.status === "pending_approval" || action.status === "approved"),
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() -
+        new Date(left.createdAt).getTime(),
+    )[0];
   const visibleActions = profile.actions
-    .filter(isActionablePreviewAction)
+    .filter(
+      (action) =>
+        action.type !== "draft_reply" && isActionablePreviewAction(action),
+    )
     .sort((left, right) => {
       if (left.type === "draft_reply" && right.type !== "draft_reply") {
         return -1;
@@ -1224,7 +1146,6 @@ function InboxSplitPreview({
         new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
       );
     });
-  const recentMessages = profile.messages.slice(-6);
   const latestMessage = [...profile.messages].sort(
     (left, right) =>
       new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
@@ -1329,85 +1250,40 @@ function InboxSplitPreview({
           </InboxPreviewPanel>
         </div>
 
-        <InboxPreviewPanel title="Messages">
-          {recentMessages.length > 0 ? (
-            <div className="assistant-preview-thread">
-              {recentMessages.map((message) => (
-                <article
-                  className={`preview-message ${
-                    message.direction === "outbound" ? "outbound" : "inbound"
-                  }`}
-                  key={message.id}
-                >
-                  <div className="preview-message-meta">
-                    <strong>{formatLabel(message.direction)}</strong>
-                    <span>
-                      {channelLabel(
-                        message.channelType,
-                        message.channelDisplayName,
-                      )}
-                    </span>
-                    <span>
-                      {formatDate(
-                        message.receivedAt ??
-                          message.sentAt ??
-                          message.createdAt,
-                        timeZone,
-                      )}
-                    </span>
-                  </div>
-                  {message.subject ? <strong>{message.subject}</strong> : null}
-                  <p>
-                    {voiceCallMessageBody(message.bodyText, message.metadata) ??
-                      "No message body recorded."}
-                  </p>
-                  <MessageAttachmentList metadata={message.metadata} />
-                  <MessageWorkflowControls
-                    conversationId={profile.conversation.id}
-                    message={message}
-                    notes={profile.notes}
-                    redirectTo={redirectTo}
-                    tasks={profile.tasks}
-                    timeZone={timeZone}
-                  />
-                </article>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-copy">No messages recorded yet.</p>
-          )}
-        </InboxPreviewPanel>
+        <section className="assistant-preview-panel conversation-messages-panel">
+          <h3>Messages</h3>
+          <InboxReplyComposer
+            draftAction={draftReplyAction}
+            profile={profile}
+            redirectTo={redirectTo}
+            settings={communicationSettings}
+          />
+          <ConversationMessageThread
+            messages={profile.messages}
+            timeZone={timeZone}
+          />
+        </section>
 
         {visibleActions.length > 0 ? (
           <InboxPreviewPanel title="Action queue">
             <div className="assistant-preview-list compact">
-              {visibleActions.map((action) =>
-                action.type === "draft_reply" ? (
-                  <InboxDraftReplyAction
+              {visibleActions.map((action) => (
+                <article className="assistant-preview-row" key={action.id}>
+                  <div>
+                    <strong>{previewActionTitle(action)}</strong>
+                    <span>
+                      {formatLabel(action.status)} -{" "}
+                      {formatDate(action.createdAt, timeZone)}
+                    </span>
+                    <p>{previewActionSummary(action)}</p>
+                  </div>
+                  <InboxActionControls
                     action={action}
                     conversationId={profile.conversation.id}
-                    key={action.id}
-                    quoteDrafts={profile.quoteDrafts}
                     redirectTo={redirectTo}
                   />
-                ) : (
-                  <article className="assistant-preview-row" key={action.id}>
-                    <div>
-                      <strong>{previewActionTitle(action)}</strong>
-                      <span>
-                        {formatLabel(action.status)} -{" "}
-                        {formatDate(action.createdAt, timeZone)}
-                      </span>
-                      <p>{previewActionSummary(action)}</p>
-                    </div>
-                    <InboxActionControls
-                      action={action}
-                      conversationId={profile.conversation.id}
-                      redirectTo={redirectTo}
-                    />
-                  </article>
-                ),
-              )}
+                </article>
+              ))}
             </div>
           </InboxPreviewPanel>
         ) : null}
@@ -1418,18 +1294,7 @@ function InboxSplitPreview({
           review={profile}
         />
 
-        <OutboundDeliveryPanel
-          conversationId={profile.conversation.id}
-          deliveries={profile.outboundMessages}
-          redirectTo={redirectTo}
-          timeZone={timeZone}
-        />
-
-        <InboxManualReplyComposer
-          profile={profile}
-          redirectTo={redirectTo}
-          settings={communicationSettings}
-        />
+        <ConversationHistory profile={profile} timeZone={timeZone} />
       </div>
     </section>
   );

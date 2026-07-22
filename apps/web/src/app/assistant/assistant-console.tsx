@@ -32,19 +32,13 @@ import type {
 import type { AssistantExternalActivityItem } from "../../lib/assistant/external-activity";
 import Image from "next/image";
 import Link from "next/link";
-import { MessageAttachmentList } from "../components/message-attachments";
-import { CallLogLauncher } from "../components/call-log-modal";
 import { ContactProfilePanel } from "../components/contact-profile-panel";
+import { ConversationHistory } from "../inbox/conversation-history";
+import { ConversationMessageThread } from "../inbox/conversation-message-thread";
+import { ConversationWorkflowPanel } from "../inbox/conversation-workflow-panel";
 import { ReplyGenerator } from "../inbox/reply-generator";
-import {
-  formatLeadTitle,
-  formatServiceType,
-} from "../../lib/crm/display";
+import { formatLeadTitle, formatServiceType } from "../../lib/crm/display";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
-import {
-  voiceCallIdFromMessageMetadata,
-  voiceCallMessageBody,
-} from "../../lib/voice/call-message";
 
 const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -959,9 +953,7 @@ export function AssistantConsole({
       className={`assistant-workspace${
         isPreviewOpen
           ? " has-preview"
-          : ` has-activity${
-              isActivityCollapsed ? " activity-collapsed" : ""
-            }`
+          : ` has-activity${isActivityCollapsed ? " activity-collapsed" : ""}`
       }`}
     >
       <section className="panel assistant-command-panel">
@@ -3155,9 +3147,22 @@ function ConversationPreview({
   >["profile"];
   timeZone: string;
 }) {
-  const messages = profile.messages.slice(-6);
+  const draftReplyAction = profile.actions
+    .filter(
+      (action) =>
+        action.type === "draft_reply" &&
+        (action.status === "pending_approval" || action.status === "approved"),
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() -
+        new Date(left.createdAt).getTime(),
+    )[0];
   const actionQueue = profile.actions
-    .filter((action) => isAssistantQueueAction(action))
+    .filter(
+      (action) =>
+        action.type !== "draft_reply" && isAssistantQueueAction(action),
+    )
     .sort((left, right) => {
       if (left.type === "draft_reply" && right.type !== "draft_reply") {
         return -1;
@@ -3186,10 +3191,13 @@ function ConversationPreview({
     <div className="assistant-preview-body">
       <div className="assistant-preview-status-row">
         <div className="assistant-preview-status-copy">
-          <span className="pill">{formatLabel(profile.conversation.status)}</span>
+          <span className="pill">
+            {formatLabel(profile.conversation.status)}
+          </span>
           {profile.conversation.lastMessageAt ? (
             <span>
-              Last message {formatDate(profile.conversation.lastMessageAt, timeZone)}
+              Last message{" "}
+              {formatDate(profile.conversation.lastMessageAt, timeZone)}
             </span>
           ) : null}
         </div>
@@ -3226,55 +3234,61 @@ function ConversationPreview({
         </PreviewPanel>
       </div>
 
-      <PreviewPanel title="Messages">
-        <div className="assistant-preview-thread">
-          {messages.length > 0 ? (
-            messages.map((message) => (
-              <article
-                className={`preview-message ${message.direction}`}
-                key={message.id}
-              >
-                <div className="preview-message-meta">
-                  <strong>{formatLabel(message.direction)}</strong>
-                  <span>
-                    {channelLabel(
-                      message.channelType,
-                      message.channelDisplayName,
-                    )}
-                  </span>
-                  <time>
-                    {formatDate(
-                      message.receivedAt ?? message.sentAt ?? message.createdAt,
-                      timeZone,
-                    )}
-                  </time>
-                </div>
-                {message.subject ? <strong>{message.subject}</strong> : null}
-                <p>
-                  {voiceCallMessageBody(message.bodyText, message.metadata) ??
-                    "No message body."}
-                </p>
-                <MessageAttachmentList metadata={message.metadata} />
-                <AssistantMessageWorkflowSummary
-                  message={message}
-                  notes={profile.notes}
-                  tasks={profile.tasks}
-                  timeZone={timeZone}
-                />
-              </article>
-            ))
-          ) : (
-            <p className="empty-copy">
-              No messages are attached to this inquiry yet.
-            </p>
-          )}
-        </div>
-      </PreviewPanel>
+      <section className="assistant-preview-panel conversation-messages-panel">
+        <h3>Messages</h3>
+        <details className="conversation-reply-disclosure">
+          <summary>
+            <span>{draftReplyAction ? "Reply drafted" : "Reply"}</span>
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="16"
+              viewBox="0 0 24 24"
+              width="16"
+            >
+              <path
+                d="m9 18 6-6-6-6"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+              />
+            </svg>
+          </summary>
+          <div className="conversation-reply-editor">
+            {draftReplyAction ? (
+              <AssistantPreviewActionCard
+                action={draftReplyAction}
+                actionPendingId={actionPendingId}
+                conversationId={profile.conversation.id}
+                href={href}
+                onRunAction={onRunAction}
+                onSaveDraftReply={onSaveDraftReply}
+                onSendDraftReply={onSendDraftReply}
+                quoteDrafts={profile.quoteDrafts}
+              />
+            ) : (
+              <AssistantManualReplyComposer
+                conversationId={profile.conversation.id}
+                href={href}
+                isPending={actionPendingId === `manual:${href}`}
+                leadTitle={profile.lead?.title}
+                onSendManualReply={onSendManualReply}
+                preferredChannel={preferredReplyChannel(profile.contact)}
+              />
+            )}
+          </div>
+        </details>
+        <ConversationMessageThread
+          messages={profile.messages}
+          timeZone={timeZone}
+        />
+      </section>
 
-      <PreviewPanel title="Action queue">
-        <div className="assistant-preview-list compact">
-          {actionQueue.length > 0 ? (
-            actionQueue.map((action) => (
+      {actionQueue.length > 0 ? (
+        <PreviewPanel title="Action queue">
+          <div className="assistant-preview-list compact">
+            {actionQueue.map((action) => (
               <AssistantPreviewActionCard
                 action={action}
                 actionPendingId={actionPendingId}
@@ -3286,33 +3300,14 @@ function ConversationPreview({
                 onSendDraftReply={onSendDraftReply}
                 quoteDrafts={profile.quoteDrafts}
               />
-            ))
-          ) : (
-            <p className="empty-copy">No pending actions for this inquiry.</p>
-          )}
-        </div>
-      </PreviewPanel>
-
-      <AssistantConversationWorkflowPanel profile={profile} />
-
-      <AssistantOutboundDeliveryPanel deliveries={profile.outboundMessages} />
-
-      <details className="assistant-preview-panel manual-reply-disclosure">
-        <summary>
-          <div>
-            <h3>Manual reply</h3>
-            <span>Open for a completely manual response or another channel.</span>
+            ))}
           </div>
-          <span>Open</span>
-        </summary>
-        <AssistantManualReplyComposer
-          href={href}
-          isPending={actionPendingId === `manual:${href}`}
-          leadTitle={profile.lead?.title}
-          onSendManualReply={onSendManualReply}
-          preferredChannel={preferredReplyChannel(profile.contact)}
-        />
-      </details>
+        </PreviewPanel>
+      ) : null}
+
+      <ConversationWorkflowPanel compact redirectTo={href} review={profile} />
+
+      <ConversationHistory profile={profile} timeZone={timeZone} />
 
       <details className="assistant-preview-details">
         <summary>Audit and AI diagnostics</summary>
@@ -3326,217 +3321,6 @@ function ConversationPreview({
         />
       </details>
     </div>
-  );
-}
-
-function shouldShowAssistantTask(
-  task: Extract<
-    AssistantResourcePreview,
-    { type: "conversation" }
-  >["profile"]["tasks"][number],
-) {
-  if (task.taskType !== "customer_follow_up") {
-    return true;
-  }
-
-  return task.dueAt ? Date.parse(task.dueAt) <= Date.now() : false;
-}
-
-function AssistantMessageWorkflowSummary({
-  message,
-  notes,
-  tasks,
-  timeZone,
-}: {
-  message: Extract<
-    AssistantResourcePreview,
-    { type: "conversation" }
-  >["profile"]["messages"][number];
-  notes: Extract<
-    AssistantResourcePreview,
-    { type: "conversation" }
-  >["profile"]["notes"];
-  tasks: Extract<
-    AssistantResourcePreview,
-    { type: "conversation" }
-  >["profile"]["tasks"];
-  timeZone: string;
-}) {
-  const messageTasks = tasks.filter((task) => task.messageId === message.id);
-  const messageNotes = notes.filter((note) => note.messageId === message.id);
-  const openTasks = messageTasks.filter(
-    (task) =>
-      task.status === "open" &&
-      task.taskType !== "message_resolution" &&
-      shouldShowAssistantTask(task),
-  );
-  const isResolved = messageTasks.some(
-    (task) =>
-      task.taskType === "message_resolution" && task.status === "completed",
-  );
-  const voiceCallId = voiceCallIdFromMessageMetadata(message.metadata);
-
-  const workflowControls = (
-    <details className="message-workflow-controls">
-      <summary>
-        <span>Message controls</span>
-        <span>
-          {isResolved ? "Resolved" : `${openTasks.length} open task`}
-          {openTasks.length === 1 ? "" : "s"} - {messageNotes.length} note
-          {messageNotes.length === 1 ? "" : "s"}
-        </span>
-      </summary>
-      <div className="message-workflow-content">
-        {isResolved ? <span className="pill success">Resolved</span> : null}
-        {openTasks.map((task) => (
-          <span className="pill" key={task.id}>
-            {task.title}
-            {task.dueAt ? ` - ${formatDate(task.dueAt)}` : ""}
-          </span>
-        ))}
-        {messageNotes.map((note) => (
-          <blockquote className="internal-note" key={note.id}>
-            <p>{note.body}</p>
-            <footer>{formatDate(note.createdAt)}</footer>
-          </blockquote>
-        ))}
-        {!isResolved && openTasks.length === 0 && messageNotes.length === 0 ? (
-          <p className="empty-copy">No controls recorded for this message.</p>
-        ) : null}
-      </div>
-    </details>
-  );
-
-  return (
-    <>
-      {voiceCallId ? (
-        <CallLogLauncher callId={voiceCallId} timeZone={timeZone} />
-      ) : null}
-      {workflowControls}
-    </>
-  );
-}
-
-function AssistantConversationWorkflowPanel({
-  profile,
-}: {
-  profile: Extract<
-    AssistantResourcePreview,
-    { type: "conversation" }
-  >["profile"];
-}) {
-  const visibleTasks = profile.tasks.filter(
-    (task) => task.taskType !== "message_resolution" && shouldShowAssistantTask(task),
-  );
-  const openTasks = visibleTasks.filter((task) => task.status === "open");
-  const activeAppointments = profile.appointments.filter(
-    (appointment) =>
-      appointment.status === "suggested" || appointment.status === "scheduled",
-  );
-
-  if (openTasks.length === 0 && activeAppointments.length === 0) {
-    return null;
-  }
-
-  return (
-    <PreviewPanel title="Workflow">
-      <div className="assistant-preview-list compact">
-        {activeAppointments.map((appointment) => (
-          <article className="assistant-preview-row" key={appointment.id}>
-            <div>
-              <strong>{appointment.title}</strong>
-              <span>
-                {formatLabel(appointment.status)} -{" "}
-                {formatDate(appointment.startsAt)}
-              </span>
-              {appointment.location ? <p>{appointment.location}</p> : null}
-            </div>
-            <span className="pill">{formatLabel(appointment.appointmentType)}</span>
-          </article>
-        ))}
-        {openTasks.map((task) => (
-          <article className="assistant-preview-row" key={task.id}>
-            <div>
-              <strong>{task.title}</strong>
-              <span>
-                {formatLabel(task.status)} -{" "}
-                {task.dueAt ? formatDate(task.dueAt) : "No due date"}
-              </span>
-              {task.description ? <p>{task.description}</p> : null}
-            </div>
-            <span className="pill">{formatLabel(task.taskType)}</span>
-          </article>
-        ))}
-      </div>
-    </PreviewPanel>
-  );
-}
-
-function deliveryStatusLabel(status: string) {
-  if (status === "retry_scheduled") {
-    return "Retry scheduled";
-  }
-
-  return formatLabel(status);
-}
-
-function deliveryStatusClass(status: string) {
-  if (status === "sent") {
-    return "pill success";
-  }
-
-  if (status === "failed" || status === "retry_scheduled") {
-    return "pill warning";
-  }
-
-  return "pill subtle";
-}
-
-function AssistantOutboundDeliveryPanel({
-  deliveries,
-}: {
-  deliveries: Extract<
-    AssistantResourcePreview,
-    { type: "conversation" }
-  >["profile"]["outboundMessages"];
-}) {
-  if (deliveries.length === 0) {
-    return null;
-  }
-
-  return (
-    <PreviewPanel title="Outbound delivery">
-      <div className="assistant-preview-list compact outbound-delivery-list">
-        {deliveries.map((delivery) => {
-          const deliveryMeta = [
-            formatLabel(delivery.channelType),
-            delivery.provider ? formatLabel(delivery.provider) : null,
-            delivery.sentAt
-              ? `Sent ${formatDate(delivery.sentAt)}`
-              : `Attempt ${delivery.attemptCount}/${delivery.maxAttempts}`,
-            delivery.lastError ??
-              (delivery.recipient ? `To ${delivery.recipient}` : null),
-          ].filter(Boolean);
-
-          return (
-            <article
-              className="assistant-preview-row outbound-delivery-row"
-              key={delivery.id}
-            >
-              <div>
-                <strong>{delivery.subject ?? "Outbound message"}</strong>
-                <span>{deliveryMeta.join(" - ")}</span>
-              </div>
-              <div className="delivery-actions">
-                <span className={deliveryStatusClass(delivery.status)}>
-                  {deliveryStatusLabel(delivery.status)}
-                </span>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    </PreviewPanel>
   );
 }
 
@@ -3852,9 +3636,7 @@ function AssistantPreviewActionCard({
               onClick={() => onRunAction(action.id, href, "execute")}
               type="button"
             >
-              {isExecuting
-                ? "Sending"
-                : actionExecuteLabel(action.type)}
+              {isExecuting ? "Sending" : actionExecuteLabel(action.type)}
             </button>
           ) : null}
         </div>
@@ -3883,12 +3665,14 @@ function preferredReplyChannel(
 }
 
 function AssistantManualReplyComposer({
+  conversationId,
   href,
   isPending,
   leadTitle,
   onSendManualReply,
   preferredChannel,
 }: {
+  conversationId: string;
   href: string;
   isPending: boolean;
   leadTitle: string | null | undefined;
@@ -3955,6 +3739,7 @@ function AssistantManualReplyComposer({
           value={body}
         />
       </label>
+      <ReplyGenerator conversationId={conversationId} />
       <div className="action-button-row">
         <span className="pill warning">
           Email sends through Gmail; other channels are internal
@@ -4474,7 +4259,10 @@ function isAssistantQueueAction(
   return true;
 }
 
-function formatDate(value: string | null | undefined, timeZone?: string | null) {
+function formatDate(
+  value: string | null | undefined,
+  timeZone?: string | null,
+) {
   return formatWorkspaceDateTime({
     locale: "en-US",
     timeZone,
@@ -4491,33 +4279,6 @@ function formatLabel(value: string | null | undefined) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
-}
-
-function channelLabel(
-  channelType: string | null,
-  channelDisplayName: string | null,
-) {
-  if (channelType === "manual_inbound") {
-    return "Manual";
-  }
-
-  if (channelType === "sms") {
-    return "SMS";
-  }
-
-  if (channelType === "phone") {
-    return "Phone";
-  }
-
-  if (channelType === "email") {
-    return "Email";
-  }
-
-  if (channelDisplayName?.toLowerCase().includes("vapi")) {
-    return "Phone";
-  }
-
-  return channelDisplayName ?? formatLabel(channelType);
 }
 
 function actionSummary(action: {
