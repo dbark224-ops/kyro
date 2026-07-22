@@ -3202,6 +3202,10 @@ async function processMessage({
             receivedAt: message.receivedAt,
             stage: "observed",
             subject: message.subject,
+            bodyText: (message.bodyText ?? message.snippet ?? "").slice(
+              0,
+              12_000,
+            ),
             summary: settings.includeAwarenessEvents
               ? safeSummaryText(message)
               : null,

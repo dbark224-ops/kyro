@@ -2,7 +2,6 @@ import { AppFrame } from "../components/app-frame";
 import {
   getConversationList,
   getConversationReview,
-  getSkippedEmailLast24HoursCount,
   getSkippedEmailSummaries,
   type ConversationReview,
   type SkippedEmailSummaryItem,
@@ -18,7 +17,6 @@ import {
 } from "../../lib/crm/display";
 import {
   findInboundEmailSenderRule,
-  getInboundEmailSettings,
   type InboundEmailSenderRule,
 } from "../../lib/integrations/inbound-email-settings";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
@@ -28,8 +26,10 @@ import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-setting
 import {
   createMockOutboundMessageAction,
   createConversationAppointmentAction,
+  deleteConversationAction,
   ignoreConversationNotificationAction,
   promoteSkippedEmailToWorkItemAction,
+  restoreConversationAction,
   retryOutboundDeliveryAction,
   sendDraftReplyAction,
   updateDraftReplyAction,
@@ -47,11 +47,7 @@ import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
-import {
-  SkippedEmailCloseLink,
-  SkippedEmailDialogToggleLink,
-  SkippedEmailDialogTransitionShell,
-} from "./skipped-email-dialog-transition";
+import { SkippedEmailCloseLink } from "./skipped-email-dialog-transition";
 import { SkippedEmailReplyDetails } from "./skipped-email-reply-details";
 import { SkippedEmailSenderRuleControls } from "./skipped-email-sender-rule-controls";
 import {
@@ -72,6 +68,8 @@ type InboxPageProps = {
   searchParams?: Promise<{
     filter?: string;
     conversationId?: string;
+    junkId?: string;
+    mailbox?: string;
     page?: string;
     q?: string;
     skippedQ?: string;
@@ -102,6 +100,8 @@ const SORT_OPTIONS = [
   { value: "customer", label: "Customer" },
 ] as const;
 const INBOX_PAGE_SIZE = 10;
+const MAILBOXES = ["inbox", "junk", "deleted"] as const;
+type Mailbox = (typeof MAILBOXES)[number];
 
 const WORKFLOW_RANK: Record<string, number> = {
   needs_reply: 1,
@@ -146,6 +146,10 @@ function isSort(
   return SORT_OPTIONS.some((sort) => sort.value === value);
 }
 
+function isMailbox(value: string | undefined): value is Mailbox {
+  return MAILBOXES.includes(value as Mailbox);
+}
+
 function normalizePage(value: string | undefined) {
   const parsed = Number.parseInt(value ?? "", 10);
 
@@ -155,6 +159,8 @@ function normalizePage(value: string | undefined) {
 function inboxHref({
   conversationId,
   filter,
+  junkId,
+  mailbox = "inbox",
   page,
   query,
   showSkippedEmail = false,
@@ -162,6 +168,8 @@ function inboxHref({
 }: {
   conversationId?: string | null;
   filter: string;
+  junkId?: string | null;
+  mailbox?: Mailbox;
   page?: number;
   query: string;
   showSkippedEmail?: boolean;
@@ -177,6 +185,14 @@ function inboxHref({
     params.set("conversationId", conversationId);
   }
 
+  if (junkId) {
+    params.set("junkId", junkId);
+  }
+
+  if (mailbox !== "inbox") {
+    params.set("mailbox", mailbox);
+  }
+
   if (query) {
     params.set("q", query);
   }
@@ -186,7 +202,7 @@ function inboxHref({
   }
 
   if (showSkippedEmail) {
-    params.set("skipped", "1");
+    params.set("mailbox", "junk");
   }
 
   if (page && page > 1) {
@@ -196,24 +212,6 @@ function inboxHref({
   const nextQuery = params.toString();
 
   return nextQuery ? `/inbox?${nextQuery}` : "/inbox";
-}
-
-function filterHref(
-  filter: string,
-  page: number | undefined,
-  query: string,
-  sort: string,
-  showSkippedEmail: boolean,
-  conversationId?: string | null,
-) {
-  return inboxHref({
-    conversationId,
-    filter,
-    page,
-    query,
-    showSkippedEmail,
-    sort,
-  });
 }
 
 function dateValue(value: string | null) {
@@ -534,6 +532,8 @@ function SkippedEmailDialog({
     </div>
   );
 }
+
+void SkippedEmailDialog;
 
 function previewActionTitle(action: ConversationReview["actions"][number]) {
   if (action.type === "draft_reply") {
@@ -1213,6 +1213,22 @@ function InboxSplitPreview({
           >
             Open full screen
           </SmartPrefetchLink>
+          <form action={deleteConversationAction}>
+            <input
+              name="conversationId"
+              type="hidden"
+              value={profile.conversation.id}
+            />
+            <input name="redirectTo" type="hidden" value={closeHref} />
+            <button
+              aria-label="Move conversation to Deleted"
+              className="inbox-preview-delete-button"
+              title="Move to Deleted"
+              type="submit"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </form>
           <InboxPreviewCloseLink
             className="secondary-button compact inbox-preview-close-button"
             href={closeHref}
@@ -1378,6 +1394,178 @@ function InboxSplitPreview({
   );
 }
 
+function ConversationDeleteButton({
+  conversationId,
+  redirectTo,
+}: {
+  conversationId: string;
+  redirectTo: string;
+}) {
+  return (
+    <form
+      action={deleteConversationAction}
+      className="conversation-delete-form"
+    >
+      <input name="conversationId" type="hidden" value={conversationId} />
+      <input name="redirectTo" type="hidden" value={redirectTo} />
+      <button
+        aria-label="Move conversation to Deleted"
+        className="conversation-delete-button"
+        title="Move to Deleted"
+        type="submit"
+      >
+        <span aria-hidden="true">×</span>
+      </button>
+    </form>
+  );
+}
+
+function DeletedConversationSplitPreview({
+  closeHref,
+  profile,
+  redirectTo,
+  timeZone,
+}: {
+  closeHref: string;
+  profile: ConversationReview;
+  redirectTo: string;
+  timeZone: string;
+}) {
+  const title =
+    formatLeadTitle(profile.lead?.title, profile.contact?.name) ??
+    profile.contact?.name ??
+    profile.messages[0]?.subject ??
+    "Deleted conversation";
+
+  return (
+    <section className="panel assistant-inline-preview inbox-inline-preview mailbox-simple-preview">
+      <header className="assistant-preview-header">
+        <div>
+          <p className="eyebrow">Deleted</p>
+          <h2>{title}</h2>
+        </div>
+        <div className="button-row inbox-preview-actions">
+          <form action={restoreConversationAction}>
+            <input
+              name="conversationId"
+              type="hidden"
+              value={profile.conversation.id}
+            />
+            <input name="redirectTo" type="hidden" value={redirectTo} />
+            <button className="primary-button compact" type="submit">
+              Restore to Inbox
+            </button>
+          </form>
+          <InboxPreviewCloseLink
+            className="secondary-button compact inbox-preview-close-button"
+            href={closeHref}
+          >
+            Close
+          </InboxPreviewCloseLink>
+        </div>
+      </header>
+      <div className="assistant-preview-body">
+        <InboxPreviewPanel title="Sender">
+          <InboxPreviewFacts
+            facts={[
+              ["Name", profile.contact?.name ?? null],
+              ["Email", profile.contact?.email ?? null],
+              ["Phone", profile.contact?.phone ?? null],
+              ["Company", profile.contact?.company ?? null],
+            ]}
+          />
+        </InboxPreviewPanel>
+        <InboxPreviewPanel title="Messages">
+          <div className="assistant-preview-thread">
+            {profile.messages.map((message) => (
+              <article className="preview-message" key={message.id}>
+                <div className="preview-message-meta">
+                  <strong>{formatLabel(message.direction)}</strong>
+                  <span>
+                    {formatDate(
+                      message.receivedAt ?? message.sentAt ?? message.createdAt,
+                      timeZone,
+                    )}
+                  </span>
+                </div>
+                {message.subject ? <strong>{message.subject}</strong> : null}
+                <p>{message.bodyText ?? "No message body recorded."}</p>
+                <MessageAttachmentList metadata={message.metadata} />
+              </article>
+            ))}
+          </div>
+        </InboxPreviewPanel>
+      </div>
+    </section>
+  );
+}
+
+function JunkEmailSplitPreview({
+  closeHref,
+  email,
+  redirectTo,
+  timeZone,
+}: {
+  closeHref: string;
+  email: SkippedEmailSummaryItem;
+  redirectTo: string;
+  timeZone: string;
+}) {
+  return (
+    <section className="panel assistant-inline-preview inbox-inline-preview mailbox-simple-preview">
+      <header className="assistant-preview-header">
+        <div>
+          <p className="eyebrow">Junk</p>
+          <h2>{email.subject}</h2>
+        </div>
+        <div className="button-row inbox-preview-actions">
+          <form action={promoteSkippedEmailToWorkItemAction}>
+            <input name="eventId" type="hidden" value={email.id} />
+            <button className="primary-button compact" type="submit">
+              Promote to work queue
+            </button>
+          </form>
+          <InboxPreviewCloseLink
+            className="secondary-button compact inbox-preview-close-button"
+            href={closeHref}
+          >
+            Close
+          </InboxPreviewCloseLink>
+        </div>
+      </header>
+      <div className="assistant-preview-body">
+        <InboxPreviewPanel title="Sender">
+          <InboxPreviewFacts
+            facts={[
+              ["From", email.fromEmail],
+              ["Account", email.accountEmail],
+              ["Received", formatDate(email.receivedAt, timeZone)],
+              ["Category", formatLabel(email.category)],
+            ]}
+          />
+        </InboxPreviewPanel>
+        <InboxPreviewPanel title="Message">
+          <article className="junk-message-body">
+            <strong>{email.subject}</strong>
+            <p>
+              {email.bodyText ??
+                email.summary ??
+                "No message body was stored for this email."}
+            </p>
+          </article>
+        </InboxPreviewPanel>
+        {email.fromEmail ? (
+          <SkippedEmailReplyDetails
+            defaultSubject={defaultSkippedReplySubject(email.subject)}
+            emailId={email.id}
+            replyRedirectHref={redirectTo}
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export default async function InboxPage({ searchParams }: InboxPageProps) {
   const query = await searchParams;
   const { supabase, workspace } = await requireWorkspaceContext();
@@ -1385,70 +1573,77 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const activeSort = isSort(query?.sort) ? query.sort : "recent";
   const requestedPage = normalizePage(query?.page);
   const searchQuery = query?.q?.trim() ?? "";
-  const skippedSearchQuery = query?.skippedQ?.trim() ?? "";
   const selectedConversationId = query?.conversationId?.trim() ?? "";
-  const showSkippedEmail = query?.skipped === "1";
+  const selectedJunkId = query?.junkId?.trim() ?? "";
+  const activeMailbox = isMailbox(query?.mailbox) ? query.mailbox : "inbox";
   const [
-    conversations,
+    inboxConversations,
+    deletedConversations,
     selectedConversationReview,
     communicationSettings,
     generalSettings,
-    inboundEmailSettings,
     skippedEmailSummaries,
   ] = await Promise.all([
     getConversationList(supabase, workspace.id),
-    selectedConversationId
+    getConversationList(supabase, workspace.id, { mailbox: "deleted" }),
+    selectedConversationId && activeMailbox !== "junk"
       ? getConversationReview(supabase, workspace.id, selectedConversationId)
       : Promise.resolve(null),
-    selectedConversationId
+    selectedConversationId && activeMailbox === "inbox"
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
     getWorkspaceGeneralSettings(supabase, workspace.id),
-    showSkippedEmail
-      ? getInboundEmailSettings(supabase, workspace.id)
-      : Promise.resolve(null),
-    showSkippedEmail
-      ? getSkippedEmailSummaries(supabase, workspace.id)
-      : getSkippedEmailLast24HoursCount(supabase, workspace.id).then(
-          (last24HoursCount) => ({
-            items: [],
-            last24HoursCount,
-          }),
-        ),
+    getSkippedEmailSummaries(supabase, workspace.id),
   ]);
-  const skippedEmailSummaryItems = skippedSearchQuery
+  const conversations =
+    activeMailbox === "deleted" ? deletedConversations : inboxConversations;
+  const validSelectedConversationReview =
+    selectedConversationReview &&
+    ((activeMailbox === "deleted" &&
+      Boolean(selectedConversationReview.conversation.deletedAt)) ||
+      (activeMailbox === "inbox" &&
+        !selectedConversationReview.conversation.deletedAt))
+      ? selectedConversationReview
+      : null;
+  const skippedEmailSummaryItems = searchQuery
     ? skippedEmailSummaries.items.filter((email) =>
-        skippedEmailSearchText(email).includes(
-          skippedSearchQuery.toLowerCase(),
-        ),
+        skippedEmailSearchText(email).includes(searchQuery.toLowerCase()),
       )
     : skippedEmailSummaries.items;
   const skippedEmailLast24HoursCount = skippedEmailSummaries.last24HoursCount;
+  const selectedJunkEmail =
+    activeMailbox === "junk"
+      ? (skippedEmailSummaries.items.find(
+          (email) => email.id === selectedJunkId,
+        ) ?? null)
+      : null;
   const closePreviewHref = inboxHref({
     filter: activeFilter,
+    mailbox: activeMailbox,
     query: searchQuery,
-    showSkippedEmail,
     sort: activeSort,
   });
-  const selectedRedirectHref = selectedConversationReview
+  const selectedRedirectHref = validSelectedConversationReview
     ? inboxHref({
-        conversationId: selectedConversationReview.conversation.id,
+        conversationId: validSelectedConversationReview.conversation.id,
         filter: activeFilter,
+        mailbox: activeMailbox,
         query: searchQuery,
-        showSkippedEmail,
         sort: activeSort,
       })
     : closePreviewHref;
-  const skippedEmailOpenHref = inboxHref({
-    conversationId: selectedConversationReview?.conversation.id,
+  const selectedJunkRedirectHref = selectedJunkEmail
+    ? inboxHref({
+        filter: activeFilter,
+        junkId: selectedJunkEmail.id,
+        mailbox: "junk",
+        query: searchQuery,
+        sort: activeSort,
+      })
+    : closePreviewHref;
+  const deleteRedirectHref = inboxHref({
     filter: activeFilter,
-    query: searchQuery,
-    showSkippedEmail: true,
-    sort: activeSort,
-  });
-  const skippedEmailCloseHref = inboxHref({
-    conversationId: selectedConversationReview?.conversation.id,
-    filter: activeFilter,
+    mailbox: "inbox",
     query: searchQuery,
     sort: activeSort,
   });
@@ -1541,16 +1736,16 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                 ).length,
     ]),
   );
-  const needsReplyCount = conversations.filter(
+  const needsReplyCount = inboxConversations.filter(
     (conversation) => conversation.workflowBucket === "needs_reply",
   ).length;
-  const readyToQuoteCount = conversations.filter(
+  const readyToQuoteCount = inboxConversations.filter(
     (conversation) => conversation.workflowBucket === "ready_to_quote",
   ).length;
-  const awaitingCustomerCount = conversations.filter(
+  const awaitingCustomerCount = inboxConversations.filter(
     (conversation) => conversation.workflowBucket === "awaiting_customer",
   ).length;
-  const followUpDueCount = conversations.filter(
+  const followUpDueCount = inboxConversations.filter(
     (conversation) => conversation.workflowBucket === "follow_up_due",
   ).length;
 
@@ -1592,111 +1787,200 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
       <section
         className={
-          selectedConversationReview
+          validSelectedConversationReview || selectedJunkEmail
             ? "inbox-workspace has-preview"
             : "inbox-workspace"
         }
       >
         <section className="panel page-panel inbox-work-queue-panel">
-          <div className="panel-heading">
+          <div className="panel-heading mailbox-panel-heading">
             <div>
               <p className="eyebrow">Messages</p>
-              <h2>Work queue</h2>
+              <h2>
+                {activeMailbox === "junk"
+                  ? "Junk"
+                  : activeMailbox === "deleted"
+                    ? "Deleted"
+                    : "Work queue"}
+              </h2>
             </div>
             <div className="inbox-work-queue-actions">
               <InboxRefreshButton />
-              <span className="pill">
-                {sortedConversations.length === 0
-                  ? "0 shown"
-                  : `${pageStart + 1}-${Math.min(
-                      pageStart + INBOX_PAGE_SIZE,
-                      sortedConversations.length,
-                    )} of ${sortedConversations.length}`}
-              </span>
-              <SkippedEmailDialogToggleLink
-                ariaLabel={`Filtered-out emails, ${skippedEmailLast24HoursCount} from the last 24 hours`}
-                className={
-                  showSkippedEmail
-                    ? "secondary-button compact link-button active"
-                    : "secondary-button compact link-button"
-                }
-                href={
-                  showSkippedEmail
-                    ? skippedEmailCloseHref
-                    : skippedEmailOpenHref
-                }
-                isOpen={showSkippedEmail}
-              >
-                Filtered-out emails{" "}
-                <span>{skippedEmailLast24HoursCount} last 24h</span>
-              </SkippedEmailDialogToggleLink>
+              {activeMailbox === "junk" ? (
+                <span className="pill">
+                  {skippedEmailLast24HoursCount} last 24h
+                </span>
+              ) : (
+                <span className="pill">
+                  {sortedConversations.length === 0
+                    ? "0 shown"
+                    : `${pageStart + 1}-${Math.min(
+                        pageStart + INBOX_PAGE_SIZE,
+                        sortedConversations.length,
+                      )} of ${sortedConversations.length}`}
+                </span>
+              )}
             </div>
           </div>
 
-          <nav className="filter-bar" aria-label="Inbox filters">
-            {FILTERS.map((filter) => (
-              <SmartPrefetchLink
-                className={
-                  activeFilter === filter.value
-                    ? "filter-pill active"
-                    : "filter-pill"
-                }
-                href={filterHref(
-                  filter.value,
-                  undefined,
-                  searchQuery,
-                  activeSort,
-                  showSkippedEmail,
-                  selectedConversationReview?.conversation.id,
-                )}
-                key={filter.value}
-              >
-                {filter.label}
-                <span>{filterCounts.get(filter.value) ?? 0}</span>
-              </SmartPrefetchLink>
-            ))}
+          <nav aria-label="Mailbox" className="mailbox-switcher">
+            <SmartPrefetchLink
+              className={activeMailbox === "inbox" ? "active" : ""}
+              href={inboxHref({
+                filter: "all",
+                mailbox: "inbox",
+                query: "",
+                sort: "recent",
+              })}
+            >
+              Inbox <span>{inboxConversations.length}</span>
+            </SmartPrefetchLink>
+            <SmartPrefetchLink
+              className={activeMailbox === "junk" ? "active" : ""}
+              href={inboxHref({
+                filter: "all",
+                mailbox: "junk",
+                query: "",
+                sort: "recent",
+              })}
+            >
+              Junk <span>{skippedEmailSummaries.totalCount}</span>
+            </SmartPrefetchLink>
+            <SmartPrefetchLink
+              className={activeMailbox === "deleted" ? "active" : ""}
+              href={inboxHref({
+                filter: "all",
+                mailbox: "deleted",
+                query: "",
+                sort: "recent",
+              })}
+            >
+              Deleted <span>{deletedConversations.length}</span>
+            </SmartPrefetchLink>
           </nav>
 
+          {activeMailbox === "inbox" ? (
+            <nav className="filter-bar" aria-label="Inbox filters">
+              {FILTERS.map((filter) => (
+                <SmartPrefetchLink
+                  className={
+                    activeFilter === filter.value
+                      ? "filter-pill active"
+                      : "filter-pill"
+                  }
+                  href={inboxHref({
+                    conversationId:
+                      validSelectedConversationReview?.conversation.id,
+                    filter: filter.value,
+                    mailbox: "inbox",
+                    query: searchQuery,
+                    sort: activeSort,
+                  })}
+                  key={filter.value}
+                >
+                  {filter.label}
+                  <span>{filterCounts.get(filter.value) ?? 0}</span>
+                </SmartPrefetchLink>
+              ))}
+            </nav>
+          ) : null}
+
           <form action="/inbox" className="inbox-toolbar" method="get">
-            {activeFilter !== "all" ? (
+            <input name="mailbox" type="hidden" value={activeMailbox} />
+            {activeMailbox === "inbox" && activeFilter !== "all" ? (
               <input name="filter" type="hidden" value={activeFilter} />
-            ) : null}
-            {showSkippedEmail ? (
-              <input name="skipped" type="hidden" value="1" />
-            ) : null}
-            {selectedConversationReview ? (
-              <input
-                name="conversationId"
-                type="hidden"
-                value={selectedConversationReview.conversation.id}
-              />
             ) : null}
             <label>
               Search
               <input
                 defaultValue={searchQuery}
                 name="q"
-                placeholder="Customer, job type, urgent, bathroom..."
+                placeholder={
+                  activeMailbox === "junk"
+                    ? "Sender, subject, reason..."
+                    : "Customer, sender, subject..."
+                }
                 type="search"
               />
             </label>
-            <label>
-              Sort
-              <select defaultValue={activeSort} name="sort">
-                {SORT_OPTIONS.map((sort) => (
-                  <option key={sort.value} value={sort.value}>
-                    {sort.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {activeMailbox !== "junk" ? (
+              <label>
+                Sort
+                <select defaultValue={activeSort} name="sort">
+                  {SORT_OPTIONS.map((sort) => (
+                    <option key={sort.value} value={sort.value}>
+                      {sort.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <button className="secondary-button compact" type="submit">
               Apply
             </button>
           </form>
 
           <div className="data-list">
-            {paginatedConversations.length > 0 ? (
+            {activeMailbox === "junk" ? (
+              skippedEmailSummaryItems.length > 0 ? (
+                skippedEmailSummaryItems.map((email, emailIndex) => {
+                  const isSelected = selectedJunkEmail?.id === email.id;
+                  return (
+                    <InboxConversationLink
+                      className={[
+                        "data-row conversation-row",
+                        isSelected ? "active" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      conversationId={`junk:${email.id}`}
+                      href={inboxHref({
+                        filter: "all",
+                        junkId: email.id,
+                        mailbox: "junk",
+                        query: searchQuery,
+                        sort: "recent",
+                      })}
+                      key={email.id}
+                      label={email.subject}
+                      preload={emailIndex < 5}
+                      selected={isSelected}
+                    >
+                      <time className="conversation-row-time">
+                        {formatDate(
+                          email.receivedAt ?? email.processedAt,
+                          generalSettings.timeZone,
+                        )}
+                      </time>
+                      <span
+                        className="conversation-row-from"
+                        title={email.fromEmail ?? undefined}
+                      >
+                        {email.fromEmail ?? "Unknown sender"}
+                      </span>
+                      <div className="conversation-row-title">
+                        <strong>{email.subject}</strong>
+                      </div>
+                      <span className="conversation-message-preview">
+                        {email.summary ??
+                          email.bodyText ??
+                          "No message preview."}
+                      </span>
+                      <span className="conversation-row-extra">
+                        {email.replyCount > 0
+                          ? `${email.replyCount} replies`
+                          : ""}
+                      </span>
+                      <span className="pill conversation-row-status">
+                        {formatLabel(email.category)}
+                      </span>
+                    </InboxConversationLink>
+                  );
+                })
+              ) : (
+                <p className="empty-copy">No junk messages match this view.</p>
+              )
+            ) : paginatedConversations.length > 0 ? (
               paginatedConversations.map((conversation, conversationIndex) => {
                 const jobType =
                   titleCaseBusinessText(conversation.inquiryFacts?.jobType) ??
@@ -1707,7 +1991,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                   ) ??
                   "Unclassified inquiry";
                 const isSelected =
-                  selectedConversationReview?.conversation.id ===
+                  validSelectedConversationReview?.conversation.id ===
                   conversation.id;
                 const messagePreview =
                   conversation.originalInquiryBody ??
@@ -1720,8 +2004,15 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     : conversation.quoteDraftCount > 0
                       ? `${conversation.quoteDraftCount} quote drafts`
                       : "";
-
-                return (
+                const conversationHref = inboxHref({
+                  conversationId: conversation.id,
+                  filter: activeFilter,
+                  mailbox: activeMailbox,
+                  page: currentPage,
+                  query: searchQuery,
+                  sort: activeSort,
+                });
+                const link = (
                   <InboxConversationLink
                     className={[
                       "data-row conversation-row",
@@ -1734,18 +2025,10 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    href={inboxHref({
-                      conversationId: conversation.id,
-                      filter: activeFilter,
-                      page: currentPage,
-                      query: searchQuery,
-                      showSkippedEmail,
-                      sort: activeSort,
-                    })}
-                    key={conversation.id}
                     conversationId={conversation.id}
+                    href={conversationHref}
                     label={jobType}
-                    preload={conversationIndex < 3}
+                    preload={conversationIndex < 5}
                     selected={isSelected}
                   >
                     <time className="conversation-row-time">
@@ -1755,11 +2038,6 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       )}
                     </time>
                     <span
-                      aria-label={
-                        conversation.senderAddress
-                          ? `From ${conversation.senderAddress}`
-                          : "Sender unavailable"
-                      }
                       className="conversation-row-from"
                       title={conversation.senderAddress ?? undefined}
                     >
@@ -1771,12 +2049,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     <span className="conversation-message-preview">
                       {messagePreview}
                     </span>
-                    <span
-                      aria-hidden={rowMeta ? undefined : "true"}
-                      className="conversation-row-extra"
-                    >
-                      {rowMeta}
-                    </span>
+                    <span className="conversation-row-extra">{rowMeta}</span>
                     <span
                       className={
                         conversation.leadPriority === "high" ||
@@ -1785,21 +2058,42 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                           : "pill conversation-row-status"
                       }
                     >
-                      {conversation.nextActionLabel}
+                      {activeMailbox === "deleted"
+                        ? "Deleted"
+                        : conversation.nextActionLabel}
                     </span>
                   </InboxConversationLink>
+                );
+
+                return activeMailbox === "inbox" ? (
+                  <div className="conversation-row-shell" key={conversation.id}>
+                    {link}
+                    <ConversationDeleteButton
+                      conversationId={conversation.id}
+                      redirectTo={deleteRedirectHref}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="conversation-row-shell deleted"
+                    key={conversation.id}
+                  >
+                    {link}
+                  </div>
                 );
               })
             ) : (
               <p className="empty-copy">
                 {conversations.length > 0
                   ? "No conversations match this view."
-                  : "No conversations yet."}
+                  : activeMailbox === "deleted"
+                    ? "Deleted conversations will appear here."
+                    : "No conversations yet."}
               </p>
             )}
           </div>
 
-          {totalPages > 1 ? (
+          {activeMailbox !== "junk" && totalPages > 1 ? (
             <nav aria-label="Inbox pagination" className="pagination-bar">
               <SmartPrefetchLink
                 aria-disabled={currentPage === 1}
@@ -1809,11 +2103,10 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     : "secondary-button compact"
                 }
                 href={inboxHref({
-                  conversationId: selectedConversationReview?.conversation.id,
                   filter: activeFilter,
+                  mailbox: activeMailbox,
                   page: currentPage - 1,
                   query: searchQuery,
-                  showSkippedEmail,
                   sort: activeSort,
                 })}
               >
@@ -1830,11 +2123,10 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     : "secondary-button compact"
                 }
                 href={inboxHref({
-                  conversationId: selectedConversationReview?.conversation.id,
                   filter: activeFilter,
+                  mailbox: activeMailbox,
                   page: currentPage + 1,
                   query: searchQuery,
-                  showSkippedEmail,
                   sort: activeSort,
                 })}
               >
@@ -1843,32 +2135,33 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             </nav>
           ) : null}
         </section>
-        <SkippedEmailDialogTransitionShell showSkippedEmail={showSkippedEmail}>
-          {showSkippedEmail ? (
-            <SkippedEmailDialog
-              closeHref={skippedEmailCloseHref}
-              emails={skippedEmailSummaryItems}
-              filter={activeFilter}
-              inboxSearchQuery={searchQuery}
-              last24HoursCount={skippedEmailLast24HoursCount}
-              replyRedirectHref={skippedEmailOpenHref}
-              selectedConversationId={
-                selectedConversationReview?.conversation.id
-              }
-              senderRules={inboundEmailSettings?.senderRules ?? []}
-              skippedSearchQuery={skippedSearchQuery}
-              sort={activeSort}
-            />
-          ) : null}
-        </SkippedEmailDialogTransitionShell>
+
         <InboxPreviewTransitionShell
-          selectedConversationId={selectedConversationReview?.conversation.id}
+          selectedConversationId={
+            selectedJunkEmail
+              ? `junk:${selectedJunkEmail.id}`
+              : validSelectedConversationReview?.conversation.id
+          }
         >
-          {selectedConversationReview ? (
+          {selectedJunkEmail ? (
+            <JunkEmailSplitPreview
+              closeHref={closePreviewHref}
+              email={selectedJunkEmail}
+              redirectTo={selectedJunkRedirectHref}
+              timeZone={generalSettings.timeZone}
+            />
+          ) : validSelectedConversationReview && activeMailbox === "deleted" ? (
+            <DeletedConversationSplitPreview
+              closeHref={closePreviewHref}
+              profile={validSelectedConversationReview}
+              redirectTo={closePreviewHref}
+              timeZone={generalSettings.timeZone}
+            />
+          ) : validSelectedConversationReview ? (
             <InboxSplitPreview
               closeHref={closePreviewHref}
               communicationSettings={communicationSettings!}
-              profile={selectedConversationReview}
+              profile={validSelectedConversationReview}
               redirectTo={selectedRedirectHref}
               timeZone={generalSettings.timeZone}
             />

@@ -1595,7 +1595,7 @@ export async function promoteSkippedEmailToWorkItemAction(formData: FormData) {
     redirectWithInboxMessage(
       "engine_error",
       "Skipped email id is required.",
-      "/inbox?skipped=1",
+      "/inbox?mailbox=junk",
     );
   }
 
@@ -1624,7 +1624,7 @@ export async function promoteSkippedEmailToWorkItemAction(formData: FormData) {
       error instanceof Error
         ? error.message
         : "Unable to promote filtered-out email.",
-      "/inbox?skipped=1",
+      "/inbox?mailbox=junk",
     );
   }
 }
@@ -2981,6 +2981,139 @@ export async function ignoreConversationNotificationAction(formData: FormData) {
     conversationId,
     "engine_message",
     "Notification ignored.",
+    redirectTo,
+  );
+}
+
+export async function deleteConversationAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    "/inbox",
+  );
+
+  if (!conversationId) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Conversation id is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: conversation, error: loadError } = await supabase
+    .from("conversations")
+    .select("id,deleted_at")
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (loadError || !conversation) {
+    redirectWithInboxMessage(
+      "engine_error",
+      loadError?.message ?? "Conversation was not found.",
+      redirectTo,
+    );
+  }
+
+  if (!conversation.deleted_at) {
+    const deletedAt = new Date().toISOString();
+    const { error: updateError } = await supabase
+      .from("conversations")
+      .update({ deleted_at: deletedAt })
+      .eq("workspace_id", workspace.id)
+      .eq("id", conversationId);
+
+    if (updateError) {
+      redirectWithInboxMessage("engine_error", updateError.message, redirectTo);
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "conversation.moved_to_deleted",
+      entityType: "conversation",
+      entityId: conversationId,
+      before: { deletedAt: null },
+      after: { deletedAt },
+    });
+  }
+
+  revalidatePath("/assistant");
+  revalidatePath("/activity");
+  revalidatePath("/dashboard");
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  redirectWithInboxMessage(
+    "engine_message",
+    "Conversation moved to Deleted.",
+    redirectTo,
+  );
+}
+
+export async function restoreConversationAction(formData: FormData) {
+  const conversationId = formString(formData, "conversationId");
+  const redirectTo = safeRedirectPath(
+    formString(formData, "redirectTo"),
+    "/inbox?mailbox=deleted",
+  );
+
+  if (!conversationId) {
+    redirectWithInboxMessage(
+      "engine_error",
+      "Conversation id is required.",
+      redirectTo,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { data: conversation, error: loadError } = await supabase
+    .from("conversations")
+    .select("id,deleted_at")
+    .eq("workspace_id", workspace.id)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  if (loadError || !conversation) {
+    redirectWithInboxMessage(
+      "engine_error",
+      loadError?.message ?? "Conversation was not found.",
+      redirectTo,
+    );
+  }
+
+  if (conversation.deleted_at) {
+    const { error: updateError } = await supabase
+      .from("conversations")
+      .update({ deleted_at: null })
+      .eq("workspace_id", workspace.id)
+      .eq("id", conversationId);
+
+    if (updateError) {
+      redirectWithInboxMessage("engine_error", updateError.message, redirectTo);
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "conversation.restored",
+      entityType: "conversation",
+      entityId: conversationId,
+      before: { deletedAt: String(conversation.deleted_at) },
+      after: { deletedAt: null },
+    });
+  }
+
+  revalidatePath("/assistant");
+  revalidatePath("/activity");
+  revalidatePath("/dashboard");
+  revalidatePath("/inbox");
+  revalidatePath(conversationPath(conversationId));
+  redirectWithInboxMessage(
+    "engine_message",
+    "Conversation restored to Inbox.",
     redirectTo,
   );
 }

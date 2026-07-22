@@ -490,19 +490,35 @@ export const smsRecipientPreferences = pgTable(
   }),
 );
 
-export const conversations = pgTable("conversations", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id),
-  channelId: uuid("channel_id").references(() => channels.id),
-  contactId: uuid("contact_id").references(() => contacts.id),
-  leadId: uuid("lead_id").references(() => leads.id),
-  externalThreadId: text("external_thread_id"),
-  status: text("status").notNull().default("open"),
-  lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
-  ...timestamps,
-});
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    channelId: uuid("channel_id").references(() => channels.id),
+    contactId: uuid("contact_id").references(() => contacts.id),
+    leadId: uuid("lead_id").references(() => leads.id),
+    externalThreadId: text("external_thread_id"),
+    status: text("status").notNull().default("open"),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => ({
+    conversationsWorkspaceActiveLastMessageIdx: index(
+      "conversations_workspace_active_last_message_idx",
+    )
+      .on(table.workspaceId, table.lastMessageAt.desc())
+      .where(sql`${table.deletedAt} is null`),
+    conversationsWorkspaceDeletedAtIdx: index(
+      "conversations_workspace_deleted_at_idx",
+    )
+      .on(table.workspaceId, table.deletedAt.desc())
+      .where(sql`${table.deletedAt} is not null`),
+  }),
+);
 
 export const messages = pgTable("messages", {
   id: uuid("id").defaultRandom().primaryKey(),

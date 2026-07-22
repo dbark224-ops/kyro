@@ -78,6 +78,7 @@ export type ContactListItem = {
 export type ConversationListItem = {
   id: string;
   status: string;
+  deletedAt: string | null;
   originalInquiryAt: string | null;
   originalInquiryBody: string | null;
   senderAddress: string | null;
@@ -133,11 +134,13 @@ export type SkippedEmailSummaryItem = {
   source: string;
   subject: string;
   summary: string | null;
+  bodyText: string | null;
 };
 
 export type SkippedEmailSummaries = {
   items: SkippedEmailSummaryItem[];
   last24HoursCount: number;
+  totalCount: number;
 };
 
 export type SkippedEmailEventRow = {
@@ -158,6 +161,7 @@ export type SkippedEmailReplyEventRow = {
 type ConversationListOptions = {
   ids?: string[];
   limit?: number;
+  mailbox?: "all" | "deleted" | "inbox";
 };
 
 type ConversationWorkflowCounts = {
@@ -277,6 +281,11 @@ export function buildSkippedEmailSummaryItems(
       replyCount: 0,
       source: String(event.source),
       subject: textValue(payload.subject) ?? "Skipped email",
+      bodyText:
+        textValue(payload.bodyText) ??
+        textValue(payload.summary) ??
+        textValue(classification.summary) ??
+        textValue(classification.actionHint),
       summary:
         textValue(payload.summary) ??
         textValue(classification.summary) ??
@@ -342,6 +351,7 @@ export type ConversationReview = {
   conversation: {
     id: string;
     status: string;
+    deletedAt: string | null;
     lastMessageAt: string | null;
     createdAt: string;
   };
@@ -1215,9 +1225,17 @@ export async function getConversationList(
 
   let conversationsQuery = supabase
     .from("conversations")
-    .select("id,status,last_message_at,contact_id,lead_id,created_at")
+    .select(
+      "id,status,last_message_at,contact_id,lead_id,created_at,deleted_at",
+    )
     .eq("workspace_id", workspaceId)
     .order("last_message_at", { ascending: false, nullsFirst: false });
+
+  if (options.mailbox === "deleted") {
+    conversationsQuery = conversationsQuery.not("deleted_at", "is", null);
+  } else if (options.mailbox !== "all") {
+    conversationsQuery = conversationsQuery.is("deleted_at", null);
+  }
 
   if (selectedIds.length > 0) {
     conversationsQuery = conversationsQuery.in("id", selectedIds);
@@ -1624,6 +1642,9 @@ export async function getConversationList(
     return {
       id: String(conversation.id),
       status,
+      deletedAt: conversation.deleted_at
+        ? String(conversation.deleted_at)
+        : null,
       originalInquiryAt: originalInquiry?.received_at
         ? String(originalInquiry.received_at)
         : originalInquiry?.created_at
@@ -1675,7 +1696,7 @@ export async function getSkippedEmailSummaries(
   limit = 30,
 ): Promise<SkippedEmailSummaries> {
   const last24HoursStart = skippedEmailLast24HoursStart();
-  const [itemsResult, countResult] = await Promise.all([
+  const [itemsResult, countResult, totalCountResult] = await Promise.all([
     supabase
       .from("events")
       .select("id,source,payload,processed_at,created_at")
@@ -1693,6 +1714,13 @@ export async function getSkippedEmailSummaries(
       .eq("status", "processed")
       .contains("payload", { stage: "observed" })
       .gte("processed_at", last24HoursStart),
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("type", "inbound.email.received")
+      .eq("status", "processed")
+      .contains("payload", { stage: "observed" }),
   ]);
 
   const { data, error } = itemsResult;
@@ -1704,6 +1732,12 @@ export async function getSkippedEmailSummaries(
   if (countResult.error) {
     throw new Error(
       `Unable to count recent skipped email summaries: ${countResult.error.message}`,
+    );
+  }
+
+  if (totalCountResult.error) {
+    throw new Error(
+      `Unable to count skipped email summaries: ${totalCountResult.error.message}`,
     );
   }
 
@@ -1734,6 +1768,7 @@ export async function getSkippedEmailSummaries(
       replyEvents,
     ),
     last24HoursCount: countResult.count ?? 0,
+    totalCount: totalCountResult.count ?? 0,
   };
 }
 
@@ -1767,6 +1802,7 @@ export async function getConversationWorkflowCounts(
     .from("conversations")
     .select("id,status,lead_id")
     .eq("workspace_id", workspaceId)
+    .is("deleted_at", null)
     .limit(500);
 
   if (error) {
@@ -3093,7 +3129,9 @@ export async function getConversationReview(
 ): Promise<ConversationReview | null> {
   const { data: conversation, error } = await supabase
     .from("conversations")
-    .select("id,status,last_message_at,contact_id,lead_id,created_at")
+    .select(
+      "id,status,last_message_at,contact_id,lead_id,created_at,deleted_at",
+    )
     .eq("workspace_id", workspaceId)
     .eq("id", conversationId)
     .maybeSingle();
@@ -3412,6 +3450,9 @@ export async function getConversationReview(
     conversation: {
       id: String(conversation.id),
       status: String(conversation.status),
+      deletedAt: conversation.deleted_at
+        ? String(conversation.deleted_at)
+        : null,
       lastMessageAt: conversation.last_message_at
         ? String(conversation.last_message_at)
         : null,

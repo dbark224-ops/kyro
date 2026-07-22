@@ -41,6 +41,9 @@ function emptySupabase() {
     in() {
       return this;
     },
+    is() {
+      return this;
+    },
     limit() {
       return Promise.resolve({ data: [], error: null });
     },

@@ -63,6 +63,7 @@ describe("buildSkippedEmailSummaryItems", () => {
             summary: "Canva payment failed.",
           },
           accountEmail: "owner@example.com",
+          bodyText: "Your Canva payment could not be processed.",
           externalMessageId: "gmail_msg_1",
           fromEmail: "billing@example.com",
           provider: "google",
@@ -75,6 +76,7 @@ describe("buildSkippedEmailSummaryItems", () => {
     ]);
 
     assert.equal(item.accountEmail, "owner@example.com");
+    assert.equal(item.bodyText, "Your Canva payment could not be processed.");
     assert.equal(item.category, "newsletter_or_automated");
     assert.equal(item.classificationProvider, "heuristic");
     assert.equal(item.confidence, 0.82);

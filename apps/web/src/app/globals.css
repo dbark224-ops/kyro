@@ -7782,13 +7782,16 @@ button.voice-card {
 }
 
 .inbox-work-queue-panel {
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius-panel);
   min-height: 0;
 }
 
 .inbox-work-queue-panel .data-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   gap: 5px;
 }
 
@@ -7796,6 +7799,117 @@ button.voice-card {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.mailbox-switcher {
+  display: inline-grid;
+  width: fit-content;
+  grid-template-columns: repeat(3, auto);
+  gap: 3px;
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--background) 55%, transparent);
+  padding: 3px;
+}
+
+.mailbox-switcher a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  padding: 0 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mailbox-switcher a span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  min-height: 20px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 25%, var(--line));
+  border-radius: 50%;
+  color: var(--text);
+  font-size: 0.68rem;
+}
+
+.mailbox-switcher a.active {
+  background: color-mix(in srgb, var(--cyan) 13%, var(--surface));
+  color: var(--text);
+}
+
+.conversation-row-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.conversation-row-shell.deleted {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.conversation-row-shell .conversation-row {
+  min-width: 0;
+}
+
+.conversation-delete-form {
+  display: grid;
+  place-items: center;
+}
+
+.conversation-delete-button,
+.inbox-preview-delete-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  padding: 0;
+  font: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.conversation-delete-button:hover,
+.conversation-delete-button:focus-visible,
+.inbox-preview-delete-button:hover,
+.inbox-preview-delete-button:focus-visible {
+  background: color-mix(in srgb, var(--pink) 14%, transparent);
+  color: var(--pink);
+  outline: none;
+}
+
+.inbox-preview-delete-button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--pink) 28%, var(--line));
+}
+
+.mailbox-simple-preview .assistant-preview-body {
+  align-content: start;
+}
+
+.junk-message-body {
+  display: grid;
+  gap: 10px;
+}
+
+.junk-message-body p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .inbox-preview-close-button {
