@@ -20617,6 +20617,11 @@ button:disabled {
     padding: 9px 10px;
   }
 
+  html:has(.app-shell) .dashboard-widget-queue .dashboard-work-item {
+    gap: 4px;
+    padding: 8px 10px 11px;
+  }
+
   html:has(.app-shell) .dashboard-widget-activity .dashboard-activity-item {
     align-items: center;
     gap: 8px;
