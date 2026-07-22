@@ -42,6 +42,7 @@ import {
 } from "./inbox-preview-loading";
 import { InboxSubmitButton } from "./inbox-submit-button";
 import { InboxRefreshButton } from "./inbox-refresh-button";
+import { InboxMailboxTransition } from "./inbox-mailbox-transition";
 import { MessageWorkflowControls } from "./message-workflow-controls";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
@@ -64,12 +65,7 @@ type CommunicationSettings = Awaited<
 
 function TrashIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      focusable="false"
-      viewBox="0 0 24 24"
-    >
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
       <path d="M3 6h18" />
       <path d="M8 6V4h8v2" />
       <path d="m19 6-1 14H6L5 6" />
@@ -80,13 +76,17 @@ function TrashIcon() {
 
 function CloseIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      focusable="false"
-      viewBox="0 0 24 24"
-    >
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
       <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m16 16 4 4" />
     </svg>
   );
 }
@@ -1855,41 +1855,49 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             </div>
           </div>
 
-          <nav aria-label="Mailbox" className="mailbox-switcher">
-            <SmartPrefetchLink
-              className={activeMailbox === "inbox" ? "active" : ""}
-              href={inboxHref({
-                filter: "all",
-                mailbox: "inbox",
-                query: "",
-                sort: "recent",
-              })}
-            >
-              Inbox <span>{inboxConversations.length}</span>
-            </SmartPrefetchLink>
-            <SmartPrefetchLink
-              className={activeMailbox === "junk" ? "active" : ""}
-              href={inboxHref({
-                filter: "all",
-                mailbox: "junk",
-                query: "",
-                sort: "recent",
-              })}
-            >
-              Junk <span>{skippedEmailSummaries.totalCount}</span>
-            </SmartPrefetchLink>
-            <SmartPrefetchLink
-              className={activeMailbox === "deleted" ? "active" : ""}
-              href={inboxHref({
-                filter: "all",
-                mailbox: "deleted",
-                query: "",
-                sort: "recent",
-              })}
-            >
-              Deleted <span>{deletedConversations.length}</span>
-            </SmartPrefetchLink>
-          </nav>
+          <InboxMailboxTransition activeMailbox={activeMailbox}>
+            <nav aria-label="Mailbox" className="mailbox-switcher">
+              <SmartPrefetchLink
+                className={activeMailbox === "inbox" ? "active" : ""}
+                data-mailbox-target="inbox"
+                href={inboxHref({
+                  filter: "all",
+                  mailbox: "inbox",
+                  query: "",
+                  sort: "recent",
+                })}
+                preload
+              >
+                Inbox <span>{inboxConversations.length}</span>
+              </SmartPrefetchLink>
+              <SmartPrefetchLink
+                className={activeMailbox === "junk" ? "active" : ""}
+                data-mailbox-target="junk"
+                href={inboxHref({
+                  filter: "all",
+                  mailbox: "junk",
+                  query: "",
+                  sort: "recent",
+                })}
+                preload
+              >
+                Junk <span>{skippedEmailSummaries.totalCount}</span>
+              </SmartPrefetchLink>
+              <SmartPrefetchLink
+                className={activeMailbox === "deleted" ? "active" : ""}
+                data-mailbox-target="deleted"
+                href={inboxHref({
+                  filter: "all",
+                  mailbox: "deleted",
+                  query: "",
+                  sort: "recent",
+                })}
+                preload
+              >
+                Deleted <span>{deletedConversations.length}</span>
+              </SmartPrefetchLink>
+            </nav>
+          </InboxMailboxTransition>
 
           {activeMailbox === "inbox" ? (
             <nav className="filter-bar" aria-label="Inbox filters">
@@ -1917,24 +1925,59 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             </nav>
           ) : null}
 
-          <form action="/inbox" className="inbox-toolbar" method="get">
+          <form
+            action="/inbox"
+            className={
+              activeMailbox === "inbox"
+                ? "inbox-toolbar"
+                : "inbox-toolbar mailbox-search-toolbar"
+            }
+            method="get"
+          >
             <input name="mailbox" type="hidden" value={activeMailbox} />
             {activeMailbox === "inbox" && activeFilter !== "all" ? (
               <input name="filter" type="hidden" value={activeFilter} />
             ) : null}
-            <label>
-              Search
-              <input
-                defaultValue={searchQuery}
-                name="q"
-                placeholder={
-                  activeMailbox === "junk"
-                    ? "Sender, subject, reason..."
-                    : "Customer, sender, subject..."
-                }
-                type="search"
-              />
-            </label>
+            {activeMailbox === "inbox" ? (
+              <label>
+                Search
+                <input
+                  defaultValue={searchQuery}
+                  name="q"
+                  placeholder="Customer, sender, subject..."
+                  type="search"
+                />
+              </label>
+            ) : (
+              <label className="mailbox-search-field">
+                <span className="sr-only">
+                  Search{" "}
+                  {activeMailbox === "junk" ? "junk" : "deleted messages"}
+                </span>
+                <span className="mailbox-search-input-wrap">
+                  <input
+                    defaultValue={searchQuery}
+                    name="q"
+                    placeholder={
+                      activeMailbox === "junk"
+                        ? "Search sender, subject, or reason..."
+                        : "Search deleted messages..."
+                    }
+                    type="search"
+                  />
+                  <button
+                    aria-label={`Search ${
+                      activeMailbox === "junk" ? "junk" : "deleted messages"
+                    }`}
+                    className="mailbox-search-submit"
+                    title="Search"
+                    type="submit"
+                  >
+                    <SearchIcon />
+                  </button>
+                </span>
+              </label>
+            )}
             {activeMailbox !== "junk" ? (
               <label>
                 Sort
@@ -1947,9 +1990,11 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                 </select>
               </label>
             ) : null}
-            <button className="secondary-button compact" type="submit">
-              Apply
-            </button>
+            {activeMailbox === "inbox" ? (
+              <button className="secondary-button compact" type="submit">
+                Apply
+              </button>
+            ) : null}
           </form>
 
           <div className="data-list">
