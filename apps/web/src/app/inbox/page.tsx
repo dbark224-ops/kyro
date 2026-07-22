@@ -91,6 +91,14 @@ function SearchIcon() {
   );
 }
 
+function OpenFullScreenIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
+      <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+    </svg>
+  );
+}
+
 export const dynamic = "force-dynamic";
 
 type InboxPageProps = {
@@ -1237,10 +1245,13 @@ function InboxSplitPreview({
         </div>
         <div className="button-row inbox-preview-actions">
           <SmartPrefetchLink
-            className="secondary-button compact"
+            aria-label="Open conversation full screen"
+            className="secondary-button compact inbox-preview-fullscreen-button"
             href={`/inbox/${profile.conversation.id}`}
+            title="Open full screen"
           >
-            Open full screen
+            <OpenFullScreenIcon />
+            <span className="sr-only">Open conversation full screen</span>
           </SmartPrefetchLink>
           <form action={deleteConversationAction}>
             <input

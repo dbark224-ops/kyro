@@ -2165,6 +2165,14 @@ function ExpandPanelIcon() {
   );
 }
 
+function OpenFullScreenIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
+      <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+    </svg>
+  );
+}
+
 function AssistantDevDiagnostics({ state }: { state: AssistantThreadState }) {
   return (
     <details className="assistant-dev-diagnostics">
@@ -2823,11 +2831,14 @@ export function AssistantPreviewPane({
         </div>
         <div className="row-actions">
           <Link
-            className="secondary-button compact"
+            aria-label="Open preview full screen"
+            className="secondary-button compact inbox-preview-fullscreen-button"
             href={href}
             prefetch={false}
+            title="Open full screen"
           >
-            Open full screen
+            <OpenFullScreenIcon />
+            <span className="sr-only">Open preview full screen</span>
           </Link>
           <button
             className="secondary-button compact"
