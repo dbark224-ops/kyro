@@ -978,14 +978,20 @@ export function AssistantConsole({
             <div className={`assistant-turn ${message.role}`} key={message.id}>
               <article className={`assistant-message ${message.role}`}>
                 <div className="assistant-message-meta">
-                  <strong>{assistantMessageAuthorLabel(message)}</strong>
                   {message.createdAt ? (
                     <time
+                      className="assistant-message-time"
                       dateTime={message.createdAt}
                       title={formatFullMessageTime(message.createdAt)}
                     >
                       {formatMessageTime(message.createdAt)}
                     </time>
+                  ) : null}
+                  <strong>{assistantMessageAuthorLabel(message)}</strong>
+                  {message.role === "assistant" ? (
+                    <span className="assistant-message-channel">
+                      {assistantMessageChannelLabel(message)}
+                    </span>
                   ) : null}
                   <AssistantProviderPill
                     isDeveloperAccount={isDeveloperAccount}
@@ -4626,11 +4632,13 @@ function formatProviderLabel(value: string) {
 }
 
 function assistantMessageAuthorLabel(message: AssistantThreadMessage) {
-  if (message.role !== "assistant") {
-    return "You";
-  }
+  return message.role === "assistant" ? "Kyro" : "You";
+}
 
-  return isVoiceAssistantMessage(message) ? "Kyro - Voice Assistant" : "Kyro";
+function assistantMessageChannelLabel(message: AssistantThreadMessage) {
+  return isVoiceAssistantMessage(message)
+    ? "Voice assistant"
+    : "Text assistant";
 }
 
 function isVoiceAssistantMessage(message: AssistantThreadMessage) {

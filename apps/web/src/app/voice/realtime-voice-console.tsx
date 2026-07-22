@@ -614,9 +614,9 @@ function VoiceTurn({
     >
       {!isUser ? (
         <div className="voice-turn-meta">
-          <strong>Kyro</strong>
           <ClientMessageTime value={message.createdAt} />
-          <AssistantProviderPill message={message} />
+          <strong>Kyro</strong>
+          <span className="assistant-message-channel">Voice assistant</span>
         </div>
       ) : null}
       <p>{message.content}</p>
@@ -640,19 +640,11 @@ function VoiceTurn({
 }
 
 function ClientMessageTime({ value }: { value: string | undefined }) {
-  return <span suppressHydrationWarning>{formatMessageTime(value)}</span>;
-}
-
-function AssistantProviderPill({
-  message,
-}: {
-  message: AssistantThreadMessage;
-}) {
-  if (!message.provider || !message.model) {
-    return null;
-  }
-
-  return <span className="assistant-provider-pill">{message.provider}</span>;
+  return (
+    <time className="assistant-message-time" suppressHydrationWarning>
+      {formatMessageTime(value)}
+    </time>
+  );
 }
 
 function textValue(value: unknown) {

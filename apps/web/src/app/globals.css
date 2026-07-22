@@ -4010,14 +4010,16 @@ h2 {
 }
 
 .assistant-message-meta strong,
-.assistant-message-meta time {
+.assistant-message-meta time,
+.assistant-message-channel {
   font-size: 0.8125rem;
   line-height: 1;
 }
 
-.assistant-message-meta time {
+.assistant-message-time,
+.assistant-message-channel {
   color: var(--muted);
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .assistant-provider-pill {
@@ -6124,6 +6126,10 @@ a.assistant-preview-row.assistant-inbox-queue-row:hover {
 
 .voice-turn-meta strong {
   color: var(--text);
+}
+
+.voice-turn-meta .assistant-message-channel {
+  font-size: inherit;
 }
 
 .voice-link-row {
