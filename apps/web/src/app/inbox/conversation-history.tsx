@@ -1,24 +1,38 @@
 import type { ConversationReview } from "../../lib/crm/queries";
+import { ConversationHistoryClient } from "./conversation-history-client";
+import type {
+  ConversationHistoryDetailSection,
+  ConversationHistoryItem,
+} from "./conversation-history-types";
 
-type HistoryItem = {
-  id: string;
+type DetailSection = ConversationHistoryDetailSection;
+type HistoryItem = Omit<ConversationHistoryItem, "occurredAtLabel"> & {
   occurredAt: string;
-  summary: string;
-  title: string;
-  type: string;
 };
 
-function formatDate(value: string, timeZone?: string | null) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    timeZone: timeZone || undefined,
-  }).format(new Date(value));
+const SENSITIVE_KEY =
+  /(?:authorization|cookie|credential|password|secret|token|api[_-]?key|client[_-]?secret)/i;
+
+function formatDate(
+  value: string | null | undefined,
+  timeZone?: string | null,
+) {
+  if (!value) {
+    return "-";
+  }
+
+  try {
+    return new Intl.DateTimeFormat("en", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      ...(timeZone ? { timeZone } : {}),
+    }).format(new Date(value));
+  } catch {
+    return new Date(value).toLocaleString();
+  }
 }
 
-function formatLabel(value: string | null) {
+function formatLabel(value: string | null | undefined) {
   if (!value) {
     return "-";
   }
@@ -33,71 +47,330 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function sanitizeString(value: string) {
+  const bearerRedacted = value.replace(
+    /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi,
+    "Bearer [redacted]",
+  );
+
+  try {
+    const url = new URL(bearerRedacted);
+    let changed = false;
+
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (SENSITIVE_KEY.test(key)) {
+        url.searchParams.set(key, "[redacted]");
+        changed = true;
+      }
+    }
+
+    return changed ? url.toString() : bearerRedacted;
+  } catch {
+    return bearerRedacted;
+  }
+}
+
+function sanitizeDetailData(value: unknown, depth = 0): unknown {
+  if (depth > 6) {
+    return "[nested data omitted]";
+  }
+
+  if (typeof value === "string") {
+    return sanitizeString(value);
+  }
+
+  if (
+    value === null ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 100)
+      .map((item) => sanitizeDetailData(item, depth + 1));
+  }
+
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, 100)
+        .map(([key, entry]) => [
+          key,
+          SENSITIVE_KEY.test(key)
+            ? "[redacted]"
+            : sanitizeDetailData(entry, depth + 1),
+        ]),
+    );
+  }
+
+  return String(value);
+}
+
+function hasDetailData(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  return Array.isArray(value)
+    ? value.length > 0
+    : Object.keys(value as Record<string, unknown>).length > 0;
+}
+
+function dataSection(title: string, data: unknown): DetailSection | null {
+  return hasDetailData(data) ? { data: sanitizeDetailData(data), title } : null;
+}
+
+function compactSections(sections: Array<DetailSection | null>) {
+  return sections.filter((section): section is DetailSection =>
+    Boolean(section),
+  );
+}
+
 function buildHistory(
   profile: ConversationReview,
   timeZone?: string | null,
 ): HistoryItem[] {
-  const messages = profile.messages.map((message) => ({
-    id: `message:${message.id}`,
-    occurredAt: message.receivedAt ?? message.sentAt ?? message.createdAt,
-    summary:
-      message.subject ??
-      textValue(message.bodyText)?.slice(0, 120) ??
-      "No message body recorded.",
-    title:
-      message.direction === "outbound" ? "Message sent" : "Message received",
-    type: formatLabel(message.channelType),
-  }));
-  const deliveries = profile.outboundMessages.map((delivery) => ({
-    id: `delivery:${delivery.id}`,
-    occurredAt:
+  const messages: HistoryItem[] = profile.messages.map((message) => {
+    const occurredAt =
+      message.receivedAt ?? message.sentAt ?? message.createdAt;
+    const directionTitle =
+      message.direction === "outbound" ? "Message sent" : "Message received";
+    const subject = message.subject ?? directionTitle;
+
+    return {
+      details: {
+        facts: [
+          { label: "Direction", value: formatLabel(message.direction) },
+          { label: "Channel", value: formatLabel(message.channelType) },
+          { label: "Account", value: message.channelDisplayName },
+          {
+            label: "Received",
+            value: formatDate(message.receivedAt, timeZone),
+          },
+          { label: "Sent", value: formatDate(message.sentAt, timeZone) },
+          { label: "Recorded", value: formatDate(message.createdAt, timeZone) },
+          { label: "Record ID", value: message.id },
+        ],
+        sections: compactSections([
+          message.bodyText
+            ? { body: message.bodyText, title: "Full message" }
+            : null,
+          dataSection("Recorded details", message.metadata),
+        ]),
+      },
+      id: `message:${message.id}`,
+      modalTitle: subject,
+      occurredAt,
+      summary:
+        message.subject ??
+        textValue(message.bodyText)?.slice(0, 120) ??
+        "No message body recorded.",
+      title: directionTitle,
+      type: formatLabel(message.channelType),
+    };
+  });
+
+  const deliveries: HistoryItem[] = profile.outboundMessages.map((delivery) => {
+    const occurredAt =
       delivery.sentAt ??
       delivery.failedAt ??
       delivery.updatedAt ??
-      delivery.createdAt,
-    summary:
-      delivery.lastError ??
-      delivery.subject ??
-      (delivery.recipient ? `To ${delivery.recipient}` : "Delivery recorded"),
-    title: `Delivery ${formatLabel(delivery.status)}`,
-    type: formatLabel(delivery.channelType),
-  }));
-  const actions = profile.actions.map((action) => ({
-    id: `action:${action.id}`,
-    occurredAt: action.executedAt ?? action.approvedAt ?? action.createdAt,
-    summary:
-      textValue(action.input.summary) ??
-      textValue(action.input.body)?.slice(0, 120) ??
-      formatLabel(action.status),
-    title: formatLabel(action.type),
-    type: "Action",
-  }));
-  const futureSteps = profile.futureSteps.map((step) => ({
-    id: `future:${step.id}`,
-    occurredAt: step.completedAt ?? step.cancelledAt ?? step.updatedAt,
-    summary:
-      textValue(step.metadata.displayLabel) ??
-      `${formatLabel(step.triggerType)} - ${formatLabel(step.status)}`,
-    title: formatLabel(step.actionType),
-    type: "Future step",
-  }));
-  const appointments = profile.appointments.map((appointment) => ({
-    id: `appointment:${appointment.id}`,
-    occurredAt: appointment.updatedAt,
-    summary: [
-      formatLabel(appointment.status),
-      appointment.startsAt ? formatDate(appointment.startsAt, timeZone) : null,
-      appointment.location,
-    ]
-      .filter(Boolean)
-      .join(" - "),
-    title: appointment.title,
-    type: "Calendar",
-  }));
-  const tasks = profile.tasks
+      delivery.createdAt;
+
+    return {
+      details: {
+        facts: [
+          { label: "Status", value: formatLabel(delivery.status) },
+          { label: "Channel", value: formatLabel(delivery.channelType) },
+          { label: "Recipient", value: delivery.recipient },
+          { label: "Provider", value: delivery.provider },
+          { label: "Service", value: delivery.service },
+          {
+            label: "Attempts",
+            value: `${delivery.attemptCount} of ${delivery.maxAttempts}`,
+          },
+          { label: "Queued", value: formatDate(delivery.queuedAt, timeZone) },
+          { label: "Sending", value: formatDate(delivery.sendingAt, timeZone) },
+          { label: "Sent", value: formatDate(delivery.sentAt, timeZone) },
+          { label: "Failed", value: formatDate(delivery.failedAt, timeZone) },
+          {
+            label: "Next attempt",
+            value: formatDate(delivery.nextAttemptAt, timeZone),
+          },
+          { label: "Source", value: formatLabel(delivery.source) },
+          { label: "Provider message ID", value: delivery.providerMessageId },
+          { label: "Provider request ID", value: delivery.providerRequestId },
+          { label: "Record ID", value: delivery.id },
+        ],
+        sections: compactSections([
+          delivery.subject
+            ? { body: delivery.subject, title: "Subject" }
+            : null,
+          delivery.lastError
+            ? { body: delivery.lastError, title: "Delivery error" }
+            : null,
+          dataSection("Recorded details", delivery.metadata),
+        ]),
+      },
+      id: `delivery:${delivery.id}`,
+      modalTitle:
+        delivery.subject ??
+        (delivery.recipient
+          ? `Delivery to ${delivery.recipient}`
+          : "Outbound delivery"),
+      occurredAt,
+      summary:
+        delivery.lastError ??
+        delivery.subject ??
+        (delivery.recipient ? `To ${delivery.recipient}` : "Delivery recorded"),
+      title: `Delivery ${formatLabel(delivery.status)}`,
+      type: formatLabel(delivery.channelType),
+    };
+  });
+
+  const actions: HistoryItem[] = profile.actions.map((action) => {
+    const occurredAt =
+      action.executedAt ?? action.approvedAt ?? action.createdAt;
+
+    return {
+      details: {
+        facts: [
+          { label: "Action", value: formatLabel(action.type) },
+          { label: "Status", value: formatLabel(action.status) },
+          { label: "Created", value: formatDate(action.createdAt, timeZone) },
+          { label: "Approved", value: formatDate(action.approvedAt, timeZone) },
+          { label: "Executed", value: formatDate(action.executedAt, timeZone) },
+          { label: "Record ID", value: action.id },
+        ],
+        sections: compactSections([
+          dataSection("Action request", action.input),
+          dataSection("Action result", action.result),
+        ]),
+      },
+      id: `action:${action.id}`,
+      modalTitle: formatLabel(action.type),
+      occurredAt,
+      summary:
+        textValue(action.input.summary) ??
+        textValue(action.input.body)?.slice(0, 120) ??
+        formatLabel(action.status),
+      title: formatLabel(action.type),
+      type: "Action",
+    };
+  });
+
+  const futureSteps: HistoryItem[] = profile.futureSteps.map((step) => {
+    const occurredAt = step.completedAt ?? step.cancelledAt ?? step.updatedAt;
+
+    return {
+      details: {
+        facts: [
+          { label: "Action", value: formatLabel(step.actionType) },
+          { label: "Kind", value: formatLabel(step.kind) },
+          { label: "Status", value: formatLabel(step.status) },
+          { label: "Trigger", value: formatLabel(step.triggerType) },
+          {
+            label: "Approval",
+            value: step.requiresApproval ? "Required" : "No",
+          },
+          { label: "Due", value: formatDate(step.dueAt, timeZone) },
+          { label: "Expires", value: formatDate(step.expiresAt, timeZone) },
+          { label: "Completed", value: formatDate(step.completedAt, timeZone) },
+          { label: "Cancelled", value: formatDate(step.cancelledAt, timeZone) },
+          { label: "Created", value: formatDate(step.createdAt, timeZone) },
+          { label: "Updated", value: formatDate(step.updatedAt, timeZone) },
+          { label: "Record ID", value: step.id },
+        ],
+        sections: compactSections([
+          dataSection("Trigger details", step.triggerPayload),
+          dataSection("Planned action", step.actionPayload),
+          dataSection("Recorded details", step.metadata),
+        ]),
+      },
+      id: `future:${step.id}`,
+      modalTitle:
+        textValue(step.metadata.displayLabel) ?? formatLabel(step.actionType),
+      occurredAt,
+      summary:
+        textValue(step.metadata.displayLabel) ??
+        `${formatLabel(step.triggerType)} - ${formatLabel(step.status)}`,
+      title: formatLabel(step.actionType),
+      type: "Future step",
+    };
+  });
+
+  const appointments: HistoryItem[] = profile.appointments.map(
+    (appointment) => ({
+      details: {
+        facts: [
+          { label: "Type", value: formatLabel(appointment.appointmentType) },
+          { label: "Status", value: formatLabel(appointment.status) },
+          {
+            label: "Starts",
+            value: formatDate(appointment.startsAt, timeZone),
+          },
+          { label: "Ends", value: formatDate(appointment.endsAt, timeZone) },
+          { label: "Location", value: appointment.location },
+          {
+            label: "Created",
+            value: formatDate(appointment.createdAt, timeZone),
+          },
+          {
+            label: "Updated",
+            value: formatDate(appointment.updatedAt, timeZone),
+          },
+          { label: "Record ID", value: appointment.id },
+        ],
+        sections: compactSections([
+          appointment.description
+            ? { body: appointment.description, title: "Description" }
+            : null,
+          dataSection("Recorded details", appointment.metadata),
+        ]),
+      },
+      id: `appointment:${appointment.id}`,
+      modalTitle: appointment.title,
+      occurredAt: appointment.updatedAt,
+      summary: [
+        formatLabel(appointment.status),
+        appointment.startsAt
+          ? formatDate(appointment.startsAt, timeZone)
+          : null,
+        appointment.location,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+      title: appointment.title,
+      type: "Calendar",
+    }),
+  );
+
+  const tasks: HistoryItem[] = profile.tasks
     .filter((task) => task.taskType !== "message_resolution")
     .map((task) => ({
+      details: {
+        facts: [
+          { label: "Type", value: formatLabel(task.taskType) },
+          { label: "Status", value: formatLabel(task.status) },
+          { label: "Priority", value: formatLabel(task.priority) },
+          { label: "Due", value: formatDate(task.dueAt, timeZone) },
+          { label: "Completed", value: formatDate(task.completedAt, timeZone) },
+          { label: "Created", value: formatDate(task.createdAt, timeZone) },
+          { label: "Updated", value: formatDate(task.updatedAt, timeZone) },
+          { label: "Record ID", value: task.id },
+        ],
+        sections: compactSections([
+          task.description
+            ? { body: task.description, title: "Description" }
+            : null,
+          dataSection("Recorded details", task.metadata),
+        ]),
+      },
       id: `task:${task.id}`,
+      modalTitle: task.title,
       occurredAt: task.completedAt ?? task.updatedAt,
       summary: task.description ?? formatLabel(task.status),
       title: task.title,
@@ -125,36 +398,12 @@ export function ConversationHistory({
   profile: ConversationReview;
   timeZone?: string | null;
 }) {
-  const items = buildHistory(profile, timeZone);
-
-  return (
-    <details className="assistant-preview-panel conversation-history">
-      <summary>
-        <div>
-          <h3>Conversation history</h3>
-          <span>Messages, deliveries, actions, and follow-up activity</span>
-        </div>
-        <span>{items.length}</span>
-      </summary>
-      <div className="conversation-history-list">
-        {items.length > 0 ? (
-          items.map((item) => (
-            <article className="conversation-history-row" key={item.id}>
-              <span className="conversation-history-dot" />
-              <div>
-                <strong>{item.title}</strong>
-                <span>{item.summary}</span>
-              </div>
-              <div className="conversation-history-meta">
-                <span>{item.type}</span>
-                <time>{formatDate(item.occurredAt, timeZone)}</time>
-              </div>
-            </article>
-          ))
-        ) : (
-          <p className="empty-copy">No conversation activity recorded yet.</p>
-        )}
-      </div>
-    </details>
+  const items = buildHistory(profile, timeZone).map(
+    ({ occurredAt, ...item }) => ({
+      ...item,
+      occurredAtLabel: formatDate(occurredAt, timeZone),
+    }),
   );
+
+  return <ConversationHistoryClient items={items} />;
 }
