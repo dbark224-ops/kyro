@@ -6589,10 +6589,10 @@ async function inquiryLookupCommand({
     return {
       context: {
         matchType: "exact",
-        records: recordsContext([inquiryRecord(conversation)]),
+        records: recordsContext([inquiryRecordForAssistant(conversation)]),
         searchTerm,
       },
-      fallbackAnswer: `${inquiryStatusSummary(conversation)} Open the inquiry below if you want to review or action it.`,
+      fallbackAnswer: inquiryLookupFallbackAnswerForAssistant(conversation),
       intent: "inquiry_lookup",
       links: [conversationToInquiryLink(conversation)],
       title: "Inquiry",
@@ -6603,7 +6603,7 @@ async function inquiryLookupCommand({
     return {
       context: {
         matchType: exactMatches.length > 1 ? "multiple_exact" : "partial",
-        records: recordsContext(top.map(inquiryRecord)),
+        records: recordsContext(top.map(inquiryRecordForAssistant)),
         searchTerm,
       },
       fallbackAnswer:
@@ -7634,6 +7634,7 @@ function inquiryHaystack(conversation: ConversationListItem) {
     conversation.leadServiceType,
     conversation.leadNextStep,
     conversation.latestSubject,
+    conversation.originalInquiryBody,
     conversation.latestBody,
     conversation.inquiryFacts?.jobType,
     conversation.inquiryFacts?.address,
@@ -7697,16 +7698,53 @@ function replyStatusForConversation(conversation: ConversationListItem) {
   return "not_applicable";
 }
 
-function inquiryRecord(conversation: ConversationListItem) {
+function assistantInquiryMessage(value: string | null) {
+  const text = value?.trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return text.length > 4_000 ? `${text.slice(0, 3_997)}...` : text;
+}
+
+export function inquiryRecordForAssistant(
+  conversation: ConversationListItem,
+) {
   return {
     customer: conversationDisplayName(conversation),
+    inquiryMessage: assistantInquiryMessage(conversation.originalInquiryBody),
     job: conversationJobLabel(conversation),
+    latestMessage: assistantInquiryMessage(conversation.latestBody),
+    latestMessageDirection: conversation.latestDirection,
     nextAction: conversation.nextActionLabel,
     operatorSummary: inquiryStatusSummary(conversation),
     replyStatus: replyStatusForConversation(conversation),
+    senderAddress: conversation.senderAddress,
     status: conversation.status,
+    subject: conversation.latestSubject,
     workflowBucket: conversation.workflowBucket,
   };
+}
+
+export function inquiryLookupFallbackAnswerForAssistant(
+  conversation: ConversationListItem,
+) {
+  const message = assistantInquiryMessage(
+    conversation.originalInquiryBody ?? conversation.latestBody,
+  );
+
+  if (!message) {
+    return `${inquiryStatusSummary(conversation)} Open the inquiry below if you want to review or action it.`;
+  }
+
+  const compactMessage = message.replace(/\s+/g, " ").trim();
+  const displayedMessage =
+    compactMessage.length > 700
+      ? `${compactMessage.slice(0, 697)}...`
+      : compactMessage;
+
+  return `The inquiry says: "${displayedMessage}" ${inquiryStatusSummary(conversation)}`;
 }
 
 function conversationToInquiryLink(

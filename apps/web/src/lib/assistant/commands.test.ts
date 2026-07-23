@@ -11,6 +11,8 @@ import {
   calendarOperationFromPrompts,
   cleanCalendarTitle,
   documentTemplateControlIntent,
+  inquiryLookupFallbackAnswerForAssistant,
+  inquiryRecordForAssistant,
   looksLikeCalendarFollowUpRequest,
   looksLikeContextualInquiryReplyRequest,
   looksLikeWebSearchRequest,
@@ -30,7 +32,11 @@ import {
   selectQuoteDraftForAssistantPrompt,
   selectQuoteTemplateForAssistantPrompt,
 } from "./commands";
-import type { ContactListItem, QuoteDraftListItem } from "../crm/queries";
+import type {
+  ContactListItem,
+  ConversationListItem,
+  QuoteDraftListItem,
+} from "../crm/queries";
 import type { AssistantRecentMessage } from "./types";
 
 function emptySupabase() {
@@ -121,6 +127,42 @@ function quote(overrides: Partial<QuoteDraftListItem>): QuoteDraftListItem {
     status: "draft",
     title: "General Quote",
     updatedAt: new Date(0).toISOString(),
+    ...overrides,
+  };
+}
+
+function conversation(
+  overrides: Partial<ConversationListItem>,
+): ConversationListItem {
+  return {
+    activeActionTypes: [],
+    approvedActionCount: 0,
+    completedActionTypes: [],
+    contactName: null,
+    deletedAt: null,
+    followUpDueAt: null,
+    followUpIsDue: false,
+    followUpTaskId: null,
+    id: "conversation-1",
+    inquiryFacts: null,
+    lastMessageAt: new Date(0).toISOString(),
+    latestActionStatus: null,
+    latestActionType: null,
+    latestBody: null,
+    latestDirection: "inbound",
+    latestSubject: null,
+    leadNextStep: null,
+    leadPriority: null,
+    leadServiceType: null,
+    leadTitle: null,
+    nextActionLabel: "Reply to customer",
+    originalInquiryAt: new Date(0).toISOString(),
+    originalInquiryBody: null,
+    pendingApprovalCount: 0,
+    quoteDraftCount: 0,
+    senderAddress: null,
+    status: "new",
+    workflowBucket: "needs_reply",
     ...overrides,
   };
 }
@@ -810,6 +852,36 @@ describe("outbound call request parsing", () => {
 });
 
 describe("assistant LLM-first command routing", () => {
+  it("passes the real inbound inquiry text into exact-match assistant context", () => {
+    const item = conversation({
+      contactName: "+1575855239",
+      latestBody: "Hi - Where are you guys based?",
+      latestSubject: "SMS enquiry from +1575855239",
+      originalInquiryBody: "Hi - Where are you guys based?",
+      senderAddress: "+1575855239",
+    });
+
+    assert.deepEqual(inquiryRecordForAssistant(item), {
+      customer: "+1575855239",
+      inquiryMessage: "Hi - Where are you guys based?",
+      job: "General inquiry",
+      latestMessage: "Hi - Where are you guys based?",
+      latestMessageDirection: "inbound",
+      nextAction: "Reply to customer",
+      operatorSummary:
+        "The +1575855239 inquiry has an inbound message and still needs a reply.",
+      replyStatus: "needs_reply",
+      senderAddress: "+1575855239",
+      status: "new",
+      subject: "SMS enquiry from +1575855239",
+      workflowBucket: "needs_reply",
+    });
+    assert.equal(
+      inquiryLookupFallbackAnswerForAssistant(item),
+      'The inquiry says: "Hi - Where are you guys based?" The +1575855239 inquiry has an inbound message and still needs a reply.',
+    );
+  });
+
   it("selects the named inquiry from a recently listed work queue", () => {
     assert.deepEqual(
       recentInquiryConversationForPrompt({

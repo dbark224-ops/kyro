@@ -169,6 +169,7 @@ function buildAssistantPrompt(input: AssistantModelInput) {
     responseSurface === "interactive"
       ? "For inquiry_lookup with an exact match, explain the reply/status in plain language and point to the card below."
       : "For inquiry_lookup with an exact match, explain the reply/status and useful next step entirely in plain text.",
+    "For inquiry_lookup with an exact match, inquiryMessage is the original inbound inquiry and latestMessage is the most recent message. When the user asks what the inquiry or message says, lead with that actual content rather than conversation metadata. Reproduce a short inquiry faithfully; summarize a longer inquiry concisely without losing the customer's request. Then mention status or next action only if useful. Never say the message text is unavailable when either field contains it.",
     "For inquiry_lookup with partial or multiple matches, ask the user to confirm which listed inquiry they mean.",
     "If inputSource is voice, treat names like Cara, Kara, Cairo, Kiro, or Kyra near the start of the prompt as likely speech-to-text variants of Kyro unless the user is clearly talking about a real person.",
     "Your name is Kyro. If the user appears to address you with a speech-to-text variant of Kyro, respond as Kyro rather than adopting that mistaken name.",
