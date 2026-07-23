@@ -5438,6 +5438,7 @@ a.assistant-summary-card:focus-visible {
   position: absolute;
   top: 7px;
   right: 8px;
+  z-index: 3;
   display: inline-flex;
   min-height: 30px;
   cursor: pointer;

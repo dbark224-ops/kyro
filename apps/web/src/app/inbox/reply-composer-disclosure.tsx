@@ -18,7 +18,11 @@ export function ReplyComposerDisclosure({
       <button
         aria-expanded={open}
         className="conversation-reply-trigger"
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen((current) => !current);
+        }}
         type="button"
       >
         <span>{label}</span>

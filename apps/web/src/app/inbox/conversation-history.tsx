@@ -129,6 +129,31 @@ function compactSections(sections: Array<DetailSection | null>) {
   );
 }
 
+function actionContentSections(
+  action: ConversationReview["actions"][number],
+) {
+  const subject = textValue(action.input.subject);
+  const body =
+    textValue(action.input.body) ??
+    textValue(action.input.replyBody) ??
+    textValue(action.input.message);
+  const isReply =
+    action.type === "draft_reply" ||
+    action.type === "send_outbound_message";
+
+  return compactSections([
+    subject ? { body: subject, title: "Subject" } : null,
+    body
+      ? {
+          body,
+          title: isReply ? "Draft reply" : "Action content",
+        }
+      : null,
+    dataSection("Action request details", action.input),
+    dataSection("Action result", action.result),
+  ]);
+}
+
 function buildHistory(
   profile: ConversationReview,
   timeZone?: string | null,
@@ -245,13 +270,14 @@ function buildHistory(
           { label: "Executed", value: formatDate(action.executedAt, timeZone) },
           { label: "Record ID", value: action.id },
         ],
-        sections: compactSections([
-          dataSection("Action request", action.input),
-          dataSection("Action result", action.result),
-        ]),
+        sections: actionContentSections(action),
       },
       id: `action:${action.id}`,
-      modalTitle: formatLabel(action.type),
+      modalTitle:
+        textValue(action.input.subject) ??
+        (action.type === "draft_reply"
+          ? "Draft reply"
+          : formatLabel(action.type)),
       occurredAt,
       summary:
         textValue(action.input.summary) ??
