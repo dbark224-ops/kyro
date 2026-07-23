@@ -2,6 +2,7 @@ import type { SettingsSection } from "./settings-shell";
 
 export type IntegrationSettingsPanel =
   | "inbound-email"
+  | "inbound-inquiry-handling"
   | "outbound"
   | "phone-sms"
   | "stripe"
@@ -99,6 +100,7 @@ export function normalizeIntegrationPanel(
   }
 
   if (
+    value === "inbound-inquiry-handling" ||
     value === "outbound" ||
     value === "phone-sms" ||
     value === "stripe" ||

@@ -43,6 +43,15 @@ test("tolerates a common pronunciation misspelling", () => {
   assert.equal(result?.id, "pronunciation");
 });
 
+test("routes inquiry autonomy to connected accounts", () => {
+  const result = searchSettings("inquiry autonomy").find(
+    (entry) => entry.id === "inbound-inquiry-handling",
+  );
+
+  assert.equal(result?.section, "integrations");
+  assert.equal(result?.panel, "inbound-inquiry-handling");
+});
+
 test("keeps developer results hidden from normal accounts", () => {
   assert.equal(searchSettings("provider ids").length, 0);
   assert.equal(searchSettings("mock inquiry").length, 0);

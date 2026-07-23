@@ -198,6 +198,17 @@ export function buildSettingsNestedItems({
         title: "Inbound email sync",
       },
       {
+        detail: "Choose how far Kyro can take new customer inquiries",
+        href: settingsPanelHref(
+          "integrations",
+          "inbound-inquiry-handling",
+          activeWindow,
+        ),
+        key: "inbound-inquiry-handling",
+        selected: activeIntegrationPanel === "inbound-inquiry-handling",
+        title: "Inbound inquiry handling",
+      },
+      {
         detail: "Approval rules, reply style, signatures, follow-ups",
         href: settingsPanelHref("integrations", "outbound", activeWindow),
         key: "outbound",

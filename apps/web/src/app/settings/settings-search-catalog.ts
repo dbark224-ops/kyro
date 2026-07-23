@@ -560,18 +560,18 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     title: "Phone assistant",
     description: "Enable and configure inbound, outbound and overflow calling.",
     keywords:
-      "calls caller agent answer customer voicemail team internal infrastructure inbound inquiry handling booking autonomy capture notify propose approval calendar direct book",
+      "calls caller agent answer customer voicemail team internal infrastructure phone",
   }),
   searchEntry({
     id: "inbound-inquiry-handling",
-    section: "voice",
-    panel: "phone-assistant",
-    group: "Voice assistant / Phone assistant",
+    section: "integrations",
+    panel: "inbound-inquiry-handling",
+    group: "Connected accounts / Inbound inquiry handling",
     title: "Inbound inquiry handling",
     description:
-      "Choose whether Kyro captures, proposes or directly books caller appointments.",
+      "Choose whether Kyro captures, proposes or directly books new customer inquiries.",
     keywords:
-      "autonomy level capture notify notification propose draft approval book booking calendar appointment quote visit customer call",
+      "email sms phone call autonomy level capture notify notification propose draft approval book booking calendar appointment quote visit customer inquiry",
   }),
   searchEntry({
     id: "voicemail-overflow",

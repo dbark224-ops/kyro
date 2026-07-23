@@ -119,6 +119,9 @@ export async function loadSettingsPageData(
   const needsPhoneSettings =
     selectedSection === "integrations" &&
     activeIntegrationPanel === "phone-sms";
+  const needsInboundInquirySettings =
+    selectedSection === "integrations" &&
+    activeIntegrationPanel === "inbound-inquiry-handling";
   const needsGeneralSettings =
     selectedSection === "general" ||
     selectedSection === "usage" ||
@@ -231,6 +234,7 @@ export async function loadSettingsPageData(
       ? getUsageReport(supabase, workspace.id, activeWindow)
       : Promise.resolve(null),
     selectedSection === "voice" ||
+    needsInboundInquirySettings ||
     needsDeveloperOperationalSettings ||
     needsPhoneSettings
       ? getVoiceSettings(supabase, workspace.id)

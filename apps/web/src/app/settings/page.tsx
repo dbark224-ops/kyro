@@ -21,6 +21,7 @@ import {
   updateDashboardTutorialTestModeAction,
   updateCommunicationSettingsAction,
   updateNotificationSettingsAction,
+  updateInboundInquiryHandlingAction,
   updateWorkspaceUsageMarkupRateAction,
   updateGeneralSettingsAction,
   updateVoiceSettingsAction,
@@ -3887,6 +3888,98 @@ function ProviderDetails({
   );
 }
 
+type InboundInquiryMode = VoiceSettings["phoneAgentInboundInquiryMode"];
+
+const INBOUND_INQUIRY_MODE_CONTENT: Record<
+  InboundInquiryMode,
+  { description: string; label: string }
+> = {
+  book_from_calendar: {
+    description:
+      "Check the Kyro calendar and book an available time with the customer.",
+    label: "Book from calendar",
+  },
+  capture_notify: {
+    description:
+      "Capture the inquiry, add it to the work queue, and notify the primary workplace contact.",
+    label: "Capture and notify",
+  },
+  propose_for_approval: {
+    description:
+      "Check availability and create a proposed time for the business to approve.",
+    label: "Propose for approval",
+  },
+};
+
+function InboundInquiryHandlingSettings({
+  voiceSettings,
+}: Readonly<{ voiceSettings: VoiceSettings }>) {
+  const selectedMode =
+    INBOUND_INQUIRY_MODE_CONTENT[
+      voiceSettings.phoneAgentInboundInquiryMode
+    ];
+
+  return (
+    <form
+      action={updateInboundInquiryHandlingAction}
+      className="settings-form"
+    >
+      <section className="integration-choice-panel">
+        <div>
+          <p className="eyebrow">Inbound inquiries</p>
+          <h3>Choose Kyro&apos;s level of autonomy</h3>
+          <p>
+            This applies to new customer inquiries across email, SMS, and phone.
+            Decide whether Kyro captures the work, proposes the next step, or
+            books an available time.
+          </p>
+        </div>
+        <span className="pill">{selectedMode.label}</span>
+      </section>
+
+      <fieldset className="phone-inquiry-mode-fieldset">
+        <legend>Handling mode</legend>
+        <p>
+          Kyro still follows outbound permissions, calendar availability, and
+          approval boundaries within the selected mode.
+        </p>
+        <div className="phone-inquiry-mode-grid">
+          {PHONE_AGENT_INBOUND_INQUIRY_MODES.map((mode, index) => {
+            const content = INBOUND_INQUIRY_MODE_CONTENT[mode];
+
+            return (
+              <label className="phone-inquiry-mode-card" key={mode}>
+                <input
+                  defaultChecked={
+                    voiceSettings.phoneAgentInboundInquiryMode === mode
+                  }
+                  name="phoneAgentInboundInquiryMode"
+                  type="radio"
+                  value={mode}
+                />
+                <span className="phone-inquiry-mode-number">{index + 1}</span>
+                <span className="phone-inquiry-mode-copy">
+                  <strong>{content.label}</strong>
+                  <small>{content.description}</small>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      <div className="settings-footer compact-settings-footer">
+        <span>
+          Changes apply to future inquiries without altering existing work.
+        </span>
+        <SettingsSubmitButton pendingLabel="Saving...">
+          Save
+        </SettingsSubmitButton>
+      </div>
+    </form>
+  );
+}
+
 function WorkspaceIntegrationsSettings({
   activePanel,
   availablePhoneNumbers,
@@ -3997,6 +4090,10 @@ function WorkspaceIntegrationsSettings({
           showInboundTrace={showInboundTrace}
           showSenderRules={showSenderRules}
         />
+      ) : null}
+
+      {activePanel === "inbound-inquiry-handling" && voiceSettings ? (
+        <InboundInquiryHandlingSettings voiceSettings={voiceSettings} />
       ) : null}
 
       {activePanel === "outbound" && communicationSettings ? (
@@ -4546,54 +4643,11 @@ function VoiceSettingsDetail({
               </label>
             </div>
 
-            <fieldset className="phone-inquiry-mode-fieldset">
-              <legend>Inbound inquiry handling</legend>
-              <p>
-                Choose how far Kyro can take a customer inquiry before a person
-                steps in.
-              </p>
-              <div className="phone-inquiry-mode-grid">
-                {PHONE_AGENT_INBOUND_INQUIRY_MODES.map((mode, index) => {
-                  const content = {
-                    book_from_calendar: {
-                      description:
-                        "Check the Kyro calendar and confirm an available time with the caller.",
-                      label: "Book from calendar",
-                    },
-                    capture_notify: {
-                      description:
-                        "Capture the inquiry, add it to the work queue, and text the primary workplace contact.",
-                      label: "Capture and notify",
-                    },
-                    propose_for_approval: {
-                      description:
-                        "Check availability and create a draft time for the business to approve.",
-                      label: "Propose for approval",
-                    },
-                  }[mode];
-
-                  return (
-                    <label className="phone-inquiry-mode-card" key={mode}>
-                      <input
-                        defaultChecked={
-                          voiceSettings.phoneAgentInboundInquiryMode === mode
-                        }
-                        name="phoneAgentInboundInquiryMode"
-                        type="radio"
-                        value={mode}
-                      />
-                      <span className="phone-inquiry-mode-number">
-                        {index + 1}
-                      </span>
-                      <span className="phone-inquiry-mode-copy">
-                        <strong>{content.label}</strong>
-                        <small>{content.description}</small>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
+            <input
+              name="phoneAgentInboundInquiryMode"
+              type="hidden"
+              value={voiceSettings.phoneAgentInboundInquiryMode}
+            />
           </div>
 
           <input

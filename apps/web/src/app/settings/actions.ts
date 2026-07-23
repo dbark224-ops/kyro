@@ -2052,6 +2052,117 @@ export async function syncInboundEmailNowAction() {
   );
 }
 
+export async function updateInboundInquiryHandlingAction(formData: FormData) {
+  const phoneAgentInboundInquiryMode = formString(
+    formData,
+    "phoneAgentInboundInquiryMode",
+  );
+  const redirectOptions = { panel: "inbound-inquiry-handling" };
+
+  if (
+    !PHONE_AGENT_INBOUND_INQUIRY_MODES.includes(
+      phoneAgentInboundInquiryMode as never,
+    )
+  ) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "Inbound inquiry handling setting is invalid.",
+      redirectOptions,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let currentSettings: VoiceSettings;
+
+  try {
+    currentSettings = await getVoiceSettings(supabase, workspace.id);
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load inbound inquiry settings.",
+      redirectOptions,
+    );
+  }
+
+  const settings = normalizeVoiceSettings({
+    ...currentSettings,
+    phoneAgentInboundInquiryMode,
+  });
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      beforeError.message,
+      redirectOptions,
+    );
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      saveError?.message ?? "Unable to save inbound inquiry handling.",
+      redirectOptions,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "inbound_inquiry_handling.updated",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      phoneAgentInboundInquiryMode: settings.phoneAgentInboundInquiryMode,
+    },
+    before: beforePolicy
+      ? {
+          phoneAgentInboundInquiryMode: normalizeVoiceSettings(
+            beforePolicy.settings,
+          ).phoneAgentInboundInquiryMode,
+        }
+      : null,
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/assistant");
+  revalidatePath("/inbox");
+  revalidatePath("/voice-vapi");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    "Inbound inquiry handling saved.",
+    redirectOptions,
+  );
+}
+
 export async function updateVoiceSettingsAction(formData: FormData) {
   const redirectSection =
     formString(formData, "redirectSection") === "developer"
