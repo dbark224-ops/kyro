@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { sendTwilioSmsMessage, twilioSmsDeliveryState } from "./twilio";
+import {
+  sendTwilioSmsMessage,
+  twilioMessageTransportForWorkspace,
+  twilioSmsDeliveryState,
+} from "./twilio";
 
 const originalFetch = globalThis.fetch;
 const originalEnvironment = {
@@ -10,11 +14,13 @@ const originalEnvironment = {
   messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
   whatsappNumber: process.env.TWILIO_WHATSAPP_SANDBOX_NUMBER,
   whatsappRecipient: process.env.TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT,
+  whatsappWorkspace: process.env.TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID,
 };
 
 beforeEach(() => {
   delete process.env.TWILIO_WHATSAPP_SANDBOX_NUMBER;
   delete process.env.TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT;
+  delete process.env.TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID;
 });
 
 afterEach(() => {
@@ -28,6 +34,8 @@ afterEach(() => {
     TWILIO_WHATSAPP_SANDBOX_NUMBER: originalEnvironment.whatsappNumber,
     TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT:
       originalEnvironment.whatsappRecipient,
+    TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID:
+      originalEnvironment.whatsappWorkspace,
   })) {
     if (value === undefined) {
       delete process.env[key];
@@ -113,10 +121,38 @@ test("routes only the configured test recipient through the WhatsApp Sandbox", a
     body: "WhatsApp test",
     from: "+15753835284",
     to: "+15755712705",
+    transport: "whatsapp_sandbox",
   });
 
   assert.equal(result.messageId, "SM_whatsapp");
   assert.equal(result.transport, "whatsapp");
+});
+
+test("selects the WhatsApp Sandbox only for its configured workspace and recipient", () => {
+  process.env.TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID = "workspace-test";
+  process.env.TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT = "+15755712705";
+
+  assert.equal(
+    twilioMessageTransportForWorkspace({
+      recipientPhone: "+1 (575) 571-2705",
+      workspaceId: "workspace-test",
+    }),
+    "whatsapp_sandbox",
+  );
+  assert.equal(
+    twilioMessageTransportForWorkspace({
+      recipientPhone: "+15755712705",
+      workspaceId: "another-workspace",
+    }),
+    "sms",
+  );
+  assert.equal(
+    twilioMessageTransportForWorkspace({
+      recipientPhone: "+15551234567",
+      workspaceId: "workspace-test",
+    }),
+    "sms",
+  );
 });
 
 test("keeps other recipients on normal SMS while the Sandbox bridge is enabled", async () => {

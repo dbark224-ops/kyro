@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type {
   ConversationHistoryDetailFact,
   ConversationHistoryDetailSection,
@@ -49,9 +50,11 @@ function DetailSectionView({
 }
 
 function HistoryDetailModal({
+  contained,
   item,
   onClose,
 }: {
+  contained: boolean;
   item: ConversationHistoryItem;
   onClose: () => void;
 }) {
@@ -59,7 +62,9 @@ function HistoryDetailModal({
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    if (!contained) {
+      document.body.style.overflow = "hidden";
+    }
     closeButtonRef.current?.focus();
 
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -71,16 +76,20 @@ function HistoryDetailModal({
     document.addEventListener("keydown", closeOnEscape);
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      if (!contained) {
+        document.body.style.overflow = previousOverflow;
+      }
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [onClose]);
+  }, [contained, onClose]);
 
   const titleId = `conversation-history-detail-${item.id.replaceAll(":", "-")}`;
 
   return (
     <div
-      className="call-log-modal-backdrop conversation-history-modal-backdrop"
+      className={`call-log-modal-backdrop conversation-history-modal-backdrop${
+        contained ? " is-contained" : ""
+      }`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -130,12 +139,27 @@ export function ConversationHistoryClient({
 }: {
   items: ConversationHistoryItem[];
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [modalRoot, setModalRoot] = useState<HTMLElement | null>(null);
   const [selectedItem, setSelectedItem] =
     useState<ConversationHistoryItem | null>(null);
-  const closeSelectedItem = useCallback(() => setSelectedItem(null), []);
+  const closeSelectedItem = useCallback(() => {
+    setSelectedItem(null);
+    setModalRoot(null);
+  }, []);
+
+  const openItem = useCallback((item: ConversationHistoryItem) => {
+    const detailPanel =
+      rootRef.current?.closest<HTMLElement>(
+        "[data-conversation-detail-panel]",
+      ) ?? document.body;
+
+    setModalRoot(detailPanel);
+    setSelectedItem(item);
+  }, []);
 
   return (
-    <>
+    <div className="conversation-history-shell" ref={rootRef}>
       <details className="assistant-preview-panel conversation-history">
         <summary>
           <div>
@@ -151,7 +175,7 @@ export function ConversationHistoryClient({
                 aria-label={`View ${item.title}: ${item.summary}`}
                 className="conversation-history-row"
                 key={item.id}
-                onClick={() => setSelectedItem(item)}
+                onClick={() => openItem(item)}
                 type="button"
               >
                 <span className="conversation-history-dot" />
@@ -170,9 +194,16 @@ export function ConversationHistoryClient({
           )}
         </div>
       </details>
-      {selectedItem ? (
-        <HistoryDetailModal item={selectedItem} onClose={closeSelectedItem} />
-      ) : null}
-    </>
+      {selectedItem && modalRoot
+        ? createPortal(
+            <HistoryDetailModal
+              contained={modalRoot !== document.body}
+              item={selectedItem}
+              onClose={closeSelectedItem}
+            />,
+            modalRoot,
+          )
+        : null}
+    </div>
   );
 }

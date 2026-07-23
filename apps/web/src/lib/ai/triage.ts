@@ -2,7 +2,7 @@ import { selectModelRoute } from "@kyro/ai";
 import { getInitialActionStatus } from "@kyro/api";
 import type { ModelRouteRequest } from "@kyro/contracts";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { insertAuditLog } from "../engine/event-action-audit";
+import { executeAction, insertAuditLog } from "../engine/event-action-audit";
 import {
   DEFAULT_REPLY_WRITING_SETTINGS,
   getCommunicationSettings,
@@ -86,7 +86,29 @@ export type StubAiTriageContext = {
   threadSummary?: string;
   futureStep?: ActiveFutureStepContext | null;
   inquiryFactsOverride?: InquiryFacts;
+  publicBusinessFacts?: PublicBusinessFacts;
   replyWriting?: ReplyWritingSettings;
+};
+
+export const PUBLIC_BUSINESS_FACT_KEYS = [
+  "businessName",
+  "publicPhoneNumber",
+  "publicEmail",
+  "businessAddress",
+  "serviceArea",
+  "workingHours",
+  "contactHours",
+] as const;
+
+export type PublicBusinessFactKey =
+  (typeof PUBLIC_BUSINESS_FACT_KEYS)[number];
+
+export type PublicBusinessFacts = Record<PublicBusinessFactKey, string>;
+
+export type TriageResponsePolicy = {
+  factKeys: PublicBusinessFactKey[];
+  mode: "known_business_fact" | "service_inquiry";
+  reason: string | null;
 };
 
 export type InquiryFacts = {
@@ -115,6 +137,7 @@ type TriageDecision = {
     subject: string | null;
     body: string | null;
   };
+  responsePolicy: TriageResponsePolicy;
   providerUsed: "stub" | "ollama" | "openai";
   fallbackReason?: string;
   inputTokens?: number;
@@ -140,6 +163,70 @@ function objectRecord(value: unknown) {
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeResponsePolicy(value: unknown): TriageResponsePolicy {
+  const policy = objectRecord(value);
+  const factKeys = normalizeStringArray(policy.factKeys).filter(
+    (key): key is PublicBusinessFactKey =>
+      PUBLIC_BUSINESS_FACT_KEYS.includes(key as PublicBusinessFactKey),
+  );
+
+  return {
+    factKeys: [...new Set(factKeys)],
+    mode:
+      policy.mode === "known_business_fact"
+        ? "known_business_fact"
+        : "service_inquiry",
+    reason: textValue(policy.reason),
+  };
+}
+
+const KNOWN_FACT_AUTO_REPLY_BLOCKED_PATTERN =
+  /\b(?:price|pricing|cost|quote|estimate|discount|availability|available|appointment|book|booking|schedule|when can|come out|attend|accept|scope|can you do|complaint|refund|legal|regulat|licen[cs]|permit|emergency|urgent|asap|account|password|payment|invoice)\b/i;
+
+export function canAutoReplyWithKnownBusinessFacts(input: {
+  enabled: boolean;
+  fallbackReason?: string;
+  latestMessage: string;
+  providerUsed: TriageDecision["providerUsed"];
+  publicBusinessFacts: PublicBusinessFacts;
+  replyBody: string | null;
+  responsePolicy: TriageResponsePolicy;
+}) {
+  if (
+    !input.enabled ||
+    input.providerUsed === "stub" ||
+    input.fallbackReason ||
+    input.responsePolicy.mode !== "known_business_fact" ||
+    !textValue(input.replyBody) ||
+    KNOWN_FACT_AUTO_REPLY_BLOCKED_PATTERN.test(input.latestMessage)
+  ) {
+    return false;
+  }
+
+  return (
+    input.responsePolicy.factKeys.length > 0 &&
+    input.responsePolicy.factKeys.every((key) =>
+      Boolean(textValue(input.publicBusinessFacts[key])),
+    )
+  );
+}
+
+function publicBusinessFactsFromProfile(
+  profile: Awaited<
+    ReturnType<typeof getWorkspaceGeneralSettings>
+  >["businessProfile"],
+): PublicBusinessFacts {
+  return {
+    businessAddress: profile.businessAddress.trim(),
+    businessName: profile.businessName.trim(),
+    contactHours: profile.contactHours.trim(),
+    publicEmail: profile.publicEmail.trim(),
+    publicPhoneNumber: profile.publicPhoneNumber.trim(),
+    serviceArea: profile.serviceArea.trim(),
+    workingHours: profile.workingHours.trim(),
+  };
 }
 
 function firstMatch(text: string, patterns: RegExp[]) {
@@ -1030,6 +1117,13 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         : "Extract trade inquiry facts and draft a concise customer reply.",
       outputContract: {
         summary: "string",
+        responsePolicy: {
+          mode: "known_business_fact|service_inquiry",
+          factKeys: [
+            "businessName|publicPhoneNumber|publicEmail|businessAddress|serviceArea|workingHours|contactHours",
+          ],
+          reason: "string|null",
+        },
         futureStepDecision: {
           outcome: "confirmed|countered|cancelled|unrelated",
           requestedTime: "string|null",
@@ -1052,6 +1146,10 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
       rules: [
         "Return JSON only.",
         "Do not invent an address, price, date, or customer detail.",
+        "Set responsePolicy.mode to known_business_fact only for a straightforward question that can be answered completely and confidently from publicBusinessFacts.",
+        "For known_business_fact, list every publicBusinessFacts key used in responsePolicy.factKeys and answer the question directly in replyDraft.",
+        "Never use known_business_fact for prices, quotes, estimates, availability, scheduling, bookings, timing promises, job acceptance, service suitability, complaints, refunds, legal or regulatory questions, emergencies, account details, security information, or any fact that is blank or uncertain.",
+        "For known_business_fact, do not treat the message as a job inquiry and do not ask for job details, an address, a preferred time, or contact information.",
         "jobType must describe the trade work being requested, not the lead title or contact name.",
         "Never use placeholder jobType values like 'New inquiry from John', 'Quote request from Sarah', or 'Manual inbound enquiry'.",
         "For example, 'renovating my bathroom' plus 'quote' should become 'Bathroom Renovation Quote'.",
@@ -1069,6 +1167,7 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         ),
       ],
       authoritativeInquiryFacts: context.inquiryFactsOverride ?? null,
+      publicBusinessFacts: context.publicBusinessFacts ?? null,
       replyWriting,
       context,
     },
@@ -1094,6 +1193,11 @@ function buildStubDecision(
     inputTokens: 900,
     outputTokens: 180,
     providerUsed: "stub",
+    responsePolicy: {
+      factKeys: [],
+      mode: "service_inquiry",
+      reason: fallbackReason ?? null,
+    },
     replyDraft: {
       body: buildReplyBody(inquiryFacts),
       subject:
@@ -1184,6 +1288,7 @@ async function runOllamaTriage(
           ? payload.eval_count
           : estimateTokens(content),
       providerUsed: "ollama",
+      responsePolicy: normalizeResponsePolicy(parsed.responsePolicy),
       replyDraft: {
         body: textValue(replyDraft.body) ?? buildReplyBody(facts),
         subject:
@@ -1263,6 +1368,25 @@ async function runOpenAiTriage(
                 ],
                 type: "object",
               },
+              responsePolicy: {
+                additionalProperties: false,
+                properties: {
+                  factKeys: {
+                    items: {
+                      enum: [...PUBLIC_BUSINESS_FACT_KEYS],
+                      type: "string",
+                    },
+                    type: "array",
+                  },
+                  mode: {
+                    enum: ["known_business_fact", "service_inquiry"],
+                    type: "string",
+                  },
+                  reason: { type: ["string", "null"] },
+                },
+                required: ["mode", "factKeys", "reason"],
+                type: "object",
+              },
               futureStepDecision: {
                 additionalProperties: false,
                 properties: {
@@ -1292,6 +1416,7 @@ async function runOpenAiTriage(
               "inquiryFacts",
               "replyDraft",
               "futureStepDecision",
+              "responsePolicy",
             ],
             type: "object",
           },
@@ -1329,6 +1454,7 @@ async function runOpenAiTriage(
     futureStepDecision: normalizeFutureStepDecision(parsed.futureStepDecision),
     inquiryFacts: facts,
     providerUsed: "openai",
+    responsePolicy: normalizeResponsePolicy(parsed.responsePolicy),
     replyDraft: {
       body: textValue(replyDraft.body) ?? buildReplyBody(facts),
       subject:
@@ -1660,7 +1786,12 @@ export async function runStubAiTriage(
     },
   });
 
-  const [communicationSettings, futureStep, latestMessageBody] =
+  const [
+    communicationSettings,
+    futureStep,
+    latestMessageBody,
+    generalSettings,
+  ] =
     await Promise.all([
       getCommunicationSettings(supabase, workspaceId),
       context.conversationId
@@ -1675,25 +1806,50 @@ export async function runStubAiTriage(
         workspaceId,
         context.messageId,
       ),
+      getWorkspaceGeneralSettings(supabase, workspaceId),
     ]);
 
   const triageContext: StubAiTriageContext = {
     ...context,
     futureStep,
     latestMessage: latestMessageBody ?? context.latestMessage,
+    publicBusinessFacts:
+      context.publicBusinessFacts ??
+      publicBusinessFactsFromProfile(generalSettings.businessProfile),
     replyWriting: context.replyWriting ?? communicationSettings.replyWriting,
   };
   const rawTriageDecision = await resolveTriageDecision(triageContext);
-  const inquiryFacts = applyRequiredInquiryInfo(
-    rawTriageDecision.inquiryFacts,
-    triageContext,
-  );
-  const repairedDraft = await repairReplyDraftWithOpenAi({
-    context: triageContext,
-    facts: inquiryFacts,
-    model: route.model,
-    replyDraft: rawTriageDecision.replyDraft,
+  const knownFactAutoReply = canAutoReplyWithKnownBusinessFacts({
+    enabled: communicationSettings.autoReplyKnownBusinessFacts,
+    fallbackReason: rawTriageDecision.fallbackReason,
+    latestMessage: triageContext.latestMessage ?? "",
+    providerUsed: rawTriageDecision.providerUsed,
+    publicBusinessFacts:
+      triageContext.publicBusinessFacts ??
+      publicBusinessFactsFromProfile(generalSettings.businessProfile),
+    replyBody: rawTriageDecision.replyDraft.body,
+    responsePolicy: rawTriageDecision.responsePolicy,
   });
+  const inquiryFacts = knownFactAutoReply
+    ? {
+        ...rawTriageDecision.inquiryFacts,
+        missingInfo: [],
+      }
+    : applyRequiredInquiryInfo(
+        rawTriageDecision.inquiryFacts,
+        triageContext,
+      );
+  const repairedDraft = knownFactAutoReply
+    ? {
+        repairUsage: undefined,
+        replyDraft: rawTriageDecision.replyDraft,
+      }
+    : await repairReplyDraftWithOpenAi({
+        context: triageContext,
+        facts: inquiryFacts,
+        model: route.model,
+        replyDraft: rawTriageDecision.replyDraft,
+      });
   const triageDecision: TriageDecision = {
     ...rawTriageDecision,
     inquiryFacts,
@@ -1720,6 +1876,7 @@ export async function runStubAiTriage(
       decision_reason: route.reason,
       budget_snapshot: {
         fallbackReason: triageDecision.fallbackReason ?? null,
+        knownFactAutoReply,
         estimatedInputTokens: routeRequest.estimatedInputTokens,
         providerUsed: triageDecision.providerUsed,
         replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
@@ -1829,6 +1986,8 @@ export async function runStubAiTriage(
     triageContext,
     inquiryFacts,
     triageDecision.replyDraft,
+  ).filter(
+    (proposal) => !knownFactAutoReply || proposal.type === "draft_reply",
   );
   const output = {
     classification: "new_lead_follow_up",
@@ -1837,6 +1996,7 @@ export async function runStubAiTriage(
     futureStepDecision: triageDecision.futureStepDecision,
     futureStepTransition,
     inquiryFacts,
+    knownFactAutoReply,
     authoritativeFactsUsed: Boolean(triageContext.inquiryFactsOverride),
     providerUsed: triageDecision.providerUsed,
     replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
@@ -1947,7 +2107,7 @@ export async function runStubAiTriage(
     });
   }
 
-  const approvalRequired = true;
+  const approvalRequired = !knownFactAutoReply;
   const actionStatus = getInitialActionStatus(approvalRequired);
   const { data: actions, error: actionError } = await supabase
     .from("actions")
@@ -1964,8 +2124,12 @@ export async function runStubAiTriage(
         input: proposal.input,
         result: {},
         policy_snapshot: {
-          mode: "require_approval",
-          reason: proposal.policyReason,
+          mode: knownFactAutoReply
+            ? "auto_known_business_fact"
+            : "require_approval",
+          reason: knownFactAutoReply
+            ? "The reply answers only a basic public business fact saved in the workspace profile."
+            : proposal.policyReason,
         },
       })),
     )
@@ -1999,8 +2163,57 @@ export async function runStubAiTriage(
   const primaryAction =
     actions.find((action) => String(action.type) === "draft_reply") ??
     actions[0];
+  let autoReplyError: string | null = null;
+  let autoReplySent = false;
 
-  if (context.conversationId) {
+  if (knownFactAutoReply) {
+    try {
+      await executeAction(supabase, user, String(primaryAction.id));
+      autoReplySent = true;
+
+      await insertAuditLog(supabase, {
+        workspaceId,
+        actorType: "ai",
+        actorId: aiRunId,
+        action: "action.auto_executed_known_business_fact",
+        entityType: "action",
+        entityId: String(primaryAction.id),
+        after: {
+          status: "completed",
+          type: primaryAction.type,
+        },
+        metadata: {
+          aiRunId,
+          responsePolicy: triageDecision.responsePolicy,
+        },
+      });
+    } catch (error) {
+      autoReplyError =
+        error instanceof Error
+          ? error.message
+          : "Automatic business-fact reply failed.";
+
+      await insertAuditLog(supabase, {
+        workspaceId,
+        actorType: "ai",
+        actorId: aiRunId,
+        action: "action.auto_execution_failed_known_business_fact",
+        entityType: "action",
+        entityId: String(primaryAction.id),
+        after: {
+          error: autoReplyError,
+          status: "failed",
+          type: primaryAction.type,
+        },
+        metadata: {
+          aiRunId,
+          responsePolicy: triageDecision.responsePolicy,
+        },
+      });
+    }
+  }
+
+  if (context.conversationId && !knownFactAutoReply) {
     const { error: conversationError } = await supabase
       .from("conversations")
       .update({
@@ -2039,6 +2252,8 @@ export async function runStubAiTriage(
     actionIds: actions.map((action) => String(action.id)),
     actualCost: usageTotals.costSnapshot,
     customerCharge: usageTotals.customerChargeSnapshot,
+    autoReplyError,
+    autoReplySent,
     inquiryFacts,
     replyDraft: triageDecision.replyDraft,
     summary: triageDecision.summary,

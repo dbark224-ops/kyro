@@ -45,6 +45,7 @@ import { InboxRefreshButton } from "./inbox-refresh-button";
 import { InboxMailboxTransition } from "./inbox-mailbox-transition";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
+import { ReplyComposerDisclosure } from "./reply-composer-disclosure";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
 import { SkippedEmailCloseLink } from "./skipped-email-dialog-transition";
@@ -964,26 +965,8 @@ function InboxReplyComposer({
   }));
 
   return (
-    <details className="conversation-reply-disclosure">
-      <summary>
-        <span>{draftAction ? "Reply drafted" : "Reply"}</span>
-        <svg
-          aria-hidden="true"
-          fill="none"
-          height="16"
-          viewBox="0 0 24 24"
-          width="16"
-        >
-          <path
-            d="m9 18 6-6-6-6"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-          />
-        </svg>
-      </summary>
-      <div className="conversation-reply-editor">
+    <ReplyComposerDisclosure label={draftAction ? "Reply drafted" : "Reply"}>
+      <>
         {draftAction ? (
           <InboxDraftReplyAction
             action={draftAction}
@@ -1089,8 +1072,8 @@ function InboxReplyComposer({
             </button>
           </form>
         )}
-      </div>
-    </details>
+      </>
+    </ReplyComposerDisclosure>
   );
 }
 
@@ -1153,7 +1136,10 @@ function InboxSplitPreview({
     : profile.lead?.nextStep;
 
   return (
-    <section className="panel assistant-inline-preview inbox-inline-preview">
+    <section
+      className="panel assistant-inline-preview inbox-inline-preview"
+      data-conversation-detail-panel
+    >
       <header className="assistant-preview-header">
         <div>
           <p className="eyebrow">Conversation</p>

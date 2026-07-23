@@ -27,6 +27,25 @@ test("labels promoted email inquiries as email notifications", () => {
   assert.match(body, /conversationId=conversation-1/);
 });
 
+test("reports when Kyro already answered a known business fact", () => {
+  const body = buildInboundInquiryNotificationBody({
+    autoReplySent: true,
+    channel: "email",
+    contactName: "Jamie",
+    contactPhone: null,
+    conversationId: "conversation-auto-reply",
+    missingInfo: [],
+    preparedReplyAvailable: false,
+    summary: "Asked for the public business phone number.",
+  });
+
+  assert.match(
+    body,
+    /Kyro answered this using the public business details saved in the workspace\./,
+  );
+  assert.doesNotMatch(body, /Reply SEND IT|help with the next step/i);
+});
+
 test("uses the model recommendation instead of generic missing-info advice", () => {
   const body = buildInboundInquiryNotificationBody({
     channel: "email",

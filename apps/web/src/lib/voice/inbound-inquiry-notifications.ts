@@ -10,6 +10,7 @@ import { normalizeContactPhoneForRegion } from "../crm/identity";
 import {
   getActiveWorkspaceSmsNumber,
   getTwilioConfig,
+  twilioMessageTransportForWorkspace,
 } from "../integrations/twilio";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 
@@ -22,6 +23,7 @@ export type InquiryNotificationChannel =
   | "voicemail";
 
 type InquiryNotificationInput = {
+  autoReplySent?: boolean;
   channel?: InquiryNotificationChannel;
   contactName?: string | null;
   contactPhone?: string | null;
@@ -144,6 +146,7 @@ function channelLabel(channel: InquiryNotificationChannel) {
 export function buildInboundInquiryNotificationBody(
   input: Pick<
     InquiryNotificationInput,
+    | "autoReplySent"
     | "channel"
     | "contactName"
     | "contactPhone"
@@ -166,7 +169,9 @@ export function buildInboundInquiryNotificationBody(
   const preferredTime = textValue(input.preferredTime);
   const eventLabel = textValue(input.eventLabel);
   const modelRecommendation = textValue(input.recommendedAction);
-  const recommendation = modelRecommendation
+  const recommendation = input.autoReplySent
+    ? "Kyro answered this using the public business details saved in the workspace."
+    : modelRecommendation
     ? modelRecommendation
     : outcome === "booked"
       ? `The booking is set for ${eventLabel ?? "the agreed time"}.`
@@ -177,7 +182,9 @@ export function buildInboundInquiryNotificationBody(
               missingInfo.map(notificationFactLabel),
             )}.`
           : "Review the prepared response and follow up while the inquiry is fresh.";
-  const action = input.preparedReplyAvailable
+  const action = input.autoReplySent
+    ? null
+    : input.preparedReplyAvailable
     ? "Reply SEND IT and I'll send the prepared response."
     : outcome === "booked"
       ? null
@@ -420,6 +427,10 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
     "unknown";
   let result: Awaited<ReturnType<typeof recordOutboundDirectSms>>;
   const notificationBody = buildInboundInquiryNotificationBody(input);
+  const transport = twilioMessageTransportForWorkspace({
+    recipientPhone: recipient.phoneNumber,
+    workspaceId: input.workspaceId,
+  });
 
   try {
     result = await recordOutboundDirectSms(input.supabase, {
@@ -433,6 +444,7 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
         outcome: input.outcome ?? "captured",
         providerCallId: input.providerCallId ?? null,
         sourceId,
+        transport,
         voiceCallId: input.voiceCallId ?? null,
       },
       recipientName: recipient.name,
@@ -447,6 +459,7 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
       },
       replyEventType: "outbound.inbound_inquiry_notification.sent",
       source: "inbound_inquiry_notification",
+      transport,
       userId: recipient.userId,
       workplaceContactId: recipient.contactId,
       workspaceId: input.workspaceId,

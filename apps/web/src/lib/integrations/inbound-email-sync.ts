@@ -2839,6 +2839,7 @@ async function promoteEmailMessage({
   return {
     actionId: triageResult.actionId,
     aiRunId: triageResult.aiRunId,
+    autoReplySent: triageResult.autoReplySent,
     cancelledActionCount,
     completedFollowUpReminderCount,
     contactPhone: contactProfile?.phone ? String(contactProfile.phone) : null,
@@ -3269,6 +3270,7 @@ async function processMessage({
     });
 
     await notifyInboundInquiry({
+      autoReplySent: promoted.autoReplySent,
       channel: "email",
       contactName:
         contactNameFromMessage(message) ?? message.fromEmail ?? "email sender",
@@ -3276,7 +3278,8 @@ async function processMessage({
       conversationId: promoted.conversationId,
       missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
       preferredTime: promoted.inquiryFacts?.preferredTime ?? null,
-      preparedReplyAvailable: Boolean(promoted.replyDraft?.body),
+      preparedReplyAvailable:
+        !promoted.autoReplySent && Boolean(promoted.replyDraft?.body),
       recommendedAction: classification.actionHint,
       sourceId: String(event.id),
       summary: promoted.triageSummary ?? classification.summary,

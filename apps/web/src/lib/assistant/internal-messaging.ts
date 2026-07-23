@@ -185,6 +185,7 @@ export async function processInternalAssistantMessage(input: {
       recipientName: user.user_metadata?.full_name ?? user.email ?? "Kyro user",
       recipientPhone: barePhone(input.from),
       source: `assistant.internal_${input.transport}`,
+      transport: input.transport,
       userId: user.id,
       workspaceId: workspace.id,
     });

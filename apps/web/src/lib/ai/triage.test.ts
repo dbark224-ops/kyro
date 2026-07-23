@@ -3,12 +3,80 @@ import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildReplyBody,
+  canAutoReplyWithKnownBusinessFacts,
   ensureReplyDraftCoversMissingInfo,
   extractInquiryFacts,
   loadLatestInboundMessageBody,
   outboundReplyChannelForInquiryContext,
   type InquiryFacts,
 } from "./triage";
+
+const publicFacts = {
+  businessAddress: "100 Main Street",
+  businessName: "Kyro Plumbing",
+  contactHours: "Monday to Friday, 8:00 AM to 5:00 PM",
+  publicEmail: "hello@example.com",
+  publicPhoneNumber: "+15755550123",
+  serviceArea: "Las Cruces",
+  workingHours: "Monday to Friday, 7:00 AM to 4:00 PM",
+};
+
+describe("known business fact auto replies", () => {
+  it("allows a grounded public phone-number answer from the primary model", () => {
+    assert.equal(
+      canAutoReplyWithKnownBusinessFacts({
+        enabled: true,
+        latestMessage: "What phone number can I call?",
+        providerUsed: "openai",
+        publicBusinessFacts: publicFacts,
+        replyBody: "You can call Kyro Plumbing on +1 575 555 0123.",
+        responsePolicy: {
+          factKeys: ["publicPhoneNumber"],
+          mode: "known_business_fact",
+          reason: "The caller asked for a saved public business detail.",
+        },
+      }),
+      true,
+    );
+  });
+
+  it("keeps quotes and ungrounded facts behind approval", () => {
+    assert.equal(
+      canAutoReplyWithKnownBusinessFacts({
+        enabled: true,
+        latestMessage: "Can you quote this and come out tomorrow?",
+        providerUsed: "openai",
+        publicBusinessFacts: publicFacts,
+        replyBody: "We can come tomorrow.",
+        responsePolicy: {
+          factKeys: ["workingHours"],
+          mode: "known_business_fact",
+          reason: "Availability request.",
+        },
+      }),
+      false,
+    );
+
+    assert.equal(
+      canAutoReplyWithKnownBusinessFacts({
+        enabled: true,
+        latestMessage: "What is your service area?",
+        providerUsed: "openai",
+        publicBusinessFacts: {
+          ...publicFacts,
+          serviceArea: "",
+        },
+        replyBody: "We service Las Cruces.",
+        responsePolicy: {
+          factKeys: ["serviceArea"],
+          mode: "known_business_fact",
+          reason: "Service-area question.",
+        },
+      }),
+      false,
+    );
+  });
+});
 
 describe("inbound inquiry requirements", () => {
   it("asks email-originated inquiries for address, preferred time, and phone when missing", () => {

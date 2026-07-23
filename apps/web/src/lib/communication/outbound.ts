@@ -19,6 +19,7 @@ import {
   TWILIO_SMS_SERVICE,
   TWILIO_STATUS_WEBHOOK_PATH,
   type TwilioSmsSendResult,
+  type TwilioMessageTransport,
 } from "../integrations/twilio";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { buildQuotePdfArtifactForDraft } from "../documents/pdf";
@@ -112,6 +113,7 @@ type RecordOutboundDirectSmsInput = {
   replyEventPayload?: Record<string, unknown> | null;
   replyEventType?: string | null;
   settingsSnapshot?: Record<string, unknown> | null;
+  transport?: TwilioMessageTransport;
 };
 
 type OutboundQueueRow = {
@@ -1675,11 +1677,16 @@ async function deliverOutboundQueueItem(
         workspaceSmsNumber?.phoneNumber ?? envTwilioSenderNumber();
 
       if (senderNumber && getTwilioConfig()) {
+        const transport =
+          textValue(outboxMetadata.transport) === "whatsapp_sandbox"
+            ? "whatsapp_sandbox"
+            : "sms";
         const smsResult = await sendTwilioSmsMessage({
           body,
           from: senderNumber,
           statusCallbackUrl: twilioStatusCallbackUrl(),
           to: recipientPhone,
+          transport,
         });
         twilioSmsResult = smsResult;
 
@@ -2396,6 +2403,7 @@ export async function recordOutboundDirectSms(
     metadata: {
       ...(input.metadata ?? {}),
       deliveryMode: "event",
+      transport: input.transport ?? "sms",
       replyEventPayload: {
         ...(input.replyEventPayload ?? {}),
         body,

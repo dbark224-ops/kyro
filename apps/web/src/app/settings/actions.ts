@@ -811,6 +811,10 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     approvalRequired: approvalMode === "approval_required",
     aiGeneratedSignature,
     allowedChannels,
+    autoReplyKnownBusinessFacts: formBoolean(
+      formData,
+      "autoReplyKnownBusinessFacts",
+    ),
     businessSignature: manualSignature.text,
     defaultTone:
       replyWriting.tone ||

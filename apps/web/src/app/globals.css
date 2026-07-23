@@ -5433,7 +5433,8 @@ a.assistant-summary-card:focus-visible {
   min-width: 0;
 }
 
-.conversation-reply-disclosure > summary {
+.conversation-reply-disclosure > summary,
+.conversation-reply-trigger {
   position: absolute;
   top: 7px;
   right: 8px;
@@ -5450,6 +5451,7 @@ a.assistant-summary-card:focus-visible {
   font-size: 0.75rem;
   font-weight: 850;
   padding: 5px 9px;
+  font-family: inherit;
 }
 
 .conversation-reply-disclosure > summary::-webkit-details-marker,
@@ -5458,16 +5460,19 @@ a.assistant-summary-card:focus-visible {
   display: none;
 }
 
-.conversation-reply-disclosure > summary:hover {
+.conversation-reply-disclosure > summary:hover,
+.conversation-reply-trigger:hover {
   border-color: color-mix(in srgb, var(--pink) 68%, var(--cyan));
   background: color-mix(in srgb, var(--pink) 13%, var(--surface));
 }
 
-.conversation-reply-disclosure > summary svg {
+.conversation-reply-disclosure > summary svg,
+.conversation-reply-trigger svg {
   transition: transform 150ms ease;
 }
 
-.conversation-reply-disclosure[open] > summary svg {
+.conversation-reply-disclosure[open] > summary svg,
+.conversation-reply-disclosure.is-open .conversation-reply-trigger svg {
   transform: rotate(90deg);
 }
 
@@ -5481,6 +5486,10 @@ a.assistant-summary-card:focus-visible {
 
 .conversation-reply-disclosure:not([open]) .conversation-reply-editor {
   display: none;
+}
+
+.conversation-reply-disclosure.is-open .conversation-reply-editor {
+  display: grid;
 }
 
 .conversation-reply-disclosure.standalone > summary {
@@ -8450,6 +8459,12 @@ button.voice-card {
   top: auto;
 }
 
+.inbox-inline-preview[data-conversation-detail-panel] {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
 .inbox-inline-preview .assistant-preview-body {
   min-height: 0;
   max-height: none;
@@ -9740,6 +9755,26 @@ button:disabled {
   overflow-y: auto;
   background: color-mix(in srgb, var(--background) 72%, rgba(2, 6, 23, 0.58));
   padding: 42px 18px 24px;
+}
+
+.conversation-history-modal-backdrop.is-contained {
+  position: absolute;
+  z-index: 90;
+  align-items: center;
+  overflow: hidden;
+  border-radius: inherit;
+  padding: 12px;
+}
+
+.conversation-history-modal-backdrop.is-contained
+  .call-log-modal.conversation-history-modal {
+  width: 100%;
+  max-height: calc(100% - 24px);
+}
+
+.conversation-history-modal-backdrop.is-contained
+  .conversation-history-detail-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .call-log-modal {
@@ -13607,6 +13642,27 @@ button:disabled {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
   gap: 12px;
   align-items: start;
+}
+
+.known-fact-auto-reply-control {
+  width: 100%;
+  margin-top: 12px;
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.known-fact-auto-reply-control > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.known-fact-auto-reply-control small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
 .outbound-permission-control,

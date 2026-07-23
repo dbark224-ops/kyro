@@ -4225,6 +4225,23 @@ function CommunicationSettingsDetail({
               </div>
             </fieldset>
           </div>
+          <label className="compact-checkbox-row known-fact-auto-reply-control">
+            <input
+              defaultChecked={
+                communicationSettings.autoReplyKnownBusinessFacts
+              }
+              name="autoReplyKnownBusinessFacts"
+              type="checkbox"
+            />
+            <span>
+              <strong>Answer basic business questions automatically</strong>
+              <small>
+                Kyro can immediately answer from saved public contact details,
+                service area, and business hours. Quotes, bookings, promises,
+                complaints, and sensitive information still require review.
+              </small>
+            </span>
+          </label>
         </section>
 
         <fieldset className="settings-fieldset follow-up-reminder-panel">

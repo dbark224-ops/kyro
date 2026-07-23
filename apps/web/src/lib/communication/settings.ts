@@ -39,6 +39,7 @@ export type CommunicationSettings = {
   approvalRequired: boolean;
   allowedChannels: OutboundChannel[];
   aiGeneratedSignature: EmailSignatureSettings;
+  autoReplyKnownBusinessFacts: boolean;
   defaultTone: string;
   followUpDelayDays: number;
   followUpRemindersEnabled: boolean;
@@ -75,6 +76,7 @@ export const DEFAULT_COMMUNICATION_SETTINGS: CommunicationSettings = {
   approvalRequired: true,
   allowedChannels: ["email", "sms", "manual"],
   aiGeneratedSignature: DEFAULT_EMAIL_SIGNATURE,
+  autoReplyKnownBusinessFacts: true,
   businessSignature: "",
   defaultTone: "friendly_direct",
   dryRunOnly: true,
@@ -260,6 +262,10 @@ export function normalizeCommunicationSettings(
         text: textValue(settings.businessSignature) ?? "",
       }),
     ),
+    autoReplyKnownBusinessFacts:
+      typeof settings.autoReplyKnownBusinessFacts === "boolean"
+        ? settings.autoReplyKnownBusinessFacts
+        : DEFAULT_COMMUNICATION_SETTINGS.autoReplyKnownBusinessFacts,
     businessSignature:
       textValue(objectRecord(settings.manualSignature).text) ??
       textValue(settings.businessSignature) ??

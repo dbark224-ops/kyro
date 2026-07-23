@@ -14,6 +14,7 @@ export const TWILIO_WHATSAPP_SANDBOX_WEBHOOK_PATH =
   "/api/integrations/twilio/whatsapp";
 
 const DEFAULT_TWILIO_WHATSAPP_SANDBOX_NUMBER = "+14155238886";
+export type TwilioMessageTransport = "sms" | "whatsapp_sandbox";
 
 type TwilioConfig = {
   accountSid: string;
@@ -169,6 +170,24 @@ function whatsappSandboxRoute(to: string) {
     from: `whatsapp:${configuredSender}`,
     to: `whatsapp:${configuredRecipient}`,
   };
+}
+
+export function twilioMessageTransportForWorkspace(input: {
+  recipientPhone: string;
+  workspaceId: string;
+}): TwilioMessageTransport {
+  const configuredWorkspaceId = textValue(
+    process.env.TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID,
+  );
+  const configuredRecipient = whatsappPhoneNumber(
+    process.env.TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT,
+  );
+
+  return configuredWorkspaceId === input.workspaceId &&
+    configuredRecipient &&
+    phoneIdentity(input.recipientPhone) === phoneIdentity(configuredRecipient)
+    ? "whatsapp_sandbox"
+    : "sms";
 }
 
 function appUrl() {
@@ -502,6 +521,7 @@ export async function sendTwilioSmsMessage(input: {
   from: string | null;
   statusCallbackUrl?: string | null;
   to: string;
+  transport?: TwilioMessageTransport;
 }): Promise<TwilioSmsSendResult> {
   const config = getTwilioConfig();
 
@@ -515,7 +535,14 @@ export async function sendTwilioSmsMessage(input: {
   const to = input.to.trim();
   const requestedFrom = input.from?.trim() || null;
   const from = requestedFrom ?? config.defaultFromNumber;
-  const whatsappRoute = whatsappSandboxRoute(to);
+  const whatsappRoute =
+    input.transport === "whatsapp_sandbox" ? whatsappSandboxRoute(to) : null;
+
+  if (input.transport === "whatsapp_sandbox" && !whatsappRoute) {
+    throw new Error(
+      "The WhatsApp Sandbox route is not configured for this recipient.",
+    );
+  }
 
   if (!body) {
     throw new Error("Unable to send SMS because the message body is empty.");
