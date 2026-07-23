@@ -5496,10 +5496,6 @@ a.assistant-summary-card:focus-visible {
   min-width: 0;
 }
 
-.conversation-message-thread {
-  gap: 0;
-}
-
 .conversation-message {
   min-width: 0;
   gap: 0;
@@ -6018,6 +6014,34 @@ a.assistant-preview-row.assistant-inbox-queue-row:hover {
 .preview-message.inbound {
   border-left: 2px solid color-mix(in srgb, var(--cyan) 60%, var(--line));
   padding-left: 10px;
+}
+
+.conversation-message-thread {
+  gap: 0;
+}
+
+.conversation-message-thread .conversation-message {
+  position: relative;
+  border-left: 0;
+  padding-left: 12px;
+}
+
+.conversation-message-thread .conversation-message::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 2px;
+  border-radius: 999px;
+  content: "";
+}
+
+.conversation-message-thread .conversation-message.inbound::before {
+  background: color-mix(in srgb, var(--cyan) 60%, var(--line));
+}
+
+.conversation-message-thread .conversation-message.outbound::before {
+  background: color-mix(in srgb, var(--pink) 60%, var(--line));
 }
 
 .message-attachment-list {
