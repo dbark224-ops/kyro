@@ -5493,6 +5493,11 @@ a.assistant-summary-card:focus-visible {
   display: grid;
 }
 
+.conversation-reply-disclosure.is-open:not(.standalone)
+  > .conversation-reply-editor {
+  padding-top: 49px;
+}
+
 .conversation-reply-disclosure.standalone > summary {
   position: static;
   justify-self: end;
