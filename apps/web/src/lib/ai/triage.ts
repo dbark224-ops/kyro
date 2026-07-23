@@ -185,6 +185,121 @@ function normalizeResponsePolicy(value: unknown): TriageResponsePolicy {
 const KNOWN_FACT_AUTO_REPLY_BLOCKED_PATTERN =
   /\b(?:price|pricing|cost|quote|estimate|discount|availability|available|appointment|book|booking|schedule|when can|come out|attend|accept|scope|can you do|complaint|refund|legal|regulat|licen[cs]|permit|emergency|urgent|asap|account|password|payment|invoice)\b/i;
 
+const DIRECT_KNOWN_FACT_PATTERNS: Array<{
+  key: PublicBusinessFactKey;
+  patterns: RegExp[];
+}> = [
+  {
+    key: "publicPhoneNumber",
+    patterns: [
+      /\b(?:give|send|provide|share|have|what(?:'s| is))\b.{0,40}\b(?:phone|telephone|contact)\s*(?:number)?\b/i,
+      /\b(?:phone|telephone|contact)\s+number\b.{0,40}\b(?:call|reach|contact)\b/i,
+      /\bnumber\s+(?:to|i can)\s+call\b/i,
+      /\bhow (?:can|do) i (?:call|phone|reach|contact) (?:you|the business|your team)\b/i,
+    ],
+  },
+  {
+    key: "publicEmail",
+    patterns: [
+      /\b(?:give|send|provide|share|have|what(?:'s| is))\b.{0,40}\b(?:email|e-mail)(?:\s+address)?\b/i,
+      /\bhow (?:can|do) i email (?:you|the business|your team)\b/i,
+    ],
+  },
+  {
+    key: "businessAddress",
+    patterns: [
+      /\b(?:what(?:'s| is)|give|send|provide|share)\b.{0,40}\b(?:business|office|shop|store)\s+address\b/i,
+      /\bwhere (?:are you|is (?:the business|your office|your shop|your store)) located\b/i,
+    ],
+  },
+  {
+    key: "serviceArea",
+    patterns: [
+      /\b(?:what|which|where)\b.{0,30}\b(?:areas?|suburbs?|cities|towns|locations?)\b.{0,30}\b(?:service|cover|work in|travel to)\b/i,
+      /\b(?:service|coverage)\s+area\b/i,
+    ],
+  },
+  {
+    key: "workingHours",
+    patterns: [
+      /\b(?:what(?:'s| are)|give|send|provide|share)\b.{0,30}\b(?:business|working|opening|open)\s+hours\b/i,
+      /\bwhat time (?:do you|does the business) (?:open|close)\b/i,
+    ],
+  },
+  {
+    key: "contactHours",
+    patterns: [
+      /\b(?:what(?:'s| are)|give|send|provide|share)\b.{0,30}\bcontact\s+hours\b/i,
+      /\bwhen (?:can|should) i (?:call|contact|reach) (?:you|the business|your team)\b/i,
+    ],
+  },
+];
+
+export function directKnownBusinessFactKeys(latestMessage: string) {
+  const message = latestMessage.trim();
+
+  if (
+    !message ||
+    KNOWN_FACT_AUTO_REPLY_BLOCKED_PATTERN.test(message)
+  ) {
+    return [] as PublicBusinessFactKey[];
+  }
+
+  return DIRECT_KNOWN_FACT_PATTERNS.filter(({ patterns }) =>
+    patterns.some((pattern) => pattern.test(message)),
+  ).map(({ key }) => key);
+}
+
+function normalizedFactText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function replyContainsBusinessFact(
+  replyBody: string,
+  key: PublicBusinessFactKey,
+  value: string,
+) {
+  if (key === "publicPhoneNumber") {
+    const factDigits = value.replace(/\D/g, "");
+    const replyDigits = replyBody.replace(/\D/g, "");
+
+    return factDigits.length >= 7 && replyDigits.includes(factDigits);
+  }
+
+  if (key === "publicEmail") {
+    return replyBody.toLowerCase().includes(value.trim().toLowerCase());
+  }
+
+  const normalizedValue = normalizedFactText(value);
+
+  return (
+    normalizedValue.length >= 3 &&
+    normalizedFactText(replyBody).includes(normalizedValue)
+  );
+}
+
+export function canAnswerWithKnownBusinessFacts(input: {
+  publicBusinessFacts: PublicBusinessFacts;
+  replyBody: string | null;
+  responsePolicy: TriageResponsePolicy;
+}) {
+  const replyBody = textValue(input.replyBody);
+
+  if (
+    input.responsePolicy.mode !== "known_business_fact" ||
+    !replyBody ||
+    input.responsePolicy.factKeys.length === 0
+  ) {
+    return false;
+  }
+
+  return input.responsePolicy.factKeys.every((key) => {
+    const fact = textValue(input.publicBusinessFacts[key]);
+
+    return Boolean(fact && replyContainsBusinessFact(replyBody, key, fact));
+  });
+}
+
 export function canAutoReplyWithKnownBusinessFacts(input: {
   enabled: boolean;
   fallbackReason?: string;
@@ -198,19 +313,12 @@ export function canAutoReplyWithKnownBusinessFacts(input: {
     !input.enabled ||
     input.providerUsed === "stub" ||
     input.fallbackReason ||
-    input.responsePolicy.mode !== "known_business_fact" ||
-    !textValue(input.replyBody) ||
     KNOWN_FACT_AUTO_REPLY_BLOCKED_PATTERN.test(input.latestMessage)
   ) {
     return false;
   }
 
-  return (
-    input.responsePolicy.factKeys.length > 0 &&
-    input.responsePolicy.factKeys.every((key) =>
-      Boolean(textValue(input.publicBusinessFacts[key])),
-    )
-  );
+  return canAnswerWithKnownBusinessFacts(input);
 }
 
 function publicBusinessFactsFromProfile(
@@ -955,6 +1063,200 @@ async function repairReplyDraftWithOpenAi(input: {
   };
 }
 
+function knownBusinessFactFallbackReply(input: {
+  factKeys: PublicBusinessFactKey[];
+  publicBusinessFacts: PublicBusinessFacts;
+}) {
+  const statements = input.factKeys.flatMap((key) => {
+    const value = textValue(input.publicBusinessFacts[key]);
+
+    if (!value) {
+      return [];
+    }
+
+    switch (key) {
+      case "publicPhoneNumber":
+        return [`You can call us on ${value}.`];
+      case "publicEmail":
+        return [`You can email us at ${value}.`];
+      case "businessAddress":
+        return [`Our business address is ${value}.`];
+      case "serviceArea":
+        return [`We service ${value}.`];
+      case "workingHours":
+        return [`Our working hours are ${value}.`];
+      case "contactHours":
+        return [`Our contact hours are ${value}.`];
+      case "businessName":
+        return [`Our business name is ${value}.`];
+    }
+  });
+
+  return `Hi,\n\n${statements.join(" ")} Is there anything else we can help with?`;
+}
+
+async function ensureKnownBusinessFactReply(input: {
+  context: StubAiTriageContext;
+  factKeys: PublicBusinessFactKey[];
+  publicBusinessFacts: PublicBusinessFacts;
+  replyDraft: TriageDecision["replyDraft"];
+}): Promise<{
+  repairUsage?: ReplyRepairUsage;
+  replyDraft: TriageDecision["replyDraft"];
+}> {
+  const responsePolicy: TriageResponsePolicy = {
+    factKeys: input.factKeys,
+    mode: "known_business_fact",
+    reason: "The customer asked for a saved public business fact.",
+  };
+
+  if (
+    canAnswerWithKnownBusinessFacts({
+      publicBusinessFacts: input.publicBusinessFacts,
+      replyBody: input.replyDraft.body,
+      responsePolicy,
+    })
+  ) {
+    return { replyDraft: input.replyDraft };
+  }
+
+  const fallbackBody = knownBusinessFactFallbackReply(input);
+  const apiKey = openAiApiKey();
+
+  if (!apiKey) {
+    return {
+      replyDraft: {
+        body: fallbackBody,
+        subject: input.replyDraft.subject,
+      },
+    };
+  }
+
+  const requestedFacts = Object.fromEntries(
+    input.factKeys.map((key) => [key, input.publicBusinessFacts[key]]),
+  );
+  const replyWriting =
+    input.context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  const prompt = JSON.stringify(
+    {
+      task: "Write a direct customer reply that answers only the simple business-fact question using the authoritative saved facts.",
+      outputContract: {
+        subject: "string|null",
+        body: "string",
+      },
+      rules: [
+        "Return JSON only.",
+        "Use every authoritativeFact value exactly and do not invent or alter business details.",
+        "Answer the customer's question immediately.",
+        "Do not treat this as a quote or service inquiry.",
+        "Do not ask for a job address, job description, preferred time, phone number, email address, confirmation, or serviceability.",
+        "A short offer to help with anything else is acceptable.",
+        "Keep the complete reply concise and natural.",
+        ...replyWritingPromptRules(replyWriting).map(
+          (rule) => `Writing style - ${rule}`,
+        ),
+      ],
+      authoritativeFacts: requestedFacts,
+      customerMessage: input.context.latestMessage ?? "",
+      originalDraft: input.replyDraft,
+      replyWriting,
+    },
+    null,
+    2,
+  );
+  const model = openAiTriageModel();
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    body: JSON.stringify({
+      input: prompt,
+      instructions:
+        "You write grounded Kyro business-fact replies. Return compact JSON matching the requested contract.",
+      max_output_tokens: openAiReplyRepairMaxOutputTokens(),
+      model,
+      ...openAiReasoningRequest(
+        model,
+        "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
+        "low",
+      ),
+      text: {
+        format: {
+          name: "kyro_known_business_fact_reply",
+          schema: {
+            additionalProperties: false,
+            properties: {
+              body: { type: "string" },
+              subject: { type: ["string", "null"] },
+            },
+            required: ["subject", "body"],
+            type: "object",
+          },
+          strict: true,
+          type: "json_schema",
+        },
+      },
+    }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return {
+      replyDraft: {
+        body: fallbackBody,
+        subject: input.replyDraft.subject,
+      },
+    };
+  }
+
+  const content = responseOutputText(payload);
+
+  if (!content) {
+    return {
+      replyDraft: {
+        body: fallbackBody,
+        subject: input.replyDraft.subject,
+      },
+    };
+  }
+
+  const parsed = extractJsonObject(content);
+  const body = textValue(parsed.body);
+  const candidate = {
+    body: body ?? fallbackBody,
+    subject: textValue(parsed.subject) ?? input.replyDraft.subject,
+  };
+  const grounded = canAnswerWithKnownBusinessFacts({
+    publicBusinessFacts: input.publicBusinessFacts,
+    replyBody: candidate.body,
+    responsePolicy,
+  });
+
+  if (!grounded) {
+    return {
+      replyDraft: {
+        body: fallbackBody,
+        subject: input.replyDraft.subject,
+      },
+    };
+  }
+
+  const usage = responseUsage(payload, prompt, content);
+
+  return {
+    repairUsage: {
+      inputTokens: usage.inputTokens,
+      model,
+      outputTokens: usage.outputTokens,
+      providerUsageId: usage.providerUsageId,
+      tokenUsage: usage.tokenUsage,
+    },
+    replyDraft: candidate,
+  };
+}
+
 function aiProviderMode() {
   return process.env.AI_PROVIDER?.trim().toLowerCase() ?? "stub";
 }
@@ -1109,6 +1411,9 @@ function normalizeLocalFacts(
 
 function buildOllamaPrompt(context: StubAiTriageContext) {
   const replyWriting = context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  const directFactKeys = directKnownBusinessFactKeys(
+    context.latestMessage ?? "",
+  ).filter((key) => Boolean(textValue(context.publicBusinessFacts?.[key])));
 
   return JSON.stringify(
     {
@@ -1147,6 +1452,7 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "Return JSON only.",
         "Do not invent an address, price, date, or customer detail.",
         "Set responsePolicy.mode to known_business_fact only for a straightforward question that can be answered completely and confidently from publicBusinessFacts.",
+        "If directKnownBusinessFactKeys is non-empty, responsePolicy.mode must be known_business_fact, responsePolicy.factKeys must contain those exact keys, and replyDraft must answer only that request using the saved values.",
         "For known_business_fact, list every publicBusinessFacts key used in responsePolicy.factKeys and answer the question directly in replyDraft.",
         "Never use known_business_fact for prices, quotes, estimates, availability, scheduling, bookings, timing promises, job acceptance, service suitability, complaints, refunds, legal or regulatory questions, emergencies, account details, security information, or any fact that is blank or uncertain.",
         "For known_business_fact, do not treat the message as a job inquiry and do not ask for job details, an address, a preferred time, or contact information.",
@@ -1167,6 +1473,7 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         ),
       ],
       authoritativeInquiryFacts: context.inquiryFactsOverride ?? null,
+      directKnownBusinessFactKeys: directFactKeys,
       publicBusinessFacts: context.publicBusinessFacts ?? null,
       replyWriting,
       context,
@@ -1819,43 +2126,92 @@ export async function runStubAiTriage(
     replyWriting: context.replyWriting ?? communicationSettings.replyWriting,
   };
   const rawTriageDecision = await resolveTriageDecision(triageContext);
+  const publicBusinessFacts =
+    triageContext.publicBusinessFacts ??
+    publicBusinessFactsFromProfile(generalSettings.businessProfile);
+  const directFactKeys = directKnownBusinessFactKeys(
+    triageContext.latestMessage ?? "",
+  ).filter((key) => Boolean(textValue(publicBusinessFacts[key])));
+  const responsePolicy =
+    directFactKeys.length > 0
+      ? {
+          factKeys: directFactKeys,
+          mode: "known_business_fact" as const,
+          reason:
+            "The customer directly asked for a saved public business fact.",
+        }
+      : rawTriageDecision.responsePolicy;
+  const knownFactCandidate =
+    responsePolicy.mode === "known_business_fact" &&
+    responsePolicy.factKeys.length > 0 &&
+    responsePolicy.factKeys.every((key) =>
+      Boolean(textValue(publicBusinessFacts[key])),
+    );
+  const knownFactDraft = knownFactCandidate
+      ? await ensureKnownBusinessFactReply({
+        context: triageContext,
+        factKeys: responsePolicy.factKeys,
+        publicBusinessFacts,
+        replyDraft: rawTriageDecision.replyDraft,
+      })
+    : {
+        repairUsage: undefined,
+        replyDraft: rawTriageDecision.replyDraft,
+      };
+  const factAwareTriageDecision: TriageDecision = {
+    ...rawTriageDecision,
+    repairUsage: knownFactDraft.repairUsage
+      ? [
+          ...(rawTriageDecision.repairUsage ?? []),
+          knownFactDraft.repairUsage,
+        ]
+      : rawTriageDecision.repairUsage,
+    replyDraft: knownFactDraft.replyDraft,
+    responsePolicy,
+  };
+  const knownFactResponse = canAnswerWithKnownBusinessFacts({
+    publicBusinessFacts,
+    replyBody: factAwareTriageDecision.replyDraft.body,
+    responsePolicy: factAwareTriageDecision.responsePolicy,
+  });
   const knownFactAutoReply = canAutoReplyWithKnownBusinessFacts({
     enabled: communicationSettings.autoReplyKnownBusinessFacts,
-    fallbackReason: rawTriageDecision.fallbackReason,
+    fallbackReason: factAwareTriageDecision.fallbackReason,
     latestMessage: triageContext.latestMessage ?? "",
-    providerUsed: rawTriageDecision.providerUsed,
-    publicBusinessFacts:
-      triageContext.publicBusinessFacts ??
-      publicBusinessFactsFromProfile(generalSettings.businessProfile),
-    replyBody: rawTriageDecision.replyDraft.body,
-    responsePolicy: rawTriageDecision.responsePolicy,
+    providerUsed: factAwareTriageDecision.providerUsed,
+    publicBusinessFacts,
+    replyBody: factAwareTriageDecision.replyDraft.body,
+    responsePolicy: factAwareTriageDecision.responsePolicy,
   });
-  const inquiryFacts = knownFactAutoReply
+  const inquiryFacts = knownFactResponse
     ? {
-        ...rawTriageDecision.inquiryFacts,
+        ...factAwareTriageDecision.inquiryFacts,
         missingInfo: [],
       }
     : applyRequiredInquiryInfo(
-        rawTriageDecision.inquiryFacts,
+        factAwareTriageDecision.inquiryFacts,
         triageContext,
       );
-  const repairedDraft = knownFactAutoReply
+  const repairedDraft = knownFactResponse
     ? {
         repairUsage: undefined,
-        replyDraft: rawTriageDecision.replyDraft,
+        replyDraft: factAwareTriageDecision.replyDraft,
       }
     : await repairReplyDraftWithOpenAi({
         context: triageContext,
         facts: inquiryFacts,
         model: route.model,
-        replyDraft: rawTriageDecision.replyDraft,
+        replyDraft: factAwareTriageDecision.replyDraft,
       });
   const triageDecision: TriageDecision = {
-    ...rawTriageDecision,
+    ...factAwareTriageDecision,
     inquiryFacts,
     repairUsage: repairedDraft.repairUsage
-      ? [...(rawTriageDecision.repairUsage ?? []), repairedDraft.repairUsage]
-      : rawTriageDecision.repairUsage,
+      ? [
+          ...(factAwareTriageDecision.repairUsage ?? []),
+          repairedDraft.repairUsage,
+        ]
+      : factAwareTriageDecision.repairUsage,
     replyDraft: repairedDraft.replyDraft,
   };
   const { error: routeError } = await supabase
@@ -1877,6 +2233,7 @@ export async function runStubAiTriage(
       budget_snapshot: {
         fallbackReason: triageDecision.fallbackReason ?? null,
         knownFactAutoReply,
+        knownFactResponse,
         estimatedInputTokens: routeRequest.estimatedInputTokens,
         providerUsed: triageDecision.providerUsed,
         replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
@@ -1987,16 +2344,19 @@ export async function runStubAiTriage(
     inquiryFacts,
     triageDecision.replyDraft,
   ).filter(
-    (proposal) => !knownFactAutoReply || proposal.type === "draft_reply",
+    (proposal) => !knownFactResponse || proposal.type === "draft_reply",
   );
   const output = {
-    classification: "new_lead_follow_up",
+    classification: knownFactResponse
+      ? "known_business_fact"
+      : "new_lead_follow_up",
     confidence: triageDecision.providerUsed === "ollama" ? 0.76 : 0.86,
     fallbackReason: triageDecision.fallbackReason ?? null,
     futureStepDecision: triageDecision.futureStepDecision,
     futureStepTransition,
     inquiryFacts,
     knownFactAutoReply,
+    knownFactResponse,
     authoritativeFactsUsed: Boolean(triageContext.inquiryFactsOverride),
     providerUsed: triageDecision.providerUsed,
     replyRepairLoops: triageDecision.repairUsage?.length ?? 0,

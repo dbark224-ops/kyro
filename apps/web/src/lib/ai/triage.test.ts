@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildReplyBody,
+  canAnswerWithKnownBusinessFacts,
   canAutoReplyWithKnownBusinessFacts,
+  directKnownBusinessFactKeys,
   ensureReplyDraftCoversMissingInfo,
   extractInquiryFacts,
   loadLatestInboundMessageBody,
@@ -22,6 +24,15 @@ const publicFacts = {
 };
 
 describe("known business fact auto replies", () => {
+  it("recognizes a plain-language request for the business phone number", () => {
+    assert.deepEqual(
+      directKnownBusinessFactKeys(
+        "Hi - can yall give me a phone number to call?",
+      ),
+      ["publicPhoneNumber"],
+    );
+  });
+
   it("allows a grounded public phone-number answer from the primary model", () => {
     assert.equal(
       canAutoReplyWithKnownBusinessFacts({
@@ -37,6 +48,22 @@ describe("known business fact auto replies", () => {
         },
       }),
       true,
+    );
+  });
+
+  it("does not accept job-intake boilerplate as a grounded fact reply", () => {
+    assert.equal(
+      canAnswerWithKnownBusinessFacts({
+        publicBusinessFacts: publicFacts,
+        replyBody:
+          "Please send the job address, preferred time, and a phone number.",
+        responsePolicy: {
+          factKeys: ["publicPhoneNumber"],
+          mode: "known_business_fact",
+          reason: "The customer asked for the business phone number.",
+        },
+      }),
+      false,
     );
   });
 
