@@ -870,7 +870,10 @@ export function AppFrame({
 
   return (
     <main className="app-shell">
-      <RoutePreloader activeHref={activeHref} routes={preloadRoutes} />
+      <RoutePreloader
+        activeHref={activeHref}
+        routes={active === "Settings" ? [] : preloadRoutes}
+      />
       <details className="mobile-nav-drawer">
         <summary className="mobile-drawer-toggle" aria-label="Open navigation">
           <span aria-hidden="true" className="mobile-drawer-lines">

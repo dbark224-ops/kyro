@@ -11,6 +11,11 @@ import {
 } from "react";
 import { SmartPrefetchLink } from "./smart-prefetch-link";
 
+type PendingNavigation = {
+  fromHref: string;
+  toHref: string;
+};
+
 function shouldTrackClick(event: MouseEvent<HTMLAnchorElement>) {
   return (
     !event.defaultPrevented &&
@@ -39,27 +44,32 @@ export function PendingSmartPrefetchLink({
 >) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingNavigation | null>(null);
   const currentHref = useMemo(() => {
     const query = searchParams.toString();
 
     return query ? `${pathname}?${query}` : pathname;
   }, [pathname, searchParams]);
-  const isPending = Boolean(pendingHref && pendingHref !== currentHref);
+  const isPending = Boolean(
+    pendingNavigation &&
+      pendingNavigation.fromHref === currentHref &&
+      pendingNavigation.toHref !== currentHref,
+  );
 
   useEffect(() => {
-    if (!pendingHref) {
+    if (!pendingNavigation) {
       return undefined;
     }
 
     const timeout = window.setTimeout(() => {
-      setPendingHref(null);
-    }, 12_000);
+      setPendingNavigation(null);
+    }, 45_000);
 
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [pendingHref]);
+  }, [pendingNavigation]);
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     onClick?.(event);
@@ -68,7 +78,10 @@ export function PendingSmartPrefetchLink({
       return;
     }
 
-    setPendingHref(href);
+    setPendingNavigation({
+      fromHref: currentHref,
+      toHref: href,
+    });
   }
 
   return (

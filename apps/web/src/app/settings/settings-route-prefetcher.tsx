@@ -2,14 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import {
+  canRunBackgroundPrefetch,
+  claimBackgroundPrefetchLease,
+} from "../components/background-prefetch";
 
 type IdleWindow = Window & {
-  navigator: Navigator & {
-    connection?: {
-      effectiveType?: string;
-      saveData?: boolean;
-    };
-  };
   requestIdleCallback?: (
     callback: () => void,
     options?: { timeout?: number },
@@ -17,19 +15,9 @@ type IdleWindow = Window & {
   cancelIdleCallback?: (handle: number) => void;
 };
 
-const MAX_IDLE_SETTINGS_PREFETCH_ROUTES = 5;
-const SETTINGS_PREFETCH_STAGGER_MS = 180;
+const MAX_IDLE_SETTINGS_PREFETCH_ROUTES = 3;
+const SETTINGS_PREFETCH_STAGGER_MS = 220;
 const prefetchedSettingsRoutes = new Set<string>();
-
-function shouldSkipPrefetch(idleWindow: IdleWindow) {
-  const connection = idleWindow.navigator.connection;
-
-  return (
-    connection?.saveData === true ||
-    connection?.effectiveType === "slow-2g" ||
-    connection?.effectiveType === "2g"
-  );
-}
 
 export function SettingsRoutePrefetcher({
   activeHref,
@@ -49,14 +37,22 @@ export function SettingsRoutePrefetcher({
       .filter((href) => !prefetchedSettingsRoutes.has(href))
       .slice(0, MAX_IDLE_SETTINGS_PREFETCH_ROUTES);
 
-    if (!uniqueHrefs.length || shouldSkipPrefetch(idleWindow)) {
+    if (!uniqueHrefs.length || !canRunBackgroundPrefetch()) {
       return undefined;
     }
 
     const prefetch = () => {
+      if (
+        cancelled ||
+        !canRunBackgroundPrefetch() ||
+        !claimBackgroundPrefetchLease()
+      ) {
+        return;
+      }
+
       uniqueHrefs.forEach((href, index) => {
         const timeout = window.setTimeout(() => {
-          if (cancelled) {
+          if (cancelled || !canRunBackgroundPrefetch()) {
             return;
           }
 
@@ -73,7 +69,7 @@ export function SettingsRoutePrefetcher({
     };
 
     if (idleWindow.requestIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(prefetch, { timeout: 1800 });
+      const handle = idleWindow.requestIdleCallback(prefetch, { timeout: 1500 });
 
       return () => {
         cancelled = true;
@@ -82,7 +78,7 @@ export function SettingsRoutePrefetcher({
       };
     }
 
-    const handle = window.setTimeout(prefetch, 700);
+    const handle = window.setTimeout(prefetch, 900);
 
     return () => {
       cancelled = true;

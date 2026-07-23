@@ -35,6 +35,7 @@ import {
   type ActiveFutureStepContext,
   type FutureStepDecision,
 } from "../workflow/inquiry-future-steps";
+import { customerReplyConversationRules } from "./customer-reply-style";
 import { openAiLowCostModel, openAiReasoningRequest } from "./openai-models";
 
 export type AiRunItem = {
@@ -1519,6 +1520,13 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "If context.futureStep is present, classify only the latestMessage against that pending workflow. Use confirmed only when the customer accepts the offered appointment, countered when they reject it or propose a different time, cancelled when they abandon it, and unrelated when the reply does not resolve that workflow.",
         "Never use an older thread message to resolve a futureStep. If context.futureStep is absent, futureStepDecision.outcome must be unrelated.",
         "Apply replyWriting to the replyDraft tone, wording style, length, sign-off, trade phrasing, and reusable instructions.",
+        ...customerReplyConversationRules({
+          channel: context.inboundChannelType,
+          isFirstCustomerTurn:
+            typeof context.threadMessageCount === "number"
+              ? context.threadMessageCount <= 1
+              : undefined,
+        }),
         ...replyWritingPromptRules(replyWriting).map(
           (rule) => `Writing style - ${rule}`,
         ),

@@ -1,8 +1,10 @@
 import { AppFrame } from "../components/app-frame";
 import {
   getConversationList,
+  getConversationMailboxCounts,
   getConversationReview,
   getSkippedEmailSummaries,
+  getSkippedEmailSummaryCounts,
   type ConversationReview,
   type SkippedEmailSummaryItem,
 } from "../../lib/crm/queries";
@@ -1470,13 +1472,17 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const [
     inboxConversations,
     deletedConversations,
+    conversationMailboxCounts,
     selectedConversationReview,
     communicationSettings,
     generalSettings,
     skippedEmailSummaries,
   ] = await Promise.all([
     getConversationList(supabase, workspace.id),
-    getConversationList(supabase, workspace.id, { mailbox: "deleted" }),
+    activeMailbox === "deleted"
+      ? getConversationList(supabase, workspace.id, { mailbox: "deleted" })
+      : Promise.resolve([]),
+    getConversationMailboxCounts(supabase, workspace.id),
     selectedConversationId && activeMailbox !== "junk"
       ? getConversationReview(supabase, workspace.id, selectedConversationId)
       : Promise.resolve(null),
@@ -1484,7 +1490,14 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       ? getCommunicationSettings(supabase, workspace.id)
       : Promise.resolve(null),
     getWorkspaceGeneralSettings(supabase, workspace.id),
-    getSkippedEmailSummaries(supabase, workspace.id),
+    activeMailbox === "junk"
+      ? getSkippedEmailSummaries(supabase, workspace.id)
+      : getSkippedEmailSummaryCounts(supabase, workspace.id).then(
+          (summaryCounts) => ({
+            items: [],
+            ...summaryCounts,
+          }),
+        ),
   ]);
   const conversations =
     activeMailbox === "deleted" ? deletedConversations : inboxConversations;
@@ -1702,7 +1715,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                 })}
                 preload
               >
-                Inbox <span>{inboxConversations.length}</span>
+                Inbox <span>{conversationMailboxCounts.inbox}</span>
               </SmartPrefetchLink>
               <SmartPrefetchLink
                 className={activeMailbox === "junk" ? "active" : ""}
@@ -1728,7 +1741,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                 })}
                 preload
               >
-                Deleted <span>{deletedConversations.length}</span>
+                Deleted <span>{conversationMailboxCounts.deleted}</span>
               </SmartPrefetchLink>
             </nav>
           </InboxMailboxTransition>
@@ -1855,7 +1868,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                       })}
                       key={email.id}
                       label={email.subject}
-                      preload={emailIndex < 5}
+                      preload={emailIndex === 0}
                       selected={isSelected}
                     >
                       <time className="conversation-row-time">
@@ -1940,7 +1953,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                     conversationId={conversation.id}
                     href={conversationHref}
                     label={jobType}
-                    preload={conversationIndex < 5}
+                    preload={conversationIndex === 0}
                     selected={isSelected}
                   >
                     <time className="conversation-row-time">

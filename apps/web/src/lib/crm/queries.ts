@@ -164,6 +164,11 @@ type ConversationListOptions = {
   mailbox?: "all" | "deleted" | "inbox";
 };
 
+export type ConversationMailboxCounts = {
+  deleted: number;
+  inbox: number;
+};
+
 type ConversationWorkflowCounts = {
   awaitingCustomer: number;
   followUpDue: number;
@@ -1690,6 +1695,41 @@ export async function getConversationList(
   }) satisfies ConversationListItem[];
 }
 
+export async function getConversationMailboxCounts(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<ConversationMailboxCounts> {
+  const [inboxResult, deletedResult] = await Promise.all([
+    supabase
+      .from("conversations")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .is("deleted_at", null),
+    supabase
+      .from("conversations")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .not("deleted_at", "is", null),
+  ]);
+
+  if (inboxResult.error) {
+    throw new Error(
+      `Unable to count inbox conversations: ${inboxResult.error.message}`,
+    );
+  }
+
+  if (deletedResult.error) {
+    throw new Error(
+      `Unable to count deleted conversations: ${deletedResult.error.message}`,
+    );
+  }
+
+  return {
+    deleted: deletedResult.count ?? 0,
+    inbox: inboxResult.count ?? 0,
+  };
+}
+
 export async function getSkippedEmailSummaries(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -1769,6 +1809,47 @@ export async function getSkippedEmailSummaries(
     ),
     last24HoursCount: countResult.count ?? 0,
     totalCount: totalCountResult.count ?? 0,
+  };
+}
+
+export async function getSkippedEmailSummaryCounts(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<Pick<SkippedEmailSummaries, "last24HoursCount" | "totalCount">> {
+  const last24HoursStart = skippedEmailLast24HoursStart();
+  const [last24HoursResult, totalResult] = await Promise.all([
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("type", "inbound.email.received")
+      .eq("status", "processed")
+      .contains("payload", { stage: "observed" })
+      .gte("processed_at", last24HoursStart),
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("type", "inbound.email.received")
+      .eq("status", "processed")
+      .contains("payload", { stage: "observed" }),
+  ]);
+
+  if (last24HoursResult.error) {
+    throw new Error(
+      `Unable to count recent skipped email summaries: ${last24HoursResult.error.message}`,
+    );
+  }
+
+  if (totalResult.error) {
+    throw new Error(
+      `Unable to count skipped email summaries: ${totalResult.error.message}`,
+    );
+  }
+
+  return {
+    last24HoursCount: last24HoursResult.count ?? 0,
+    totalCount: totalResult.count ?? 0,
   };
 }
 

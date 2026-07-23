@@ -4,9 +4,19 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SettingsRoutePrefetcher } from "./settings-route-prefetcher";
 import { SettingsSearch } from "./settings-search";
-import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 const intentPrefetchedSettingsRoutes = new Set<string>();
+
+type PendingSettingsNavigation = {
+  fromHref: string;
+  toHref: string;
+};
 
 export type SettingsSection =
   | "general"
@@ -49,12 +59,13 @@ export function SettingsShell({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingSettingsNavigation | null>(null);
   const hasDetail = Boolean(selectedSection && detail);
   const prefetchHrefs = useMemo(
     () => [
-      ...items.map((item) => item.href),
       ...nestedItems.map((item) => item.href),
+      ...items.map((item) => item.href),
     ],
     [items, nestedItems],
   );
@@ -63,7 +74,11 @@ export function SettingsShell({
 
     return query ? `${pathname}?${query}` : pathname;
   }, [pathname, searchParams]);
-  const detailIsLoading = Boolean(pendingHref && pendingHref !== currentHref);
+  const detailIsLoading = Boolean(
+    pendingNavigation &&
+      pendingNavigation.fromHref === currentHref &&
+      pendingNavigation.toHref !== currentHref,
+  );
 
   function markRoutePending(
     event: MouseEvent<HTMLAnchorElement>,
@@ -81,7 +96,10 @@ export function SettingsShell({
       return;
     }
 
-    setPendingHref(href);
+    setPendingNavigation({
+      fromHref: currentHref,
+      toHref: href,
+    });
   }
 
   function prefetchRouteOnIntent(href: string) {
@@ -115,7 +133,12 @@ export function SettingsShell({
         <SettingsSearch
           currentHref={currentHref}
           includeDeveloper={items.some((item) => item.section === "developer")}
-          onNavigate={setPendingHref}
+          onNavigate={(href) =>
+            setPendingNavigation({
+              fromHref: currentHref,
+              toHref: href,
+            })
+          }
           onPrefetch={prefetchRouteOnIntent}
         />
 

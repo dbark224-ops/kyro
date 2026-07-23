@@ -5,6 +5,11 @@ import { useEffect, useState } from "react";
 
 type Mailbox = "inbox" | "junk" | "deleted";
 
+type PendingMailboxNavigation = {
+  from: Mailbox;
+  to: Mailbox;
+};
+
 function shouldTrackClick(event: MouseEvent<HTMLDivElement>) {
   return (
     event.button === 0 &&
@@ -34,11 +39,10 @@ export function InboxMailboxTransition({
   activeMailbox: Mailbox;
   children: ReactNode;
 }>) {
-  const [pendingMailbox, setPendingMailbox] = useState<Mailbox | null>(null);
-
-  useEffect(() => {
-    setPendingMailbox(null);
-  }, [activeMailbox]);
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingMailboxNavigation | null>(null);
+  const pendingMailbox =
+    pendingNavigation?.from === activeMailbox ? pendingNavigation.to : null;
 
   useEffect(() => {
     if (!pendingMailbox) {
@@ -46,8 +50,8 @@ export function InboxMailboxTransition({
     }
 
     const timeout = window.setTimeout(() => {
-      setPendingMailbox(null);
-    }, 12_000);
+      setPendingNavigation(null);
+    }, 45_000);
 
     return () => {
       window.clearTimeout(timeout);
@@ -72,7 +76,10 @@ export function InboxMailboxTransition({
       return;
     }
 
-    setPendingMailbox(nextMailbox);
+    setPendingNavigation({
+      from: activeMailbox,
+      to: nextMailbox,
+    });
   }
 
   return (

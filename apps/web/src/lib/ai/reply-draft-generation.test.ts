@@ -28,6 +28,71 @@ describe("buildReplyDraftPrompt", () => {
       prompt.rules.some((rule) => rule.startsWith("Required missing detail:")),
       false,
     );
+    assert.ok(
+      prompt.rules.some(
+        (rule) =>
+          rule.includes("answer first") &&
+          rule.includes("what service or help they need"),
+      ),
+    );
+    assert.ok(
+      prompt.rules.some((rule) => rule.includes("fixed stock wording")),
+    );
+  });
+
+  it("treats a new customer message as a complete but non-scripted reply", () => {
+    const prompt = JSON.parse(
+      buildReplyDraftPrompt({
+        prompt: null,
+        source: "conversation",
+        thread: [
+          {
+            body: "Hi, where are you based?",
+            direction: "inbound",
+            subject: null,
+          },
+        ],
+      }),
+    ) as {
+      rules: string[];
+    };
+
+    assert.ok(
+      prompt.rules.some(
+        (rule) =>
+          rule.includes("first customer turn") &&
+          rule.includes("briefly greet or acknowledge") &&
+          rule.includes("invitation to continue"),
+      ),
+    );
+  });
+
+  it("keeps a first-contact SMS compact while asking for a natural sign-off", () => {
+    const prompt = JSON.parse(
+      buildReplyDraftPrompt({
+        channelType: "sms",
+        prompt: null,
+        source: "conversation",
+        thread: [
+          {
+            body: "Hi, where are you based?",
+            channelType: "sms",
+            direction: "inbound",
+            subject: null,
+          },
+        ],
+      }),
+    ) as {
+      rules: string[];
+    };
+
+    assert.ok(
+      prompt.rules.some(
+        (rule) =>
+          rule.includes("For SMS") &&
+          rule.includes("short natural business sign-off"),
+      ),
+    );
   });
 
   it("keeps intake requirements for a genuine service inquiry", () => {

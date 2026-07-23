@@ -6,6 +6,7 @@ import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 
 const INBOX_PREVIEW_LOADING_EVENT = "kyro:inbox-preview-loading";
 const INBOX_PREVIEW_CLOSE_EVENT = "kyro:inbox-preview-close";
+const NAVIGATION_FALLBACK_TIMEOUT_MS = 45_000;
 
 type PendingPreview = {
   conversationId: string;
@@ -61,7 +62,7 @@ export function InboxConversationLink({
 
     const timeout = window.setTimeout(() => {
       setPendingHref(null);
-    }, 12000);
+    }, NAVIGATION_FALLBACK_TIMEOUT_MS);
 
     return () => {
       window.clearTimeout(timeout);
@@ -176,7 +177,7 @@ export function InboxPreviewTransitionShell({
 
     const timeout = window.setTimeout(() => {
       setPendingPreview(null);
-    }, 12000);
+    }, NAVIGATION_FALLBACK_TIMEOUT_MS);
 
     return () => {
       window.clearTimeout(timeout);

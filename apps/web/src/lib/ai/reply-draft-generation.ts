@@ -14,6 +14,7 @@ import {
   usageEventTotals,
 } from "../usage/openai";
 import { openAiBalancedModel, openAiReasoningRequest } from "./openai-models";
+import { customerReplyConversationRules } from "./customer-reply-style";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import type { TriageResponseMode } from "./triage";
@@ -31,6 +32,7 @@ export type ReplyDraftContext = {
   contactName?: string | null;
   contactPhone?: string | null;
   contactAddress?: string | null;
+  channelType?: string | null;
   conversationId?: string;
   eventId?: string;
   latestSubject?: string | null;
@@ -55,6 +57,7 @@ export type ReplyDraftContext = {
   };
   thread?: Array<{
     body: string | null;
+    channelType?: string | null;
     direction: string;
     subject: string | null;
   }>;
@@ -239,6 +242,13 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
         "Set calendarCommitment to true only when the user's instruction and drafted reply make a concrete commitment that the business will attend at a specific date and time, such as 'we can come Tuesday at 10 AM' or confirming a customer's proposed appointment time.",
         "Set calendarCommitment to false when the reply merely asks what time suits, asks for availability, floats an unconfirmed option, requests missing information, or does not contain a sufficiently specific attendance date and time.",
         "Use a normal email subject beginning with Re: when appropriate.",
+        ...customerReplyConversationRules({
+          channel: context.channelType,
+          isFirstCustomerTurn:
+            Array.isArray(context.thread) && context.thread.length > 0
+              ? context.thread.length <= 1
+              : undefined,
+        }),
         ...replyWritingPromptRules(replyWriting).map(
           (rule) => `Writing style - ${rule}`,
         ),
@@ -358,8 +368,12 @@ async function conversationContext(
   const latestSubject = [...review.messages]
     .reverse()
     .find((message) => message.subject)?.subject;
+  const latestInboundMessage = [...review.messages]
+    .reverse()
+    .find((message) => message.direction === "inbound");
 
   return {
+    channelType: latestInboundMessage?.channelType ?? null,
     contactAddress: review.contact?.address ?? null,
     contactEmail: review.contact?.email ?? null,
     contactName: review.contact?.name ?? null,
@@ -381,6 +395,7 @@ async function conversationContext(
     source: "conversation",
     thread: review.messages.slice(-10).map((message) => ({
       body: message.bodyText,
+      channelType: message.channelType,
       direction: message.direction,
       subject: message.subject,
     })),
@@ -419,6 +434,7 @@ async function skippedEmailContext(
   }
 
   return {
+    channelType: "email",
     eventId: String(data.id),
     latestSubject: subject,
     prompt,

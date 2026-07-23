@@ -21,6 +21,13 @@ type ConnectionAwareNavigator = Navigator & {
 };
 
 function shouldSkipPrefetch() {
+  if (
+    typeof document !== "undefined" &&
+    document.visibilityState !== "visible"
+  ) {
+    return true;
+  }
+
   const connection =
     typeof window === "undefined"
       ? undefined
@@ -118,7 +125,7 @@ export function SmartPrefetchLink({
       onFocus={handleFocus}
       onMouseEnter={handleMouseEnter}
       onTouchStart={handleTouchStart}
-      prefetch={preload}
+      prefetch={false}
       {...props}
     >
       {children}
