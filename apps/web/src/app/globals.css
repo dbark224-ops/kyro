@@ -5902,6 +5902,11 @@ a.assistant-preview-row.assistant-inbox-queue-row:hover {
   padding-bottom: 0;
 }
 
+.conversation-message-thread .conversation-message,
+.conversation-message-thread .conversation-message:last-child {
+  padding-block: 9px;
+}
+
 .assistant-preview-action-card {
   display: grid;
   gap: 10px;
