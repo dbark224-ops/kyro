@@ -936,7 +936,7 @@ function preferredReplyChannel(
     return "sms";
   }
 
-  return settings.allowedChannels[0] ?? "email";
+  return settings.allowedChannels.includes("sms") ? "sms" : "email";
 }
 
 function defaultReplySubject(profile: ConversationReview) {
@@ -963,8 +963,10 @@ function InboxReplyComposer({
   const defaultChannel = preferredReplyChannel(profile, settings);
   const defaultSubject = defaultReplySubject(profile);
   const submissionKey = crypto.randomUUID();
-  const channelOptions = OUTBOUND_CHANNELS.map((channel) => ({
-    label: formatLabel(channel),
+  const channelOptions = OUTBOUND_CHANNELS.filter(
+    (channel) => channel === "email" || channel === "sms",
+  ).map((channel) => ({
+    label: channel === "sms" ? "SMS" : formatLabel(channel),
     value: channel,
   }));
 

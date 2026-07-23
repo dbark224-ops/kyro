@@ -8130,9 +8130,11 @@ button.voice-card {
 }
 
 .reply-generator textarea {
-  min-height: 38px;
+  height: 54px;
+  min-height: 54px;
+  max-height: 54px;
   padding-block: 7px;
-  resize: vertical;
+  resize: none;
 }
 
 .reply-generator .secondary-button {
@@ -8145,11 +8147,28 @@ button.voice-card {
 }
 
 .reply-generator-status {
-  grid-column: 1 / -1;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 750;
+  line-height: 1.25;
+  text-align: right;
   text-transform: none;
+}
+
+.reply-generator-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reply-generator-heading > span:first-child {
+  flex: 0 0 auto;
+}
+
+.reply-generator-heading .reply-generator-status {
+  min-width: 0;
 }
 
 .inbox-toolbar {
@@ -16430,8 +16449,9 @@ button:disabled {
 }
 
 .draft-reply-form .reply-generator textarea {
-  height: 38px;
-  min-height: 38px;
+  height: 54px;
+  min-height: 54px;
+  max-height: 54px;
   resize: none;
 }
 

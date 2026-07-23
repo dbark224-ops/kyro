@@ -3645,7 +3645,7 @@ function AssistantPreviewActionCard({
   );
 }
 
-type ManualReplyChannel = "email" | "sms" | "manual";
+type ManualReplyChannel = "email" | "sms";
 
 function preferredReplyChannel(
   contact: Extract<
@@ -3661,7 +3661,7 @@ function preferredReplyChannel(
     return "sms";
   }
 
-  return "manual";
+  return "email";
 }
 
 function AssistantManualReplyComposer({
@@ -3718,7 +3718,6 @@ function AssistantManualReplyComposer({
         >
           <option value="email">Email</option>
           <option value="sms">SMS</option>
-          <option value="manual">Manual</option>
         </select>
       </label>
       {channelType === "email" ? (
@@ -3742,7 +3741,7 @@ function AssistantManualReplyComposer({
       <ReplyGenerator conversationId={conversationId} />
       <div className="action-button-row">
         <span className="pill warning">
-          Email sends through Gmail; other channels are internal
+          Email sends through Gmail; SMS sends through Kyro
         </span>
         <button
           className="primary-button compact"

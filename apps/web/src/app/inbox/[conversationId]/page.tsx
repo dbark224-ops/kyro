@@ -1137,9 +1137,16 @@ export default async function ConversationReviewPage({
                     <strong>Channel</strong>
                     <select
                       name="channelType"
-                      defaultValue={communicationSettings.allowedChannels[0]}
+                      defaultValue={
+                        communicationSettings.allowedChannels.find(
+                          (channel) =>
+                            channel === "email" || channel === "sms",
+                        ) ?? "email"
+                      }
                     >
-                      {OUTBOUND_CHANNELS.map((channel) => (
+                      {OUTBOUND_CHANNELS.filter(
+                        (channel) => channel === "email" || channel === "sms",
+                      ).map((channel) => (
                         <option
                           disabled={
                             !communicationSettings.allowedChannels.includes(
@@ -1149,7 +1156,7 @@ export default async function ConversationReviewPage({
                           key={channel}
                           value={channel}
                         >
-                          {formatLabel(channel)}
+                          {channel === "sms" ? "SMS" : formatLabel(channel)}
                           {communicationSettings.allowedChannels.includes(
                             channel,
                           )
