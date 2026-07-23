@@ -16,6 +16,7 @@ import {
 import { openAiBalancedModel, openAiReasoningRequest } from "./openai-models";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
+import type { TriageResponseMode } from "./triage";
 
 export type ReplyDraftContext = {
   businessProfile?: {
@@ -38,6 +39,7 @@ export type ReplyDraftContext = {
     address: string | null;
     missingInfo: string[];
     preferredTime: string | null;
+    responseMode?: TriageResponseMode | null;
   } | null;
   prompt: string | null;
   replyWriting?: ReplyWritingSettings;
@@ -127,9 +129,30 @@ function replySubject(value: string | null) {
   return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 }
 
+function triageResponseMode(value: unknown): TriageResponseMode | null {
+  return value === "known_business_fact" ||
+    value === "simple_business_message" ||
+    value === "service_inquiry"
+    ? value
+    : null;
+}
+
 function requiredConversationReplyRules(context: ReplyDraftContext) {
   if (context.source !== "conversation") {
     return [];
+  }
+
+  const responseMode = context.inquiryFacts?.responseMode ?? null;
+
+  if (
+    responseMode === "known_business_fact" ||
+    responseMode === "simple_business_message"
+  ) {
+    return [
+      "The latest customer message was classified as a direct business question or simple business message. Answer or acknowledge that message naturally and directly.",
+      "Do not add a quote-intake checklist, ask for unrelated job details, or turn this into a service-booking flow.",
+      "If the requested answer is not available in context, ask only the single most useful clarification or say the team can confirm it.",
+    ];
   }
 
   const missingInfo = context.inquiryFacts?.missingInfo ?? [];
@@ -140,11 +163,11 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
   const hasPhone = Boolean(context.contactPhone?.trim());
   const hasEmail = Boolean(context.contactEmail?.trim());
 
-  return [
-    "Every customer service inquiry needs an attendable job address before a quote/site visit can happen. If the thread and CRM profile do not contain a job address, ask for the job address.",
-    "Every customer service inquiry needs a preferred day or time. If the user explicitly supplies a day or time in their reply instruction, use it. Otherwise, if the thread does not contain one, ask for the customer's preferred day or time. Do not claim calendar availability unless the user instruction or context explicitly provides it.",
-    "If the inquiry came by email and the CRM profile/thread does not contain a phone number, ask for a phone number.",
-    "If the inquiry came by SMS or phone and the CRM profile/thread does not contain an email address, ask for an email address.",
+  const serviceRules = [
+    "For this genuine service inquiry, an attendable job address is needed before a quote or site visit can happen. If the thread and CRM profile do not contain one and it is needed for the next step, ask for it.",
+    "For this genuine service inquiry, a preferred day or time is needed before attendance can be arranged. If the user explicitly supplies one in their reply instruction, use it. Otherwise ask only when it is needed for the next step. Do not claim calendar availability unless the user instruction or context explicitly provides it.",
+    "For an email-originated service inquiry, ask for a phone number if the CRM profile and thread do not contain one and it is needed to progress the job.",
+    "For an SMS or phone-originated service inquiry, ask for an email address if the CRM profile and thread do not contain one and it is needed to progress the job.",
     hasAddress ? null : "Required missing detail: job address.",
     hasPreferredTime
       ? null
@@ -159,6 +182,20 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
       ? `Existing inquiry missing-info labels: ${missingInfo.join(", ")}.`
       : null,
   ].filter((rule): rule is string => Boolean(rule));
+
+  if (responseMode === "service_inquiry") {
+    return serviceRules;
+  }
+
+  return [
+    "The stored conversation predates response-mode classification. Infer the latest customer message's intent from the thread before applying any workflow.",
+    "If it is a simple question, business-information request, acknowledgement, or other standalone message, answer it directly and ignore unrelated legacy missing-info labels.",
+    "Use the available inquiry facts only if the latest customer message is genuinely requesting or progressing specific work, a quote, attendance, or an appointment, and ask only for the next detail actually needed.",
+    "For a genuine service inquiry, a preferred day or time remains missing unless supplied by the user's reply instruction or already present in the conversation; when supplied, use it and do not ask again.",
+    missingInfo.length
+      ? `Potential service-inquiry details recorded as missing, to use only when relevant to the latest message: ${missingInfo.join(", ")}.`
+      : "No service-inquiry details are currently recorded as missing.",
+  ];
 }
 
 export function buildReplyDraftPrompt(context: ReplyDraftContext) {
@@ -196,6 +233,8 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
         "Apply context.replyWriting to tone, wording style, message length, sign-off behavior, trade phrasing, and reusable instructions.",
         "Do not invent prices, availability, addresses, phone numbers, or promises not present in context.",
         "Follow the user's direction prompt if provided, unless it conflicts with the available context.",
+        "First understand the latest customer message and the user's reply instruction. A CRM conversation is not automatically a job-intake request.",
+        "Prefer the shortest complete and useful answer. Do not ask for unrelated details merely because the conversation has missing-info labels.",
         "Treat a day or time explicitly supplied by the user in context.prompt as authorized business availability for this reply.",
         "Set calendarCommitment to true only when the user's instruction and drafted reply make a concrete commitment that the business will attend at a specific date and time, such as 'we can come Tuesday at 10 AM' or confirming a customer's proposed appointment time.",
         "Set calendarCommitment to false when the reply merely asks what time suits, asks for availability, floats an unconfirmed option, requests missing information, or does not contain a sufficiently specific attendance date and time.",
@@ -331,6 +370,9 @@ async function conversationContext(
           address: review.inquiryFacts.address,
           missingInfo: review.inquiryFacts.missingInfo,
           preferredTime: review.inquiryFacts.preferredTime,
+          responseMode: triageResponseMode(
+            review.inquiryFacts.metadata.responseMode,
+          ),
         }
       : null,
     latestSubject: latestSubject ?? review.lead?.title ?? null,

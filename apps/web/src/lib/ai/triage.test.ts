@@ -7,6 +7,7 @@ import {
   canAutoReplyWithKnownBusinessFacts,
   directKnownBusinessFactKeys,
   ensureReplyDraftCoversMissingInfo,
+  applyResponsePolicyToInquiryFacts,
   extractInquiryFacts,
   loadLatestInboundMessageBody,
   outboundReplyChannelForInquiryContext,
@@ -17,6 +18,7 @@ const publicFacts = {
   businessAddress: "100 Main Street",
   businessName: "Kyro Plumbing",
   contactHours: "Monday to Friday, 8:00 AM to 5:00 PM",
+  industry: "Plumbing",
   publicEmail: "hello@example.com",
   publicPhoneNumber: "+15755550123",
   serviceArea: "Las Cruces",
@@ -106,6 +108,69 @@ describe("known business fact auto replies", () => {
 });
 
 describe("inbound inquiry requirements", () => {
+  it("does not attach job-intake requirements to a simple business message", () => {
+    const facts = applyResponsePolicyToInquiryFacts(
+      {
+        address: null,
+        budget: null,
+        fit: "likely_fit",
+        jobType: "Bathroom Quote",
+        missingInfo: ["Job address", "Preferred time", "Phone number"],
+        preferredTime: null,
+        urgency: "normal",
+      },
+      {
+        contactEmail: "david@example.com",
+        inboundChannelType: "email",
+        latestMessage: "Can I send you photos before the quote?",
+      },
+      {
+        factKeys: [],
+        mode: "simple_business_message",
+        reason: "The customer asked a standalone process question.",
+      },
+    );
+
+    assert.deepEqual(facts, {
+      address: null,
+      budget: null,
+      fit: "likely_fit",
+      jobType: null,
+      missingInfo: [],
+      preferredTime: null,
+      urgency: "normal",
+    });
+  });
+
+  it("retains required details after the model classifies a genuine service inquiry", () => {
+    const facts = applyResponsePolicyToInquiryFacts(
+      {
+        address: null,
+        budget: null,
+        fit: "likely_fit",
+        jobType: "Bathroom Renovation Quote",
+        missingInfo: [],
+        preferredTime: null,
+        urgency: "normal",
+      },
+      {
+        contactEmail: "david@example.com",
+        inboundChannelType: "email",
+      },
+      {
+        factKeys: [],
+        mode: "service_inquiry",
+        reason: "The customer requested a quote for specific work.",
+      },
+    );
+
+    assert.deepEqual(facts.missingInfo, [
+      "Job address",
+      "Preferred time",
+      "Phone number",
+    ]);
+  });
+
   it("asks email-originated inquiries for address, preferred time, and phone when missing", () => {
     const facts = extractInquiryFacts({
       contactEmail: "david@example.com",
