@@ -2,9 +2,39 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { User } from "@supabase/supabase-js";
 import {
+  internalMessagingUserFromProfile,
   trustedInternalMessagingActor,
   trustedInternalPhoneMatches,
 } from "./internal-messaging";
+
+test("builds the internal assistant identity from the synchronized Kyro user profile", () => {
+  const user = internalMessagingUserFromProfile(
+    {
+      created_at: "2026-07-19T00:00:00.000Z",
+      email: "owner@example.com",
+      first_name: "David",
+      id: "user-1",
+      last_name: "Barker",
+      name: "David Barker",
+    },
+    "fallback-user",
+  );
+
+  assert.deepEqual(user, {
+    app_metadata: {},
+    aud: "authenticated",
+    created_at: "2026-07-19T00:00:00.000Z",
+    email: "owner@example.com",
+    id: "user-1",
+    role: "authenticated",
+    user_metadata: {
+      first_name: "David",
+      full_name: "David Barker",
+      last_name: "Barker",
+      name: "David Barker",
+    },
+  });
+});
 
 test("matches trusted internal numbers across common formatting", () => {
   assert.equal(

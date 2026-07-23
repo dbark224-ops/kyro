@@ -22,14 +22,85 @@ export type InternalMessagingWorkspace = {
 
 export type InternalMessageTransport = "sms" | "whatsapp_sandbox";
 
+type InternalMessagingUserProfile = {
+  created_at?: unknown;
+  email?: unknown;
+  first_name?: unknown;
+  id?: unknown;
+  last_name?: unknown;
+  name?: unknown;
+};
+
 function barePhone(value: string) {
   return value.replace(/^whatsapp:/i, "").trim();
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
 function normalizedPhone(value: string) {
   return (
     normalizeContactPhoneForRegion(barePhone(value), null) ?? barePhone(value)
   );
+}
+
+export function internalMessagingUserFromProfile(
+  profile: InternalMessagingUserProfile,
+  fallbackUserId: string,
+): User {
+  const id = textValue(profile.id) || fallbackUserId;
+  const firstName = textValue(profile.first_name);
+  const lastName = textValue(profile.last_name);
+  const name =
+    textValue(profile.name) ||
+    [firstName, lastName].filter(Boolean).join(" ");
+  const email = textValue(profile.email);
+
+  return {
+    app_metadata: {},
+    aud: "authenticated",
+    created_at:
+      textValue(profile.created_at) || "1970-01-01T00:00:00.000Z",
+    email: email || undefined,
+    id,
+    role: "authenticated",
+    user_metadata: {
+      first_name: firstName || undefined,
+      full_name: name || undefined,
+      last_name: lastName || undefined,
+      name: name || undefined,
+    },
+  };
+}
+
+async function loadInternalMessagingUser(
+  supabase: SupabaseClient,
+  ownerUserId: string,
+) {
+  const { data: profile, error: profileError } = await supabase
+    .from("users")
+    .select("id,name,email,first_name,last_name,created_at")
+    .eq("id", ownerUserId)
+    .maybeSingle();
+
+  if (profile) {
+    return internalMessagingUserFromProfile(profile, ownerUserId);
+  }
+
+  const { data, error: authError } =
+    await supabase.auth.admin.getUserById(ownerUserId);
+
+  if (authError || !data.user) {
+    const profileReason = profileError?.message
+      ? ` Profile lookup failed: ${profileError.message}.`
+      : "";
+    throw new Error(
+      `Unable to load internal messaging user: ${authError?.message ?? "user record was not found"}.${profileReason}`,
+    );
+  }
+
+  return data.user;
 }
 
 export function trustedInternalPhoneMatches(
@@ -92,17 +163,10 @@ export async function processInternalAssistantMessage(input: {
   let userEmail: string | null = null;
 
   try {
-    const { data, error } = await input.supabase.auth.admin.getUserById(
+    const user = await loadInternalMessagingUser(
+      input.supabase,
       input.workspace.ownerUserId,
     );
-
-    if (error || !data.user) {
-      throw new Error(
-        `Unable to load internal messaging user: ${error?.message ?? "unknown error"}`,
-      );
-    }
-
-    const user = data.user;
     userEmail = user.email ?? null;
     const voiceSettings = await getVoiceSettings(
       input.supabase,
