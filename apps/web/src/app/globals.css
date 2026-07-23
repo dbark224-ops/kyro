@@ -13678,28 +13678,36 @@ button:disabled {
 }
 
 .outbound-routing-card {
-  padding: 12px;
+  padding: 14px;
 }
 
 .outbound-routing-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: minmax(230px, 0.95fr) minmax(380px, 1.25fr);
+  gap: 16px;
+  align-items: end;
 }
 
 .known-fact-auto-reply-control {
   width: 100%;
-  margin-top: 12px;
-  align-items: flex-start;
+  margin-top: 14px;
+  align-items: center;
+  border: 0;
   border-top: 1px solid var(--line);
-  padding-top: 12px;
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0 0;
 }
 
-.known-fact-auto-reply-control > span {
+.known-fact-auto-reply-control > span:first-child {
   display: grid;
   min-width: 0;
   gap: 3px;
+}
+
+.known-fact-auto-reply-control strong {
+  color: var(--text);
+  font-size: 0.78rem;
 }
 
 .known-fact-auto-reply-control small {
@@ -13719,6 +13727,15 @@ button:disabled {
   padding: 0;
 }
 
+.outbound-permission-control .setting-card-heading {
+  width: fit-content;
+  justify-content: flex-start;
+}
+
+.outbound-permission-control select {
+  min-height: 40px;
+}
+
 .settings-control-label {
   color: var(--muted);
   font-size: 0.72rem;
@@ -13729,20 +13746,36 @@ button:disabled {
 }
 
 .compact-channel-toggle-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin-top: 0;
 }
 
 .compact-channel-toggle-grid .channel-toggle {
-  min-height: 38px;
+  min-height: 40px;
   justify-content: flex-start;
-  padding: 7px 8px;
+  background: color-mix(in srgb, var(--background) 34%, transparent);
+  padding: 7px 9px;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.compact-channel-toggle-grid .channel-toggle:has(input:checked) {
+  border-color: color-mix(in srgb, var(--cyan) 38%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 8%, var(--background));
 }
 
 .compact-channel-toggle-grid .channel-toggle input {
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
+}
+
+@container settings-detail (max-width: 760px) {
+  .outbound-routing-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .follow-up-reminder-panel {

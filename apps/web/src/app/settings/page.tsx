@@ -4219,20 +4219,15 @@ function CommunicationSettingsDetail({
                       type="checkbox"
                       value={channel}
                     />
-                    <span>{formatLabel(channel)}</span>
+                    <span>
+                      {channel === "sms" ? "SMS" : formatLabel(channel)}
+                    </span>
                   </label>
                 ))}
               </div>
             </fieldset>
           </div>
-          <label className="compact-checkbox-row known-fact-auto-reply-control">
-            <input
-              defaultChecked={
-                communicationSettings.autoReplyKnownBusinessFacts
-              }
-              name="autoReplyKnownBusinessFacts"
-              type="checkbox"
-            />
+          <label className="settings-switch-row known-fact-auto-reply-control">
             <span>
               <strong>Answer basic business questions automatically</strong>
               <small>
@@ -4241,6 +4236,14 @@ function CommunicationSettingsDetail({
                 complaints, and sensitive information still require review.
               </small>
             </span>
+            <input
+              defaultChecked={
+                communicationSettings.autoReplyKnownBusinessFacts
+              }
+              name="autoReplyKnownBusinessFacts"
+              type="checkbox"
+            />
+            <span aria-hidden="true" className="settings-switch" />
           </label>
         </section>
 
