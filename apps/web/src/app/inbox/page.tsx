@@ -784,18 +784,20 @@ function InboxDraftReplyAction({
         <input name="actionId" type="hidden" value={action.id} />
         <input name="conversationId" type="hidden" value={conversationId} />
         <input name="redirectTo" type="hidden" value={redirectTo} />
-        <div className="draft-reply-header compact-header">
-          <div>
-            <strong>Generated reply</strong>
-            <span>
+        <div className="draft-reply-header compact-header inbox-draft-reply-header">
+          <div className="inbox-draft-reply-heading">
+            <span className="inbox-draft-reply-meta">
               {formatLabel(action.status)} - {formatDate(action.createdAt)}
             </span>
+            <div className="inbox-draft-reply-title-row">
+              <strong>Generated reply</strong>
+              <span className="pill">
+                {textValue(action.input.attachmentQuoteDraftId)
+                  ? "PDF attached"
+                  : "AI draft"}
+              </span>
+            </div>
           </div>
-          <span className="pill">
-            {textValue(action.input.attachmentQuoteDraftId)
-              ? "PDF attached"
-              : "AI draft"}
-          </span>
         </div>
         <div className="draft-reply-field-row">
           <label>

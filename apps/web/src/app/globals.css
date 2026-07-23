@@ -5506,6 +5506,37 @@ a.assistant-summary-card:focus-visible {
   min-width: 0;
 }
 
+.draft-reply-header.inbox-draft-reply-header {
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding-right: 128px;
+}
+
+.inbox-draft-reply-heading {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.inbox-draft-reply-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.inbox-draft-reply-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.draft-reply-header .inbox-draft-reply-title-row .pill {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
 .conversation-message {
   min-width: 0;
   gap: 0;
