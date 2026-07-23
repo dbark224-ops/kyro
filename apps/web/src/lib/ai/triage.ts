@@ -31,6 +31,7 @@ import {
   classifyFutureStepFallback,
   getActiveInquiryFutureStep,
   normalizeFutureStepDecision,
+  upsertBusinessAnswerFutureStep,
   type ActiveFutureStepContext,
   type FutureStepDecision,
 } from "../workflow/inquiry-future-steps";
@@ -108,11 +109,14 @@ export type PublicBusinessFacts = Record<PublicBusinessFactKey, string>;
 export type TriageResponseMode =
   | "known_business_fact"
   | "simple_business_message"
+  | "tool_assisted_business_message"
   | "service_inquiry";
 
 export type TriageResponsePolicy = {
   factKeys: PublicBusinessFactKey[];
+  informationNeed: string | null;
   mode: TriageResponseMode;
+  ownerQuestion: string | null;
   reason: string | null;
 };
 
@@ -157,6 +161,7 @@ type ReplyRepairUsage = {
   model: string;
   outputTokens: number;
   providerUsageId?: string;
+  source?: string;
   tokenUsage: OpenAiTokenUsage;
 };
 
@@ -179,12 +184,16 @@ function normalizeResponsePolicy(value: unknown): TriageResponsePolicy {
 
   return {
     factKeys: [...new Set(factKeys)],
+    informationNeed: textValue(policy.informationNeed),
     mode:
       policy.mode === "known_business_fact"
         ? "known_business_fact"
         : policy.mode === "simple_business_message"
           ? "simple_business_message"
+          : policy.mode === "tool_assisted_business_message"
+            ? "tool_assisted_business_message"
           : "service_inquiry",
+    ownerQuestion: textValue(policy.ownerQuestion),
     reason: textValue(policy.reason),
   };
 }
@@ -1133,7 +1142,9 @@ async function ensureKnownBusinessFactReply(input: {
 }> {
   const responsePolicy: TriageResponsePolicy = {
     factKeys: input.factKeys,
+    informationNeed: null,
     mode: "known_business_fact",
+    ownerQuestion: null,
     reason: "The customer asked for a saved public business fact.",
   };
 
@@ -1451,10 +1462,13 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
       outputContract: {
         summary: "string",
         responsePolicy: {
-          mode: "known_business_fact|simple_business_message|service_inquiry",
+          mode:
+            "known_business_fact|simple_business_message|tool_assisted_business_message|service_inquiry",
           factKeys: [
             "businessName|industry|publicPhoneNumber|publicEmail|businessAddress|serviceArea|workingHours|contactHours",
           ],
+          informationNeed: "string|null",
+          ownerQuestion: "string|null",
           reason: "string|null",
         },
         futureStepDecision: {
@@ -1488,6 +1502,9 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "Set responsePolicy.mode to simple_business_message for a standalone business question or simple request that can be answered, acknowledged, or clarified without starting or progressing a particular job. Examples include asking whether photos can be sent, how a process works, whether somebody can call back, or asking a general question about the business.",
         "For simple_business_message, answer or acknowledge the actual message directly. If a business-specific answer is not available in context, ask one focused clarification or say the team can confirm it. Do not append a quote-intake checklist or ask for unrelated job details.",
         "For simple_business_message, responsePolicy.factKeys must be empty and inquiryFacts must use null for jobType, address, preferredTime, and budget; normal for urgency; likely_fit for fit; and an empty missingInfo array.",
+        "Set responsePolicy.mode to tool_assisted_business_message for a legitimate customer or business question that does not fit the other modes and needs scoped Kyro workspace information or knowledge from the business owner before it can be answered accurately.",
+        "For tool_assisted_business_message, responsePolicy.factKeys must be empty and inquiryFacts must use null for jobType, address, preferredTime, and budget; normal for urgency; likely_fit for fit; and an empty missingInfo array.",
+        "For tool_assisted_business_message, set informationNeed to the specific fact required. If the answer should be looked up from Kyro workspace context, set ownerQuestion to null. If only the business can supply the answer, ask exactly one focused question in ownerQuestion. Do not ask the customer for unrelated service-intake details.",
         "Set responsePolicy.mode to service_inquiry only when the customer is actually requesting or progressing specific trade work, a quote, an appointment, an active job, or a concrete attendance request. A question about the business is not automatically a service inquiry.",
         "For service_inquiry, apply the required job-information rules below. Those rules never apply to known_business_fact or simple_business_message.",
         "jobType must describe the trade work being requested, not the lead title or contact name.",
@@ -1537,18 +1554,24 @@ function buildStubDecision(
     directFactKeys.length > 0
       ? {
           factKeys: directFactKeys,
+          informationNeed: null,
           mode: "known_business_fact",
+          ownerQuestion: null,
           reason: "A saved public business fact was requested.",
         }
       : serviceInquirySignal
         ? {
             factKeys: [],
+            informationNeed: null,
             mode: "service_inquiry",
+            ownerQuestion: null,
             reason: fallbackReason ?? null,
           }
         : {
             factKeys: [],
+            informationNeed: null,
             mode: "simple_business_message",
+            ownerQuestion: null,
             reason:
               "The primary model was unavailable and no clear service-job request was detected.",
           };
@@ -1648,7 +1671,9 @@ async function runOllamaTriage(
     const responsePolicy = context.inquiryFactsOverride
       ? {
           factKeys: [],
+          informationNeed: null,
           mode: "service_inquiry" as const,
+          ownerQuestion: null,
           reason: "Corrected service-inquiry facts were supplied.",
         }
       : normalizeResponsePolicy(parsed.responsePolicy);
@@ -1769,13 +1794,22 @@ async function runOpenAiTriage(
                     enum: [
                       "known_business_fact",
                       "simple_business_message",
+                      "tool_assisted_business_message",
                       "service_inquiry",
                     ],
                     type: "string",
                   },
+                  informationNeed: { type: ["string", "null"] },
+                  ownerQuestion: { type: ["string", "null"] },
                   reason: { type: ["string", "null"] },
                 },
-                required: ["mode", "factKeys", "reason"],
+                required: [
+                  "mode",
+                  "factKeys",
+                  "reason",
+                  "informationNeed",
+                  "ownerQuestion",
+                ],
                 type: "object",
               },
               futureStepDecision: {
@@ -1839,7 +1873,9 @@ async function runOpenAiTriage(
   const responsePolicy = context.inquiryFactsOverride
     ? {
         factKeys: [],
+        informationNeed: null,
         mode: "service_inquiry" as const,
+        ownerQuestion: null,
         reason: "Corrected service-inquiry facts were supplied.",
       }
     : normalizeResponsePolicy(parsed.responsePolicy);
@@ -1870,6 +1906,221 @@ async function runOpenAiTriage(
       textValue(parsed.summary) ??
       context.summary ??
       "OpenAI triage extracted inquiry facts and prepared action proposals.",
+  };
+}
+
+async function loadScopedReplyLookupContext(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  conversationId: string | null | undefined,
+) {
+  if (!conversationId) {
+    return { appointments: [], messages: [] };
+  }
+
+  const [messagesResult, appointmentsResult] = await Promise.all([
+    supabase
+      .from("messages")
+      .select("direction,channel_type,subject,body_text,created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("conversation_appointments")
+      .select("title,starts_at,ends_at,status,location")
+      .eq("workspace_id", workspaceId)
+      .eq("conversation_id", conversationId)
+      .order("starts_at", { ascending: false })
+      .limit(10),
+  ]);
+
+  if (messagesResult.error) {
+    throw new Error(
+      `Unable to load conversation context: ${messagesResult.error.message}`,
+    );
+  }
+
+  if (appointmentsResult.error) {
+    throw new Error(
+      `Unable to load appointment context: ${appointmentsResult.error.message}`,
+    );
+  }
+
+  return {
+    appointments: appointmentsResult.data ?? [],
+    messages: [...(messagesResult.data ?? [])].reverse(),
+  };
+}
+
+async function resolveToolAssistedBusinessMessage(input: {
+  context: StubAiTriageContext;
+  decision: TriageDecision;
+  publicBusinessFacts: PublicBusinessFacts;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}): Promise<{
+  policy: TriageResponsePolicy;
+  replyDraft: TriageDecision["replyDraft"];
+  usage?: ReplyRepairUsage;
+}> {
+  if (
+    input.decision.responsePolicy.mode !== "tool_assisted_business_message"
+  ) {
+    return {
+      policy: input.decision.responsePolicy,
+      replyDraft: input.decision.replyDraft,
+    };
+  }
+
+  const fallbackOwnerQuestion =
+    input.decision.responsePolicy.ownerQuestion ??
+    (input.decision.responsePolicy.informationNeed
+      ? `Can you confirm ${input.decision.responsePolicy.informationNeed}?`
+      : "What should I tell the customer about this?");
+  const pendingResolution = {
+    policy: {
+      ...input.decision.responsePolicy,
+      ownerQuestion: fallbackOwnerQuestion,
+    },
+    replyDraft: input.decision.replyDraft,
+  };
+  const apiKey = openAiApiKey();
+  if (!apiKey) {
+    return pendingResolution;
+  }
+
+  const scopedContext = await loadScopedReplyLookupContext(
+    input.supabase,
+    input.workspaceId,
+    input.context.conversationId,
+  );
+  const replyWriting =
+    input.context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  const prompt = JSON.stringify(
+    {
+      task: "Answer a legitimate customer question using only the safe scoped Kyro context. If the answer is not available, ask the business owner one focused question so Kyro can finish the customer reply later.",
+      rules: [
+        "Return JSON only.",
+        "Use only the supplied public business facts and this conversation's messages and appointments.",
+        "Do not expose internal notes, private contact data, secrets, identifiers, or unrelated workspace records.",
+        "Do not invent a fact, promise, price, availability, booking, or policy.",
+        "If the answer is available, set answerAvailable true, ownerQuestion null, and write a concise complete customer reply.",
+        "If the answer is unavailable, set answerAvailable false and ask exactly one focused ownerQuestion that would unlock the reply.",
+        "When asking the owner, keep the customer draft pending. The draft may politely acknowledge the message but must not pretend the missing answer is known.",
+        "Do not turn this into a service-intake checklist and do not ask for unrelated job details.",
+        ...replyWritingPromptRules(replyWriting).map(
+          (rule) => `Writing style - ${rule}`,
+        ),
+      ],
+      informationNeed:
+        input.decision.responsePolicy.informationNeed ?? null,
+      initialOwnerQuestion:
+        input.decision.responsePolicy.ownerQuestion ?? null,
+      latestCustomerMessage: input.context.latestMessage ?? null,
+      initialDraft: input.decision.replyDraft,
+      publicBusinessFacts: input.publicBusinessFacts,
+      scopedContext,
+    },
+    null,
+    2,
+  );
+  const model = openAiTriageModel();
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    body: JSON.stringify({
+      input: prompt,
+      instructions:
+        "You are Kyro's scoped business-answer resolver. Return compact JSON matching the requested contract.",
+      max_output_tokens: openAiReplyRepairMaxOutputTokens(),
+      model,
+      ...openAiReasoningRequest(
+        model,
+        "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
+        "low",
+      ),
+      text: {
+        format: {
+          name: "kyro_scoped_business_answer",
+          schema: {
+            additionalProperties: false,
+            properties: {
+              answerAvailable: { type: "boolean" },
+              informationNeed: { type: ["string", "null"] },
+              ownerQuestion: { type: ["string", "null"] },
+              reason: { type: ["string", "null"] },
+              replyDraft: {
+                additionalProperties: false,
+                properties: {
+                  body: { type: ["string", "null"] },
+                  subject: { type: ["string", "null"] },
+                },
+                required: ["subject", "body"],
+                type: "object",
+              },
+            },
+            required: [
+              "answerAvailable",
+              "informationNeed",
+              "ownerQuestion",
+              "reason",
+              "replyDraft",
+            ],
+            type: "object",
+          },
+          strict: true,
+          type: "json_schema",
+        },
+      },
+    }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return pendingResolution;
+  }
+
+  const content = responseOutputText(payload);
+  if (!content) {
+    return pendingResolution;
+  }
+
+  const parsed = extractJsonObject(content);
+  const replyDraft = objectRecord(parsed.replyDraft);
+  const answerAvailable = parsed.answerAvailable === true;
+  const ownerQuestion = answerAvailable
+    ? null
+    : textValue(parsed.ownerQuestion) ??
+      fallbackOwnerQuestion;
+  const usage = responseUsage(payload, prompt, content);
+
+  return {
+    policy: {
+      ...input.decision.responsePolicy,
+      informationNeed:
+        textValue(parsed.informationNeed) ??
+        input.decision.responsePolicy.informationNeed,
+      ownerQuestion,
+      reason:
+        textValue(parsed.reason) ?? input.decision.responsePolicy.reason,
+    },
+    replyDraft: {
+      body: textValue(replyDraft.body) ?? input.decision.replyDraft.body,
+      subject:
+        textValue(replyDraft.subject) ?? input.decision.replyDraft.subject,
+    },
+    usage: {
+      inputTokens: usage.inputTokens,
+      model,
+      outputTokens: usage.outputTokens,
+      providerUsageId: usage.providerUsageId,
+      source: "inbound_triage_tool_assisted_lookup",
+      tokenUsage: usage.tokenUsage,
+    },
   };
 }
 
@@ -2201,6 +2452,7 @@ export async function runStubAiTriage(
           supabase,
           workspaceId,
           context.conversationId,
+          { kind: "calendar_confirmation" },
         )
       : Promise.resolve(null),
     loadLatestInboundMessageBody(supabase, workspaceId, context.messageId),
@@ -2227,7 +2479,9 @@ export async function runStubAiTriage(
     directFactKeys.length > 0
       ? {
           factKeys: directFactKeys,
+          informationNeed: null,
           mode: "known_business_fact" as const,
+          ownerQuestion: null,
           reason:
             "The customer directly asked for a saved public business fact.",
         }
@@ -2249,13 +2503,31 @@ export async function runStubAiTriage(
         repairUsage: undefined,
         replyDraft: rawTriageDecision.replyDraft,
       };
-  const factAwareTriageDecision: TriageDecision = {
+  let factAwareTriageDecision: TriageDecision = {
     ...rawTriageDecision,
     repairUsage: knownFactDraft.repairUsage
       ? [...(rawTriageDecision.repairUsage ?? []), knownFactDraft.repairUsage]
       : rawTriageDecision.repairUsage,
     replyDraft: knownFactDraft.replyDraft,
     responsePolicy,
+  };
+  const toolAssistedResolution = await resolveToolAssistedBusinessMessage({
+    context: triageContext,
+    decision: factAwareTriageDecision,
+    publicBusinessFacts,
+    supabase,
+    workspaceId,
+  });
+  factAwareTriageDecision = {
+    ...factAwareTriageDecision,
+    repairUsage: toolAssistedResolution.usage
+      ? [
+          ...(factAwareTriageDecision.repairUsage ?? []),
+          toolAssistedResolution.usage,
+        ]
+      : factAwareTriageDecision.repairUsage,
+    replyDraft: toolAssistedResolution.replyDraft,
+    responsePolicy: toolAssistedResolution.policy,
   };
   const knownFactResponse = canAnswerWithKnownBusinessFacts({
     publicBusinessFacts,
@@ -2377,7 +2649,7 @@ export async function runStubAiTriage(
           metadata: {
             providerUsed: "openai",
             repairIndex: index + 1,
-            source: "inbound_triage_reply_repair",
+            source: repair.source ?? "inbound_triage_reply_repair",
           },
           providerUsageId: repair.providerUsageId,
           sourceId: aiRunId,
@@ -2444,6 +2716,8 @@ export async function runStubAiTriage(
     knownFactAutoReply,
     knownFactResponse,
     responseMode,
+    responsePolicy: triageDecision.responsePolicy,
+    ownerQuestion: triageDecision.responsePolicy.ownerQuestion,
     authoritativeFactsUsed: Boolean(triageContext.inquiryFactsOverride),
     providerUsed: triageDecision.providerUsed,
     replyRepairLoops: triageDecision.repairUsage?.length ?? 0,
@@ -2653,6 +2927,22 @@ export async function runStubAiTriage(
   const primaryAction =
     actions.find((action) => String(action.type) === "draft_reply") ??
     actions[0];
+  if (
+    triageDecision.responsePolicy.ownerQuestion &&
+    triageContext.conversationId
+  ) {
+    await upsertBusinessAnswerFutureStep({
+      actionId: String(primaryAction.id),
+      contactId: triageContext.contactId,
+      conversationId: triageContext.conversationId,
+      informationNeed: triageDecision.responsePolicy.informationNeed,
+      leadId: triageContext.leadId,
+      messageId: triageContext.messageId,
+      ownerQuestion: triageDecision.responsePolicy.ownerQuestion,
+      supabase,
+      workspaceId,
+    });
+  }
   let autoReplyError: string | null = null;
   let autoReplySent = false;
 
@@ -2745,7 +3035,9 @@ export async function runStubAiTriage(
     autoReplyError,
     autoReplySent,
     inquiryFacts,
+    ownerQuestion: triageDecision.responsePolicy.ownerQuestion,
     replyDraft: triageDecision.replyDraft,
+    responseMode,
     summary: triageDecision.summary,
   };
 }

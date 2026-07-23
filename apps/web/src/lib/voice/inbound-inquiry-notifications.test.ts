@@ -46,6 +46,31 @@ test("reports when Kyro already answered a known business fact", () => {
   assert.doesNotMatch(body, /Reply SEND IT|help with the next step/i);
 });
 
+test("asks the owner one focused question when the customer answer is unavailable", () => {
+  const body = buildInboundInquiryNotificationBody({
+    channel: "email",
+    contactName: "Jamie",
+    contactPhone: "+15755550123",
+    conversationId: "conversation-owner-question",
+    missingInfo: [],
+    ownerQuestion:
+      "Should I tell Jamie the team can leave the side gate unlocked?",
+    preparedReplyAvailable: true,
+    summary: "Jamie asked about the team's access procedure.",
+  });
+
+  assert.match(body, /^New email inquiry - Jamie/);
+  assert.match(
+    body,
+    /I need from you: Should I tell Jamie the team can leave the side gate unlocked\?/,
+  );
+  assert.match(
+    body,
+    /Reply here with the answer and I'll finish the customer response\./,
+  );
+  assert.doesNotMatch(body, /Reply SEND IT|I recommend:/);
+});
+
 test("uses the model recommendation instead of generic missing-info advice", () => {
   const body = buildInboundInquiryNotificationBody({
     channel: "email",

@@ -860,7 +860,9 @@ export async function ingestManualInbound(
     aiRunId: aiResult.aiRunId,
     actionId: aiResult.actionId,
     inquiryFacts: aiResult.inquiryFacts,
+    ownerQuestion: aiResult.ownerQuestion,
     replyDraft: aiResult.replyDraft,
+    responseMode: aiResult.responseMode,
     triageSummary: aiResult.summary,
   };
 }

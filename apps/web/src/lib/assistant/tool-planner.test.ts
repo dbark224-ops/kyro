@@ -86,4 +86,31 @@ describe("assistant LLM tool planner response parsing", () => {
     assert.equal(selection?.name, "web_search");
     assert.equal(selection?.mode, "direct");
   });
+
+  it("extracts an owner answer for a pending customer inquiry", () => {
+    const selection = parseAssistantToolPlanResponse(
+      {
+        output: [
+          {
+            arguments: JSON.stringify({
+              confidence: 0.97,
+              mode: "direct",
+              prompt: "Yes, tell them the team can leave the side gate unlocked.",
+              reason:
+                "The owner answered Kyro's focused question about the current inquiry.",
+            }),
+            name: "kyro_inquiry_internal_answer",
+            type: "function_call",
+          },
+        ],
+      },
+      "yes, that is fine",
+    );
+
+    assert.equal(selection?.name, "inquiry_internal_answer");
+    assert.equal(
+      selection?.prompt,
+      "Yes, tell them the team can leave the side gate unlocked.",
+    );
+  });
 });

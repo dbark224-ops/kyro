@@ -27,9 +27,12 @@ export type ActiveFutureStepContext = {
   id: string;
   kind: string;
   status: FutureStepStatus;
+  conversationId: string;
+  messageId: string | null;
   actionType: string;
   actionPayload: Record<string, unknown>;
   triggerPayload: Record<string, unknown>;
+  metadata: Record<string, unknown>;
   requiresApproval: boolean;
   calendarEvent: {
     id: string;
@@ -151,15 +154,22 @@ export async function getActiveInquiryFutureStep(
   supabase: SupabaseClient,
   workspaceId: string,
   conversationId: string,
+  options?: { kind?: string },
 ): Promise<ActiveFutureStepContext | null> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("inquiry_future_steps")
     .select(
       "id,conversation_id,message_id,contact_id,lead_id,calendar_event_id,kind,status,trigger_payload,action_type,action_payload,requires_approval,metadata",
     )
     .eq("workspace_id", workspaceId)
     .eq("conversation_id", conversationId)
-    .eq("status", "waiting")
+    .eq("status", "waiting");
+
+  if (options?.kind) {
+    query = query.eq("kind", options.kind);
+  }
+
+  const { data, error } = await query
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -206,12 +216,223 @@ export async function getActiveInquiryFutureStep(
     actionPayload: objectValue(step.action_payload),
     actionType: step.action_type,
     calendarEvent,
+    conversationId: step.conversation_id,
     id: step.id,
     kind: step.kind,
+    messageId: step.message_id,
+    metadata: objectValue(step.metadata),
     requiresApproval: step.requires_approval,
     status: futureStepStatus(step.status),
     triggerPayload: objectValue(step.trigger_payload),
   };
+}
+
+export async function upsertBusinessAnswerFutureStep({
+  actionId,
+  contactId,
+  conversationId,
+  informationNeed,
+  leadId,
+  messageId,
+  ownerQuestion,
+  supabase,
+  workspaceId,
+}: {
+  actionId: string;
+  contactId?: string | null;
+  conversationId: string;
+  informationNeed?: string | null;
+  leadId?: string | null;
+  messageId?: string | null;
+  ownerQuestion: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data: existing, error: existingError } = await supabase
+    .from("inquiry_future_steps")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("conversation_id", conversationId)
+    .eq("kind", "business_answer_required")
+    .in("status", ["waiting", "needs_action"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(
+      `Unable to inspect the pending business question: ${existingError.message}`,
+    );
+  }
+
+  const values = {
+    action_payload: { actionId, conversationId },
+    action_type: "finalize_customer_reply",
+    calendar_event_id: null,
+    contact_id: contactId ?? null,
+    conversation_id: conversationId,
+    expires_at: null,
+    kind: "business_answer_required",
+    lead_id: leadId ?? null,
+    message_id: messageId ?? null,
+    metadata: {
+      displayLabel: "Waiting for business answer",
+      informationNeed: informationNeed ?? null,
+      ownerQuestion,
+    },
+    requires_approval: false,
+    status: "waiting",
+    trigger_payload: {
+      informationNeed: informationNeed ?? null,
+      ownerQuestion,
+      trigger: "next_internal_user_reply",
+    },
+    trigger_type: "internal_user_reply",
+    workspace_id: workspaceId,
+  };
+  const query = existing
+    ? supabase
+        .from("inquiry_future_steps")
+        .update(values)
+        .eq("workspace_id", workspaceId)
+        .eq("id", existing.id)
+    : supabase.from("inquiry_future_steps").insert(values);
+  const { data, error } = await query.select("id").single();
+
+  if (error) {
+    throw new Error(
+      `Unable to save the pending business question: ${error.message}`,
+    );
+  }
+
+  return String(data.id);
+}
+
+export async function getPendingBusinessAnswerFutureStepForConversations(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  conversationIds: string[],
+): Promise<ActiveFutureStepContext | null> {
+  let query = supabase
+    .from("inquiry_future_steps")
+    .select(
+      "id,conversation_id,message_id,contact_id,lead_id,calendar_event_id,kind,status,trigger_payload,action_type,action_payload,requires_approval,metadata",
+    )
+    .eq("workspace_id", workspaceId)
+    .eq("kind", "business_answer_required")
+    .in("status", ["waiting", "needs_action"]);
+
+  if (conversationIds.length > 0) {
+    query = query.in("conversation_id", conversationIds);
+  }
+
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Unable to load the pending business question: ${error.message}`,
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const step = data as FutureStepRow;
+  return {
+    actionPayload: objectValue(step.action_payload),
+    actionType: step.action_type,
+    calendarEvent: null,
+    conversationId: step.conversation_id,
+    id: step.id,
+    kind: step.kind,
+    messageId: step.message_id,
+    metadata: objectValue(step.metadata),
+    requiresApproval: step.requires_approval,
+    status: futureStepStatus(step.status),
+    triggerPayload: objectValue(step.trigger_payload),
+  };
+}
+
+export async function completeBusinessAnswerFutureStep({
+  outcome,
+  ownerAnswer,
+  stepId,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  outcome: "draft_updated" | "reply_sent";
+  ownerAnswer: string;
+  stepId: string;
+  supabase: SupabaseClient;
+  userId: string;
+  workspaceId: string;
+}) {
+  const { data: step, error: loadError } = await supabase
+    .from("inquiry_future_steps")
+    .select("id,status,metadata,conversation_id")
+    .eq("workspace_id", workspaceId)
+    .eq("id", stepId)
+    .in("status", ["waiting", "needs_action"])
+    .maybeSingle();
+
+  if (loadError) {
+    throw new Error(
+      `Unable to load the pending business question: ${loadError.message}`,
+    );
+  }
+
+  if (!step) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("inquiry_future_steps")
+    .update({
+      completed_at: now,
+      metadata: {
+        ...objectValue(step.metadata),
+        displayLabel:
+          outcome === "reply_sent"
+            ? "Business answered and customer reply sent"
+            : "Business answered and customer draft updated",
+        outcome,
+        ownerAnswer,
+        resolvedByUserId: userId,
+      },
+      status: "completed",
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("id", stepId)
+    .in("status", ["waiting", "needs_action"]);
+
+  if (error) {
+    throw new Error(
+      `Unable to complete the pending business question: ${error.message}`,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    action: "inquiry.business_answer.completed",
+    actorId: userId,
+    actorType: "user",
+    after: { futureStepStatus: "completed", outcome },
+    before: { futureStepStatus: step.status },
+    entityId: stepId,
+    entityType: "inquiry_future_step",
+    metadata: {
+      conversationId: step.conversation_id,
+      ownerAnswer,
+    },
+    workspaceId,
+  });
+
+  return true;
 }
 
 export async function upsertCalendarConfirmationFutureStep({

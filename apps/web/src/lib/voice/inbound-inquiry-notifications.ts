@@ -31,6 +31,7 @@ type InquiryNotificationInput = {
   eventLabel?: string | null;
   missingInfo?: string[];
   outcome?: InquiryNotificationOutcome;
+  ownerQuestion?: string | null;
   preferredTime?: string | null;
   preparedReplyAvailable?: boolean;
   providerCallId?: string | null;
@@ -154,6 +155,7 @@ export function buildInboundInquiryNotificationBody(
     | "eventLabel"
     | "missingInfo"
     | "outcome"
+    | "ownerQuestion"
     | "preferredTime"
     | "preparedReplyAvailable"
     | "recommendedAction"
@@ -169,6 +171,19 @@ export function buildInboundInquiryNotificationBody(
   const preferredTime = textValue(input.preferredTime);
   const eventLabel = textValue(input.eventLabel);
   const modelRecommendation = textValue(input.recommendedAction);
+  const ownerQuestion = textValue(input.ownerQuestion);
+  if (ownerQuestion) {
+    return [
+      `New ${channelLabel(channel)} inquiry - ${caller}`,
+      `Summary: ${compactText(input.summary, 190)}`,
+      `I need from you: ${ownerQuestion}`,
+      "Reply here with the answer and I'll finish the customer response.",
+      textValue(input.contactPhone) ? `Call: ${input.contactPhone}` : null,
+      `Open in Kyro: ${buildInboundInquiryLink(input.conversationId)}`,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+  }
   const recommendation = input.autoReplySent
     ? "Kyro answered this using the public business details saved in the workspace."
     : modelRecommendation
@@ -289,7 +304,7 @@ async function saveInquiryBriefingToFieldThread(
 
   await appendRealtimeAssistantMessage({
     content: body,
-    intent: "work_queue",
+    intent: input.ownerQuestion ? "inquiry_owner_question" : "work_queue",
     links: [
       {
         href: `/inbox?conversationId=${encodeURIComponent(input.conversationId)}`,
@@ -306,11 +321,12 @@ async function saveInquiryBriefingToFieldThread(
       {
         items: [
           {
-            detail: "Prepared response ready",
+            detail:
+              textValue(input.ownerQuestion) ?? "Prepared response ready",
             href: `/inbox?conversationId=${encodeURIComponent(input.conversationId)}`,
             id: input.conversationId,
             label: contactName,
-            status: "Needs review",
+            status: input.ownerQuestion ? "Needs your input" : "Needs review",
           },
         ],
         title: "New inquiry",

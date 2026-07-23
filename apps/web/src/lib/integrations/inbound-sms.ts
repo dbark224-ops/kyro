@@ -543,6 +543,7 @@ export async function processInboundSmsPayload(
       contactPhone: input.from,
       conversationId: result.conversationId,
       missingInfo: result.inquiryFacts?.missingInfo ?? [],
+      ownerQuestion: result.ownerQuestion,
       preferredTime: result.inquiryFacts?.preferredTime ?? null,
       preparedReplyAvailable: Boolean(result.replyDraft?.body),
       sourceId: input.messageSid,

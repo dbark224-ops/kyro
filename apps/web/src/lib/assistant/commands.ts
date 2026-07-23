@@ -138,7 +138,11 @@ import {
   buildAssistantCurrentTimeContext,
   type AssistantCurrentTimeContext,
 } from "./current-time";
-import { upsertCalendarConfirmationFutureStep } from "../workflow/inquiry-future-steps";
+import {
+  completeBusinessAnswerFutureStep,
+  getPendingBusinessAnswerFutureStepForConversations,
+  upsertCalendarConfirmationFutureStep,
+} from "../workflow/inquiry-future-steps";
 
 type WorkspaceInput = {
   id: string;
@@ -1863,6 +1867,19 @@ async function resolvePlannedAssistantCommand({
         userPrompt: prompt,
         workspace,
       });
+    case "inquiry_internal_answer":
+      return answerPendingInquiryQuestionCommand({
+        allowWorkspaceFallback: true,
+        actor,
+        currentTime,
+        inputSource,
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        threadId,
+        user,
+        workspace,
+      });
     default:
       return null;
   }
@@ -1885,20 +1902,6 @@ export async function resolveAssistantCommand({
 
   if (looksLikeDirectWorkplaceSmsRequest(prompt)) {
     return workplaceSmsCommand({ prompt, supabase, user, workspace });
-  }
-
-  if (looksLikeContextualInquiryReplyRequest(prompt, recentMessages)) {
-    return replyToRecentInquiryCommand({
-      actor,
-      currentTime,
-      inputSource,
-      prompt,
-      recentMessages,
-      supabase,
-      threadId,
-      user,
-      workspace,
-    });
   }
 
   if (looksLikeActionExecutionRequest(prompt)) {
@@ -1926,6 +1929,36 @@ export async function resolveAssistantCommand({
 
   if (plannedCommand) {
     return plannedCommand;
+  }
+
+  const pendingInquiryAnswer = await answerPendingInquiryQuestionCommand({
+    actor,
+    currentTime,
+    inputSource,
+    prompt,
+    recentMessages,
+    supabase,
+    threadId,
+    user,
+    workspace,
+  });
+
+  if (pendingInquiryAnswer) {
+    return pendingInquiryAnswer;
+  }
+
+  if (looksLikeContextualInquiryReplyRequest(prompt, recentMessages)) {
+    return replyToRecentInquiryCommand({
+      actor,
+      currentTime,
+      inputSource,
+      prompt,
+      recentMessages,
+      supabase,
+      threadId,
+      user,
+      workspace,
+    });
   }
 
   if (
@@ -5448,7 +5481,9 @@ function recentWorkQueueConversationIds(
       }
     }
 
-    const hasWorkQueueIntent = message.intent === "work_queue";
+    const hasWorkQueueIntent =
+      message.intent === "work_queue" ||
+      message.intent === "inquiry_owner_question";
     const hasWorkQueueBlock = (message.uiBlocks ?? []).some((block) => {
       if (block.type === "approval_queue") {
         return true;
@@ -5898,6 +5933,153 @@ async function upsertInquiryCommitmentCalendarEvent({
   };
 }
 
+function recentOwnerQuestionConversationIds(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  const now = Date.now();
+
+  for (const message of [...recentMessages].reverse()) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    if (message.intent !== "inquiry_owner_question") {
+      return [];
+    }
+
+    if (message.createdAt) {
+      const createdAt = new Date(message.createdAt).getTime();
+
+      if (
+        Number.isFinite(createdAt) &&
+        Math.max(0, now - createdAt) > 30 * 24 * 60 * 60 * 1000
+      ) {
+        return [];
+      }
+    }
+
+    const ids: string[] = [];
+
+    for (const link of message.links ?? []) {
+      const conversationId = conversationIdFromHref(link.href);
+
+      if (conversationId && !ids.includes(conversationId)) {
+        ids.push(conversationId);
+      }
+    }
+
+    for (const block of message.uiBlocks ?? []) {
+      if (block.type !== "approval_queue") {
+        continue;
+      }
+
+      for (const item of block.items) {
+        const conversationId = item.href
+          ? conversationIdFromHref(item.href)
+          : null;
+
+        if (conversationId && !ids.includes(conversationId)) {
+          ids.push(conversationId);
+        }
+      }
+    }
+
+    return ids;
+  }
+
+  return [];
+}
+
+async function answerPendingInquiryQuestionCommand({
+  actor = null,
+  allowWorkspaceFallback = false,
+  currentTime,
+  inputSource = "typed",
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  | "actor"
+  | "currentTime"
+  | "inputSource"
+  | "prompt"
+  | "recentMessages"
+  | "supabase"
+  | "threadId"
+  | "user"
+  | "workspace"
+> & {
+  allowWorkspaceFallback?: boolean;
+}): Promise<AssistantCommandResult | null> {
+  const conversationIds = recentOwnerQuestionConversationIds(recentMessages);
+
+  if (conversationIds.length === 0 && !allowWorkspaceFallback) {
+    return null;
+  }
+
+  const step = await getPendingBusinessAnswerFutureStepForConversations(
+    supabase,
+    workspace.id,
+    conversationIds,
+  );
+
+  if (!step) {
+    return null;
+  }
+
+  const ownerQuestion =
+    textValue(step.triggerPayload.ownerQuestion) ??
+    textValue(step.metadata.ownerQuestion) ??
+    "What information should I give the customer?";
+  const instruction = [
+    `Kyro asked the business owner this question about the current customer inquiry: "${ownerQuestion}"`,
+    `The business owner answered: "${prompt.trim()}"`,
+    "Use that answer and the existing customer conversation to write and send the complete customer-facing response.",
+    "Do not ask the customer for information the business owner has supplied. Do not add unrelated service-intake questions.",
+  ].join("\n");
+  const result = await replyToRecentInquiryCommand({
+    actor,
+    conversationIdOverride: step.conversationId,
+    currentTime,
+    inputSource,
+    prompt: instruction,
+    recentMessages,
+    supabase,
+    threadId,
+    user,
+    userPrompt: instruction,
+    workspace,
+  });
+
+  if (result.context.attempted === true) {
+    await completeBusinessAnswerFutureStep({
+      outcome:
+        result.context.externalSend === true ? "reply_sent" : "draft_updated",
+      ownerAnswer: prompt.trim(),
+      stepId: step.id,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      ...result,
+      context: {
+        ...result.context,
+        answeredOwnerQuestion: ownerQuestion,
+        futureStepId: step.id,
+      },
+      intent: "inquiry_internal_answer",
+    };
+  }
+
+  return result;
+}
+
 async function replyToRecentInquiryCommand({
   actor = null,
   currentTime,
@@ -5909,6 +6091,7 @@ async function replyToRecentInquiryCommand({
   user,
   userPrompt = null,
   workspace,
+  conversationIdOverride = null,
 }: Pick<
   CommandInput,
   | "currentTime"
@@ -5921,12 +6104,15 @@ async function replyToRecentInquiryCommand({
   | "user"
   | "workspace"
 > & {
+  conversationIdOverride?: string | null;
   userPrompt?: string | null;
 }): Promise<AssistantCommandResult> {
   const instructionPrompt = userPrompt?.trim() || prompt;
-  const conversationIds = recentWorkQueueConversationIds(recentMessages, {
-    maxAgeMs: 30 * 60 * 1000,
-  });
+  const conversationIds = conversationIdOverride
+    ? [conversationIdOverride]
+    : recentWorkQueueConversationIds(recentMessages, {
+        maxAgeMs: 30 * 60 * 1000,
+      });
 
   if (conversationIds.length === 0) {
     return {
@@ -5944,11 +6130,17 @@ async function replyToRecentInquiryCommand({
   }
 
   const conversations = await getConversationList(supabase, workspace.id);
-  const selectedConversation = recentInquiryConversationForPrompt({
-    conversationIds,
-    conversations,
-    prompt: instructionPrompt,
-  });
+  const selectedConversation = conversationIdOverride
+    ? {
+        ambiguous: false,
+        conversationId: conversationIdOverride,
+        matches: [conversationIdOverride],
+      }
+    : recentInquiryConversationForPrompt({
+        conversationIds,
+        conversations,
+        prompt: instructionPrompt,
+      });
 
   if (selectedConversation.ambiguous) {
     const matches = conversations.filter((conversation) =>

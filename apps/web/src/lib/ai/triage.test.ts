@@ -45,7 +45,9 @@ describe("known business fact auto replies", () => {
         replyBody: "You can call Kyro Plumbing on +1 575 555 0123.",
         responsePolicy: {
           factKeys: ["publicPhoneNumber"],
+          informationNeed: null,
           mode: "known_business_fact",
+          ownerQuestion: null,
           reason: "The caller asked for a saved public business detail.",
         },
       }),
@@ -61,7 +63,9 @@ describe("known business fact auto replies", () => {
           "Please send the job address, preferred time, and a phone number.",
         responsePolicy: {
           factKeys: ["publicPhoneNumber"],
+          informationNeed: null,
           mode: "known_business_fact",
+          ownerQuestion: null,
           reason: "The customer asked for the business phone number.",
         },
       }),
@@ -79,7 +83,9 @@ describe("known business fact auto replies", () => {
         replyBody: "We can come tomorrow.",
         responsePolicy: {
           factKeys: ["workingHours"],
+          informationNeed: null,
           mode: "known_business_fact",
+          ownerQuestion: null,
           reason: "Availability request.",
         },
       }),
@@ -98,7 +104,9 @@ describe("known business fact auto replies", () => {
         replyBody: "We service Las Cruces.",
         responsePolicy: {
           factKeys: ["serviceArea"],
+          informationNeed: null,
           mode: "known_business_fact",
+          ownerQuestion: null,
           reason: "Service-area question.",
         },
       }),
@@ -126,8 +134,47 @@ describe("inbound inquiry requirements", () => {
       },
       {
         factKeys: [],
+        informationNeed: null,
         mode: "simple_business_message",
+        ownerQuestion: null,
         reason: "The customer asked a standalone process question.",
+      },
+    );
+
+    assert.deepEqual(facts, {
+      address: null,
+      budget: null,
+      fit: "likely_fit",
+      jobType: null,
+      missingInfo: [],
+      preferredTime: null,
+      urgency: "normal",
+    });
+  });
+
+  it("does not attach job-intake requirements to an uncommon business question", () => {
+    const facts = applyResponsePolicyToInquiryFacts(
+      {
+        address: null,
+        budget: null,
+        fit: "likely_fit",
+        jobType: "General inquiry",
+        missingInfo: ["Job address", "Preferred time", "Phone number"],
+        preferredTime: null,
+        urgency: "normal",
+      },
+      {
+        inboundChannelType: "email",
+        latestMessage:
+          "Can your team leave the side gate unlocked after the inspection?",
+      },
+      {
+        factKeys: [],
+        informationNeed: "Whether the team can leave the side gate unlocked",
+        mode: "tool_assisted_business_message",
+        ownerQuestion:
+          "Should I tell the customer the team can leave the side gate unlocked?",
+        reason: "Only the business can confirm this operating preference.",
       },
     );
 
@@ -159,7 +206,9 @@ describe("inbound inquiry requirements", () => {
       },
       {
         factKeys: [],
+        informationNeed: null,
         mode: "service_inquiry",
+        ownerQuestion: null,
         reason: "The customer requested a quote for specific work.",
       },
     );

@@ -26,6 +26,7 @@ export type AssistantToolName =
   | "image_generation"
   | "image_recall"
   | "inbound_email_awareness"
+  | "inquiry_internal_answer"
   | "inquiry_reply"
   | "inquiry_lookup"
   | "legislation_lookup"
@@ -82,6 +83,11 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Revise and send the pending response for the exact inquiry Kyro just notified the user about. Use this when the user replies naturally to a fresh inquiry briefing with an instruction such as 'reply for me and tell him Tuesday at 10 works'. Preserve the user's response instruction exactly. Do not use this when there is no recent inquiry briefing or when the user only asks what they should say.",
     name: "inquiry_reply",
+  },
+  {
+    description:
+      "Answer Kyro's focused question about a recent customer inquiry so Kyro can finish the pending customer response. Use this when the latest Kyro inquiry briefing asked the business owner for one missing fact and the user replies naturally with that answer.",
+    name: "inquiry_internal_answer",
   },
   {
     description:
@@ -499,6 +505,7 @@ export async function planAssistantToolCall({
           "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
           "Use kyro_action_execution only to execute an existing pending work-queue action, draft reply, or approval. Never use it to create a new outbound message.",
           "If the user replies to a fresh inquiry briefing with a natural instruction to reply, respond, email, message, or tell that customer something, call kyro_inquiry_reply. Preserve every date, time, promise, and requested detail from the user's instruction. Do not require the user to repeat the customer name when the recent briefing identifies one exact inquiry.",
+          "If the recent Kyro inquiry briefing asks the business owner one focused question and the user responds with the answer, call kyro_inquiry_internal_answer. Preserve the answer exactly and do not ask the user to identify the inquiry again when the recent briefing identifies it.",
           "When the logged-in user directly asks to send or test an SMS to a workplace, team, staff, internal, primary, or escalation contact, call kyro_sms_send. This remains true when qualifiers appear in a different order, such as 'primary workplace escalation contact'.",
           "When the user directly asks to create a calendar event and supplies an event purpose, date, and time, call kyro_calendar_event immediately. Duration and location are optional; preserve them when supplied, otherwise let Kyro use its configured defaults.",
           "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",

@@ -2849,6 +2849,8 @@ async function promoteEmailMessage({
     leadId,
     messageId: String(savedMessage.id),
     replyDraft: triageResult.replyDraft,
+    ownerQuestion: triageResult.ownerQuestion,
+    responseMode: triageResult.responseMode,
     threadMatchStrategy,
     triageSummary: triageResult.summary,
   };
@@ -3277,6 +3279,7 @@ async function processMessage({
       contactPhone: promoted.contactPhone,
       conversationId: promoted.conversationId,
       missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
+      ownerQuestion: promoted.ownerQuestion,
       preferredTime: promoted.inquiryFacts?.preferredTime ?? null,
       preparedReplyAvailable:
         !promoted.autoReplySent && Boolean(promoted.replyDraft?.body),
