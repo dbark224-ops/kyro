@@ -5544,14 +5544,22 @@ a.assistant-summary-card:focus-visible {
   padding-bottom: 9px;
 }
 
-.conversation-message > summary {
+.conversation-message > summary,
+.conversation-message-static-layout {
   display: grid;
   min-width: 0;
-  cursor: pointer;
-  list-style: none;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+}
+
+.conversation-message > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.conversation-message-static-layout {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .conversation-message-summary-copy {
@@ -5586,19 +5594,23 @@ a.assistant-summary-card:focus-visible {
   transform: rotate(180deg);
 }
 
+.conversation-message[open] > summary {
+  align-items: start;
+}
+
+.conversation-message[open] .conversation-message-snippet {
+  overflow: visible;
+  color: var(--text);
+  line-height: 1.55;
+  text-overflow: clip;
+  white-space: pre-wrap;
+}
+
 .conversation-message-expanded {
   display: grid;
   gap: 9px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  margin-top: 9px;
-  padding-top: 10px;
-}
-
-.conversation-message-expanded > p {
-  margin: 0;
-  color: var(--text);
-  line-height: 1.55;
-  white-space: pre-wrap;
+  margin-top: 7px;
+  padding-right: 26px;
 }
 
 .conversation-history {

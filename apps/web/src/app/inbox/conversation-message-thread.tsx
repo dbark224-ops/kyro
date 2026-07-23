@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import type { ConversationReview } from "../../lib/crm/queries";
 import {
   voiceCallIdFromMessageMetadata,
@@ -78,6 +81,125 @@ function ChevronIcon() {
   );
 }
 
+type ConversationMessage = ConversationReview["messages"][number];
+
+function hasMessageAttachments(metadata: Record<string, unknown>) {
+  return (
+    Array.isArray(metadata.attachments) &&
+    metadata.attachments.some((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return false;
+      }
+
+      const filename = (value as Record<string, unknown>).filename;
+      return typeof filename === "string" && Boolean(filename.trim());
+    })
+  );
+}
+
+function ConversationMessageItem({
+  message,
+  timeZone,
+}: {
+  message: ConversationMessage;
+  timeZone?: string | null;
+}) {
+  const body =
+    voiceCallMessageBody(message.bodyText, message.metadata) ??
+    "No message body recorded.";
+  const callId = voiceCallIdFromMessageMetadata(message.metadata);
+  const hasAttachments = hasMessageAttachments(message.metadata);
+  const hasSupplementalContent = hasAttachments || Boolean(callId);
+  const snippetRef = useRef<HTMLSpanElement>(null);
+  const [isTruncated, setIsTruncated] = useState(body.length > 160);
+  const canExpand = isTruncated || hasSupplementalContent;
+  const directionClass =
+    message.direction === "outbound" ? "outbound" : "inbound";
+
+  useEffect(() => {
+    const snippet = snippetRef.current;
+
+    if (!snippet) {
+      return;
+    }
+
+    const updateTruncation = () => {
+      const disclosure = snippet.closest("details");
+
+      if (disclosure?.open) {
+        return;
+      }
+
+      setIsTruncated(snippet.scrollWidth > snippet.clientWidth + 1);
+    };
+
+    updateTruncation();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateTruncation);
+      return () => window.removeEventListener("resize", updateTruncation);
+    }
+
+    const observer = new ResizeObserver(updateTruncation);
+    observer.observe(snippet);
+    return () => observer.disconnect();
+  }, [body, canExpand]);
+
+  const summaryCopy = (
+    <div className="conversation-message-summary-copy">
+      <div className="preview-message-meta">
+        <strong>{formatLabel(message.direction)}</strong>
+        <span>
+          {channelLabel(message.channelType, message.channelDisplayName)}
+        </span>
+        <time>
+          {formatDate(
+            message.receivedAt ?? message.sentAt ?? message.createdAt,
+            timeZone,
+          )}
+        </time>
+      </div>
+      <strong className="conversation-message-subject">
+        {message.subject ?? formatLabel(message.channelType)}
+      </strong>
+      <span className="conversation-message-snippet" ref={snippetRef}>
+        {body}
+      </span>
+    </div>
+  );
+
+  if (!canExpand) {
+    return (
+      <div
+        className={`preview-message conversation-message conversation-message-static ${directionClass}`}
+      >
+        <div className="conversation-message-static-layout">{summaryCopy}</div>
+      </div>
+    );
+  }
+
+  return (
+    <details
+      className={`preview-message conversation-message ${directionClass}`}
+    >
+      <summary>
+        {summaryCopy}
+        <ChevronIcon />
+      </summary>
+      {hasSupplementalContent ? (
+        <div className="conversation-message-expanded">
+          {hasAttachments ? (
+            <MessageAttachmentList metadata={message.metadata} />
+          ) : null}
+          {callId ? (
+            <CallLogLauncher callId={callId} timeZone={timeZone} />
+          ) : null}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
 export function ConversationMessageThread({
   emptyCopy = "No messages are attached to this inquiry yet.",
   messages,
@@ -93,53 +215,13 @@ export function ConversationMessageThread({
 
   return (
     <div className="assistant-preview-thread conversation-message-thread">
-      {messages.map((message) => {
-        const body =
-          voiceCallMessageBody(message.bodyText, message.metadata) ??
-          "No message body recorded.";
-        const callId = voiceCallIdFromMessageMetadata(message.metadata);
-
-        return (
-          <details
-            className={`preview-message conversation-message ${
-              message.direction === "outbound" ? "outbound" : "inbound"
-            }`}
-            key={message.id}
-          >
-            <summary>
-              <div className="conversation-message-summary-copy">
-                <div className="preview-message-meta">
-                  <strong>{formatLabel(message.direction)}</strong>
-                  <span>
-                    {channelLabel(
-                      message.channelType,
-                      message.channelDisplayName,
-                    )}
-                  </span>
-                  <time>
-                    {formatDate(
-                      message.receivedAt ?? message.sentAt ?? message.createdAt,
-                      timeZone,
-                    )}
-                  </time>
-                </div>
-                <strong className="conversation-message-subject">
-                  {message.subject ?? formatLabel(message.channelType)}
-                </strong>
-                <span className="conversation-message-snippet">{body}</span>
-              </div>
-              <ChevronIcon />
-            </summary>
-            <div className="conversation-message-expanded">
-              <p>{body}</p>
-              <MessageAttachmentList metadata={message.metadata} />
-              {callId ? (
-                <CallLogLauncher callId={callId} timeZone={timeZone} />
-              ) : null}
-            </div>
-          </details>
-        );
-      })}
+      {messages.map((message) => (
+        <ConversationMessageItem
+          key={message.id}
+          message={message}
+          timeZone={timeZone}
+        />
+      ))}
     </div>
   );
 }
