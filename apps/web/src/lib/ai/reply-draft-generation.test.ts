@@ -174,4 +174,42 @@ describe("buildReplyDraftPrompt", () => {
       ),
     );
   });
+
+  it("uses a verified calendar slot instead of asking the customer for a time", () => {
+    const prompt = JSON.parse(
+      buildReplyDraftPrompt({
+        channelType: "sms",
+        inquiryFacts: {
+          address: null,
+          missingInfo: ["Job address", "Preferred time", "Email address"],
+          preferredTime: null,
+          responseMode: "service_inquiry",
+        },
+        prompt: "Offer a free time next week.",
+        source: "conversation",
+        verifiedAvailability: {
+          endsAt: "2026-07-28T17:00:00.000Z",
+          label: "Tuesday, July 28 at 10:00 AM MDT",
+          startsAt: "2026-07-28T16:00:00.000Z",
+          timeZone: "America/Denver",
+        },
+      }),
+    ) as {
+      rules: string[];
+    };
+
+    assert.ok(
+      prompt.rules.some(
+        (rule) =>
+          rule.includes("Tuesday, July 28 at 10:00 AM MDT") &&
+          rule.includes("Offer that specific time"),
+      ),
+    );
+    assert.equal(
+      prompt.rules.some((rule) =>
+        rule.includes("Required missing detail: preferred day or time"),
+      ),
+      false,
+    );
+  });
 });

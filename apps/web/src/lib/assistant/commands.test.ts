@@ -19,6 +19,7 @@ import {
   looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
   looksLikeActionExecutionRequest,
+  looksLikeInquiryAvailabilityOfferRequest,
   looksLikeInboundEmailAwarenessRequest,
   looksLikeQuoteHistoryRequest,
   looksLikeQuoteSendReadyListRequest,
@@ -1114,6 +1115,23 @@ describe("assistant LLM-first command routing", () => {
     }
 
     for (const prompt of negativePrompts) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
+    }
+  });
+
+  it("keeps calendar availability offers out of generic action execution", () => {
+    const prompts = [
+      "Yes we can do that - just offer a time next week we have free",
+      "Check our availability for next week and identify a free time we can offer.",
+      "Propose an available slot to the customer.",
+    ];
+
+    for (const prompt of prompts) {
+      assert.equal(
+        looksLikeInquiryAvailabilityOfferRequest(prompt),
+        true,
+        prompt,
+      );
       assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
     }
   });

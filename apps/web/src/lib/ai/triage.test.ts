@@ -7,10 +7,12 @@ import {
   canAutoReplyWithKnownBusinessFacts,
   directKnownBusinessFactKeys,
   ensureReplyDraftCoversMissingInfo,
+  inquiryFactsWithVerifiedAvailability,
   applyResponsePolicyToInquiryFacts,
   extractInquiryFacts,
   loadLatestInboundMessageBody,
   outboundReplyChannelForInquiryContext,
+  shouldResolveAvailabilityForTriage,
   type InquiryFacts,
 } from "./triage";
 
@@ -116,6 +118,48 @@ describe("known business fact auto replies", () => {
 });
 
 describe("inbound inquiry requirements", () => {
+  it("resolves a real slot when inquiry autonomy allows Kyro to propose one", () => {
+    assert.equal(
+      shouldResolveAvailabilityForTriage({
+        inboundInquiryMode: "propose_for_approval",
+        preferredTime: "next week",
+        responseMode: "service_inquiry",
+      }),
+      true,
+    );
+    assert.equal(
+      shouldResolveAvailabilityForTriage({
+        inboundInquiryMode: "capture_notify",
+        preferredTime: "next week",
+        responseMode: "service_inquiry",
+      }),
+      false,
+    );
+  });
+
+  it("replaces the preferred-time requirement with a verified calendar slot", () => {
+    const facts = inquiryFactsWithVerifiedAvailability(
+      {
+        address: null,
+        budget: null,
+        fit: "likely_fit",
+        jobType: "Bond clean",
+        missingInfo: ["Job address", "Preferred time", "Email address"],
+        preferredTime: "next week",
+        urgency: "normal",
+      },
+      {
+        endsAt: "2026-07-27T17:00:00.000Z",
+        label: "Monday, July 27 at 10:00 AM MDT",
+        startsAt: "2026-07-27T16:00:00.000Z",
+        timeZone: "America/Denver",
+      },
+    );
+
+    assert.equal(facts.preferredTime, "Monday, July 27 at 10:00 AM MDT");
+    assert.deepEqual(facts.missingInfo, ["Job address", "Email address"]);
+  });
+
   it("does not attach job-intake requirements to a simple business message", () => {
     const facts = applyResponsePolicyToInquiryFacts(
       {

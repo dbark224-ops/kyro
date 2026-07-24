@@ -1065,6 +1065,49 @@ export async function executeAction(
       action,
       options.draftReplyAttachments ?? [],
     );
+    let calendarCommitment: Record<string, unknown> | null = null;
+    let calendarCommitmentError: string | null = null;
+
+    if (
+      draftReplyResult?.externalSend &&
+      action.targetType === "conversation" &&
+      action.targetId
+    ) {
+      try {
+        const { upsertInquiryReplyCalendarCommitment } = await import(
+          "../workflow/inquiry-calendar-commitment"
+        );
+        calendarCommitment = await upsertInquiryReplyCalendarCommitment({
+          actionId: action.id,
+          actionInput: action.input,
+          conversationId: action.targetId,
+          outboundMessageId: draftReplyResult.outboundMessageId,
+          replyBody: textValue(action.input.body) ?? "",
+          supabase,
+          userId: user.id,
+          workspaceId: action.workspaceId,
+        });
+      } catch (error) {
+        calendarCommitmentError =
+          error instanceof Error
+            ? error.message
+            : "Unable to save the inquiry calendar hold.";
+        await insertAuditLog(supabase, {
+          workspaceId: action.workspaceId,
+          actorType: "system",
+          action: "calendar_commitment.failed_after_reply_sent",
+          entityType: "action",
+          entityId: action.id,
+          after: {
+            error: calendarCommitmentError,
+          },
+          metadata: {
+            conversationId: action.targetId,
+            requestedByUserId: user.id,
+          },
+        });
+      }
+    }
     const quoteDraftResult = await createQuoteDraftFromAction(
       supabase,
       user,
@@ -1095,6 +1138,8 @@ export async function executeAction(
       externalSend: actionResult?.externalSend ?? false,
       executor: actionResult?.executor ?? "stub",
       completedAt: new Date().toISOString(),
+      calendarCommitment,
+      calendarCommitmentError,
       note: actionResult?.externalSend
         ? "External send completed through the connected provider."
         : "No external side effect was performed.",

@@ -14,6 +14,8 @@ import {
   normalizeContactPhoneForRegion,
   type PhoneRegion,
 } from "../crm/identity";
+import { calendarDateRangeFromPrompts } from "../assistant/commands";
+import { getVoiceSettings } from "../assistant/voice-settings";
 import {
   buildLlmUsageEvents,
   estimateTokens,
@@ -25,6 +27,7 @@ import {
   type OpenAiTokenUsage,
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
+import { findWorkspaceAvailableSlots } from "../voice/inbound-booking";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import {
   applyInquiryFutureStepDecision,
@@ -130,6 +133,42 @@ export type InquiryFacts = {
   fit: "likely_fit" | "needs_review" | "not_fit";
   missingInfo: string[];
 };
+
+export type VerifiedInquiryAvailability = {
+  endsAt: string;
+  label: string;
+  startsAt: string;
+  timeZone: string;
+};
+
+function isPreferredTimeMissingInfo(value: string) {
+  return value.trim().toLowerCase() === "preferred time";
+}
+
+export function shouldResolveAvailabilityForTriage(input: {
+  inboundInquiryMode: string;
+  preferredTime: string | null;
+  responseMode: TriageResponseMode;
+}) {
+  return (
+    input.responseMode === "service_inquiry" &&
+    Boolean(input.preferredTime?.trim()) &&
+    input.inboundInquiryMode !== "capture_notify"
+  );
+}
+
+export function inquiryFactsWithVerifiedAvailability(
+  facts: InquiryFacts,
+  availability: VerifiedInquiryAvailability,
+): InquiryFacts {
+  return {
+    ...facts,
+    missingInfo: facts.missingInfo.filter(
+      (item) => !isPreferredTimeMissingInfo(item),
+    ),
+    preferredTime: availability.label,
+  };
+}
 
 type ProposedActionInput = {
   type: string;
@@ -926,13 +965,17 @@ function buildReplyRepairPrompt(input: {
   facts: InquiryFacts;
   missingInfo: string[];
   subject: string | null;
+  verifiedAvailability?: VerifiedInquiryAvailability | null;
 }) {
   const replyWriting =
     input.context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  const hasVerifiedAvailability = Boolean(input.verifiedAvailability);
 
   return JSON.stringify(
     {
-      task: "Rewrite this customer reply so it naturally asks for every required missing detail. Return a complete replacement draft, not notes.",
+      task: hasVerifiedAvailability
+        ? "Rewrite this customer reply so it naturally offers the verified available appointment and asks for every remaining required detail. Return a complete replacement draft, not notes."
+        : "Rewrite this customer reply so it naturally asks for every required missing detail. Return a complete replacement draft, not notes.",
       outputContract: {
         subject: "string|null",
         body: "string",
@@ -942,7 +985,16 @@ function buildReplyRepairPrompt(input: {
         "Write as Kyro on behalf of the business owner, not as an AI assistant.",
         "Keep the reply concise, natural, and customer-facing.",
         "Do not append an extra afterthought line. Compose one coherent message.",
-        "Do not invent prices, availability, addresses, phone numbers, email addresses, or promises not present in context.",
+        hasVerifiedAvailability
+          ? "The verifiedAvailability slot is authoritative. Offer that exact slot naturally and do not invent or substitute another time."
+          : "Do not invent availability or promises not present in context.",
+        hasVerifiedAvailability
+          ? "Do not ask the customer for a preferred time. Ask whether the verified slot works for them."
+          : "Only ask for timing when it is included in requiredMissingInfo.",
+        hasVerifiedAvailability
+          ? "The slot is a proposal awaiting customer acceptance, not a confirmed booking."
+          : "Do not imply that an appointment is confirmed unless the context says it is.",
+        "Do not invent prices, addresses, phone numbers, or email addresses.",
         "The replacement body must ask for every requiredMissingInfo item.",
         "If asking for several details, combine them naturally in one sentence where possible.",
         "Preserve the useful meaning of the original draft, but rewrite awkward wording if needed.",
@@ -952,6 +1004,7 @@ function buildReplyRepairPrompt(input: {
       ],
       requiredMissingInfo: input.missingInfo,
       requiredMissingInfoPhrases: input.missingInfo.map(missingInfoPhrase),
+      verifiedAvailability: input.verifiedAvailability ?? null,
       inquiryFacts: input.facts,
       originalDraft: {
         subject: input.subject,
@@ -977,6 +1030,7 @@ async function repairReplyDraftWithOpenAi(input: {
   facts: InquiryFacts;
   model: string;
   replyDraft: TriageDecision["replyDraft"];
+  verifiedAvailability?: VerifiedInquiryAvailability | null;
 }): Promise<{
   repairUsage?: ReplyRepairUsage;
   replyDraft: TriageDecision["replyDraft"];
@@ -984,7 +1038,7 @@ async function repairReplyDraftWithOpenAi(input: {
   const body = input.replyDraft.body ?? buildReplyBody(input.facts);
   const unasked = missingInfoNotAskedFor(body, input.facts);
 
-  if (unasked.length === 0) {
+  if (unasked.length === 0 && !input.verifiedAvailability) {
     return {
       replyDraft: input.replyDraft.body
         ? input.replyDraft
@@ -1012,6 +1066,7 @@ async function repairReplyDraftWithOpenAi(input: {
     facts: input.facts,
     missingInfo: input.facts.missingInfo,
     subject: input.replyDraft.subject,
+    verifiedAvailability: input.verifiedAvailability,
   });
   const model = openAiTriageModel();
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -2166,6 +2221,7 @@ function buildActionProposals(
   context: StubAiTriageContext,
   facts: InquiryFacts,
   replyDraft: TriageDecision["replyDraft"],
+  verifiedAvailability: VerifiedInquiryAvailability | null = null,
 ) {
   const baseInput = {
     sourceAiRunId: aiRunId,
@@ -2175,6 +2231,7 @@ function buildActionProposals(
     conversationId: context.conversationId ?? null,
     messageId: context.messageId ?? null,
     inquiryFacts: facts,
+    verifiedAvailability,
     threadMessageCount: context.threadMessageCount ?? null,
     threadSummary: context.threadSummary ?? null,
     dryRun: true,
@@ -2453,6 +2510,7 @@ export async function runStubAiTriage(
     futureStep,
     latestMessageBody,
     generalSettings,
+    voiceSettings,
   ] = await Promise.all([
     getCommunicationSettings(supabase, workspaceId),
     context.conversationId
@@ -2465,6 +2523,7 @@ export async function runStubAiTriage(
       : Promise.resolve(null),
     loadLatestInboundMessageBody(supabase, workspaceId, context.messageId),
     getWorkspaceGeneralSettings(supabase, workspaceId),
+    getVoiceSettings(supabase, workspaceId),
   ]);
 
   const triageContext: StubAiTriageContext = {
@@ -2558,6 +2617,48 @@ export async function runStubAiTriage(
     triageContext,
     factAwareTriageDecision.responsePolicy,
   );
+  let effectiveInquiryFacts = inquiryFacts;
+  let verifiedAvailability: VerifiedInquiryAvailability | null = null;
+
+  if (
+    shouldResolveAvailabilityForTriage({
+      inboundInquiryMode: voiceSettings.phoneAgentInboundInquiryMode,
+      preferredTime: inquiryFacts.preferredTime,
+      responseMode,
+    })
+  ) {
+    const calendarRange = calendarDateRangeFromPrompts(
+      inquiryFacts.preferredTime ?? "",
+      triageContext.latestMessage,
+      generalSettings.timeZone,
+      new Date(),
+    );
+
+    if (calendarRange) {
+      const availability = await findWorkspaceAvailableSlots({
+        from: calendarRange.from,
+        limit: 1,
+        supabase,
+        to: calendarRange.to,
+        workspaceId,
+      });
+      const firstAvailableSlot = availability.slots[0];
+
+      if (firstAvailableSlot) {
+        verifiedAvailability = {
+          endsAt: firstAvailableSlot.endsAt,
+          label: firstAvailableSlot.label,
+          startsAt: firstAvailableSlot.startsAt,
+          timeZone: availability.timeZone,
+        };
+        effectiveInquiryFacts = inquiryFactsWithVerifiedAvailability(
+          inquiryFacts,
+          verifiedAvailability,
+        );
+      }
+    }
+  }
+
   const repairedDraft = !serviceInquiryResponse
     ? {
         repairUsage: undefined,
@@ -2565,13 +2666,14 @@ export async function runStubAiTriage(
       }
     : await repairReplyDraftWithOpenAi({
         context: triageContext,
-        facts: inquiryFacts,
+        facts: effectiveInquiryFacts,
         model: route.model,
         replyDraft: factAwareTriageDecision.replyDraft,
+        verifiedAvailability,
       });
   const triageDecision: TriageDecision = {
     ...factAwareTriageDecision,
-    inquiryFacts,
+    inquiryFacts: effectiveInquiryFacts,
     repairUsage: repairedDraft.repairUsage
       ? [
           ...(factAwareTriageDecision.repairUsage ?? []),
@@ -2685,7 +2787,7 @@ export async function runStubAiTriage(
 
   await patchContactFromExtractedInquiryFacts({
     aiRunId,
-    facts: inquiryFacts,
+    facts: effectiveInquiryFacts,
     supabase,
     triageContext,
     workspaceId,
@@ -2708,8 +2810,9 @@ export async function runStubAiTriage(
     aiRunId,
     String(event.id),
     triageContext,
-    inquiryFacts,
+    effectiveInquiryFacts,
     triageDecision.replyDraft,
+    verifiedAvailability,
   ).filter(
     (proposal) => serviceInquiryResponse || proposal.type === "draft_reply",
   );
@@ -2720,7 +2823,7 @@ export async function runStubAiTriage(
     fallbackReason: triageDecision.fallbackReason ?? null,
     futureStepDecision: triageDecision.futureStepDecision,
     futureStepTransition,
-    inquiryFacts,
+    inquiryFacts: effectiveInquiryFacts,
     knownFactAutoReply,
     knownFactResponse,
     responseMode,
@@ -2833,13 +2936,13 @@ export async function runStubAiTriage(
             contact_id: context.contactId ?? null,
             lead_id: context.leadId ?? null,
             source_ai_run_id: aiRunId,
-            job_type: inquiryFacts.jobType,
-            address: inquiryFacts.address,
-            preferred_time: inquiryFacts.preferredTime,
-            urgency: inquiryFacts.urgency,
-            budget: inquiryFacts.budget,
-            fit: inquiryFacts.fit,
-            missing_info: inquiryFacts.missingInfo,
+            job_type: effectiveInquiryFacts.jobType,
+            address: effectiveInquiryFacts.address,
+            preferred_time: effectiveInquiryFacts.preferredTime,
+            urgency: effectiveInquiryFacts.urgency,
+            budget: effectiveInquiryFacts.budget,
+            fit: effectiveInquiryFacts.fit,
+            missing_info: effectiveInquiryFacts.missingInfo,
             source: factsSource,
             edited_by_user_id: context.inquiryFactsOverride ? user.id : null,
             metadata: factsMetadata,
@@ -2870,7 +2973,7 @@ export async function runStubAiTriage(
       entityId: String(factsRecord.id),
       after: {
         conversationId: context.conversationId,
-        inquiryFacts,
+        inquiryFacts: effectiveInquiryFacts,
         source: triageDecision.providerUsed,
       },
       metadata: {
@@ -3042,7 +3145,7 @@ export async function runStubAiTriage(
     customerCharge: usageTotals.customerChargeSnapshot,
     autoReplyError,
     autoReplySent,
-    inquiryFacts,
+    inquiryFacts: effectiveInquiryFacts,
     ownerQuestion: triageDecision.responsePolicy.ownerQuestion,
     replyDraft: triageDecision.replyDraft,
     responseMode,

@@ -262,6 +262,65 @@ async function availableSlots(input: {
   return slots;
 }
 
+export async function findWorkspaceAvailableSlots(input: {
+  durationMinutes?: number;
+  from: string;
+  limit?: number;
+  supabase: SupabaseClient;
+  to: string;
+  workspaceId: string;
+}) {
+  const fromMs = Date.parse(input.from);
+  const toMs = Date.parse(input.to);
+
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) {
+    throw new Error("A valid calendar availability window is required.");
+  }
+
+  const [calendarSettings, generalSettings] = await Promise.all([
+    getCalendarSettings(input.supabase, input.workspaceId),
+    getWorkspaceGeneralSettings(input.supabase, input.workspaceId),
+  ]);
+  const durationMinutes = Math.max(
+    15,
+    Math.min(
+      480,
+      Math.round(
+        input.durationMinutes ?? calendarSettings.defaultDurationMinutes,
+      ),
+    ),
+  );
+  const timeZone = safeTimeZone(generalSettings.timeZone);
+  const busy = await loadBusyCalendarEvents({
+    from: new Date(
+      fromMs - calendarSettings.bufferMinutesBefore * 60_000,
+    ).toISOString(),
+    supabase: input.supabase,
+    to: new Date(
+      toMs + calendarSettings.bufferMinutesAfter * 60_000,
+    ).toISOString(),
+    workspaceId: input.workspaceId,
+  });
+  const slots = await availableSlots({
+    busy,
+    calendarSettings,
+    durationMinutes,
+    from: input.from,
+    generalSettings,
+    limit: input.limit,
+    to: input.to,
+  });
+
+  return {
+    durationMinutes,
+    slots: slots.map((slot) => ({
+      ...slot,
+      label: formatSlot(slot.startsAt, timeZone),
+    })),
+    timeZone,
+  };
+}
+
 function bookingTitle(args: Record<string, unknown>, callerName: string | null) {
   const supplied =
     textValue(args.title) ??

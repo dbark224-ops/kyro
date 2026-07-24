@@ -55,6 +55,12 @@ export type ReplyDraftContext = {
     subject: string;
     summary: string | null;
   };
+  verifiedAvailability?: {
+    endsAt: string;
+    label: string;
+    startsAt: string;
+    timeZone: string;
+  } | null;
   thread?: Array<{
     body: string | null;
     channelType?: string | null;
@@ -162,13 +168,18 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
   const hasAddress =
     Boolean(context.contactAddress?.trim()) ||
     Boolean(context.inquiryFacts?.address?.trim());
-  const hasPreferredTime = Boolean(context.inquiryFacts?.preferredTime?.trim());
+  const hasPreferredTime = Boolean(
+    context.inquiryFacts?.preferredTime?.trim() ||
+      context.verifiedAvailability?.startsAt,
+  );
   const hasPhone = Boolean(context.contactPhone?.trim());
   const hasEmail = Boolean(context.contactEmail?.trim());
 
   const serviceRules = [
     "For this genuine service inquiry, an attendable job address is needed before a quote or site visit can happen. If the thread and CRM profile do not contain one and it is needed for the next step, ask for it.",
-    "For this genuine service inquiry, a preferred day or time is needed before attendance can be arranged. If the user explicitly supplies one in their reply instruction, use it. Otherwise ask only when it is needed for the next step. Do not claim calendar availability unless the user instruction or context explicitly provides it.",
+    context.verifiedAvailability
+      ? `Kyro has checked the workspace calendar and verified that ${context.verifiedAvailability.label} is available. Offer that specific time naturally as the business's proposed appointment time. Do not ask the customer for a preferred day or time instead.`
+      : "For this genuine service inquiry, a preferred day or time is needed before attendance can be arranged. If the user explicitly supplies one in their reply instruction, use it. Otherwise ask only when it is needed for the next step. Do not claim calendar availability unless the user instruction or context explicitly provides it.",
     "For an email-originated service inquiry, ask for a phone number if the CRM profile and thread do not contain one and it is needed to progress the job.",
     "For an SMS or phone-originated service inquiry, ask for an email address if the CRM profile and thread do not contain one and it is needed to progress the job.",
     hasAddress ? null : "Required missing detail: job address.",
@@ -227,7 +238,7 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
       outputContract: {
         body: "string",
         calendarCommitment:
-          "boolean - true only when this reply commits the business to attend at a concrete date and time",
+          "boolean - true when this reply proposes or confirms a concrete attendance date and time that Kyro should reserve on the calendar",
         subject: "string",
       },
       rules: [
@@ -239,8 +250,9 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
         "First understand the latest customer message and the user's reply instruction. A CRM conversation is not automatically a job-intake request.",
         "Prefer the shortest complete and useful answer. Do not ask for unrelated details merely because the conversation has missing-info labels.",
         "Treat a day or time explicitly supplied by the user in context.prompt as authorized business availability for this reply.",
-        "Set calendarCommitment to true only when the user's instruction and drafted reply make a concrete commitment that the business will attend at a specific date and time, such as 'we can come Tuesday at 10 AM' or confirming a customer's proposed appointment time.",
-        "Set calendarCommitment to false when the reply merely asks what time suits, asks for availability, floats an unconfirmed option, requests missing information, or does not contain a sufficiently specific attendance date and time.",
+        "Treat context.verifiedAvailability as an authoritative calendar check. Use its exact date and time in the reply when present; do not invent another slot and do not ask the customer what time they prefer.",
+        "Set calendarCommitment to true when the drafted reply makes a concrete commitment or proposal with a specific date and time for attendance, including an option that is still waiting for the customer to accept.",
+        "Set calendarCommitment to false when the reply merely asks what time suits, asks for availability, requests missing information without offering a concrete time, or does not contain a sufficiently specific attendance date and time.",
         "Use a normal email subject beginning with Re: when appropriate.",
         ...customerReplyConversationRules({
           channel: context.channelType,
@@ -486,6 +498,7 @@ export async function generateReplyDraft({
   skippedEmailId,
   supabase,
   userId,
+  verifiedAvailability,
   workspaceId,
 }: {
   conversationId?: string | null;
@@ -493,6 +506,7 @@ export async function generateReplyDraft({
   skippedEmailId?: string | null;
   supabase: SupabaseClient;
   userId: string;
+  verifiedAvailability?: ReplyDraftContext["verifiedAvailability"];
   workspaceId: string;
 }) {
   if (!conversationId && !skippedEmailId) {
@@ -524,6 +538,7 @@ export async function generateReplyDraft({
   ]);
   context.businessProfile = businessProfile;
   context.replyWriting = communicationSettings.replyWriting;
+  context.verifiedAvailability = verifiedAvailability ?? null;
 
   const startedAt = Date.now();
   const draft = await runOpenAiReplyDraft(context);

@@ -130,7 +130,9 @@ import {
   type OutboundCallRequestResolution,
 } from "../voice/outbound-call-requests";
 import { createInternalUserVoiceCall } from "../voice/calls";
+import { findWorkspaceAvailableSlots } from "../voice/inbound-booking";
 import { vapiUserIdentityFromUser } from "./vapi-user-context";
+import { getVoiceSettings } from "./voice-settings";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import {
   addDaysToDateKey,
@@ -1800,6 +1802,27 @@ async function resolvePlannedAssistantCommand({
         workspace,
       });
     case "calendar_event":
+      if (
+        toolSelection.calendarOperation === "read" &&
+        looksLikeInquiryAvailabilityOfferRequest(
+          `${prompt}\n${plannedPrompt}`,
+        )
+      ) {
+        return replyToRecentInquiryCommand({
+          actor,
+          availabilityPrompt: plannedPrompt,
+          currentTime,
+          inputSource,
+          prompt,
+          recentMessages,
+          supabase,
+          threadId,
+          user,
+          userPrompt: prompt,
+          workspace,
+        });
+      }
+
       return calendarCommand({
         currentTime,
         operationHint: toolSelection.calendarOperation,
@@ -1911,16 +1934,6 @@ export async function resolveAssistantCommand({
     return workplaceSmsCommand({ prompt, supabase, user, workspace });
   }
 
-  if (looksLikeActionExecutionRequest(prompt)) {
-    return executeApprovedWorkQueueRepliesCommand({
-      prompt,
-      recentMessages,
-      supabase,
-      user,
-      workspace,
-    });
-  }
-
   const plannedCommand = await resolvePlannedAssistantCommand({
     actor,
     currentTime,
@@ -1936,6 +1949,16 @@ export async function resolveAssistantCommand({
 
   if (plannedCommand) {
     return plannedCommand;
+  }
+
+  if (looksLikeActionExecutionRequest(prompt)) {
+    return executeApprovedWorkQueueRepliesCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
   }
 
   const pendingInquiryAnswer = await answerPendingInquiryQuestionCommand({
@@ -5545,6 +5568,10 @@ export function looksLikeActionExecutionRequest(prompt: string) {
     return false;
   }
 
+  if (looksLikeInquiryAvailabilityOfferRequest(prompt)) {
+    return false;
+  }
+
   const text = normalized(prompt);
 
   if (
@@ -5579,6 +5606,18 @@ export function looksLikeActionExecutionRequest(prompt: string) {
     );
 
   return directExecutionTarget || directReplyTarget || directDoTarget;
+}
+
+export function looksLikeInquiryAvailabilityOfferRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(offer|propose|suggest)\b.{0,60}\b(time|slot|availability)\b/.test(
+      text,
+    ) ||
+    /\b(time|slot)\b.{0,50}\b(free|available)\b/.test(text) ||
+    /\bcheck\b.{0,40}\bavailability\b/.test(text)
+  );
 }
 
 function requestedActionLimit(prompt: string) {
@@ -5927,6 +5966,7 @@ async function upsertInquiryCommitmentCalendarEvent({
   currentTime,
   prompt,
   replyBody,
+  scheduleOverride = null,
   supabase,
   user,
   workspace,
@@ -5936,6 +5976,10 @@ async function upsertInquiryCommitmentCalendarEvent({
   currentTime?: AssistantCurrentTimeContext;
   prompt: string;
   replyBody: string;
+  scheduleOverride?: {
+    endsAt: string;
+    startsAt: string;
+  } | null;
   supabase: SupabaseClient;
   user: User;
   workspace: WorkspaceInput;
@@ -5960,15 +6004,17 @@ async function upsertInquiryCommitmentCalendarEvent({
     existingEvent,
     calendarSettings.defaultDurationMinutes,
   );
-  let schedule = parseAssistantCalendarTimeFromPrompts(
-    prompt,
-    conversation.latestBody,
-    {
-      defaultDurationMinutes,
-      now,
-      timeZone,
-    },
-  );
+  let schedule =
+    scheduleOverride ??
+    parseAssistantCalendarTimeFromPrompts(
+      prompt,
+      conversation.latestBody,
+      {
+        defaultDurationMinutes,
+        now,
+        timeZone,
+      },
+    );
 
   if (!schedule && existingEvent?.starts_at) {
     const existingDate = dateKeyInTimeZone(existingEvent.starts_at, timeZone);
@@ -6241,6 +6287,7 @@ async function answerPendingInquiryQuestionCommand({
 
 async function replyToRecentInquiryCommand({
   actor = null,
+  availabilityPrompt = null,
   currentTime,
   inputSource = "typed",
   prompt,
@@ -6263,6 +6310,7 @@ async function replyToRecentInquiryCommand({
   | "user"
   | "workspace"
 > & {
+  availabilityPrompt?: string | null;
   conversationIdOverride?: string | null;
   userPrompt?: string | null;
 }): Promise<AssistantCommandResult> {
@@ -6352,11 +6400,124 @@ async function replyToRecentInquiryCommand({
     };
   }
 
+  let verifiedAvailability:
+    | {
+        endsAt: string;
+        label: string;
+        startsAt: string;
+        timeZone: string;
+      }
+    | null = null;
+
+  if (availabilityPrompt) {
+    const voiceSettings = await getVoiceSettings(supabase, workspace.id);
+
+    if (voiceSettings.phoneAgentInboundInquiryMode === "capture_notify") {
+      return {
+        context: {
+          attempted: false,
+          conversationId,
+          reason:
+            "The workspace requires the business to choose appointment times.",
+        },
+        fallbackAnswer:
+          "I found the inquiry, but this workspace is set to capture and notify rather than offer calendar times. Open the inquiry to choose a time, or change Inbound inquiry handling in Settings.",
+        intent: "inquiry_reply",
+        links: [
+          rowLink(
+            customer,
+            `/inbox?conversationId=${conversationId}`,
+            "Open inquiry",
+          ),
+          rowLink(
+            "Inbound inquiry handling",
+            "/settings?section=integrations&panel=inbound-inquiry-handling",
+            "Change booking autonomy",
+          ),
+        ],
+        title: "Choose an appointment time",
+      };
+    }
+
+    const generalSettings = currentTime
+      ? null
+      : await getWorkspaceGeneralSettings(supabase, workspace.id);
+    const clock =
+      currentTime ??
+      buildAssistantCurrentTimeContext(generalSettings?.timeZone ?? "UTC");
+    const range = calendarDateRangeFromPrompts(
+      availabilityPrompt,
+      instructionPrompt,
+      clock.currentTimezone,
+      new Date(clock.currentIsoUtc),
+    );
+
+    if (!range) {
+      return {
+        context: {
+          attempted: false,
+          conversationId,
+          reason: "No reliable calendar availability range was identified.",
+        },
+        fallbackAnswer:
+          "I found the inquiry, but I need a date range before I can check the calendar and offer a real time. Tell me which day or week to use.",
+        intent: "inquiry_reply",
+        links: [
+          rowLink(
+            customer,
+            `/inbox?conversationId=${conversationId}`,
+            "Open inquiry",
+          ),
+        ],
+        title: "Choose a date range",
+      };
+    }
+
+    const availability = await findWorkspaceAvailableSlots({
+      from: range.from,
+      limit: 1,
+      supabase,
+      to: range.to,
+      workspaceId: workspace.id,
+    });
+    const slot = availability.slots[0];
+
+    if (!slot) {
+      return {
+        context: {
+          attempted: false,
+          conversationId,
+          dateRange: range.dateLabel,
+          reason: "No available calendar slot was found.",
+        },
+        fallbackAnswer: `I checked ${range.dateLabel}, but there is no free time that fits the workspace calendar rules. I have not sent a reply or promised a time.`,
+        intent: "inquiry_reply",
+        links: [
+          rowLink(
+            customer,
+            `/inbox?conversationId=${conversationId}`,
+            "Open inquiry",
+          ),
+          rowLink("Calendar", "/calendar", "Review availability"),
+        ],
+        title: "No available time",
+      };
+    }
+
+    verifiedAvailability = {
+      endsAt: slot.endsAt,
+      label: slot.label,
+      startsAt: slot.startsAt,
+      timeZone: availability.timeZone,
+    };
+  }
+
   const draft = await generateReplyDraft({
     conversationId: action.conversationId,
     prompt: instructionPrompt,
     supabase,
     userId: user.id,
+    verifiedAvailability,
     workspaceId: workspace.id,
   });
   const now = new Date().toISOString();
@@ -6469,6 +6630,12 @@ async function replyToRecentInquiryCommand({
         currentTime,
         prompt: instructionPrompt,
         replyBody: draft.body,
+        scheduleOverride: verifiedAvailability
+          ? {
+              endsAt: verifiedAvailability.endsAt,
+              startsAt: verifiedAvailability.startsAt,
+            }
+          : null,
         supabase,
         user,
         workspace,
