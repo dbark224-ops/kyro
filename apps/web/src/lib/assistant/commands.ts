@@ -103,7 +103,10 @@ import {
   looksLikeSettingsUpdatePrompt,
   updateAssistantEditableSettings,
 } from "./settings-tools";
-import type { AssistantToolSelection } from "./tool-planner";
+import type {
+  AssistantCalendarOperation,
+  AssistantToolSelection,
+} from "./tool-planner";
 import type {
   AssistantCommandResult,
   AssistantLink,
@@ -1799,6 +1802,7 @@ async function resolvePlannedAssistantCommand({
     case "calendar_event":
       return calendarCommand({
         currentTime,
+        operationHint: toolSelection.calendarOperation,
         prompt: plannedPrompt,
         recentMessages,
         supabase,
@@ -3089,12 +3093,15 @@ function looksLikeCalendarRequest(prompt: string) {
     /\b(calendar|appointment|appointments|site visit|quote visit|job visit|booking|booked)\b/.test(
       text,
     ) ||
-    (/\b(book|schedule|scheduled|add|create|move|reschedule|cancel|delete|remove)\b/.test(
+    (/\b(book|schedule|scheduled|add|create|move|reschedule|cancel|delete|remove|reserve|hold)\b/.test(
       text,
     ) &&
       /\b(visit|quote|job|appointment|event|calendar|meeting|call back|callback)\b/.test(
         text,
-      ))
+      )) ||
+    /\b(block\s+(?:out|off)|reserve|hold|protect)\b.*\b(?:time|hours?|morning|afternoon|day|calendar)\b/.test(
+      text,
+    )
   );
 }
 
@@ -3103,7 +3110,10 @@ function wantsCalendarCreate(prompt: string) {
 
   return (
     !wantsCalendarDelete(prompt) &&
-    (/\b(add|create|book|schedule|put)\b/.test(text) ||
+    (/\b(add|create|book|schedule|put|reserve|hold)\b/.test(text) ||
+      /\b(block\s+(?:out|off)|protect)\b.*\b(?:time|hours?|morning|afternoon|day|calendar)\b/.test(
+        text,
+      ) ||
       /\bmake\b.*\b(appointment|event|booking|meeting|visit)\b/.test(text))
   );
 }
@@ -3140,7 +3150,12 @@ export function calendarOperationFromPrompts(
   plannedPrompt: string,
   userPrompt: string | null | undefined,
   recentMessages: AssistantRecentMessage[] = [],
+  operationHint: AssistantCalendarOperation | null | undefined = null,
 ) {
+  if (operationHint) {
+    return operationHint;
+  }
+
   const operationPrompt = userPrompt?.trim() || plannedPrompt;
 
   if (wantsCalendarDraftFinalize(operationPrompt, recentMessages)) {
@@ -4576,6 +4591,7 @@ function calendarChangeSummary(changes: string[]) {
 
 async function calendarCommand({
   currentTime,
+  operationHint = null,
   prompt,
   recentMessages = [],
   supabase,
@@ -4591,6 +4607,7 @@ async function calendarCommand({
   | "user"
   | "workspace"
 > & {
+  operationHint?: AssistantCalendarOperation | null;
   userPrompt?: string | null;
 }): Promise<AssistantCommandResult> {
   const [calendarSettings, generalSettings] = await Promise.all([
@@ -4619,6 +4636,7 @@ async function calendarCommand({
     prompt,
     userPrompt,
     recentMessages,
+    operationHint,
   );
 
   if (operation === "finalize") {

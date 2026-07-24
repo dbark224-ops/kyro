@@ -45,7 +45,15 @@ export type AssistantToolName =
   | "web_search"
   | "work_queue";
 
+export type AssistantCalendarOperation =
+  | "create"
+  | "delete"
+  | "finalize"
+  | "read"
+  | "update";
+
 export type AssistantToolSelection = {
+  calendarOperation?: AssistantCalendarOperation | null;
   confidence?: number | null;
   mode?:
     | "direct"
@@ -239,6 +247,20 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function calendarOperationValue(
+  value: unknown,
+): AssistantCalendarOperation | null {
+  const operation = textValue(value);
+
+  return operation === "create" ||
+    operation === "delete" ||
+    operation === "finalize" ||
+    operation === "read" ||
+    operation === "update"
+    ? operation
+    : null;
+}
+
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -320,12 +342,24 @@ function recentContextForPlanning(
 }
 
 function toolSchema(tool: ToolDefinition) {
+  const isCalendarTool = tool.name === "calendar_event";
+
   return {
     description: tool.description,
     name: `kyro_${tool.name}`,
     parameters: {
       additionalProperties: false,
       properties: {
+        ...(isCalendarTool
+          ? {
+              calendarOperation: {
+                description:
+                  "The calendar operation Kyro must execute after resolving the full conversation. Use create for add, schedule, book, reserve, hold, or block-out requests; read for calendar lookups; update for changes or rescheduling; delete for removals or cancellations; and finalize when saving a previously drafted event.",
+                enum: ["read", "create", "update", "delete", "finalize"],
+                type: "string",
+              },
+            }
+          : {}),
         confidence: {
           description:
             "0 to 1 confidence that this is the best Kyro tool for the user's message.",
@@ -339,8 +373,8 @@ function toolSchema(tool: ToolDefinition) {
         },
         prompt: {
           description:
-            tool.name === "calendar_event"
-              ? "The concise calendar instruction to pass to Kyro. For calendar reads, preserve the exact date and year the user supplied and do not invent or substitute a weekday. For create/schedule requests, rewrite the user's wording into a natural event phrase plus timing, preserving date, time, any explicit duration, location, and job details. Event purpose plus date and time is enough to create immediately; never omit the tool call merely because duration or location is missing. Kyro applies the workspace default duration and does not require a location. Keep event titles compact and do not include date/time wording as part of the title. When the user describes the event purpose, preserve it as an explicit title, for example 'it's a sponsor event' becomes 'titled Sponsor event'. For finalize/save/confirm follow-ups, preserve that action instead of rewriting it into a generic calendar lookup. Do not include generic command wording like create, add, schedule, calendar event, event for, or appointment for unless those words are genuinely the event title. Do not add contact, lead, conversation, or CRM association language unless the user explicitly asks to link, attach, associate, or use this/current customer, lead, inquiry, or conversation in the current prompt. Do not add this/current customer wording from stale recentMessages. Example: 'can you create an event for a meeting with Starbucks on Friday at 10am' becomes 'meeting with Starbucks on Friday at 10am', which Kyro should title as 'Meeting - Starbucks'. Example: 'add a meeting at the NM MVD on the 2nd of August at 2pm' becomes 'meeting at NM MVD on 2nd August at 2pm', which Kyro should title as 'Meeting - NM MVD'."
+            isCalendarTool
+              ? "A self-contained calendar instruction resolved from the user's message and recent conversation. Include the complete event purpose and all established dates, times, durations, locations, or requested changes so the executor never has to reinterpret an isolated follow-up such as 'between 9 and 1 as you said'. For reads, preserve the full requested window and exact year; never substitute a weekday or collapse a range to one day. For create requests, purpose plus date and time is enough; duration and location are optional. Keep titles compact and exclude date/time wording. Preserve explicit event purpose, for example 'it's a sponsor event' becomes 'Sponsor event on Friday at 10am'. Do not add CRM associations unless the user explicitly requests them in the live conversation. Example: after Kyro recommends Friday and the user says 'block out four hours' then clarifies 'between 9 and 1', return 'Half day off on Friday, July 24, 2026 from 9:00 AM to 1:00 PM' with calendarOperation create."
               : tool.name === "sms_send"
                 ? "The direct workplace-contact SMS instruction. Preserve the exact workplace contact name or primary-contact wording and the exact requested message. If the user is testing SMS without specifying copy, preserve that it is a test."
                 : tool.name === "outbound_call"
@@ -354,7 +388,13 @@ function toolSchema(tool: ToolDefinition) {
           type: "string",
         },
       },
-      required: ["prompt", "mode", "confidence", "reason"],
+      required: [
+        "prompt",
+        "mode",
+        "confidence",
+        "reason",
+        ...(isCalendarTool ? ["calendarOperation"] : []),
+      ],
       type: "object",
     },
     strict: true,
@@ -421,6 +461,10 @@ function selectionFromResponse(
   const args = toolArguments(call.arguments);
 
   return {
+    calendarOperation:
+      name === "calendar_event"
+        ? calendarOperationValue(args.calendarOperation)
+        : null,
     confidence: numberValue(args.confidence),
     mode: textValue(args.mode) ?? "direct",
     name,
@@ -508,6 +552,8 @@ export async function planAssistantToolCall({
           "If the recent Kyro inquiry briefing asks the business owner one focused question and the user responds with the answer, call kyro_inquiry_internal_answer. Preserve the answer exactly and do not ask the user to identify the inquiry again when the recent briefing identifies it.",
           "When the logged-in user directly asks to send or test an SMS to a workplace, team, staff, internal, primary, or escalation contact, call kyro_sms_send. This remains true when qualifiers appear in a different order, such as 'primary workplace escalation contact'.",
           "When the user directly asks to create a calendar event and supplies an event purpose, date, and time, call kyro_calendar_event immediately. Duration and location are optional; preserve them when supplied, otherwise let Kyro use its configured defaults.",
+          "Treat block out, block off, reserve, hold, or protect time as calendar create requests. If the date, time, duration, event purpose, or requested operation was established in the immediately preceding conversation, resolve the follow-up into one complete calendar instruction instead of repeating only the newest fragment.",
+          "For kyro_calendar_event, calendarOperation is authoritative: use create for a new event or time block, read for a lookup, update for a change to an existing event, delete for a removal, and finalize only for saving an existing Kyro draft. Keep the same operation across clarification turns unless the user changes the request.",
           "For calendar reads, preserve the user's exact requested date window in the calendar tool prompt. Phrases such as rest of this week, this week, next week, this month, next month, a named month, and next N days or weeks are ranges and must never be rewritten as today or one date.",
           "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
         ].join(" "),

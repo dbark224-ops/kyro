@@ -113,4 +113,34 @@ describe("assistant LLM tool planner response parsing", () => {
       "Yes, tell them the team can leave the side gate unlocked.",
     );
   });
+
+  it("extracts a resolved calendar operation for a contextual follow-up", () => {
+    const selection = parseAssistantToolPlanResponse(
+      {
+        output: [
+          {
+            arguments: JSON.stringify({
+              calendarOperation: "create",
+              confidence: 0.98,
+              mode: "direct",
+              prompt:
+                "Half day off on Friday, July 24, 2026 from 9:00 AM to 1:00 PM",
+              reason:
+                "The user supplied the missing time window for the requested block.",
+            }),
+            name: "kyro_calendar_event",
+            type: "function_call",
+          },
+        ],
+      },
+      "Between 9 and 1 as you said",
+    );
+
+    assert.equal(selection?.name, "calendar_event");
+    assert.equal(selection?.calendarOperation, "create");
+    assert.equal(
+      selection?.prompt,
+      "Half day off on Friday, July 24, 2026 from 9:00 AM to 1:00 PM",
+    );
+  });
 });

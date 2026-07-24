@@ -475,6 +475,28 @@ describe("assistant calendar helpers", () => {
     );
   });
 
+  it("preserves a model-resolved create operation across short follow-ups", () => {
+    assert.equal(
+      calendarOperationFromPrompts(
+        "Half day off on Friday, July 24, 2026 from 9:00 AM to 1:00 PM",
+        "Between 9 and 1 as you said",
+        [],
+        "create",
+      ),
+      "create",
+    );
+  });
+
+  it("recognizes natural time-blocking language as a create request", () => {
+    assert.equal(
+      calendarOperationFromPrompts(
+        "Block out 4 hours on Friday for me",
+        "Block out 4 hours on Friday for me",
+      ),
+      "create",
+    );
+  });
+
   it("does not infer contact links from ordinary event titles", () => {
     assert.deepEqual(
       calendarLinkIntentFromPrompt(
