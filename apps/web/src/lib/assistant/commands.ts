@@ -131,8 +131,11 @@ import { vapiUserIdentityFromUser } from "./vapi-user-context";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import {
   addDaysToDateKey,
+  addMonthsToDateKey,
   dateKeyInTimeZone,
   isoRangeForDateKeyRange,
+  startOfMonthDateKey,
+  startOfWeekDateKey,
 } from "../timezone";
 import {
   buildAssistantCurrentTimeContext,
@@ -3616,52 +3619,169 @@ export function calendarDateRangeFromPrompt(
 ): ParsedCalendarDayRange | null {
   const safeZone = safeTimeZone(timeZone);
   const date = calendarDateFromPrompt(prompt, safeZone, now);
+  const todayDateKey = dateKeyInTimeZone(now, safeZone);
 
-  if (!date) {
-    return null;
-  }
-
-  const dateKey = `${date.year}-${String(date.month).padStart(2, "0")}-${String(
-    date.day,
-  ).padStart(2, "0")}`;
-  const range = isoRangeForDateKeyRange(
-    { from: dateKey, to: addDaysToDateKey(dateKey, 1) },
-    safeZone,
-  );
-
-  return {
-    dateLabel: new Intl.DateTimeFormat("en-US", {
+  function rangeFromDateKeys(fromDateKey: string, toDateKey: string) {
+    const range = isoRangeForDateKeyRange(
+      { from: fromDateKey, to: toDateKey },
+      safeZone,
+    );
+    const labelFormat = new Intl.DateTimeFormat("en-US", {
       day: "numeric",
       month: "long",
       timeZone: safeZone,
       weekday: "long",
       year: "numeric",
-    }).format(new Date(range.from)),
-    from: range.from,
-    timeZone: safeZone,
-    to: range.to,
-  };
+    });
+    const fromLabel = labelFormat.format(new Date(range.from));
+    const lastDateKey = addDaysToDateKey(toDateKey, -1);
+    const lastDateRange = isoRangeForDateKeyRange(
+      { from: lastDateKey, to: toDateKey },
+      safeZone,
+    );
+    const dateLabel =
+      fromDateKey === lastDateKey
+        ? fromLabel
+        : `${fromLabel} through ${labelFormat.format(
+            new Date(lastDateRange.from),
+          )}`;
+
+    return {
+      dateLabel,
+      from: range.from,
+      timeZone: safeZone,
+      to: range.to,
+    };
+  }
+
+  if (date) {
+    const dateKey = `${date.year}-${String(date.month).padStart(
+      2,
+      "0",
+    )}-${String(date.day).padStart(2, "0")}`;
+
+    return rangeFromDateKeys(dateKey, addDaysToDateKey(dateKey, 1));
+  }
+
+  const text = normalized(prompt);
+  const thisWeekStart = startOfWeekDateKey(todayDateKey);
+  const nextWeekStart = addDaysToDateKey(thisWeekStart, 7);
+  const thisMonthStart = startOfMonthDateKey(todayDateKey);
+  const nextMonthStart = addMonthsToDateKey(todayDateKey, 1);
+
+  if (
+    /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+week\b/.test(
+      text,
+    ) ||
+    /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+week\b/.test(
+      text,
+    )
+  ) {
+    return rangeFromDateKeys(todayDateKey, nextWeekStart);
+  }
+
+  if (/\bnext\s+week\b/.test(text)) {
+    return rangeFromDateKeys(
+      nextWeekStart,
+      addDaysToDateKey(nextWeekStart, 7),
+    );
+  }
+
+  if (/\bthis\s+week\b/.test(text)) {
+    return rangeFromDateKeys(thisWeekStart, nextWeekStart);
+  }
+
+  if (
+    /\b(?:coming\s+week|week\s+ahead|next\s+seven\s+days)\b/.test(text)
+  ) {
+    return rangeFromDateKeys(todayDateKey, addDaysToDateKey(todayDateKey, 7));
+  }
+
+  const rollingRange = text.match(
+    /\bnext\s+(\d{1,2})\s+(day|days|week|weeks)\b/,
+  );
+
+  if (rollingRange) {
+    const amount = Math.max(1, Number(rollingRange[1]));
+    const days = rollingRange[2].startsWith("week")
+      ? Math.min(amount, 13) * 7
+      : Math.min(amount, 92);
+
+    return rangeFromDateKeys(
+      todayDateKey,
+      addDaysToDateKey(todayDateKey, days),
+    );
+  }
+
+  if (
+    /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+month\b/.test(
+      text,
+    ) ||
+    /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+month\b/.test(
+      text,
+    )
+  ) {
+    return rangeFromDateKeys(todayDateKey, nextMonthStart);
+  }
+
+  if (/\bnext\s+month\b/.test(text)) {
+    return rangeFromDateKeys(
+      nextMonthStart,
+      addMonthsToDateKey(nextMonthStart, 1),
+    );
+  }
+
+  if (/\bthis\s+month\b/.test(text)) {
+    return rangeFromDateKeys(thisMonthStart, nextMonthStart);
+  }
+
+  const namedMonth = prompt.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?\b/i,
+  );
+
+  if (namedMonth) {
+    const month = CALENDAR_MONTHS.get(namedMonth[1].toLowerCase());
+
+    if (month) {
+      const currentYear = Number(todayDateKey.slice(0, 4));
+      const currentMonth = Number(todayDateKey.slice(5, 7));
+      const year = namedMonth[2]
+        ? Number(namedMonth[2])
+        : month < currentMonth
+          ? currentYear + 1
+          : currentYear;
+      const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+
+      return rangeFromDateKeys(
+        monthStart,
+        addMonthsToDateKey(monthStart, 1),
+      );
+    }
+  }
+
+  return null;
 }
 
-function calendarDateRangeFromPrompts(
+export function calendarDateRangeFromPrompts(
   prompt: string,
   fallbackPrompt: string | null | undefined,
   timeZone: string,
   now = new Date(),
 ) {
-  const primary = calendarDateRangeFromPrompt(prompt, { now, timeZone });
+  const fallback = fallbackPrompt?.trim();
+  const original = fallback
+    ? calendarDateRangeFromPrompt(fallback, { now, timeZone })
+    : null;
 
-  if (primary) {
-    return primary;
+  if (original) {
+    return original;
   }
 
-  const fallback = fallbackPrompt?.trim();
-
-  if (!fallback || fallback === prompt.trim()) {
+  if (fallback === prompt.trim()) {
     return null;
   }
 
-  return calendarDateRangeFromPrompt(fallback, { now, timeZone });
+  return calendarDateRangeFromPrompt(prompt, { now, timeZone });
 }
 
 function calendarTimeFromPrompt(prompt: string) {
@@ -5034,36 +5154,56 @@ async function calendarCommand({
     };
   }
 
-  const now = new Date();
+  const now = turnNow;
   const to = new Date(now.getTime() + 30 * 24 * 60 * 60_000);
   const events = await getCalendarEvents(supabase, workspace.id, {
     from: requestedDay?.from ?? now.toISOString(),
     to: requestedDay?.to ?? to.toISOString(),
   });
   const activeEvents = events.filter((event) => event.status !== "cancelled");
-  const top = activeEvents.slice(0, 8);
+  const contextEvents = activeEvents.slice(0, 30);
+  const top = activeEvents.slice(0, 10);
+  const requestedRangeIsOneDay = requestedDay
+    ? addDaysToDateKey(
+        dateKeyInTimeZone(requestedDay.from, requestedDay.timeZone),
+        1,
+      ) === dateKeyInTimeZone(requestedDay.to, requestedDay.timeZone)
+    : false;
   const requestedDayAnswer = requestedDay
     ? top.length > 0
       ? `You have ${activeEvents.length} calendar event${
           activeEvents.length === 1 ? "" : "s"
-        } on ${requestedDay.dateLabel}: ${top
+        } ${requestedRangeIsOneDay ? "on" : "from"} ${
+          requestedDay.dateLabel
+        }: ${top
           .map(
             (event) =>
-              `${event.title} at ${new Intl.DateTimeFormat("en-US", {
-                hour: "numeric",
-                minute: "2-digit",
-                timeZone,
-                timeZoneName: "short",
-              }).format(new Date(event.startsAt ?? requestedDay.from))}`,
+              requestedRangeIsOneDay
+                ? `${event.title} at ${new Intl.DateTimeFormat("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZone,
+                    timeZoneName: "short",
+                  }).format(new Date(event.startsAt ?? requestedDay.from))}`
+                : `${event.title} on ${assistantDate(
+                    event.startsAt ?? requestedDay.from,
+                    timeZone,
+                  )}`,
           )
-          .join(", ")}.`
-      : `You have no scheduled calendar events on ${requestedDay.dateLabel}.`
+          .join(", ")}${
+          activeEvents.length > top.length
+            ? `, plus ${activeEvents.length - top.length} more`
+            : ""
+        }.`
+      : `You have no scheduled calendar events ${
+          requestedRangeIsOneDay ? "on" : "from"
+        } ${requestedDay.dateLabel}.`
     : null;
 
   return {
     context: {
       events: recordsContext(
-        top.map((event) => ({
+        contextEvents.map((event) => ({
           contact:
             event.contact?.name ??
             event.contact?.company ??
@@ -5082,19 +5222,20 @@ async function calendarCommand({
       range: requestedDay?.dateLabel ?? "next_30_days",
       rangeFrom: requestedDay?.from ?? now.toISOString(),
       rangeTo: requestedDay?.to ?? to.toISOString(),
+      totalEventCount: activeEvents.length,
       workspaceTimeZone: timeZone,
     },
     fallbackAnswer:
       requestedDayAnswer ??
-      (top.length > 0
-        ? `You have ${top.length} calendar event${top.length === 1 ? "" : "s"} coming up in the next 30 days.`
+      (activeEvents.length > 0
+        ? `You have ${activeEvents.length} calendar event${activeEvents.length === 1 ? "" : "s"} coming up in the next 30 days.`
         : "There are no scheduled calendar events in the next 30 days."),
     intent: "calendar_event",
     links: [
       rowLink(
         "Calendar",
         "/calendar",
-        `${top.length} upcoming event${top.length === 1 ? "" : "s"}`,
+        `${activeEvents.length} upcoming event${activeEvents.length === 1 ? "" : "s"}`,
       ),
       ...top
         .slice(0, 4)

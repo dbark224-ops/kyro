@@ -6,6 +6,7 @@ import {
   assistantSmsBodyFromPrompt,
   assistantDate,
   calendarDateRangeFromPrompt,
+  calendarDateRangeFromPrompts,
   calendarConversationReferenceFromRecentMessages,
   calendarLinkIntentFromPrompt,
   calendarOperationFromPrompts,
@@ -679,6 +680,83 @@ describe("assistant calendar helpers", () => {
         from: "2026-08-03T06:00:00.000Z",
         timeZone: "America/Denver",
         to: "2026-08-04T06:00:00.000Z",
+      },
+    );
+  });
+
+  it("resolves calendar week and month ranges in the workspace timezone", () => {
+    const now = new Date("2026-07-23T23:40:00.000Z");
+    const options = { now, timeZone: "America/Denver" };
+
+    assert.deepEqual(
+      calendarDateRangeFromPrompt(
+        "What's on the calendar for the rest of this week?",
+        options,
+      ),
+      {
+        dateLabel:
+          "Thursday, July 23, 2026 through Sunday, July 26, 2026",
+        from: "2026-07-23T06:00:00.000Z",
+        timeZone: "America/Denver",
+        to: "2026-07-27T06:00:00.000Z",
+      },
+    );
+    assert.deepEqual(calendarDateRangeFromPrompt("this week", options), {
+      dateLabel: "Monday, July 20, 2026 through Sunday, July 26, 2026",
+      from: "2026-07-20T06:00:00.000Z",
+      timeZone: "America/Denver",
+      to: "2026-07-27T06:00:00.000Z",
+    });
+    assert.deepEqual(calendarDateRangeFromPrompt("next week", options), {
+      dateLabel: "Monday, July 27, 2026 through Sunday, August 2, 2026",
+      from: "2026-07-27T06:00:00.000Z",
+      timeZone: "America/Denver",
+      to: "2026-08-03T06:00:00.000Z",
+    });
+    assert.deepEqual(
+      calendarDateRangeFromPrompt("the rest of this month", options),
+      {
+        dateLabel:
+          "Thursday, July 23, 2026 through Friday, July 31, 2026",
+        from: "2026-07-23T06:00:00.000Z",
+        timeZone: "America/Denver",
+        to: "2026-08-01T06:00:00.000Z",
+      },
+    );
+    assert.deepEqual(calendarDateRangeFromPrompt("this month", options), {
+      dateLabel: "Wednesday, July 1, 2026 through Friday, July 31, 2026",
+      from: "2026-07-01T06:00:00.000Z",
+      timeZone: "America/Denver",
+      to: "2026-08-01T06:00:00.000Z",
+    });
+    assert.deepEqual(calendarDateRangeFromPrompt("next month", options), {
+      dateLabel: "Saturday, August 1, 2026 through Monday, August 31, 2026",
+      from: "2026-08-01T06:00:00.000Z",
+      timeZone: "America/Denver",
+      to: "2026-09-01T06:00:00.000Z",
+    });
+    assert.deepEqual(calendarDateRangeFromPrompt("during August", options), {
+      dateLabel: "Saturday, August 1, 2026 through Monday, August 31, 2026",
+      from: "2026-08-01T06:00:00.000Z",
+      timeZone: "America/Denver",
+      to: "2026-09-01T06:00:00.000Z",
+    });
+  });
+
+  it("keeps the user's calendar range when a tool plan rewrites it as today", () => {
+    assert.deepEqual(
+      calendarDateRangeFromPrompts(
+        "Show calendar events today",
+        "What about the rest of the week?",
+        "America/Denver",
+        new Date("2026-07-23T23:40:00.000Z"),
+      ),
+      {
+        dateLabel:
+          "Thursday, July 23, 2026 through Sunday, July 26, 2026",
+        from: "2026-07-23T06:00:00.000Z",
+        timeZone: "America/Denver",
+        to: "2026-07-27T06:00:00.000Z",
       },
     );
   });
