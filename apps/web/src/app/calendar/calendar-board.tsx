@@ -18,10 +18,12 @@ import {
   updateCalendarEventAction,
   updateCalendarWeekLayoutAction,
 } from "./actions";
-import {
-  googleMapsDirectionsUrl,
-  type CalendarEntityOptions,
-  type CalendarEventItem,
+import { googleMapsDirectionsUrl } from "../../lib/calendar/directions";
+// Type-only: erased at build time, so this does not pull the server-side
+// calendar graph (action engine, provider-sync) into the client bundle.
+import type {
+  CalendarEntityOptions,
+  CalendarEventItem,
 } from "../../lib/calendar/events";
 import {
   CALENDAR_EVENT_TYPES,
@@ -689,10 +691,7 @@ function TimelineEventCard({
         <time>{formatTime(event.startsAt, timeZone)}</time>
         <strong>{event.title}</strong>
         {compact ? null : (
-          <span
-            className={styles.eventStatusPill}
-            data-status={event.status}
-          >
+          <span className={styles.eventStatusPill} data-status={event.status}>
             {calendarStatusLabel(event.status)}
           </span>
         )}

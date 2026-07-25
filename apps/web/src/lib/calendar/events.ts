@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { CalendarAddressMetadata } from "./directions";
 import { parseAddressFormData } from "../addresses/form";
 import { insertAuditLog } from "../engine/event-action-audit";
 import {
@@ -25,21 +26,10 @@ export const CALENDAR_EVENT_STATUSES = [
 ] as const;
 export type CalendarEventStatus = (typeof CALENDAR_EVENT_STATUSES)[number];
 
-export type CalendarAddressMetadata = {
-  administrativeArea: string | null;
-  countryCode: string | null;
-  formattedAddress: string | null;
-  latitude: string | null;
-  line1: string | null;
-  line2: string | null;
-  locality: string | null;
-  longitude: string | null;
-  placeId: string | null;
-  postalCode: string | null;
-  source: string | null;
-  structured: Record<string, unknown>;
-  validationStatus: string | null;
-};
+// Defined in ./directions so client components can use them without pulling
+// this module's server-only imports into the browser bundle.
+export type { CalendarAddressMetadata } from "./directions";
+export { googleMapsDirectionsUrl } from "./directions";
 
 export type CalendarEventItem = {
   appointmentType: CalendarEventType;
@@ -241,22 +231,6 @@ export function calendarAddressFromFormData(
       validationStatus: parsed.address_validation_status,
     },
   };
-}
-
-export function googleMapsDirectionsUrl(
-  location: string | null,
-  address: CalendarAddressMetadata | null,
-) {
-  const destination =
-    address?.latitude && address.longitude
-      ? `${address.latitude},${address.longitude}`
-      : (address?.formattedAddress ?? location);
-
-  return destination
-    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-        destination,
-      )}`
-    : null;
 }
 
 async function hydrateCalendarEvents(
