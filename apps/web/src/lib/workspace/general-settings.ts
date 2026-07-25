@@ -942,3 +942,42 @@ export async function getWorkspaceGeneralSettings(
     timeZone: inboundSettings.timeZone,
   });
 }
+
+/**
+ * The workspace's dialling region, for phone normalization and validation.
+ *
+ * Kyro is single-country per workspace, so every phone number typed without a
+ * country code belongs to this region. Reading it via
+ * `getWorkspaceGeneralSettings` costs three queries and builds the whole
+ * settings object; message send and inbound-match paths need only this field,
+ * often per message, so they use this one-query read instead.
+ *
+ * Falls back to the library default rather than throwing: a settings read
+ * failing is not a reason to drop an inbound message or block a send.
+ */
+export async function getWorkspacePhoneRegion(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<PhoneRegion> {
+  const { data, error } = await supabase
+    .from("workspace_policies")
+    .select("settings")
+    .eq("workspace_id", workspaceId)
+    .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Workspace phone region lookup failed", {
+      code: error.code,
+      workspaceId,
+    });
+    return DEFAULT_WORKSPACE_GENERAL_SETTINGS.defaultPhoneRegion;
+  }
+
+  const settings = objectRecord(data?.settings);
+
+  return normalizePhoneRegion(
+    textValue(settings.defaultPhoneRegion),
+    DEFAULT_WORKSPACE_GENERAL_SETTINGS.defaultPhoneRegion,
+  );
+}

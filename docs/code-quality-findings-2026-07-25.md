@@ -262,18 +262,68 @@ if a bug appears that typed clients would genuinely have caught.
 
 ## New finding from that investigation
 
-### Undialable recipient numbers burn retries and dead-letter `[VERIFIED]`
+### Undialable recipient numbers burn retries and dead-letter `[FIXED]`
 
 An inbound SMS from `+1575855239` (not a valid E.164 number) caused Kyro to auto-create a
 contact, run triage, generate a reply, queue an outbound SMS, and consume three Twilio
-attempts before dead-lettering. **Nothing validates that a recipient is dialable before
-queuing.** `lib/crm/identity.ts` already imports `parsePhoneNumberFromString`, so the
-capability exists but is not applied to the outbound path; `assertSmsSendAllowed` covers
+attempts before dead-lettering. **Nothing validated that a recipient was dialable before
+queuing.** `lib/crm/identity.ts` already imported `parsePhoneNumberFromString`, so the
+capability existed but was not applied to the outbound path; `assertSmsSendAllowed` covers
 consent/opt-out, not validity.
 
-Left unfixed deliberately — it is a behaviour change to a customer-facing send path and
-the desired behaviour is a product decision: skip and flag the contact, mark it
-`needs_review`, or queue but fail fast without consuming retries.
+Fixed 2026-07-25 by validating at **both** ends, plus fixing the hardcoded country that
+would have made the validation wrong outside Australia.
+
+- **New `isDialablePhoneNumber(value, region)`** in `lib/crm/identity.ts`. A separate
+  function was needed, not a reused signal: `normalizeContactPhoneForRegion` is
+  deliberately lenient and *never* rejects a value containing digits — it ends
+  `return countryCodeCandidate ?? digits`. Probed and confirmed:
+  `normalizeContactPhoneForRegion("+1575855239")` returns `"+1575855239"`, not `null`.
+  That leniency is correct for CRM identity matching and wrong for sending.
+- **Send time** (`lib/communication/outbound.ts`): the SMS branch rejects an undialable
+  recipient with a new `PermanentOutboundError`, and `markOutboundFailed` sends permanent
+  errors straight to `failed` instead of scheduling retries that get the identical
+  rejection. The decision is extracted as pure `outboundRetryDecision` so it is testable.
+- **Call time** (`lib/voice/calls.ts`): `createOutboundVoiceCall` applies the same guard.
+- **Intake** (`lib/inbound/manual.ts`): a contact created with a phone number that is not
+  dialable is written `profile_resolution_status = 'needs_review'` with a reason, and
+  tagged `undialable_phone`. This is the shared ingest path, so inbound SMS gets it too.
+  Only fires when a phone is present — an email-only contact is untouched.
+
+### The hardcoded country underneath it `[FIXED]`
+
+Found while fixing the above and worth stating separately, because it was the larger bug.
+Onboarding and settings already collect an operating country and store it as
+`defaultPhoneRegion` (`lib/workspace/operating-countries.ts` maps AU/NZ/GB/US/CA). **Nine
+call sites across six files ignored it and hardcoded `"AU"`** — so every send, contact
+match and consent lookup interpreted bare local numbers as Australian regardless of what
+the workspace had configured.
+
+The damage is not theoretical: `contacts.normalized_phone` and
+`sms_recipient_preferences.normalized_phone` are *written* using the workspace region and
+were being *read* using `"AU"`. A mismatch means a duplicate contact on every inbound
+message, and — worse — a recipient who texts STOP recorded under one key and checked under
+another, so Kyro keeps texting them.
+
+Fixed by adding `getWorkspacePhoneRegion(supabase, workspaceId)` to
+`lib/workspace/general-settings.ts` (one indexed query, rather than the three that
+`getWorkspaceGeneralSettings` costs, because these paths run per message) and threading it
+through every site. `grep` for a hardcoded region literal now returns nothing.
+
+Two sites deliberately keep no region, both documented in code: matching a dialled number
+to the workspace that owns it (no workspace known yet) and stamping a call record's own
+from/to columns (provider-supplied E.164, which ignores the region anyway).
+
+**Known limit, recorded in a test rather than fixed.**
+`normalizeContactPhoneForRegion` treats the region as a strong hint, not a constraint — if
+a number is invalid there it keeps searching other countries. So `07700900123` for a GB
+workspace resolves to `+917700900123` (India) rather than failing, because that range is
+Ofcom's reserved fiction range and invalid in GB. The fallback is what lets a workspace
+hold foreign customers, so it is deliberate, but it means the new guard catches numbers
+*no* country can dial rather than numbers wrong for *this* one. Verified all ten common
+local formats (AU/US/GB/NZ/IE/CA/ZA/SG) resolve correctly under their own region.
+Tightening this would change what gets written to `normalized_phone` for existing rows, so
+it needs a backfill plan — not a drive-by change.
 
 ## Tier 1 — all clear
 

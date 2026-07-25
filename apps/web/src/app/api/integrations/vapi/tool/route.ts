@@ -18,7 +18,11 @@ import {
   VAPI_EXTERNAL_CALLER_REFUSAL,
 } from "../../../../../lib/assistant/vapi-tool-authorization";
 import { updateContactFromAssistantTool } from "../../../../../lib/crm/contact-update-tool";
-import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
+import {
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
+} from "../../../../../lib/crm/identity";
+import { getWorkspacePhoneRegion } from "../../../../../lib/workspace/general-settings";
 import {
   approveAction,
   executeAction,
@@ -209,14 +213,14 @@ function vapiCall(payload: Record<string, unknown>) {
   return objectRecord(message.call ?? payload.call ?? payload);
 }
 
-function phoneComparisonKeys(value: string | null) {
+function phoneComparisonKeys(value: string | null, region: PhoneRegion) {
   if (!value) {
     return new Set<string>();
   }
 
   const rawDigits = value.replace(/\D/g, "");
   const normalizedDigits =
-    normalizeContactPhoneForRegion(value, "AU")?.replace(/\D/g, "") ?? null;
+    normalizeContactPhoneForRegion(value, region)?.replace(/\D/g, "") ?? null;
 
   return new Set(
     [rawDigits, normalizedDigits].filter((candidate): candidate is string =>
@@ -239,14 +243,21 @@ function vapiContactMatchesCallerNumber(
   contact: VoiceContactMatch,
   payload: Record<string, unknown>,
   args: Record<string, unknown>,
+  region: PhoneRegion,
 ) {
-  const callerKeys = phoneComparisonKeys(vapiToolCallerNumber(payload, args));
+  const callerKeys = phoneComparisonKeys(
+    vapiToolCallerNumber(payload, args),
+    region,
+  );
 
   if (callerKeys.size === 0) {
     return false;
   }
 
-  return phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(contact.phone));
+  return phoneKeySetsOverlap(
+    callerKeys,
+    phoneComparisonKeys(contact.phone, region),
+  );
 }
 
 function vapiToolCallerNumber(
@@ -292,7 +303,8 @@ async function vapiToolCanSendOutboundSms({
   }
 
   const callerNumber = vapiToolCallerNumber(payload, args);
-  const callerKeys = phoneComparisonKeys(callerNumber);
+  const region = await getWorkspacePhoneRegion(supabase, workspaceId);
+  const callerKeys = phoneComparisonKeys(callerNumber, region);
 
   if (callerKeys.size === 0) {
     return false;
@@ -301,7 +313,7 @@ async function vapiToolCanSendOutboundSms({
   const settings = await getVoiceSettings(supabase, workspaceId);
 
   return settings.phoneAgentUserNumbers.some((phoneNumber) =>
-    phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(phoneNumber)),
+    phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(phoneNumber, region)),
   );
 }
 
@@ -783,7 +795,10 @@ async function findOrCreateSmsContactByPhone({
   workspaceId: string;
 }) {
   const normalizedPhone =
-    normalizeContactPhoneForRegion(phoneNumber, "AU") ?? phoneNumber;
+    normalizeContactPhoneForRegion(
+      phoneNumber,
+      await getWorkspacePhoneRegion(supabase, workspaceId),
+    ) ?? phoneNumber;
 
   const { data: existing, error: existingError } = await supabase
     .from("contacts")
@@ -1641,7 +1656,12 @@ export async function POST(request: Request) {
 
       if (
         !canSendAnySms &&
-        !vapiContactMatchesCallerNumber(contacts[0], payload, args)
+        !vapiContactMatchesCallerNumber(
+          contacts[0],
+          payload,
+          args,
+          await getWorkspacePhoneRegion(supabase, workspaceId),
+        )
       ) {
         return completedToolResponse({
           answer:

@@ -21,7 +21,9 @@ import {
   type TwilioSmsSendResult,
   type TwilioMessageTransport,
 } from "../integrations/twilio";
+import { isDialablePhoneNumber } from "../crm/identity";
 import { createServiceSupabaseClient } from "../supabase/service";
+import { getWorkspacePhoneRegion } from "../workspace/general-settings";
 import { buildQuotePdfArtifactForDraft } from "../documents/pdf";
 import {
   markGeneratedDocumentSent,
@@ -534,6 +536,18 @@ function buildIdempotencyKey(input: RecordOutboundMessageInput) {
   return `${input.source}.${input.conversationId}.${input.channelType}.${crypto.randomUUID()}`;
 }
 
+/**
+ * A delivery failure that retrying cannot fix -- an undialable recipient, a
+ * missing phone number. `markOutboundFailed` sends these straight to `failed`
+ * instead of scheduling retries that will get the identical rejection.
+ */
+export class PermanentOutboundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PermanentOutboundError";
+  }
+}
+
 export function nextOutboundAttemptAtIso(
   attemptCount: number,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
@@ -546,6 +560,34 @@ export function nextOutboundAttemptAtIso(
   const delay = RETRY_DELAYS_MS[Math.max(0, attemptCount - 1)] ?? 60 * 60_000;
 
   return new Date(startedAt.getTime() + delay).toISOString();
+}
+
+/**
+ * Whether a failed send gets another attempt.
+ *
+ * A `PermanentOutboundError` gets the identical rejection every time, so
+ * retrying it only burns provider attempts and delays the dead letter by hours.
+ * Those go straight to `failed`, where the operator can see and fix them.
+ */
+export function outboundRetryDecision(input: {
+  attemptCount: number;
+  error: unknown;
+  failedAt: string;
+  maxAttempts?: number;
+}): { nextAttemptAt: string | null; status: OutboundDeliveryStatus } {
+  const nextAttemptAt =
+    input.error instanceof PermanentOutboundError
+      ? null
+      : nextOutboundAttemptAtIso(
+          input.attemptCount,
+          input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+          new Date(input.failedAt),
+        );
+
+  return {
+    nextAttemptAt,
+    status: nextAttemptAt ? "retry_scheduled" : "failed",
+  };
 }
 
 function normalizeDeliveryStatus(value: string): OutboundDeliveryStatus {
@@ -1321,14 +1363,12 @@ async function markOutboundFailed(
     1,
     numberValue(row.max_attempts, DEFAULT_MAX_ATTEMPTS),
   );
-  const nextAttemptAt = nextOutboundAttemptAtIso(
+  const { nextAttemptAt, status } = outboundRetryDecision({
     attemptCount,
+    error,
+    failedAt,
     maxAttempts,
-    new Date(failedAt),
-  );
-  const status: OutboundDeliveryStatus = nextAttemptAt
-    ? "retry_scheduled"
-    : "failed";
+  });
   const message = errorMessage(error);
 
   await supabase
@@ -1659,13 +1699,29 @@ async function deliverOutboundQueueItem(
           : null);
 
       if (!recipientPhone) {
-        throw new Error(
+        throw new PermanentOutboundError(
           "This contact does not have a phone number, so Kyro cannot send this SMS.",
+        );
+      }
+
+      // Structurally undialable numbers are rejected identically on every
+      // attempt, so retrying only burns Twilio attempts and delays the dead
+      // letter. Checked against the workspace's own region so local formats
+      // still pass.
+      const smsRegion = await getWorkspacePhoneRegion(
+        supabase,
+        activeRow.workspace_id,
+      );
+
+      if (!isDialablePhoneNumber(recipientPhone, smsRegion)) {
+        throw new PermanentOutboundError(
+          `Kyro cannot send to ${recipientPhone} because it is not a valid phone number. Fix the contact's number and try again.`,
         );
       }
 
       await assertSmsSendAllowed(supabase, {
         phoneNumber: recipientPhone,
+        region: smsRegion,
         workspaceId: activeRow.workspace_id,
       });
 

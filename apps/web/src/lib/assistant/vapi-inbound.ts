@@ -18,8 +18,12 @@ import {
 import {
   DEFAULT_WORKSPACE_GENERAL_SETTINGS,
   getWorkspaceGeneralSettings,
+  getWorkspacePhoneRegion,
 } from "../workspace/general-settings";
-import { normalizeContactPhoneForRegion } from "../crm/identity";
+import {
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
+} from "../crm/identity";
 import { getOrCreateAssistantThread } from "./persistence";
 import { buildVapiCurrentTimeContext } from "./vapi-time";
 import {
@@ -179,8 +183,14 @@ function firstText(...values: unknown[]) {
   return null;
 }
 
-function normalizePhone(value: string | null) {
-  return value ? normalizeContactPhoneForRegion(value, "AU") : null;
+/**
+ * Vapi delivers E.164 numbers, which ignore the region entirely, so this only
+ * matters for numbers that reached the workspace some other way -- a staff
+ * number typed into settings as `0412...`. Pass the workspace's region wherever
+ * it is known; omit it only before the workspace has been identified.
+ */
+function normalizePhone(value: string | null, region?: PhoneRegion) {
+  return value ? normalizeContactPhoneForRegion(value, region ?? null) : null;
 }
 
 function remotelyReachableUrl(value: string | null) {
@@ -407,7 +417,16 @@ async function loadInboundCrmContact(
   workspaceId: string,
   callerNumber: string | null,
 ): Promise<VapiInboundCrmContact | null> {
-  const normalized = normalizePhone(callerNumber);
+  if (!callerNumber) {
+    return null;
+  }
+
+  // Matched against `normalized_phone`, which was written using the workspace's
+  // region, so the lookup has to use the same one.
+  const normalized = normalizePhone(
+    callerNumber,
+    await getWorkspacePhoneRegion(supabase, workspaceId),
+  );
 
   if (!normalized) {
     return null;
@@ -473,15 +492,16 @@ async function resolveAssistantThreadId(
 function callerIsWorkspaceUser(
   callerNumber: string | null,
   userNumbers: string[],
+  region: PhoneRegion,
 ) {
-  const normalizedCaller = normalizePhone(callerNumber);
+  const normalizedCaller = normalizePhone(callerNumber, region);
 
   if (!normalizedCaller) {
     return false;
   }
 
   return userNumbers
-    .map((number) => normalizePhone(number))
+    .map((number) => normalizePhone(number, region))
     .filter((number): number is string => Boolean(number))
     .includes(normalizedCaller);
 }
@@ -489,13 +509,15 @@ function callerIsWorkspaceUser(
 function voicePurpose({
   callerNumber,
   matchedNumber,
+  region,
   userNumbers,
 }: {
   callerNumber: string | null;
   matchedNumber: WorkspaceVoiceNumberMatch;
+  region: PhoneRegion;
   userNumbers: string[];
 }) {
-  if (callerIsWorkspaceUser(callerNumber, userNumbers)) {
+  if (callerIsWorkspaceUser(callerNumber, userNumbers, region)) {
     return "inbound_user";
   }
 
@@ -753,6 +775,7 @@ export async function buildVapiAssistantRequestResponse(
   const purpose = voicePurpose({
     callerNumber: from,
     matchedNumber,
+    region: generalSettings.defaultPhoneRegion,
     userNumbers: internalNumberDetails.map((entry) => entry.phoneNumber),
   });
   const assistantId = assistantIdForPurpose(purpose, settings);

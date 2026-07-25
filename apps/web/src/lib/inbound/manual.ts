@@ -3,6 +3,7 @@ import type { AddressColumnUpdates } from "../addresses/types";
 import { runStubAiTriage } from "../ai/triage";
 import { normalizeContactType } from "../crm/contact-types";
 import {
+  isDialablePhoneNumber,
   normalizeCompanyName,
   normalizeContactEmail,
   normalizeContactPhoneForRegion,
@@ -283,11 +284,25 @@ async function createContactProfile(
   const normalizedCompany = normalizeCompanyName(input.company);
   const contactType = normalizeContactType(input.contactType);
   const source = nullableText(input.source) ?? "manual_inbound";
-  const tags =
-    match.status === "conflict_created"
-      ? [source, "profile_match_conflict"]
-      : [source];
+  // A number can be stored but not dialled -- normalization is deliberately
+  // lenient so contacts are never lost. Surface the difference at intake so an
+  // undialable number becomes visible CRM work instead of a silent dead letter
+  // the first time Kyro tries to reply.
+  const undialablePhone = Boolean(
+    phone && !isDialablePhoneNumber(phone, defaultPhoneRegion),
+  );
+  const tags = [
+    source,
+    ...(match.status === "conflict_created" ? ["profile_match_conflict"] : []),
+    ...(undialablePhone ? ["undialable_phone"] : []),
+  ];
   const conflictNote = await profileConflictNote(supabase, workspaceId, match);
+  const resolutionReason =
+    match.status === "conflict_created"
+      ? match.reason
+      : undialablePhone
+        ? `Phone number ${phone} is not a valid number for this workspace's region, so Kyro cannot send SMS or call it.`
+        : null;
 
   const { data: contact, error } = await supabase
     .from("contacts")
@@ -305,9 +320,10 @@ async function createContactProfile(
       source,
       notes: conflictNote,
       profile_resolution_status:
-        match.status === "conflict_created" ? "needs_review" : "clear",
-      profile_resolution_reason:
-        match.status === "conflict_created" ? match.reason : null,
+        match.status === "conflict_created" || undialablePhone
+          ? "needs_review"
+          : "clear",
+      profile_resolution_reason: resolutionReason,
       profile_conflict_contact_ids:
         match.status === "conflict_created" ? match.conflictContactIds : [],
       tags,

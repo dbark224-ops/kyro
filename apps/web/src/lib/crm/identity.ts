@@ -209,6 +209,36 @@ export function normalizeContactPhoneForRegion(
   return countryCodeCandidate ?? digits;
 }
 
+/**
+ * Whether a number can actually be dialled, as opposed to merely stored.
+ *
+ * `normalizeContactPhoneForRegion` is deliberately lenient: it never rejects a
+ * value that contains digits, falling back to raw digits so a contact is never
+ * lost during identity matching. That is right for CRM matching and wrong for
+ * sending -- `+1575855239` (nine digits after +1) normalizes happily, then
+ * Twilio rejects it on every attempt.
+ *
+ * This applies the same normalization and then asks libphonenumber whether the
+ * result is genuinely valid, so local formats still pass (`0412345678` with an
+ * AU workspace region) while structurally impossible numbers do not.
+ */
+export function isDialablePhoneNumber(
+  value?: string | null,
+  defaultCountry?: CountryCode | string | null,
+) {
+  const normalized = normalizeContactPhoneForRegion(value, defaultCountry);
+
+  if (!normalized) {
+    return false;
+  }
+
+  const region = defaultCountry
+    ? normalizePhoneRegion(String(defaultCountry), DEFAULT_PHONE_REGION)
+    : undefined;
+
+  return parsePhoneNumberFromString(normalized, region)?.isValid() ?? false;
+}
+
 export function normalizeCompanyName(value?: string | null) {
   const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase();
 

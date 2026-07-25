@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { normalizeContactPhoneForRegion } from "../crm/identity";
+import {
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
+} from "../crm/identity";
+import { getWorkspacePhoneRegion } from "../workspace/general-settings";
 
 export type SmsConsentStatus =
   | "unknown"
@@ -41,8 +45,14 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function normalizeSmsRecipientPhone(value: string) {
-  return normalizeContactPhoneForRegion(value, "AU") ?? value.trim();
+/**
+ * Consent is keyed on `normalized_phone`, so the read path and the write path
+ * must normalize identically. A hardcoded region here would mean a workspace
+ * outside that region recording an opt-out under one key and checking it under
+ * another -- the recipient says STOP and Kyro keeps texting them.
+ */
+function normalizeSmsRecipientPhone(value: string, region: PhoneRegion) {
+  return normalizeContactPhoneForRegion(value, region) ?? value.trim();
 }
 
 function schemaMissing(error: { code?: string; message?: string } | null) {
@@ -73,10 +83,14 @@ export async function getSmsRecipientPreference(
   supabase: SupabaseClient,
   input: {
     phoneNumber: string;
+    region?: PhoneRegion;
     workspaceId: string;
   },
 ) {
-  const normalizedPhone = normalizeSmsRecipientPhone(input.phoneNumber);
+  const region =
+    input.region ??
+    (await getWorkspacePhoneRegion(supabase, input.workspaceId));
+  const normalizedPhone = normalizeSmsRecipientPhone(input.phoneNumber, region);
   const { data, error } = await supabase
     .from("sms_recipient_preferences")
     .select("consent_status,opt_out_keyword,opted_out_at,phone_number")
@@ -99,6 +113,7 @@ export async function assertSmsSendAllowed(
   supabase: SupabaseClient,
   input: {
     phoneNumber: string;
+    region?: PhoneRegion;
     workspaceId: string;
   },
 ) {
@@ -123,6 +138,7 @@ export async function recordSmsRecipientPreference(
     keyword?: string | null;
     metadata?: Record<string, unknown>;
     phoneNumber: string;
+    region?: PhoneRegion;
     source: string;
     status?: SmsConsentStatus | null;
     timestamp?: string;
@@ -131,9 +147,13 @@ export async function recordSmsRecipientPreference(
   },
 ) {
   const timestamp = input.timestamp ?? new Date().toISOString();
-  const normalizedPhone = normalizeSmsRecipientPhone(input.phoneNumber);
+  const region =
+    input.region ??
+    (await getWorkspacePhoneRegion(supabase, input.workspaceId));
+  const normalizedPhone = normalizeSmsRecipientPhone(input.phoneNumber, region);
   const existing = await getSmsRecipientPreference(supabase, {
     phoneNumber: input.phoneNumber,
+    region,
     workspaceId: input.workspaceId,
   });
   const activityPatch = {

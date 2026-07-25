@@ -19,10 +19,15 @@ import {
 import { telephonyUsageCost, TWILIO_PROVIDER } from "../integrations/twilio";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
-import { normalizeContactPhoneForRegion } from "../crm/identity";
+import {
+  isDialablePhoneNumber,
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
+} from "../crm/identity";
 import {
   DEFAULT_WORKSPACE_GENERAL_SETTINGS,
   getWorkspaceGeneralSettings,
+  getWorkspacePhoneRegion,
 } from "../workspace/general-settings";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
@@ -247,8 +252,19 @@ export function isVoiceCallTableMissing(
   return tableMissing(error);
 }
 
-function normalizePhone(value: string | null) {
-  return value ? normalizeContactPhoneForRegion(value, "AU") : null;
+/**
+ * Pass the workspace's region wherever the number is being matched against, or
+ * written to, CRM identity -- `contacts.normalized_phone` is written using the
+ * workspace region, so a lookup that assumes a different one silently misses
+ * and creates a duplicate contact.
+ *
+ * It is omitted in two places on purpose: matching a dialled number to the
+ * workspace that owns it (no workspace known yet) and stamping the call
+ * record's own from/to columns, which are provider-supplied E.164 and so ignore
+ * the region entirely.
+ */
+function normalizePhone(value: string | null, region?: PhoneRegion) {
+  return value ? normalizeContactPhoneForRegion(value, region ?? null) : null;
 }
 
 function statusFromEvent(value: string | null): VoiceCallStatus {
@@ -1141,7 +1157,14 @@ async function findContactByPhone(
   workspaceId: string,
   rawNumber: string | null,
 ) {
-  const normalized = normalizePhone(rawNumber);
+  if (!rawNumber) {
+    return null;
+  }
+
+  const normalized = normalizePhone(
+    rawNumber,
+    await getWorkspacePhoneRegion(supabase, workspaceId),
+  );
 
   if (!normalized) {
     return null;
@@ -1978,7 +2001,12 @@ export async function lookupVoiceContactsForTool(input: {
   supabase: SupabaseClient;
   workspaceId: string;
 }) {
-  const phone = normalizePhone(input.phoneNumber ?? null);
+  const phone = input.phoneNumber
+    ? normalizePhone(
+        input.phoneNumber,
+        await getWorkspacePhoneRegion(input.supabase, input.workspaceId),
+      )
+    : null;
   const query = input.query?.trim() ?? "";
 
   let request = input.supabase
@@ -2364,7 +2392,12 @@ async function ensureVoiceCallCrmArtifacts(input: {
   }
 
   const customerNumber = callCustomerNumber(call);
-  const normalizedCustomerNumber = normalizePhone(customerNumber);
+  // Written to `contacts.normalized_phone` further down, so it has to match how
+  // every other write in the codebase normalizes for this workspace.
+  const normalizedCustomerNumber = normalizePhone(
+    customerNumber,
+    await getWorkspacePhoneRegion(input.supabase, input.workspaceId),
+  );
   const profileFacts = voiceCallProfileFacts({
     args: input.args,
     note: input.note,
@@ -2823,10 +2856,23 @@ export async function createOutboundVoiceCall(input: {
     throw new Error("Outbound phone calls are disabled in voice settings.");
   }
 
-  const customerNumber = normalizePhone(input.phoneNumber);
+  const callRegion = await getWorkspacePhoneRegion(
+    input.supabase,
+    input.workspaceId,
+  );
+  const customerNumber = normalizePhone(input.phoneNumber, callRegion);
 
   if (!customerNumber) {
     throw new Error("Add a valid customer phone number before calling.");
+  }
+
+  // Same reasoning as the SMS path: Vapi rejects a structurally impossible
+  // number on every attempt, so fail here with something the user can act on
+  // rather than after the call has been booked.
+  if (!isDialablePhoneNumber(input.phoneNumber, callRegion)) {
+    throw new Error(
+      `Kyro cannot call ${input.phoneNumber} because it is not a valid phone number. Fix the contact's number and try again.`,
+    );
   }
 
   const assistantId = internalUserCall

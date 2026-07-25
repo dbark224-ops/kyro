@@ -8,7 +8,11 @@ import {
   recordSmsRecipientPreference,
   smsConsentCommand,
 } from "../communication/sms-compliance";
-import { normalizeContactPhoneForRegion } from "../crm/identity";
+import {
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
+} from "../crm/identity";
+import { getWorkspacePhoneRegion } from "../workspace/general-settings";
 import { ingestManualConversationFollowUp } from "../inbound/follow-up";
 import { ingestManualInbound } from "../inbound/manual";
 import { notifyInboundInquiry } from "../voice/inbound-inquiry-notifications";
@@ -108,8 +112,9 @@ async function findExistingContact(
   supabase: ServiceSupabase,
   workspaceId: string,
   from: string,
+  region: PhoneRegion,
 ) {
-  const normalizedPhone = normalizeContactPhoneForRegion(from, "AU");
+  const normalizedPhone = normalizeContactPhoneForRegion(from, region);
 
   if (!normalizedPhone) {
     return null;
@@ -318,6 +323,14 @@ export async function processInboundSmsPayload(
     throw new Error("Unable to process inbound SMS without a workspace owner.");
   }
 
+  // Resolved once and threaded through: contact matching and consent both key
+  // on the normalized number, so they have to agree, and this workspace may not
+  // be in the region the code used to assume.
+  const region = await getWorkspacePhoneRegion(
+    supabase,
+    workspaceNumber.workspaceId,
+  );
+
   if (
     await isTrustedInternalMessagingSender(
       supabase,
@@ -349,6 +362,7 @@ export async function processInboundSmsPayload(
         to: input.to,
       },
       phoneNumber: input.from,
+      region,
       source: "twilio_internal_sms",
       status: "staff_internal",
       touch: "inbound",
@@ -400,6 +414,7 @@ export async function processInboundSmsPayload(
         to: input.to,
       },
       phoneNumber: input.from,
+      region,
       source: "twilio_sms_keyword",
       status: consentCommand.status,
       touch: "inbound",
@@ -430,6 +445,7 @@ export async function processInboundSmsPayload(
       to: input.to,
     },
     phoneNumber: input.from,
+    region,
     source: "twilio_inbound_sms",
     touch: "inbound",
     workspaceId: workspaceNumber.workspaceId,
@@ -439,6 +455,7 @@ export async function processInboundSmsPayload(
     supabase,
     workspaceNumber.workspaceId,
     input.from,
+    region,
   );
   const contactName = existingContact?.name ?? input.from;
   const pendingConversationId = existingContact
