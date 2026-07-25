@@ -207,6 +207,30 @@ if a bug appears that typed clients would genuinely have caught.
     `origin/main` is merged into `codex/mobile-app` regularly. Any session doing mobile
     work should start with that merge; `apps/web` conflicts resolve as main-wins.
 
+- `[FIXED]` **Only 1 of 4 assistant turn paths compacted its thread.** Verified before
+  changing anything — the claim held. The core engine (`runAssistantTurn`) was already
+  shared; the *tail* was duplicated at four call sites and only the web one called
+  `maybeCompactAssistantThreadContext`. Mobile text, mobile voice-turn, and internal
+  SMS/WhatsApp threads never compacted, so raw history grew unbounded: rising cost per
+  turn and eventually old context crowding out new. Commit `3253bc6`.
+  - Extracted `finalizeAssistantTurn` (persist → summary → compact) and called it from
+    all four sites. **Only the tail is shared on purpose** — actor identity, memory
+    capture and the web fallback bail-out legitimately vary, so a single wrapper with
+    six optional behaviours would have been worse than the duplication.
+  - Second defect found while fixing: mobile text and voice-turn called
+    `getAssistantTurnContext` (which always queries `assistant_context_snapshots`) then
+    **omitted the result** when calling the engine — paying for the query and discarding
+    it. The engine accepted this silently via `contextSnapshots = []`. That field is now
+    **required**, so the type system rejects the omission.
+  - Guarded by `assistant-turn-pipeline.test.ts`, which scans source for
+    `runAssistantTurn` call sites rather than unit-testing behaviour — a unit test cannot
+    catch a *new* path that forgets to compact, because the omission is the absence of a
+    call. Proven by reintroducing the original bug (3 of 4 assertions failed).
+  - **Deliberately unchanged:** `realtime/persist` and mobile `vapi-turn` write via
+    `appendRealtimeAssistantMessage` and never load turn context. They are voice
+    transcript recorders, not full turns. Whether they should compact is a separate
+    product question, not a bug.
+
 ## Tier 1 — all clear
 
 All Tier 1 items are fixed. Start at Tier 2.
