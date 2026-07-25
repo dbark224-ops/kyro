@@ -4,13 +4,12 @@ import {
   storeAssistantAttachmentsFromFormData,
 } from "../../../../lib/assistant/attachments";
 import {
-  appendAssistantTurnMessage,
   appendUserAssistantMessage,
+  finalizeAssistantTurn,
   getAssistantThreadState,
   getAssistantTurnContext,
   getOrCreateAssistantThread,
   maybeSaveAssistantMemory,
-  updateAssistantThreadSummary,
 } from "../../../../lib/assistant/persistence";
 import { getAssistantRouteMetrics } from "../../../../lib/assistant/route-metrics";
 import type { AssistantThreadState } from "../../../../lib/assistant/types";
@@ -51,7 +50,10 @@ export async function POST(request: Request) {
     const prompt = payload.prompt;
 
     if (!prompt.trim()) {
-      return Response.json({ error: "Ask Kyro something first." }, { status: 400 });
+      return Response.json(
+        { error: "Ask Kyro something first." },
+        { status: 400 },
+      );
     }
 
     const thread = await getOrCreateAssistantThread(supabase, workspace, user);
@@ -72,6 +74,7 @@ export async function POST(request: Request) {
       workspaceId: workspace.id,
     });
     const assistantMessage = await runAssistantTurn({
+      contextSnapshots: context.contextSnapshots,
       inputSource,
       memories: context.memories,
       prompt,
@@ -91,19 +94,13 @@ export async function POST(request: Request) {
       workspaceId: workspace.id,
     });
 
-    await appendAssistantTurnMessage({
+    await finalizeAssistantTurn({
       memorySaved,
-      result: assistantMessage,
-      supabase,
-      threadId,
-      user,
-      workspaceId: workspace.id,
-    });
-    await updateAssistantThreadSummary({
       prompt,
       result: assistantMessage,
       supabase,
       threadId,
+      user,
       workspaceId: workspace.id,
     });
 
@@ -123,7 +120,9 @@ export async function POST(request: Request) {
 async function readAssistantRequestPayload(
   request: Request,
   context: {
-    supabase: Awaited<ReturnType<typeof requireMobileWorkspaceContext>>["supabase"];
+    supabase: Awaited<
+      ReturnType<typeof requireMobileWorkspaceContext>
+    >["supabase"];
     user: Awaited<ReturnType<typeof requireMobileWorkspaceContext>>["user"];
     workspaceId: string;
   },
@@ -169,7 +168,11 @@ async function getMobileAssistantState({
     createdAt: new Date().toISOString(),
     id: "assistant-welcome",
     links: [
-      { href: "/inbox", label: "Inbox", meta: `${metrics.needsReply} need reply` },
+      {
+        href: "/inbox",
+        label: "Inbox",
+        meta: `${metrics.needsReply} need reply`,
+      },
       {
         href: "/documents",
         label: "Documents",

@@ -4,11 +4,10 @@ import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { sendInternalBugNotification } from "../internal-notifications";
 import { runAssistantTurn } from "./engine";
 import {
-  appendAssistantTurnMessage,
   appendUserAssistantMessage,
+  finalizeAssistantTurn,
   getAssistantTurnContext,
   getOrCreateInternalMessagingThread,
-  updateAssistantThreadSummary,
 } from "./persistence";
 import { getVoiceSettings, type VoiceSettings } from "./voice-settings";
 import { vapiUserIdentityFromUser } from "./vapi-user-context";
@@ -53,15 +52,13 @@ export function internalMessagingUserFromProfile(
   const firstName = textValue(profile.first_name);
   const lastName = textValue(profile.last_name);
   const name =
-    textValue(profile.name) ||
-    [firstName, lastName].filter(Boolean).join(" ");
+    textValue(profile.name) || [firstName, lastName].filter(Boolean).join(" ");
   const email = textValue(profile.email);
 
   return {
     app_metadata: {},
     aud: "authenticated",
-    created_at:
-      textValue(profile.created_at) || "1970-01-01T00:00:00.000Z",
+    created_at: textValue(profile.created_at) || "1970-01-01T00:00:00.000Z",
     email: email || undefined,
     id,
     role: "authenticated",
@@ -222,18 +219,12 @@ export async function processInternalAssistantMessage(input: {
       workspace,
     });
 
-    await appendAssistantTurnMessage({
-      result,
-      supabase: input.supabase,
-      threadId,
-      user,
-      workspaceId: workspace.id,
-    });
-    await updateAssistantThreadSummary({
+    await finalizeAssistantTurn({
       prompt: input.prompt,
       result,
       supabase: input.supabase,
       threadId,
+      user,
       workspaceId: workspace.id,
     });
 

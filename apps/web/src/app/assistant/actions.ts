@@ -2,17 +2,16 @@
 
 import { runAssistantTurn } from "../../lib/assistant/engine";
 import {
-  appendAssistantTurnMessage,
   appendUserAssistantMessage,
   archiveAssistantThread,
   createAssistantThread,
+  finalizeAssistantTurn,
   getAssistantThreadState,
   getAssistantTurnContext,
   getOrCreateAssistantThread,
   maybeSuggestAssistantMemory,
   maybeSaveAssistantMemory,
   setAssistantMemorySuggestionStatus,
-  updateAssistantThreadSummary,
 } from "../../lib/assistant/persistence";
 import type {
   AssistantResourcePreviewResult,
@@ -22,7 +21,6 @@ import {
   appendStoredAttachmentContext,
   storeAssistantAttachmentsFromFormData,
 } from "../../lib/assistant/attachments";
-import { maybeCompactAssistantThreadContext } from "../../lib/assistant/context-compaction";
 import {
   getContactProfile,
   getConversationList,
@@ -1297,26 +1295,14 @@ export async function sendAssistantMessageAction(
           workspaceId: workspace.id,
         });
 
-    await appendAssistantTurnMessage({
+    await finalizeAssistantTurn({
       memorySaved,
       memorySuggestion,
-      result: assistantMessage,
-      supabase,
-      threadId,
-      user,
-      workspaceId: workspace.id,
-    });
-    await updateAssistantThreadSummary({
       prompt,
       result: assistantMessage,
       supabase,
       threadId,
-      workspaceId: workspace.id,
-    });
-    await maybeCompactAssistantThreadContext({
-      supabase,
-      threadId,
-      userId: user.id,
+      user,
       workspaceId: workspace.id,
     });
 

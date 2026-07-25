@@ -1,7 +1,10 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { getConversationList } from "../crm/queries";
 import { conversationToAssistantLink } from "./conversation-links";
-import { getAssistantContextSnapshots } from "./context-compaction";
+import {
+  getAssistantContextSnapshots,
+  maybeCompactAssistantThreadContext,
+} from "./context-compaction";
 import { capturePronunciationSignalsFromText } from "./pronunciation";
 import {
   linkCardsBlock,
@@ -411,6 +414,65 @@ export async function appendAssistantTurnMessage({
   await touchThread(supabase, workspaceId, threadId);
 }
 
+/**
+ * The invariant tail of every assistant turn: persist the response, refresh the
+ * rolling thread summary, then compact older context into snapshots.
+ *
+ * These three steps were written out separately at each of the four
+ * `runAssistantTurn` call sites, and only the web one ever called compaction.
+ * Mobile text, mobile voice, and internal SMS/WhatsApp threads therefore never
+ * compacted, so their raw message history grew without bound -- rising cost per
+ * turn and, eventually, old context crowding out new.
+ *
+ * Everything *before* this point legitimately varies per path (actor identity,
+ * memory capture, the web fallback bail-out), which is why only the tail is
+ * shared. Compaction is best-effort inside
+ * `maybeCompactAssistantThreadContext`, so a compaction failure never fails the
+ * user's turn.
+ */
+export async function finalizeAssistantTurn({
+  memorySaved,
+  memorySuggestion,
+  prompt,
+  result,
+  supabase,
+  threadId,
+  user,
+  workspaceId,
+}: {
+  memorySaved?: string | null;
+  memorySuggestion?: AssistantMemorySuggestion | null;
+  prompt: string;
+  result: AssistantTurnResult;
+  supabase: SupabaseClient;
+  threadId: string;
+  user: User;
+  workspaceId: string;
+}) {
+  await appendAssistantTurnMessage({
+    memorySaved,
+    memorySuggestion,
+    result,
+    supabase,
+    threadId,
+    user,
+    workspaceId,
+  });
+  await updateAssistantThreadSummary({
+    prompt,
+    result,
+    supabase,
+    threadId,
+    workspaceId,
+  });
+  await maybeCompactAssistantThreadContext({
+    supabase,
+    threadId,
+    userId: user.id,
+    workspaceId,
+  });
+}
+
 export async function appendRealtimeAssistantMessage({
   content,
   intent = "realtime_voice",
@@ -473,7 +535,9 @@ export async function appendRealtimeAssistantMessage({
 }
 
 function assistantVoiceInputSource(inputSource: string) {
-  return ["realtime_voice", "vapi_internal_voice", "voice"].includes(inputSource);
+  return ["realtime_voice", "vapi_internal_voice", "voice"].includes(
+    inputSource,
+  );
 }
 
 function assistantInputSourceMetadataSource(inputSource: string) {
@@ -1226,9 +1290,7 @@ export function extractSuggestedMemory(prompt: string) {
   const cleaned = prompt.trim().replace(/\s+/g, " ");
   const text = cleaned.toLowerCase();
   const durablePreference =
-    /\b(?:i|we)\s+(?:prefer|usually|normally|always|never)\b/.test(
-      text,
-    ) ||
+    /\b(?:i|we)\s+(?:prefer|usually|normally|always|never)\b/.test(text) ||
     /\b(?:i|we)\s+(?:don't|do not)\s+(?:usually|normally|ever|want\s+(?:kyro|you)\s+to)\b/.test(
       text,
     ) ||

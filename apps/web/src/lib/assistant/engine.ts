@@ -40,7 +40,11 @@ type WorkspaceInput = {
 
 type RunAssistantTurnInput = {
   actor?: AssistantRequestActor | null;
-  contextSnapshots?: AssistantContextSnapshot[];
+  // Required, not optional-with-default. This previously defaulted to [], and two
+  // of the four turn paths loaded snapshots via getAssistantTurnContext and then
+  // silently failed to pass them -- paying the query cost and discarding the
+  // result. Callers with genuinely no snapshots must now pass [] explicitly.
+  contextSnapshots: AssistantContextSnapshot[];
   inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
   prompt: string;
@@ -129,7 +133,7 @@ function routeAssistantPlannerModel(
 
 export async function runAssistantTurn({
   actor = null,
-  contextSnapshots = [],
+  contextSnapshots,
   inputSource = "typed",
   memories = [],
   prompt,

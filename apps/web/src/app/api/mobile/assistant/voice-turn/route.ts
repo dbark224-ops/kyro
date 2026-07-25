@@ -1,12 +1,11 @@
 import { runAssistantTurn } from "../../../../../lib/assistant/engine";
 import {
-  appendAssistantTurnMessage,
   appendUserAssistantMessage,
+  finalizeAssistantTurn,
   getAssistantThreadState,
   getAssistantTurnContext,
   getOrCreateAssistantThread,
   maybeSaveAssistantMemory,
-  updateAssistantThreadSummary,
 } from "../../../../../lib/assistant/persistence";
 import { synthesizeAssistantSpeech } from "../../../../../lib/assistant/speech";
 import { transcribeAssistantAudio } from "../../../../../lib/assistant/transcription";
@@ -57,7 +56,10 @@ export async function POST(request: Request) {
     const prompt = transcription.text.trim();
 
     if (!prompt) {
-      throw new MobileApiError("Kyro could not hear anything in that voice turn.", 400);
+      throw new MobileApiError(
+        "Kyro could not hear anything in that voice turn.",
+        400,
+      );
     }
 
     const userMessageId = await appendUserAssistantMessage({
@@ -76,6 +78,7 @@ export async function POST(request: Request) {
       workspaceId: workspace.id,
     });
     const assistantMessage = await runAssistantTurn({
+      contextSnapshots: context.contextSnapshots,
       inputSource: "voice",
       memories: context.memories,
       prompt,
@@ -95,19 +98,13 @@ export async function POST(request: Request) {
       workspaceId: workspace.id,
     });
 
-    await appendAssistantTurnMessage({
+    await finalizeAssistantTurn({
       memorySaved,
-      result: assistantMessage,
-      supabase,
-      threadId,
-      user,
-      workspaceId: workspace.id,
-    });
-    await updateAssistantThreadSummary({
       prompt,
       result: assistantMessage,
       supabase,
       threadId,
+      user,
       workspaceId: workspace.id,
     });
 
@@ -151,10 +148,14 @@ async function synthesizeSpeechPayload({
   user,
   workspace,
 }: {
-  supabase: Awaited<ReturnType<typeof requireMobileWorkspaceContext>>["supabase"];
+  supabase: Awaited<
+    ReturnType<typeof requireMobileWorkspaceContext>
+  >["supabase"];
   text: string;
   user: Awaited<ReturnType<typeof requireMobileWorkspaceContext>>["user"];
-  workspace: Awaited<ReturnType<typeof requireMobileWorkspaceContext>>["workspace"];
+  workspace: Awaited<
+    ReturnType<typeof requireMobileWorkspaceContext>
+  >["workspace"];
 }) {
   try {
     const speech = await synthesizeAssistantSpeech({
@@ -201,7 +202,11 @@ async function getMobileAssistantState({
     createdAt: new Date().toISOString(),
     id: "assistant-welcome",
     links: [
-      { href: "/inbox", label: "Inbox", meta: `${metrics.needsReply} need reply` },
+      {
+        href: "/inbox",
+        label: "Inbox",
+        meta: `${metrics.needsReply} need reply`,
+      },
       {
         href: "/documents",
         label: "Documents",
