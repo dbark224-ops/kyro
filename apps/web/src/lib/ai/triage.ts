@@ -1984,7 +1984,11 @@ async function loadScopedReplyLookupContext(
   const [messagesResult, appointmentsResult] = await Promise.all([
     supabase
       .from("messages")
-      .select("direction,channel_type,subject,body_text,created_at")
+      // `messages` has channel_id (uuid FK), not channel_type. Selecting a
+      // non-existent column made this query throw, which broke every
+      // owner-assisted reply. The per-message channel is not used here -- the
+      // outbound reply channel is resolved separately.
+      .select("direction,subject,body_text,created_at")
       .eq("workspace_id", workspaceId)
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
