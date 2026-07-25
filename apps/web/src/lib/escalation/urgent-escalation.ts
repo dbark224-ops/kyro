@@ -749,6 +749,8 @@ async function processClaimedStep(
     .from("urgent_escalation_steps")
     .update({
       error: null,
+      // Release the claim lease so a finished step is never reclaimed.
+      lease_expires_at: null,
       provider_message_id: delivery.messageId,
       provider_request_id: delivery.requestId,
       sent_at: new Date().toISOString(),
@@ -793,6 +795,8 @@ export async function processDueUrgentEscalations(
             stepError instanceof Error
               ? stepError.message
               : "Urgent escalation delivery failed.",
+          // Release the claim lease; the retry is scheduled by due_at above.
+          lease_expires_at: null,
           status: terminal ? "failed" : "pending",
         })
         .eq("id", rawStep.id);

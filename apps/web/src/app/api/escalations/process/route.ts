@@ -8,6 +8,11 @@ import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// Bounded on purpose: claim_due_urgent_escalation_steps leases a step for 300s,
+// and that lease must outlast the longest possible run or a step still being
+// delivered could be reclaimed and the contact contacted twice about the same
+// emergency. Raising this without raising the lease breaks that guarantee.
+export const maxDuration = 60;
 
 async function handle(request: NextRequest) {
   const secrets = envSecrets(

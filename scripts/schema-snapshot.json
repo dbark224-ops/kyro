@@ -917,6 +917,7 @@
       "error",
       "id",
       "incident_id",
+      "lease_expires_at",
       "max_attempts",
       "policy_step_id",
       "position",
