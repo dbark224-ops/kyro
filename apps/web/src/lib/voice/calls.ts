@@ -3144,13 +3144,23 @@ export async function createInternalUserVoiceCall(input: {
   });
 }
 
+/**
+ * Resolves which workspace a Vapi tool call belongs to.
+ *
+ * Tenancy comes ONLY from server-set call metadata. This previously also fell
+ * back to `payload.workspaceId` and `args.workspaceId` -- and `args` are the
+ * LLM's own generated function arguments, while the caller
+ * (api/integrations/vapi/tool) runs them against a service-role client that
+ * bypasses RLS. The model's output must never be able to choose a tenant.
+ *
+ * Kyro sets `metadata.workspaceId` on every path that creates a Vapi call:
+ * internal voice (assistant/vapi-internal), inbound and voicemail overflow
+ * (assistant/vapi-inbound), outbound customer/internal calls (this file), and
+ * urgent escalation calls (escalation/urgent-escalation). If a new call path is
+ * added it must set that metadata too, or its tool calls will be rejected.
+ */
 export function vapiToolWorkspaceId(payload: Record<string, unknown>) {
-  const toolCall = firstToolCall(payload);
-  const toolFunction = objectRecord(toolCall.function);
-  const args = jsonRecord(toolFunction.arguments ?? toolCall.arguments);
-  const metadata = callMetadata(payload);
-
-  return firstText(metadata.workspaceId, payload.workspaceId, args.workspaceId);
+  return firstText(callMetadata(payload).workspaceId);
 }
 
 export function vapiToolCallMetadata(payload: Record<string, unknown>) {

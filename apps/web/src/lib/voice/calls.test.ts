@@ -105,4 +105,58 @@ describe("Vapi tool request metadata", () => {
     assert.equal(vapiToolWorkspaceId(payload), "trusted-workspace");
     assert.equal(vapiToolUserId(payload), "trusted-user");
   });
+
+  it("refuses a workspace supplied only by the model's tool arguments", () => {
+    // No server-set metadata anywhere. The only workspaceId on offer comes from
+    // the LLM's own generated arguments, and the tool route hands the result to
+    // a service-role client that bypasses RLS -- so this must resolve to null
+    // and the route must reject the call rather than act on the model's choice.
+    const payload = {
+      message: {
+        call: {},
+        toolCallList: [
+          {
+            function: {
+              arguments: { workspaceId: "attacker-workspace" },
+              name: "kyro_lookup_contact",
+            },
+          },
+        ],
+        type: "tool-calls",
+      },
+    };
+
+    assert.equal(vapiToolWorkspaceId(payload), null);
+  });
+
+  it("refuses a workspace supplied at the top level of the payload", () => {
+    const payload = {
+      message: { call: {}, toolCallList: [], type: "tool-calls" },
+      workspaceId: "attacker-workspace",
+    };
+
+    assert.equal(vapiToolWorkspaceId(payload), null);
+  });
+
+  it("still resolves the workspace from assistant override metadata", () => {
+    const payload = {
+      message: {
+        assistantOverrides: { metadata: { workspaceId: "workspace-9" } },
+        call: {},
+        toolCallList: [],
+        type: "tool-calls",
+      },
+    };
+
+    assert.equal(vapiToolWorkspaceId(payload), "workspace-9");
+  });
+
+  it("still resolves the workspace from direct call metadata", () => {
+    const payload = {
+      message: { call: {}, toolCallList: [], type: "tool-calls" },
+      metadata: { workspaceId: "workspace-10" },
+    };
+
+    assert.equal(vapiToolWorkspaceId(payload), "workspace-10");
+  });
 });
