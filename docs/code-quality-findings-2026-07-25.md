@@ -138,12 +138,24 @@ items as leads, not facts.
   - Migration was applied to production *before* deploying the code, because the code
     writes the new column.
 
-### Note on migration drift (relates to Tier 2 item 2)
-
-Applying this exposed a **three-way** mismatch, worse than the doc first recorded:
-`supabase/migrations/` holds 45 `.sql` files, the Drizzle journal lists 15, and the
-remote `supabase_migrations` table lists 23. All three disagree. Whoever tackles Tier 2
-item 2 should reconcile all three, not just the journal.
+- `[FIXED]` **Migration drift and the dead Drizzle layer** (both Tier 2 items, resolved
+  together because they were the same problem). Of 46 SQL files, 15 were tracked only by
+  the Drizzle journal, 23 only by Supabase's ledger, and **8 by neither** — including
+  `outbound_messages`, `generated_documents` and `vapi_voice_calls`. Zero were tracked by
+  both, so `npm run db:migrate` would have rebuilt roughly a third of the database and
+  there was no working rebuild path or reliable staging environment.
+  `supabase_migrations.schema_migrations` now lists all 46, keyed by filename timestamp.
+  Drizzle is removed rather than repaired. Commit `8cfda50`.
+  - Verified before recording: every table the 8 untracked migrations create already
+    exists in production, and filename order matches the previous ledger order exactly.
+  - `packages/db`, `drizzle.config.ts` and `supabase/migrations/meta` are deleted;
+    `db:generate`/`db:check`/`db:studio` are gone; `npm run db:migrate` now runs
+    `scripts/db-migrate.mjs` (supports `--dry-run`, never prints the connection string).
+  - **Keep filenames and ledger versions matching**, or the CLI will try to re-run
+    migrations that are already live.
+  - Historical planning docs (`first-sprint-checklist`, `v1-foundation`,
+    `implementation-plan`, `platform-strategy`) still mention Drizzle. Left as history;
+    the active docs are corrected.
 
 ---
 
@@ -182,40 +194,7 @@ if a bug appears that typed clients would genuinely have caught.
 
 All Tier 1 items are fixed. Start at Tier 2.
 
-### 1. Drizzle migration journal desynced two months ago `[VERIFIED]`
-
-`supabase/migrations/` holds **45** `.sql` files.
-`supabase/migrations/meta/_journal.json` lists **15**. Last journal entry is
-`20260527024424_structured_addresses`; newest migration is `20260721223000_conversation_mailbox_state`.
-
-`npm run db:migrate` — the procedure in `docs/deployment-checklist.md` — would rebuild
-roughly **one third** of the database. The other 30 migrations (Stripe payments, the
-billing engine, the background job queue) are invisible to it.
-
-Production works only because someone applied them by hand, recorded nowhere. There is
-currently **no working documented path to rebuild the database**, which also means no
-reliable staging environment and a bad surprise during any restore.
-
-### 2. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
-
-Verified against the **live production database** via the Supabase connection:
-67 tables in production, 48 `pgTable(` declarations in the schema file.
-
-Missing: `background_jobs`, `background_job_schedules`, `urgent_escalation_incidents`,
-`urgent_escalation_steps`, `workspace_payment_accounts`, `workspace_billing_access`,
-`billing_dunning_deliveries`, `payment_requests`, `payment_events`,
-`signup_bootstrap_records`, `api_rate_limit_buckets`, `account_deletion_requests`,
-`calendar_notification_deliveries`, `workspace_tutorial_state`, `knowledge_sources`,
-`knowledge_documents`, `knowledge_chunks`, `knowledge_change_log`.
-
-Both `docs/data-model.md:6` and `docs/current-architecture.md:125` call this file the
-"source of truth," and `current-architecture.md:1833` instructs agents to add new tables
-there first. **Documented-but-untrue architecture is worse than undocumented** — an agent
-following the doc produces a broken change.
-
-Decide: either regenerate/maintain the schema properly, or delete it and update both docs.
-
-### 3. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
+### 1. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
 
 `lib/crm/queries.ts:1040` — `getContactList` ends in `.limit(100)` with no offset or
 cursor. `app/contacts/page.tsx:73` sets `CRM_PAGE_SIZE = 10` and slices client-side
@@ -225,7 +204,7 @@ Harmless today (production has 25 contacts). At 300 contacts a customer silently
 two thirds of their CRM, and searching for a missing contact returns nothing. There are
 four separate `.limit(100)` sites in that file.
 
-### 4. Zero tests on the highest-consequence code `[VERIFIED]`
+### 2. Zero tests on the highest-consequence code `[VERIFIED]`
 
 Confirmed absent — no test file beside any of these:
 
@@ -244,7 +223,7 @@ Several of the riskiest functions here are already pure and could be tested quic
 
 Now that CI exists, tests added here actually protect every future change.
 
-### 5. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
+### 3. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
 
 135 files define their own `function textValue`. 129 are byte-identical
 (`trim() || null`). At least 6 differ — returning `""` instead of `null`:
