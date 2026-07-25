@@ -13,7 +13,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { DataState } from "@/components/DataState";
@@ -419,6 +419,13 @@ export default function InboxScreen() {
   );
 }
 
+// Idempotency keys only need to be unique per composed reply, not cryptographically
+// random, so this avoids depending on crypto.randomUUID -- which is not reliably
+// available on Hermes -- and avoids adding a native dependency for one string.
+function createSubmissionKey() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function ConversationDetailScreen({
   conversationId,
   detail,
@@ -440,6 +447,7 @@ function ConversationDetailScreen({
   const [subject, setSubject] = useState("");
   const [showQuoteAttachments, setShowQuoteAttachments] = useState(false);
   const [isContextExpanded, setIsContextExpanded] = useState(false);
+  const submissionKeyRef = useRef<string | null>(null);
   const detailQueryKey = [
     "mobile-inbox-conversation",
     session?.user.id,
@@ -467,8 +475,15 @@ function ConversationDetailScreen({
     },
   });
   const sendReply = useMutation({
-    mutationFn: () =>
-      kyroApiFetch<MobileInboxReplyResponse>(
+    mutationFn: () => {
+      // Generated once per composed reply and reused if the send is retried, so a
+      // double-tap or flaky connection cannot deliver the same message to the
+      // customer twice. Cleared on success so the next reply gets a fresh key.
+      if (!submissionKeyRef.current) {
+        submissionKeyRef.current = createSubmissionKey();
+      }
+
+      return kyroApiFetch<MobileInboxReplyResponse>(
         `/api/mobile/inbox/${conversationId}`,
         {
           body: {
@@ -478,17 +493,20 @@ function ConversationDetailScreen({
             includeSignature,
             signatureVariant,
             subject,
+            submissionKey: submissionKeyRef.current,
           },
           method: "POST",
           session,
         },
-      ),
+      );
+    },
     onError: (error) => {
       setMessage(
         error instanceof Error ? error.message : "Unable to send reply.",
       );
     },
     onSuccess: (result) => {
+      submissionKeyRef.current = null;
       setBody("");
       setDraftPrompt("");
       setMessage(result.message);
