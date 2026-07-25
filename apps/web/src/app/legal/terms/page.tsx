@@ -1,0 +1,135 @@
+import { MarketingPageShell } from "../../components/marketing-shell";
+import type { Metadata } from "next";
+import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Terms of Service | Kyro",
+  description:
+    "Terms of service for Kyro, an AI assistant for sole traders and small service businesses.",
+};
+
+const updatedAt = "July 16, 2026";
+
+export default function TermsPage() {
+  return (
+    <MarketingPageShell
+      copy={`Last updated ${updatedAt}. These terms explain the basic rules for using Kyro.`}
+      eyebrow="Legal"
+      title="Terms of Service"
+    >
+      <section className="marketing-section marketing-legal-copy">
+        <h2>Using Kyro</h2>
+        <p>
+          Kyro provides AI assistant software for sole traders and small service
+          businesses. By using Kyro, you agree to use the service lawfully,
+          provide accurate account information, keep your login details secure,
+          and remain responsible for activity in your workspace.
+        </p>
+        <p>
+          The mobile app is intended for people who already have access to a
+          Kyro workspace. Account setup, onboarding, billing, and workspace
+          configuration may happen on the web or through Kyro-assisted setup
+          before mobile sign-in is available.
+        </p>
+
+        <h2>AI Assistant Actions</h2>
+        <p>
+          Kyro can help draft emails, SMS, quote documents, tasks, summaries,
+          follow-ups, and call workflows. Kyro may also perform configured
+          actions for you, such as sending approved messages, preparing
+          documents, creating records, making or receiving calls, and chasing
+          next steps. You are responsible for reviewing assistant outputs and
+          approving any business action before it is sent or relied on, unless
+          you have configured Kyro to take that action automatically.
+        </p>
+        <p>
+          AI-generated content may be incomplete, incorrect, or unsuitable for a
+          specific job. You should check important customer communications,
+          prices, quote terms, legal statements, and business decisions.
+        </p>
+
+        <h2>Customer Communications</h2>
+        <p>
+          You are responsible for making sure any emails, SMS, calls, quotes,
+          invoices, and customer messages sent through Kyro comply with the laws
+          and permissions that apply to your business, including consent,
+          calling, recording, anti-spam, privacy, and trade-specific obligations.
+        </p>
+
+        <h2>Connected Services</h2>
+        <p>
+          Kyro may integrate with third-party services for authentication,
+          hosting, payments, voice, SMS, email, documents, storage, analytics,
+          and AI models. Those services may have their own terms and limits.
+          Kyro is not responsible for outages, policy changes, or failures
+          caused by third-party providers outside Kyro&apos;s control.
+        </p>
+
+        <h2>Billing And Trials</h2>
+        <p>
+          Kyro may offer a two-week trial. After the trial, Kyro may charge
+          based on metered usage, including AI, voice, SMS, document, storage,
+          and other service usage. Billing details, rates, and payment timing
+          may be shown in the product or invoice records.
+        </p>
+        <p>
+          You are responsible for keeping billing details current and paying
+          charges incurred by your workspace. We may pause or limit service if
+          payment fails or usage creates unusual risk.
+        </p>
+
+        <h2>Acceptable Use</h2>
+        <p>
+          You must not use Kyro for unlawful, abusive, deceptive, harmful, or
+          spam-like activity. You must not attempt to bypass security controls,
+          access another workspace, misuse integrations, or use Kyro to send
+          communications that you are not authorised to send.
+        </p>
+
+        <h2>Data And Content</h2>
+        <p>
+          You retain responsibility for the business data and customer content
+          you add to Kyro. Kyro may process that content to provide the service,
+          operate the AI assistant, generate outputs, maintain audit logs,
+          provide support, and calculate usage.
+        </p>
+        <p>
+          You must have the rights and permissions needed to upload, connect, or
+          process customer data, contact lists, emails, files, recordings,
+          photos, and business content through Kyro.
+        </p>
+
+        <h2>Account Deletion</h2>
+        <p>
+          You can initiate account deletion through the{" "}
+          <Link href="/account/delete">account deletion page</Link>. Deletion
+          may remove or anonymise account and workspace data where possible,
+          subject to records Kyro must retain for legal, tax, billing, security,
+          dispute, or audit purposes.
+        </p>
+
+        <h2>Availability</h2>
+        <p>
+          Kyro is provided on an as-available basis. We aim to provide a useful
+          and reliable service, but we do not guarantee uninterrupted operation,
+          error-free AI output, or compatibility with every provider or
+          integration.
+        </p>
+
+        <h2>Changes And Termination</h2>
+        <p>
+          We may update Kyro or these terms as the product evolves. We may
+          suspend or terminate access if a workspace creates risk, violates
+          these terms, fails to pay, or uses the service in a way that could
+          harm Kyro, customers, providers, or other users.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          Questions about these terms can be sent through the{" "}
+          <Link href="/contact">contact page</Link>.
+        </p>
+      </section>
+    </MarketingPageShell>
+  );
+}

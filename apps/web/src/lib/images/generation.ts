@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
@@ -8,6 +9,7 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 
 const GENERATED_IMAGE_BUCKET =
   process.env.KYRO_FILE_STORAGE_BUCKET?.trim() || "kyro-files";
@@ -140,7 +142,9 @@ export function imageSizeForPrompt(prompt: string) {
     return "1536x1024";
   }
 
-  return normalizeImageSize(envValue("OPENAI_IMAGE_SIZE")) ?? DEFAULT_IMAGE_SIZE;
+  return (
+    normalizeImageSize(envValue("OPENAI_IMAGE_SIZE")) ?? DEFAULT_IMAGE_SIZE
+  );
 }
 
 function imageQuality() {
@@ -363,13 +367,16 @@ async function callOpenAiImageApi({
       );
     }
 
-    const response = await fetch("https://api.openai.com/v1/images/edits", {
-      body,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
+    const response = await fetchAiProvider(
+      "https://api.openai.com/v1/images/edits",
+      {
+        body,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
+    );
     const payload = (await response.json().catch(() => null)) as unknown;
 
     if (!response.ok) {
@@ -382,20 +389,23 @@ async function callOpenAiImageApi({
     return payload;
   }
 
-  const response = await fetch("https://api.openai.com/v1/images/generations", {
-    body: JSON.stringify({
-      model,
-      n: 1,
-      prompt,
-      quality,
-      size,
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/images/generations",
+    {
+      body: JSON.stringify({
+        model,
+        n: 1,
+        prompt,
+        quality,
+        size,
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = (await response.json().catch(() => null)) as unknown;
 
   if (!response.ok) {
@@ -419,10 +429,10 @@ async function imageBytesFromPayload(payload: unknown) {
   }
 
   if (url) {
-    const response = await fetch(url);
+    const response = await fetchAiProvider(url);
 
     if (!response.ok) {
-      throw new Error("Unable to download generated image from OpenAI.");
+      throw new Error(`Unable to download generated image from OpenAI.`);
     }
 
     return {
@@ -560,7 +570,9 @@ export async function generateKyroImage({
       });
 
     if (uploadError) {
-      throw new Error(`Unable to store generated image: ${uploadError.message}`);
+      throw new Error(
+        `Unable to store generated image: ${uploadError.message}`,
+      );
     }
 
     const { data: file, error: fileError } = await serviceSupabase
@@ -586,6 +598,11 @@ export async function generateKyroImage({
     }
 
     const fileId = String(file.id);
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspace.id,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
     const usageEvent = buildOpenAiImageGenerationUsageEvent({
       context: {
         aiRunId,
@@ -596,6 +613,7 @@ export async function generateKyroImage({
         providerUsageId,
         sourceId: aiRunId,
         sourceType: "ai_run",
+        usageMarkupRate,
         userId: user.id,
         workspaceId: workspace.id,
       },
@@ -666,7 +684,9 @@ export async function generateKyroImage({
       .eq("id", aiRunId);
 
     if (completeError) {
-      throw new Error(`Unable to complete image AI run: ${completeError.message}`);
+      throw new Error(
+        `Unable to complete image AI run: ${completeError.message}`,
+      );
     }
 
     await insertAuditLog(supabase, {

@@ -1,10 +1,5 @@
-import { AppFrame } from "../../components/app-frame";
-import { PageSkeleton } from "../../components/page-skeleton";
+import { AppDetailSkeleton } from "../../components/loading-states";
 
 export default function ContactProfileLoading() {
-  return (
-    <AppFrame active="Contacts">
-      <PageSkeleton detail eyebrow="Loading" title="Contact profile" />
-    </AppFrame>
-  );
+  return <AppDetailSkeleton active="CRM" detail title="Contact profile" />;
 }

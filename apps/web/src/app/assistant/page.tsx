@@ -1,22 +1,81 @@
 import { AssistantConsole } from "./assistant-console";
+import { AssistantModeSwitch } from "../components/assistant-mode-switch";
 import { AppFrame } from "../components/app-frame";
+import { getAssistantExternalActivity } from "../../lib/assistant/external-activity";
+import { getAssistantPromptSuggestionState } from "../../lib/assistant/prompt-suggestions";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
-import type { AssistantThreadState } from "../../lib/assistant/types";
+import { getContactProfile } from "../../lib/crm/queries";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
+import type {
+  AssistantResourcePreview,
+  AssistantThreadState,
+} from "../../lib/assistant/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function AssistantPage() {
+type AssistantPageProps = {
+  searchParams?: Promise<{
+    contactId?: string;
+    engine_error?: string;
+    engine_message?: string;
+    threadId?: string;
+  }>;
+};
+
+function profileTitle(
+  profile: Extract<AssistantResourcePreview, { type: "contact" }>["profile"],
+) {
+  return (
+    profile.contact.name ??
+    profile.contact.company ??
+    profile.contact.email ??
+    profile.contact.phone ??
+    "Contact"
+  );
+}
+
+export default async function AssistantPage({
+  searchParams,
+}: AssistantPageProps) {
+  const query = await searchParams;
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  const activityPromise = getAssistantExternalActivity(supabase, workspace.id);
   const metricsPromise = getAssistantRouteMetrics(supabase, workspace.id);
+  const promptSuggestionsPromise = getAssistantPromptSuggestionState({
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+  const generalSettingsPromise = getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const selectedContactId = query?.contactId?.trim() ?? "";
+  const selectedContactProfilePromise = selectedContactId
+    ? getContactProfile(supabase, workspace.id, selectedContactId)
+    : Promise.resolve(null);
   const threadStatePromise = getAssistantThreadState({
+    threadId: query?.threadId,
     supabase,
     user,
     workspace,
   });
-  const [metrics, threadState] = await Promise.all([
+  const [
+    activityItems,
+    metrics,
+    generalSettings,
+    promptSuggestions,
+    selectedContactProfile,
+    threadState,
+  ] = await Promise.all([
+    activityPromise,
     metricsPromise,
+    generalSettingsPromise,
+    promptSuggestionsPromise,
+    selectedContactProfilePromise,
     threadStatePromise,
   ]);
 
@@ -29,8 +88,8 @@ export default async function AssistantPage() {
     links: [
       { href: "/inbox", label: "Inbox", meta: `${needsReply} need reply` },
       {
-        href: "/documents",
-        label: "Documents",
+        href: "/files",
+        label: "Files",
         meta: `${readyQuotes} ready quotes`,
       },
     ],
@@ -40,6 +99,14 @@ export default async function AssistantPage() {
     threadState.messages.length > 0
       ? threadState
       : { ...threadState, messages: [welcomeMessage] };
+  const initialPreview: AssistantResourcePreview | null = selectedContactProfile
+    ? {
+        href: `/contacts/${selectedContactProfile.contact.id}`,
+        profile: selectedContactProfile,
+        title: profileTitle(selectedContactProfile),
+        type: "contact",
+      }
+    : null;
 
   return (
     <AppFrame active="Assistant">
@@ -48,6 +115,7 @@ export default async function AssistantPage() {
           <div>
             <p className="eyebrow">{workspace.name}</p>
             <h1>Assistant</h1>
+            <AssistantModeSwitch active="assistant" />
           </div>
           <div className="topbar-right">
             <section
@@ -74,7 +142,16 @@ export default async function AssistantPage() {
         </header>
 
         <section className="assistant-page-grid">
-          <AssistantConsole initialState={initialState} />
+          <AssistantConsole
+            externalActivityItems={activityItems}
+            initialPreviewEngineError={query?.engine_error}
+            initialPreviewEngineMessage={query?.engine_message}
+            initialPreview={initialPreview}
+            initialState={initialState}
+            isDeveloperAccount={developerAccessEnabled(user)}
+            promptSuggestions={promptSuggestions.visibleSuggestions}
+            workspaceTimeZone={generalSettings.timeZone}
+          />
         </section>
       </div>
     </AppFrame>

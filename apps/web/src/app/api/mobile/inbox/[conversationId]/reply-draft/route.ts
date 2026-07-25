@@ -1,9 +1,15 @@
+import { fetchAiProvider } from "../../../../../../lib/http/fetch-with-timeout";
 import { getConversationReview } from "../../../../../../lib/crm/queries";
 import {
   MobileApiError,
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../../../lib/mobile/context";
+import {
+  openAiBalancedModel,
+  openAiReasoningRequest,
+} from "../../../../../../lib/ai/openai-models";
+import { assertWorkspaceAutomationAllowed } from "../../../../../../lib/billing/access";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +50,34 @@ function parseDraft(value: string, fallbackSubject: string) {
   };
 }
 
+function mobileMissingInfo(
+  profile: NonNullable<Awaited<ReturnType<typeof getConversationReview>>>,
+) {
+  const missing = [...(profile.inquiryFacts?.missingInfo ?? [])];
+
+  if (!profile.inquiryFacts?.address && !profile.contact?.address) {
+    missing.push("job address");
+  }
+
+  if (!profile.inquiryFacts?.preferredTime) {
+    missing.push("preferred day or time");
+  }
+
+  if (!profile.contact?.phone) {
+    missing.push("phone number");
+  }
+
+  return Array.from(
+    new Set(missing.map((item) => item.trim().toLowerCase()).filter(Boolean)),
+  );
+}
+
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { conversationId } = await context.params;
-    const { supabase, workspace } = await requireMobileWorkspaceContext(request);
+    const { supabase, workspace } =
+      await requireMobileWorkspaceContext(request);
+    await assertWorkspaceAutomationAllowed(workspace.id);
     const payload = (await request.json().catch(() => null)) as {
       prompt?: unknown;
     } | null;
@@ -89,43 +119,55 @@ export async function POST(request: Request, context: RouteContext) {
       });
     }
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      body: JSON.stringify({
-        input: [
-          {
-            content:
-              "You draft concise, useful outbound replies for a trade/service business. Return strict JSON only with keys subject and body.",
-            role: "system",
-          },
-          {
-            content: JSON.stringify({
-              contact: profile.contact,
-              instruction: prompt,
-              lead: profile.lead,
-              thread,
-              task: "Draft an outbound reply for the user to review before sending.",
-            }),
-            role: "user",
-          },
-        ],
-        max_output_tokens: 700,
-        model:
-          process.env.OPENAI_REPLY_DRAFT_MODEL?.trim() ||
-          process.env.OPENAI_ASSISTANT_MODEL?.trim() ||
-          "gpt-4.1-mini",
-      }),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const model =
+      process.env.OPENAI_REPLY_DRAFT_MODEL?.trim() || openAiBalancedModel();
+    const response = await fetchAiProvider(
+      "https://api.openai.com/v1/responses",
+      {
+        body: JSON.stringify({
+          input: [
+            {
+              content:
+                "You draft concise, useful outbound replies for a trade/service business. Return strict JSON only with keys subject and body.",
+              role: "system",
+            },
+            {
+              content: JSON.stringify({
+                contact: profile.contact,
+                instruction: prompt,
+                lead: profile.lead,
+                requiredMissingInfo: mobileMissingInfo(profile),
+                thread,
+                rules: [
+                  "Every customer service inquiry needs an attendable job address. Ask for it if not present in the thread or CRM profile.",
+                  "Every customer service inquiry needs a preferred day or time. Ask for it if not present.",
+                  "For email-originated inquiries, ask for a phone number if the customer profile/thread does not contain one.",
+                  "Do not claim calendar availability unless the context explicitly provides it.",
+                ],
+                task: "Draft an outbound reply for the user to review before sending.",
+              }),
+              role: "user",
+            },
+          ],
+          max_output_tokens: 700,
+          model,
+          ...openAiReasoningRequest(
+            model,
+            "OPENAI_REPLY_DRAFT_REASONING_EFFORT",
+            "low",
+          ),
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
-    const data = (await response.json().catch(() => null)) as
-      | {
-          error?: { message?: string };
-          output_text?: string;
-        }
-      | null;
+    );
+    const data = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+      output_text?: string;
+    } | null;
 
     if (!response.ok) {
       throw new Error(
@@ -150,13 +192,11 @@ function fallbackDraftBody(
   prompt: string | null,
 ) {
   const name =
-    profile.contact?.name?.split(" ")[0] ??
-    profile.contact?.company ??
-    "there";
+    profile.contact?.name?.split(" ")[0] ?? profile.contact?.company ?? "there";
   const contextLine = prompt
     ? `\n\n${prompt}`
-    : profile.inquiryFacts?.missingInfo.length
-      ? `\n\nCould you please send through ${profile.inquiryFacts.missingInfo.join(
+    : mobileMissingInfo(profile).length
+      ? `\n\nCould you please send through ${mobileMissingInfo(profile).join(
           ", ",
         )} so I can help properly?`
       : "";

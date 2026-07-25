@@ -75,10 +75,10 @@ const HELP_LINKS: Array<AssistantLink & { keywords: string[] }> = [
     meta: "Contacts, leads, and customer history",
   },
   {
-    href: "/documents",
-    keywords: ["document", "documents", "quote", "draft", "template"],
-    label: "Documents",
-    meta: "Quote drafts and document work",
+    href: "/files",
+    keywords: ["file", "files", "document", "documents", "quote", "draft", "template"],
+    label: "Files",
+    meta: "Saved files, quote drafts, and document work",
   },
   {
     href: "/",
@@ -94,9 +94,20 @@ const HELP_LINKS: Array<AssistantLink & { keywords: string[] }> = [
   },
   {
     href: "/settings?section=communication",
-    keywords: ["communication", "signature", "tone", "approval", "channels"],
+    keywords: [
+      "communication",
+      "signature",
+      "tone",
+      "approval",
+      "channels",
+      "follow-up",
+      "follow up",
+      "writing style",
+      "reply instructions",
+      "prompt editor",
+    ],
     label: "Communication settings",
-    meta: "Reply tone, channels, approvals, and signatures",
+    meta: "Reply writing style, channels, approvals, and signatures",
   },
   {
     href: "/settings?section=integrations",
@@ -120,7 +131,13 @@ const HELP_LINKS: Array<AssistantLink & { keywords: string[] }> = [
   },
   {
     href: "/settings?section=voice",
-    keywords: ["voice", "pronunciation", "pronounciation", "vocabulary", "speech"],
+    keywords: [
+      "voice",
+      "pronunciation",
+      "pronounciation",
+      "vocabulary",
+      "speech",
+    ],
     label: "Voice assistant",
     meta: "Voice and pronunciation settings",
   },
@@ -149,6 +166,19 @@ const HELP_LINKS: Array<AssistantLink & { keywords: string[] }> = [
     label: "Outbox operations",
     meta: "Inspect, retry, or dismiss outbound delivery rows",
   },
+  {
+    href: "/developer/assistant-tools",
+    keywords: [
+      "assistant tools",
+      "tool registry",
+      "admin registry",
+      "ui blocks",
+      "approval gates",
+      "permissions",
+    ],
+    label: "Assistant tool registry",
+    meta: "Review Assistant tools, permissions, providers, and UI blocks",
+  },
 ];
 
 const SECTION_BOOSTS: Array<{
@@ -173,8 +203,23 @@ const SECTION_BOOSTS: Array<{
   },
   {
     heading: "Assistant Architecture",
-    keywords: ["assistant", "voice", "tool", "manual", "settings"],
+    keywords: [
+      "assistant",
+      "voice",
+      "tool",
+      "tools",
+      "registry",
+      "manual",
+      "settings",
+      "memory",
+      "thread",
+    ],
     weight: 8,
+  },
+  {
+    heading: "Memories",
+    keywords: ["memory", "memories", "remember", "suggested memory"],
+    weight: 10,
   },
   {
     heading: "Quiet Hours",
@@ -183,7 +228,14 @@ const SECTION_BOOSTS: Array<{
   },
   {
     heading: "Filtered-Out Emails",
-    keywords: ["filtered out", "skipped email", "skipped mail", "newsletter", "sender", "promote"],
+    keywords: [
+      "filtered out",
+      "skipped email",
+      "skipped mail",
+      "newsletter",
+      "sender",
+      "promote",
+    ],
     weight: 10,
   },
   {
@@ -205,7 +257,13 @@ const SECTION_BOOSTS: Array<{
   },
   {
     heading: "Developer Screen",
-    keywords: ["developer", "outbox operations", "retry", "dismiss", "delivery"],
+    keywords: [
+      "developer",
+      "outbox operations",
+      "retry",
+      "dismiss",
+      "delivery",
+    ],
     weight: 8,
   },
   {
@@ -215,7 +273,11 @@ const SECTION_BOOSTS: Array<{
   },
   {
     heading: "Safe Settings Kyro Can Change",
-    keywords: ["what can you change", "safe settings", "settings can you change"],
+    keywords: [
+      "what can you change",
+      "safe settings",
+      "settings can you change",
+    ],
     weight: 8,
   },
   {
@@ -226,7 +288,11 @@ const SECTION_BOOSTS: Array<{
 ];
 
 function normalized(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9/\s-]/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9/\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function queryTokens(prompt: string) {
@@ -272,7 +338,9 @@ function textIncludesKeyword(text: string, keyword: string) {
     return text.includes(normalizedKeyword);
   }
 
-  return new RegExp(`(^|\\s)${escapeRegExp(normalizedKeyword)}($|\\s)`).test(text);
+  return new RegExp(`(^|\\s)${escapeRegExp(normalizedKeyword)}($|\\s)`).test(
+    text,
+  );
 }
 
 function escapeRegExp(value: string) {
@@ -322,10 +390,12 @@ function scoreSection(
     0,
   );
 
-  return tokens.reduce(
-    (score, token) => score + (haystack.includes(token) ? 1 : 0),
-    boost,
-  ) + (textIncludesKeyword(promptText, normalized(section.heading)) ? 3 : 0);
+  return (
+    tokens.reduce(
+      (score, token) => score + (haystack.includes(token) ? 1 : 0),
+      boost,
+    ) + (textIncludesKeyword(promptText, normalized(section.heading)) ? 3 : 0)
+  );
 }
 
 function truncateSnippet(value: string) {
@@ -386,7 +456,8 @@ export async function getAssistantKnowledge(
         score: scoreSection(section, tokens, promptText),
       }))
       .filter(
-        (section) => section.score > (tokens.length > 2 ? 3 : tokens.length > 1 ? 1 : 0),
+        (section) =>
+          section.score > (tokens.length > 2 ? 3 : tokens.length > 1 ? 1 : 0),
       )
       .sort((left, right) => right.score - left.score)
       .slice(0, source.audience === "user" ? 3 : 1);

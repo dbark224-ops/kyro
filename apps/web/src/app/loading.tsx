@@ -1,10 +1,5 @@
-import { AppFrame } from "./components/app-frame";
-import { PageSkeleton } from "./components/page-skeleton";
+import { MarketingRouteLoading } from "./components/loading-states";
 
-export default function DashboardLoading() {
-  return (
-    <AppFrame active="Dashboard">
-      <PageSkeleton eyebrow="Workspace" rows={5} title="Dashboard" />
-    </AppFrame>
-  );
+export default function WorkspaceLoading() {
+  return <MarketingRouteLoading />;
 }

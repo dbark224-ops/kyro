@@ -196,7 +196,10 @@ export function UsageLedgerModal({
             {rows.length > 0 ? (
               <div className="usage-ledger-modal-list">
                 {rows.map((row) => (
-                  <article className="usage-ledger-row" key={row.id}>
+                  <article
+                    className="usage-ledger-row usage-ledger-modal-row"
+                    key={row.id}
+                  >
                     <div className="usage-ledger-main">
                       {row.sourceHref ? (
                         <Link href={row.sourceHref} prefetch={false}>

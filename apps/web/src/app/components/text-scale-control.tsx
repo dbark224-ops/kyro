@@ -11,8 +11,24 @@ function closestScale(value: number) {
   );
 }
 
+function getDeviceRootFontSize() {
+  if (typeof window === "undefined") {
+    return 16;
+  }
+
+  const raw = window
+    .getComputedStyle(document.documentElement)
+    .getPropertyValue("--kyro-device-root-font-size");
+  const parsed = Number.parseFloat(raw);
+
+  return Number.isFinite(parsed) ? parsed : 16;
+}
+
 function applyTextScale(scale: number) {
-  document.documentElement.style.setProperty("--kyro-root-font-size", `${16 * scale}px`);
+  document.documentElement.style.setProperty(
+    "--kyro-root-font-size",
+    `${getDeviceRootFontSize() * scale}px`,
+  );
   document.documentElement.dataset.textScale = String(scale);
 }
 
@@ -46,6 +62,18 @@ export function TextScaleControl() {
     }
 
     applyTextScale(scale);
+  }, [scale]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      applyTextScale(scale);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   }, [scale]);
 
   function updateScale(direction: "down" | "up") {

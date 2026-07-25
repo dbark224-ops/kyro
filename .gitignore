@@ -21,10 +21,16 @@ coverage/
 *.log
 npm-debug.log*
 .codex-logs/
+.codex/
 tmp/
+supabase/.temp/
+
+# Local work artifacts
+outputs/
 
 # OS/editor
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+.vercel

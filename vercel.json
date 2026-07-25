@@ -2,11 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/integrations/email/sync",
-      "schedule": "*/5 * * * *"
+      "path": "/api/background/process",
+      "schedule": "* * * * *"
     },
     {
-      "path": "/api/outbox/process",
+      "path": "/api/escalations/process",
       "schedule": "*/5 * * * *"
     }
   ]

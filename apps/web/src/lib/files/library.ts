@@ -43,16 +43,16 @@ function fileKind({
   contentType: string | null;
   source: string;
 }): WorkspaceFileKind {
-  if (contentType?.startsWith("image/")) {
-    return "image";
-  }
-
   if (source.startsWith("generated_")) {
     return "generated";
   }
 
   if (source.includes("upload")) {
     return "upload";
+  }
+
+  if (contentType?.startsWith("image/")) {
+    return "image";
   }
 
   if (source.includes("email") || source.includes("outbound")) {

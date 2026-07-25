@@ -154,13 +154,13 @@ export async function storeAssistantAttachmentsFromFormData({
     const { data: fileRow, error: fileError } = await serviceSupabase
       .from("files")
       .insert({
-        content_type: contentType,
-        filename,
-        size_bytes: bytes.byteLength,
-        source: "assistant_upload",
+        workspace_id: workspaceId,
         storage_bucket: bucket,
         storage_path: storagePath,
-        workspace_id: workspaceId,
+        filename,
+        content_type: contentType,
+        size_bytes: bytes.byteLength,
+        source: "assistant_upload",
       })
       .select("id")
       .single();
@@ -181,8 +181,8 @@ export async function storeAssistantAttachmentsFromFormData({
 
     stored.push({
       contentType,
-      fileId,
       filename,
+      fileId,
       href: `/api/files/${fileId}?disposition=inline`,
       isImage: isImageContentType(contentType),
       previewText,

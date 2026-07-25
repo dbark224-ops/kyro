@@ -1,4 +1,7 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { getPublicAppUrl } from "../app-url";
+import { createServiceSupabaseClient } from "../supabase/service";
 
 export const KYRO_EMAIL_VERIFICATION_STARTED_AT =
   "kyroEmailVerificationStartedAt";
@@ -23,12 +26,140 @@ function metadataString(
   return typeof value === "string" ? value.trim() : "";
 }
 
-function publicAppUrl(fallbackOrigin?: string | null) {
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function authEmailFromAddress() {
   return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    fallbackOrigin?.trim() ||
-    "https://kyroassistant.com"
+    process.env.KYRO_AUTH_EMAIL_FROM?.trim() ||
+    process.env.AUTH_EMAIL_FROM?.trim() ||
+    process.env.WAITLIST_NOTIFICATION_FROM?.trim() ||
+    "Kyro <onboarding@resend.dev>"
   );
+}
+
+function resendApiKey() {
+  return process.env.RESEND_API_KEY?.trim() || "";
+}
+
+function verificationSendFailure(message: string) {
+  return { data: null, error: new Error(message) };
+}
+
+function buildKyroVerificationEmail({
+  actionLink,
+  email,
+}: {
+  actionLink: string;
+  email: string;
+}) {
+  const escapedActionLink = escapeHtml(actionLink);
+  const escapedEmail = escapeHtml(email);
+  const logoUrl = escapeHtml(`${getPublicAppUrl()}/brand/kyro-email-logo.png`);
+  const text = [
+    "Verify your Kyro email",
+    "",
+    `Confirm ${email} so Kyro can unlock your workspace settings.`,
+    "",
+    actionLink,
+    "",
+    "If you did not request this, you can ignore this email.",
+  ].join("\n");
+
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;background:#05070d;color:#f8fbff;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#05070d;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#0d1018;border:1px solid #273244;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="padding:28px 30px 8px;">
+                <img src="${logoUrl}" width="180" height="90" alt="Kyro" style="display:block;width:180px;height:auto;border:0;outline:none;text-decoration:none;">
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:10px 30px 0;">
+                <p style="margin:0 0 8px;color:#EC368D;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">Email verification</p>
+                <h1 style="margin:0;color:#f8fbff;font-size:28px;line-height:1.1;">Finish setting up Kyro</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 30px 0;">
+                <p style="margin:0;color:#b7c2d5;font-size:15px;line-height:1.55;">
+                  Confirm <strong style="color:#f8fbff;">${escapedEmail}</strong> so Kyro can unlock your workspace settings and keep your account protected.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 30px 8px;">
+                <a href="${escapedActionLink}" style="display:inline-block;background:#EC368D;color:#ffffff;text-decoration:none;border-radius:999px;padding:13px 20px;font-size:14px;font-weight:800;">Verify email address</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 30px 26px;">
+                <p style="margin:0;color:#7f8da3;font-size:12px;line-height:1.5;">
+                  If the button does not work, copy and paste this link into your browser:<br>
+                  <a href="${escapedActionLink}" style="color:#51E5FF;word-break:break-all;">${escapedActionLink}</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p style="max-width:560px;margin:14px 0 0;color:#657287;font-size:12px;line-height:1.45;">
+            If you did not request this, you can ignore this email.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return { html, text };
+}
+
+async function sendBrandedKyroVerificationEmail({
+  actionLink,
+  email,
+}: {
+  actionLink: string;
+  email: string;
+}) {
+  const apiKey = resendApiKey();
+
+  if (!apiKey) {
+    return false;
+  }
+
+  const { html, text } = buildKyroVerificationEmail({ actionLink, email });
+  const response = await fetchWithTimeout("https://api.resend.com/emails", {
+    body: JSON.stringify({
+      from: authEmailFromAddress(),
+      html,
+      subject: "Verify your Kyro email",
+      text,
+      to: [email],
+    }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text().catch(() => "");
+    throw new Error(
+      `Resend verification email failed with ${response.status}: ${responseText}`,
+    );
+  }
+
+  return true;
 }
 
 export function isSupabaseEmailConfirmed(user: User) {
@@ -61,14 +192,40 @@ export function isKyroEmailVerified(user: User) {
 
 export function buildKyroEmailVerificationRedirectUrl({
   fallbackOrigin,
-  nextPath = "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+  nextPath = "/auth/verified",
 }: {
   fallbackOrigin?: string | null;
   nextPath?: string;
 }) {
-  const callbackUrl = new URL("/auth/callback", publicAppUrl(fallbackOrigin));
+  const callbackUrl = new URL(
+    "/auth/callback",
+    getPublicAppUrl(fallbackOrigin),
+  );
 
   callbackUrl.searchParams.set("next", nextPath);
+
+  return callbackUrl.toString();
+}
+
+export function buildKyroEmailVerificationActionUrl({
+  fallbackOrigin,
+  nextPath = "/auth/verified",
+  tokenHash,
+  type,
+}: {
+  fallbackOrigin?: string | null;
+  nextPath?: string;
+  tokenHash: string;
+  type: string;
+}) {
+  const callbackUrl = new URL(
+    "/auth/callback",
+    getPublicAppUrl(fallbackOrigin),
+  );
+
+  callbackUrl.searchParams.set("next", nextPath);
+  callbackUrl.searchParams.set("token_hash", tokenHash);
+  callbackUrl.searchParams.set("type", type);
 
   return callbackUrl.toString();
 }
@@ -83,8 +240,7 @@ export async function markKyroEmailVerificationStarted({
   const appMetadata = metadataRecord(user.app_metadata);
 
   if (!metadataString(appMetadata, KYRO_EMAIL_VERIFICATION_STARTED_AT)) {
-    appMetadata[KYRO_EMAIL_VERIFICATION_STARTED_AT] =
-      new Date().toISOString();
+    appMetadata[KYRO_EMAIL_VERIFICATION_STARTED_AT] = new Date().toISOString();
   }
 
   const { error } = await serviceSupabase.auth.admin.updateUserById(user.id, {
@@ -92,7 +248,9 @@ export async function markKyroEmailVerificationStarted({
   });
 
   if (error) {
-    throw new Error(`Unable to mark email verification pending: ${error.message}`);
+    throw new Error(
+      `Unable to mark email verification pending: ${error.message}`,
+    );
   }
 }
 
@@ -103,14 +261,14 @@ export async function markKyroEmailVerified({
   serviceSupabase: SupabaseClient;
   user: User;
 }) {
-  const verifiedAt = new Date().toISOString();
   const appMetadata: Record<string, unknown> = {
     ...metadataRecord(user.app_metadata),
-    [KYRO_EMAIL_VERIFIED_AT]: verifiedAt,
+    [KYRO_EMAIL_VERIFIED_AT]: new Date().toISOString(),
   };
 
   if (!metadataString(appMetadata, KYRO_EMAIL_VERIFICATION_STARTED_AT)) {
-    appMetadata[KYRO_EMAIL_VERIFICATION_STARTED_AT] = verifiedAt;
+    appMetadata[KYRO_EMAIL_VERIFICATION_STARTED_AT] =
+      appMetadata[KYRO_EMAIL_VERIFIED_AT];
   }
 
   const { error } = await serviceSupabase.auth.admin.updateUserById(user.id, {
@@ -162,11 +320,46 @@ export async function sendKyroEmailVerification({
     });
   }
 
-  return supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo,
-      shouldCreateUser: false,
-    },
+  if (!resendApiKey()) {
+    return verificationSendFailure(
+      "Kyro verification email is not configured. Add RESEND_API_KEY in production.",
+    );
+  }
+
+  const serviceSupabase = createServiceSupabaseClient();
+  const { data: linkData, error: linkError } =
+    await serviceSupabase.auth.admin.generateLink({
+      email,
+      options: { redirectTo: emailRedirectTo },
+      type: "magiclink",
+    });
+
+  if (linkError) {
+    return verificationSendFailure(
+      `Kyro could not generate a verification link: ${linkError.message}`,
+    );
+  }
+
+  if (!linkData.properties?.hashed_token) {
+    return verificationSendFailure(
+      "Kyro could not generate a verification token.",
+    );
+  }
+
+  const actionLink = buildKyroEmailVerificationActionUrl({
+    fallbackOrigin,
+    nextPath,
+    tokenHash: linkData.properties.hashed_token,
+    type: linkData.properties.verification_type,
   });
+  const brandedSent = await sendBrandedKyroVerificationEmail({
+    actionLink,
+    email,
+  });
+
+  if (!brandedSent) {
+    return verificationSendFailure("Kyro verification email was not sent.");
+  }
+
+  return { data: null, error: null };
 }

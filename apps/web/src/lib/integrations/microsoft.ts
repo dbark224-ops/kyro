@@ -7,6 +7,8 @@ export const MICROSOFT_SERVICE = "outlook_mail";
 export const MICROSOFT_USER_READ_SCOPE = "https://graph.microsoft.com/User.Read";
 export const MICROSOFT_MAIL_SEND_SCOPE = "https://graph.microsoft.com/Mail.Send";
 export const MICROSOFT_MAIL_READ_SCOPE = "https://graph.microsoft.com/Mail.Read";
+export const MICROSOFT_CALENDARS_READ_WRITE_SCOPE =
+  "https://graph.microsoft.com/Calendars.ReadWrite";
 export const MICROSOFT_GRAPH_SCOPES = [
   "openid",
   "email",
@@ -15,6 +17,7 @@ export const MICROSOFT_GRAPH_SCOPES = [
   MICROSOFT_USER_READ_SCOPE,
   MICROSOFT_MAIL_SEND_SCOPE,
   MICROSOFT_MAIL_READ_SCOPE,
+  MICROSOFT_CALENDARS_READ_WRITE_SCOPE,
 ] as const;
 
 export type MicrosoftIntegrationConnection = {

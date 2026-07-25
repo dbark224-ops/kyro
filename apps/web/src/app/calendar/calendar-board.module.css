@@ -1,0 +1,1050 @@
+.calendarShell {
+  display: grid;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  padding-top: 0;
+}
+
+.calendarToolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.calendarToolbarLeft,
+.calendarToolbarRight {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.viewSwitch {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  overflow: hidden;
+}
+
+.viewSwitch button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 7px 10px;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.viewSwitch button[data-active="true"] {
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--text);
+}
+
+.calendarGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  min-height: 0;
+}
+
+.calendarGridFull {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.calendarPanel,
+.editorPanel {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+
+.calendarPanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.calendarPanel:has(.calendarWeekSettings[open]) {
+  overflow: visible;
+}
+
+.calendarPanel[aria-busy="true"] .monthGrid,
+.calendarPanel[aria-busy="true"] .weekGrid,
+.calendarPanel[aria-busy="true"] .dayTimeline {
+  opacity: 0.58;
+  transition: opacity 160ms ease;
+}
+
+.calendarPendingOverlay {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 800;
+  gap: 7px;
+  padding: 7px 10px;
+  position: absolute;
+  right: 14px;
+  top: 70px;
+  z-index: 4;
+}
+
+.calendarPendingSpinner {
+  animation: calendarPendingSpin 680ms linear infinite;
+  border: 2px solid color-mix(in srgb, var(--cyan) 22%, transparent);
+  border-radius: 999px;
+  border-top-color: var(--cyan);
+  display: inline-block;
+  height: 14px;
+  width: 14px;
+}
+
+.calendarPanelHeader,
+.editorHeader {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.calendarTitleCluster {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.calendarTitleLine {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.calendarHeaderActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.calendarNavButton {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.calendarNavButton svg {
+  flex: 0 0 auto;
+  height: 14px;
+  width: 14px;
+}
+
+.calendarRefreshButton {
+  align-items: center;
+  background: color-mix(in srgb, var(--cyan) 11%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--cyan) 56%, var(--line));
+  border-radius: 999px;
+  color: var(--cyan);
+  cursor: pointer;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  margin-right: 5px;
+  padding: 0;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+  width: 34px;
+}
+
+.calendarRefreshButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cyan) 18%, var(--surface));
+  border-color: var(--cyan);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.calendarRefreshButton:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.calendarRefreshButton:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.calendarRefreshButton span,
+.calendarRefreshButton svg {
+  display: block;
+  height: 16px;
+  width: 16px;
+}
+
+.calendarWeekSettings {
+  position: relative;
+}
+
+.calendarWeekSettings > summary {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  list-style: none;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+  width: 34px;
+}
+
+.calendarWeekSettings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.calendarWeekSettings > summary:hover,
+.calendarWeekSettings[open] > summary {
+  background: color-mix(in srgb, var(--cyan) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--cyan) 56%, var(--line));
+  color: var(--text);
+}
+
+.calendarWeekSettings > summary:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.calendarWeekSettings > summary svg {
+  height: 16px;
+  width: 16px;
+}
+
+.calendarWeekSettingsMenu {
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 238px;
+  z-index: 12;
+}
+
+.calendarWeekSettingsToggle {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.calendarWeekSettingsToggle > span {
+  display: grid;
+  gap: 2px;
+}
+
+.calendarWeekSettingsToggle strong,
+.calendarWeekSettingsSelect {
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.calendarWeekSettingsToggle small,
+.calendarWeekSettingsStatus,
+.calendarWeekSettingsError {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+
+.calendarWeekSettingsToggle input {
+  accent-color: var(--cyan);
+  flex: 0 0 auto;
+  height: 17px;
+  width: 17px;
+}
+
+.calendarWeekSettingsSelect {
+  display: grid;
+  gap: 5px;
+}
+
+.calendarWeekSettingsSelect select {
+  background: color-mix(in srgb, var(--background) 52%, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  font: inherit;
+  min-height: 36px;
+  padding: 7px 9px;
+  width: 100%;
+}
+
+.calendarWeekSettingsError {
+  color: var(--pink);
+}
+
+.refreshIconSpinning {
+  animation: calendarPendingSpin 680ms linear infinite;
+}
+
+.calendarTitle h2,
+.editorHeader h2 {
+  font-size: clamp(1.05rem, 1.2vw, 1.35rem);
+  margin: 0;
+}
+
+.syncLine {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.syncLine span:not(.syncPill) {
+  min-width: 0;
+}
+
+.calendarTitle p,
+.calendarTitleCluster > p,
+.editorHeader p,
+.eventMeta,
+.syncLine {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 3px 0 0;
+}
+
+.monthGrid {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 6px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-height: 0;
+  padding: 10px;
+}
+
+.monthDayName {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  padding: 8px;
+  text-transform: uppercase;
+}
+
+.monthCell {
+  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 112px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px;
+}
+
+.monthCellMuted {
+  background: color-mix(in srgb, var(--surface) 96%, var(--text) 4%);
+  color: var(--muted);
+  opacity: 0.76;
+}
+
+.monthCellToday {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cyan) 35%, transparent);
+}
+
+.dayNumber {
+  font-size: 0.72rem;
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.eventList {
+  display: grid;
+  gap: 5px;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.eventCard {
+  align-content: center;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
+  border-radius: 9px;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  max-height: 68px;
+  min-height: 36px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 7px 6px 18px;
+  position: relative;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.eventCard:hover,
+.eventCard[data-active="true"] {
+  background: color-mix(in srgb, var(--cyan) 12%, var(--surface));
+  border-color: var(--pink);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pink) 30%, transparent);
+}
+
+.eventCard[data-status="awaiting_customer"],
+.timelineEvent[data-status="awaiting_customer"] {
+  border-color: color-mix(in srgb, #ffd166 64%, var(--line));
+}
+
+.eventCard[data-status="scheduled"],
+.timelineEvent[data-status="scheduled"] {
+  border-color: color-mix(in srgb, #32d583 58%, var(--line));
+}
+
+.eventCard[data-status="needs_business_approval"],
+.timelineEvent[data-status="needs_business_approval"] {
+  border-color: color-mix(in srgb, var(--pink) 68%, var(--line));
+}
+
+.eventCard[data-status="completed"],
+.timelineEvent[data-status="completed"] {
+  border-color: color-mix(in srgb, #5b8ff9 64%, var(--line));
+}
+
+.eventCard[data-status="cancelled"],
+.timelineEvent[data-status="cancelled"] {
+  opacity: 0.62;
+}
+
+.eventStatusDot,
+.eventCard .eventStatusDot,
+.timelineEvent .eventStatusDot {
+  background: var(--muted);
+  border-radius: 999px;
+  display: inline-block;
+  height: 6px;
+  margin-right: 5px;
+  overflow: visible;
+  vertical-align: 0.08em;
+  width: 6px;
+}
+
+.eventCard .eventStatusDot,
+.timelineEvent[data-compact="true"] .eventStatusDot {
+  left: 7px;
+  margin: 0;
+  position: absolute;
+  top: 8px;
+}
+
+.eventCard[data-status="awaiting_customer"] .eventStatusDot,
+.timelineEvent[data-status="awaiting_customer"] .eventStatusDot {
+  background: #ffd166;
+}
+
+.eventCard[data-status="scheduled"] .eventStatusDot,
+.timelineEvent[data-status="scheduled"] .eventStatusDot {
+  background: #32d583;
+}
+
+.eventCard[data-status="needs_business_approval"] .eventStatusDot,
+.timelineEvent[data-status="needs_business_approval"] .eventStatusDot {
+  background: var(--pink);
+}
+
+.eventCard[data-status="completed"] .eventStatusDot,
+.timelineEvent[data-status="completed"] .eventStatusDot {
+  background: #5b8ff9;
+}
+
+.eventCard[data-status="cancelled"] .eventStatusDot,
+.timelineEvent[data-status="cancelled"] .eventStatusDot {
+  background: #8a93a6;
+}
+
+.eventCardPrimary {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  line-height: 1.12;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.eventCardPrimary time {
+  color: var(--muted);
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 900;
+  line-height: 1;
+  margin-right: 6px;
+  vertical-align: 0.02em;
+  white-space: nowrap;
+}
+
+.eventCardPrimary strong {
+  display: inline;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.eventCard[data-condensed="true"] .eventCardPrimary {
+  align-items: baseline;
+  display: flex;
+  gap: 5px;
+}
+
+.eventCard[data-condensed="true"] .eventCardPrimary time {
+  flex: 0 0 auto;
+  margin-right: 0;
+}
+
+.eventCard[data-condensed="true"] .eventCardPrimary strong {
+  display: block;
+  flex: 1 1 auto;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eventCard[data-condensed="true"] {
+  gap: 0;
+  max-height: 28px;
+  padding: 4px 6px 4px 18px;
+}
+
+.eventCard[data-condensed="true"] > span {
+  display: none;
+}
+
+.eventCard span {
+  color: var(--muted);
+  font-size: 0.65rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekGrid,
+.dayTimeline {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 6px;
+  height: clamp(500px, calc(100dvh - 252px), 620px);
+  min-height: 0;
+  padding: 8px 10px 10px;
+}
+
+.weekGrid {
+  column-gap: 6px;
+  grid-template-columns: 44px repeat(7, minmax(0, 1fr));
+  grid-template-rows: auto minmax(0, 1fr);
+  row-gap: 2px;
+}
+
+.dayTimeline {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.timelineAxisSpacer {
+  min-height: 24px;
+}
+
+.timelineAxis {
+  position: relative;
+}
+
+.timelineAxisLabel {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  position: absolute;
+  right: 5px;
+  text-transform: uppercase;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.timelineDay {
+  background: color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--text) 18%);
+  border-radius: 12px;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.timelineDay[data-clickable="true"] {
+  cursor: crosshair;
+}
+
+.weekHeader {
+  align-items: baseline;
+  background: transparent;
+  border: 0;
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  min-width: 0;
+  padding: 1px 6px 2px;
+  text-align: center;
+}
+
+.weekHeader strong {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.weekHeader span {
+  color: var(--cyan);
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.timelineLine {
+  background: color-mix(in srgb, var(--line) 78%, transparent);
+  display: block;
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+}
+
+.timelineLine[data-boundary="true"] {
+  background: color-mix(in srgb, var(--cyan) 24%, var(--line));
+}
+
+.timelineEvent {
+  background: color-mix(in srgb, var(--cyan) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
+  border-radius: 9px;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  left: 5px;
+  min-height: 30px;
+  overflow: hidden;
+  padding: 6px 7px;
+  position: absolute;
+  right: 5px;
+  text-align: left;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+  z-index: 1;
+}
+
+.timelineEvent:hover,
+.timelineEvent[data-active="true"] {
+  background: color-mix(in srgb, var(--cyan) 16%, var(--surface));
+  border-color: var(--pink);
+  transform: translateY(-1px);
+}
+
+.timelineEvent[data-edge="early"],
+.timelineEvent[data-edge="late"] {
+  border-style: dashed;
+}
+
+.timelineEvent[data-compact="true"] {
+  align-content: center;
+  padding: 5px 6px 5px 18px;
+}
+
+.timelineEventTop {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+.timelineEvent[data-compact="true"] .timelineEventTop {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  line-height: 1;
+  min-height: 100%;
+}
+
+.timelineEventTop time {
+  color: var(--muted);
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 900;
+  flex: 0 0 auto;
+  margin-right: 0;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.timelineEvent[data-compact="true"] .timelineEventTop time {
+  line-height: 1;
+  margin-right: 0;
+}
+
+.timelineEventTop strong {
+  display: block;
+  flex: 1 1 auto;
+  font-size: 0.7rem;
+  line-height: 1.14;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelineEvent[data-compact="true"] .timelineEventTop strong {
+  display: -webkit-box;
+  flex: 1 1 auto;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.timelineEventMeta,
+.timelineEventNotes {
+  color: var(--muted);
+  font-size: 0.64rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelineEventNotes {
+  color: color-mix(in srgb, var(--text) 76%, var(--muted));
+}
+
+.eventStatusPill {
+  align-items: center;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--muted) 40%, var(--line));
+  border-radius: 999px;
+  color: var(--text);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.eventStatusPill[data-status="awaiting_customer"] {
+  background: color-mix(in srgb, #ffd166 15%, transparent);
+  border-color: #ffd166;
+}
+
+.eventStatusPill[data-status="scheduled"] {
+  background: color-mix(in srgb, #32d583 13%, transparent);
+  border-color: #32d583;
+}
+
+.eventStatusPill[data-status="needs_business_approval"] {
+  background: color-mix(in srgb, var(--pink) 13%, transparent);
+  border-color: var(--pink);
+}
+
+.eventStatusPill[data-status="completed"] {
+  background: color-mix(in srgb, #5b8ff9 14%, transparent);
+  border-color: #5b8ff9;
+}
+
+.eventStatusPill[data-status="cancelled"] {
+  background: color-mix(in srgb, #8a93a6 14%, transparent);
+  border-color: #8a93a6;
+}
+
+.editorPanel {
+  align-self: start;
+  overflow: hidden;
+}
+
+.editorPanelModal {
+  box-shadow: var(--shadow);
+  width: 100%;
+}
+
+.editorForm {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.formGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.formGrid > * {
+  min-width: 0;
+}
+
+.editorPanel:not(.editorPanelModal) .dateTimeField {
+  grid-column: 1 / -1;
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.editorForm label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 5px;
+  text-transform: uppercase;
+}
+
+.editorForm input,
+.editorForm select,
+.editorForm textarea {
+  background: color-mix(in srgb, var(--background) 42%, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-sizing: border-box;
+  color: var(--text);
+  font: inherit;
+  max-width: 100%;
+  min-height: 38px;
+  min-width: 0;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.editorForm textarea {
+  min-height: 44px;
+  resize: vertical;
+}
+
+.editorActions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.editorActions form {
+  margin: 0;
+}
+
+.submitRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dangerButton {
+  background: transparent;
+  border: 0;
+  color: var(--pink);
+  cursor: pointer;
+  font-weight: 900;
+  padding: 8px;
+}
+
+.directionsLink {
+  color: var(--cyan);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: underline;
+}
+
+.emptyState {
+  color: var(--muted);
+  font-size: 0.84rem;
+  inset: 18px;
+  margin: 0;
+  position: absolute;
+}
+
+.syncPill {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.syncPill[data-status="synced"] {
+  border-color: color-mix(in srgb, #22c55e 55%, var(--line));
+  color: #22c55e;
+}
+
+.syncPill[data-status="not_synced"] {
+  border-color: color-mix(in srgb, var(--muted) 54%, var(--line));
+  color: var(--muted);
+}
+
+.syncPill[data-status="failed"] {
+  border-color: var(--pink);
+  color: var(--pink);
+}
+
+.modalBackdrop {
+  align-items: center;
+  background: color-mix(in srgb, var(--background) 68%, transparent);
+  backdrop-filter: blur(14px);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 22px;
+  position: fixed;
+  z-index: 80;
+}
+
+.modalPanel {
+  max-height: calc(100vh - 44px);
+  max-width: 760px;
+  overflow: auto;
+  width: min(760px, 100%);
+}
+
+@media (max-height: 860px) and (min-width: 761px) {
+  .calendarShell {
+    gap: 10px;
+  }
+
+  .calendarPanelHeader,
+  .editorHeader {
+    padding: 10px 12px;
+  }
+
+  .monthGrid {
+    gap: 5px;
+    padding: 8px;
+  }
+
+  .monthCell {
+    min-height: 102px;
+    padding: 6px;
+  }
+
+  .weekGrid,
+  .dayTimeline {
+    height: clamp(460px, calc(100dvh - 236px), 560px);
+  }
+}
+
+@media (max-width: 1120px) {
+  .calendarGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editorPanel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .calendarPanelHeader,
+  .editorHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .calendarHeaderActions {
+    justify-content: flex-start;
+  }
+
+  .monthGrid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .weekGrid {
+    grid-template-columns: 40px repeat(7, minmax(92px, 1fr));
+    overflow-x: auto;
+  }
+
+  .dayTimeline {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .monthDayName {
+    display: none;
+  }
+
+  .monthCell,
+  .timelineDay {
+    min-height: auto;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .modalBackdrop {
+    align-items: stretch;
+    padding: 14px;
+  }
+
+  .modalPanel {
+    max-height: calc(100vh - 28px);
+  }
+}
+
+@keyframes calendarPendingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

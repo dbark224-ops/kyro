@@ -3,6 +3,7 @@ import {
   appendUserAssistantMessage,
   maybeSaveAssistantMemory,
 } from "../../../../../lib/assistant/persistence";
+import { normalizeAssistantUiBlocks } from "../../../../../lib/assistant/ui-blocks";
 import { normalizeAssistantLinks } from "../../../../../lib/assistant/web-search";
 import {
   buildRealtimeUsageEvents,
@@ -10,8 +11,10 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../../../../../lib/usage/openai";
-import { requireWorkspaceContext } from "../../../../../lib/workspace/context";
+import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
+import { getApiWorkspaceContext } from "../../../../../lib/workspace/api-context";
 import { revalidatePath } from "next/cache";
+import { NextResponse, type NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -25,14 +28,24 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const body = objectRecord(await request.json().catch(() => ({})));
   const threadId = textValue(body.threadId);
   const userTranscript = textValue(body.userTranscript);
   const assistantTranscript = textValue(body.assistantTranscript);
   const links = normalizeAssistantLinks(body.links);
-  const model = textValue(body.model) ?? "gpt-realtime-2";
+  const uiBlocks = normalizeAssistantUiBlocks(body.uiBlocks);
+  const model = textValue(body.model) ?? "gpt-realtime-2.1";
   const provider = textValue(body.provider) ?? "openai";
+  const inputSource = textValue(body.inputSource) ?? "realtime_voice";
+  const assistantSource =
+    inputSource === "vapi_internal_voice"
+      ? "assistant.vapi_internal_voice"
+      : "assistant.realtime_voice";
+  const assistantIntent =
+    inputSource === "vapi_internal_voice"
+      ? "vapi_internal_voice"
+      : "realtime_voice";
   const responseId = textValue(body.responseId);
   const realtimeUsage = openAiRealtimeUsageFromResponse({
     id: responseId,
@@ -44,16 +57,25 @@ export async function POST(request: Request) {
   }
 
   if (!userTranscript && !assistantTranscript) {
-    return Response.json({ error: "No realtime transcript to save." }, { status: 400 });
+    return Response.json(
+      { error: "No realtime transcript to save." },
+      { status: 400 },
+    );
   }
 
-  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const context = await getApiWorkspaceContext(request);
+
+  if (context instanceof NextResponse) {
+    return context;
+  }
+
+  const { supabase, user, workspace } = context;
   let userMessageId: string | null = null;
 
   if (userTranscript) {
     userMessageId = await appendUserAssistantMessage({
       content: userTranscript,
-      inputSource: "realtime_voice",
+      inputSource,
       supabase,
       threadId,
       user,
@@ -75,11 +97,14 @@ export async function POST(request: Request) {
   if (assistantTranscript) {
     assistantMessageId = await appendRealtimeAssistantMessage({
       content: assistantTranscript,
+      intent: assistantIntent,
       links,
       model,
       provider,
+      source: assistantSource,
       supabase,
       threadId,
+      uiBlocks,
       user,
       workspaceId: workspace.id,
     });
@@ -88,16 +113,22 @@ export async function POST(request: Request) {
   let usageRecorded = false;
 
   if (assistantTranscript && provider === "openai" && realtimeUsage) {
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspace.id,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
     const usageEvents = buildRealtimeUsageEvents({
       context: {
         metadata: {
           assistantMessageId,
           linkCount: links.length,
-          source: "assistant.realtime_voice",
+          source: assistantSource,
           threadId,
           userMessageId,
         },
         providerUsageId: responseId,
+        usageMarkupRate,
         userId: user.id,
         workspaceId: workspace.id,
       },
@@ -115,7 +146,7 @@ export async function POST(request: Request) {
           estimated_cost: String(usageTotals.costSnapshot),
           input_refs: {
             responseId,
-            source: "assistant.realtime_voice",
+            source: assistantSource,
             threadId,
             userMessageId,
           },
@@ -130,7 +161,7 @@ export async function POST(request: Request) {
           provider,
           risk_level: "low",
           status: "completed",
-          task_type: "realtime_voice",
+          task_type: assistantIntent,
           tool_calls: [],
           usage: {
             audioInputTokens: realtimeUsage.audioInputTokens,
@@ -157,21 +188,21 @@ export async function POST(request: Request) {
       }
 
       const aiRunId = String(aiRun.id);
-      const { error: usageError } = await supabase
-        .from("usage_events")
-        .insert(
-          toUsageEventRows(
-            usageEvents.map((event) => ({
-              ...event,
-              aiRunId,
-              sourceId: aiRunId,
-              sourceType: "ai_run",
-            })),
-          ),
-        );
+      const { error: usageError } = await supabase.from("usage_events").insert(
+        toUsageEventRows(
+          usageEvents.map((event) => ({
+            ...event,
+            aiRunId,
+            sourceId: aiRunId,
+            sourceType: "ai_run",
+          })),
+        ),
+      );
 
       if (usageError) {
-        throw new Error(`Unable to record realtime usage: ${usageError.message}`);
+        throw new Error(
+          `Unable to record realtime usage: ${usageError.message}`,
+        );
       }
 
       usageRecorded = true;
@@ -181,6 +212,7 @@ export async function POST(request: Request) {
   revalidatePath("/");
   revalidatePath("/assistant");
   revalidatePath("/voice");
+  revalidatePath("/voice-vapi");
 
   return Response.json({
     data: {

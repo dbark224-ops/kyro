@@ -18,6 +18,13 @@ import {
   type WorkspaceReport,
 } from "../../../../lib/reports/data";
 
+// Report generation used to be duplicated here (own REPORT_TYPES/TIMEFRAMES/
+// DIRECTIONS/CHANNELS constants, its own period math, its own file/usage
+// summary queries) instead of reusing lib/reports/data.ts, which is the same
+// engine the web Reports tab uses. Reconciled against codex/mobile-app, which
+// had already made this switch, so mobile and web reports share one
+// implementation instead of drifting independently.
+
 export const dynamic = "force-dynamic";
 
 const ACTIVITY_FILTERS = [
@@ -85,7 +92,9 @@ function truncate(value: string | null, maxLength = 118) {
     return "No detail recorded";
   }
 
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength - 1)}...`
+    : value;
 }
 
 function activityMatchesFilter(item: ActivityItem, filter: string) {
@@ -131,10 +140,15 @@ function developerEnabled(user: MobileContext["user"]) {
   return value === true || value === "true" || value === "yes" || value === 1;
 }
 
-async function getRecentMessages(supabase: MobileContext["supabase"], workspaceId: string) {
+async function getRecentMessages(
+  supabase: MobileContext["supabase"],
+  workspaceId: string,
+) {
   const { data, error } = await supabase
     .from("messages")
-    .select("id,conversation_id,direction,subject,body_text,created_at,received_at,sent_at")
+    .select(
+      "id,conversation_id,direction,subject,body_text,created_at,received_at,sent_at",
+    )
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(40);
@@ -148,8 +162,8 @@ async function getRecentMessages(supabase: MobileContext["supabase"], workspaceI
       textValue(message.direction) === "outbound" ? "outbound" : "inbound";
     const at =
       direction === "outbound"
-        ? textValue(message.sent_at) ?? textValue(message.created_at)
-        : textValue(message.received_at) ?? textValue(message.created_at);
+        ? (textValue(message.sent_at) ?? textValue(message.created_at))
+        : (textValue(message.received_at) ?? textValue(message.created_at));
 
     return {
       at: at ?? new Date().toISOString(),
@@ -206,7 +220,9 @@ async function buildOperationalLogs(context: MobileContext) {
         title: "Inbound message",
         type: "message" as const,
       })),
-  ].sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime());
+  ].sort(
+    (left, right) => new Date(right.at).getTime() - new Date(left.at).getTime(),
+  );
   const outbound: OperationalLogItem[] = messages
     .filter((message) => message.direction === "outbound")
     .slice(0, 40)
@@ -275,7 +291,9 @@ async function buildActivityItems(
       id: `message:${message.id}`,
       meta: message.direction === "outbound" ? "Outbound" : "Inbound",
       title:
-        message.direction === "outbound" ? "Outbound message" : "Inbound message",
+        message.direction === "outbound"
+          ? "Outbound message"
+          : "Inbound message",
       tone: message.direction as "inbound" | "outbound",
     })),
     ...engine.actions.map((action) => ({
@@ -390,7 +408,8 @@ async function buildDeveloperSummary(context: MobileContext) {
     checks,
     tools: [
       {
-        detail: "Create a manual inbound inquiry from the desktop developer UI.",
+        detail:
+          "Create a manual inbound inquiry from the desktop developer UI.",
         label: "Mock inbound",
         target: "/developer",
       },
@@ -423,13 +442,14 @@ export async function GET(request: Request) {
     const context = await requireMobileWorkspaceContext(request);
     const url = new URL(request.url);
     const filters = parseReportFilters(url.searchParams);
-    const [activityItems, developer, operationalLogs, report, contacts] = await Promise.all([
-      buildActivityItems(context),
-      buildDeveloperSummary(context),
-      buildOperationalLogs(context),
-      buildWorkspaceReport(context.supabase, context.workspace, filters),
-      getReportContactOptions(context.supabase, context.workspace.id),
-    ]);
+    const [activityItems, developer, operationalLogs, report, contacts] =
+      await Promise.all([
+        buildActivityItems(context),
+        buildDeveloperSummary(context),
+        buildOperationalLogs(context),
+        buildWorkspaceReport(context.supabase, context.workspace, filters),
+        getReportContactOptions(context.supabase, context.workspace.id),
+      ]);
 
     return Response.json({
       activity: {
@@ -497,7 +517,10 @@ export async function POST(request: Request) {
     }
 
     if (operation === "mock_inbound_inquiry") {
-      const mock = await createMockInboundInquiry(context, objectRecord(payload.inquiry));
+      const mock = await createMockInboundInquiry(
+        context,
+        objectRecord(payload.inquiry),
+      );
 
       return Response.json({
         message: "Mock inbound inquiry recorded.",

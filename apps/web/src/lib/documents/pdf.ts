@@ -644,3 +644,71 @@ export async function buildQuotePdfArtifactForDraft(
     workspace,
   });
 }
+
+export async function buildInvoicePdfArtifactForDraft(
+  supabase: SupabaseClient,
+  {
+    generatedAt,
+    quoteDraftId,
+    workspace,
+  }: {
+    generatedAt?: Date;
+    quoteDraftId: string;
+    workspace: WorkspaceForDocument & { id: string };
+  },
+) {
+  const [profile, settings, businessProfile] = await Promise.all([
+    getQuoteDraftProfile(supabase, workspace.id, quoteDraftId),
+    getDocumentTemplateSettings(supabase, workspace.id),
+    supabase
+      .from("business_profiles")
+      .select(
+        "business_name,industry,description,service_area,tone_of_voice,default_reply_instructions",
+      )
+      .eq("workspace_id", workspace.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (!profile) {
+    throw new Error("Quote draft was not found.");
+  }
+
+  if (businessProfile.error) {
+    throw new Error(`Unable to load business profile: ${businessProfile.error.message}`);
+  }
+
+  const invoiceTitle = profile.quoteDraft.title.toLowerCase().startsWith("invoice")
+    ? profile.quoteDraft.title
+    : `Invoice - ${profile.quoteDraft.title}`;
+  const invoiceProfile: QuoteDraftProfile = {
+    ...profile,
+    quoteDraft: {
+      ...profile.quoteDraft,
+      status: "invoice",
+      title: invoiceTitle,
+    },
+  };
+
+  return buildQuotePdfArtifact({
+    businessProfile: businessProfile.data
+      ? {
+          businessName: businessProfile.data.business_name,
+          defaultReplyInstructions:
+            businessProfile.data.default_reply_instructions,
+          description: businessProfile.data.description,
+          industry: businessProfile.data.industry,
+          serviceArea: businessProfile.data.service_area,
+          toneOfVoice: businessProfile.data.tone_of_voice,
+        }
+      : null,
+    generatedAt,
+    profile: invoiceProfile,
+    settings: documentTemplateDesignSettingsForQuote(
+      profile.quoteDraft.metadata,
+      settings,
+    ),
+    workspace,
+  });
+}

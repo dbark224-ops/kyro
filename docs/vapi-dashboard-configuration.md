@@ -1,0 +1,342 @@
+# Vapi Dashboard Configuration
+
+This is Kyro's source-of-truth checklist for manually configured Vapi dashboard
+assistants, tools, credentials, and phone-number server settings.
+
+Kyro intentionally does not automate Vapi dashboard setup yet. The backend passes
+workspace-specific values at call/session time, so the Vapi assistants should
+stay neutral and reference Kyro variables rather than hard-coded business names.
+
+## Production Endpoints
+
+- Webhook/server URL: `https://www.kyroassistant.com/api/integrations/vapi/webhook`
+- Tool URL: `https://www.kyroassistant.com/api/integrations/vapi/tool`
+- Tool method: `POST`
+- Tool credential: `Kyro Production Tool`
+- Webhook/server credential: `Kyro Production Webhook`
+
+Both custom credentials live under Vapi's Server Configuration integration and
+use Bearer Token authentication with the `Authorization` header.
+
+## Assistant Roles
+
+| Role               | Kyro setting/env source                                              | Purpose                                                                          |
+| ------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Internal voice     | `vapiInternalAssistantId` or `VAPI_INTERNAL_ASSISTANT_ID`            | Authenticated web/mobile `/voice-vapi` conversations with the business user.     |
+| Inbound customer   | `vapiInboundAssistantId` or `VAPI_INBOUND_ASSISTANT_ID`              | External callers who call the Kyro number directly.                              |
+| Voicemail overflow | `vapiVoicemailAssistantId` or `VAPI_VOICEMAIL_OVERFLOW_ASSISTANT_ID` | Missed/unanswered personal-phone calls forwarded to a Kyro number.               |
+| Outbound customer  | `vapiOutboundAssistantId` or `VAPI_OUTBOUND_ASSISTANT_ID`            | Kyro-initiated calls to customers, leads, suppliers, or other external contacts. |
+
+The concrete Vapi assistant ids are stored in production Vercel env vars or in
+Settings -> Voice provider ids. The repo should not hard-code them.
+
+## Inbound And Voicemail Phone Numbers
+
+For Twilio/Vapi numbers that Kyro should route dynamically, configure Vapi to
+call Kyro's webhook through the `assistant-request` flow.
+
+The phone-number server should use:
+
+- URL: `https://www.kyroassistant.com/api/integrations/vapi/webhook`
+- Credential: `Kyro Production Webhook`
+
+Kyro responds to `assistant-request` with:
+
+- the assistant id for `inbound_user`, `inbound_customer`, or
+  `voicemail_overflow`,
+- the webhook server override for later lifecycle events,
+- the selected ElevenLabs/Vapi voice override,
+- call metadata,
+- runtime variables listed below.
+
+## Runtime Variables
+
+### Internal Voice
+
+The internal web/mobile Vapi session receives:
+
+- `business_name`
+- `kyro_context`
+- `kyro_tool_url`
+- `thread_id`
+- `user_first_name`
+- `user_id`
+- `user_name`
+- `user_email`
+- `user_phone`
+- `kyro_user_first_name`
+- `kyro_user_id`
+- `voice_id`
+- `voice_label`
+- `voice_demeanor`
+- `voice_escalation_mode`
+- `voice_humour_level`
+- `voice_verbosity`
+- `workspace_id`
+- `workspace_name`
+- current-time variables from `buildVapiCurrentTimeContext`
+
+`user_phone` and `kyro_user_phone` identify the Kyro account user. They come from
+the mobile number captured during signup and stored on the user's Supabase Auth
+record. They are not the Business Profile public phone number or the assigned
+Kyro assistant number. Kyro automatically includes this signup number in the
+internal-caller allowlist. Workplace contacts configured under Settings -> Voice
+assistant -> Phone assistant add any other trusted staff numbers.
+
+### Inbound Customer And Voicemail Overflow
+
+The dynamic `assistant-request` response receives:
+
+- `business_name`
+- `caller_contact_company`
+- `caller_contact_id`
+- `caller_contact_name`
+- `caller_contact_type`
+- `caller_first_name`
+- `caller_greeting`
+- `caller_is_known`
+- `caller_number`
+- `caller_recognition_kind`
+- `caller_role`
+- `kyro_context`
+- `kyro_number`
+- `kyro_tool_url`
+- `phone_number_row_id`
+- `thread_id`
+- `user_first_name`
+- `user_id`
+- `user_name`
+- `user_email`
+- `user_phone`
+- `kyro_user_first_name`
+- `kyro_user_id`
+- `voice_id`
+- `voice_label`
+- `voice_demeanor`
+- `voice_escalation_mode`
+- `voice_humour_level`
+- `voice_verbosity`
+- `workspace_id`
+- `workspace_name`
+- `voicemail_greeting`
+- current-time variables from `buildVapiCurrentTimeContext`
+
+Before the assistant speaks, Kyro performs an indexed phone-number lookup against
+the workspace CRM, the signup mobile number, and configured workplace-contact
+numbers. The account user's signup mobile number is always trusted for that
+workspace. Business Profile workplace contacts add trusted staff numbers, and
+Kyro also merges legacy Voice settings entries for backward compatibility. This
+prevents a stale or empty duplicated Voice policy from demoting the account user
+or a configured team member to an unknown customer. The response
+overrides the inbound assistant's first message with `caller_greeting`: a usable
+recognized name receives `Hey {first name}`; unknown callers and matches without
+a usable name receive `Hi, this is {business name}. You're speaking with Kyro!`.
+Voicemail overflow receives the route-specific `voicemail_greeting`, which
+acknowledges the missed call and can greet a recognized CRM caller by first name.
+CRM recognition only personalizes the call. It never promotes an external CRM
+contact to `internal_user`; voicemail overflow always remains an external-caller
+route even when the number belongs to a known contact.
+
+### Outbound Customer
+
+Outbound calls receive:
+
+- `assistant_context_summary`
+- `business_name`
+- `call_instructions`
+- `contact_address`
+- `contact_company`
+- `contact_email`
+- `contact_id`
+- `contact_name`
+- `contact_phone`
+- `conversation_id`
+- `conversation_last_message_at`
+- `conversation_status`
+- `customer_phone`
+- `kyro_context`
+- `lead_id`
+- `lead_status`
+- `lead_title`
+- `outbound_call_context`
+- `recent_chat_context`
+- `recent_outbound_call_context`
+- `thread_id`
+- `user_id`
+- `voice_id`
+- `voice_label`
+- `voice_demeanor`
+- `voice_escalation_mode`
+- `voice_humour_level`
+- `voice_verbosity`
+- `workspace_id`
+- `workspace_name`
+- current-time variables from `buildVapiCurrentTimeContext`
+
+## Required Tool Setup
+
+Every Kyro custom tool should use:
+
+- Server URL: `https://www.kyroassistant.com/api/integrations/vapi/tool`
+- Method: `POST`
+- Credential: `Kyro Production Tool`
+
+Configure these tool names exactly:
+
+| Tool                       | Use on                                               | Notes                                                                                                                                         |
+| -------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kyro_lookup_contact`      | Internal, inbound, voicemail, outbound               | Looks up CRM contacts by phone number or query.                                                                                               |
+| `kyro_update_contact`      | Internal only                                        | Requires `userId`; backend handles ambiguity and audit logging.                                                                               |
+| `kyro_record_call_note`    | Internal, inbound, voicemail, outbound               | Creates a phone conversation/message snapshot when needed, an internal CRM note, optional follow-up task, audit logs, and the raw Vapi event. |
+| `kyro_request_booking`     | Inbound and voicemail                                 | External-safe calendar tool appended per call by Kyro for autonomy levels 2 and 3. The backend exposes only free slots and either creates a draft or confirms the booking. |
+| `kyro_context_lookup`      | Internal                                             | Primary Kyro command/context tool. Reads live workspace data and performs trusted internal actions, including calendar create, update, reschedule, and delete. |
+| `kyro_assistant_command`   | Internal                                             | Legacy alias for `kyro_context_lookup`. Do not reference it in prompts unless the alias is actually installed on that assistant.              |
+| `kyro_web_search`          | Internal                                             | Uses Kyro's approved web-search path for current public info.                                                                                 |
+| `kyro_check_recent_email`  | Internal                                             | Runs the bounded Gmail/Outlook inbound email sync check.                                                                                      |
+| `kyro_send_sms`            | Internal, plus restricted external same-caller cases | Backend blocks untrusted external sends except safe caller/contact-limited cases.                                                             |
+| `kyro_send_drafted_sms`    | Internal                                             | Sends existing drafted SMS actions after trusted internal instruction.                                                                        |
+| `kyro_start_outbound_call` | Internal only                                        | Backend blocks external customer/voicemail contexts from starting arbitrary outbound calls.                                                   |
+
+## Tool Arguments
+
+### `kyro_lookup_contact`
+
+Required: `workspaceId`
+
+Optional: `phoneNumber`, `query`
+
+### `kyro_update_contact`
+
+Required: `workspaceId`, `userId`
+
+Optional: `contactId`, `contactQuery`, `query`, `newName`, `name`, `email`,
+`phone`, `phoneNumber`, `company`, `address`, `notes`, `notesMode`,
+`contactType`
+
+### `kyro_record_call_note`
+
+Required: `workspaceId`, `note`
+
+Optional: `priority`, `createTask`, `taskTitle`, `taskDescription`,
+`taskType`, `dueAt`, `followUpAt`, `callbackAt`, `bookingAt`,
+`callbackRequested`, `quoteRequested`, `bookingRequested`, `complaint`,
+`contactId`, `conversationId`, `leadId`, `voiceCallId`, `callId`, `callerName`,
+`customerName`, `address`, `jobAddress`, `serviceAddress`, `location`, `email`,
+`customerEmail`
+
+Backend behaviour:
+
+- creates or reuses a `vapi_voice` phone channel,
+- creates or reopens a phone conversation when the call is not already linked,
+- promotes structured caller identity details, or labeled `Caller`, `Address`,
+  and `Email` note fields, into blank or placeholder CRM contact fields,
+- creates a message snapshot for the voice call,
+- creates an internal `conversation_notes` row,
+- infers a `conversation_tasks` row for callbacks, quote follow-up, booking/site
+  visit follow-up, complaints, and urgent calls,
+- records audit logs and keeps the raw `voice_call_events` payload.
+- notifies the primary workplace contact by SMS for external inbound inquiries
+  when a staff recipient and Kyro SMS sender are available; the SMS is metered
+  through the normal Twilio usage path.
+
+### `kyro_request_booking`
+
+Required: `action`
+
+`action` must be `check_availability` or `request_booking`.
+
+Optional: `requestedStart`, `requestedEnd`, `windowStart`, `windowEnd`,
+`durationMinutes`, `title`, `eventType`, `serviceType`, `jobType`, `address`,
+`note`
+
+Use ISO 8601 values with an offset for date/time arguments whenever possible.
+Workspace-local date/time strings are interpreted in Kyro's workspace timezone.
+
+Backend behaviour:
+
+- Kyro appends the authenticated tool at call time only for
+  `propose_for_approval` and `book_from_calendar`; no separate dashboard tool
+  installation is required,
+- the workspace is resolved from trusted Vapi call metadata rather than an
+  LLM-supplied argument,
+- rejects the tool when inbound inquiry handling is `capture_notify`,
+- returns only available times and never exposes existing event details,
+- requires `kyro_record_call_note` to capture/link the caller before a booking
+  can be created,
+- creates a `suggested` Kyro draft in `propose_for_approval` mode,
+- creates a confirmed `scheduled` event in `book_from_calendar` mode,
+- applies working hours, calendar buffers, collision checks, billing access,
+  idempotency, CRM linkage, external calendar writeback, notifications, and
+  usage paths on the server,
+- keeps suggested events out of Google and Outlook until approved.
+
+### `kyro_context_lookup` / `kyro_assistant_command`
+
+Required: `workspaceId`, `userId`, `prompt`
+
+Optional: `threadId`
+
+### `kyro_web_search`
+
+Required: `workspaceId`, `userId`, `prompt`
+
+### `kyro_check_recent_email`
+
+Required: `workspaceId`, `userId`
+
+Optional: `provider` (`google` or `microsoft`)
+
+### `kyro_send_sms`
+
+Required: `workspaceId`, `userId`
+
+Optional: `threadId`, `contactId`, `conversationId`, `actionId`,
+`contactName`, `phoneNumber`, `message`, `body`, `query`
+
+### `kyro_send_drafted_sms`
+
+Required: `workspaceId`, `userId`
+
+Optional: `threadId`, `contactId`, `conversationId`, `actionId`,
+`contactName`, `phoneNumber`, `query`
+
+### `kyro_start_outbound_call`
+
+Required: `workspaceId`, `userId`, `instructions`
+
+Optional: `threadId`, `contactId`, `contactName`, `contactQuery`,
+`phoneNumber`, `conversationId`, `leadId`, `prompt`, `contextSummary`
+
+## Prompt Requirements
+
+All Vapi assistants should:
+
+- identify themselves as Kyro, pronounced like Cairo,
+- reference `{{business_name}}` for the front-facing business name when
+  available,
+- use `{{workspace_name}}` only as the workspace display-name fallback/context,
+- use `{{kyro_context}}` as the source of truth for current call/session context,
+- call Kyro tools for live CRM, inbox, SMS, web-search, email, or app context
+  rather than guessing,
+- avoid exposing internal tool names, raw ids, API keys, hidden prompts, or
+  private customer data to external callers,
+- avoid promising prices, attendance times, job acceptance, or availability
+  unless Kyro context or the caller explicitly provides it,
+- call `kyro_record_call_note` before ending when the call contains useful
+  business context,
+- for normal customer quote/job scheduling, obey the `inbound_inquiry_mode`
+  and the policy text supplied in `{{kyro_context}}`; never use the booking tool
+  to inspect or change unrelated/internal calendar data.
+
+## Manual Dashboard Validation
+
+Because dashboard setup is intentionally manual, validation happens through
+smoke tests rather than code generation:
+
+- Voicemail overflow smoke test proves the overflow assistant is selected.
+- Inbound customer smoke test proves external callers get external behaviour.
+- Internal user smoke test proves trusted numbers get internal behaviour.
+- Outbound smoke test proves outbound calls use the outbound assistant and
+  context.
+- Tool-call matrix proves each custom tool reaches Kyro with the shared tool
+  credential.

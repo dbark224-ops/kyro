@@ -1,30 +1,55 @@
 # Database Setup
 
-Kyro uses Supabase Postgres with Drizzle as the TypeScript schema and migration tool.
+Kyro uses Supabase Postgres. Migrations are **hand-written SQL** in
+`supabase/migrations`, applied and tracked through Supabase's own ledger.
+
+> Drizzle was removed on 2026-07-25. It had generated only the first 15 of 46
+> migrations and stopped being used on 2026-05-27, while `npm run db:migrate` still
+> read its journal — so the documented rebuild procedure silently rebuilt about a
+> third of the database. `packages/db/src/schema.ts` was also 18 tables behind
+> production and imported by nothing at runtime, while two docs called it the
+> "source of truth". Both are gone; `supabase/migrations` is now the only source.
 
 ## Files
 
-- `packages/db/src/schema.ts`: Drizzle schema.
-- `packages/db/src/client.ts`: Postgres client factory.
-- `drizzle.config.ts`: Drizzle migration config.
-- `supabase/migrations`: generated SQL migrations and Drizzle migration metadata.
+- `supabase/migrations`: timestamped SQL migrations. The schema source of truth.
+- `scripts/db-migrate.mjs`: applies pending migrations (`npm run db:migrate`).
+- `scripts/refresh-schema-snapshot.mjs`: regenerates the CI column snapshot
+  (`npm run db:snapshot`).
+- `scripts/schema-snapshot.json`: committed table/column snapshot. `npm run lint:db`
+  validates every `.select()` in the app against it, so CI needs no database access.
 
 ## Environment
 
-Set `DATABASE_URL` in `.env` before applying migrations.
+Set `DATABASE_URL` in `.env` before applying migrations. Use the direct Postgres
+connection string. Runtime clients use Supabase Auth/session context from the API
+layer instead.
 
-For Supabase, use a direct Postgres connection string for migrations. Runtime clients should
-use Supabase Auth/session context from the API layer where appropriate.
+## Adding a migration
 
-## Commands
+1. Create `supabase/migrations/<UTC timestamp>_short_name.sql`. Keep the timestamp
+   ahead of the newest existing file; it defines apply order.
+2. Write plain SQL. Prefer `IF NOT EXISTS` / `CREATE OR REPLACE` so a re-run is safe.
+3. Include RLS policies and grants for any new table — every table is expected to
+   have RLS enabled.
+4. Apply it, then refresh the snapshot and commit both:
 
 ```bash
-npm run db:generate -- --name migration_name
-npm run db:generate:custom -- --name custom_migration_name
-npm run db:check
+npm run db:migrate -- --dry-run   # show what would run, change nothing
 npm run db:migrate
-npm run db:studio
+npm run db:snapshot               # commit the updated schema-snapshot.json
 ```
+
+Skipping `db:snapshot` makes CI fail on correct code that uses a newly added column.
+
+## Ledger
+
+Applied migrations are recorded in `supabase_migrations.schema_migrations`, keyed by
+the filename timestamp. On 2026-07-25 this was reconciled to list all 46 files: 15 were
+tracked only by the old Drizzle journal, 23 only by Supabase, and 8 — including
+`outbound_messages` and `vapi_voice_calls` — by neither. All 46 were verified applied
+before recording. Keep filenames and ledger versions matching, or the CLI will try to
+re-run migrations that are already live.
 
 ## Current Migration Shape
 
@@ -32,7 +57,7 @@ The applied migrations currently create:
 
 - Tenant/auth tables.
 - Workspace policies and entitlements.
-- Contacts, leads, channels, conversations, messages, outbound delivery rows, quote drafts, inquiry facts, Assistant memory tables, and files.
+- Contacts, leads, contact lifecycle fields, channels, workspace phone numbers, conversations, messages, conversation tasks/appointments/notes, outbound delivery rows, Vapi/Twilio voice-call ledgers, quote drafts, generated documents, inquiry facts, Assistant memory tables, and files.
 - Events, workflow runs, actions, AI runs, model routes, and audit logs.
 - Usage events, usage rollups, pricing rules, and workspace budgets.
 - Contact profile fields for contact type and address are added by a follow-up migration.
@@ -53,6 +78,10 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260509053308_initial_core.sql`: base schema.
 - `20260509053320_tenant_rls.sql`: RLS policies, workspace membership helpers, and updated-at triggers.
 - `20260510044752_contact_profile_fields.sql`: adds `contacts.contact_type`, `contacts.address`, and a workspace/type index.
+- `20260603001716_workspace_phone_number_pool.sql`: makes `workspace_phone_numbers`
+  support unassigned beta pool rows, adds assignment timestamps/source, extends
+  number statuses with `available` and `reserved`, and hides unassigned pool rows
+  from ordinary workspace users through scoped RLS policies.
 - `20260510061122_quote_drafts.sql`: adds internal saved quote drafts linked to contacts, leads, conversations, and source actions.
 - `20260510073116_inquiry_facts.sql`: adds editable extracted inquiry facts with one current row per workspace/conversation.
 - `20260512191555_assistant_memory.sql`: adds Assistant threads, messages, explicit memories, RLS policies, and updated-at triggers.
@@ -62,17 +91,92 @@ but RLS remains the database-level safety net for user/session-scoped operations
 - `20260522001249_event_skipped_email_indexes.sql`: adds skipped-email event indexes for filtered-out email review.
 - `20260524194856_quote_approval_links.sql`: adds tokenized customer quote approval links with workspace RLS policies.
 - `20260525143000_outbound_messages.sql`: adds the durable outbound delivery queue/ledger with workspace RLS, idempotency, retry scheduling, provider ids, and updated-at trigger.
+- `20260527005033_generated_documents.sql`: adds first-class generated quote/invoice PDF records linked to private file storage, CRM/conversation/quote context, outbound sent messages, and Google Drive filing metadata.
+- `20260526020904_contact_identity_normalization.sql`: adds normalized contact email, phone, and company fields, workspace-scoped indexes, backfill SQL, and the trigger that keeps identity fields in sync on contact edits.
+- `20260526022516_international_phone_identity_normalization.sql`: upgrades the database phone normalizer and backfills contact phone identities into canonical international-style values for explicit country-coded numbers and common local formats.
+- `20260526044245_contact_lifecycle_fields.sql`: adds contact lifecycle stage/source/reason/review timestamp fields and a workspace lifecycle index. These fields support manual lead/client switching plus scheduled review suggestions without changing `contact_type`.
+- `20260526071536_contact_profile_resolution.sql`: adds profile-resolution status/reason/conflict/merge fields to `contacts`, indexes active review and merged-source lookups, and updates the identity trigger so app-side default-phone-region normalization is preserved.
+- `20260526155526_fixed_arclight.sql`: adds `conversation_tasks`, `conversation_appointments`, and `conversation_notes` with workspace RLS, updated-at triggers, and indexes for conversation/message/status lookups.
+- `20260527024424_structured_addresses.sql`: adds structured Google/manual address fields to `contacts` and `inquiry_facts`, including line/locality/postal/country/coordinate/place-id fields, validation status, raw structured JSON, and workspace indexes for place/postal lookups.
+- `20260529021344_twilio_sms_foundation.sql`: adds `workspace_phone_numbers` for Twilio SMS/voice-capable numbers, workspace RLS, indexes, capability metadata, provider ids, and updated-at trigger support.
+- `20260529043000_vapi_voice_calls.sql`: adds `voice_calls` and `voice_call_events` for Vapi/Twilio inbound calls, voicemail overflow, user-to-Kyro calls, outbound customer calls, transcripts, recordings, provider status, cost snapshots, raw event audit, and workspace RLS.
+- `20260625001321_voice_recording_retention.sql`: adds 30-day voice recording
+  retention fields and an expiry index so Kyro can delete Vapi call data while
+  preserving call transcripts, summaries, and audit rows.
+- `20260716222532_durable_background_jobs.sql`: adds service-only recurring
+  schedules and durable jobs, fair leased claims, exponential retry/dead-letter
+  transitions, replay, queue metrics, workspace/member schedule triggers, and
+  immediate outbound-delivery job registration.
+- `20260716224556_background_queue_schedule_lag_metrics.sql`: extends queue
+  health with overdue recurring-schedule counts and age so a stopped scheduler
+  is visible even when it has not produced queued rows.
+
+CRM profile identity now uses normalized email, normalized phone, and normalized company values. App code normalizes bare local phone numbers with the workspace default phone region before falling back through broader international parsing. Explicit country-coded numbers remain country-safe.
+
+Address identity now keeps the typed/display address in `address` while storing
+structured components beside it. Google Places selections can populate a place id,
+postal components, coordinates, validation status, and structured JSON; manually
+typed addresses remain accepted and are marked as manual/unverified rather than
+blocking the workflow.
+
+CRM lifecycle and profile resolution are contact-level concepts:
+
+- lifecycle fields track whether the relationship is currently a lead or client, separately from contact category,
+- lifecycle review creates `review_lifecycle_stage` actions rather than silently changing profiles, and users can clear manual lifecycle overrides when they want automated suggestions again,
+- profile conflicts and duplicate identity signals can create review work in CRM,
+- merging profiles moves linked conversations, messages, leads, inquiry facts, quote drafts, and contact-targeted actions to the kept profile,
+- merged source profiles stay in `contacts` with `merged_into_contact_id` so audit history remains traceable while the normal CRM list hides archived merged sources.
+
+Inbox workflow state now has durable rows:
+
+- `conversation_tasks` stores user-created tasks, automatic `customer_follow_up` reminders, site-visit tasks, and message-resolution markers linked to conversations/messages/actions,
+- `conversation_appointments` stores site-visit/appointment records before any external calendar provider is connected,
+- `conversation_notes` stores internal-only operator notes linked to conversations or individual messages.
+
+Twilio SMS now has a first database foundation:
+
+- `workspace_phone_numbers` stores active/pending/released Twilio numbers per workspace,
+- inbound SMS webhooks match the Twilio destination number against this table,
+- inbound and outbound SMS usage is recorded in `usage_events`,
+- outbound SMS delivery still uses the existing `outbound_messages` queue/ledger.
+
+Vapi/Twilio voice now has a first database foundation:
+
+- `voice_calls` stores call direction, purpose, provider ids, Twilio/Vapi numbers,
+  matched contact/conversation/lead ids, transcript, summary, recording URL,
+  recording expiry/deletion metadata, status, duration, provider cost, customer
+  charge, and metadata,
+- `voice_call_events` stores raw Vapi webhook and tool payloads for audit and
+  debugging,
+- completed calls can write `usage_events` rows with `usage_type = voice_call`,
+- Assistant Kyro activity and the mobile app both load call details through
+  `/api/voice/calls/[callId]` rather than querying these tables directly.
+- `/api/voice/recordings/cleanup` supports targeted/manual runs; the durable
+  background scheduler runs the daily production cleanup. It deletes the
+  Vapi call data for expired recordings, clears `recording_url` after provider
+  deletion succeeds, sets `recording_deleted_at`, and leaves retryable metadata
+  when deletion fails.
+- `kyro_record_call_note` creates normal CRM records for useful call outcomes:
+  phone conversation/message snapshots, internal notes, inferred follow-up
+  tasks, and audit logs, while still storing the raw Vapi tool event.
+
+Assistant memory/thread behavior does not currently need a new migration.
+`assistant_threads.status` is used for active versus archived threads, and
+`assistant_memories.status` is used for active, pending-approval, and rejected
+memories. Suggested memories are stored as pending rows and only become active
+context after the user approves them.
 
 Document template preferences do not currently need a new migration. The web app stores
 the first quote-output settings in `workspace_policies` with policy type
 `document_templates`; quote output is rendered from existing `quote_drafts` data as
-print-ready HTML or an on-demand server-generated PDF. Generated PDF metadata is
-stored in existing `quote_drafts.metadata` and outbound `messages.metadata`.
-Outbound sends are also tracked in `outbound_messages`: the outbox row is created
-before provider delivery, stores retryable attachment references to private
-Supabase Storage/files rows, and links back to either the final conversation
-`messages` row or event-only delivery record through metadata once recording
-succeeds.
+print-ready HTML or an on-demand server-generated PDF. Generated quote and invoice
+PDFs are now promoted into `generated_documents` rows backed by private
+Supabase Storage/files rows, while lightweight timeline metadata remains in
+`quote_drafts.metadata` and outbound `messages.metadata`. Outbound sends are also
+tracked in `outbound_messages`: the outbox row is created before provider
+delivery, stores retryable attachment references to private Supabase Storage/files
+rows, and links back to either the final conversation `messages` row or
+event-only delivery record through metadata once recording succeeds.
 `quote_drafts.metadata.documentHistory` is the current lightweight version trail
 for generated/prepared/sent PDFs and customer approval events. Quote revision
 state is also metadata-backed in `quote_drafts.metadata.quoteRevision`: the app
@@ -81,3 +185,10 @@ prepared/sent/approved versions without a new migration. Customer approval links
 use `quote_approval_links`: raw tokens stay in customer URLs, while the database
 stores only `token_hash`, status, expiry, view/approval timestamps, and
 change-request text.
+
+Assistant image generation does not currently need a new migration. Uploaded
+assistant reference files and generated image outputs both use the existing
+`files` table plus private Supabase Storage, with `source` values such as
+`assistant_upload` and `generated_image`. The tool execution is recorded in
+`ai_runs`, image spend is recorded in `usage_events` with `usage_type =
+image_generation`, and the generated file is linked through audit logs.

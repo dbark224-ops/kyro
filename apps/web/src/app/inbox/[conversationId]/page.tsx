@@ -1,12 +1,16 @@
 import {
   createMockOutboundMessageAction,
   createManualFollowUpAction,
+  createConversationAppointmentAction,
   regenerateAiPlanAction,
+  ignoreConversationNotificationAction,
   sendDraftReplyAction,
   updateInquiryFactsAction,
   updateConversationStatusAction,
-  updateDraftReplyAction,
 } from "../actions";
+import { ConversationHistory } from "../conversation-history";
+import { ConversationMessageThread } from "../conversation-message-thread";
+import { ConversationWorkflowPanel } from "../conversation-workflow-panel";
 import { ReplyGenerator } from "../reply-generator";
 import {
   approveAndExecuteDashboardAction,
@@ -14,15 +18,21 @@ import {
   executeDashboardAction,
 } from "../../engine/actions";
 import { AppFrame } from "../../components/app-frame";
+import { AddressAutocompleteField } from "../../components/address-autocomplete-field";
 import {
   getConversationReview,
   type ConversationReview,
 } from "../../../lib/crm/queries";
 import {
-  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  formatLeadTitle,
+  formatServiceType,
+  titleCaseBusinessText,
+} from "../../../lib/crm/display";
+import {
   formatDisplayMoney,
   type DisplayCurrencySettings,
 } from "../../../lib/billing/display-currency";
+import { formatWorkspaceDateTime } from "../../../lib/time/format";
 import {
   OUTBOUND_CHANNELS,
   getCommunicationSettings,
@@ -33,7 +43,10 @@ import {
   quoteRevisionState,
 } from "../../../lib/documents/revisions";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
-import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
+import {
+  DEFAULT_WORKSPACE_GENERAL_SETTINGS,
+  getWorkspaceGeneralSettings,
+} from "../../../lib/workspace/general-settings";
 import { prepareQuoteDraftSendAction } from "../../documents/actions";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -66,17 +79,8 @@ const CONVERSATION_STATUS_OPTIONS = [
   { value: "resolved", label: "Resolved" },
 ] as const;
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatMoney(
@@ -163,6 +167,10 @@ function safeConversationStatus(status: string) {
     : "open";
 }
 
+function canIgnoreConversation(status: string) {
+  return status !== "resolved" && status !== "replied";
+}
+
 function channelLabel(
   channelType: string | null,
   channelDisplayName: string | null,
@@ -181,6 +189,10 @@ function channelLabel(
 
   if (channelType === "email") {
     return "Email";
+  }
+
+  if (channelDisplayName?.toLowerCase().includes("vapi")) {
+    return "Phone";
   }
 
   return channelDisplayName ?? formatLabel(channelType);
@@ -259,9 +271,11 @@ function ActionControls({
 
 function ProposedActionCard({
   action,
+  conversationId,
   redirectTo,
 }: {
   action: ConversationReview["actions"][number];
+  conversationId: string;
   redirectTo: string;
 }) {
   const quoteDraft = objectRecord(action.input.quoteDraft);
@@ -419,11 +433,49 @@ function ProposedActionCard({
         ) : null}
       </div>
 
-      <ActionControls
-        action={action}
-        executeLabel={executeLabel}
-        redirectTo={redirectTo}
-      />
+      {action.type === "book_site_visit" &&
+      ["approved", "pending_approval"].includes(action.status) ? (
+        <form
+          action={createConversationAppointmentAction}
+          className="action-button-row"
+        >
+          <input name="conversationId" type="hidden" value={conversationId} />
+          <input name="sourceActionId" type="hidden" value={action.id} />
+          <input name="redirectTo" type="hidden" value={redirectTo} />
+          <input
+            name="title"
+            type="hidden"
+            value={
+              textValue(action.input.title) ??
+              textValue(action.input.jobType) ??
+              "Site visit"
+            }
+          />
+          <input
+            name="location"
+            type="hidden"
+            value={textValue(action.input.address) ?? ""}
+          />
+          <input
+            name="description"
+            type="hidden"
+            value={
+              textValue(action.input.preferredTime)
+                ? `Customer preferred time: ${textValue(action.input.preferredTime)}`
+                : "Site visit suggested by Kyro."
+            }
+          />
+          <button className="primary-button compact" type="submit">
+            Save appointment
+          </button>
+        </form>
+      ) : (
+        <ActionControls
+          action={action}
+          executeLabel={executeLabel}
+          redirectTo={redirectTo}
+        />
+      )}
     </article>
   );
 }
@@ -503,6 +555,51 @@ function buildTimeline(review: ConversationReview) {
     }
   }
 
+  for (const task of review.tasks) {
+    items.push({
+      id: `task-${task.id}`,
+      at: task.completedAt ?? task.createdAt,
+      title:
+        task.status === "completed"
+          ? `Task completed: ${task.title}`
+          : `Task created: ${task.title}`,
+      detail: [
+        formatLabel(task.taskType),
+        formatLabel(task.priority),
+        task.dueAt ? `Due ${formatDate(task.dueAt)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+      tone: "system",
+    });
+  }
+
+  for (const appointment of review.appointments) {
+    items.push({
+      id: `appointment-${appointment.id}`,
+      at: appointment.startsAt ?? appointment.createdAt,
+      title: `Appointment ${formatLabel(appointment.status)}: ${appointment.title}`,
+      detail: [
+        formatLabel(appointment.appointmentType),
+        appointment.location,
+        appointment.startsAt ? formatDate(appointment.startsAt) : null,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+      tone: "system",
+    });
+  }
+
+  for (const note of review.notes) {
+    items.push({
+      id: `note-${note.id}`,
+      at: note.createdAt,
+      title: "Internal note added",
+      detail: previewText(note.body),
+      tone: "system",
+    });
+  }
+
   for (const quoteDraft of review.quoteDrafts) {
     for (const event of quoteDocumentHistory(quoteDraft.metadata).slice(0, 6)) {
       if (
@@ -552,7 +649,7 @@ export default async function ConversationReviewPage({
     getConversationReview(supabase, workspace.id, conversationId),
     getCommunicationSettings(supabase, workspace.id),
     getWorkspaceGeneralSettings(supabase, workspace.id).catch(
-      () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+      () => DEFAULT_WORKSPACE_GENERAL_SETTINGS,
     ),
   ]);
 
@@ -615,6 +712,13 @@ export default async function ConversationReviewPage({
   );
   const redirectTo = `/inbox/${conversationId}`;
   const timeline = buildTimeline(review);
+  const displayLeadTitle = formatLeadTitle(
+    review.lead?.title,
+    review.contact?.name,
+  );
+  const displayLeadService =
+    formatServiceType(review.lead?.serviceType) ??
+    titleCaseBusinessText(review.lead?.source);
   const draftReplyActions = review.actions.filter(
     (action) => action.type === "draft_reply",
   );
@@ -648,13 +752,15 @@ export default async function ConversationReviewPage({
       <header className="topbar inquiry-topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>
-          <h1>{review.lead?.title ?? "Inquiry review"}</h1>
+          <h1>{displayLeadTitle ?? "Inquiry review"}</h1>
         </div>
         <div className="topbar-actions inquiry-actions">
           <div className="compact-metrics" aria-label="Inquiry counters">
             <span>{review.messages.length} msg</span>
             <span>{review.aiRuns.length} AI</span>
-            <span>{formatMoney(String(usageTotal), "USD", generalSettings)}</span>
+            <span>
+              {formatMoney(String(usageTotal), "USD", generalSettings)}
+            </span>
           </div>
           <form action={updateConversationStatusAction} className="status-form">
             <input name="conversationId" type="hidden" value={conversationId} />
@@ -673,6 +779,22 @@ export default async function ConversationReviewPage({
               Update
             </button>
           </form>
+          {canIgnoreConversation(review.conversation.status) ? (
+            <form
+              action={ignoreConversationNotificationAction}
+              className="status-form inbox-ignore-notification-form"
+            >
+              <input
+                name="conversationId"
+                type="hidden"
+                value={conversationId}
+              />
+              <input name="redirectTo" type="hidden" value={redirectTo} />
+              <button className="secondary-button compact subtle" type="submit">
+                Ignore
+              </button>
+            </form>
+          ) : null}
           <Link className="secondary-button link-button" href="/inbox" prefetch>
             Back to inbox
           </Link>
@@ -734,11 +856,7 @@ export default async function ConversationReviewPage({
           <div className="summary-title">
             <div>
               <p className="eyebrow">Lead</p>
-              <h2>
-                {review.lead?.serviceType ??
-                  review.lead?.source ??
-                  "General inquiry"}
-              </h2>
+              <h2>{displayLeadService ?? "General inquiry"}</h2>
             </div>
             <span className={profileNeedsReview ? "pill warning" : "pill"}>
               {profileNeedsReview
@@ -753,6 +871,7 @@ export default async function ConversationReviewPage({
               Updated{" "}
               {formatDate(
                 review.lead?.updatedAt ?? review.conversation.lastMessageAt,
+                generalSettings.timeZone,
               )}
             </span>
           </div>
@@ -786,15 +905,13 @@ export default async function ConversationReviewPage({
                 type="text"
               />
             </label>
-            <label className="fact-item fact-input">
-              <strong>Address</strong>
-              <input
-                defaultValue={textValue(currentInquiryFacts.address) ?? ""}
-                name="address"
-                placeholder="Job address"
-                type="text"
-              />
-            </label>
+            <AddressAutocompleteField
+              className="fact-item fact-input"
+              defaultValue={textValue(currentInquiryFacts.address) ?? ""}
+              label="Address"
+              name="address"
+              placeholder="Job address"
+            />
             <label className="fact-item fact-input">
               <strong>Preferred time</strong>
               <input
@@ -978,300 +1095,194 @@ export default async function ConversationReviewPage({
             </button>
           </form>
 
-          <div className="message-list">
-            {review.messages.length > 0 ? (
-              review.messages.map((message) => (
-                <div
-                  className={
-                    message.direction === "outbound"
-                      ? "message-row outbound"
-                      : "message-row inbound"
-                  }
-                  key={message.id}
-                >
-                  <div className="message-meta">
-                    <div className="message-channel">
-                      <strong>{formatLabel(message.direction)}</strong>
-                      <span className="channel-pill">
-                        {channelLabel(
-                          message.channelType,
-                          message.channelDisplayName,
-                        )}
-                      </span>
-                    </div>
-                    <span>
-                      {formatDate(
-                        message.receivedAt ??
-                          message.sentAt ??
-                          message.createdAt,
-                      )}
-                    </span>
-                  </div>
-                  {message.subject ? <h3>{message.subject}</h3> : null}
-                  <p>{message.bodyText ?? "No message body."}</p>
-                  {textValue(message.metadata.attachmentQuoteDraftId) ? (
-                    <div className="message-attachment-pill">
-                      Quote draft attached
-                    </div>
-                  ) : null}
-                  {message.metadata.dryRun ? (
-                    <div className="message-attachment-pill warning">
-                      External send disabled
-                    </div>
-                  ) : null}
-                </div>
-              ))
-            ) : (
-              <p className="empty-copy">
-                No messages found for this conversation.
-              </p>
-            )}
-          </div>
+          <ConversationMessageThread
+            messages={review.messages}
+            timeZone={generalSettings.timeZone}
+          />
         </article>
 
         <aside className="side-stack">
-          <article className="panel outbound-composer-panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Outbound</p>
-                <h2>Composer</h2>
-              </div>
-              <span className="pill warning">Gmail active for email</span>
-            </div>
-
-            <form
-              action={createMockOutboundMessageAction}
-              className="outbound-composer-form"
-              encType="multipart/form-data"
-            >
-              <input
-                name="conversationId"
-                type="hidden"
-                value={conversationId}
-              />
-              <div className="mini-facts-grid">
-                <label>
-                  <strong>Channel</strong>
-                  <select
-                    name="channelType"
-                    defaultValue={communicationSettings.allowedChannels[0]}
-                  >
-                    {OUTBOUND_CHANNELS.map((channel) => (
-                      <option
-                        disabled={
-                          !communicationSettings.allowedChannels.includes(
+          <details className="panel conversation-reply-disclosure standalone">
+            <summary>
+              <span>{latestDraftReply ? "Reply drafted" : "Reply"}</span>
+              <span aria-hidden="true" className="conversation-disclosure-icon">
+                ⌄
+              </span>
+            </summary>
+            <div className="conversation-reply-editor">
+              <form
+                action={
+                  latestDraftReply
+                    ? sendDraftReplyAction
+                    : createMockOutboundMessageAction
+                }
+                className="outbound-composer-form"
+                encType="multipart/form-data"
+              >
+                <input
+                  name="conversationId"
+                  type="hidden"
+                  value={conversationId}
+                />
+                <input name="redirectTo" type="hidden" value={redirectTo} />
+                {latestDraftReply ? (
+                  <input
+                    name="actionId"
+                    type="hidden"
+                    value={latestDraftReply.id}
+                  />
+                ) : null}
+                <div className="mini-facts-grid reply-channel-attachment-grid">
+                  <label className="manual-reply-channel-field">
+                    <strong>Channel</strong>
+                    <select
+                      name="channelType"
+                      defaultValue={
+                        communicationSettings.allowedChannels.find(
+                          (channel) =>
+                            channel === "email" || channel === "sms",
+                        ) ?? "email"
+                      }
+                    >
+                      {OUTBOUND_CHANNELS.filter(
+                        (channel) => channel === "email" || channel === "sms",
+                      ).map((channel) => (
+                        <option
+                          disabled={
+                            !communicationSettings.allowedChannels.includes(
+                              channel,
+                            )
+                          }
+                          key={channel}
+                          value={channel}
+                        >
+                          {channel === "sms" ? "SMS" : formatLabel(channel)}
+                          {communicationSettings.allowedChannels.includes(
                             channel,
                           )
-                        }
-                        key={channel}
-                        value={channel}
-                      >
-                        {formatLabel(channel)}
-                        {communicationSettings.allowedChannels.includes(channel)
-                          ? ""
-                          : " disabled"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="attachment-field">
-                  <strong>Attach</strong>
-                  <div className="attachment-control-row">
-                    <select
-                      aria-label="Attach Kyro hosted file"
-                      name="attachmentQuoteDraftId"
-                      defaultValue={attachedQuoteDraftId}
-                    >
-                      <option value="">No attachment</option>
-                      {review.quoteDrafts.map((quoteDraft) => (
-                        <option key={quoteDraft.id} value={quoteDraft.id}>
-                          {quoteDraft.title}
+                            ? ""
+                            : " disabled"}
                         </option>
                       ))}
                     </select>
-                    <label
-                      className="local-attachment-button"
-                      title="Attach local files, up to 5 files and 10 MB total"
-                    >
-                      <input
-                        aria-label="Attach local files"
-                        multiple
-                        name="localAttachments"
-                        type="file"
-                      />
-                      <svg
-                        aria-hidden="true"
-                        fill="none"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        width="18"
+                  </label>
+                  <div className="attachment-field">
+                    <strong>Attach</strong>
+                    <div className="attachment-control-row">
+                      <select
+                        aria-label="Attach Kyro hosted file"
+                        name="attachmentQuoteDraftId"
+                        defaultValue={attachedQuoteDraftId}
                       >
-                        <path
-                          d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
+                        <option value="">No attachment</option>
+                        {review.quoteDrafts.map((quoteDraft) => (
+                          <option key={quoteDraft.id} value={quoteDraft.id}>
+                            {quoteDraft.title}
+                          </option>
+                        ))}
+                      </select>
+                      <label
+                        className="local-attachment-button"
+                        title="Attach local files, up to 5 files and 10 MB total"
+                      >
+                        <input
+                          aria-label="Attach local files"
+                          multiple
+                          name="localAttachments"
+                          type="file"
                         />
-                      </svg>
-                    </label>
+                        <svg
+                          aria-hidden="true"
+                          fill="none"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          width="18"
+                        >
+                          <path
+                            d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                          />
+                        </svg>
+                      </label>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <label>
-                Subject
-                <input
-                  defaultValue={composerSubject}
-                  name="subject"
-                  type="text"
-                />
-              </label>
-              <label>
-                Message
-                <textarea
-                  defaultValue={composerBody}
-                  name="body"
-                  placeholder="Write the outbound message..."
-                  required
-                />
-              </label>
-              <ReplyGenerator conversationId={conversationId} />
-              <div className="outbound-policy-strip">
-                <div className="email-signature-control">
-                  <label className="signature-include-control">
-                    <input
-                      defaultChecked
-                      name="includeSignature"
-                      type="checkbox"
-                    />
-                    <span>Signature</span>
-                  </label>
-                  <select
-                    aria-label="Email signature"
-                    defaultValue="manual"
-                    name="signatureVariant"
-                  >
-                    <option value="manual">User signature</option>
-                    <option value="ai_generated">Assistant signature</option>
-                  </select>
+                <label>
+                  Subject
+                  <input
+                    defaultValue={composerSubject}
+                    name="subject"
+                    type="text"
+                  />
+                </label>
+                <label>
+                  Message
+                  <textarea
+                    defaultValue={composerBody}
+                    name="body"
+                    placeholder="Write the outbound message..."
+                    required
+                  />
+                </label>
+                <ReplyGenerator conversationId={conversationId} />
+                <div className="outbound-policy-strip">
+                  <div className="email-signature-control">
+                    <label className="signature-include-control">
+                      <input
+                        defaultChecked
+                        name="includeSignature"
+                        type="checkbox"
+                      />
+                      <span>Signature</span>
+                    </label>
+                    <select
+                      aria-label="Email signature"
+                      defaultValue="manual"
+                      name="signatureVariant"
+                    >
+                      <option value="manual">User signature</option>
+                      <option value="ai_generated">Assistant signature</option>
+                    </select>
+                  </div>
+                </div>
+                <button className="primary-button compact" type="submit">
+                  Send reply
+                </button>
+              </form>
+            </div>
+          </details>
+
+          <ConversationWorkflowPanel redirectTo={redirectTo} review={review} />
+
+          {otherActions.length > 0 ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Actions</p>
+                  <h2>Proposed actions</h2>
                 </div>
               </div>
-              <button className="primary-button compact" type="submit">
-                Send outbound
-              </button>
-            </form>
-          </article>
 
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Actions</p>
-                <h2>Proposed actions</h2>
-              </div>
-            </div>
-
-            <div className="draft-reply-list">
-              {draftReplyActions.length > 0 ? (
-                draftReplyActions.map((action) => {
-                  const draftSubject = textValue(action.input.subject) ?? "";
-                  const draftBody = textValue(action.input.body) ?? "";
-                  const canEdit = action.status === "pending_approval";
-
-                  return (
-                    <div className="draft-reply-card" key={action.id}>
-                      <div className="draft-reply-header">
-                        <span className="pill">
-                          {formatLabel(action.status)}
-                        </span>
-                        {textValue(action.input.attachmentQuoteDraftId) ? (
-                          <span className="pill">PDF attached</span>
-                        ) : null}
-                        <span>Created {formatDate(action.createdAt)}</span>
-                      </div>
-                      <form
-                        action={
-                          canEdit
-                            ? sendDraftReplyAction
-                            : executeDashboardAction
-                        }
-                        className="draft-reply-form"
-                      >
-                        <input
-                          name="actionId"
-                          type="hidden"
-                          value={action.id}
-                        />
-                        <input
-                          name="conversationId"
-                          type="hidden"
-                          value={conversationId}
-                        />
-                        <input
-                          name="redirectTo"
-                          type="hidden"
-                          value={redirectTo}
-                        />
-                        <label>
-                          Subject
-                          <input
-                            defaultValue={draftSubject}
-                            name="subject"
-                            readOnly={!canEdit}
-                            type="text"
-                          />
-                        </label>
-                        <label>
-                          Reply draft
-                          <textarea
-                            defaultValue={draftBody}
-                            name="body"
-                            readOnly={!canEdit}
-                          />
-                        </label>
-                        <div className="action-button-row">
-                          {canEdit ? (
-                            <button
-                              className="secondary-button compact"
-                              formAction={updateDraftReplyAction}
-                              type="submit"
-                            >
-                              Save edits
-                            </button>
-                          ) : null}
-                          {action.status === "pending_approval" ||
-                          action.status === "approved" ? (
-                            <button
-                              className="primary-button compact"
-                              type="submit"
-                            >
-                              Send generated reply
-                            </button>
-                          ) : null}
-                          {action.status === "completed" ? (
-                            <span className="pill">Sent</span>
-                          ) : null}
-                        </div>
-                      </form>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="empty-copy">No draft reply action yet.</p>
-              )}
-            </div>
-
-            {otherActions.length > 0 ? (
               <div className="secondary-action-list">
                 {otherActions.map((action) => (
                   <ProposedActionCard
                     action={action}
+                    conversationId={conversationId}
                     key={action.id}
                     redirectTo={redirectTo}
                   />
                 ))}
               </div>
-            ) : null}
-          </article>
+            </article>
+          ) : null}
+
+          <ConversationHistory
+            profile={review}
+            timeZone={generalSettings.timeZone}
+          />
 
           {review.quoteDrafts.length > 0 ? (
             <article className="panel quote-drafts-panel">
@@ -1304,7 +1315,7 @@ export default async function ConversationReviewPage({
                     >
                       <Link
                         className="plain-link"
-                        href={`/documents/${quoteDraft.id}`}
+                        href={`/files/${quoteDraft.id}`}
                         prefetch={false}
                       >
                         <div>
@@ -1340,7 +1351,7 @@ export default async function ConversationReviewPage({
                           {needsRevision ? (
                             <Link
                               className="secondary-button compact link-button"
-                              href={`/documents/${quoteDraft.id}`}
+                              href={`/files/${quoteDraft.id}`}
                               prefetch={false}
                             >
                               Edit quote
@@ -1353,7 +1364,10 @@ export default async function ConversationReviewPage({
                                 type="hidden"
                                 value={quoteDraft.id}
                               />
-                              <button className="primary-button compact" type="submit">
+                              <button
+                                className="primary-button compact"
+                                type="submit"
+                              >
                                 Send revised quote
                               </button>
                             </form>

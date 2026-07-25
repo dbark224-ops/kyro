@@ -10,21 +10,18 @@
   "scripts": {
     "dev": "npm --workspace @kyro/web run dev --",
     "build": "npm --workspace @kyro/web run build",
-    "db:generate": "drizzle-kit generate --config drizzle.config.ts --prefix supabase",
-    "db:generate:custom": "drizzle-kit generate --config drizzle.config.ts --prefix supabase --custom",
-    "db:check": "drizzle-kit check --config drizzle.config.ts",
-    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
-    "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "db:migrate": "node scripts/db-migrate.mjs",
     "env:check": "node scripts/check-env.mjs",
     "env:check:production": "node scripts/check-env.mjs --production",
     "lint": "npm run lint --workspaces --if-present",
+    "lint:db": "node --test scripts/check-db-columns.test.mjs && node scripts/check-db-columns.mjs",
+    "db:snapshot": "node scripts/refresh-schema-snapshot.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --check ."
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
-    "drizzle-kit": "^0.31.10",
     "prettier": "latest",
     "tsx": "^4.21.0",
     "typescript": "latest"

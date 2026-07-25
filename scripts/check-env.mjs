@@ -22,13 +22,22 @@ function loadEnvFile(file) {
     }
 
     const [key, ...rest] = line.split("=");
-    entries[key.trim()] = rest.join("=").trim();
+    const rawValue = rest.join("=").trim();
+    const matchingQuote =
+      rawValue.length >= 2 &&
+      ((rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+        (rawValue.startsWith("'") && rawValue.endsWith("'")));
+
+    entries[key.trim()] = matchingQuote ? rawValue.slice(1, -1) : rawValue;
   }
 
   return entries;
 }
 
-const fileEnv = loadEnvFile(envFile ?? (fs.existsSync("apps/web/.env.local") ? "apps/web/.env.local" : ".env"));
+const fileEnv = loadEnvFile(
+  envFile ??
+    (fs.existsSync("apps/web/.env.local") ? "apps/web/.env.local" : ".env"),
+);
 const env = { ...fileEnv, ...process.env };
 
 const required = [
@@ -46,8 +55,24 @@ const required = [
 const optional = [
   "MICROSOFT_CLIENT_ID",
   "MICROSOFT_CLIENT_SECRET",
+  "GOOGLE_MAPS_API_KEY",
   "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_MESSAGING_SERVICE_SID",
+  "TWILIO_VOICE_NUMBER",
+  "TWILIO_WHATSAPP_SANDBOX_NUMBER",
+  "TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT",
+  "TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID",
+  "VAPI_API_KEY",
+  "NEXT_PUBLIC_VAPI_PUBLIC_KEY",
+  "VAPI_INTERNAL_ASSISTANT_ID",
+  "VAPI_PHONE_NUMBER_ID",
+  "VAPI_WEBHOOK_SECRET",
+  "VAPI_TOOL_SECRET",
   "STRIPE_SECRET_KEY",
+  "RESEND_API_KEY",
+  "WAITLIST_NOTIFICATION_EMAIL",
+  "WAITLIST_NOTIFICATION_FROM",
 ];
 
 function present(key) {
@@ -87,7 +112,10 @@ if (present("NEXT_PUBLIC_APP_URL") && !validUrl(env.NEXT_PUBLIC_APP_URL)) {
   failures.push("NEXT_PUBLIC_APP_URL must be a valid URL");
 }
 
-if (present("NEXT_PUBLIC_SUPABASE_URL") && !validUrl(env.NEXT_PUBLIC_SUPABASE_URL)) {
+if (
+  present("NEXT_PUBLIC_SUPABASE_URL") &&
+  !validUrl(env.NEXT_PUBLIC_SUPABASE_URL)
+) {
   failures.push("NEXT_PUBLIC_SUPABASE_URL must be a valid URL");
 }
 
@@ -95,17 +123,27 @@ if (present("DATABASE_URL") && !env.DATABASE_URL.startsWith("postgresql://")) {
   failures.push("DATABASE_URL must start with postgresql://");
 }
 
-if (present("INTEGRATION_TOKEN_ENCRYPTION_KEY") && env.INTEGRATION_TOKEN_ENCRYPTION_KEY.length < 32) {
-  failures.push("INTEGRATION_TOKEN_ENCRYPTION_KEY should be at least 32 characters");
+if (
+  present("INTEGRATION_TOKEN_ENCRYPTION_KEY") &&
+  env.INTEGRATION_TOKEN_ENCRYPTION_KEY.length < 32
+) {
+  failures.push(
+    "INTEGRATION_TOKEN_ENCRYPTION_KEY should be at least 32 characters",
+  );
 }
 
 if (mode === "production") {
-  if (present("NEXT_PUBLIC_APP_URL") && /localhost|127\.0\.0\.1/.test(env.NEXT_PUBLIC_APP_URL)) {
+  if (
+    present("NEXT_PUBLIC_APP_URL") &&
+    /localhost|127\.0\.0\.1/.test(env.NEXT_PUBLIC_APP_URL)
+  ) {
     failures.push("NEXT_PUBLIC_APP_URL cannot be localhost in production");
   }
 
   if (!present("CRON_SECRET") && !present("INBOUND_EMAIL_SYNC_SECRET")) {
-    failures.push("Production cron sync needs CRON_SECRET or INBOUND_EMAIL_SYNC_SECRET");
+    failures.push(
+      "Production cron sync needs CRON_SECRET or INBOUND_EMAIL_SYNC_SECRET",
+    );
   }
 }
 
@@ -116,7 +154,9 @@ for (const key of optional) {
 }
 
 console.log(`Kyro env check (${mode})`);
-console.log(`Required values: ${requiredPresentCount}/${required.length + 1} present`);
+console.log(
+  `Required values: ${requiredPresentCount}/${required.length + 1} present`,
+);
 
 if (warnings.length) {
   console.log("Warnings:");

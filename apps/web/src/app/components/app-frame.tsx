@@ -1,37 +1,80 @@
 import { BrandMark } from "./brand-mark";
+import { FloatingAssistantWidget } from "./floating-assistant-widget";
+import { GlobalSearch } from "./global-search";
+import { PendingSmartPrefetchLink } from "./pending-smart-prefetch-link";
 import { RoutePreloader } from "./route-preloader";
+import { SmartPrefetchLink } from "./smart-prefetch-link";
 import { TextScaleControl } from "./text-scale-control";
+import { ThemeModeControl } from "./theme-mode-control";
+import { TutorialLauncher } from "./tutorial-launcher";
 import { signOutAction } from "../auth/actions";
+import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getLlmDevStatus } from "../../lib/ai/dev-status";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import {
   convertDisplayMoney,
+  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  formatDisplayMoney,
   formatCurrencyAmount,
 } from "../../lib/billing/display-currency";
+import { KYRO_USER_BILLING_POLICY_TYPE } from "../../lib/billing/kyro-user-billing";
+import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
+import type { BillableUsageSummary } from "../../lib/billing/usage-summary";
 import { hasSupabaseEnv } from "../../lib/env";
+import {
+  EMPTY_NOTIFICATION_SUMMARY,
+  getNotificationSummary,
+  type AppNotificationItem,
+} from "../../lib/notifications/queries";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import { usageWindowStart } from "../../lib/usage/queries";
 import { getPrimaryWorkspace } from "../../lib/workspace/bootstrap";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
-import Link from "next/link";
-import { Suspense } from "react";
+import { cache, Suspense } from "react";
 import type { ReactNode } from "react";
 
 const navItems = [
-  { label: "Assistant", href: "/assistant", primary: true },
-  { label: "Voice", href: "/voice" },
-  { label: "Inbox", href: "/inbox" },
-  { label: "CRM", href: "/contacts" },
-  { label: "Documents", href: "/documents" },
-  { label: "Log", href: "/" },
-  { label: "Developer", href: "/developer" },
-  { label: "Settings", href: "/settings" },
+  { label: "Dashboard", href: "/dashboard", icon: "dashboard" },
+  { label: "Assistant", href: "/assistant", icon: "assistant", primary: true },
+  { label: "Inbox", href: "/inbox", icon: "inbox" },
+  { label: "Calendar", href: "/calendar", icon: "calendar" },
+  { label: "CRM", href: "/contacts", icon: "crm" },
+  { label: "Files", href: "/files", icon: "files" },
+  { label: "Payments", href: "/payments", icon: "payments" },
+  { label: "Activity", href: "/activity", icon: "activity" },
+  { label: "Reports", href: "/reports", icon: "reports" },
+  { label: "Settings", href: "/settings", icon: "settings" },
 ];
-const bottomNavItems = ["Assistant", "Voice", "Inbox", "Settings"]
+const bottomNavItems = ["Dashboard", "Assistant", "Inbox", "Settings"]
   .map((label) => navItems.find((item) => item.label === label))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
 const preloadRoutes = navItems
-  .filter((item) => item.label !== "Developer")
-  .map((item) => item.href);
+  .filter((item) =>
+    [
+      "Dashboard",
+      "Assistant",
+      "Calendar",
+      "Inbox",
+      "CRM",
+      "Files",
+      "Payments",
+      "Activity",
+    ].includes(item.label),
+  )
+  .map((item) => item.href)
+  .concat("/voice-vapi");
+const USAGE_COST_CACHE_TTL_MS = 30_000;
+const usageCostCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    value: {
+      currency: string;
+      grossMargin: number;
+      providerCost: number;
+    } | null;
+  }
+>();
 
 async function LlmDevStatusPill() {
   const status = await getLlmDevStatus();
@@ -70,6 +113,51 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "USD";
 }
 
+function optionalTextValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function recordValue(value: unknown) {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function validDate(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function totalCustomerCharge(summary: BillableUsageSummary | null) {
+  return (summary?.totals ?? []).reduce<number>(
+    (total, item) => total + item.customerCharge,
+    0,
+  );
+}
+
+async function loadKyroBillingPolicySettings(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  workspaceId: string,
+) {
+  const { data, error } = await supabase
+    .from("workspace_policies")
+    .select("settings")
+    .eq("workspace_id", workspaceId)
+    .eq("policy_type", KYRO_USER_BILLING_POLICY_TYPE)
+    .maybeSingle();
+
+  if (error) {
+    return null;
+  }
+
+  return recordValue(data?.settings);
+}
+
 async function loadUsageInternalCostPillData() {
   if (process.env.NODE_ENV === "production" || !hasSupabaseEnv()) {
     return null;
@@ -89,6 +177,13 @@ async function loadUsageInternalCostPillData() {
 
     if (!workspace) {
       return null;
+    }
+
+    const cacheKey = `${user.id}:${workspace.id}`;
+    const cached = usageCostCache.get(cacheKey);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
     }
 
     const start = usageWindowStart("30d");
@@ -116,8 +211,11 @@ async function loadUsageInternalCostPillData() {
       (current, row) => {
         const currency = textValue(row.currency);
         const provider =
-          convertDisplayMoney(numberValue(row.cost_snapshot), currency, settings)
-            ?.amount ?? 0;
+          convertDisplayMoney(
+            numberValue(row.cost_snapshot),
+            currency,
+            settings,
+          )?.amount ?? 0;
         const customer =
           convertDisplayMoney(
             numberValue(row.customer_charge_snapshot),
@@ -133,11 +231,18 @@ async function loadUsageInternalCostPillData() {
       { grossMargin: 0, providerCost: 0 },
     );
 
-    return {
+    const value = {
       currency: settings.displayCurrency,
       grossMargin: totals.grossMargin,
       providerCost: totals.providerCost,
     };
+
+    usageCostCache.set(cacheKey, {
+      expiresAt: Date.now() + USAGE_COST_CACHE_TTL_MS,
+      value,
+    });
+
+    return value;
   } catch {
     return null;
   }
@@ -167,6 +272,575 @@ async function UsageInternalCostPills() {
   );
 }
 
+function initialsFor(value: string) {
+  const words = value
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "KY";
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join("");
+}
+
+const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
+  if (!hasSupabaseEnv()) {
+    return null;
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return null;
+    }
+
+    const workspace = await getPrimaryWorkspace(supabase);
+
+    if (!workspace) {
+      return null;
+    }
+
+    const [
+      settings,
+      weeklyUsageSummary,
+      monthlyUsageSummary,
+      billingPolicy,
+      notificationSummary,
+    ] = await Promise.all([
+      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
+        () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+      ),
+      getBillableUsageSummary(supabase, workspace.id, {
+        period: "weekly",
+      }).catch(() => null),
+      getBillableUsageSummary(supabase, workspace.id, {
+        period: "monthly",
+      }).catch(() => null),
+      loadKyroBillingPolicySettings(supabase, workspace.id).catch(() => null),
+      getNotificationSummary(supabase, workspace.id).catch(
+        () => EMPTY_NOTIFICATION_SUMMARY,
+      ),
+    ]);
+
+    const now = new Date();
+    const trialStartedAt = validDate(
+      optionalTextValue(billingPolicy?.trialStartedAt),
+    );
+    const trialEndsAt = validDate(
+      optionalTextValue(billingPolicy?.trialEndsAt),
+    );
+    const isFreeTrialActive = Boolean(trialEndsAt && trialEndsAt > now);
+    const trialUsageSummary =
+      isFreeTrialActive && trialStartedAt && trialStartedAt < now
+        ? await getBillableUsageSummary(supabase, workspace.id, {
+            end: now.toISOString(),
+            period: "custom",
+            start: trialStartedAt.toISOString(),
+          }).catch(() => null)
+        : null;
+    const weeklyAmount = totalCustomerCharge(weeklyUsageSummary);
+    const monthlyAmount = totalCustomerCharge(monthlyUsageSummary);
+    const trialAmount = totalCustomerCharge(trialUsageSummary);
+    const weeklyCurrency =
+      weeklyUsageSummary?.totals[0]?.currency ?? settings.displayCurrency;
+    const monthlyCurrency =
+      monthlyUsageSummary?.totals[0]?.currency ?? settings.displayCurrency;
+    const trialCurrency =
+      trialUsageSummary?.totals[0]?.currency ??
+      monthlyUsageSummary?.totals[0]?.currency ??
+      settings.displayCurrency;
+
+    return {
+      isDeveloper: developerAccessEnabled(user),
+      isFreeTrialActive,
+      initials: initialsFor(workspace.name),
+      notificationSummary,
+      trialUsageLabel: formatDisplayMoney(trialAmount, trialCurrency, settings),
+      usageMonthLabel: formatDisplayMoney(
+        monthlyAmount,
+        monthlyCurrency,
+        settings,
+      ),
+      usageWeekLabel: formatDisplayMoney(
+        weeklyAmount,
+        weeklyCurrency,
+        settings,
+      ),
+      userEmail: user.email?.trim() ?? "Signed in",
+      workspaceName: workspace.name,
+    };
+  } catch {
+    return null;
+  }
+});
+
+const loadFloatingAssistantData = cache(
+  async function loadFloatingAssistantData() {
+    if (!hasSupabaseEnv()) {
+      return null;
+    }
+
+    try {
+      const supabase = await createServerSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        return null;
+      }
+
+      const workspace = await getPrimaryWorkspace(supabase);
+
+      if (!workspace) {
+        return null;
+      }
+
+      const assistantState = await getAssistantThreadState({
+        supabase,
+        user,
+        workspace,
+      });
+
+      return {
+        assistantState,
+        workspaceName: workspace.name,
+      };
+    } catch {
+      return null;
+    }
+  },
+);
+
+async function SidebarUsageCard() {
+  const data = await loadWorkspaceChromeData();
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <section className="sidebar-usage-card">
+      <p className="eyebrow">Usage</p>
+      <div className="sidebar-usage-metrics">
+        {data.isFreeTrialActive ? (
+          <div>
+            <span>Free trial usage</span>
+            <strong>{data.trialUsageLabel}</strong>
+          </div>
+        ) : (
+          <>
+            <div>
+              <span>This week</span>
+              <strong>{data.usageWeekLabel}</strong>
+            </div>
+            <div>
+              <span>This month</span>
+              <strong>{data.usageMonthLabel}</strong>
+            </div>
+          </>
+        )}
+      </div>
+      {data.isFreeTrialActive ? (
+        <span className="sidebar-usage-trial-pill">Free during trial</span>
+      ) : null}
+      <SmartPrefetchLink
+        className="sidebar-usage-link"
+        href="/settings?section=usage"
+      >
+        View settings and billing
+      </SmartPrefetchLink>
+    </section>
+  );
+}
+
+function notificationCountLabel(count: number) {
+  return count > 99 ? "99+" : String(count);
+}
+
+function formatNotificationTime(value: string | null) {
+  if (!value) {
+    return "Now";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Now";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+function notificationSourceLabel(source: AppNotificationItem["source"]) {
+  if (source === "escalation") {
+    return "Urgent escalation";
+  }
+
+  if (source === "billing") {
+    return "Billing";
+  }
+
+  return "Inbox";
+}
+
+async function AppNavLinks({
+  active,
+  items = navItems,
+  isMobile = false,
+}: Readonly<{
+  active: string;
+  items?: typeof navItems;
+  isMobile?: boolean;
+}>) {
+  const data = await loadWorkspaceChromeData();
+  const visibleNavItems = items.filter(
+    (item) => item.label !== "Developer" || data?.isDeveloper,
+  );
+  const inboxActionCount = data?.notificationSummary.inboxActionCount ?? 0;
+
+  return (
+    <>
+      {visibleNavItems.map((item) => (
+        <PendingSmartPrefetchLink
+          href={item.href}
+          className={[
+            isMobile ? "mobile-bottom-link" : "nav-link",
+            item.primary ? "primary" : null,
+            item.label === active ? "active" : null,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          key={item.label}
+        >
+          <span
+            className={isMobile ? "mobile-bottom-link-inner" : "nav-link-inner"}
+          >
+            <AppShellIcon name={item.icon} />
+            <span>{item.label}</span>
+            {item.label === "Inbox" && inboxActionCount > 0 ? (
+              <span
+                aria-label={`${inboxActionCount} inbox items need action`}
+                className="nav-notification-badge"
+              >
+                {notificationCountLabel(inboxActionCount)}
+              </span>
+            ) : null}
+          </span>
+        </PendingSmartPrefetchLink>
+      ))}
+    </>
+  );
+}
+
+async function NotificationBell() {
+  const data = await loadWorkspaceChromeData();
+
+  if (!data) {
+    return null;
+  }
+
+  const summary = data.notificationSummary ?? EMPTY_NOTIFICATION_SUMMARY;
+  const total = summary.total;
+
+  return (
+    <details className="notification-menu">
+      <summary
+        aria-label={
+          total > 0
+            ? `${total} notifications need action`
+            : "No notifications need action"
+        }
+        className={`notification-bell ${total > 0 ? "has-items" : ""}`}
+      >
+        <svg aria-hidden="true" viewBox="0 0 20 20">
+          <path
+            d="M5.5 8.5a4.5 4.5 0 1 1 9 0c0 3 1.25 4.25 2 5H3.5c.75-.75 2-2 2-5Z"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M8.25 16a1.9 1.9 0 0 0 3.5 0"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.8"
+          />
+        </svg>
+        {total > 0 ? (
+          <span className="notification-badge">
+            {notificationCountLabel(total)}
+          </span>
+        ) : null}
+      </summary>
+      <div className="notification-menu-panel">
+        <div className="notification-menu-header">
+          <div>
+            <strong>Notifications</strong>
+            <span>Unresolved work that needs attention</span>
+          </div>
+          <span>{notificationCountLabel(total)}</span>
+        </div>
+
+        {summary.items.length > 0 ? (
+          <div className="notification-menu-list">
+            {summary.items.map((item) => (
+              <SmartPrefetchLink
+                className="notification-menu-item"
+                href={item.href}
+                key={`${item.source}-${item.id}`}
+              >
+                <span className="notification-source">
+                  {notificationSourceLabel(item.source)}
+                </span>
+                <strong>{item.title}</strong>
+                <span>{item.detail}</span>
+                <small>{formatNotificationTime(item.timestamp)}</small>
+              </SmartPrefetchLink>
+            ))}
+          </div>
+        ) : (
+          <p className="notification-empty">
+            Nothing needs attention right now.
+          </p>
+        )}
+
+        {total > summary.items.length ? (
+          <SmartPrefetchLink
+            className="notification-view-all"
+            href="/inbox?sort=action"
+          >
+            View all inbox alerts
+          </SmartPrefetchLink>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+async function WorkspaceAccountChip() {
+  const data = await loadWorkspaceChromeData();
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <details className="workspace-account-menu">
+      <summary className="workspace-account-chip" aria-label="Workspace menu">
+        <span className="workspace-account-avatar">{data.initials}</span>
+        <span className="workspace-account-copy">
+          <strong>{data.workspaceName}</strong>
+          <small>{data.userEmail}</small>
+        </span>
+        <span className="workspace-account-chevron" aria-hidden="true">
+          v
+        </span>
+      </summary>
+      <div className="workspace-account-menu-panel">
+        <SmartPrefetchLink
+          className="workspace-account-menu-item"
+          href="/settings"
+        >
+          Settings
+        </SmartPrefetchLink>
+        <form action={signOutAction}>
+          <button className="workspace-account-menu-item danger" type="submit">
+            Sign out
+          </button>
+        </form>
+      </div>
+    </details>
+  );
+}
+
+async function FloatingAssistantBridge() {
+  const data = await loadFloatingAssistantData();
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <FloatingAssistantWidget
+      initialState={data.assistantState}
+      workspaceName={data.workspaceName}
+    />
+  );
+}
+
+function AppShellIcon({
+  name,
+}: Readonly<{
+  name?: string;
+}>) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeWidth: 1.8,
+  };
+
+  if (name === "assistant") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M5 6.5h10M5 10h7M5 13.5h5" />
+        <path
+          {...common}
+          d="M4 3.5h12a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 13.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 12V5A1.5 1.5 0 0 1 4 3.5Z"
+        />
+      </svg>
+    );
+  }
+
+  if (name === "voice") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M10 13.5a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v4.5a3 3 0 0 0 3 3Z"
+        />
+        <path {...common} d="M5 10.5a5 5 0 0 0 10 0M10 15v2.5M7.5 17.5h5" />
+      </svg>
+    );
+  }
+
+  if (name === "crm") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M10 10.25a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4 15.75a6 6 0 0 1 12 0"
+        />
+      </svg>
+    );
+  }
+
+  if (name === "inbox") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5V14A1.5 1.5 0 0 1 16 15.5H4A1.5 1.5 0 0 1 2.5 14V6A1.5 1.5 0 0 1 4 4.5Z"
+        />
+        <path {...common} d="M3 8.5h4l1.25 2h3.5l1.25-2H17" />
+      </svg>
+    );
+  }
+
+  if (name === "calendar") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M5 3.5v2M15 3.5v2M3.5 7.5h13M5 5h10A1.5 1.5 0 0 1 16.5 6.5V15A1.5 1.5 0 0 1 15 16.5H5A1.5 1.5 0 0 1 3.5 15V6.5A1.5 1.5 0 0 1 5 5Z"
+        />
+        <path {...common} d="M6.5 10h2M11.5 10h2M6.5 13h2M11.5 13h2" />
+      </svg>
+    );
+  }
+
+  if (name === "files") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M6 3.5h5l3 3V16A1.5 1.5 0 0 1 12.5 17.5h-7A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z"
+        />
+        <path {...common} d="M11 3.5V7h3.5M7 10.5h6M7 13h4" />
+      </svg>
+    );
+  }
+
+  if (name === "activity") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M3.5 10h3l1.5-3 3 6 1.5-3H16.5" />
+        <path {...common} d="M3.5 4.5h13v11h-13z" />
+      </svg>
+    );
+  }
+
+  if (name === "payments") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="M3.5 5.5h13v9h-13zM3.5 8h13" />
+        <path {...common} d="M6 12h3M12 12h2" />
+      </svg>
+    );
+  }
+
+  if (name === "reports") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M5 3.5h8l2.5 2.5V16A1.5 1.5 0 0 1 14 17.5H5.5A1.5 1.5 0 0 1 4 16V5A1.5 1.5 0 0 1 5.5 3.5Z"
+        />
+        <path {...common} d="M13 3.5V6h2.5M7 13.5V10M10 13.5V7.5M13 13.5v-2" />
+      </svg>
+    );
+  }
+
+  if (name === "developer") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path {...common} d="m7 6-3 4 3 4M13 6l3 4-3 4M11 4l-2 12" />
+      </svg>
+    );
+  }
+
+  if (name === "settings") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M10 7.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z"
+        />
+        <path
+          {...common}
+          d="M10 2.75v1.5M10 15.75v1.5M4.88 4.88l1.06 1.06M14.06 14.06l1.06 1.06M2.75 10h1.5M15.75 10h1.5M4.88 15.12l1.06-1.06M14.06 5.94l1.06-1.06"
+        />
+      </svg>
+    );
+  }
+
+  if (name === "dashboard") {
+    return (
+      <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+        <path
+          {...common}
+          d="M3.5 3.5h5v5h-5zM11.5 3.5h5v8h-5zM3.5 11.5h5v5h-5zM11.5 14.5h5v2h-5z"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" className="app-shell-icon" viewBox="0 0 20 20">
+      <circle {...common} cx="10" cy="10" r="6" />
+    </svg>
+  );
+}
+
 export function AppFrame({
   active,
   children,
@@ -177,10 +851,29 @@ export function AppFrame({
   topControls?: ReactNode;
 }>) {
   const activeHref = navItems.find((item) => item.label === active)?.href;
+  const fitFoldPages = new Set([
+    "Assistant",
+    "Activity",
+    "Calendar",
+    "CRM",
+    "Files",
+    "Inbox",
+    "Payments",
+  ]);
+  const workspaceClassName = [
+    "workspace",
+    fitFoldPages.has(active) ? "workspace-fit-fold" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const showFloatingAssistant = active !== "Assistant";
 
   return (
     <main className="app-shell">
-      <RoutePreloader activeHref={activeHref} routes={preloadRoutes} />
+      <RoutePreloader
+        activeHref={activeHref}
+        routes={active === "Settings" ? [] : preloadRoutes}
+      />
       <details className="mobile-nav-drawer">
         <summary className="mobile-drawer-toggle" aria-label="Open navigation">
           <span aria-hidden="true" className="mobile-drawer-lines">
@@ -190,27 +883,18 @@ export function AppFrame({
           Menu
         </summary>
         <div className="mobile-drawer-panel">
-          <div className="brand-lockup">
+          <SmartPrefetchLink
+            aria-label="Go to Dashboard"
+            className="brand-lockup"
+            href="/dashboard"
+          >
             <BrandMark />
-          </div>
+          </SmartPrefetchLink>
 
           <nav className="mobile-drawer-list" aria-label="Mobile navigation">
-            {navItems.map((item) => (
-              <Link
-                href={item.href}
-                className={[
-                  "nav-link",
-                  item.primary ? "primary" : null,
-                  item.label === active ? "active" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                key={item.label}
-                prefetch={false}
-              >
-                {item.label}
-              </Link>
-            ))}
+            <Suspense fallback={null}>
+              <AppNavLinks active={active} />
+            </Suspense>
           </nav>
 
           <form action={signOutAction}>
@@ -220,35 +904,28 @@ export function AppFrame({
           </form>
         </div>
       </details>
-      <aside className="sidebar" aria-label="Primary navigation">
-        <div className="brand-lockup">
+      <aside
+        className="sidebar"
+        aria-label="Primary navigation"
+        data-tour="side-panel"
+      >
+        <SmartPrefetchLink
+          aria-label="Go to Dashboard"
+          className="brand-lockup"
+          href="/dashboard"
+        >
           <BrandMark />
-        </div>
+        </SmartPrefetchLink>
 
         <nav className="nav-list">
-          {navItems.map((item) =>
-            item.href ? (
-              <Link
-                href={item.href}
-                className={[
-                  "nav-link",
-                  item.primary ? "primary" : null,
-                  item.label === active ? "active" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                key={item.label}
-                prefetch={false}
-              >
-                {item.label}
-              </Link>
-            ) : (
-              <span className="nav-link disabled" key={item.label}>
-                {item.label}
-              </span>
-            ),
-          )}
+          <Suspense fallback={null}>
+            <AppNavLinks active={active} />
+          </Suspense>
         </nav>
+
+        <Suspense fallback={null}>
+          <SidebarUsageCard />
+        </Suspense>
 
         <form action={signOutAction}>
           <button className="secondary-button full-width" type="submit">
@@ -257,36 +934,43 @@ export function AppFrame({
         </form>
       </aside>
 
-      <section className="workspace">
-        <div className="dev-top-controls">
-          {topControls}
-          <Suspense fallback={null}>
-            <UsageInternalCostPills />
-          </Suspense>
-          <TextScaleControl />
-          <Suspense fallback={null}>
-            <LlmDevStatusPill />
-          </Suspense>
+      <section className={workspaceClassName}>
+        <div className="app-top-chrome">
+          <div className="global-search-anchor" data-tour="global-search">
+            <GlobalSearch />
+          </div>
+          <div className="dev-top-controls">
+            {topControls}
+            <Suspense fallback={null}>
+              <UsageInternalCostPills />
+            </Suspense>
+            <TutorialLauncher />
+            <Suspense fallback={null}>
+              <NotificationBell />
+            </Suspense>
+            <ThemeModeControl />
+            <TextScaleControl />
+            <Suspense fallback={null}>
+              <LlmDevStatusPill />
+            </Suspense>
+            <Suspense fallback={null}>
+              <WorkspaceAccountChip />
+            </Suspense>
+          </div>
         </div>
         {children}
       </section>
 
+      {showFloatingAssistant ? (
+        <Suspense fallback={null}>
+          <FloatingAssistantBridge />
+        </Suspense>
+      ) : null}
+
       <nav className="mobile-bottom-nav" aria-label="Quick navigation">
-        {bottomNavItems.map((item) => (
-          <Link
-            className={[
-              "mobile-bottom-link",
-              item.label === active ? "active" : null,
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            href={item.href}
-            key={item.label}
-            prefetch={false}
-          >
-            {item.label}
-          </Link>
-        ))}
+        <Suspense fallback={null}>
+          <AppNavLinks active={active} isMobile items={bottomNavItems} />
+        </Suspense>
       </nav>
     </main>
   );

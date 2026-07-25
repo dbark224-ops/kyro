@@ -5,13 +5,23 @@ import {
   DEFAULT_COMMUNICATION_SETTINGS,
   OUTBOUND_CHANNELS,
   isOutboundChannel,
+  normalizeCommunicationSettings,
   normalizeEmailSignatureSettings,
+  normalizeFollowUpDelayDays,
+  normalizeReplyWritingSettings,
   type CommunicationSettings,
 } from "../../lib/communication/settings";
 import {
+  ELEVENLABS_VOICE_PRESETS,
   OPENAI_VOICE_OPTIONS,
   OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
+  PHONE_AGENT_DEMEANORS,
+  PHONE_AGENT_ESCALATION_MODES,
+  PHONE_AGENT_HUMOUR_LEVELS,
+  PHONE_AGENT_INBOUND_INQUIRY_MODES,
+  PHONE_AGENT_VERBOSITIES,
   VOICE_SETTINGS_POLICY_TYPE,
+  getVoiceSettings,
   normalizeVoiceSettings,
   type OpenAiVoice,
   type OutboundVoicePronunciationPolicy,
@@ -34,6 +44,22 @@ import {
   normalizeDisplayCurrency,
 } from "../../lib/billing/display-currency";
 import {
+  CALENDAR_EVENT_TYPES,
+  CALENDAR_SETTINGS_POLICY_TYPE,
+  CALENDAR_SYNC_PROVIDERS,
+  CALENDAR_VIEWS,
+  getCalendarSettings,
+  normalizeCalendarSettings,
+} from "../../lib/calendar/settings";
+import {
+  CALENDAR_DAILY_DIGEST_TIMINGS,
+  CALENDAR_SMS_REMINDER_MINUTES,
+  NOTIFICATION_SETTINGS_POLICY_TYPE,
+  getNotificationSettings,
+  normalizeNotificationSettings,
+} from "../../lib/notifications/settings";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
+import {
   DEFAULT_INBOUND_EMAIL_SETTINGS,
   INBOUND_EMAIL_POLICY_TYPE,
   INBOUND_EMAIL_POLL_INTERVALS,
@@ -54,14 +80,61 @@ import {
   MICROSOFT_SERVICE,
 } from "../../lib/integrations/microsoft";
 import {
+  DEFAULT_PHONE_REGION,
+  normalizeContactPhoneForRegion,
+  normalizePhoneRegion,
+  PHONE_REGION_OPTIONS,
+} from "../../lib/crm/identity";
+import {
+  WORKPLACE_CONTACT_CHANNELS,
   WORKSPACE_GENERAL_POLICY_TYPE,
+  getWorkspaceGeneralSettings,
+  normalizeWorkspaceBusinessProfileSettings,
   normalizeWorkspaceGeneralSettings,
+  type WorkplaceContactChannel,
+  type WorkplaceContactSettings,
 } from "../../lib/workspace/general-settings";
+import {
+  isOperatingCountry,
+  operatingCountryPhoneRegion,
+} from "../../lib/workspace/operating-countries";
+import {
+  createStripeConnectOnboardingLink,
+  resetWorkspaceStripePaymentAccount,
+} from "../../lib/payments/accounts";
+import {
+  createKyroUserBillingPortalUrl,
+  createKyroUserBillingSetupUrl,
+} from "../../lib/billing/kyro-user-billing";
+import {
+  friendlyEmailVerificationSendError,
+  isKyroEmailVerified,
+  isSupabaseEmailConfirmed,
+  sendKyroEmailVerification,
+} from "../../lib/auth/email-verification";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { createServiceSupabaseClient } from "../../lib/supabase/service";
+import {
+  assignWorkspacePhoneNumberFromPool,
+  ensureWorkspacePhoneNumberFromPool,
+  getWorkspaceAssignedPhoneNumbers,
+  releaseWorkspacePhoneNumberToPool,
+  type WorkspacePhoneNumberPoolRow,
+} from "../../lib/voice/phone-number-pool";
+import { normalizeUsageMarkupRate } from "../../lib/usage/pricing";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 const MAX_SIGNATURE_LOGO_BYTES = 512 * 1024;
+
+type TutorialSupabaseClient = {
+  from(table: "workspace_tutorial_state"): {
+    upsert(
+      values: Record<string, unknown>,
+      options: { onConflict: string },
+    ): Promise<{ error: { message: string } | null }>;
+  };
+};
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -77,6 +150,224 @@ function formChannels(formData: FormData) {
 
 function formBoolean(formData: FormData, key: string) {
   return formData.get(key) === "on";
+}
+
+function formJson(formData: FormData, key: string) {
+  const value = formString(formData, key);
+
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function phoneNumberMetadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function voicemailOverflowMetadata(
+  metadata: Record<string, unknown>,
+  userId: string,
+) {
+  return {
+    ...metadata,
+    voicePurpose: "voicemail_overflow",
+    voicemailOverflowEnabledAt: new Date().toISOString(),
+    voicemailOverflowEnabledBy: userId,
+  };
+}
+
+function clearVoicemailOverflowMetadata(metadata: Record<string, unknown>) {
+  const next = { ...metadata };
+
+  if (next.voicePurpose === "voicemail_overflow") {
+    delete next.voicePurpose;
+  }
+
+  if (next.purpose === "voicemail_overflow") {
+    delete next.purpose;
+  }
+
+  delete next.voicemailOverflowEnabledAt;
+  delete next.voicemailOverflowEnabledBy;
+
+  return next;
+}
+
+function numberHasVoicemailOverflowPurpose(
+  number: WorkspacePhoneNumberPoolRow,
+) {
+  const purpose =
+    number.metadata.voicePurpose ?? number.metadata.purpose ?? null;
+
+  return purpose === "voicemail_overflow";
+}
+
+function formStringList(formData: FormData, key: string) {
+  return formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""));
+}
+
+function phoneAgentUserNumberDetailsFromForm(formData: FormData) {
+  const phones = formStringList(formData, "phoneAgentTeamPhone");
+  const names = formStringList(formData, "phoneAgentTeamName");
+  const roles = formStringList(formData, "phoneAgentTeamRole");
+
+  return phones
+    .map((phoneNumber, index) => ({
+      name: names[index] || null,
+      phoneNumber,
+      role: roles[index] || null,
+    }))
+    .filter((row) => row.phoneNumber);
+}
+
+function workplaceContactChannelFromForm(
+  value: string,
+): WorkplaceContactChannel {
+  return WORKPLACE_CONTACT_CHANNELS.includes(value as WorkplaceContactChannel)
+    ? (value as WorkplaceContactChannel)
+    : "sms";
+}
+
+function workplaceContactsFromForm(formData: FormData): WorkplaceContactSettings[] {
+  const ids = formStringList(formData, "workplaceContactId");
+  const names = formStringList(formData, "workplaceContactName");
+  const roles = formStringList(formData, "workplaceContactRole");
+  const phones = formStringList(formData, "workplaceContactPhone");
+  const privatePhones = formStringList(
+    formData,
+    "workplaceContactPrivatePhone",
+  );
+  const emails = formStringList(formData, "workplaceContactEmail");
+  const specialties = formStringList(formData, "workplaceContactSpecialty");
+  const activeDays = formStringList(formData, "workplaceContactActiveDays");
+  const workingHours = formStringList(formData, "workplaceContactWorkingHours");
+  const vehicleRegistrations = formStringList(
+    formData,
+    "workplaceContactVehicleRegistration",
+  );
+  const notes = formStringList(formData, "workplaceContactNotes");
+  const receivesEscalations = formStringList(
+    formData,
+    "workplaceContactReceivesEscalations",
+  );
+  const primaryEscalationContacts = formStringList(
+    formData,
+    "workplaceContactPrimaryEscalationContact",
+  );
+  const preferredChannels = formStringList(
+    formData,
+    "workplaceContactPreferredChannel",
+  );
+  const phoneRegion = normalizePhoneRegion(
+    formString(formData, "workplaceContactPhoneRegion"),
+  );
+
+  return ids
+    .map((id, index) => ({
+      activeDays: activeDays[index] || "",
+      email: emails[index] || "",
+      id: id || `contact-${index + 1}`,
+      name: names[index] || "",
+      notes: notes[index] || "",
+      phoneNumber:
+        normalizeContactPhoneForRegion(phones[index] || "", phoneRegion) ?? "",
+      preferredChannel: workplaceContactChannelFromForm(
+        preferredChannels[index] || "sms",
+      ),
+      privatePhoneNumber:
+        normalizeContactPhoneForRegion(
+          privatePhones[index] || "",
+          phoneRegion,
+        ) ?? "",
+      primaryEscalationContact:
+        primaryEscalationContacts[index] === "true",
+      receivesEscalations: receivesEscalations[index] !== "false",
+      role: roles[index] || "",
+      tradeSpecialty: specialties[index] || "",
+      vehicleRegistration: vehicleRegistrations[index] || "",
+      workingHours: workingHours[index] || "",
+    }))
+    .filter(
+      (contact) =>
+        contact.name ||
+        contact.phoneNumber ||
+        contact.email ||
+        contact.role ||
+        contact.tradeSpecialty,
+    );
+}
+
+function workplaceContactsWithPrimaryEscalationContact(
+  contacts: WorkplaceContactSettings[],
+  primaryContactId: string,
+) {
+  if (!primaryContactId) {
+    return contacts;
+  }
+
+  return contacts.map((contact) => ({
+    ...contact,
+    primaryEscalationContact: contact.id === primaryContactId,
+    receivesEscalations:
+      contact.id === primaryContactId ? true : contact.receivesEscalations,
+  }));
+}
+
+function phoneAgentUserNumberDetailsFromWorkplaceContacts(
+  contacts: WorkplaceContactSettings[],
+) {
+  const seenNumbers = new Set<string>();
+
+  return contacts.flatMap((contact) =>
+    [contact.phoneNumber, contact.privatePhoneNumber]
+      .map((phoneNumber) => phoneNumber.trim())
+      .filter(Boolean)
+      .filter((phoneNumber) => {
+        if (seenNumbers.has(phoneNumber)) {
+          return false;
+        }
+
+        seenNumbers.add(phoneNumber);
+        return true;
+      })
+      .map((phoneNumber) => ({
+        name: contact.name || null,
+        phoneNumber,
+        role: contact.role || contact.tradeSpecialty || null,
+      })),
+  );
+}
+
+function urgentEscalationStepsFromForm(formData: FormData) {
+  const ids = formStringList(formData, "urgentEscalationStepId");
+  const channels = formStringList(formData, "urgentEscalationStepChannel");
+  const contactIds = formStringList(formData, "urgentEscalationStepContactId");
+  const delays = formStringList(formData, "urgentEscalationStepDelayMinutes");
+
+  return ids
+    .map((id, index) => ({
+      channel: channels[index] || "sms",
+      contactId: contactIds[index] || "primary",
+      delayMinutes: delays[index] || "0",
+      id: id || `step-${index + 1}`,
+    }))
+    .filter((step) => step.channel && step.contactId);
 }
 
 function formInteger(formData: FormData, key: string) {
@@ -104,24 +395,35 @@ function isUploadFile(value: FormDataEntryValue): value is File {
   );
 }
 
-async function signatureLogoPayload(
+async function imagePayload(
   formData: FormData,
-  prefix: "manualSignature" | "aiGeneratedSignature",
+  prefix: string,
+  section: "general" | "integrations" | "voice",
+  label: string,
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
 ) {
   const upload = formData.get(`${prefix}LogoFile`);
 
   if (upload && isUploadFile(upload) && upload.name.trim() && upload.size > 0) {
     if (!upload.type.startsWith("image/")) {
-      redirectWithSettingsMessage(
+      redirectWithSectionMessage(
+        section,
         "engine_error",
-        "Signature logos must be image files.",
+        `${label} must be image files.`,
+        redirectOptions,
       );
     }
 
     if (upload.size > MAX_SIGNATURE_LOGO_BYTES) {
-      redirectWithSettingsMessage(
+      redirectWithSectionMessage(
+        section,
         "engine_error",
-        "Signature logos are limited to 512 KB for now.",
+        `${label} are limited to 512 KB for now.`,
+        redirectOptions,
       );
     }
 
@@ -143,13 +445,63 @@ async function signatureLogoPayload(
   };
 }
 
+async function signatureLogoPayload(
+  formData: FormData,
+  prefix: "manualSignature" | "aiGeneratedSignature",
+  section: "general" | "integrations" = "integrations",
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
+) {
+  return imagePayload(
+    formData,
+    prefix,
+    section,
+    "Signature logos",
+    redirectOptions,
+  );
+}
+
+async function businessLogoPayload(
+  formData: FormData,
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
+) {
+  return imagePayload(
+    formData,
+    "businessProfile",
+    "general",
+    "Business logos",
+    redirectOptions,
+  );
+}
+
 function redirectWithSectionMessage(
-  section: "general" | "integrations" | "voice",
+  section:
+    | "general"
+    | "integrations"
+    | "calendar"
+    | "notifications"
+    | "voice"
+    | "developer",
   key: "engine_error" | "engine_message",
   message: string,
-  options: { senderRules?: boolean } = {},
+  options: { focus?: string; panel?: string; senderRules?: boolean } = {},
 ): never {
   const params = new URLSearchParams({ section, [key]: message });
+
+  if (options.focus) {
+    params.set("focus", options.focus);
+  }
+
+  if (options.panel) {
+    params.set("panel", options.panel);
+  }
 
   if (options.senderRules) {
     params.set("senderRules", "1");
@@ -161,8 +513,74 @@ function redirectWithSectionMessage(
 function redirectWithSettingsMessage(
   key: "engine_error" | "engine_message",
   message: string,
+  focus?: string | null,
 ): never {
-  redirectWithSectionMessage("integrations", key, message);
+  redirectWithSectionMessage("integrations", key, message, {
+    ...(focus ? { focus } : {}),
+    panel: "outbound",
+  });
+}
+
+const GENERAL_SETTINGS_PANELS = [
+  "business",
+  "public-details",
+  "availability",
+  "branding-logo",
+  "email-signature",
+  "emergency-work",
+  "urgent-escalation",
+  "workplace-contacts",
+] as const;
+
+function generalSettingsRedirectOptions(formData: FormData) {
+  const requestedPanel = formString(formData, "settingsPanel");
+  const panel = GENERAL_SETTINGS_PANELS.includes(
+    requestedPanel as (typeof GENERAL_SETTINGS_PANELS)[number],
+  )
+    ? requestedPanel
+    : "";
+
+  return panel ? { panel } : {};
+}
+
+export async function resendEmailVerificationAction() {
+  const { supabase, user } = await requireWorkspaceContext();
+
+  if (!user.email) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      "This account does not have an email address to verify.",
+    );
+  }
+
+  if (isKyroEmailVerified(user)) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_message",
+      "Email address is already verified.",
+    );
+  }
+
+  const { error } = await sendKyroEmailVerification({
+    email: user.email,
+    nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
+    supabase,
+  });
+
+  if (error) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      friendlyEmailVerificationSendError(error.message),
+    );
+  }
+
+  redirectWithSectionMessage(
+    "general",
+    "engine_message",
+    "Verification email sent. Check your inbox.",
+  );
 }
 
 function integrationService(provider: string) {
@@ -260,10 +678,86 @@ async function saveInboundEmailPolicyUpdate({
   return savedPolicy;
 }
 
+function inboundEmailSettingsFromForm(
+  formData: FormData,
+  beforeSettings: InboundEmailSettings,
+) {
+  const syncMode = formString(formData, "inboundSyncMode");
+
+  if (
+    !INBOUND_EMAIL_SYNC_MODES.includes(
+      syncMode as InboundEmailSettings["syncMode"],
+    )
+  ) {
+    return {
+      error: "Inbound email sync mode is invalid.",
+      settings: null,
+    };
+  }
+
+  const pollIntervalMinutes =
+    formInteger(formData, "inboundPollIntervalMinutes") ??
+    DEFAULT_INBOUND_EMAIL_SETTINGS.pollIntervalMinutes;
+
+  if (
+    !INBOUND_EMAIL_POLL_INTERVALS.includes(
+      pollIntervalMinutes as 5 | 15 | 30 | 60,
+    )
+  ) {
+    return {
+      error: "Inbound email poll interval is invalid.",
+      settings: null,
+    };
+  }
+
+  return {
+    error: null,
+    settings: normalizeInboundEmailSettings({
+      ...beforeSettings,
+      actionInstructions: formString(formData, "inboundActionInstructions"),
+      autoPromoteActionable: true,
+      includeAwarenessEvents: formBoolean(
+        formData,
+        "inboundIncludeAwarenessEvents",
+      ),
+      lookbackDays:
+        formInteger(formData, "inboundLookbackDays") ??
+        DEFAULT_INBOUND_EMAIL_SETTINGS.lookbackDays,
+      maxMessagesPerSync:
+        formInteger(formData, "inboundMaxMessagesPerSync") ??
+        DEFAULT_INBOUND_EMAIL_SETTINGS.maxMessagesPerSync,
+      pollIntervalMinutes,
+      quietHoursEnabled: formBoolean(formData, "inboundQuietHoursEnabled"),
+      quietHoursEnd: formString(formData, "inboundQuietHoursEnd"),
+      quietHoursMode: "paused",
+      quietHoursStart: formString(formData, "inboundQuietHoursStart"),
+      syncMode,
+      timeZone: beforeSettings.timeZone,
+    }),
+  };
+}
+
 export async function updateCommunicationSettingsAction(formData: FormData) {
+  const settingsFocusRaw = formString(formData, "settingsFocus");
+  const settingsFocus =
+    settingsFocusRaw === "email-signatures" ||
+    settingsFocusRaw === "outbound-writing"
+      ? settingsFocusRaw
+      : null;
   const approvalMode = formString(formData, "approvalMode");
   const defaultTone = formString(formData, "defaultTone");
   const allowedChannels = [...new Set(formChannels(formData))];
+  const replyWriting = normalizeReplyWritingSettings({
+    messageLength: formString(formData, "replyMessageLength"),
+    reusableInstructions: formString(formData, "replyReusableInstructions"),
+    signOff: formString(formData, "replySignOff"),
+    tone: formString(formData, "replyTone"),
+    tradePhrasing: formString(formData, "replyTradePhrasing"),
+    wordingStyle: formString(formData, "replyWordingStyle"),
+  });
+  const followUpDelayDays = normalizeFollowUpDelayDays(
+    formInteger(formData, "followUpDelayDays"),
+  );
   const manualLogo = await signatureLogoPayload(formData, "manualSignature");
   const aiLogo = await signatureLogoPayload(formData, "aiGeneratedSignature");
   const manualSignature = normalizeEmailSignatureSettings({
@@ -289,6 +783,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       "Outbound approval mode is invalid.",
+      settingsFocus,
     );
   }
 
@@ -296,6 +791,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       "Select at least one outbound channel.",
+      settingsFocus,
     );
   }
 
@@ -307,6 +803,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       `${unsupportedChannel} is not a supported channel.`,
+      settingsFocus,
     );
   }
 
@@ -314,10 +811,20 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     approvalRequired: approvalMode === "approval_required",
     aiGeneratedSignature,
     allowedChannels,
+    autoReplyKnownBusinessFacts: formBoolean(
+      formData,
+      "autoReplyKnownBusinessFacts",
+    ),
     businessSignature: manualSignature.text,
-    defaultTone: defaultTone || DEFAULT_COMMUNICATION_SETTINGS.defaultTone,
+    defaultTone:
+      replyWriting.tone ||
+      defaultTone ||
+      DEFAULT_COMMUNICATION_SETTINGS.defaultTone,
     dryRunOnly: true,
+    followUpDelayDays,
+    followUpRemindersEnabled: formBoolean(formData, "followUpRemindersEnabled"),
     manualSignature,
+    replyWriting,
     useSeparateAiSignature: formBoolean(formData, "useSeparateAiSignature"),
   };
 
@@ -330,7 +837,11 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectWithSettingsMessage("engine_error", beforeError.message);
+    redirectWithSettingsMessage(
+      "engine_error",
+      beforeError.message,
+      settingsFocus,
+    );
   }
 
   const { data: savedPolicy, error: saveError } = await supabase
@@ -352,6 +863,7 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
     redirectWithSettingsMessage(
       "engine_error",
       saveError?.message ?? "Unable to save communication settings.",
+      settingsFocus,
     );
   }
 
@@ -371,10 +883,272 @@ export async function updateCommunicationSettingsAction(formData: FormData) {
   redirectWithSettingsMessage(
     "engine_message",
     "Communication settings saved.",
+    settingsFocus,
   );
 }
 
-function assertValidTimeZone(value: string) {
+export async function updateCalendarSettingsAction(formData: FormData) {
+  const requestedPanel = formString(formData, "settingsPanel");
+  const panel =
+    requestedPanel === "calendar-defaults" ? "calendar-defaults" : "calendar-sync";
+  const defaultView = formString(formData, "calendarDefaultView");
+  const defaultEventType = formString(formData, "calendarDefaultEventType");
+  const syncProvider = formString(formData, "calendarSyncProvider");
+
+  if (!CALENDAR_VIEWS.includes(defaultView as (typeof CALENDAR_VIEWS)[number])) {
+    redirectWithSectionMessage("calendar", "engine_error", "Choose a valid calendar view.", {
+      panel,
+    });
+  }
+
+  if (
+    !CALENDAR_EVENT_TYPES.includes(
+      defaultEventType as (typeof CALENDAR_EVENT_TYPES)[number],
+    )
+  ) {
+    redirectWithSectionMessage("calendar", "engine_error", "Choose a valid default event type.", {
+      panel,
+    });
+  }
+
+  if (
+    !CALENDAR_SYNC_PROVIDERS.includes(
+      syncProvider as (typeof CALENDAR_SYNC_PROVIDERS)[number],
+    )
+  ) {
+    redirectWithSectionMessage("calendar", "engine_error", "Choose a valid calendar sync provider.", {
+      panel,
+    });
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const beforeSettings = await getCalendarSettings(supabase, workspace.id);
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", CALENDAR_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage("calendar", "engine_error", beforeError.message, {
+      panel,
+    });
+  }
+
+  const settings = normalizeCalendarSettings({
+    ...beforeSettings,
+    bufferMinutesAfter: formString(formData, "calendarBufferMinutesAfter"),
+    bufferMinutesBefore: formString(formData, "calendarBufferMinutesBefore"),
+    defaultDurationMinutes: formString(
+      formData,
+      "calendarDefaultDurationMinutes",
+    ),
+    defaultEventType,
+    defaultView,
+    externalCalendarId: formString(formData, "calendarExternalCalendarId"),
+    importExternalUpdates: formBoolean(formData, "calendarImportExternalUpdates"),
+    syncCreatedEventsToExternal: formBoolean(
+      formData,
+      "calendarSyncCreatedEventsToExternal",
+    ),
+    syncDeletedEventsToExternal: formBoolean(
+      formData,
+      "calendarSyncDeletedEventsToExternal",
+    ),
+    syncProvider,
+    syncUpdatedEventsToExternal: formBoolean(
+      formData,
+      "calendarSyncUpdatedEventsToExternal",
+    ),
+  });
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        workspace_id: workspace.id,
+        policy_type: CALENDAR_SETTINGS_POLICY_TYPE,
+        settings,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "calendar",
+      "engine_error",
+      saveError?.message ?? "Unable to save calendar settings.",
+      { panel },
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "calendar_settings.updated",
+    entityType: "workspace_policy",
+    entityId: String(savedPolicy.id),
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    after: { settings },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/calendar");
+  redirectWithSectionMessage(
+    "calendar",
+    "engine_message",
+    "Calendar settings saved.",
+    { panel },
+  );
+}
+
+export async function updateNotificationSettingsAction(formData: FormData) {
+  const reminderMinutesValue = Number(
+    formString(formData, "calendarSmsReminderMinutes"),
+  );
+  const digestTiming = formString(formData, "calendarDailyDigestTiming");
+  const panel = "calendar-notifications";
+
+  if (
+    !CALENDAR_SMS_REMINDER_MINUTES.includes(
+      reminderMinutesValue as (typeof CALENDAR_SMS_REMINDER_MINUTES)[number],
+    )
+  ) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      "Choose a valid reminder time.",
+      { panel },
+    );
+  }
+
+  if (
+    !CALENDAR_DAILY_DIGEST_TIMINGS.includes(
+      digestTiming as (typeof CALENDAR_DAILY_DIGEST_TIMINGS)[number],
+    )
+  ) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      "Choose a valid daily report timing.",
+      { panel },
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const [beforeSettings, generalSettings, beforePolicyResult] =
+    await Promise.all([
+      getNotificationSettings(supabase, workspace.id),
+      getWorkspaceGeneralSettings(supabase, workspace.id),
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", NOTIFICATION_SETTINGS_POLICY_TYPE)
+        .maybeSingle(),
+    ]);
+
+  if (beforePolicyResult.error) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      beforePolicyResult.error.message,
+      { panel },
+    );
+  }
+
+  const rawRecipientPhone = formString(formData, "calendarSmsRecipientPhone");
+  const normalizedRecipientPhone = rawRecipientPhone
+    ? normalizeContactPhoneForRegion(
+        rawRecipientPhone,
+        generalSettings.defaultPhoneRegion,
+      )
+    : "";
+
+  if (rawRecipientPhone && !normalizedRecipientPhone?.startsWith("+")) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      "Enter the SMS recipient number with a valid country code.",
+      { panel },
+    );
+  }
+
+  const settings = {
+    ...normalizeNotificationSettings({
+      ...beforeSettings,
+      calendarDailyDigestEnabled: formBoolean(
+        formData,
+        "calendarDailyDigestEnabled",
+      ),
+      calendarDailyDigestTime: formString(formData, "calendarDailyDigestTime"),
+      calendarDailyDigestTiming: digestTiming,
+      calendarSmsReminderMinutes: reminderMinutesValue,
+      calendarSmsRemindersEnabled: formBoolean(
+        formData,
+        "calendarSmsRemindersEnabled",
+      ),
+      calendarSmsRecipientPhone: normalizedRecipientPhone,
+    }),
+    calendarSmsRecipientPhone: normalizedRecipientPhone ?? "",
+  };
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: NOTIFICATION_SETTINGS_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "notifications",
+      "engine_error",
+      saveError?.message ?? "Unable to save notification settings.",
+      { panel },
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    action: "notification_settings.updated",
+    actorId: user.id,
+    actorType: "user",
+    after: { settings },
+    before: beforePolicyResult.data
+      ? { settings: beforePolicyResult.data.settings }
+      : null,
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+    workspaceId: workspace.id,
+  });
+
+  revalidatePath("/settings");
+  redirectWithSectionMessage(
+    "notifications",
+    "engine_message",
+    "Notification settings saved.",
+    { panel },
+  );
+}
+
+function assertValidTimeZone(
+  value: string,
+  redirectOptions: {
+    focus?: string;
+    panel?: string;
+    senderRules?: boolean;
+  } = {},
+) {
   try {
     new Intl.DateTimeFormat("en", { timeZone: value }).format(new Date());
   } catch {
@@ -382,14 +1156,38 @@ function assertValidTimeZone(value: string) {
       "general",
       "engine_error",
       "Enter a valid IANA timezone such as Australia/Brisbane or America/Denver.",
+      redirectOptions,
     );
   }
 }
 
 export async function updateGeneralSettingsAction(formData: FormData) {
+  const redirectOptions = generalSettingsRedirectOptions(formData);
   const timeZone = formString(formData, "workspaceTimeZone");
+  const defaultPhoneRegion = normalizePhoneRegion(
+    formString(formData, "workspaceDefaultPhoneRegion"),
+  );
   const displayCurrency = normalizeDisplayCurrency(
     formString(formData, "workspaceDisplayCurrency"),
+  );
+  const operatingCountry = formString(formData, "businessOperatingCountry");
+  const accountUserFirstName = formString(formData, "accountUserFirstName");
+  const accountUserLastName = formString(formData, "accountUserLastName");
+  const accountUserName = [accountUserFirstName, accountUserLastName]
+    .filter(Boolean)
+    .join(" ");
+  const businessLogo = await businessLogoPayload(formData, redirectOptions);
+  const manualLogo = await signatureLogoPayload(
+    formData,
+    "manualSignature",
+    "general",
+    redirectOptions,
+  );
+  const aiLogo = await signatureLogoPayload(
+    formData,
+    "aiGeneratedSignature",
+    "general",
+    redirectOptions,
   );
 
   if (!timeZone) {
@@ -397,40 +1195,70 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       "Add a workspace timezone first.",
+      redirectOptions,
     );
   }
 
-  assertValidTimeZone(timeZone);
+  assertValidTimeZone(timeZone, redirectOptions);
 
   if (!DISPLAY_CURRENCIES.includes(displayCurrency)) {
     redirectWithSectionMessage(
       "general",
       "engine_error",
       "Choose a supported display currency.",
+      redirectOptions,
+    );
+  }
+
+  if (
+    !PHONE_REGION_OPTIONS.some((option) => option.value === defaultPhoneRegion)
+  ) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      `Choose a supported phone region such as ${DEFAULT_PHONE_REGION}.`,
+      redirectOptions,
+    );
+  }
+
+  if (!isOperatingCountry(operatingCountry)) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      "Choose the country this workspace operates in.",
+      redirectOptions,
     );
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
-  const [beforeGeneralResult, beforeInboundResult] = await Promise.all([
-    supabase
-      .from("workspace_policies")
-      .select("id,settings")
-      .eq("workspace_id", workspace.id)
-      .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
-      .maybeSingle(),
-    supabase
-      .from("workspace_policies")
-      .select("id,settings")
-      .eq("workspace_id", workspace.id)
-      .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
-      .maybeSingle(),
-  ]);
+  const [beforeGeneralResult, beforeInboundResult, beforeCommunicationResult] =
+    await Promise.all([
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+        .maybeSingle(),
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+        .maybeSingle(),
+      supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", COMMUNICATION_POLICY_TYPE)
+        .maybeSingle(),
+    ]);
 
   if (beforeGeneralResult.error) {
     redirectWithSectionMessage(
       "general",
       "engine_error",
       beforeGeneralResult.error.message,
+      redirectOptions,
     );
   }
 
@@ -439,6 +1267,16 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       beforeInboundResult.error.message,
+      redirectOptions,
+    );
+  }
+
+  if (beforeCommunicationResult.error) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      beforeCommunicationResult.error.message,
+      redirectOptions,
     );
   }
 
@@ -449,8 +1287,128 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     beforeGeneralResult.data?.settings,
     { timeZone: beforeInboundSettings.timeZone },
   );
+  const beforeCommunicationSettings = normalizeCommunicationSettings(
+    beforeCommunicationResult.data?.settings,
+  );
+  const submittedWorkplaceContacts = workplaceContactsFromForm(formData);
+  const workplaceContacts =
+    formString(formData, "settingsPanel") === "urgent-escalation"
+      ? workplaceContactsWithPrimaryEscalationContact(
+          submittedWorkplaceContacts,
+          formString(formData, "urgentEscalationPrimaryContactId"),
+        )
+      : submittedWorkplaceContacts;
+  const businessProfile = normalizeWorkspaceBusinessProfileSettings(
+    {
+      ...beforeGeneralSettings.businessProfile,
+      ...businessLogo,
+      brandAccentColor: formString(formData, "businessBrandAccentColor"),
+      brandPrimaryColor: formString(formData, "businessBrandPrimaryColor"),
+      brandStyle: formString(formData, "businessBrandStyle"),
+      businessAddress: formString(formData, "businessAddress"),
+      businessName: formString(formData, "businessName"),
+      contactHours: formString(formData, "businessContactHours"),
+      contactHoursSchedule: formJson(formData, "businessContactHoursSchedule"),
+      emergencyAfterHoursRate: formString(
+        formData,
+        "businessEmergencyAfterHoursRate",
+      ),
+      emergencyAvailabilityMode: formString(
+        formData,
+        "businessEmergencyAvailabilityMode",
+      ),
+      emergencyDays: formString(formData, "businessEmergencyDays"),
+      emergencyEndTime: formString(formData, "businessEmergencyEndTime"),
+      emergencyJobsEnabled: formBoolean(
+        formData,
+        "businessEmergencyJobsEnabled",
+      ),
+      emergencyRateNotes: formString(formData, "businessEmergencyRateNotes"),
+      emergencyStartTime: formString(formData, "businessEmergencyStartTime"),
+      industry: formString(formData, "businessIndustry"),
+      logoUrl: formString(formData, "businessProfileLogoUrl"),
+      logoWidthPx: formString(formData, "businessProfileLogoWidthPx"),
+      operatingCountry,
+      publicEmail: formString(formData, "businessPublicEmail"),
+      publicPhoneNumber: formString(formData, "businessPublicPhoneNumber"),
+      serviceArea: formString(formData, "businessServiceArea"),
+      servicePostcodes: formString(formData, "businessServicePostcodes"),
+      serviceSuburbs: formString(formData, "businessServiceSuburbs"),
+      fieldStaffContactIds: formStringList(
+        formData,
+        "businessFieldStaffContactId",
+      ),
+      staffCount: formString(formData, "businessStaffCount"),
+      travelRadiusKm: formData.has("businessTravelRadiusKm")
+        ? formString(formData, "businessTravelRadiusKm")
+        : beforeGeneralSettings.businessProfile.travelRadiusKm,
+      urgentEscalation: {
+        customDays: formString(formData, "urgentEscalationCustomDays"),
+        customEndTime: formString(formData, "urgentEscalationCustomEndTime"),
+        customStartTime: formString(
+          formData,
+          "urgentEscalationCustomStartTime",
+        ),
+        enabled: formBoolean(formData, "urgentEscalationEnabled"),
+        hoursMode: formString(formData, "urgentEscalationHoursMode"),
+        requireAcknowledgement: formBoolean(
+          formData,
+          "urgentEscalationRequireAcknowledgement",
+        ),
+        steps: urgentEscalationStepsFromForm(formData),
+        triggerKeys: formData
+          .getAll("urgentEscalationTriggerKey")
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter(Boolean),
+      },
+      workplaceContacts,
+      workingHours: formString(formData, "businessWorkingHours"),
+      workingHoursSchedule: formJson(formData, "businessWorkingHoursSchedule"),
+    },
+    {
+      businessName: workspace.name,
+      publicEmail: user.email ?? "",
+    },
+  );
+  const emailSignatureSubmitted = formData.has(
+    "businessProfileEmailSignatureSubmitted",
+  );
+  const manualSignature = emailSignatureSubmitted
+    ? normalizeEmailSignatureSettings(
+        {
+          ...manualLogo,
+          logoUrl: formString(formData, "manualSignatureLogoUrl"),
+          logoWidthPx: formString(formData, "manualSignatureLogoWidthPx"),
+          text: formString(formData, "manualSignatureText"),
+        },
+        beforeCommunicationSettings.manualSignature,
+      )
+    : beforeCommunicationSettings.manualSignature;
+  const aiGeneratedSignature = emailSignatureSubmitted
+    ? normalizeEmailSignatureSettings(
+        {
+          ...aiLogo,
+          logoUrl: formString(formData, "aiGeneratedSignatureLogoUrl"),
+          logoWidthPx: formString(formData, "aiGeneratedSignatureLogoWidthPx"),
+          text: formString(formData, "aiGeneratedSignatureText"),
+        },
+        beforeCommunicationSettings.aiGeneratedSignature,
+      )
+    : beforeCommunicationSettings.aiGeneratedSignature;
+  const useSeparateAiSignature = emailSignatureSubmitted
+    ? formBoolean(formData, "useSeparateAiSignature")
+    : beforeCommunicationSettings.useSeparateAiSignature;
+  const communicationSettings = normalizeCommunicationSettings({
+    ...beforeCommunicationSettings,
+    aiGeneratedSignature,
+    businessSignature: manualSignature.text,
+    manualSignature,
+    useSeparateAiSignature,
+  });
   const generalSettings = normalizeWorkspaceGeneralSettings({
     ...beforeGeneralSettings,
+    businessProfile,
+    defaultPhoneRegion,
     displayCurrency,
     timeZone,
   });
@@ -479,6 +1437,7 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       saveGeneralError?.message ?? "Unable to save workspace defaults.",
+      redirectOptions,
     );
   }
 
@@ -500,7 +1459,96 @@ export async function updateGeneralSettingsAction(formData: FormData) {
       "general",
       "engine_error",
       saveInboundError.message,
+      redirectOptions,
     );
+  }
+
+  const { data: savedCommunicationPolicy, error: saveCommunicationError } =
+    await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          workspace_id: workspace.id,
+          policy_type: COMMUNICATION_POLICY_TYPE,
+          settings: communicationSettings,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+  if (saveCommunicationError || !savedCommunicationPolicy) {
+    redirectWithSectionMessage(
+      "general",
+      "engine_error",
+      saveCommunicationError?.message ?? "Unable to save email signature.",
+      redirectOptions,
+    );
+  }
+
+  if (
+    businessProfile.businessName &&
+    businessProfile.businessName !== workspace.name
+  ) {
+    const { error: workspaceNameError } = await supabase
+      .from("workspaces")
+      .update({
+        name: businessProfile.businessName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", workspace.id);
+
+    if (workspaceNameError) {
+      redirectWithSectionMessage(
+        "general",
+        "engine_error",
+        workspaceNameError.message,
+        redirectOptions,
+      );
+    }
+  }
+
+  if (accountUserName && user.email) {
+    const { error: userProfileError } = await supabase.from("users").upsert({
+      email: user.email,
+      first_name: accountUserFirstName,
+      id: user.id,
+      last_name: accountUserLastName,
+      name: accountUserName,
+    });
+
+    if (userProfileError) {
+      redirectWithSectionMessage(
+        "general",
+        "engine_error",
+        userProfileError.message,
+        redirectOptions,
+      );
+    }
+
+    const authMetadata = {
+      ...metadataRecord(user.user_metadata),
+      firstName: accountUserFirstName,
+      first_name: accountUserFirstName,
+      full_name: accountUserName,
+      lastName: accountUserLastName,
+      last_name: accountUserLastName,
+      name: accountUserName,
+    };
+    const { error: authProfileError } = await supabase.auth.updateUser({
+      data: authMetadata,
+    });
+
+    if (authProfileError) {
+      redirectWithSectionMessage(
+        "general",
+        "engine_error",
+        authProfileError.message,
+        redirectOptions,
+      );
+    }
   }
 
   await insertAuditLog(supabase, {
@@ -519,11 +1567,36 @@ export async function updateGeneralSettingsAction(formData: FormData) {
     },
   });
 
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "workspace_business_profile.updated",
+    entityType: "workspace_policy",
+    entityId: String(savedGeneralPolicy.id),
+    before: {
+      aiGeneratedSignature: beforeCommunicationSettings.aiGeneratedSignature,
+      businessProfile: beforeGeneralSettings.businessProfile,
+      manualSignature: beforeCommunicationSettings.manualSignature,
+      useSeparateAiSignature:
+        beforeCommunicationSettings.useSeparateAiSignature,
+    },
+    after: {
+      aiGeneratedSignature: communicationSettings.aiGeneratedSignature,
+      businessProfile: generalSettings.businessProfile,
+      manualSignature: communicationSettings.manualSignature,
+      useSeparateAiSignature: communicationSettings.useSeparateAiSignature,
+    },
+  });
+
   revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  revalidatePath("/reports");
   redirectWithSectionMessage(
     "general",
     "engine_message",
-    "Workspace defaults saved.",
+    "Business profile saved.",
+    redirectOptions,
   );
 }
 
@@ -631,36 +1704,6 @@ export async function disconnectIntegrationAction(formData: FormData) {
 }
 
 export async function updateInboundEmailSettingsAction(formData: FormData) {
-  const syncMode = formString(formData, "inboundSyncMode");
-
-  if (
-    !INBOUND_EMAIL_SYNC_MODES.includes(
-      syncMode as InboundEmailSettings["syncMode"],
-    )
-  ) {
-    redirectWithSectionMessage(
-      "integrations",
-      "engine_error",
-      "Inbound email sync mode is invalid.",
-    );
-  }
-
-  const pollIntervalMinutes =
-    formInteger(formData, "inboundPollIntervalMinutes") ??
-    DEFAULT_INBOUND_EMAIL_SETTINGS.pollIntervalMinutes;
-
-  if (
-    !INBOUND_EMAIL_POLL_INTERVALS.includes(
-      pollIntervalMinutes as 5 | 15 | 30 | 60,
-    )
-  ) {
-    redirectWithSectionMessage(
-      "integrations",
-      "engine_error",
-      "Inbound email poll interval is invalid.",
-    );
-  }
-
   const { supabase, user, workspace } = await requireWorkspaceContext();
   const { data: beforePolicy, error: beforeError } = await supabase
     .from("workspace_policies")
@@ -678,28 +1721,15 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
   }
 
   const beforeSettings = normalizeInboundEmailSettings(beforePolicy?.settings);
-  const settings = normalizeInboundEmailSettings({
-    ...beforeSettings,
-    actionInstructions: formString(formData, "inboundActionInstructions"),
-    autoPromoteActionable: true,
-    includeAwarenessEvents: formBoolean(
-      formData,
-      "inboundIncludeAwarenessEvents",
-    ),
-    lookbackDays:
-      formInteger(formData, "inboundLookbackDays") ??
-      DEFAULT_INBOUND_EMAIL_SETTINGS.lookbackDays,
-    maxMessagesPerSync:
-      formInteger(formData, "inboundMaxMessagesPerSync") ??
-      DEFAULT_INBOUND_EMAIL_SETTINGS.maxMessagesPerSync,
-    pollIntervalMinutes,
-    quietHoursEnabled: formBoolean(formData, "inboundQuietHoursEnabled"),
-    quietHoursEnd: formString(formData, "inboundQuietHoursEnd"),
-    quietHoursMode: "paused",
-    quietHoursStart: formString(formData, "inboundQuietHoursStart"),
-    syncMode,
-    timeZone: beforeSettings.timeZone,
-  });
+  const parsed = inboundEmailSettingsFromForm(formData, beforeSettings);
+
+  if (parsed.error || !parsed.settings) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      parsed.error ?? "Inbound email settings are invalid.",
+    );
+  }
 
   const { data: savedPolicy, error: saveError } = await supabase
     .from("workspace_policies")
@@ -707,7 +1737,7 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
       {
         workspace_id: workspace.id,
         policy_type: INBOUND_EMAIL_POLICY_TYPE,
-        settings,
+        settings: parsed.settings,
       },
       {
         onConflict: "workspace_id,policy_type",
@@ -732,7 +1762,7 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
     entityType: "workspace_policy",
     entityId: String(savedPolicy.id),
     before: beforePolicy ? { settings: beforePolicy.settings } : null,
-    after: { settings },
+    after: { settings: parsed.settings },
   });
 
   revalidatePath("/settings");
@@ -742,6 +1772,92 @@ export async function updateInboundEmailSettingsAction(formData: FormData) {
     "engine_message",
     "Inbound email settings saved.",
   );
+}
+
+export async function autosaveInboundEmailSettingsAction(formData: FormData) {
+  try {
+    const { supabase, user, workspace } = await requireWorkspaceContext();
+    const { data: beforePolicy, error: beforeError } = await supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+      .maybeSingle();
+
+    if (beforeError) {
+      return { ok: false, message: beforeError.message };
+    }
+
+    const beforeSettings = normalizeInboundEmailSettings(
+      beforePolicy?.settings,
+    );
+    const parsed = inboundEmailSettingsFromForm(formData, beforeSettings);
+
+    if (parsed.error || !parsed.settings) {
+      return {
+        ok: false,
+        message: parsed.error ?? "Inbound email settings are invalid.",
+      };
+    }
+
+    if (
+      beforePolicy &&
+      JSON.stringify(beforeSettings) === JSON.stringify(parsed.settings)
+    ) {
+      return { ok: true, message: "Already saved." };
+    }
+
+    const { data: savedPolicy, error: saveError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          workspace_id: workspace.id,
+          policy_type: INBOUND_EMAIL_POLICY_TYPE,
+          settings: parsed.settings,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+    if (saveError || !savedPolicy) {
+      return {
+        ok: false,
+        message: saveError?.message ?? "Unable to save inbound email settings.",
+      };
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "inbound_email_settings.autosaved",
+      entityType: "workspace_policy",
+      entityId: String(savedPolicy.id),
+      before: beforePolicy ? { settings: beforeSettings } : null,
+      after: { settings: parsed.settings },
+      metadata: { source: "settings_autosave" },
+    });
+
+    revalidatePath("/settings");
+    revalidatePath("/inbox");
+
+    return {
+      ok: true,
+      message: "Saved.",
+      savedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to save inbound email settings.",
+    };
+  }
 }
 
 async function loadInboundEmailPolicyForSenderRule() {
@@ -936,40 +2052,46 @@ export async function syncInboundEmailNowAction() {
   );
 }
 
-export async function updateVoiceSettingsAction(formData: FormData) {
-  const openAiVoice = formString(formData, "openAiVoice") as OpenAiVoice;
-  const outboundVoicePronunciationPolicy = formString(
+export async function updateInboundInquiryHandlingAction(formData: FormData) {
+  const phoneAgentInboundInquiryMode = formString(
     formData,
-    "outboundVoicePronunciationPolicy",
-  ) as OutboundVoicePronunciationPolicy;
-
-  if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
-    redirectWithSectionMessage(
-      "voice",
-      "engine_error",
-      "OpenAI voice is invalid.",
-    );
-  }
+    "phoneAgentInboundInquiryMode",
+  );
+  const redirectOptions = { panel: "inbound-inquiry-handling" };
 
   if (
-    !OUTBOUND_VOICE_PRONUNCIATION_POLICIES.includes(
-      outboundVoicePronunciationPolicy,
+    !PHONE_AGENT_INBOUND_INQUIRY_MODES.includes(
+      phoneAgentInboundInquiryMode as never,
     )
   ) {
     redirectWithSectionMessage(
-      "voice",
+      "integrations",
       "engine_error",
-      "Outbound pronunciation policy is invalid.",
+      "Inbound inquiry handling setting is invalid.",
+      redirectOptions,
     );
   }
 
-  const settings: VoiceSettings = normalizeVoiceSettings({
-    openAiVoice,
-    outboundVoicePronunciationPolicy,
-    provider: "openai",
-  });
-
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  let currentSettings: VoiceSettings;
+
+  try {
+    currentSettings = await getVoiceSettings(supabase, workspace.id);
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load inbound inquiry settings.",
+      redirectOptions,
+    );
+  }
+
+  const settings = normalizeVoiceSettings({
+    ...currentSettings,
+    phoneAgentInboundInquiryMode,
+  });
   const { data: beforePolicy, error: beforeError } = await supabase
     .from("workspace_policies")
     .select("id,settings")
@@ -978,7 +2100,12 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     .maybeSingle();
 
   if (beforeError) {
-    redirectWithSectionMessage("voice", "engine_error", beforeError.message);
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      beforeError.message,
+      redirectOptions,
+    );
   }
 
   const { data: savedPolicy, error: saveError } = await supabase
@@ -998,7 +2125,351 @@ export async function updateVoiceSettingsAction(formData: FormData) {
 
   if (saveError || !savedPolicy) {
     redirectWithSectionMessage(
-      "voice",
+      "integrations",
+      "engine_error",
+      saveError?.message ?? "Unable to save inbound inquiry handling.",
+      redirectOptions,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "inbound_inquiry_handling.updated",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      phoneAgentInboundInquiryMode: settings.phoneAgentInboundInquiryMode,
+    },
+    before: beforePolicy
+      ? {
+          phoneAgentInboundInquiryMode: normalizeVoiceSettings(
+            beforePolicy.settings,
+          ).phoneAgentInboundInquiryMode,
+        }
+      : null,
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/assistant");
+  revalidatePath("/inbox");
+  revalidatePath("/voice-vapi");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    "Inbound inquiry handling saved.",
+    redirectOptions,
+  );
+}
+
+export async function updateVoiceSettingsAction(formData: FormData) {
+  const redirectSection =
+    formString(formData, "redirectSection") === "developer"
+      ? "developer"
+      : "voice";
+  const requestedPanel = formString(formData, "settingsPanel");
+  const redirectPanel =
+    redirectSection === "developer"
+      ? requestedPanel === "provider-ids" ||
+        requestedPanel === "developer-tools"
+        ? requestedPanel
+        : null
+      : requestedPanel === "voice-assistant" ||
+          requestedPanel === "phone-assistant" ||
+          requestedPanel === "voicemail-overflow" ||
+          requestedPanel === "pronunciation"
+        ? requestedPanel
+        : null;
+  const redirectOptions = redirectPanel ? { panel: redirectPanel } : {};
+  const redirectVoiceSettingsMessage = (
+    key: "engine_error" | "engine_message",
+    message: string,
+  ): never => {
+    redirectWithSectionMessage(redirectSection, key, message, redirectOptions);
+  };
+  const openAiVoice = formString(formData, "openAiVoice") as OpenAiVoice;
+  const outboundVoicePronunciationPolicy = formString(
+    formData,
+    "outboundVoicePronunciationPolicy",
+  ) as OutboundVoicePronunciationPolicy;
+  const phoneAgentDemeanor = formString(formData, "phoneAgentDemeanor");
+  const phoneAgentVerbosity = formString(formData, "phoneAgentVerbosity");
+  const phoneAgentHumourLevel = formString(formData, "phoneAgentHumourLevel");
+  const phoneAgentEscalationMode = formString(
+    formData,
+    "phoneAgentEscalationMode",
+  );
+  const phoneAgentInboundInquiryMode = formString(
+    formData,
+    "phoneAgentInboundInquiryMode",
+  );
+  const elevenLabsVoicePresetId = formString(
+    formData,
+    "elevenLabsVoicePresetId",
+  );
+  const workplaceContactsSubmitted =
+    formString(formData, "workplaceContactsSubmitted") === "on";
+  const workplaceContacts = workplaceContactsSubmitted
+    ? workplaceContactsFromForm(formData)
+    : null;
+  const phoneAgentUserNumberDetails = workplaceContacts
+    ? phoneAgentUserNumberDetailsFromWorkplaceContacts(workplaceContacts)
+    : phoneAgentUserNumberDetailsFromForm(formData);
+
+  if (!OPENAI_VOICE_OPTIONS.includes(openAiVoice)) {
+    redirectVoiceSettingsMessage("engine_error", "OpenAI voice is invalid.");
+  }
+
+  if (
+    !OUTBOUND_VOICE_PRONUNCIATION_POLICIES.includes(
+      outboundVoicePronunciationPolicy,
+    )
+  ) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Outbound pronunciation policy is invalid.",
+    );
+  }
+
+  if (!PHONE_AGENT_DEMEANORS.includes(phoneAgentDemeanor as never)) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Phone assistant style is invalid.",
+    );
+  }
+
+  if (!PHONE_AGENT_VERBOSITIES.includes(phoneAgentVerbosity as never)) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Phone assistant detail level is invalid.",
+    );
+  }
+
+  if (!PHONE_AGENT_HUMOUR_LEVELS.includes(phoneAgentHumourLevel as never)) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Phone assistant warmth setting is invalid.",
+    );
+  }
+
+  if (
+    !PHONE_AGENT_ESCALATION_MODES.includes(phoneAgentEscalationMode as never)
+  ) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Phone assistant escalation mode is invalid.",
+    );
+  }
+
+  if (
+    !PHONE_AGENT_INBOUND_INQUIRY_MODES.includes(
+      phoneAgentInboundInquiryMode as never,
+    )
+  ) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Inbound inquiry handling setting is invalid.",
+    );
+  }
+
+  if (
+    !ELEVENLABS_VOICE_PRESETS.some(
+      (preset) => preset.id === elevenLabsVoicePresetId,
+    )
+  ) {
+    redirectVoiceSettingsMessage(
+      "engine_error",
+      "Voice assistant option is invalid.",
+    );
+  }
+
+  const settings: VoiceSettings = normalizeVoiceSettings({
+    elevenLabsVoicePresetId,
+    openAiVoice,
+    outboundVoicePronunciationPolicy,
+    phoneAgentDemeanor,
+    phoneAgentEnabled: formBoolean(formData, "phoneAgentEnabled"),
+    phoneAgentEscalationMode,
+    phoneAgentHumourLevel,
+    phoneAgentInboundEnabled: formBoolean(formData, "phoneAgentInboundEnabled"),
+    phoneAgentInboundInquiryMode,
+    phoneAgentOutboundEnabled: formBoolean(
+      formData,
+      "phoneAgentOutboundEnabled",
+    ),
+    phoneAgentUserNumberDetails,
+    phoneAgentUserNumbers:
+      phoneAgentUserNumberDetails.length > 0
+        ? phoneAgentUserNumberDetails.map((row) => row.phoneNumber)
+        : formString(formData, "phoneAgentUserNumbers"),
+    phoneAgentVerbosity,
+    phoneAgentVoicemailOverflowEnabled: formBoolean(
+      formData,
+      "phoneAgentVoicemailOverflowEnabled",
+    ),
+    vapiInternalAssistantId: formString(formData, "vapiInternalAssistantId"),
+    vapiInboundAssistantId: formString(formData, "vapiInboundAssistantId"),
+    vapiOutboundAssistantId: formString(formData, "vapiOutboundAssistantId"),
+    vapiPhoneNumberId: formString(formData, "vapiPhoneNumberId"),
+    vapiVoicemailAssistantId: formString(formData, "vapiVoicemailAssistantId"),
+    provider: "openai",
+  });
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  let generalSettingsForVoice: Awaited<
+    ReturnType<typeof getWorkspaceGeneralSettings>
+  > | null = null;
+  let phoneNumberAssignment: Awaited<
+    ReturnType<typeof ensureWorkspacePhoneNumberFromPool>
+  > | null = null;
+  const needsWorkspacePhoneNumber =
+    settings.phoneAgentEnabled &&
+    (settings.phoneAgentInboundEnabled ||
+      settings.phoneAgentOutboundEnabled ||
+      settings.phoneAgentVoicemailOverflowEnabled);
+
+  if (needsWorkspacePhoneNumber || workplaceContactsSubmitted) {
+    try {
+      generalSettingsForVoice = await getWorkspaceGeneralSettings(
+        supabase,
+        workspace.id,
+      );
+    } catch (error) {
+      redirectVoiceSettingsMessage(
+        "engine_error",
+        error instanceof Error
+          ? error.message
+          : "Unable to load workspace settings.",
+      );
+    }
+  }
+
+  if (needsWorkspacePhoneNumber) {
+    try {
+      phoneNumberAssignment = await ensureWorkspacePhoneNumberFromPool({
+        actorId: user.id,
+        countryCode:
+          generalSettingsForVoice?.defaultPhoneRegion ?? DEFAULT_PHONE_REGION,
+        supabase: createServiceSupabaseClient(),
+        workspaceId: workspace.id,
+      });
+
+      if (
+        !settings.vapiPhoneNumberId &&
+        phoneNumberAssignment.number.vapiPhoneNumberId
+      ) {
+        settings.vapiPhoneNumberId =
+          phoneNumberAssignment.number.vapiPhoneNumberId;
+      }
+    } catch (error) {
+      redirectVoiceSettingsMessage(
+        "engine_error",
+        error instanceof Error
+          ? error.message
+          : "Unable to assign a workspace phone number.",
+      );
+    }
+  }
+
+  if (workplaceContacts && generalSettingsForVoice) {
+    const businessProfile = normalizeWorkspaceBusinessProfileSettings(
+      {
+        ...generalSettingsForVoice.businessProfile,
+        workplaceContacts,
+      },
+      {
+        businessName: workspace.name,
+        publicEmail: user.email ?? "",
+      },
+    );
+    const generalSettings = normalizeWorkspaceGeneralSettings({
+      ...generalSettingsForVoice,
+      businessProfile,
+    });
+    const { data: beforeGeneralPolicy, error: beforeGeneralError } =
+      await supabase
+        .from("workspace_policies")
+        .select("id,settings")
+        .eq("workspace_id", workspace.id)
+        .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+        .maybeSingle();
+
+    if (beforeGeneralError) {
+      redirectVoiceSettingsMessage("engine_error", beforeGeneralError.message);
+    }
+
+    const { data: savedGeneralPolicy, error: saveGeneralError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
+          settings: generalSettings,
+          workspace_id: workspace.id,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+    const savedGeneralPolicyId = savedGeneralPolicy?.id;
+
+    if (saveGeneralError || !savedGeneralPolicyId) {
+      redirectVoiceSettingsMessage(
+        "engine_error",
+        saveGeneralError?.message ?? "Unable to save workplace contacts.",
+      );
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: "workspace_general_settings.updated",
+      actorId: user.id,
+      actorType: "user",
+      after: { settings: generalSettings },
+      before: beforeGeneralPolicy
+        ? { settings: beforeGeneralPolicy.settings }
+        : null,
+      entityId: String(savedGeneralPolicyId),
+      entityType: "workspace_policy",
+      metadata: {
+        source: "voice_assistant_workplace_contacts",
+        workplaceContactCount: workplaceContacts.length,
+      },
+    });
+  }
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectVoiceSettingsMessage("engine_error", beforeError.message);
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  const savedPolicyId = savedPolicy?.id;
+
+  if (saveError || !savedPolicyId) {
+    redirectVoiceSettingsMessage(
       "engine_error",
       saveError?.message ?? "Unable to save voice assistant settings.",
     );
@@ -1011,17 +2482,747 @@ export async function updateVoiceSettingsAction(formData: FormData) {
     actorType: "user",
     after: { settings },
     before: beforePolicy ? { settings: beforePolicy.settings } : null,
-    entityId: String(savedPolicy.id),
+    entityId: String(savedPolicyId),
     entityType: "workspace_policy",
+    metadata: phoneNumberAssignment
+      ? {
+          phoneNumberAssigned: phoneNumberAssignment.assigned,
+          phoneNumberCountryCode: phoneNumberAssignment.countryCode,
+          workspacePhoneNumberId: phoneNumberAssignment.number.id,
+        }
+      : undefined,
   });
 
   revalidatePath("/settings");
   revalidatePath("/voice");
-  redirectWithSectionMessage(
-    "voice",
+  revalidatePath("/voice-vapi");
+  redirectVoiceSettingsMessage(
     "engine_message",
     "Voice assistant settings saved.",
   );
+}
+
+export async function enableVoicemailOverflowNumberAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+  const redirectOptions = { panel: "voicemail-overflow" };
+
+  if (!phoneNumberId) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Choose a voicemail overflow number first.",
+      redirectOptions,
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let assignedNumbers: WorkspacePhoneNumberPoolRow[] = [];
+
+  try {
+    assignedNumbers = await getWorkspaceAssignedPhoneNumbers(
+      serviceSupabase,
+      workspace.id,
+    );
+  } catch (error) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load assigned phone numbers.",
+      redirectOptions,
+    );
+  }
+
+  const selectedNumber = assignedNumbers.find(
+    (number) => number.id === phoneNumberId,
+  );
+
+  if (!selectedNumber) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "That phone number is not assigned to this workspace.",
+      redirectOptions,
+    );
+  }
+
+  if (!selectedNumber.capabilities.voice) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Choose a number that supports voice calls.",
+      redirectOptions,
+    );
+  }
+
+  const before = assignedNumbers.map((number) => ({
+    id: number.id,
+    metadata: number.metadata,
+    phoneNumber: number.phoneNumber,
+  }));
+
+  for (const number of assignedNumbers) {
+    const baseMetadata = phoneNumberMetadataRecord(number.metadata);
+    const metadata =
+      number.id === selectedNumber.id
+        ? voicemailOverflowMetadata(baseMetadata, user.id)
+        : clearVoicemailOverflowMetadata(baseMetadata);
+
+    const { error } = await serviceSupabase
+      .from("workspace_phone_numbers")
+      .update({ metadata })
+      .eq("id", number.id)
+      .eq("workspace_id", workspace.id);
+
+    if (error) {
+      redirectWithSectionMessage(
+        "voice",
+        "engine_error",
+        `Unable to save voicemail overflow number: ${error.message}`,
+        redirectOptions,
+      );
+    }
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const voiceSettings = normalizeVoiceSettings({
+    ...existingVoiceSettings,
+    phoneAgentEnabled: true,
+    phoneAgentVoicemailOverflowEnabled: true,
+    vapiPhoneNumberId:
+      selectedNumber.vapiPhoneNumberId ??
+      existingVoiceSettings.vapiPhoneNumberId,
+  });
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      beforeError.message,
+      redirectOptions,
+    );
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings: voiceSettings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      saveError?.message ?? "Unable to enable voicemail overflow.",
+      redirectOptions,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "voice.voicemail_overflow_number.enabled",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      phoneNumber: selectedNumber.phoneNumber,
+      phoneNumberId: selectedNumber.id,
+      settings: voiceSettings,
+    },
+    before: {
+      numbers: before,
+      settings: beforePolicy?.settings ?? null,
+    },
+    entityId: selectedNumber.id,
+    entityType: "workspace_phone_number",
+    metadata: {
+      vapiPhoneNumberId: selectedNumber.vapiPhoneNumberId,
+    },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "voice",
+    "engine_message",
+    `${selectedNumber.phoneNumber} is now the voicemail overflow number.`,
+    redirectOptions,
+  );
+}
+
+export async function disableVoicemailOverflowNumberAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+  const redirectOptions = { panel: "voicemail-overflow" };
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let assignedNumbers: WorkspacePhoneNumberPoolRow[] = [];
+
+  try {
+    assignedNumbers = await getWorkspaceAssignedPhoneNumbers(
+      serviceSupabase,
+      workspace.id,
+    );
+  } catch (error) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to load assigned phone numbers.",
+      redirectOptions,
+    );
+  }
+
+  const overflowNumbers = assignedNumbers.filter((number) => {
+    if (phoneNumberId && number.id !== phoneNumberId) {
+      return false;
+    }
+
+    return numberHasVoicemailOverflowPurpose(number);
+  });
+
+  if (phoneNumberId && overflowNumbers.length === 0) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "That number is not currently set as voicemail overflow.",
+      redirectOptions,
+    );
+  }
+
+  for (const number of overflowNumbers) {
+    const { error } = await serviceSupabase
+      .from("workspace_phone_numbers")
+      .update({
+        metadata: clearVoicemailOverflowMetadata(
+          phoneNumberMetadataRecord(number.metadata),
+        ),
+      })
+      .eq("id", number.id)
+      .eq("workspace_id", workspace.id);
+
+    if (error) {
+      redirectWithSectionMessage(
+        "voice",
+        "engine_error",
+        `Unable to remove voicemail overflow: ${error.message}`,
+        redirectOptions,
+      );
+    }
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const voiceSettings = normalizeVoiceSettings({
+    ...existingVoiceSettings,
+    phoneAgentVoicemailOverflowEnabled: false,
+  });
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      beforeError.message,
+      redirectOptions,
+    );
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings: voiceSettings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      saveError?.message ?? "Unable to disable voicemail overflow.",
+      redirectOptions,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "voice.voicemail_overflow_number.disabled",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      removedPhoneNumberIds: overflowNumbers.map((number) => number.id),
+      settings: voiceSettings,
+    },
+    before: {
+      numbers: overflowNumbers.map((number) => ({
+        id: number.id,
+        metadata: number.metadata,
+        phoneNumber: number.phoneNumber,
+      })),
+      settings: beforePolicy?.settings ?? null,
+    },
+    entityId: phoneNumberId || workspace.id,
+    entityType: phoneNumberId ? "workspace_phone_number" : "workspace",
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "voice",
+    "engine_message",
+    "Voicemail overflow routing is disabled.",
+    redirectOptions,
+  );
+}
+
+export async function enableWorkspacePhoneSmsAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+
+  if (!phoneNumberId) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "Choose an available phone number first.",
+      { panel: "phone-sms" },
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const countryCode =
+    operatingCountryPhoneRegion(
+      generalSettings.businessProfile.operatingCountry,
+    ) ?? generalSettings.defaultPhoneRegion;
+
+  let assignment: Awaited<
+    ReturnType<typeof assignWorkspacePhoneNumberFromPool>
+  >;
+
+  try {
+    assignment = await assignWorkspacePhoneNumberFromPool({
+      actorId: user.id,
+      countryCode,
+      phoneNumberId,
+      recordActivationCharge: true,
+      supabase: serviceSupabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to enable the phone and SMS assistant number.",
+      { panel: "phone-sms" },
+    );
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const voiceSettings = normalizeVoiceSettings({
+    ...existingVoiceSettings,
+    phoneAgentEnabled: true,
+    phoneAgentInboundEnabled: true,
+    phoneAgentOutboundEnabled: true,
+    vapiPhoneNumberId:
+      assignment.number.vapiPhoneNumberId ??
+      existingVoiceSettings.vapiPhoneNumberId,
+  });
+
+  const { data: beforePolicy, error: beforeError } = await supabase
+    .from("workspace_policies")
+    .select("id,settings")
+    .eq("workspace_id", workspace.id)
+    .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+    .maybeSingle();
+
+  if (beforeError) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      beforeError.message,
+      { panel: "phone-sms" },
+    );
+  }
+
+  const { data: savedPolicy, error: saveError } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: VOICE_SETTINGS_POLICY_TYPE,
+        settings: voiceSettings,
+        workspace_id: workspace.id,
+      },
+      {
+        onConflict: "workspace_id,policy_type",
+      },
+    )
+    .select("id")
+    .single();
+
+  if (saveError || !savedPolicy) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      saveError?.message ?? "Unable to enable phone voice settings.",
+      { panel: "phone-sms" },
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    action: "phone_sms_number.enabled",
+    actorId: user.id,
+    actorType: "user",
+    after: {
+      phoneNumber: assignment.number.phoneNumber,
+      phoneNumberId: assignment.number.id,
+      settings: voiceSettings,
+      vapiPhoneNumberId: assignment.number.vapiPhoneNumberId,
+    },
+    before: beforePolicy ? { settings: beforePolicy.settings } : null,
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+    metadata: {
+      activationCharged: assignment.activationCharged,
+      phoneNumberAssigned: assignment.assigned,
+      phoneNumberCountryCode: assignment.countryCode,
+    },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    assignment.activationCharged
+      ? `Phone and SMS enabled on ${assignment.number.phoneNumber}. A one-time US$6 setup charge has been billed.`
+      : `Phone and SMS enabled on ${assignment.number.phoneNumber}.`,
+    { panel: "phone-sms" },
+  );
+}
+
+export async function disconnectWorkspacePhoneSmsAction(formData: FormData) {
+  const phoneNumberId = formString(formData, "phoneNumberId");
+
+  if (!phoneNumberId) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      "Choose a phone number to disconnect.",
+      { panel: "phone-sms" },
+    );
+  }
+
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let release: Awaited<ReturnType<typeof releaseWorkspacePhoneNumberToPool>>;
+
+  try {
+    release = await releaseWorkspacePhoneNumberToPool({
+      actorId: user.id,
+      phoneNumberId,
+      supabase: serviceSupabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Unable to disconnect that phone number.",
+      { panel: "phone-sms" },
+    );
+  }
+
+  let remainingNumbers: Awaited<
+    ReturnType<typeof getWorkspaceAssignedPhoneNumbers>
+  > = [];
+
+  try {
+    remainingNumbers = await getWorkspaceAssignedPhoneNumbers(
+      serviceSupabase,
+      workspace.id,
+    );
+  } catch (error) {
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      error instanceof Error
+        ? error.message
+        : "Phone number disconnected, but Kyro could not refresh the remaining phone-number list.",
+      { panel: "phone-sms" },
+    );
+  }
+
+  const existingVoiceSettings = await getVoiceSettings(supabase, workspace.id);
+  const replacementVapiPhoneNumberId =
+    remainingNumbers.find((number) => number.vapiPhoneNumberId)
+      ?.vapiPhoneNumberId ?? null;
+  const disconnectedActiveVapiNumber =
+    release.number.vapiPhoneNumberId &&
+    existingVoiceSettings.vapiPhoneNumberId ===
+      release.number.vapiPhoneNumberId;
+  const shouldUpdateVoiceSettings =
+    remainingNumbers.length === 0 || disconnectedActiveVapiNumber;
+
+  if (shouldUpdateVoiceSettings) {
+    const { data: beforePolicy, error: beforeError } = await supabase
+      .from("workspace_policies")
+      .select("id,settings")
+      .eq("workspace_id", workspace.id)
+      .eq("policy_type", VOICE_SETTINGS_POLICY_TYPE)
+      .maybeSingle();
+
+    if (beforeError) {
+      redirectWithSectionMessage(
+        "integrations",
+        "engine_error",
+        beforeError.message,
+        { panel: "phone-sms" },
+      );
+    }
+
+    const voiceSettings = normalizeVoiceSettings({
+      ...existingVoiceSettings,
+      phoneAgentEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentEnabled
+          : false,
+      phoneAgentInboundEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentInboundEnabled
+          : false,
+      phoneAgentOutboundEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentOutboundEnabled
+          : false,
+      phoneAgentVoicemailOverflowEnabled:
+        remainingNumbers.length > 0
+          ? existingVoiceSettings.phoneAgentVoicemailOverflowEnabled
+          : false,
+      vapiPhoneNumberId:
+        replacementVapiPhoneNumberId ?? existingVoiceSettings.vapiPhoneNumberId,
+    });
+
+    if (replacementVapiPhoneNumberId) {
+      voiceSettings.vapiPhoneNumberId = replacementVapiPhoneNumberId;
+    }
+
+    if (remainingNumbers.length === 0) {
+      voiceSettings.vapiPhoneNumberId = null;
+    }
+
+    const { data: savedPolicy, error: saveError } = await supabase
+      .from("workspace_policies")
+      .upsert(
+        {
+          policy_type: VOICE_SETTINGS_POLICY_TYPE,
+          settings: voiceSettings,
+          workspace_id: workspace.id,
+        },
+        {
+          onConflict: "workspace_id,policy_type",
+        },
+      )
+      .select("id")
+      .single();
+
+    if (saveError || !savedPolicy) {
+      redirectWithSectionMessage(
+        "integrations",
+        "engine_error",
+        saveError?.message ?? "Unable to update phone voice settings.",
+        { panel: "phone-sms" },
+      );
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: "assistant_voice_settings.phone_number_disconnected",
+      actorId: user.id,
+      actorType: "user",
+      after: { settings: voiceSettings },
+      before: beforePolicy ? { settings: beforePolicy.settings } : null,
+      entityId: String(savedPolicy.id),
+      entityType: "workspace_policy",
+      metadata: {
+        disconnectedPhoneNumberId: release.number.id,
+        remainingPhoneNumberCount: remainingNumbers.length,
+        replacementVapiPhoneNumberId,
+      },
+    });
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/voice-vapi");
+  revalidatePath("/assistant");
+  redirectWithSectionMessage(
+    "integrations",
+    "engine_message",
+    remainingNumbers.length > 0
+      ? `${release.number.phoneNumber} disconnected and returned to the available number pool.`
+      : `${release.number.phoneNumber} disconnected. Phone and SMS automation is disabled until another number is assigned.`,
+    { panel: "phone-sms" },
+  );
+}
+
+export async function connectStripePaymentsAction() {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const serviceSupabase = createServiceSupabaseClient();
+  let onboardingUrl = "";
+
+  try {
+    const generalSettings = await getWorkspaceGeneralSettings(
+      supabase,
+      workspace.id,
+    );
+    const businessName =
+      generalSettings.businessProfile.businessName || workspace.name;
+    const email = user.email ?? generalSettings.businessProfile.publicEmail;
+
+    if (!email) {
+      throw new Error(
+        "Add an account email before connecting Stripe payments.",
+      );
+    }
+
+    onboardingUrl = await createStripeConnectOnboardingLink({
+      businessName,
+      email,
+      generalSettings,
+      supabase: serviceSupabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const connectSignupNeeded =
+      message.includes("signed up for Connect") ||
+      message.includes("dashboard.stripe.com/connect");
+
+    redirectWithSectionMessage(
+      "integrations",
+      "engine_error",
+      connectSignupNeeded
+        ? "Stripe Connect is not enabled on the Kyro platform account yet. Enable Connect in Stripe first, then workspace users can onboard through this Kyro link even if they have never used Stripe before."
+        : error instanceof Error
+          ? error.message
+          : "Unable to start Stripe payments setup.",
+    );
+  }
+
+  redirect(onboardingUrl);
+}
+
+export async function resetStripePaymentsSetupAction() {
+  const { workspace } = await requireWorkspaceContext();
+  const supabase = createServiceSupabaseClient();
+  let key: "engine_error" | "engine_message" = "engine_message";
+  let message = "";
+
+  try {
+    const reset = await resetWorkspaceStripePaymentAccount({
+      supabase,
+      workspaceId: workspace.id,
+    });
+
+    revalidatePath("/settings");
+    revalidatePath("/payments");
+    message = reset
+      ? "Stripe setup has been reset. Start setup again to create a fresh payout account."
+      : "There was no Stripe setup to reset.";
+  } catch (error) {
+    key = "engine_error";
+    message =
+      error instanceof Error ? error.message : "Unable to reset Stripe setup.";
+  }
+
+  redirectWithSectionMessage("integrations", key, message, { panel: "stripe" });
+}
+
+export async function startKyroBillingSetupAction() {
+  const { user, workspace } = await requireWorkspaceContext();
+  const supabase = createServiceSupabaseClient();
+  let setupUrl = "";
+
+  try {
+    setupUrl = await createKyroUserBillingSetupUrl({
+      supabase,
+      user,
+      workspace,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to start Kyro billing setup.";
+    redirect(
+      `/settings?section=usage&panel=payment-method&engine_error=${encodeURIComponent(
+        message,
+      )}`,
+    );
+  }
+
+  redirect(setupUrl);
+}
+
+export async function openKyroBillingPortalAction() {
+  const { workspace } = await requireWorkspaceContext();
+  const supabase = createServiceSupabaseClient();
+  let portalUrl = "";
+
+  try {
+    portalUrl = await createKyroUserBillingPortalUrl({
+      supabase,
+      workspaceId: workspace.id,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to open Kyro billing portal.";
+    redirect(
+      `/settings?section=usage&panel=payment-method&engine_error=${encodeURIComponent(
+        message,
+      )}`,
+    );
+  }
+
+  redirect(portalUrl);
 }
 
 export async function createPronunciationEntryAction(formData: FormData) {
@@ -1101,6 +3302,37 @@ export async function createPronunciationEntryAction(formData: FormData) {
 }
 
 export async function updatePronunciationEntryAction(formData: FormData) {
+  const entry = await savePronunciationEntryUpdate(formData);
+
+  if (!entry) {
+    redirectWithSectionMessage(
+      "voice",
+      "engine_error",
+      "Pronunciation entry is incomplete.",
+    );
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/voice");
+  redirectWithSectionMessage(
+    "voice",
+    "engine_message",
+    "Pronunciation entry updated.",
+  );
+}
+
+export async function autosavePronunciationEntryAction(formData: FormData) {
+  const entry = await savePronunciationEntryUpdate(formData);
+
+  if (!entry) {
+    throw new Error("Pronunciation entry is incomplete.");
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/voice");
+}
+
+async function savePronunciationEntryUpdate(formData: FormData) {
   const entryId = formString(formData, "entryId");
   const phrase = formString(formData, "phrase");
   const pronunciationHint =
@@ -1115,11 +3347,7 @@ export async function updatePronunciationEntryAction(formData: FormData) {
   const aliases = splitPronunciationAliases(formString(formData, "aliases"));
 
   if (!entryId || !phrase) {
-    redirectWithSectionMessage(
-      "voice",
-      "engine_error",
-      "Pronunciation entry is incomplete.",
-    );
+    return null;
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
@@ -1146,26 +3374,134 @@ export async function updatePronunciationEntryAction(formData: FormData) {
       entityId: entry.id,
       entityType: "assistant_pronunciation",
     });
+
+    return entry;
   } catch (error) {
-    redirectWithSectionMessage(
-      "voice",
-      "engine_error",
+    throw new Error(
       error instanceof Error
         ? error.message
         : "Unable to update pronunciation entry.",
     );
   }
-
-  revalidatePath("/settings");
-  revalidatePath("/voice");
-  redirectWithSectionMessage(
-    "voice",
-    "engine_message",
-    "Pronunciation entry updated.",
-  );
 }
 
 export async function ignorePronunciationEntryAction(formData: FormData) {
   formData.set("status", "ignored" satisfies PronunciationStatus);
   await updatePronunciationEntryAction(formData);
+}
+
+export async function updateDashboardTutorialTestModeAction(
+  formData: FormData,
+) {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+  const tutorialSupabase = supabase as unknown as TutorialSupabaseClient;
+  const forceShow = formBoolean(formData, "dashboardTutorialForceShow");
+
+  const { error } = await tutorialSupabase
+    .from("workspace_tutorial_state")
+    .upsert(
+      {
+        dashboard_tour_completed_at: forceShow
+          ? null
+          : new Date().toISOString(),
+        dashboard_tour_completed_by: forceShow ? null : user.id,
+        dashboard_tour_force_show: forceShow,
+        dashboard_tour_version: 1,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id" },
+    );
+
+  if (error) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      `Unable to update dashboard tutorial preview mode: ${error.message}`,
+    );
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/settings");
+  redirectWithSectionMessage(
+    "developer",
+    "engine_message",
+    forceShow
+      ? "Dashboard tutorial preview mode is on. The tour will appear whenever the Dashboard loads until you turn this off."
+      : "Dashboard tutorial preview mode is off. The tour will only appear for first-time workspaces.",
+  );
+}
+
+export async function updateWorkspaceUsageMarkupRateAction(
+  formData: FormData,
+) {
+  const { supabase, user, workspace } = await requireWorkspaceContext();
+
+  if (!developerAccessEnabled(user)) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      "Developer access is required to change workspace pricing.",
+    );
+  }
+
+  const markupPercent = Number(formString(formData, "usageMarkupPercent"));
+  const nextMarkupRate = normalizeUsageMarkupRate(
+    Number.isFinite(markupPercent) ? markupPercent / 100 : null,
+    null,
+  );
+
+  if (nextMarkupRate === null) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      "Enter a valid usage margin percentage.",
+    );
+  }
+
+  const beforeSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const afterSettings = normalizeWorkspaceGeneralSettings({
+    ...beforeSettings,
+    usageMarkupRate: nextMarkupRate,
+  });
+  const { data: savedPolicy, error } = await supabase
+    .from("workspace_policies")
+    .upsert(
+      {
+        policy_type: WORKSPACE_GENERAL_POLICY_TYPE,
+        settings: afterSettings,
+        workspace_id: workspace.id,
+      },
+      { onConflict: "workspace_id,policy_type" },
+    )
+    .select("id")
+    .single();
+
+  if (error || !savedPolicy) {
+    redirectWithSectionMessage(
+      "developer",
+      "engine_error",
+      error?.message ?? "Unable to save usage margin.",
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorId: user.id,
+    actorType: "user",
+    action: "workspace_usage_margin.updated",
+    entityId: String(savedPolicy.id),
+    entityType: "workspace_policy",
+    before: { usageMarkupRate: beforeSettings.usageMarkupRate },
+    after: { usageMarkupRate: afterSettings.usageMarkupRate },
+  });
+
+  revalidatePath("/settings");
+  redirectWithSectionMessage(
+    "developer",
+    "engine_message",
+    `Usage margin set to ${Math.round(afterSettings.usageMarkupRate * 10000) / 100}%. Future usage events will use this workspace rate.`,
+  );
 }

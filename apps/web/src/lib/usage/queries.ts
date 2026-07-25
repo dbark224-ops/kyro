@@ -135,7 +135,9 @@ type QuoteDraftRow = {
   conversation_id: unknown;
 };
 
-export function normalizeUsageWindow(value: string | null | undefined): UsageWindow {
+export function normalizeUsageWindow(
+  value: string | null | undefined,
+): UsageWindow {
   return usageWindows.some((window) => window.value === value)
     ? (value as UsageWindow)
     : "30d";
@@ -244,17 +246,23 @@ export async function getUsageReport(
   }
 
   if (aiRunsResult.error) {
-    throw new Error(`Unable to load usage AI runs: ${aiRunsResult.error.message}`);
+    throw new Error(
+      `Unable to load usage AI runs: ${aiRunsResult.error.message}`,
+    );
   }
 
   if (actionsResult.error) {
-    throw new Error(`Unable to load usage actions: ${actionsResult.error.message}`);
+    throw new Error(
+      `Unable to load usage actions: ${actionsResult.error.message}`,
+    );
   }
 
   const aiRuns = (aiRunsResult.data ?? []) as unknown as AiRunRow[];
   const actions = (actionsResult.data ?? []) as unknown as ActionRow[];
   const aiRunsById = new Map(aiRuns.map((run) => [String(run.id), run]));
-  const actionsById = new Map(actions.map((action) => [String(action.id), action]));
+  const actionsById = new Map(
+    actions.map((action) => [String(action.id), action]),
+  );
 
   const quoteDraftIds = uniqueIds(
     rows.flatMap((row) => {
@@ -303,10 +311,9 @@ export async function getUsageReport(
     ]),
   );
   const quoteDraftsById = new Map(
-    ((quoteDraftsResult.data ?? []) as unknown as QuoteDraftRow[]).map((quoteDraft) => [
-      String(quoteDraft.id),
-      quoteDraft,
-    ]),
+    ((quoteDraftsResult.data ?? []) as unknown as QuoteDraftRow[]).map(
+      (quoteDraft) => [String(quoteDraft.id), quoteDraft],
+    ),
   );
 
   const ledger = rows.map((row) =>
@@ -324,10 +331,14 @@ export async function getUsageReport(
     serviceBreakdown: buildBreakdown(ledger, (row) =>
       [row.service, row.usageType].join("::"),
     ),
-    taskBreakdown: buildBreakdown(ledger, (row) => row.taskType, (row) => ({
-      description: row.taskDescription,
-      label: row.taskLabel,
-    })),
+    taskBreakdown: buildBreakdown(
+      ledger,
+      (row) => row.taskType,
+      (row) => ({
+        description: row.taskDescription,
+        label: row.taskLabel,
+      }),
+    ),
     userBreakdown: buildUserBreakdown(ledger),
     ledger,
   };
@@ -379,6 +390,7 @@ function toLedgerRow(
 }
 
 function usageTaskForRow(row: UsageEventRow, aiRun: AiRunRow | null) {
+  const provider = textValue(row.provider) ?? "unknown";
   const service = textValue(row.service) ?? "llm";
   const usageType = textValue(row.usage_type) ?? "usage";
   const metadata = objectRecord(row.metadata);
@@ -428,12 +440,55 @@ function usageTaskForRow(row: UsageEventRow, aiRun: AiRunRow | null) {
     };
   }
 
+  if (service === "google_maps" || provider === "google") {
+    return {
+      description:
+        "Google address, suburb, postcode, and place lookups Kyro used to standardize location details.",
+      key: "google_address_lookup",
+      label: "Google address lookup",
+    };
+  }
+
   if (service === "email") {
     return {
       description:
         "Email delivery and communication activity recorded so billing can include outbound volume later.",
       key: "email_delivery",
       label: "Email delivery",
+    };
+  }
+
+  if (service === "sms" || normalized.includes("sms")) {
+    return {
+      description:
+        "Inbound and outbound SMS messages sent or received through connected telephony providers.",
+      key: "sms_delivery",
+      label: "SMS delivery",
+    };
+  }
+
+  if (
+    service === "voice" ||
+    normalized.includes("voice_call") ||
+    normalized.includes("phone_call")
+  ) {
+    return {
+      description:
+        "Phone-call provider charges, call handling, and future voice minutes.",
+      key: "phone_calls",
+      label: "Phone calls",
+    };
+  }
+
+  if (
+    normalized.includes("number_rental") ||
+    normalized.includes("phone_number")
+  ) {
+    return {
+      description:
+        "Workspace phone-number rental charges passed through from the telephony provider.",
+      key: "phone_number_rental",
+      label: "Phone number rental",
     };
   }
 
@@ -478,7 +533,10 @@ function usageTaskForRow(row: UsageEventRow, aiRun: AiRunRow | null) {
     };
   }
 
-  if (normalized.includes("pronunciation") || normalized.includes("vocabulary")) {
+  if (
+    normalized.includes("pronunciation") ||
+    normalized.includes("vocabulary")
+  ) {
     return {
       description:
         "Pronunciation vocabulary suggestions, aliases, and background cleanup.",
@@ -547,8 +605,10 @@ function resolveSource(
     const quoteDraftId =
       textValue(inputRefs.quoteDraftId) ?? textValue(inputRefs.quote_draft_id);
     const conversationId =
-      textValue(inputRefs.conversationId) ?? textValue(inputRefs.conversation_id);
-    const contactId = textValue(inputRefs.contactId) ?? textValue(inputRefs.contact_id);
+      textValue(inputRefs.conversationId) ??
+      textValue(inputRefs.conversation_id);
+    const contactId =
+      textValue(inputRefs.contactId) ?? textValue(inputRefs.contact_id);
 
     if (quoteDraftId) {
       const quoteDraft = quoteDraftsById.get(quoteDraftId);
@@ -579,7 +639,9 @@ function resolveSource(
     return {
       href: null,
       label: `AI run: ${formatLabel(textValue(aiRun.task_type) ?? "task")}`,
-      meta: [textValue(aiRun.provider), textValue(aiRun.model)].filter(Boolean).join(" / "),
+      meta: [textValue(aiRun.provider), textValue(aiRun.model)]
+        .filter(Boolean)
+        .join(" / "),
     };
   }
 
@@ -692,7 +754,9 @@ function buildBreakdown(
     byKey.set(key, current);
   }
 
-  return [...byKey.values()].sort((a, b) => b.customerCharge - a.customerCharge);
+  return [...byKey.values()].sort(
+    (a, b) => b.customerCharge - a.customerCharge,
+  );
 }
 
 function buildUserBreakdown(rows: UsageLedgerRow[]) {
@@ -720,7 +784,9 @@ function buildUserBreakdown(rows: UsageLedgerRow[]) {
     byUser.set(key, current);
   }
 
-  return [...byUser.values()].sort((a, b) => b.customerCharge - a.customerCharge);
+  return [...byUser.values()].sort(
+    (a, b) => b.customerCharge - a.customerCharge,
+  );
 }
 
 function actionForUsageRow(
@@ -731,19 +797,24 @@ function actionForUsageRow(
     valueId(row.action_id) ??
     (textValue(row.source_type) === "action" ? valueId(row.source_id) : null);
 
-  return actionId ? actionsById.get(actionId) ?? null : null;
+  return actionId ? (actionsById.get(actionId) ?? null) : null;
 }
 
-function aiRunForUsageRow(row: UsageEventRow, aiRunsById: Map<string, AiRunRow>) {
+function aiRunForUsageRow(
+  row: UsageEventRow,
+  aiRunsById: Map<string, AiRunRow>,
+) {
   const aiRunId =
     valueId(row.ai_run_id) ??
     (textValue(row.source_type) === "ai_run" ? valueId(row.source_id) : null);
 
-  return aiRunId ? aiRunsById.get(aiRunId) ?? null : null;
+  return aiRunId ? (aiRunsById.get(aiRunId) ?? null) : null;
 }
 
 function uniqueIds(values: Array<string | null | undefined>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+  return [
+    ...new Set(values.filter((value): value is string => Boolean(value))),
+  ];
 }
 
 function objectRecord(value: unknown) {

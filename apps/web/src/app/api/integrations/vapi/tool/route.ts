@@ -2,15 +2,41 @@ import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { resolveAssistantCommand } from "../../../../../lib/assistant/commands";
 import {
+  linkCardsBlock,
+  linksFromBlocks,
+  normalizeAssistantUiBlocks,
+  summaryCardsBlock,
+} from "../../../../../lib/assistant/ui-blocks";
+import {
   assistantWebSearchEnabled,
   runAssistantWebSearch,
 } from "../../../../../lib/assistant/web-search";
+import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
+import { getVoiceSettings } from "../../../../../lib/assistant/voice-settings";
+import {
+  resolveVapiToolAuthorization,
+  VAPI_EXTERNAL_CALLER_REFUSAL,
+} from "../../../../../lib/assistant/vapi-tool-authorization";
+import { updateContactFromAssistantTool } from "../../../../../lib/crm/contact-update-tool";
+import { normalizeContactPhoneForRegion } from "../../../../../lib/crm/identity";
+import {
+  approveAction,
+  executeAction,
+} from "../../../../../lib/engine/event-action-audit";
+import { recordOutboundMessage } from "../../../../../lib/communication/outbound";
 import {
   syncInboundEmail,
   type InboundEmailProvider,
 } from "../../../../../lib/integrations/inbound-email-sync";
-import { verifyVapiToolRequest } from "../../../../../lib/integrations/vapi";
+import {
+  getVapiConfig,
+  VAPI_TOOL_PATH,
+  vapiRequestAuthDiagnostics,
+  vapiEndpointUrl,
+  verifyVapiToolRequest,
+} from "../../../../../lib/integrations/vapi";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { assertWorkspaceAutomationAllowed } from "../../../../../lib/billing/access";
 import {
   buildLlmUsageEvents,
   buildOpenAiWebSearchCallUsageEvent,
@@ -18,16 +44,55 @@ import {
   toUsageEventRows,
   usageEventTotals,
 } from "../../../../../lib/usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
 import {
+  createOutboundVoiceCall,
   lookupVoiceContactsForTool,
+  recordVoiceCallPostCallAutomation,
   recordVoiceToolEvent,
+  vapiToolCallMetadata,
   vapiToolCallPayload,
+  vapiToolThreadId,
   vapiToolUserId,
   vapiToolWorkspaceId,
 } from "../../../../../lib/voice/calls";
+import { resolveOutboundCallRequest } from "../../../../../lib/voice/outbound-call-requests";
+import {
+  INBOUND_BOOKING_TOOL_NAME,
+  requestInboundVoiceBooking,
+} from "../../../../../lib/voice/inbound-booking";
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
 
 export const dynamic = "force-dynamic";
+
+type VoiceContactMatch = Awaited<
+  ReturnType<typeof lookupVoiceContactsForTool>
+>[number];
+
+type DraftSmsActionRow = {
+  id: string;
+  input: unknown;
+  status: string;
+  target_id: string | null;
+  target_type: string | null;
+  type: string;
+};
+
+export async function GET() {
+  const config = getVapiConfig();
+
+  return NextResponse.json({
+    configured: Boolean(config),
+    endpoint: "vapi_tool",
+    expects: "Vapi tool JSON POST with x-kyro-vapi-secret or bearer secret.",
+    ok: true,
+    provider: "vapi",
+    serverApiKeyReady: Boolean(process.env.VAPI_API_KEY?.trim()),
+    toolCredentialReady: Boolean(process.env.VAPI_TOOL_CREDENTIAL_ID?.trim()),
+    toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
+    toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
+  });
+}
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -89,6 +154,867 @@ function toolUser(userId: string): User {
   return { id: userId } as User;
 }
 
+function contactCardsForVoiceTool(
+  contacts: Awaited<ReturnType<typeof lookupVoiceContactsForTool>>,
+) {
+  return summaryCardsBlock(
+    "Matching contacts",
+    contacts.map((contact) => ({
+      detail:
+        contact.company ??
+        contact.email ??
+        contact.phone ??
+        contact.address ??
+        undefined,
+      href: `/contacts/${contact.id}`,
+      label: contact.name ?? contact.company ?? "Contact",
+      tone: "cyan",
+      value: contact.contactType ?? "Contact",
+    })),
+  );
+}
+
+function shouldAttachContactCardsForVoicePrompt(prompt: string) {
+  return /\b(card|contact|profile|details?|pull up|open|show me)\b/i.test(
+    prompt,
+  );
+}
+
+function hasContactPreviewLink(uiBlocks: unknown) {
+  return linksFromBlocks(normalizeAssistantUiBlocks(uiBlocks)).some((link) => {
+    try {
+      const url = new URL(link.href, "http://kyro.local");
+      return (
+        url.pathname === "/contacts" || /^\/contacts\/[^/]+$/.test(url.pathname)
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
+function vapiToolCanStartOutboundCall(payload: Record<string, unknown>) {
+  const metadata = vapiToolCallMetadata(payload);
+
+  return resolveVapiToolAuthorization({
+    callerRole: textValue(metadata.callerRole),
+    purpose: textValue(metadata.purpose),
+    source: textValue(metadata.source),
+  }).trustedInternal;
+}
+
+function vapiCall(payload: Record<string, unknown>) {
+  const message = objectRecord(payload.message);
+
+  return objectRecord(message.call ?? payload.call ?? payload);
+}
+
+function phoneComparisonKeys(value: string | null) {
+  if (!value) {
+    return new Set<string>();
+  }
+
+  const rawDigits = value.replace(/\D/g, "");
+  const normalizedDigits =
+    normalizeContactPhoneForRegion(value, "AU")?.replace(/\D/g, "") ?? null;
+
+  return new Set(
+    [rawDigits, normalizedDigits].filter((candidate): candidate is string =>
+      Boolean(candidate),
+    ),
+  );
+}
+
+function phoneKeySetsOverlap(left: Set<string>, right: Set<string>) {
+  for (const value of left) {
+    if (right.has(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function vapiContactMatchesCallerNumber(
+  contact: VoiceContactMatch,
+  payload: Record<string, unknown>,
+  args: Record<string, unknown>,
+) {
+  const callerKeys = phoneComparisonKeys(vapiToolCallerNumber(payload, args));
+
+  if (callerKeys.size === 0) {
+    return false;
+  }
+
+  return phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(contact.phone));
+}
+
+function vapiToolCallerNumber(
+  payload: Record<string, unknown>,
+  args: Record<string, unknown>,
+) {
+  const metadata = vapiToolCallMetadata(payload);
+  const call = vapiCall(payload);
+  const customer = objectRecord(call.customer);
+  const providerDetails = objectRecord(
+    call.phoneCallProviderDetails ?? call.providerDetails,
+  );
+
+  return (
+    textValue(metadata.callerNumber) ??
+    textValue(metadata.fromNumber) ??
+    textValue(metadata.from) ??
+    textValue(args.callerNumber) ??
+    textValue(args.fromNumber) ??
+    textValue(args.from) ??
+    textValue(customer.number) ??
+    textValue(providerDetails.from) ??
+    textValue(call.from) ??
+    textValue(call.fromNumber) ??
+    textValue(payload.from) ??
+    textValue(payload.fromNumber)
+  );
+}
+
+async function vapiToolCanSendOutboundSms({
+  args,
+  payload,
+  supabase,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  if (vapiToolCanStartOutboundCall(payload)) {
+    return true;
+  }
+
+  const callerNumber = vapiToolCallerNumber(payload, args);
+  const callerKeys = phoneComparisonKeys(callerNumber);
+
+  if (callerKeys.size === 0) {
+    return false;
+  }
+
+  const settings = await getVoiceSettings(supabase, workspaceId);
+
+  return settings.phoneAgentUserNumbers.some((phoneNumber) =>
+    phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(phoneNumber)),
+  );
+}
+
+function objectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function clipped(value: string, maxLength = 1_600) {
+  const clean = value.replace(/\s+/g, " ").trim();
+
+  if (clean.length <= maxLength) {
+    return clean;
+  }
+
+  return `${clean.slice(0, maxLength - 1).trim()}...`;
+}
+
+async function notificationPayloadFromRequest(request: Request) {
+  return (await request
+    .clone()
+    .json()
+    .catch(() => null)) as Record<string, unknown> | null;
+}
+
+function safeVapiToolCallPayload(payload: Record<string, unknown> | null) {
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    return vapiToolCallPayload(payload);
+  } catch {
+    return null;
+  }
+}
+
+function vapiToolNotificationContext(payload: Record<string, unknown> | null) {
+  const metadata = payload ? vapiToolCallMetadata(payload) : {};
+  const toolCall = safeVapiToolCallPayload(payload);
+
+  return {
+    userEmail: textValue(metadata.userEmail),
+    userId: payload ? vapiToolUserId(payload) : textValue(metadata.userId),
+    workspaceId: payload
+      ? vapiToolWorkspaceId(payload)
+      : textValue(metadata.workspaceId),
+    workspaceName: textValue(metadata.workspaceName),
+    context: {
+      callerRole: textValue(metadata.callerRole),
+      callId: toolCall?.callId ?? textValue(metadata.callId),
+      purpose: textValue(metadata.purpose),
+      selectedAssistantId: textValue(metadata.selectedAssistantId),
+      source: textValue(metadata.source),
+      threadId: payload
+        ? vapiToolThreadId(payload)
+        : textValue(metadata.threadId),
+      toolCallId: toolCall?.id,
+      toolName: toolCall?.name,
+    },
+  };
+}
+
+async function notifyVapiToolIssue({
+  context,
+  kind,
+  payload,
+  rawMessage,
+  severity = "error",
+  visibleMessage,
+}: {
+  context?: Record<string, unknown>;
+  kind: string;
+  payload: Record<string, unknown> | null;
+  rawMessage: string;
+  severity?: "error" | "warning" | "info";
+  visibleMessage: string;
+}) {
+  const notificationContext = vapiToolNotificationContext(payload);
+
+  try {
+    await sendInternalBugNotification({
+      context: {
+        userEmail: notificationContext.userEmail,
+        userId: notificationContext.userId,
+        workspaceId: notificationContext.workspaceId,
+        workspaceName: notificationContext.workspaceName,
+      },
+      input: {
+        context: {
+          ...notificationContext.context,
+          ...context,
+        },
+        kind,
+        rawMessage: clipped(rawMessage, 2_400),
+        severity,
+        source: "server.vapi.tool",
+        visibleMessage,
+      },
+    });
+  } catch (notificationError) {
+    console.error(
+      "Unable to send Vapi tool bug notification",
+      notificationError,
+    );
+  }
+}
+
+function actionBody(action: DraftSmsActionRow) {
+  const input = objectRecord(action.input);
+  return (
+    textValue(input.body) ??
+    textValue(input.message) ??
+    textValue(input.replyBody) ??
+    textValue(input.text)
+  );
+}
+
+function actionChannel(action: DraftSmsActionRow) {
+  const input = objectRecord(action.input);
+  return (
+    textValue(input.channelType) ??
+    textValue(input.channel) ??
+    textValue(input.deliveryChannel)
+  )?.toLowerCase();
+}
+
+function isSmsDraftAction(action: DraftSmsActionRow) {
+  if (!["draft_reply", "send_outbound_message"].includes(action.type)) {
+    return false;
+  }
+
+  const channel = actionChannel(action);
+  return channel === "sms" && Boolean(actionBody(action));
+}
+
+async function loadContactById({
+  contactId,
+  supabase,
+  workspaceId,
+}: {
+  contactId: string;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id,name,email,phone,address,company,contact_type")
+    .eq("workspace_id", workspaceId)
+    .eq("id", contactId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load contact: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    address: textValue(data.address),
+    company: textValue(data.company),
+    contactType: textValue(data.contact_type),
+    email: textValue(data.email),
+    id: String(data.id),
+    name: textValue(data.name),
+    phone: textValue(data.phone),
+  } satisfies VoiceContactMatch;
+}
+
+async function loadDraftSmsActionById({
+  actionId,
+  supabase,
+  workspaceId,
+}: {
+  actionId: string;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const { data, error } = await supabase
+    .from("actions")
+    .select("id,type,status,input,target_id,target_type")
+    .eq("workspace_id", workspaceId)
+    .eq("id", actionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load drafted SMS action: ${error.message}`);
+  }
+
+  return data as DraftSmsActionRow | null;
+}
+
+async function findLatestDraftSmsForContact({
+  contactId,
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  contactId: string;
+  conversationId: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  let conversationIds: string[] = [];
+
+  if (conversationId) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("contact_id", contactId)
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Unable to verify SMS conversation: ${error.message}`);
+    }
+
+    if (data?.id) {
+      conversationIds = [String(data.id)];
+    }
+  } else {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("contact_id", contactId)
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    if (error) {
+      throw new Error(`Unable to load contact conversations: ${error.message}`);
+    }
+
+    conversationIds = (data ?? []).map((row) => String(row.id)).filter(Boolean);
+  }
+
+  if (conversationIds.length === 0) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("actions")
+    .select("id,type,status,input,target_id,target_type")
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "conversation")
+    .in("target_id", conversationIds)
+    .in("type", ["draft_reply", "send_outbound_message"])
+    .in("status", ["pending_approval", "approved"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(`Unable to load drafted SMS actions: ${error.message}`);
+  }
+
+  return ((data ?? []) as DraftSmsActionRow[]).find(isSmsDraftAction) ?? null;
+}
+
+async function resolveDraftSmsContact({
+  args,
+  prompt,
+  supabase,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  prompt: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const contactId = textValue(args.contactId);
+
+  if (contactId) {
+    const contact = await loadContactById({ contactId, supabase, workspaceId });
+    return contact ? [contact] : [];
+  }
+
+  return lookupVoiceContactsForTool({
+    phoneNumber:
+      textValue(args.phoneNumber) ??
+      textValue(args.customerPhone) ??
+      textValue(args.toNumber),
+    query:
+      textValue(args.contactName) ??
+      textValue(args.customerName) ??
+      textValue(args.query) ??
+      prompt,
+    supabase,
+    workspaceId,
+  });
+}
+
+async function executeDraftSmsActionForTool({
+  action,
+  supabase,
+  userId,
+}: {
+  action: DraftSmsActionRow;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  userId: string;
+}) {
+  if (!isSmsDraftAction(action)) {
+    throw new Error("The matched action is not a pending SMS draft.");
+  }
+
+  if (action.status === "pending_approval") {
+    await approveAction(supabase, toolUser(userId), action.id);
+  }
+
+  await executeAction(supabase, toolUser(userId), action.id);
+}
+
+async function findOrCreateVapiSmsConversation({
+  contactId,
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  contactId: string;
+  conversationId: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  if (conversationId) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("contact_id", contactId)
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Unable to verify SMS conversation: ${error.message}`);
+    }
+
+    if (data?.id) {
+      return String(data.id);
+    }
+  }
+
+  const { data: latestConversation, error: latestError } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("contact_id", contactId)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestError) {
+    throw new Error(`Unable to load SMS conversation: ${latestError.message}`);
+  }
+
+  if (latestConversation?.id) {
+    return String(latestConversation.id);
+  }
+
+  const externalId = "vapi_tool:sms";
+  const { data: existingChannel, error: existingChannelError } = await supabase
+    .from("channels")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("type", "sms")
+    .eq("external_id", externalId)
+    .maybeSingle();
+
+  if (existingChannelError) {
+    throw new Error(
+      `Unable to load SMS channel: ${existingChannelError.message}`,
+    );
+  }
+
+  let channelId = existingChannel?.id ? String(existingChannel.id) : null;
+
+  if (!channelId) {
+    const { data: channel, error: channelError } = await supabase
+      .from("channels")
+      .insert({
+        workspace_id: workspaceId,
+        type: "sms",
+        display_name: "Kyro SMS",
+        external_id: externalId,
+        status: "active",
+        settings: {
+          createdBy: "vapi_send_sms_tool",
+          source: "vapi_tool",
+        },
+      })
+      .select("id")
+      .single();
+
+    if (channelError || !channel) {
+      throw new Error(
+        `Unable to create SMS channel: ${channelError?.message ?? "unknown error"}`,
+      );
+    }
+
+    channelId = String(channel.id);
+  }
+
+  const now = new Date().toISOString();
+  const { data: conversation, error: conversationError } = await supabase
+    .from("conversations")
+    .insert({
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      contact_id: contactId,
+      lead_id: null,
+      status: "open",
+      last_message_at: now,
+    })
+    .select("id")
+    .single();
+
+  if (conversationError || !conversation) {
+    throw new Error(
+      `Unable to create SMS conversation: ${conversationError?.message ?? "unknown error"}`,
+    );
+  }
+
+  return String(conversation.id);
+}
+
+function explicitSmsBody(args: Record<string, unknown>) {
+  return (
+    textValue(args.body) ??
+    textValue(args.message) ??
+    textValue(args.smsBody) ??
+    textValue(args.text) ??
+    textValue(args.replyBody)
+  );
+}
+
+function isVapiToolNamed(name: string | null | undefined, aliases: string[]) {
+  return Boolean(name && aliases.includes(name));
+}
+
+function smsRecipientPhone(args: Record<string, unknown>) {
+  return (
+    textValue(args.phoneNumber) ??
+    textValue(args.customerPhone) ??
+    textValue(args.recipientPhone) ??
+    textValue(args.toNumber) ??
+    textValue(args.to)
+  );
+}
+
+function smsRecipientName(
+  args: Record<string, unknown>,
+  prompt: string | null,
+) {
+  return (
+    textValue(args.contactName) ??
+    textValue(args.customerName) ??
+    textValue(args.recipientName) ??
+    textValue(args.query) ??
+    prompt
+  );
+}
+
+async function findOrCreateSmsContactByPhone({
+  name,
+  phoneNumber,
+  source,
+  supabase,
+  workspaceId,
+}: {
+  name: string | null;
+  phoneNumber: string;
+  source: string;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const normalizedPhone =
+    normalizeContactPhoneForRegion(phoneNumber, "AU") ?? phoneNumber;
+
+  const { data: existing, error: existingError } = await supabase
+    .from("contacts")
+    .select("id,name,email,phone,address,company,contact_type")
+    .eq("workspace_id", workspaceId)
+    .eq("normalized_phone", normalizedPhone)
+    .is("merged_into_contact_id", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(
+      `Unable to load SMS recipient contact: ${existingError.message}`,
+    );
+  }
+
+  if (existing) {
+    return {
+      address: textValue(existing.address),
+      company: textValue(existing.company),
+      contactType: textValue(existing.contact_type),
+      email: textValue(existing.email),
+      id: String(existing.id),
+      name: textValue(existing.name),
+      phone: textValue(existing.phone) ?? normalizedPhone,
+    } satisfies VoiceContactMatch;
+  }
+
+  const displayName = name ?? normalizedPhone;
+  const { data: inserted, error: insertError } = await supabase
+    .from("contacts")
+    .insert({
+      contact_type: "other",
+      name: displayName,
+      normalized_phone: normalizedPhone,
+      phone: normalizedPhone,
+      source,
+      tags: [
+        {
+          importedAt: new Date().toISOString(),
+          kind: source,
+        },
+      ],
+      workspace_id: workspaceId,
+    })
+    .select("id,name,email,phone,address,company,contact_type")
+    .single();
+
+  if (insertError || !inserted) {
+    throw new Error(
+      `Unable to create SMS recipient contact: ${insertError?.message ?? "unknown error"}`,
+    );
+  }
+
+  return {
+    address: textValue(inserted.address),
+    company: textValue(inserted.company),
+    contactType: textValue(inserted.contact_type),
+    email: textValue(inserted.email),
+    id: String(inserted.id),
+    name: textValue(inserted.name),
+    phone: textValue(inserted.phone),
+  } satisfies VoiceContactMatch;
+}
+
+async function resolveExplicitSmsContacts({
+  args,
+  prompt,
+  supabase,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  prompt: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  workspaceId: string;
+}) {
+  const contacts = await resolveDraftSmsContact({
+    args,
+    prompt,
+    supabase,
+    workspaceId,
+  });
+
+  if (contacts.length > 0) {
+    return contacts;
+  }
+
+  const phoneNumber = smsRecipientPhone(args);
+
+  if (!phoneNumber) {
+    return contacts;
+  }
+
+  return [
+    await findOrCreateSmsContactByPhone({
+      name: smsRecipientName(args, prompt),
+      phoneNumber,
+      source: "vapi_sms_recipient",
+      supabase,
+      workspaceId,
+    }),
+  ];
+}
+
+async function sendExplicitSmsForTool({
+  args,
+  body,
+  contacts,
+  idempotencyKey,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  args: Record<string, unknown>;
+  body: string;
+  contacts: VoiceContactMatch[];
+  idempotencyKey: string | null;
+  supabase: ReturnType<typeof createServiceSupabaseClient>;
+  userId: string;
+  workspaceId: string;
+}) {
+  const contact = contacts[0];
+
+  if (
+    !contact.phone &&
+    !textValue(args.phoneNumber) &&
+    !textValue(args.toNumber)
+  ) {
+    return {
+      answer:
+        "I found that contact, but they do not have a phone number saved yet.",
+      contacts,
+      ok: false,
+      uiBlocks: contactCardsForVoiceTool(contacts),
+    };
+  }
+
+  const conversationId = await findOrCreateVapiSmsConversation({
+    contactId: contact.id,
+    conversationId: textValue(args.conversationId),
+    supabase,
+    workspaceId,
+  });
+
+  const result = await recordOutboundMessage(supabase, {
+    body,
+    channelType: "sms",
+    conversationId,
+    idempotencyKey:
+      textValue(args.idempotencyKey) ??
+      (idempotencyKey
+        ? `vapi_send_sms:${workspaceId}:${idempotencyKey}`
+        : `vapi_send_sms:${workspaceId}:${contact.id}:${body}`),
+    settingsSnapshot: {
+      source: "vapi_send_sms_tool",
+      requestedPhoneNumber:
+        textValue(args.phoneNumber) ??
+        textValue(args.customerPhone) ??
+        textValue(args.toNumber) ??
+        textValue(args.to) ??
+        null,
+    },
+    source: "vapi_send_sms_tool",
+    subject: null,
+    userId,
+    workspaceId,
+  });
+
+  const sentTo =
+    contact.name ?? contact.company ?? contact.phone ?? "the contact";
+  const externallySent = Boolean(result.externalSend && !result.dryRun);
+
+  return {
+    answer: externallySent
+      ? `Sent the SMS to ${sentTo}.`
+      : `Kyro recorded the SMS for ${sentTo}, but it was not sent through Twilio. Tell the caller it could not be sent yet.`,
+    contactId: contact.id,
+    conversationId,
+    dryRun: result.dryRun,
+    externalSend: result.externalSend,
+    ok: externallySent,
+    outboundMessageId: result.outboundMessageId,
+    uiBlocks: contactCardsForVoiceTool(contacts),
+  };
+}
+
+function fieldLabel(value: string | null, label: string) {
+  return value ? `${label} ${value}.` : null;
+}
+
+function describeMatchedContact(contact: {
+  address?: string | null;
+  company?: string | null;
+  contactType?: string | null;
+  email?: string | null;
+  name?: string | null;
+  phone?: string | null;
+}) {
+  return [
+    contact.name ? `${contact.name}.` : "Matched contact found.",
+    fieldLabel(contact.phone ?? null, "Phone"),
+    fieldLabel(contact.email ?? null, "Email"),
+    fieldLabel(contact.address ?? null, "Address"),
+    fieldLabel(contact.company ?? null, "Company"),
+    fieldLabel(contact.contactType ?? null, "Type"),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+}
+
+function describeContactOptions(
+  contacts: Awaited<ReturnType<typeof lookupVoiceContactsForTool>>,
+) {
+  return contacts
+    .slice(0, 3)
+    .map((contact, index) => {
+      const parts = [
+        `${index + 1}) ${contact.name ?? contact.company ?? "Contact"}`,
+        contact.phone ? `phone ${contact.phone}` : null,
+        contact.email ? `email ${contact.email}` : null,
+        contact.company ? `company ${contact.company}` : null,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(", ");
+
+      return parts;
+    })
+    .join(" ");
+}
+
 async function loadWorkspace(
   supabase: ReturnType<typeof createServiceSupabaseClient>,
   workspaceId: string,
@@ -129,11 +1055,7 @@ async function recordWebSearchUsage({
     return;
   }
 
-  const model =
-    process.env.ASSISTANT_WEB_SEARCH_MODEL?.trim() ||
-    process.env.OPENAI_BALANCED_MODEL?.trim() ||
-    process.env.ASSISTANT_MODEL?.trim() ||
-    "gpt-4.1-mini";
+  const model = result.model;
   const tokenUsage =
     result.tokenUsage ??
     openAiUsageFromTokenCounts({
@@ -141,10 +1063,16 @@ async function recordWebSearchUsage({
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
     });
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspaceId,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
   const usageEvents = buildLlmUsageEvents({
     context: {
       metadata: { source: "vapi_internal_voice_web_search_tool" },
       providerUsageId: result.providerUsageId,
+      usageMarkupRate,
       userId,
       workspaceId,
     },
@@ -160,6 +1088,7 @@ async function recordWebSearchUsage({
         context: {
           metadata: { source: "vapi_internal_voice_web_search_tool" },
           providerUsageId: result.providerUsageId,
+          usageMarkupRate,
           userId,
           workspaceId,
         },
@@ -221,7 +1150,42 @@ async function recordWebSearchUsage({
 
 export async function POST(request: Request) {
   if (!verifyVapiToolRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const payload = await notificationPayloadFromRequest(request);
+    const authDiagnostics = vapiRequestAuthDiagnostics(request);
+
+    console.warn("Vapi tool request rejected by Kyro auth.", {
+      ...authDiagnostics,
+      route: VAPI_TOOL_PATH,
+      toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
+      webhookSecretFallbackReady: Boolean(
+        process.env.VAPI_WEBHOOK_SECRET?.trim(),
+      ),
+    });
+
+    await notifyVapiToolIssue({
+      context: {
+        authDiagnostics,
+        route: VAPI_TOOL_PATH,
+        toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
+        webhookSecretFallbackReady: Boolean(
+          process.env.VAPI_WEBHOOK_SECRET?.trim(),
+        ),
+      },
+      kind: "vapi_tool_auth_failed",
+      payload,
+      rawMessage:
+        "Vapi called Kyro's tool endpoint but none of the supplied credentials matched the configured tool or webhook secret.",
+      visibleMessage:
+        "Kyro's voice tools are not responding correctly right now. The development team has been notified.",
+    });
+
+    return NextResponse.json(
+      {
+        error:
+          "Kyro's voice tools are not responding correctly right now. The development team has been notified.",
+      },
+      { status: 401 },
+    );
   }
 
   const payload = (await request.json().catch(() => null)) as Record<
@@ -230,7 +1194,22 @@ export async function POST(request: Request) {
   > | null;
 
   if (!payload) {
-    return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
+    await notifyVapiToolIssue({
+      context: {
+        route: VAPI_TOOL_PATH,
+      },
+      kind: "vapi_tool_invalid_json",
+      payload: null,
+      rawMessage:
+        "Vapi called Kyro's tool endpoint with a body that could not be parsed as JSON.",
+      visibleMessage:
+        "Kyro's voice tools received an invalid tool request. The development team has been notified.",
+    });
+
+    return NextResponse.json(
+      { error: "Invalid JSON payload." },
+      { status: 400 },
+    );
   }
 
   let toolCallId: string | null = null;
@@ -243,8 +1222,8 @@ export async function POST(request: Request) {
     if (!workspaceId) {
       return toolResponse(
         {
-          message: "Kyro could not resolve a workspace for this tool call.",
           ok: false,
+          message: "Kyro could not resolve a workspace for this tool call.",
         },
         toolCallId,
       );
@@ -253,11 +1232,27 @@ export async function POST(request: Request) {
     const supabase = createServiceSupabaseClient();
     const args = toolCall.arguments;
     const userId = vapiToolUserId(payload);
+    const threadId = vapiToolThreadId(payload);
     const prompt =
       textValue(args.prompt) ??
       textValue(args.query) ??
       textValue(args.request) ??
       textValue(args.message);
+    const isDraftedSmsTool = isVapiToolNamed(toolCall.name, [
+      "kyro_send_drafted_sms",
+      "kyro_send_draft_sms",
+      "kyro_send_sms_draft",
+    ]);
+    const isExplicitSmsTool = isVapiToolNamed(toolCall.name, [
+      "kyro_send_sms",
+      "kyro_send_text",
+      "kyro_send_message",
+      "kyro_send_contact_sms",
+    ]);
+
+    if (vapiToolCanStartOutboundCall(payload)) {
+      await assertWorkspaceAutomationAllowed(workspaceId);
+    }
 
     await recordVoiceToolEvent({
       eventType: `tool.${toolCall.name ?? "unknown"}.requested`,
@@ -267,6 +1262,44 @@ export async function POST(request: Request) {
       workspaceId,
     });
 
+    const completedToolResponse = async (result: Record<string, unknown>) => {
+      await recordVoiceToolEvent({
+        eventType: `tool.${toolCall.name ?? "unknown"}.completed`,
+        payload: {
+          kyroProviderCallId: toolCall.callId,
+          kyroThreadId: threadId,
+          kyroToolCallId: toolCall.id,
+          kyroToolName: toolCall.name,
+          kyroToolResult: result,
+          kyroUserId: userId,
+          kyroWorkspaceId: workspaceId,
+          uiBlocks: normalizeAssistantUiBlocks(result.uiBlocks),
+        },
+        providerCallId: toolCall.callId,
+        supabase,
+        workspaceId,
+      });
+
+      return toolResponse(result, toolCallId);
+    };
+
+    const metadata = vapiToolCallMetadata(payload);
+    const toolAuthorization = resolveVapiToolAuthorization({
+      callerRole: textValue(metadata.callerRole),
+      purpose: textValue(metadata.purpose),
+      source: textValue(metadata.source),
+      toolName: toolCall.name,
+    });
+
+    if (!toolAuthorization.allowed) {
+      return completedToolResponse({
+        answer: VAPI_EXTERNAL_CALLER_REFUSAL,
+        denied: true,
+        message: VAPI_EXTERNAL_CALLER_REFUSAL,
+        ok: false,
+      });
+    }
+
     if (toolCall.name === "kyro_lookup_contact") {
       const contacts = await lookupVoiceContactsForTool({
         phoneNumber: textValue(args.phoneNumber),
@@ -274,14 +1307,413 @@ export async function POST(request: Request) {
         supabase,
         workspaceId,
       });
+      const firstContact = contacts[0];
+      const lookupAnswer =
+        contacts.length === 0
+          ? "No matching contacts found."
+          : contacts.length === 1
+            ? `Displayed the matching contact card. ${describeMatchedContact(firstContact)} If the user asked for one of those details, give it directly. Otherwise continue with the useful next step and avoid reading out unnecessary long details.`
+            : `Displayed ${contacts.length} possible contact cards. Likely matches: ${describeContactOptions(contacts)} Ask the user which one they mean before taking action.`;
 
-      return toolResponse(
-        {
+      return completedToolResponse({
+        answer: lookupAnswer,
+        contacts,
+        count: contacts.length,
+        ok: true,
+        uiBlocks: contactCardsForVoiceTool(contacts),
+      });
+    }
+
+    if (toolCall.name === "kyro_update_contact") {
+      if (!userId) {
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a user id to update contact profiles.",
+        });
+      }
+
+      const result = await updateContactFromAssistantTool({
+        args,
+        source: "vapi_internal_voice",
+        supabase,
+        userId,
+        workspaceId,
+      });
+
+      return completedToolResponse({
+        ...result,
+        uiBlocks:
+          result.contacts && result.contacts.length > 0
+            ? contactCardsForVoiceTool(result.contacts)
+            : [],
+      });
+    }
+
+    if (toolCall.name === "kyro_start_outbound_call") {
+      if (!userId) {
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a user id to start outbound phone calls.",
+        });
+      }
+
+      if (!vapiToolCanStartOutboundCall(payload)) {
+        return completedToolResponse({
+          ok: false,
+          message:
+            "Outbound phone calls can only be started from trusted internal Kyro calls.",
+        });
+      }
+
+      const phoneNumber =
+        textValue(args.phoneNumber) ??
+        textValue(args.customerPhone) ??
+        textValue(args.toNumber) ??
+        textValue(args.to);
+      const instructions =
+        textValue(args.instructions) ??
+        textValue(args.callInstructions) ??
+        textValue(args.message) ??
+        textValue(args.note);
+      const contextSummary =
+        textValue(args.contextSummary) ??
+        textValue(args.recentChatContext) ??
+        textValue(args.callContext) ??
+        textValue(args.outboundCallContext);
+      const resolutionPrompt = [
+        prompt,
+        textValue(args.contactName),
+        phoneNumber,
+        instructions,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" ");
+      const resolution = await resolveOutboundCallRequest({
+        contactId: textValue(args.contactId),
+        contextSummary,
+        conversationId: textValue(args.conversationId),
+        instructions,
+        leadId: textValue(args.leadId),
+        phoneNumber,
+        prompt: resolutionPrompt || "Outbound phone call",
+        supabase,
+        workspaceId,
+      });
+
+      if (resolution.status !== "ready") {
+        const links = resolution.matches.map((contact) => ({
+          href: `/contacts/${contact.id}`,
+          label: contact.name ?? contact.company ?? contact.phone ?? "Contact",
+          meta: contact.email ?? contact.phone ?? undefined,
+        }));
+
+        return completedToolResponse({
+          answer:
+            resolution.status === "ambiguous"
+              ? "I found more than one possible contact. Ask the user which one they mean before starting the call."
+              : resolution.status === "missing_phone"
+                ? "That contact does not have a phone number saved yet."
+                : resolution.status === "missing_instructions"
+                  ? "Ask the user what Kyro should say on the outbound call."
+                  : "I could not find a matching contact or phone number for that outbound call.",
+          ok: false,
+          resolution,
+          uiBlocks: links.length
+            ? linkCardsBlock("Possible call recipients", links)
+            : [],
+        });
+      }
+
+      const result = await createOutboundVoiceCall({
+        contactId: resolution.contactId,
+        contextSummary: resolution.contextSummary,
+        conversationId: resolution.conversationId,
+        instructions: resolution.instructions,
+        leadId: resolution.leadId,
+        phoneNumber: resolution.phoneNumber,
+        supabase,
+        threadId,
+        user: toolUser(userId),
+        workspaceId,
+      });
+
+      return completedToolResponse({
+        answer: `Started the outbound call to ${
+          resolution.contactName ?? resolution.phoneNumber
+        }.`,
+        ok: true,
+        providerCallId: result.providerCallId,
+        status: result.status,
+        voiceCallId: result.voiceCallId,
+      });
+    }
+
+    if (isDraftedSmsTool) {
+      if (!userId) {
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a user id to send drafted SMS replies.",
+        });
+      }
+
+      if (
+        !(await vapiToolCanSendOutboundSms({
+          args,
+          payload,
+          supabase,
+          workspaceId,
+        }))
+      ) {
+        return completedToolResponse({
+          answer:
+            "I could not send that drafted SMS because this call is not trusted for outbound SMS. Tell the caller it was not sent.",
+          ok: false,
+          message:
+            "Drafted SMS replies can only be sent from trusted internal Kyro calls. Do not tell the caller the SMS was sent.",
+        });
+      }
+
+      const explicitActionId = textValue(args.actionId);
+      let draftAction = explicitActionId
+        ? await loadDraftSmsActionById({
+            actionId: explicitActionId,
+            supabase,
+            workspaceId,
+          })
+        : null;
+
+      const contacts = explicitActionId
+        ? []
+        : await resolveDraftSmsContact({
+            args,
+            prompt,
+            supabase,
+            workspaceId,
+          });
+
+      if (!draftAction) {
+        if (contacts.length === 0) {
+          return completedToolResponse({
+            answer:
+              "I could not find a matching contact with a drafted SMS ready to send.",
+            ok: false,
+            uiBlocks: [],
+          });
+        }
+
+        if (contacts.length > 1) {
+          return completedToolResponse({
+            answer:
+              "I found more than one possible contact. Ask the user which one they mean before sending the drafted SMS.",
+            contacts,
+            ok: false,
+            uiBlocks: contactCardsForVoiceTool(contacts),
+          });
+        }
+
+        const contact = contacts[0];
+        draftAction = await findLatestDraftSmsForContact({
+          contactId: contact.id,
+          conversationId: textValue(args.conversationId),
+          supabase,
+          workspaceId,
+        });
+      }
+
+      if (!draftAction) {
+        return completedToolResponse({
+          answer:
+            "I found the contact, but there is no pending drafted SMS ready to send.",
           contacts,
-          count: contacts.length,
+          ok: false,
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
+      if (!isSmsDraftAction(draftAction)) {
+        return completedToolResponse({
+          answer:
+            "I found that draft action, but it is not a pending SMS draft.",
+          ok: false,
+        });
+      }
+
+      await executeDraftSmsActionForTool({
+        action: draftAction,
+        supabase,
+        userId,
+      });
+
+      const sentTo =
+        contacts[0]?.name ??
+        contacts[0]?.company ??
+        contacts[0]?.phone ??
+        "the contact";
+
+      return completedToolResponse({
+        answer: `Sent the drafted SMS to ${sentTo}.`,
+        actionId: draftAction.id,
+        ok: true,
+        uiBlocks: contacts.length ? contactCardsForVoiceTool(contacts) : [],
+      });
+    }
+
+    if (isExplicitSmsTool) {
+      if (!userId) {
+        return completedToolResponse({
+          answer:
+            "I could not send that SMS because Kyro could not identify the user.",
+          ok: false,
+          message: "Kyro needs a user id to send SMS messages.",
+        });
+      }
+
+      const body = explicitSmsBody(args);
+      const explicitActionId = textValue(args.actionId);
+      const canSendAnySms = await vapiToolCanSendOutboundSms({
+        args,
+        payload,
+        supabase,
+        workspaceId,
+      });
+
+      if (explicitActionId && !body) {
+        if (!canSendAnySms) {
+          return completedToolResponse({
+            answer:
+              "I could not send that drafted SMS because this call is not trusted for outbound SMS. Tell the caller it was not sent.",
+            ok: false,
+            message:
+              "Drafted SMS replies can only be sent from trusted internal Kyro calls. Do not tell the caller the SMS was sent.",
+          });
+        }
+
+        const draftAction = await loadDraftSmsActionById({
+          actionId: explicitActionId,
+          supabase,
+          workspaceId,
+        });
+
+        if (!draftAction || !isSmsDraftAction(draftAction)) {
+          return completedToolResponse({
+            answer: "I could not find a pending drafted SMS for that action.",
+            ok: false,
+          });
+        }
+
+        await executeDraftSmsActionForTool({
+          action: draftAction,
+          supabase,
+          userId,
+        });
+
+        return completedToolResponse({
+          actionId: draftAction.id,
+          answer: "Sent the drafted SMS.",
           ok: true,
-        },
-        toolCallId,
+        });
+      }
+
+      const contacts = await resolveExplicitSmsContacts({
+        args,
+        prompt,
+        supabase,
+        workspaceId,
+      });
+
+      if (contacts.length === 0) {
+        return completedToolResponse({
+          answer: "I could not find a matching contact to send that SMS to.",
+          ok: false,
+          uiBlocks: [],
+        });
+      }
+
+      if (contacts.length > 1) {
+        return completedToolResponse({
+          answer:
+            "I found more than one possible contact. Ask the user which one they mean before sending the SMS.",
+          contacts,
+          ok: false,
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
+      if (
+        !canSendAnySms &&
+        !vapiContactMatchesCallerNumber(contacts[0], payload, args)
+      ) {
+        return completedToolResponse({
+          answer:
+            "I could not send that SMS. External inbound calls can only send SMS messages to the same phone number or contact that is calling.",
+          contacts,
+          ok: false,
+          message:
+            "SMS messages from external inbound calls are limited to the caller's own matched contact. Do not tell the caller the SMS was sent.",
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
+      if (!body) {
+        if (!canSendAnySms) {
+          return completedToolResponse({
+            answer:
+              "I could not send a drafted SMS from this call. Ask for the exact SMS wording instead.",
+            contacts,
+            ok: false,
+            message:
+              "Drafted SMS sends are only available from trusted internal calls. Do not tell the caller the SMS was sent.",
+            uiBlocks: contactCardsForVoiceTool(contacts),
+          });
+        }
+
+        const draftAction = await findLatestDraftSmsForContact({
+          contactId: contacts[0].id,
+          conversationId: textValue(args.conversationId),
+          supabase,
+          workspaceId,
+        });
+
+        if (!draftAction) {
+          return completedToolResponse({
+            answer:
+              "I found the contact, but there is no drafted SMS ready to send. Ask the user what message they want sent.",
+            contacts,
+            ok: false,
+            uiBlocks: contactCardsForVoiceTool(contacts),
+          });
+        }
+
+        await executeDraftSmsActionForTool({
+          action: draftAction,
+          supabase,
+          userId,
+        });
+
+        const sentTo =
+          contacts[0].name ??
+          contacts[0].company ??
+          contacts[0].phone ??
+          "the contact";
+
+        return completedToolResponse({
+          actionId: draftAction.id,
+          answer: `Sent the drafted SMS to ${sentTo}.`,
+          ok: true,
+          uiBlocks: contactCardsForVoiceTool(contacts),
+        });
+      }
+
+      return completedToolResponse(
+        await sendExplicitSmsForTool({
+          args,
+          body,
+          contacts,
+          idempotencyKey: toolCall.id,
+          supabase,
+          userId,
+          workspaceId,
+        }),
       );
     }
 
@@ -290,57 +1722,69 @@ export async function POST(request: Request) {
       toolCall.name === "kyro_assistant_command"
     ) {
       if (!prompt || !userId) {
-        return toolResponse(
-          {
-            message: "Kyro needs a prompt and user id for assistant context tools.",
-            ok: false,
-          },
-          toolCallId,
-        );
+        return completedToolResponse({
+          ok: false,
+          message:
+            "Kyro needs a prompt and user id for assistant context tools.",
+        });
       }
 
       const workspace = await loadWorkspace(supabase, workspaceId);
       const result = await resolveAssistantCommand({
         prompt,
         supabase,
+        threadId,
         user: toolUser(userId),
         workspace,
       });
+      let answer = result.fallbackAnswer;
+      let uiBlocks = result.uiBlocks ?? [];
 
-      return toolResponse(
-        {
-          answer: result.fallbackAnswer,
-          context: result.context,
-          intent: result.intent,
-          links: result.links,
-          mutation: result.mutation ?? null,
-          ok: true,
-          title: result.title,
-          uiBlocks: result.uiBlocks ?? [],
-        },
-        toolCallId,
-      );
+      if (
+        shouldAttachContactCardsForVoicePrompt(prompt) &&
+        !hasContactPreviewLink(uiBlocks)
+      ) {
+        const contacts = await lookupVoiceContactsForTool({
+          query: prompt,
+          supabase,
+          workspaceId,
+        });
+
+        if (contacts.length > 0) {
+          uiBlocks = [...uiBlocks, ...contactCardsForVoiceTool(contacts)];
+          const firstContact = contacts[0];
+          answer =
+            contacts.length === 1
+              ? `Putting ${firstContact.name ?? firstContact.company ?? "that contact"} on screen now.`
+              : `I found ${contacts.length} matching contacts. Pick the one you want on screen.`;
+        }
+      }
+
+      return completedToolResponse({
+        answer,
+        context: result.context,
+        intent: result.intent,
+        links: result.links,
+        mutation: result.mutation ?? null,
+        ok: true,
+        title: result.title,
+        uiBlocks,
+      });
     }
 
     if (toolCall.name === "kyro_web_search") {
       if (!prompt || !userId) {
-        return toolResponse(
-          {
-            message: "Kyro needs a search prompt and user id for web search.",
-            ok: false,
-          },
-          toolCallId,
-        );
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a search prompt and user id for web search.",
+        });
       }
 
       if (!assistantWebSearchEnabled()) {
-        return toolResponse(
-          {
-            message: "Web search is disabled for this Kyro environment.",
-            ok: false,
-          },
-          toolCallId,
-        );
+        return completedToolResponse({
+          ok: false,
+          message: "Web search is disabled for this Kyro environment.",
+        });
       }
 
       const result = await runAssistantWebSearch({ prompt });
@@ -353,28 +1797,23 @@ export async function POST(request: Request) {
         workspaceId,
       });
 
-      return toolResponse(
-        {
-          answer: result.text,
-          fallbackReason: result.fallbackReason ?? null,
-          ok: true,
-          sourceCount: result.sources.length,
-          sources: result.sources,
-          webSearchUsed: result.webSearchUsed,
-        },
-        toolCallId,
-      );
+      return completedToolResponse({
+        answer: result.text,
+        fallbackReason: result.fallbackReason ?? null,
+        ok: true,
+        sourceCount: result.sources.length,
+        sources: result.sources,
+        uiBlocks: linkCardsBlock("Web sources", result.sources),
+        webSearchUsed: result.webSearchUsed,
+      });
     }
 
     if (toolCall.name === "kyro_check_recent_email") {
       if (!userId) {
-        return toolResponse(
-          {
-            message: "Kyro needs a user id to check connected inboxes.",
-            ok: false,
-          },
-          toolCallId,
-        );
+        return completedToolResponse({
+          ok: false,
+          message: "Kyro needs a user id to check connected inboxes.",
+        });
       }
 
       const providerArg = textValue(args.provider);
@@ -396,53 +1835,73 @@ export async function POST(request: Request) {
             ? `I checked email with ${result.errors.length} issue(s). I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages}, and observed ${result.observedMessages}.`
             : `I checked email. I fetched ${result.fetchedMessages} message(s), promoted ${result.promotedMessages} into Kyro, observed ${result.observedMessages}, and skipped ${result.duplicates} duplicate(s).`;
 
-      return toolResponse(
-        {
-          answer,
-          ok: true,
-          result,
-        },
-        toolCallId,
-      );
+      return completedToolResponse({
+        answer,
+        ok: true,
+        result,
+      });
     }
 
-    if (toolCall.name === "kyro_record_call_note") {
-      await recordVoiceToolEvent({
-        eventType: "tool.kyro_record_call_note.completed",
-        payload: {
-          ...payload,
-          kyroNote: textValue(args.note),
-          kyroPriority: textValue(args.priority),
-        },
+    if (toolCall.name === INBOUND_BOOKING_TOOL_NAME) {
+      const action =
+        textValue(args.action) === "request_booking"
+          ? "request_booking"
+          : "check_availability";
+      const result = await requestInboundVoiceBooking({
+        action,
+        args,
+        idempotencyKey: toolCall.id,
         providerCallId: toolCall.callId,
         supabase,
         workspaceId,
       });
 
-      return toolResponse(
-        {
-          ok: true,
-          recorded: true,
-        },
-        toolCallId,
-      );
+      return completedToolResponse(result);
     }
 
-    return toolResponse(
-      {
-        message: `Unsupported Kyro voice tool: ${toolCall.name ?? "unknown"}.`,
-        ok: false,
-      },
-      toolCallId,
-    );
+    if (toolCall.name === "kyro_record_call_note") {
+      const result = await recordVoiceCallPostCallAutomation({
+        args: {
+          ...args,
+          userId,
+        },
+        payload,
+        providerCallId: toolCall.callId,
+        supabase,
+        workspaceId,
+      });
+
+      return completedToolResponse({
+        ok: true,
+        recorded: true,
+        ...result,
+      });
+    }
+
+    return completedToolResponse({
+      ok: false,
+      message: `Unsupported Kyro voice tool: ${toolCall.name ?? "unknown"}.`,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to run Vapi tool.";
 
+    await notifyVapiToolIssue({
+      context: {
+        route: VAPI_TOOL_PATH,
+        toolCallId,
+      },
+      kind: "vapi_tool_execution_failed",
+      payload,
+      rawMessage: message,
+      visibleMessage:
+        "Kyro's voice tools hit an error while handling a request. The development team has been notified.",
+    });
+
     return toolResponse(
       {
-        message,
         ok: false,
+        message,
       },
       toolCallId,
     );

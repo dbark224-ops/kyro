@@ -1,5 +1,7 @@
 "use server";
 
+import { parseAddressFormData } from "../../lib/addresses/form";
+import { developerAccessEnabled } from "../../lib/auth/developer-access";
 import { ingestManualInbound } from "../../lib/inbound/manual";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
@@ -21,7 +23,7 @@ function safeRedirectPath(value: string) {
 function redirectWithInboundMessage(
   redirectTo: string,
   key: "engine_error" | "engine_message",
-  message: string
+  message: string,
 ): never {
   const separator = redirectTo.includes("?") ? "&" : "?";
 
@@ -37,22 +39,40 @@ export async function createManualInboundAction(formData: FormData) {
   const company = formString(formData, "company");
   const contactType = formString(formData, "contactType");
   const address = formString(formData, "address");
+  const addressFields = parseAddressFormData(formData, "address");
   const serviceType = formString(formData, "serviceType");
   const message = formString(formData, "message");
 
   if (!contactName) {
-    redirectWithInboundMessage(redirectTo, "engine_error", "Contact name is required.");
+    redirectWithInboundMessage(
+      redirectTo,
+      "engine_error",
+      "Contact name is required.",
+    );
   }
 
   if (!email && !phone) {
-    redirectWithInboundMessage(redirectTo, "engine_error", "Add at least an email or phone number.");
+    redirectWithInboundMessage(
+      redirectTo,
+      "engine_error",
+      "Add at least an email or phone number.",
+    );
   }
 
   if (!message) {
-    redirectWithInboundMessage(redirectTo, "engine_error", "Inbound message is required.");
+    redirectWithInboundMessage(
+      redirectTo,
+      "engine_error",
+      "Inbound message is required.",
+    );
   }
 
   const { supabase, user, workspace } = await requireWorkspaceContext();
+
+  if (!developerAccessEnabled(user)) {
+    redirect("/");
+  }
+
   let wasDuplicate = false;
 
   try {
@@ -64,25 +84,29 @@ export async function createManualInboundAction(formData: FormData) {
       company,
       contactType,
       address,
+      addressFields,
       serviceType,
-      message
+      message,
     });
     wasDuplicate = Boolean(result.duplicate);
   } catch (error) {
     redirectWithInboundMessage(
       redirectTo,
       "engine_error",
-      error instanceof Error ? error.message : "Unable to ingest manual inbound enquiry."
+      error instanceof Error
+        ? error.message
+        : "Unable to ingest manual inbound enquiry.",
     );
   }
 
   revalidatePath("/");
+  revalidatePath("/settings");
   revalidatePath(redirectTo);
   redirectWithInboundMessage(
     redirectTo,
     "engine_message",
     wasDuplicate
       ? "Duplicate submit ignored. The first enquiry was already recorded."
-      : "Inbound enquiry ingested, triaged, and queued for reply."
+      : "Inbound enquiry ingested, triaged, and queued for reply.",
   );
 }

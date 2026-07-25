@@ -13,6 +13,7 @@ import {
 type InfoBubbleProps = {
   children: ReactNode;
   label?: string;
+  placement?: "left" | "right";
 };
 
 function plainText(value: ReactNode): string {
@@ -31,7 +32,11 @@ function plainText(value: ReactNode): string {
   return "";
 }
 
-export function InfoBubble({ children, label }: Readonly<InfoBubbleProps>) {
+export function InfoBubble({
+  children,
+  label,
+  placement = "left",
+}: Readonly<InfoBubbleProps>) {
   const tooltipId = useId();
   const [open, setOpen] = useState(false);
   const ariaLabel = label ?? plainText(children);
@@ -73,6 +78,7 @@ export function InfoBubble({ children, label }: Readonly<InfoBubbleProps>) {
       aria-expanded={open}
       aria-label={ariaLabel || "More information"}
       className="info-bubble"
+      data-placement={placement}
       onBlur={handleBlur}
       onClick={toggleBubble}
       onKeyDown={handleKeyDown}

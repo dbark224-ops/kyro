@@ -1,0 +1,178 @@
+import type { SupabaseClient, User } from "@supabase/supabase-js";
+
+export type VapiUserIdentity = {
+  email: string;
+  firstName: string;
+  id: string;
+  name: string;
+  phone: string;
+};
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = textValue(value);
+
+    if (text) {
+      return text;
+    }
+  }
+
+  return "";
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function emailName(value: string) {
+  const localPart = value.split("@")[0]?.trim();
+
+  return localPart ? localPart.replace(/[._-]+/g, " ") : "";
+}
+
+function firstNameFromName(value: string) {
+  const clean = value.replace(/\s+/g, " ").trim();
+
+  if (!clean) {
+    return "";
+  }
+
+  const [firstName] = clean.split(" ");
+
+  return firstName ?? "";
+}
+
+export function vapiUserIdentityFromUser(user: User): VapiUserIdentity {
+  const metadata = objectRecord(user.user_metadata);
+  const email = textValue(user.email);
+  const explicitFirstName = firstText(metadata.first_name, metadata.firstName);
+  const lastName = firstText(metadata.last_name, metadata.lastName);
+  const storedName =
+    firstText(
+      metadata.name,
+      metadata.full_name,
+      metadata.fullName,
+      metadata.display_name,
+      metadata.displayName,
+    );
+  const name =
+    storedName || [explicitFirstName, lastName].filter(Boolean).join(" ") ||
+    emailName(email);
+  const phone = firstText(
+    user.phone,
+    metadata.kyroMobileNumber,
+    metadata.phone,
+    metadata.mobileNumber,
+    metadata.mobile,
+    metadata.publicPhoneNumber,
+  );
+
+  return {
+    email,
+    firstName: explicitFirstName || firstNameFromName(name),
+    id: user.id,
+    name,
+    phone,
+  };
+}
+
+export async function loadVapiUserIdentity(
+  supabase: SupabaseClient,
+  userId: string | null | undefined,
+) {
+  const cleanUserId = textValue(userId);
+
+  if (!cleanUserId) {
+    return emptyVapiUserIdentity();
+  }
+
+  const profilePromise = (async () => {
+    try {
+      const { data } = await supabase
+        .from("users")
+        .select("id,name,email,first_name,last_name")
+        .eq("id", cleanUserId)
+        .maybeSingle();
+
+      return data;
+    } catch {
+      return null;
+    }
+  })();
+  const authPromise = supabase.auth.admin
+    .getUserById(cleanUserId)
+    .catch(() => ({ data: { user: null } }));
+  const [profile, authResult] = await Promise.all([
+    profilePromise,
+    authPromise,
+  ]);
+  const authUser = authResult.data.user;
+  const authIdentity = authUser ? vapiUserIdentityFromUser(authUser) : null;
+  const profileRecord = objectRecord(profile);
+  const email = firstText(profileRecord.email, authIdentity?.email);
+  const explicitFirstName = firstText(
+    profileRecord.first_name,
+    authIdentity?.firstName,
+  );
+  const lastName = firstText(profileRecord.last_name);
+  const name =
+    firstText(profileRecord.name, authIdentity?.name) ||
+    [explicitFirstName, lastName].filter(Boolean).join(" ") ||
+    emailName(email);
+
+  return {
+    email,
+    firstName: explicitFirstName || firstNameFromName(name),
+    id: cleanUserId,
+    name,
+    phone: authIdentity?.phone ?? "",
+  } satisfies VapiUserIdentity;
+}
+
+export function emptyVapiUserIdentity(): VapiUserIdentity {
+  return {
+    email: "",
+    firstName: "",
+    id: "",
+    name: "",
+    phone: "",
+  };
+}
+
+export function vapiUserVariableValues(identity: VapiUserIdentity) {
+  return {
+    kyro_user_email: identity.email,
+    kyro_user_first_name: identity.firstName,
+    kyro_user_id: identity.id,
+    kyro_user_name: identity.name,
+    kyro_user_phone: identity.phone,
+    user_email: identity.email,
+    user_first_name: identity.firstName,
+    user_name: identity.name,
+    user_phone: identity.phone,
+  };
+}
+
+export function vapiUserContextLine(
+  identity: VapiUserIdentity,
+  label = "Kyro account user",
+) {
+  const parts = [
+    identity.firstName ? `first name ${identity.firstName}` : null,
+    identity.name ? `name ${identity.name}` : null,
+    identity.email ? `email ${identity.email}` : null,
+    identity.phone ? `phone ${identity.phone}` : null,
+  ].filter(Boolean);
+
+  if (parts.length === 0) {
+    return `${label}: no account contact details are available.`;
+  }
+
+  return `${label}: ${parts.join("; ")}.`;
+}

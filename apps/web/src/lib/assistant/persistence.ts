@@ -1,15 +1,19 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { getConversationList } from "../crm/queries";
 import { conversationToAssistantLink } from "./conversation-links";
+import { getAssistantContextSnapshots } from "./context-compaction";
 import { capturePronunciationSignalsFromText } from "./pronunciation";
 import {
   linkCardsBlock,
   linksFromBlocks,
   memoryNoticeBlock,
+  memorySuggestionBlock,
+  normalizeAssistantUiBlocks,
 } from "./ui-blocks";
 import type {
   AssistantLink,
   AssistantMemoryItem,
+  AssistantThreadSummary,
   AssistantThreadMessage,
   AssistantThreadState,
   AssistantTurnResult,
@@ -26,9 +30,19 @@ type WorkspaceInput = {
 };
 
 type AssistantThreadRow = {
+  created_at?: unknown;
   id: unknown;
+  metadata?: unknown;
+  status?: unknown;
   summary: unknown;
+  title?: unknown;
+  updated_at?: unknown;
 };
+
+export type AssistantThreadScope = "app" | "field";
+
+const APP_THREAD_SCOPE: AssistantThreadScope = "app";
+const FIELD_THREAD_SCOPE: AssistantThreadScope = "field";
 
 type AssistantMessageRow = {
   created_at: unknown;
@@ -46,50 +60,134 @@ type AssistantMemoryRow = {
   id: unknown;
   content: unknown;
   memory_type: unknown;
+  status?: unknown;
   tags: unknown;
 };
+
+export type AssistantMemorySuggestion = {
+  content: string;
+  id: string;
+};
+
+export function assistantThreadScope(metadata: unknown): AssistantThreadScope {
+  const record = objectRecord(metadata);
+
+  return textValue(record.threadScope) === FIELD_THREAD_SCOPE ||
+    textValue(record.channelGroup) === "internal_messaging"
+    ? FIELD_THREAD_SCOPE
+    : APP_THREAD_SCOPE;
+}
+
+export function fieldAssistantThreadMatches(
+  metadata: unknown,
+  senderPhone: string,
+) {
+  const record = objectRecord(metadata);
+
+  return (
+    assistantThreadScope(record) === FIELD_THREAD_SCOPE &&
+    textValue(record.senderPhone) === senderPhone
+  );
+}
+
+async function getActiveAssistantThreads(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  userId: string,
+) {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .select("id,title,status,summary,metadata,created_at,updated_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    throw new Error(`Unable to load assistant threads: ${error.message}`);
+  }
+
+  return (data ?? []) as unknown as AssistantThreadRow[];
+}
 
 export async function getOrCreateAssistantThread(
   supabase: SupabaseClient,
   workspace: WorkspaceInput,
   user: User,
 ) {
-  const { data: existing, error: existingError } = await supabase
-    .from("assistant_threads")
-    .select("id,summary")
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(
-      `Unable to load assistant thread: ${existingError.message}`,
-    );
-  }
+  const existing = (
+    await getActiveAssistantThreads(supabase, workspace.id, user.id)
+  ).find(
+    (thread) => assistantThreadScope(thread.metadata) === APP_THREAD_SCOPE,
+  );
 
   if (existing) {
-    return existing as unknown as AssistantThreadRow;
+    return existing;
   }
 
   const { data: created, error: createError } = await supabase
     .from("assistant_threads")
     .insert({
       metadata: {
+        threadScope: APP_THREAD_SCOPE,
         source: "assistant.page",
       },
       title: `${workspace.name} Assistant`,
       user_id: user.id,
       workspace_id: workspace.id,
     })
-    .select("id,summary")
+    .select("id,summary,metadata")
     .single();
 
   if (createError || !created) {
     throw new Error(
       `Unable to create assistant thread: ${createError?.message ?? "unknown error"}`,
+    );
+  }
+
+  return created as unknown as AssistantThreadRow;
+}
+
+export async function getOrCreateInternalMessagingThread(
+  supabase: SupabaseClient,
+  workspace: WorkspaceInput,
+  user: User,
+  input: {
+    displayName?: string | null;
+    senderPhone: string;
+  },
+) {
+  const existing = (
+    await getActiveAssistantThreads(supabase, workspace.id, user.id)
+  ).find((thread) =>
+    fieldAssistantThreadMatches(thread.metadata, input.senderPhone),
+  );
+
+  if (existing) {
+    return existing;
+  }
+
+  const displayName = textValue(input.displayName) ?? "Kyro user";
+  const { data: created, error: createError } = await supabase
+    .from("assistant_threads")
+    .insert({
+      metadata: {
+        channelGroup: "internal_messaging",
+        senderPhone: input.senderPhone,
+        source: "assistant.internal_messaging",
+        threadScope: FIELD_THREAD_SCOPE,
+      },
+      title: `${displayName} - field messages`,
+      user_id: user.id,
+      workspace_id: workspace.id,
+    })
+    .select("id,summary,metadata")
+    .single();
+
+  if (createError || !created) {
+    throw new Error(
+      `Unable to create internal messaging thread: ${createError?.message ?? "unknown error"}`,
     );
   }
 
@@ -110,17 +208,30 @@ export async function getAssistantThreadState({
   workspace: WorkspaceInput;
 }): Promise<AssistantThreadState> {
   const thread = threadId
-    ? await getAssistantThread(supabase, workspace.id, threadId, user.id)
+    ? await getAssistantThread(
+        supabase,
+        workspace.id,
+        threadId,
+        user.id,
+        APP_THREAD_SCOPE,
+      )
     : await getOrCreateAssistantThread(supabase, workspace, user);
   const resolvedThreadId = String(thread.id);
-  const [messages, memories] = await Promise.all([
+  const [messages, memories, threads] = await Promise.all([
     getAssistantMessages(supabase, workspace.id, resolvedThreadId),
     getAssistantMemories(supabase, workspace.id, user.id),
+    getAssistantThreadSummaries(supabase, workspace.id, user.id),
   ]);
+  const messagesWithMemoryStatuses =
+    await refreshAssistantMemorySuggestionBlocks(
+      supabase,
+      workspace.id,
+      messages,
+    );
   const refreshedMessages = await refreshAssistantConversationLinks(
     supabase,
     workspace.id,
-    messages,
+    messagesWithMemoryStatuses,
   );
 
   return {
@@ -134,6 +245,7 @@ export async function getAssistantThreadState({
           : [],
     summary: textValue(thread.summary),
     threadId: resolvedThreadId,
+    threads,
   };
 }
 
@@ -150,23 +262,35 @@ export async function getAssistantTurnContext({
   user: User;
   workspaceId: string;
 }) {
-  const [thread, recentMessages, memories] = await Promise.all([
-    getAssistantThread(supabase, workspaceId, threadId, user.id),
-    getAssistantMessages(
-      supabase,
-      workspaceId,
-      threadId,
-      MODEL_RECENT_MESSAGE_LIMIT,
-    ),
-    getRelevantMemories(supabase, workspaceId, user.id, prompt),
-  ]);
+  const [thread, recentMessages, memories, contextSnapshots] =
+    await Promise.all([
+      getAssistantThread(supabase, workspaceId, threadId, user.id),
+      getAssistantMessages(
+        supabase,
+        workspaceId,
+        threadId,
+        MODEL_RECENT_MESSAGE_LIMIT,
+      ),
+      getRelevantMemories(supabase, workspaceId, user.id, prompt),
+      getAssistantContextSnapshots({
+        prompt,
+        supabase,
+        threadId,
+        userId: user.id,
+        workspaceId,
+      }),
+    ]);
 
   return {
+    contextSnapshots,
     memories,
     recentMessages: recentMessages.map((message) => ({
       content: message.content,
+      createdAt: message.createdAt,
       intent: message.intent ?? null,
+      links: message.links,
       role: message.role,
+      uiBlocks: message.uiBlocks,
     })),
     summary: textValue(thread.summary),
   };
@@ -187,14 +311,14 @@ export async function appendUserAssistantMessage({
   user: User;
   workspaceId: string;
 }) {
+  const metadataSource = assistantInputSourceMetadataSource(inputSource);
   const { data, error } = await supabase
     .from("assistant_messages")
     .insert({
       content,
       metadata: {
         inputSource,
-        source:
-          inputSource === "voice" ? "assistant.voice_input" : "assistant.page",
+        source: metadataSource,
       },
       role: "user",
       thread_id: threadId,
@@ -214,10 +338,9 @@ export async function appendUserAssistantMessage({
 
   try {
     await capturePronunciationSignalsFromText({
-      source:
-        inputSource === "realtime_voice"
-          ? "assistant.realtime_voice"
-          : "assistant.message",
+      source: assistantVoiceInputSource(inputSource)
+        ? metadataSource
+        : "assistant.message",
       sourceId: String(data.id),
       supabase,
       text: content,
@@ -233,6 +356,7 @@ export async function appendUserAssistantMessage({
 
 export async function appendAssistantTurnMessage({
   memorySaved,
+  memorySuggestion,
   result,
   supabase,
   threadId,
@@ -240,22 +364,34 @@ export async function appendAssistantTurnMessage({
   workspaceId,
 }: {
   memorySaved?: string | null;
+  memorySuggestion?: AssistantMemorySuggestion | null;
   result: AssistantTurnResult;
   supabase: SupabaseClient;
   threadId: string;
   user: User;
   workspaceId: string;
 }) {
-  const uiBlocks = memorySaved
-    ? [...result.uiBlocks, memoryNoticeBlock(memorySaved)]
-    : result.uiBlocks;
+  const contextLinks = result.contextLinks ?? result.links;
+  const uiBlocks = [
+    ...result.uiBlocks,
+    ...(memorySaved ? [memoryNoticeBlock(memorySaved)] : []),
+    ...(memorySuggestion
+      ? [
+          memorySuggestionBlock({
+            content: memorySuggestion.content,
+            memoryId: memorySuggestion.id,
+          }),
+        ]
+      : []),
+  ];
   const { error } = await supabase.from("assistant_messages").insert({
     ai_run_id: result.id,
     content: result.content,
     intent: result.intent,
     metadata: {
+      contextLinks,
       fallbackReason: result.fallbackReason ?? null,
-      linkCount: result.links.length,
+      linkCount: contextLinks.length,
       source: "assistant.page",
     },
     model: result.model,
@@ -277,38 +413,48 @@ export async function appendAssistantTurnMessage({
 
 export async function appendRealtimeAssistantMessage({
   content,
+  intent = "realtime_voice",
   links = [],
   model,
   provider,
+  source = "assistant.realtime_voice",
   supabase,
   threadId,
+  uiBlocks = [],
   user,
   workspaceId,
 }: {
   content: string;
+  intent?: string;
   links?: AssistantLink[];
   model: string;
   provider: string;
+  source?: string;
   supabase: SupabaseClient;
   threadId: string;
+  uiBlocks?: AssistantUiBlock[];
   user: User;
   workspaceId: string;
 }) {
+  const persistedUiBlocks = [
+    ...normalizeAssistantUiBlocks(uiBlocks),
+    ...linkCardsBlock("Web sources", links),
+  ];
   const { data, error } = await supabase
     .from("assistant_messages")
     .insert({
       content,
-      intent: "realtime_voice",
+      intent,
       metadata: {
         linkCount: links.length,
-        source: "assistant.realtime_voice",
+        source,
       },
       model,
       provider,
       role: "assistant",
       thread_id: threadId,
       tool_calls: [],
-      ui_blocks: linkCardsBlock("Web sources", links),
+      ui_blocks: persistedUiBlocks,
       user_id: user.id,
       workspace_id: workspaceId,
     })
@@ -324,6 +470,26 @@ export async function appendRealtimeAssistantMessage({
   await touchThread(supabase, workspaceId, threadId);
 
   return String(data.id);
+}
+
+function assistantVoiceInputSource(inputSource: string) {
+  return ["realtime_voice", "vapi_internal_voice", "voice"].includes(inputSource);
+}
+
+function assistantInputSourceMetadataSource(inputSource: string) {
+  if (inputSource === "realtime_voice") {
+    return "assistant.realtime_voice";
+  }
+
+  if (inputSource === "vapi_internal_voice") {
+    return "assistant.vapi_internal_voice";
+  }
+
+  if (inputSource === "voice") {
+    return "assistant.voice_input";
+  }
+
+  return "assistant.page";
 }
 
 export async function maybeSaveAssistantMemory({
@@ -365,6 +531,145 @@ export async function maybeSaveAssistantMemory({
   }
 
   return content;
+}
+
+export async function maybeSuggestAssistantMemory({
+  prompt,
+  sourceMessageId,
+  supabase,
+  threadId,
+  user,
+  workspaceId,
+}: {
+  prompt: string;
+  sourceMessageId: string;
+  supabase: SupabaseClient;
+  threadId: string;
+  user: User;
+  workspaceId: string;
+}): Promise<AssistantMemorySuggestion | null> {
+  const content = extractSuggestedMemory(prompt);
+
+  if (!content) {
+    return null;
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("assistant_memories")
+    .select("id,status")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("content", content)
+    .in("status", ["active", "pending_approval"])
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(
+      `Unable to check assistant memory suggestions: ${existingError.message}`,
+    );
+  }
+
+  if (existing) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("assistant_memories")
+    .insert({
+      confidence: "0.55",
+      content,
+      memory_type: "suggested_preference",
+      metadata: {
+        approvalRequired: true,
+        source: "assistant.suggested_memory",
+      },
+      source_message_id: sourceMessageId,
+      source_thread_id: threadId,
+      status: "pending_approval",
+      tags: inferMemoryTags(content),
+      user_id: user.id,
+      workspace_id: workspaceId,
+    })
+    .select("id,content")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to create assistant memory suggestion: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  return {
+    content: String(data.content),
+    id: String(data.id),
+  };
+}
+
+export async function setAssistantMemorySuggestionStatus({
+  memoryId,
+  status,
+  supabase,
+  user,
+  workspaceId,
+}: {
+  memoryId: string;
+  status: "active" | "rejected";
+  supabase: SupabaseClient;
+  user: User;
+  workspaceId: string;
+}) {
+  const { data: memory, error: loadError } = await supabase
+    .from("assistant_memories")
+    .select("id,content,status")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("id", memoryId)
+    .maybeSingle();
+
+  if (loadError) {
+    throw new Error(`Unable to load memory suggestion: ${loadError.message}`);
+  }
+
+  if (!memory) {
+    throw new Error("Memory suggestion was not found.");
+  }
+
+  const currentStatus = textValue(memory.status) ?? "pending_approval";
+
+  if (currentStatus !== "pending_approval") {
+    return {
+      content: String(memory.content),
+      id: String(memory.id),
+      status: currentStatus,
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from("assistant_memories")
+    .update({
+      metadata: {
+        approvedByUserId: status === "active" ? user.id : null,
+        decisionAt: new Date().toISOString(),
+        source: "assistant.suggested_memory",
+      },
+      status,
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("id", memoryId);
+
+  if (updateError) {
+    throw new Error(
+      `Unable to update memory suggestion: ${updateError.message}`,
+    );
+  }
+
+  return {
+    content: String(memory.content),
+    id: String(memory.id),
+    status,
+  };
 }
 
 export async function updateAssistantThreadSummary({
@@ -414,10 +719,11 @@ async function getAssistantThread(
   workspaceId: string,
   threadId: string,
   userId: string,
+  expectedScope?: AssistantThreadScope,
 ) {
   const { data, error } = await supabase
     .from("assistant_threads")
-    .select("id,summary")
+    .select("id,summary,metadata")
     .eq("workspace_id", workspaceId)
     .eq("user_id", userId)
     .eq("id", threadId)
@@ -431,7 +737,113 @@ async function getAssistantThread(
     throw new Error("Assistant thread was not found.");
   }
 
-  return data as unknown as AssistantThreadRow;
+  const thread = data as unknown as AssistantThreadRow;
+
+  if (
+    expectedScope &&
+    assistantThreadScope(thread.metadata) !== expectedScope
+  ) {
+    throw new Error("Assistant thread was not found.");
+  }
+
+  return thread;
+}
+
+export async function createAssistantThread({
+  supabase,
+  user,
+  workspace,
+}: {
+  supabase: SupabaseClient;
+  user: User;
+  workspace: WorkspaceInput;
+}) {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .insert({
+      metadata: {
+        threadScope: APP_THREAD_SCOPE,
+        source: "assistant.new_thread",
+      },
+      title: `${workspace.name} Assistant`,
+      user_id: user.id,
+      workspace_id: workspace.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to create assistant thread: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  return String(data.id);
+}
+
+export async function archiveAssistantThread({
+  supabase,
+  threadId,
+  user,
+  workspaceId,
+}: {
+  supabase: SupabaseClient;
+  threadId: string;
+  user: User;
+  workspaceId: string;
+}) {
+  await getAssistantThread(
+    supabase,
+    workspaceId,
+    threadId,
+    user.id,
+    APP_THREAD_SCOPE,
+  );
+
+  const { error } = await supabase
+    .from("assistant_threads")
+    .update({
+      status: "archived",
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("id", threadId);
+
+  if (error) {
+    throw new Error(`Unable to archive assistant thread: ${error.message}`);
+  }
+}
+
+async function getAssistantThreadSummaries(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  userId: string,
+): Promise<AssistantThreadSummary[]> {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .select("id,title,status,summary,metadata,created_at,updated_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    throw new Error(`Unable to load assistant threads: ${error.message}`);
+  }
+
+  return ((data ?? []) as unknown as AssistantThreadRow[])
+    .filter(
+      (thread) => assistantThreadScope(thread.metadata) === APP_THREAD_SCOPE,
+    )
+    .map((thread) => ({
+      createdAt: textValue(thread.created_at) ?? new Date().toISOString(),
+      id: String(thread.id),
+      status: textValue(thread.status) ?? "active",
+      summary: textValue(thread.summary),
+      title: textValue(thread.title) ?? "Assistant thread",
+      updatedAt: textValue(thread.updated_at) ?? new Date().toISOString(),
+    }))
+    .slice(0, 20);
 }
 
 async function getAssistantMessages(
@@ -510,9 +922,7 @@ async function touchThread(
   const { error } = await supabase
     .from("assistant_threads")
     .update({
-      metadata: {
-        lastTouchedBy: "assistant.page",
-      },
+      updated_at: new Date().toISOString(),
     })
     .eq("workspace_id", workspaceId)
     .eq("id", threadId);
@@ -525,6 +935,7 @@ async function touchThread(
 function toThreadMessage(row: AssistantMessageRow): AssistantThreadMessage {
   const metadata = objectRecord(row.metadata);
   const uiBlocks = normalizeUiBlocks(row.ui_blocks);
+  const contextLinks = normalizeAssistantLinks(metadata.contextLinks);
 
   return {
     content: String(row.content),
@@ -532,12 +943,56 @@ function toThreadMessage(row: AssistantMessageRow): AssistantThreadMessage {
     fallbackReason: textValue(metadata.fallbackReason) ?? undefined,
     id: String(row.id),
     intent: textValue(row.intent) ?? undefined,
-    links: linksFromBlocks(uiBlocks),
+    links: dedupeAssistantLinks([
+      ...contextLinks,
+      ...linksFromBlocks(uiBlocks),
+    ]),
     model: textValue(row.model) ?? undefined,
     provider: textValue(row.provider) ?? undefined,
     role: textValue(row.role) === "assistant" ? "assistant" : "user",
     uiBlocks,
   };
+}
+
+function normalizeAssistantLinks(value: unknown): AssistantLink[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const record = objectRecord(item);
+    const href = textValue(record.href);
+    const label = textValue(record.label);
+
+    if (!href || !label) {
+      return [];
+    }
+
+    const meta = textValue(record.meta);
+
+    return [
+      {
+        href,
+        label,
+        ...(meta ? { meta } : {}),
+      },
+    ];
+  });
+}
+
+function dedupeAssistantLinks(links: AssistantLink[]) {
+  const seen = new Set<string>();
+
+  return links.filter((link) => {
+    const key = `${link.href}\u0000${link.label}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 async function refreshAssistantConversationLinks(
@@ -669,22 +1124,70 @@ function conversationHrefFromHref(href: string) {
 }
 
 function normalizeUiBlocks(value: unknown): AssistantUiBlock[] {
-  if (!Array.isArray(value)) {
-    return [];
+  return normalizeAssistantUiBlocks(value);
+}
+
+async function refreshAssistantMemorySuggestionBlocks(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  messages: AssistantThreadMessage[],
+): Promise<AssistantThreadMessage[]> {
+  const memoryIds = [
+    ...new Set(
+      messages.flatMap((message) =>
+        (message.uiBlocks ?? []).flatMap((block) =>
+          block.type === "memory_suggestion" ? [block.memoryId] : [],
+        ),
+      ),
+    ),
+  ];
+
+  if (memoryIds.length === 0) {
+    return messages;
   }
 
-  return value.filter((block): block is AssistantUiBlock => {
-    if (!block || typeof block !== "object") {
-      return false;
-    }
+  const { data, error } = await supabase
+    .from("assistant_memories")
+    .select("id,status")
+    .eq("workspace_id", workspaceId)
+    .in("id", memoryIds);
 
-    const record = block as Record<string, unknown>;
-    return (
-      record.type === "link_cards" ||
-      record.type === "memory_notice" ||
-      record.type === "generated_image"
+  if (error) {
+    throw new Error(
+      `Unable to refresh memory suggestion status: ${error.message}`,
     );
-  });
+  }
+
+  const statusById = new Map<
+    string,
+    "active" | "pending_approval" | "rejected"
+  >(
+    (data ?? []).map((row) => [
+      String(row.id),
+      toMemorySuggestionStatus(textValue(row.status)),
+    ]),
+  );
+
+  return messages.map((message) => ({
+    ...message,
+    uiBlocks: (message.uiBlocks ?? []).map((block) => {
+      if (block.type !== "memory_suggestion") {
+        return block;
+      }
+
+      const status = statusById.get(block.memoryId);
+
+      return status ? { ...block, status } : block;
+    }),
+  }));
+}
+
+function toMemorySuggestionStatus(
+  value: string | null,
+): "active" | "pending_approval" | "rejected" {
+  return value === "active" || value === "rejected"
+    ? value
+    : "pending_approval";
 }
 
 function objectRecord(value: unknown) {
@@ -713,6 +1216,41 @@ function extractExplicitMemory(prompt: string) {
   }
 
   return null;
+}
+
+export function extractSuggestedMemory(prompt: string) {
+  if (extractExplicitMemory(prompt)) {
+    return null;
+  }
+
+  const cleaned = prompt.trim().replace(/\s+/g, " ");
+  const text = cleaned.toLowerCase();
+  const durablePreference =
+    /\b(?:i|we)\s+(?:prefer|usually|normally|always|never)\b/.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:don't|do not)\s+(?:usually|normally|ever|want\s+(?:kyro|you)\s+to)\b/.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+want\s+(?:kyro|you)\s+to\s+(?:always|never|usually|normally)\b/.test(
+      text,
+    ) ||
+    /\b(?:please|can you)\s+(?:always|never)\b/.test(text) ||
+    /\b(?:from now on|going forward|default|preference|policy)\b/.test(text);
+
+  if (!durablePreference) {
+    return null;
+  }
+
+  if (cleaned.length < 16 || cleaned.length > 600) {
+    return null;
+  }
+
+  if (/[?]/.test(cleaned) && !/\b(?:can you|please)\b/.test(text)) {
+    return null;
+  }
+
+  return truncate(cleaned, 500);
 }
 
 function inferMemoryTags(content: string) {

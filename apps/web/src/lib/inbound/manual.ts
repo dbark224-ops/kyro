@@ -1,7 +1,16 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import type { AddressColumnUpdates } from "../addresses/types";
 import { runStubAiTriage } from "../ai/triage";
 import { normalizeContactType } from "../crm/contact-types";
+import {
+  normalizeCompanyName,
+  normalizeContactEmail,
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
+} from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 
 export type ManualInboundInput = {
   submissionKey?: string;
@@ -11,28 +20,24 @@ export type ManualInboundInput = {
   company?: string;
   contactType?: string;
   address?: string;
+  addressFields?: AddressColumnUpdates;
   serviceType?: string;
   message: string;
+  channel?: {
+    displayName: string;
+    externalId?: string | null;
+    settings?: Record<string, unknown>;
+    type: string;
+  };
+  eventSource?: string;
+  eventType?: string;
+  metadata?: Record<string, unknown>;
+  source?: string;
 };
 
 function nullableText(value?: string | null) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
-}
-
-function normalizeEmail(value?: string | null) {
-  return nullableText(value)?.toLowerCase() ?? null;
-}
-
-function normalizePhone(value?: string | null) {
-  const trimmed = nullableText(value);
-
-  if (!trimmed) {
-    return null;
-  }
-
-  const digits = trimmed.replace(/\D/g, "");
-  return digits.length > 0 ? digits : null;
 }
 
 type ContactCandidate = {
@@ -41,6 +46,9 @@ type ContactCandidate = {
   email: string | null;
   phone: string | null;
   company: string | null;
+  normalizedEmail: string | null;
+  normalizedPhone: string | null;
+  normalizedCompany: string | null;
   contactType: string | null;
   address: string | null;
 };
@@ -62,6 +70,9 @@ function toContactCandidate(contact: {
   email: unknown;
   phone: unknown;
   company: unknown;
+  normalized_email?: unknown;
+  normalized_phone?: unknown;
+  normalized_company?: unknown;
   contact_type: unknown;
   address: unknown;
 }): ContactCandidate {
@@ -71,17 +82,113 @@ function toContactCandidate(contact: {
     email: contact.email ? String(contact.email) : null,
     phone: contact.phone ? String(contact.phone) : null,
     company: contact.company ? String(contact.company) : null,
+    normalizedEmail: contact.normalized_email
+      ? String(contact.normalized_email)
+      : null,
+    normalizedPhone: contact.normalized_phone
+      ? String(contact.normalized_phone)
+      : null,
+    normalizedCompany: contact.normalized_company
+      ? String(contact.normalized_company)
+      : null,
     contactType: contact.contact_type ? String(contact.contact_type) : null,
-    address: contact.address ? String(contact.address) : null
+    address: contact.address ? String(contact.address) : null,
   };
 }
 
-async function loadContactCandidates(supabase: SupabaseClient, workspaceId: string) {
+function contactReferenceLabel(contact: ContactCandidate) {
+  const title =
+    contact.name?.trim() ||
+    contact.company?.trim() ||
+    contact.email?.trim() ||
+    contact.phone?.trim() ||
+    "Unnamed contact";
+  const details = [contact.phone, contact.email].filter(Boolean).join(" - ");
+
+  return details ? `${title} - ${details}` : title;
+}
+
+async function profileConflictNote(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  match: ContactMatchResult["match"],
+) {
+  if (match.status !== "conflict_created") {
+    return null;
+  }
+
+  const contactIds = Array.from(
+    new Set(
+      [match.emailMatchedContactId, match.phoneMatchedContactId].filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
+      ),
+    ),
+  );
+
+  if (contactIds.length === 0) {
+    return "Potential profile match conflict. Email matched none; phone matched none.";
+  }
+
   const { data, error } = await supabase
     .from("contacts")
-    .select("id,name,email,phone,company,contact_type,address")
+    .select(
+      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,address",
+    )
     .eq("workspace_id", workspaceId)
-    .limit(500);
+    .in("id", contactIds);
+
+  if (error) {
+    throw new Error(`Unable to describe profile conflict: ${error.message}`);
+  }
+
+  const contactsById = new Map(
+    (data ?? []).map((contact) => [
+      String(contact.id),
+      contactReferenceLabel(toContactCandidate(contact)),
+    ]),
+  );
+  const emailMatch = match.emailMatchedContactId
+    ? (contactsById.get(match.emailMatchedContactId) ?? "Unknown contact")
+    : "none";
+  const phoneMatch = match.phoneMatchedContactId
+    ? (contactsById.get(match.phoneMatchedContactId) ?? "Unknown contact")
+    : "none";
+
+  return `Potential profile match conflict. Email matched ${emailMatch}; phone matched ${phoneMatch}.`;
+}
+
+async function loadContactCandidatesByIdentity(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  identity: {
+    email: string | null;
+    phone: string | null;
+  },
+) {
+  const filters = [];
+
+  if (identity.email) {
+    filters.push(`normalized_email.eq.${identity.email}`);
+  }
+
+  if (identity.phone) {
+    filters.push(`normalized_phone.eq.${identity.phone}`);
+  }
+
+  if (filters.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .select(
+      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,address",
+    )
+    .eq("workspace_id", workspaceId)
+    .or(filters.join(","))
+    .order("updated_at", { ascending: false })
+    .limit(20);
 
   if (error) {
     throw new Error(`Unable to look up contacts: ${error.message}`);
@@ -94,13 +201,20 @@ async function patchMissingContactFields(
   supabase: SupabaseClient,
   workspaceId: string,
   contact: ContactCandidate,
-  input: ManualInboundInput
+  input: ManualInboundInput,
+  defaultPhoneRegion: PhoneRegion,
 ) {
-  const updates: Record<string, string> = {};
-  const email = normalizeEmail(input.email);
+  const updates: Record<string, unknown> = {};
+  const email = normalizeContactEmail(input.email);
   const phone = nullableText(input.phone);
+  const normalizedPhone = normalizeContactPhoneForRegion(
+    input.phone,
+    defaultPhoneRegion,
+  );
   const company = nullableText(input.company);
+  const normalizedCompany = normalizeCompanyName(input.company);
   const address = nullableText(input.address);
+  const addressFields = input.addressFields;
   const contactType = normalizeContactType(input.contactType);
 
   if (!contact.name && input.contactName.trim()) {
@@ -109,21 +223,31 @@ async function patchMissingContactFields(
 
   if (!contact.email && email) {
     updates.email = email;
+    updates.normalized_email = email;
   }
 
   if (!contact.phone && phone) {
     updates.phone = phone;
+    if (normalizedPhone) {
+      updates.normalized_phone = normalizedPhone;
+    }
   }
 
   if (!contact.company && company) {
     updates.company = company;
+    if (normalizedCompany) {
+      updates.normalized_company = normalizedCompany;
+    }
   }
 
   if (!contact.address && address) {
-    updates.address = address;
+    Object.assign(updates, addressFields ?? { address });
   }
 
-  if ((!contact.contactType || contact.contactType === "client") && contactType !== "client") {
+  if (
+    (!contact.contactType || contact.contactType === "client") &&
+    contactType !== "client"
+  ) {
     updates.contact_type = contactType;
   }
 
@@ -147,15 +271,23 @@ async function createContactProfile(
   user: User,
   workspaceId: string,
   input: ManualInboundInput,
-  match: ContactMatchResult["match"]
+  match: ContactMatchResult["match"],
+  defaultPhoneRegion: PhoneRegion,
 ) {
-  const email = normalizeEmail(input.email);
+  const email = normalizeContactEmail(input.email);
   const phone = nullableText(input.phone);
+  const normalizedPhone = normalizeContactPhoneForRegion(
+    input.phone,
+    defaultPhoneRegion,
+  );
+  const normalizedCompany = normalizeCompanyName(input.company);
   const contactType = normalizeContactType(input.contactType);
+  const source = nullableText(input.source) ?? "manual_inbound";
   const tags =
     match.status === "conflict_created"
-      ? ["manual_inbound", "profile_match_conflict"]
-      : ["manual_inbound"];
+      ? [source, "profile_match_conflict"]
+      : [source];
+  const conflictNote = await profileConflictNote(supabase, workspaceId, match);
 
   const { data: contact, error } = await supabase
     .from("contacts")
@@ -164,21 +296,29 @@ async function createContactProfile(
       name: input.contactName,
       email,
       phone,
+      normalized_email: email,
+      normalized_phone: normalizedPhone,
       company: nullableText(input.company),
+      normalized_company: normalizedCompany,
       contact_type: contactType,
-      address: nullableText(input.address),
-      source: "manual_inbound",
-      notes:
-        match.status === "conflict_created"
-          ? `Potential profile match conflict. Email matched ${match.emailMatchedContactId ?? "none"}; phone matched ${match.phoneMatchedContactId ?? "none"}.`
-          : null,
-      tags
+      ...(input.addressFields ?? { address: nullableText(input.address) }),
+      source,
+      notes: conflictNote,
+      profile_resolution_status:
+        match.status === "conflict_created" ? "needs_review" : "clear",
+      profile_resolution_reason:
+        match.status === "conflict_created" ? match.reason : null,
+      profile_conflict_contact_ids:
+        match.status === "conflict_created" ? match.conflictContactIds : [],
+      tags,
     })
     .select("id")
     .single();
 
   if (error || !contact) {
-    throw new Error(`Unable to create contact: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create contact: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -192,13 +332,17 @@ async function createContactProfile(
     entityType: "contact",
     entityId: String(contact.id),
     after: {
-      source: "manual_inbound",
+      source,
       email,
       phone,
+      normalizedEmail: email,
+      normalizedPhone,
+      normalizedCompany,
       contactType,
       address: nullableText(input.address),
-      profileMatch: match
-    }
+      structuredAddress: input.addressFields?.address_structured ?? null,
+      profileMatch: match,
+    },
   });
 
   return String(contact.id);
@@ -208,63 +352,97 @@ async function resolveContactProfile(
   supabase: SupabaseClient,
   user: User,
   workspaceId: string,
-  input: ManualInboundInput
+  input: ManualInboundInput,
+  defaultPhoneRegion: PhoneRegion,
 ): Promise<ContactMatchResult> {
-  const email = normalizeEmail(input.email);
-  const phone = normalizePhone(input.phone);
-  const contacts = await loadContactCandidates(supabase, workspaceId);
+  const email = normalizeContactEmail(input.email);
+  const phone = normalizeContactPhoneForRegion(input.phone, defaultPhoneRegion);
+  const contacts = await loadContactCandidatesByIdentity(
+    supabase,
+    workspaceId,
+    {
+      email,
+      phone,
+    },
+  );
   const emailMatch = email
-    ? contacts.find((contact) => normalizeEmail(contact.email) === email) ?? null
+    ? (contacts.find((contact) => contact.normalizedEmail === email) ?? null)
     : null;
   const phoneMatch = phone
-    ? contacts.find((contact) => normalizePhone(contact.phone) === phone) ?? null
+    ? (contacts.find((contact) => contact.normalizedPhone === phone) ?? null)
     : null;
   const baseMatch = {
     emailMatchedContactId: emailMatch?.id ?? null,
-    phoneMatchedContactId: phoneMatch?.id ?? null
+    phoneMatchedContactId: phoneMatch?.id ?? null,
   };
 
-  if (email && phone && emailMatch && phoneMatch && emailMatch.id !== phoneMatch.id) {
+  if (
+    email &&
+    phone &&
+    emailMatch &&
+    phoneMatch &&
+    emailMatch.id !== phoneMatch.id
+  ) {
     const match = {
       ...baseMatch,
       conflictContactIds: [emailMatch.id, phoneMatch.id],
       reason: "email_and_phone_match_different_profiles",
-      status: "conflict_created" as const
+      status: "conflict_created" as const,
     };
 
     return {
-      contactId: await createContactProfile(supabase, user, workspaceId, input, match),
-      match
+      contactId: await createContactProfile(
+        supabase,
+        user,
+        workspaceId,
+        input,
+        match,
+        defaultPhoneRegion,
+      ),
+      match,
     };
   }
 
   if (emailMatch) {
     const inputPhoneConflictsWithProfile =
       Boolean(phone) &&
-      Boolean(emailMatch.phone) &&
-      normalizePhone(emailMatch.phone) !== phone;
+      Boolean(emailMatch.normalizedPhone) &&
+      emailMatch.normalizedPhone !== phone;
 
     if (inputPhoneConflictsWithProfile) {
       const match = {
         ...baseMatch,
         conflictContactIds: [emailMatch.id],
         reason: "email_matches_profile_but_phone_differs",
-        status: "conflict_created" as const
+        status: "conflict_created" as const,
       };
 
       return {
-        contactId: await createContactProfile(supabase, user, workspaceId, input, match),
-        match
+        contactId: await createContactProfile(
+          supabase,
+          user,
+          workspaceId,
+          input,
+          match,
+          defaultPhoneRegion,
+        ),
+        match,
       };
     }
 
-    await patchMissingContactFields(supabase, workspaceId, emailMatch, input);
+    await patchMissingContactFields(
+      supabase,
+      workspaceId,
+      emailMatch,
+      input,
+      defaultPhoneRegion,
+    );
 
     const match = {
       ...baseMatch,
       conflictContactIds: [],
       reason: phone ? "email_profile_match" : "email_only_profile_match",
-      status: "attached" as const
+      status: "attached" as const,
     };
 
     await insertAuditLog(supabase, {
@@ -274,42 +452,55 @@ async function resolveContactProfile(
       action: "contact.profile_matched",
       entityType: "contact",
       entityId: emailMatch.id,
-      after: match
+      after: match,
     });
 
     return {
       contactId: emailMatch.id,
-      match
+      match,
     };
   }
 
   if (phoneMatch) {
     const inputEmailConflictsWithProfile =
       Boolean(email) &&
-      Boolean(phoneMatch.email) &&
-      normalizeEmail(phoneMatch.email) !== email;
+      Boolean(phoneMatch.normalizedEmail) &&
+      phoneMatch.normalizedEmail !== email;
 
     if (inputEmailConflictsWithProfile) {
       const match = {
         ...baseMatch,
         conflictContactIds: [phoneMatch.id],
         reason: "phone_matches_profile_but_email_differs",
-        status: "conflict_created" as const
+        status: "conflict_created" as const,
       };
 
       return {
-        contactId: await createContactProfile(supabase, user, workspaceId, input, match),
-        match
+        contactId: await createContactProfile(
+          supabase,
+          user,
+          workspaceId,
+          input,
+          match,
+          defaultPhoneRegion,
+        ),
+        match,
       };
     }
 
-    await patchMissingContactFields(supabase, workspaceId, phoneMatch, input);
+    await patchMissingContactFields(
+      supabase,
+      workspaceId,
+      phoneMatch,
+      input,
+      defaultPhoneRegion,
+    );
 
     const match = {
       ...baseMatch,
       conflictContactIds: [],
       reason: email ? "phone_profile_match" : "phone_only_profile_match",
-      status: "attached" as const
+      status: "attached" as const,
     };
 
     await insertAuditLog(supabase, {
@@ -319,12 +510,12 @@ async function resolveContactProfile(
       action: "contact.profile_matched",
       entityType: "contact",
       entityId: phoneMatch.id,
-      after: match
+      after: match,
     });
 
     return {
       contactId: phoneMatch.id,
-      match
+      match,
     };
   }
 
@@ -332,78 +523,113 @@ async function resolveContactProfile(
     ...baseMatch,
     conflictContactIds: [],
     reason: "no_existing_profile_match",
-    status: "created" as const
+    status: "created" as const,
   };
 
   return {
-    contactId: await createContactProfile(supabase, user, workspaceId, input, match),
-    match
+    contactId: await createContactProfile(
+      supabase,
+      user,
+      workspaceId,
+      input,
+      match,
+      defaultPhoneRegion,
+    ),
+    match,
   };
 }
 
-async function findOrCreateManualChannel(supabase: SupabaseClient, workspaceId: string) {
-  const { data: existing, error: existingError } = await supabase
+async function findOrCreateInboundChannel(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: ManualInboundInput,
+) {
+  const channel = input.channel ?? {
+    displayName: "Manual inbound",
+    externalId: null,
+    settings: {
+      createdBy: "manual_enquiry_form",
+    },
+    type: "manual_inbound",
+  };
+  let existingQuery = supabase
     .from("channels")
     .select("id")
     .eq("workspace_id", workspaceId)
-    .eq("type", "manual_inbound")
-    .eq("display_name", "Manual inbound")
+    .eq("type", channel.type);
+
+  existingQuery = channel.externalId
+    ? existingQuery.eq("external_id", channel.externalId)
+    : existingQuery.eq("display_name", channel.displayName);
+
+  const { data: existing, error: existingError } = await existingQuery
     .limit(1)
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to look up manual channel: ${existingError.message}`);
+    throw new Error(
+      `Unable to look up manual channel: ${existingError.message}`,
+    );
   }
 
   if (existing) {
     return String(existing.id);
   }
 
-  const { data: channel, error } = await supabase
+  const { data: createdChannel, error } = await supabase
     .from("channels")
     .insert({
       workspace_id: workspaceId,
-      type: "manual_inbound",
-      display_name: "Manual inbound",
+      type: channel.type,
+      display_name: channel.displayName,
+      external_id: channel.externalId ?? null,
       status: "active",
-      settings: {
-        createdBy: "manual_enquiry_form"
-      }
+      settings: channel.settings ?? {},
     })
     .select("id")
     .single();
 
-  if (error || !channel) {
-    throw new Error(`Unable to create manual channel: ${error?.message ?? "unknown error"}`);
+  if (error || !createdChannel) {
+    throw new Error(
+      `Unable to create manual channel: ${error?.message ?? "unknown error"}`,
+    );
   }
 
-  return String(channel.id);
+  return String(createdChannel.id);
 }
 
 export async function ingestManualInbound(
   supabase: SupabaseClient,
   user: User,
   workspaceId: string,
-  input: ManualInboundInput
+  input: ManualInboundInput,
 ) {
-  const idempotencyKey = `manual.inbound.${input.submissionKey ?? crypto.randomUUID()}`;
+  const source = nullableText(input.source) ?? "manual_inbound";
+  const eventSource = nullableText(input.eventSource) ?? "web.dashboard";
+  const eventType =
+    nullableText(input.eventType) ?? "inbound.manual_enquiry.received";
+  const extraMetadata = input.metadata ?? {};
+  const idempotencyKey = `${source}.inbound.${
+    input.submissionKey ?? crypto.randomUUID()
+  }`;
   const { data: event, error: eventError } = await supabase
     .from("events")
     .insert({
       workspace_id: workspaceId,
-      type: "inbound.manual_enquiry.received",
-      source: "web.dashboard",
+      type: eventType,
+      source: eventSource,
       idempotency_key: idempotencyKey,
       payload: {
+        ...extraMetadata,
         stage: "received",
         contactName: input.contactName,
         email: nullableText(input.email),
         phone: nullableText(input.phone),
         contactType: normalizeContactType(input.contactType),
         address: nullableText(input.address),
-        serviceType: nullableText(input.serviceType)
+        serviceType: nullableText(input.serviceType),
       },
-      status: "processing"
+      status: "processing",
     })
     .select("id,type,status")
     .single();
@@ -419,17 +645,34 @@ export async function ingestManualInbound(
 
       return {
         duplicate: true,
-        eventId: existingEvent ? String(existingEvent.id) : null
+        eventId: existingEvent ? String(existingEvent.id) : null,
       };
     }
 
-    throw new Error(`Unable to record inbound event: ${eventError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to record inbound event: ${eventError?.message ?? "unknown error"}`,
+    );
   }
 
-  const contactResolution = await resolveContactProfile(supabase, user, workspaceId, input);
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspaceId,
+  );
+  const contactResolution = await resolveContactProfile(
+    supabase,
+    user,
+    workspaceId,
+    input,
+    generalSettings.defaultPhoneRegion,
+  );
   const contactId = contactResolution.contactId;
-  const channelId = await findOrCreateManualChannel(supabase, workspaceId);
-  const hasProfileConflict = contactResolution.match.status === "conflict_created";
+  const channelId = await findOrCreateInboundChannel(
+    supabase,
+    workspaceId,
+    input,
+  );
+  const hasProfileConflict =
+    contactResolution.match.status === "conflict_created";
   const leadTitle = input.serviceType?.trim()
     ? `${input.serviceType.trim()} enquiry from ${input.contactName}`
     : `New enquiry from ${input.contactName}`;
@@ -439,7 +682,7 @@ export async function ingestManualInbound(
     .insert({
       workspace_id: workspaceId,
       contact_id: contactId,
-      source: "manual_inbound",
+      source,
       title: leadTitle,
       description: input.message,
       status: "new",
@@ -447,13 +690,15 @@ export async function ingestManualInbound(
       service_type: nullableText(input.serviceType),
       next_step: hasProfileConflict
         ? "Resolve contact profile match before replying"
-        : "Review AI proposed reply"
+        : "Review AI proposed reply",
     })
     .select("id,title")
     .single();
 
   if (leadError || !lead) {
-    throw new Error(`Unable to create lead: ${leadError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create lead: ${leadError?.message ?? "unknown error"}`,
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -465,9 +710,9 @@ export async function ingestManualInbound(
     entityId: String(lead.id),
     after: {
       title: lead.title,
-      source: "manual_inbound",
-      profileMatch: contactResolution.match
-    }
+      source,
+      profileMatch: contactResolution.match,
+    },
   });
 
   const { data: conversation, error: conversationError } = await supabase
@@ -478,13 +723,15 @@ export async function ingestManualInbound(
       contact_id: contactId,
       lead_id: lead.id,
       status: "open",
-      last_message_at: new Date().toISOString()
+      last_message_at: new Date().toISOString(),
     })
     .select("id")
     .single();
 
   if (conversationError || !conversation) {
-    throw new Error(`Unable to create conversation: ${conversationError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create conversation: ${conversationError?.message ?? "unknown error"}`,
+    );
   }
 
   const { data: message, error: messageError } = await supabase
@@ -499,15 +746,18 @@ export async function ingestManualInbound(
       body_text: input.message,
       received_at: new Date().toISOString(),
       metadata: {
-        source: "manual_inbound",
-        company: nullableText(input.company)
-      }
+        ...extraMetadata,
+        source,
+        company: nullableText(input.company),
+      },
     })
     .select("id")
     .single();
 
   if (messageError || !message) {
-    throw new Error(`Unable to create message: ${messageError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create message: ${messageError?.message ?? "unknown error"}`,
+    );
   }
 
   const { error: eventUpdateError } = await supabase
@@ -519,22 +769,27 @@ export async function ingestManualInbound(
         conversationId: conversation.id,
         messageId: message.id,
         serviceType: nullableText(input.serviceType),
-        profileMatch: contactResolution.match
+        profileMatch: contactResolution.match,
       },
       status: "processed",
-      processed_at: new Date().toISOString()
+      processed_at: new Date().toISOString(),
     })
     .eq("id", event.id);
 
   if (eventUpdateError) {
-    throw new Error(`Unable to update inbound event: ${eventUpdateError.message}`);
+    throw new Error(
+      `Unable to update inbound event: ${eventUpdateError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
     workspaceId,
     actorType: "user",
     actorId: user.id,
-    action: "inbound.manual_enquiry.ingested",
+    action:
+      source === "twilio_sms"
+        ? "inbound.twilio_sms.ingested"
+        : "inbound.manual_enquiry.ingested",
     entityType: "event",
     entityId: String(event.id),
     after: {
@@ -544,12 +799,12 @@ export async function ingestManualInbound(
       leadId: lead.id,
       conversationId: conversation.id,
       messageId: message.id,
-      profileMatch: contactResolution.match
-    }
+      profileMatch: contactResolution.match,
+    },
   });
 
   const aiResult = await runStubAiTriage(supabase, user, workspaceId, {
-    source: "manual_inbound",
+    source,
     sourceEventId: String(event.id),
     contactId,
     leadId: String(lead.id),
@@ -558,7 +813,41 @@ export async function ingestManualInbound(
     leadTitle: String(lead.title),
     serviceType: nullableText(input.serviceType),
     contactAddress: nullableText(input.address),
-    summary: `Manual inbound enquiry from ${input.contactName}: ${input.message.slice(0, 180)}`
+    contactEmail: nullableText(input.email),
+    contactPhone: nullableText(input.phone),
+    defaultPhoneRegion: generalSettings.defaultPhoneRegion,
+    inboundChannelType: input.channel?.type ?? "manual_inbound",
+    summary: `${
+      source === "twilio_sms" ? "Inbound SMS" : "Manual inbound enquiry"
+    } from ${input.contactName}: ${input.message.slice(0, 180)}`,
+  });
+
+  await createUrgentEscalationIncident(supabase, workspaceId, {
+    contactId,
+    content: input.message,
+    conversationId: String(conversation.id),
+    existingCustomer: contactResolution.match.status === "attached",
+    leadId: String(lead.id),
+    metadata: {
+      channelType: input.channel?.type ?? "manual_inbound",
+      eventId: String(event.id),
+      source,
+    },
+    priority: hasProfileConflict ? "high" : "normal",
+    sourceId: String(event.id),
+    sourceKey: `${source}:${event.id}`,
+    sourceType: source === "twilio_sms" ? "sms" : "manual",
+    summary: `${source === "twilio_sms" ? "Inbound SMS" : "Inbound enquiry"} from ${input.contactName}: ${input.message.slice(0, 500)}`,
+    title: String(lead.title),
+  }).catch((escalationError) => {
+    console.error("Unable to evaluate manual inbound escalation", {
+      error:
+        escalationError instanceof Error
+          ? escalationError.message
+          : "Unknown escalation error",
+      eventId: String(event.id),
+      workspaceId,
+    });
   });
 
   return {
@@ -569,6 +858,11 @@ export async function ingestManualInbound(
     messageId: String(message.id),
     eventId: String(event.id),
     aiRunId: aiResult.aiRunId,
-    actionId: aiResult.actionId
+    actionId: aiResult.actionId,
+    inquiryFacts: aiResult.inquiryFacts,
+    ownerQuestion: aiResult.ownerQuestion,
+    replyDraft: aiResult.replyDraft,
+    responseMode: aiResult.responseMode,
+    triageSummary: aiResult.summary,
   };
 }

@@ -1,9 +1,24 @@
-import { updateContactProfileAction } from "./actions";
+import {
+  applyLifecycleSuggestionAction,
+  clearLifecycleManualOverrideAction,
+  dismissLifecycleSuggestionAction,
+  mergeContactProfilesAction,
+  resolveProfileReviewAction,
+  updateContactProfileAction,
+} from "./actions";
 import { AppFrame } from "../components/app-frame";
+import { AddressAutocompleteField } from "../components/address-autocomplete-field";
+import { AutoSubmitSelect } from "../components/auto-submit-select";
 import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
 } from "../../lib/crm/contact-types";
+import {
+  CONTACT_LIFECYCLE_OPTIONS,
+  CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
+  formatContactLifecycleSource,
+  formatContactLifecycleStage,
+} from "../../lib/crm/lifecycle";
 import {
   getContactList,
   getContactProfile,
@@ -13,7 +28,9 @@ import {
   type LeadListItem,
 } from "../../lib/crm/queries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
-import Link from "next/link";
+import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
+import { SmartPrefetchLink } from "../components/smart-prefetch-link";
+import { ManualLeadModal } from "./manual-lead-modal";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +42,7 @@ type ContactsPageProps = {
     engine_error?: string;
     engine_message?: string;
     filter?: string;
+    page?: string;
     phone?: string;
     q?: string;
     sort?: string;
@@ -34,6 +52,7 @@ type ContactsPageProps = {
 const CRM_FILTERS = [
   { label: "All", value: "all" },
   { label: "Leads", value: "leads" },
+  { label: "Profile review", value: "profile_review" },
   { label: "Clients", value: "client" },
   { label: "Suppliers", value: "supplier" },
   { label: "Contractors", value: "contractor" },
@@ -51,6 +70,7 @@ const CRM_SORT_OPTIONS = [
 
 type CrmFilter = (typeof CRM_FILTERS)[number]["value"];
 type CrmSort = (typeof CRM_SORT_OPTIONS)[number]["value"];
+const CRM_PAGE_SIZE = 10;
 type CrmSearchState = {
   address: string;
   email: string;
@@ -66,14 +86,22 @@ function isCrmSort(value: string | undefined): value is CrmSort {
   return CRM_SORT_OPTIONS.some((sort) => sort.value === value);
 }
 
+function normalizePage(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
 function crmHref({
   contactId,
   filter,
+  page,
   search,
   sort,
 }: {
   contactId?: string | null;
   filter: CrmFilter;
+  page?: number;
   search?: CrmSearchState;
   sort?: CrmSort;
 }) {
@@ -105,6 +133,10 @@ function crmHref({
 
   if (contactId) {
     params.set("contactId", contactId);
+  }
+
+  if (page && page > 1) {
+    params.set("page", String(page));
   }
 
   const query = params.toString();
@@ -148,7 +180,12 @@ function includesNeedle(value: string | null | undefined, needle: string) {
   return !needle || Boolean(value?.toLowerCase().includes(needle));
 }
 
-function contactTitle(contact: ContactListItem | ContactProfile["contact"]) {
+function contactTitle(contact: {
+  company?: string | null;
+  email?: string | null;
+  name?: string | null;
+  phone?: string | null;
+}) {
   return (
     contact.name ??
     contact.company ??
@@ -156,6 +193,69 @@ function contactTitle(contact: ContactListItem | ContactProfile["contact"]) {
     contact.phone ??
     "Unknown contact"
   );
+}
+
+function duplicateWarningLabel(warnings: ContactListItem["duplicateWarnings"]) {
+  if (warnings.length === 0) {
+    return null;
+  }
+
+  const fields = warnings.map((warning) => warning.field);
+
+  if (fields.includes("email") && fields.includes("phone")) {
+    return "Duplicate email + phone";
+  }
+
+  return fields.includes("email") ? "Duplicate email" : "Duplicate phone";
+}
+
+function contactNeedsProfileReview(contact: ContactListItem) {
+  return (
+    contact.profileResolutionStatus === "needs_review" ||
+    contact.duplicateWarnings.length > 0
+  );
+}
+
+function profileResolutionLabel(contact: ContactListItem) {
+  if (contact.profileResolutionStatus === "needs_review") {
+    return "Profile conflict";
+  }
+
+  if (contact.profileResolutionStatus === "merged") {
+    return "Merged";
+  }
+
+  return duplicateWarningLabel(contact.duplicateWarnings);
+}
+
+function lifecycleSuggestions(profile: ContactProfile) {
+  return profile.actions.filter(
+    (action) =>
+      action.type === CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE &&
+      ["approved", "pending_approval", "requested"].includes(action.status),
+  );
+}
+
+function formatResolutionMatchFields(
+  fields: ContactProfile["resolutionCandidates"][number]["matchFields"],
+) {
+  if (fields.includes("profile_conflict")) {
+    return "Email and phone point to different profiles";
+  }
+
+  if (fields.includes("email") && fields.includes("phone")) {
+    return "Same email and phone";
+  }
+
+  if (fields.includes("email")) {
+    return "Same email";
+  }
+
+  if (fields.includes("phone")) {
+    return "Same phone";
+  }
+
+  return "Possible match";
 }
 
 function contactSearchText(contact: ContactListItem) {
@@ -168,6 +268,8 @@ function contactSearchText(contact: ContactListItem) {
     contact.source,
     contact.notes,
     contact.contactType,
+    contact.lifecycleStage,
+    contact.lifecycleSource,
   ]
     .filter(Boolean)
     .join(" ")
@@ -181,6 +283,8 @@ function leadSearchText(lead: LeadListItem) {
     lead.source,
     lead.status,
     lead.priority,
+    lead.followUpIsDue ? "follow-up due" : null,
+    lead.followUpDueAt,
     lead.serviceType,
     lead.nextStep,
     lead.estimatedValue,
@@ -195,7 +299,10 @@ function leadSearchText(lead: LeadListItem) {
     .toLowerCase();
 }
 
-function contactMatchesSearch(contact: ContactListItem, search: CrmSearchState) {
+function contactMatchesSearch(
+  contact: ContactListItem,
+  search: CrmSearchState,
+) {
   return (
     (!search.q || contactSearchText(contact).includes(search.q)) &&
     includesNeedle(contact.email, search.email) &&
@@ -273,7 +380,9 @@ function sortLeads(
       );
     }
 
-    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    return (
+      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+    );
   });
 }
 
@@ -281,20 +390,35 @@ function ContactRow({
   activeFilter,
   contact,
   isSelected,
+  page,
   search,
   sort,
 }: Readonly<{
   activeFilter: CrmFilter;
   contact: ContactListItem;
   isSelected: boolean;
+  page: number;
   search: CrmSearchState;
   sort: CrmSort;
 }>) {
+  const warningLabel = profileResolutionLabel(contact);
+
   return (
-    <Link
-      className={isSelected ? "crm-row active" : "crm-row"}
-      href={crmHref({ contactId: contact.id, filter: activeFilter, search, sort })}
-      prefetch={false}
+    <PendingSmartPrefetchLink
+      className={[
+        "crm-row",
+        isSelected ? "active" : "",
+        contactNeedsProfileReview(contact) ? "identity-warning" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      href={crmHref({
+        contactId: contact.id,
+        filter: activeFilter,
+        page,
+        search,
+        sort,
+      })}
     >
       <div className="crm-row-main">
         <strong>{contactTitle(contact)}</strong>
@@ -307,11 +431,17 @@ function ContactRow({
         </span>
       </div>
       <div className="crm-row-meta">
+        {warningLabel ? (
+          <span className="pill warning">{warningLabel}</span>
+        ) : null}
         <span>{contact.messageCount} messages</span>
         <span>{formatDate(contact.lastMessageAt ?? contact.updatedAt)}</span>
+        <span className="pill">
+          {formatContactLifecycleStage(contact.lifecycleStage)}
+        </span>
         <span className="pill">{formatContactType(contact.contactType)}</span>
       </div>
-    </Link>
+    </PendingSmartPrefetchLink>
   );
 }
 
@@ -319,17 +449,25 @@ function LeadRow({
   activeFilter,
   isSelected,
   lead,
+  page,
   search,
   sort,
 }: Readonly<{
   activeFilter: CrmFilter;
   isSelected: boolean;
   lead: LeadListItem;
+  page: number;
   search: CrmSearchState;
   sort: CrmSort;
 }>) {
   const href = lead.contactId
-    ? crmHref({ contactId: lead.contactId, filter: activeFilter, search, sort })
+    ? crmHref({
+        contactId: lead.contactId,
+        filter: activeFilter,
+        page,
+        search,
+        sort,
+      })
     : lead.conversationId
       ? `/inbox?conversationId=${lead.conversationId}`
       : "/inbox";
@@ -343,23 +481,31 @@ function LeadRow({
       .join(" - ") || lead.source;
 
   return (
-    <Link
-      className={isSelected ? "crm-row active" : "crm-row"}
+    <PendingSmartPrefetchLink
+      className={[
+        "crm-row",
+        isSelected ? "active" : null,
+        lead.followUpIsDue ? "identity-warning" : null,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       href={href}
-      prefetch={false}
     >
       <div className="crm-row-main">
         <strong>{lead.title}</strong>
         <span>{leadDetails || "No contact details yet"}</span>
       </div>
       <div className="crm-row-meta">
+        {lead.followUpIsDue ? (
+          <span className="pill warning">Follow-up due</span>
+        ) : null}
         <span>{formatLabel(lead.status)}</span>
         <span>{formatDate(lead.updatedAt)}</span>
         <span className={lead.priority === "high" ? "pill warning" : "pill"}>
           Lead
         </span>
       </div>
-    </Link>
+    </PendingSmartPrefetchLink>
   );
 }
 
@@ -375,6 +521,243 @@ function ProfileFacts({
         </div>
       ))}
     </div>
+  );
+}
+
+function ProfileResolutionPanel({
+  profile,
+  redirectTo,
+  successHref,
+}: Readonly<{
+  profile: ContactProfile;
+  redirectTo: string;
+  successHref: (contactId: string) => string;
+}>) {
+  const hasWarnings = profile.identityWarnings.length > 0;
+  const hasConflict =
+    profile.contact.profileResolutionStatus === "needs_review";
+  const hasMerged = profile.contact.profileResolutionStatus === "merged";
+  const hasDuplicateReview =
+    hasWarnings || profile.resolutionCandidates.length > 0;
+  const shouldCollapseResolvedDuplicates =
+    !hasConflict && !hasMerged && hasDuplicateReview;
+  const needsPanel =
+    hasConflict ||
+    hasWarnings ||
+    hasMerged ||
+    profile.mergedSources.length > 0 ||
+    profile.resolutionCandidates.length > 0;
+
+  if (!needsPanel) {
+    return null;
+  }
+
+  if (shouldCollapseResolvedDuplicates) {
+    return (
+      <details className="profile-resolution-disclosure">
+        <summary>Resolve duplicates</summary>
+        <ProfileResolutionPanelBody
+          hasConflict={hasConflict}
+          hasMerged={hasMerged}
+          hasWarnings={hasWarnings}
+          profile={profile}
+          redirectTo={redirectTo}
+          successHref={successHref}
+        />
+      </details>
+    );
+  }
+
+  return (
+    <ProfileResolutionPanelBody
+      hasConflict={hasConflict}
+      hasMerged={hasMerged}
+      hasWarnings={hasWarnings}
+      profile={profile}
+      redirectTo={redirectTo}
+      successHref={successHref}
+    />
+  );
+}
+
+function ProfileResolutionPanelBody({
+  hasConflict,
+  hasMerged,
+  hasWarnings,
+  profile,
+  redirectTo,
+  successHref,
+}: Readonly<{
+  hasConflict: boolean;
+  hasMerged: boolean;
+  hasWarnings: boolean;
+  profile: ContactProfile;
+  redirectTo: string;
+  successHref: (contactId: string) => string;
+}>) {
+  const shouldShowReviewAction = hasConflict || hasWarnings;
+  const showReviewWithCandidate =
+    shouldShowReviewAction && profile.resolutionCandidates.length === 1;
+
+  return (
+    <section className="assistant-preview-panel profile-warning-panel profile-resolution-panel">
+      {hasWarnings ? (
+        <span className="pill warning profile-resolution-duplicate-pill">
+          Duplicate
+        </span>
+      ) : null}
+      <div className="panel-heading tight">
+        <div>
+          <h3>Profile resolution</h3>
+          <p>
+            Resolve profile conflicts and duplicates without losing messages,
+            leads, quote drafts, or audit history.
+          </p>
+        </div>
+        {hasConflict ? (
+          <span className="pill warning">Needs review</span>
+        ) : null}
+        {hasMerged ? <span className="pill">Merged</span> : null}
+      </div>
+
+      {profile.contact.profileResolutionReason ? (
+        <p className="empty-copy">{profile.contact.profileResolutionReason}</p>
+      ) : null}
+
+      {hasWarnings ? (
+        <div className="assistant-preview-list compact">
+          {profile.identityWarnings.map((warning) => (
+            <article
+              className="profile-resolution-warning-row"
+              key={`${warning.field}-${warning.value}`}
+            >
+              <div className="profile-resolution-copy">
+                <strong>
+                  Same {warning.field} appears on {warning.count} profiles
+                </strong>
+                <span>{warning.value}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {profile.resolutionCandidates.length > 0 ? (
+        <div className="assistant-preview-list compact">
+          {profile.resolutionCandidates.map((candidate) => (
+            <article
+              className="profile-resolution-candidate-row"
+              key={candidate.id}
+            >
+              <div className="profile-resolution-copy">
+                <strong>{contactTitle(candidate)}</strong>
+                <span>
+                  {[candidate.company, candidate.email, candidate.phone]
+                    .filter(Boolean)
+                    .join(" - ") || "No contact details yet"}
+                </span>
+                <span>
+                  {formatResolutionMatchFields(candidate.matchFields)}
+                </span>
+              </div>
+              <div className="profile-resolution-actions">
+                <form action={mergeContactProfilesAction}>
+                  <input
+                    name="sourceContactId"
+                    type="hidden"
+                    value={profile.contact.id}
+                  />
+                  <input
+                    name="targetContactId"
+                    type="hidden"
+                    value={candidate.id}
+                  />
+                  <input name="redirectTo" type="hidden" value={redirectTo} />
+                  <input
+                    name="successRedirectTo"
+                    type="hidden"
+                    value={successHref(candidate.id)}
+                  />
+                  <input
+                    name="reason"
+                    type="hidden"
+                    value="Merged current profile into selected existing profile."
+                  />
+                  <button
+                    className="primary-button compact profile-resolution-button"
+                    type="submit"
+                  >
+                    Merge into this profile
+                  </button>
+                </form>
+                {showReviewWithCandidate ? (
+                  <ProfileResolutionReviewForm
+                    contactId={profile.contact.id}
+                    redirectTo={redirectTo}
+                  />
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {profile.mergedSources.length > 0 ? (
+        <div className="assistant-preview-list compact">
+          {profile.mergedSources.map((source) => (
+            <article className="assistant-preview-row" key={source.id}>
+              <div>
+                <strong>{contactTitle(source)}</strong>
+                <span>
+                  {[source.company, source.email, source.phone]
+                    .filter(Boolean)
+                    .join(" - ") || "Previous duplicate profile"}
+                </span>
+              </div>
+              <span className="pill">Merged source</span>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {shouldShowReviewAction && !showReviewWithCandidate ? (
+        <div className="profile-resolution-actions stand-alone">
+          <ProfileResolutionReviewForm
+            contactId={profile.contact.id}
+            redirectTo={redirectTo}
+          />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ProfileResolutionReviewForm({
+  contactId,
+  redirectTo,
+}: Readonly<{
+  contactId: string;
+  redirectTo: string;
+}>) {
+  return (
+    <form
+      action={resolveProfileReviewAction}
+      className="profile-resolution-review-form"
+    >
+      <input name="contactId" type="hidden" value={contactId} />
+      <input name="redirectTo" type="hidden" value={redirectTo} />
+      <input
+        name="reason"
+        type="hidden"
+        value="Reviewed from CRM and kept as a separate profile."
+      />
+      <button
+        className="secondary-button compact profile-resolution-button"
+        type="submit"
+      >
+        Mark reviewed, keep separate
+      </button>
+    </form>
   );
 }
 
@@ -400,6 +783,7 @@ function ProfilePanel({
     search,
     sort,
   });
+  const pendingLifecycleSuggestions = lifecycleSuggestions(profile);
 
   return (
     <section className="panel crm-profile-panel">
@@ -408,12 +792,14 @@ function ProfilePanel({
           <p className="eyebrow">Profile</p>
           <h2>{displayName}</h2>
         </div>
-        <Link
-          className="secondary-button compact"
-          href={crmHref({ filter: activeFilter, search, sort })}
-        >
-          Close
-        </Link>
+        <div className="action-row">
+          <SmartPrefetchLink
+            className="secondary-button compact"
+            href={crmHref({ filter: activeFilter, search, sort })}
+          >
+            Close
+          </SmartPrefetchLink>
+        </div>
       </header>
 
       <div className="crm-profile-body">
@@ -433,7 +819,112 @@ function ProfilePanel({
           <span>
             <strong>{profile.counts.quoteDrafts}</strong> documents
           </span>
+          <span>
+            <strong>
+              {formatContactLifecycleStage(profile.contact.lifecycleStage)}
+            </strong>{" "}
+            lifecycle
+          </span>
         </section>
+
+        {profile.contact.lifecycleSource === "manual" ? (
+          <section className="assistant-preview-panel profile-warning-panel">
+            <div className="assistant-preview-row">
+              <div>
+                <strong>Manual lifecycle override</strong>
+                <span>
+                  Automated review will skip this profile until the override is
+                  cleared.
+                </span>
+              </div>
+              <form action={clearLifecycleManualOverrideAction}>
+                <input
+                  name="contactId"
+                  type="hidden"
+                  value={profile.contact.id}
+                />
+                <input name="redirectTo" type="hidden" value={redirectTo} />
+                <button className="secondary-button compact" type="submit">
+                  Allow automated review
+                </button>
+              </form>
+            </div>
+          </section>
+        ) : null}
+
+        <ProfileResolutionPanel
+          profile={profile}
+          redirectTo={redirectTo}
+          successHref={(contactId) =>
+            crmHref({
+              contactId,
+              filter: activeFilter,
+              search,
+              sort,
+            })
+          }
+        />
+
+        {pendingLifecycleSuggestions.length > 0 ? (
+          <section className="assistant-preview-panel profile-warning-panel">
+            <h3>Lifecycle suggestion</h3>
+            <div className="assistant-preview-list compact">
+              {pendingLifecycleSuggestions.map((action) => (
+                <article className="assistant-preview-row" key={action.id}>
+                  <div>
+                    <strong>
+                      Move to{" "}
+                      {formatContactLifecycleStage(
+                        textValue(action.input.recommendedStage),
+                      )}
+                    </strong>
+                    <span>
+                      {textValue(action.input.reason) ??
+                        "Lifecycle review found stronger customer evidence."}
+                    </span>
+                  </div>
+                  <div className="action-row">
+                    <form action={applyLifecycleSuggestionAction}>
+                      <input name="actionId" type="hidden" value={action.id} />
+                      <input
+                        name="contactId"
+                        type="hidden"
+                        value={profile.contact.id}
+                      />
+                      <input
+                        name="redirectTo"
+                        type="hidden"
+                        value={redirectTo}
+                      />
+                      <button className="primary-button compact" type="submit">
+                        Apply
+                      </button>
+                    </form>
+                    <form action={dismissLifecycleSuggestionAction}>
+                      <input name="actionId" type="hidden" value={action.id} />
+                      <input
+                        name="contactId"
+                        type="hidden"
+                        value={profile.contact.id}
+                      />
+                      <input
+                        name="redirectTo"
+                        type="hidden"
+                        value={redirectTo}
+                      />
+                      <button
+                        className="secondary-button compact"
+                        type="submit"
+                      >
+                        Ignore
+                      </button>
+                    </form>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="assistant-preview-panel">
           <h3>Edit contact</h3>
@@ -444,6 +935,11 @@ function ProfilePanel({
           >
             <input name="contactId" type="hidden" value={profile.contact.id} />
             <input name="redirectTo" type="hidden" value={redirectTo} />
+            <input
+              name="originalLifecycleStage"
+              type="hidden"
+              value={profile.contact.lifecycleStage}
+            />
             <label>
               Name
               <input
@@ -459,6 +955,19 @@ function ProfilePanel({
                 defaultValue={profile.contact.contactType}
               >
                 {CONTACT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Lifecycle
+              <select
+                name="lifecycleStage"
+                defaultValue={profile.contact.lifecycleStage}
+              >
+                {CONTACT_LIFECYCLE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -489,14 +998,11 @@ function ProfilePanel({
                 defaultValue={profile.contact.company ?? ""}
               />
             </label>
-            <label>
-              Address
-              <input
-                name="address"
-                type="text"
-                defaultValue={profile.contact.address ?? ""}
-              />
-            </label>
+            <AddressAutocompleteField
+              defaultValue={profile.contact.address ?? ""}
+              label="Address"
+              name="address"
+            />
             <label className="full-row">
               Notes
               <textarea
@@ -523,10 +1029,51 @@ function ProfilePanel({
               ["Company", profile.contact.company],
               ["Address", profile.contact.address],
               ["Type", formatContactType(profile.contact.contactType)],
+              [
+                "Lifecycle",
+                formatContactLifecycleStage(profile.contact.lifecycleStage),
+              ],
+              [
+                "Lifecycle source",
+                formatContactLifecycleSource(profile.contact.lifecycleSource),
+              ],
+              ["Lifecycle reason", profile.contact.lifecycleReason],
               ["Updated", formatDate(profile.contact.updatedAt)],
             ]}
           />
         </section>
+
+        {profile.companyContacts.length > 0 ? (
+          <section className="assistant-preview-panel">
+            <h3>People at {profile.contact.company}</h3>
+            <div className="assistant-preview-list compact">
+              {profile.companyContacts.map((companyContact) => (
+                <SmartPrefetchLink
+                  className="assistant-preview-row plain-link"
+                  href={crmHref({
+                    contactId: companyContact.id,
+                    filter: activeFilter,
+                    search,
+                    sort,
+                  })}
+                  key={companyContact.id}
+                >
+                  <div>
+                    <strong>{contactTitle(companyContact)}</strong>
+                    <span>
+                      {[companyContact.email, companyContact.phone]
+                        .filter(Boolean)
+                        .join(" - ") || "No contact details yet"}
+                    </span>
+                  </div>
+                  <span className="pill">
+                    {formatContactType(companyContact.contactType)}
+                  </span>
+                </SmartPrefetchLink>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="assistant-preview-panel">
           <h3>Leads</h3>
@@ -586,14 +1133,13 @@ function ProfilePanel({
                 );
 
                 return message.conversationId ? (
-                  <Link
+                  <SmartPrefetchLink
                     className="plain-link"
                     href={`/inbox?conversationId=${message.conversationId}`}
                     key={message.id}
-                    prefetch={false}
                   >
                     {content}
-                  </Link>
+                  </SmartPrefetchLink>
                 ) : (
                   <div key={message.id}>{content}</div>
                 );
@@ -608,11 +1154,10 @@ function ProfilePanel({
           <h3>Documents and actions</h3>
           <div className="assistant-preview-list compact">
             {profile.quoteDrafts.slice(0, 4).map((quoteDraft) => (
-              <Link
+              <SmartPrefetchLink
                 className="assistant-preview-row plain-link"
-                href={`/documents/${quoteDraft.id}`}
+                href={`/files/${quoteDraft.id}`}
                 key={quoteDraft.id}
-                prefetch={false}
               >
                 <div>
                   <strong>{quoteDraft.title}</strong>
@@ -622,7 +1167,7 @@ function ProfilePanel({
                   </span>
                 </div>
                 <span>{formatDate(quoteDraft.updatedAt)}</span>
-              </Link>
+              </SmartPrefetchLink>
             ))}
             {profile.actions.slice(0, 4).map((action) => (
               <article className="assistant-preview-row" key={action.id}>
@@ -671,6 +1216,7 @@ export default async function ContactsPage({
   const { supabase, workspace } = await requireWorkspaceContext();
   const activeFilter = isCrmFilter(query?.filter) ? query.filter : "all";
   const activeSort = isCrmSort(query?.sort) ? query.sort : "recent";
+  const requestedPage = normalizePage(query?.page);
   const searchState = {
     address: normalizeSearch(query?.address),
     email: normalizeSearch(query?.email),
@@ -696,7 +1242,9 @@ export default async function ContactsPage({
     0,
   );
   const newLeads = leads.filter((lead) => lead.status === "new").length;
-  const contactsById = new Map(contacts.map((contact) => [contact.id, contact]));
+  const contactsById = new Map(
+    contacts.map((contact) => [contact.id, contact]),
+  );
   const leadCountsByContact = new Map<string, number>();
 
   for (const lead of leads) {
@@ -711,7 +1259,9 @@ export default async function ContactsPage({
   const searchedContacts = contacts.filter((contact) =>
     contactMatchesSearch(contact, searchState),
   );
-  const searchedLeads = leads.filter((lead) => leadMatchesSearch(lead, searchState));
+  const searchedLeads = leads.filter((lead) =>
+    leadMatchesSearch(lead, searchState),
+  );
   const filterCounts = new Map<CrmFilter, number>(
     CRM_FILTERS.map((filter) => [
       filter.value,
@@ -719,9 +1269,11 @@ export default async function ContactsPage({
         ? searchedContacts.length
         : filter.value === "leads"
           ? searchedLeads.length
-          : searchedContacts.filter(
-              (contact) => contact.contactType === filter.value,
-            ).length,
+          : filter.value === "profile_review"
+            ? searchedContacts.filter(contactNeedsProfileReview).length
+            : searchedContacts.filter(
+                (contact) => contact.contactType === filter.value,
+              ).length,
     ]),
   );
   const filteredContacts =
@@ -729,7 +1281,11 @@ export default async function ContactsPage({
       ? searchedContacts
       : activeFilter === "leads"
         ? []
-        : searchedContacts.filter((contact) => contact.contactType === activeFilter);
+        : activeFilter === "profile_review"
+          ? searchedContacts.filter(contactNeedsProfileReview)
+          : searchedContacts.filter(
+              (contact) => contact.contactType === activeFilter,
+            );
   const sortedContacts = sortContacts(
     filteredContacts,
     activeSort,
@@ -741,8 +1297,16 @@ export default async function ContactsPage({
     contactsById,
     leadCountsByContact,
   );
-  const shownCount =
+  const totalItems =
     activeFilter === "leads" ? sortedLeads.length : sortedContacts.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / CRM_PAGE_SIZE));
+  const currentPage = Math.min(requestedPage, totalPages);
+  const pageStart = (currentPage - 1) * CRM_PAGE_SIZE;
+  const paginatedContacts = sortedContacts.slice(
+    pageStart,
+    pageStart + CRM_PAGE_SIZE,
+  );
+  const paginatedLeads = sortedLeads.slice(pageStart, pageStart + CRM_PAGE_SIZE);
   const selectedLeadContactIds = new Set(
     searchedLeads
       .filter((lead) => lead.contactId)
@@ -751,9 +1315,8 @@ export default async function ContactsPage({
 
   return (
     <AppFrame active="CRM">
-      <header className="topbar">
+      <header className="topbar page-topbar-tight">
         <div>
-          <p className="eyebrow">{workspace.name}</p>
           <h1>CRM</h1>
         </div>
         <div className="topbar-right">
@@ -784,14 +1347,22 @@ export default async function ContactsPage({
               <p className="eyebrow">CRM</p>
               <h2>People, companies and leads</h2>
             </div>
-            <span className="pill">
-              {shownCount} shown
-            </span>
+            <div className="action-row">
+              <ManualLeadModal />
+              <span className="pill">
+                {totalItems === 0
+                  ? "0 shown"
+                  : `${pageStart + 1}-${Math.min(
+                      pageStart + CRM_PAGE_SIZE,
+                      totalItems,
+                    )} of ${totalItems}`}
+              </span>
+            </div>
           </div>
 
           <nav className="filter-bar" aria-label="CRM filters">
             {CRM_FILTERS.map((filter) => (
-              <Link
+              <SmartPrefetchLink
                 className={
                   activeFilter === filter.value
                     ? "filter-pill active"
@@ -804,11 +1375,10 @@ export default async function ContactsPage({
                   sort: activeSort,
                 })}
                 key={filter.value}
-                prefetch={false}
               >
                 {filter.label}
                 <span>{filterCounts.get(filter.value) ?? 0}</span>
-              </Link>
+              </SmartPrefetchLink>
             ))}
           </nav>
 
@@ -823,40 +1393,35 @@ export default async function ContactsPage({
                 value={selectedProfile.contact.id}
               />
             ) : null}
-            <label className="crm-search-field">
-              Search
+            <div className="crm-search-field">
+              <label htmlFor="crm-search-input">Search</label>
               <input
                 defaultValue={searchState.q}
+                id="crm-search-input"
                 name="q"
                 placeholder="Name, company, job type..."
                 type="search"
               />
-            </label>
-            <label className="crm-sort-field">
-              Sort
-              <select defaultValue={activeSort} name="sort">
-                {CRM_SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="secondary-button compact" type="submit">
-              Apply
-            </button>
+            </div>
+            <AutoSubmitSelect
+              className="crm-sort-field"
+              defaultValue={activeSort}
+              id="crm-sort-select"
+              label="Sort"
+              name="sort"
+              options={CRM_SORT_OPTIONS}
+            />
             {hasSearch ? (
-              <Link
+              <SmartPrefetchLink
                 className="secondary-button compact"
                 href={crmHref({
                   contactId: selectedProfile?.contact.id,
                   filter: activeFilter,
                   sort: activeSort,
                 })}
-                prefetch={false}
               >
                 Clear
-              </Link>
+              </SmartPrefetchLink>
             ) : null}
             <details className="crm-advanced-search" open={hasAdvancedSearch}>
               <summary>Advanced search</summary>
@@ -895,7 +1460,7 @@ export default async function ContactsPage({
           <div className="crm-list">
             {activeFilter === "leads" ? (
               sortedLeads.length > 0 ? (
-                sortedLeads.map((lead) => (
+                paginatedLeads.map((lead) => (
                   <LeadRow
                     activeFilter={activeFilter}
                     isSelected={Boolean(
@@ -904,6 +1469,7 @@ export default async function ContactsPage({
                     )}
                     key={lead.id}
                     lead={lead}
+                    page={currentPage}
                     search={searchState}
                     sort={activeSort}
                   />
@@ -912,12 +1478,13 @@ export default async function ContactsPage({
                 <p className="empty-copy">No leads match this view yet.</p>
               )
             ) : sortedContacts.length > 0 ? (
-              sortedContacts.map((contact) => (
+              paginatedContacts.map((contact) => (
                 <ContactRow
                   activeFilter={activeFilter}
                   contact={contact}
                   isSelected={selectedProfile?.contact.id === contact.id}
                   key={contact.id}
+                  page={currentPage}
                   search={searchState}
                   sort={activeSort}
                 />
@@ -933,6 +1500,48 @@ export default async function ContactsPage({
                 {selectedLeadContactIds.size} contacts have leads
               </span>
             </div>
+          ) : null}
+
+          {totalPages > 1 ? (
+            <nav aria-label="CRM pagination" className="pagination-bar">
+              <SmartPrefetchLink
+                aria-disabled={currentPage === 1}
+                className={
+                  currentPage === 1
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={crmHref({
+                  contactId: selectedProfile?.contact.id,
+                  filter: activeFilter,
+                  page: currentPage - 1,
+                  search: searchState,
+                  sort: activeSort,
+                })}
+              >
+                Previous
+              </SmartPrefetchLink>
+              <span className="pagination-label">
+                Page {currentPage} of {totalPages}
+              </span>
+              <SmartPrefetchLink
+                aria-disabled={currentPage === totalPages}
+                className={
+                  currentPage === totalPages
+                    ? "secondary-button compact disabled"
+                    : "secondary-button compact"
+                }
+                href={crmHref({
+                  contactId: selectedProfile?.contact.id,
+                  filter: activeFilter,
+                  page: currentPage + 1,
+                  search: searchState,
+                  sort: activeSort,
+                })}
+              >
+                Next
+              </SmartPrefetchLink>
+            </nav>
           ) : null}
         </section>
 

@@ -1,10 +1,5 @@
-import { AppFrame } from "../components/app-frame";
-import { PageSkeleton } from "../components/page-skeleton";
+import { AppRouteLoading } from "../components/loading-states";
 
 export default function DocumentsLoading() {
-  return (
-    <AppFrame active="Documents">
-      <PageSkeleton eyebrow="Loading" title="Documents" />
-    </AppFrame>
-  );
+  return <AppRouteLoading active="Files" label="Loading files" />;
 }

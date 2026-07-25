@@ -1,5 +1,11 @@
-import { updateContactProfileAction } from "../actions";
+import {
+  applyLifecycleSuggestionAction,
+  dismissLifecycleSuggestionAction,
+  runContactLifecycleReviewAction,
+  updateContactProfileAction,
+} from "../actions";
 import { AppFrame } from "../../components/app-frame";
+import { AddressAutocompleteField } from "../../components/address-autocomplete-field";
 import {
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   formatDisplayMoney,
@@ -9,6 +15,12 @@ import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
 } from "../../../lib/crm/contact-types";
+import {
+  CONTACT_LIFECYCLE_OPTIONS,
+  CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
+  formatContactLifecycleSource,
+  formatContactLifecycleStage,
+} from "../../../lib/crm/lifecycle";
 import { getContactProfile } from "../../../lib/crm/queries";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
@@ -40,6 +52,23 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function calendarEventHref(eventId: string, startsAt: string | null) {
+  const params = new URLSearchParams({
+    event: eventId,
+    view: "week",
+  });
+
+  if (startsAt) {
+    const date = new Date(startsAt);
+
+    if (!Number.isNaN(date.getTime())) {
+      params.set("date", date.toISOString().slice(0, 10));
+    }
+  }
+
+  return `/calendar?${params.toString()}`;
+}
+
 function formatMoney(
   value: string | null,
   sourceCurrency: string,
@@ -63,6 +92,21 @@ function formatLabel(value: string | null) {
     .join(" ");
 }
 
+function contactDisplayName(contact: {
+  company?: string | null;
+  email?: string | null;
+  name?: string | null;
+  phone?: string | null;
+}) {
+  return (
+    contact.name ??
+    contact.company ??
+    contact.email ??
+    contact.phone ??
+    "Contact profile"
+  );
+}
+
 export default async function ContactProfilePage({
   params,
   searchParams,
@@ -80,12 +124,12 @@ export default async function ContactProfilePage({
     notFound();
   }
 
-  const displayName =
-    profile.contact.name ??
-    profile.contact.company ??
-    profile.contact.email ??
-    profile.contact.phone ??
-    "Contact profile";
+  const displayName = contactDisplayName(profile.contact);
+  const pendingLifecycleSuggestions = profile.actions.filter(
+    (action) =>
+      action.type === CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE &&
+      ["approved", "pending_approval", "requested"].includes(action.status),
+  );
 
   return (
     <AppFrame active="CRM">
@@ -94,14 +138,28 @@ export default async function ContactProfilePage({
           <p className="eyebrow">{workspace.name}</p>
           <h1>{displayName}</h1>
         </div>
-        <div className="topbar-actions">
+        <div className="topbar-actions contact-profile-actions">
           <Link
-            className="secondary-button link-button"
+            className="secondary-button compact contact-profile-action contact-profile-action-back link-button"
             href="/contacts"
             prefetch
           >
             Back to contacts
           </Link>
+          <form action={runContactLifecycleReviewAction}>
+            <input name="contactId" type="hidden" value={profile.contact.id} />
+            <input
+              name="redirectTo"
+              type="hidden"
+              value={`/contacts/${profile.contact.id}`}
+            />
+            <button
+              className="secondary-button compact contact-profile-action contact-profile-action-review"
+              type="submit"
+            >
+              Review lifecycle
+            </button>
+          </form>
         </div>
       </header>
 
@@ -112,24 +170,6 @@ export default async function ContactProfilePage({
         <p className="form-alert">{query.engine_message}</p>
       ) : null}
 
-      <section className="metric-grid" aria-label="Contact profile metrics">
-        <article className="metric-card cyan">
-          <p>Messages</p>
-          <strong>{profile.counts.messages}</strong>
-          <span>Linked communications</span>
-        </article>
-        <article className="metric-card purple">
-          <p>Leads</p>
-          <strong>{profile.counts.leads}</strong>
-          <span>Attached opportunities</span>
-        </article>
-        <article className="metric-card pink">
-          <p>Documents</p>
-          <strong>{profile.counts.quoteDrafts}</strong>
-          <span>Saved quote drafts</span>
-        </article>
-      </section>
-
       <section className="review-grid large-left">
         <article className="panel">
           <div className="panel-heading">
@@ -137,13 +177,28 @@ export default async function ContactProfilePage({
               <p className="eyebrow">Profile</p>
               <h2>Edit contact</h2>
             </div>
-            <span className="pill">
-              {formatContactType(profile.contact.contactType)}
-            </span>
+            <div className="action-row">
+              <span className="pill">
+                {formatContactLifecycleStage(profile.contact.lifecycleStage)}
+              </span>
+              <span className="pill">
+                {formatContactType(profile.contact.contactType)}
+              </span>
+            </div>
           </div>
 
           <form className="profile-form" action={updateContactProfileAction}>
             <input name="contactId" type="hidden" value={profile.contact.id} />
+            <input
+              name="redirectTo"
+              type="hidden"
+              value={`/contacts/${profile.contact.id}`}
+            />
+            <input
+              name="originalLifecycleStage"
+              type="hidden"
+              value={profile.contact.lifecycleStage}
+            />
             <label>
               Name
               <input
@@ -159,6 +214,19 @@ export default async function ContactProfilePage({
                 defaultValue={profile.contact.contactType}
               >
                 {CONTACT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Lifecycle
+              <select
+                name="lifecycleStage"
+                defaultValue={profile.contact.lifecycleStage}
+              >
+                {CONTACT_LIFECYCLE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -189,14 +257,11 @@ export default async function ContactProfilePage({
                 defaultValue={profile.contact.company ?? ""}
               />
             </label>
-            <label>
-              Address
-              <input
-                name="address"
-                type="text"
-                defaultValue={profile.contact.address ?? ""}
-              />
-            </label>
+            <AddressAutocompleteField
+              defaultValue={profile.contact.address ?? ""}
+              label="Address"
+              name="address"
+            />
             <label className="full-row">
               Notes
               <textarea
@@ -212,6 +277,111 @@ export default async function ContactProfilePage({
         </article>
 
         <aside className="side-stack">
+          {pendingLifecycleSuggestions.length > 0 ? (
+            <article className="panel profile-warning-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Lifecycle</p>
+                  <h2>Suggested update</h2>
+                </div>
+                <span className="pill warning">Review</span>
+              </div>
+              <div className="engine-list">
+                {pendingLifecycleSuggestions.map((action) => (
+                  <div className="engine-row" key={action.id}>
+                    <div>
+                      <strong>
+                        Move to{" "}
+                        {formatContactLifecycleStage(
+                          textValue(action.input.recommendedStage),
+                        )}
+                      </strong>
+                      <span>
+                        {textValue(action.input.reason) ??
+                          "Lifecycle review found stronger customer evidence."}
+                      </span>
+                    </div>
+                    <div className="action-row">
+                      <form action={applyLifecycleSuggestionAction}>
+                        <input
+                          name="actionId"
+                          type="hidden"
+                          value={action.id}
+                        />
+                        <input
+                          name="contactId"
+                          type="hidden"
+                          value={profile.contact.id}
+                        />
+                        <input
+                          name="redirectTo"
+                          type="hidden"
+                          value={`/contacts/${profile.contact.id}`}
+                        />
+                        <button
+                          className="primary-button compact"
+                          type="submit"
+                        >
+                          Apply
+                        </button>
+                      </form>
+                      <form action={dismissLifecycleSuggestionAction}>
+                        <input
+                          name="actionId"
+                          type="hidden"
+                          value={action.id}
+                        />
+                        <input
+                          name="contactId"
+                          type="hidden"
+                          value={profile.contact.id}
+                        />
+                        <input
+                          name="redirectTo"
+                          type="hidden"
+                          value={`/contacts/${profile.contact.id}`}
+                        />
+                        <button
+                          className="secondary-button compact"
+                          type="submit"
+                        >
+                          Ignore
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ) : null}
+
+          {profile.identityWarnings.length > 0 ? (
+            <article className="panel profile-warning-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Identity</p>
+                  <h2>Possible duplicate</h2>
+                </div>
+                <span className="pill warning">Review</span>
+              </div>
+              <div className="engine-list">
+                {profile.identityWarnings.map((warning) => (
+                  <div
+                    className="engine-row"
+                    key={`${warning.field}-${warning.value}`}
+                  >
+                    <div>
+                      <strong>
+                        Same {warning.field} appears on {warning.count} profiles
+                      </strong>
+                      <span>{warning.value}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ) : null}
+
           <article className="panel">
             <div className="panel-heading">
               <div>
@@ -237,11 +407,109 @@ export default async function ContactProfilePage({
                 <strong>{profile.contact.address ?? "-"}</strong>
               </div>
               <div>
+                <span>Lifecycle</span>
+                <strong>
+                  {formatContactLifecycleStage(profile.contact.lifecycleStage)}
+                </strong>
+              </div>
+              <div>
+                <span>Lifecycle source</span>
+                <strong>
+                  {formatContactLifecycleSource(
+                    profile.contact.lifecycleSource,
+                  )}
+                </strong>
+              </div>
+              <div>
+                <span>Lifecycle reason</span>
+                <strong>{profile.contact.lifecycleReason ?? "-"}</strong>
+              </div>
+              <div>
                 <span>Updated</span>
                 <strong>{formatDate(profile.contact.updatedAt)}</strong>
               </div>
             </div>
           </article>
+
+          <article className="panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Calendar</p>
+                <h2>Events</h2>
+              </div>
+              <span className="pill">{profile.counts.appointments}</span>
+            </div>
+            <div className="engine-list">
+              {profile.appointments.length > 0 ? (
+                profile.appointments.slice(0, 5).map((appointment) => (
+                  <Link
+                    className="engine-row plain-link"
+                    href={calendarEventHref(
+                      appointment.id,
+                      appointment.startsAt,
+                    )}
+                    key={appointment.id}
+                    prefetch={false}
+                  >
+                    <div>
+                      <strong>{appointment.title}</strong>
+                      <span>
+                        {formatLabel(appointment.appointmentType)} -{" "}
+                        {formatDate(appointment.startsAt)} -{" "}
+                        {appointment.location ?? "No address"}
+                      </span>
+                    </div>
+                    <span
+                      className={
+                        appointment.status === "cancelled"
+                          ? "pill warning"
+                          : "pill"
+                      }
+                    >
+                      {formatLabel(appointment.status)}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="empty-copy">
+                  No calendar events linked to this contact yet.
+                </p>
+              )}
+            </div>
+          </article>
+
+          {profile.companyContacts.length > 0 ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Company</p>
+                  <h2>People at {profile.contact.company}</h2>
+                </div>
+              </div>
+              <div className="engine-list">
+                {profile.companyContacts.map((companyContact) => (
+                  <Link
+                    className="engine-row plain-link"
+                    href={`/contacts/${companyContact.id}`}
+                    key={companyContact.id}
+                    prefetch={false}
+                  >
+                    <div>
+                      <strong>{contactDisplayName(companyContact)}</strong>
+                      <span>
+                        {[companyContact.email, companyContact.phone]
+                          .filter(Boolean)
+                          .join(" - ") || "No contact details yet"}
+                      </span>
+                    </div>
+                    <span className="pill">
+                      {formatContactType(companyContact.contactType)}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </article>
+          ) : null}
 
           <article className="panel">
             <div className="panel-heading">
@@ -362,7 +630,7 @@ export default async function ContactProfilePage({
               profile.quoteDrafts.map((quoteDraft) => (
                 <Link
                   className="data-row compact-row"
-                  href={`/documents/${quoteDraft.id}`}
+                  href={`/files/${quoteDraft.id}`}
                   key={quoteDraft.id}
                   prefetch={false}
                 >

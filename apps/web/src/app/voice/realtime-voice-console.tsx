@@ -23,7 +23,7 @@ type RealtimeEvent = {
   [key: string]: unknown;
 };
 
-const REALTIME_MODEL = "gpt-realtime-2";
+const REALTIME_MODEL = "gpt-realtime-2.1";
 
 function normalizedTranscript(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -35,7 +35,8 @@ export function RealtimeVoiceConsole({
   initialState: AssistantThreadState;
 }) {
   const [messages, setMessages] = useState(initialState.messages);
-  const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>("idle");
   const [status, setStatus] = useState("Ready for live voice.");
   const [error, setError] = useState<string | null>(initialState.error ?? null);
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -51,7 +52,8 @@ export function RealtimeVoiceConsole({
   const pendingAssistantLinksRef = useRef<AssistantLink[]>([]);
   const persistedResponseIdsRef = useRef<Set<string>>(new Set());
   const threadId = initialState.threadId;
-  const isConnected = connectionState === "connected" || connectionState === "speaking";
+  const isConnected =
+    connectionState === "connected" || connectionState === "speaking";
   const latestMessage = messages[messages.length - 1] ?? null;
   const latestMessageSignature = latestMessage
     ? `${latestMessage.id}:${latestMessage.content.length}`
@@ -110,7 +112,10 @@ export function RealtimeVoiceConsole({
         return;
       }
 
-      if (!threadId || (!cleanedAssistantTranscript && !cleanedUserTranscript)) {
+      if (
+        !threadId ||
+        (!cleanedAssistantTranscript && !cleanedUserTranscript)
+      ) {
         return;
       }
 
@@ -142,65 +147,70 @@ export function RealtimeVoiceConsole({
     [threadId],
   );
 
-  const updateAssistantTranscript = useCallback((text: string, replace = false) => {
-    const nextTranscript = replace
-      ? text.trim()
-      : `${currentAssistantTranscriptRef.current}${text}`;
-    const normalizedNextTranscript = normalizedTranscript(nextTranscript);
-    const assistantLinks = pendingAssistantLinksRef.current;
+  const updateAssistantTranscript = useCallback(
+    (text: string, replace = false) => {
+      const nextTranscript = replace
+        ? text.trim()
+        : `${currentAssistantTranscriptRef.current}${text}`;
+      const normalizedNextTranscript = normalizedTranscript(nextTranscript);
+      const assistantLinks = pendingAssistantLinksRef.current;
 
-    currentAssistantTranscriptRef.current = nextTranscript;
+      currentAssistantTranscriptRef.current = nextTranscript;
 
-    setMessages((currentMessages) => {
-      const messageId =
-        currentAssistantMessageIdRef.current ??
-        `realtime-assistant-${Date.now()}`;
-      currentAssistantMessageIdRef.current = messageId;
-      const duplicateMessage = normalizedNextTranscript
-        ? currentMessages.find(
-            (message) =>
-              message.id !== messageId &&
-              message.role === "assistant" &&
-              normalizedTranscript(message.content) === normalizedNextTranscript,
-          )
-        : null;
+      setMessages((currentMessages) => {
+        const messageId =
+          currentAssistantMessageIdRef.current ??
+          `realtime-assistant-${Date.now()}`;
+        currentAssistantMessageIdRef.current = messageId;
+        const duplicateMessage = normalizedNextTranscript
+          ? currentMessages.find(
+              (message) =>
+                message.id !== messageId &&
+                message.role === "assistant" &&
+                normalizedTranscript(message.content) ===
+                  normalizedNextTranscript,
+            )
+          : null;
 
-      if (duplicateMessage) {
-        currentAssistantMessageIdRef.current = duplicateMessage.id;
+        if (duplicateMessage) {
+          currentAssistantMessageIdRef.current = duplicateMessage.id;
 
-        return currentMessages.filter((message) => message.id !== messageId);
-      }
+          return currentMessages.filter((message) => message.id !== messageId);
+        }
 
-      const existing = currentMessages.find(
-        (message) => message.id === messageId,
-      );
-
-      if (existing) {
-        return currentMessages.map((message) =>
-          message.id === messageId
-            ? {
-              ...message,
-              content: nextTranscript || "Kyro is speaking...",
-              links: assistantLinks.length > 0 ? assistantLinks : message.links,
-            }
-            : message,
+        const existing = currentMessages.find(
+          (message) => message.id === messageId,
         );
-      }
 
-      return [
-        ...currentMessages,
-        {
-          content: nextTranscript || "Kyro is speaking...",
-          createdAt: new Date().toISOString(),
-          id: messageId,
-          links: assistantLinks.length > 0 ? assistantLinks : undefined,
-          model: REALTIME_MODEL,
-          provider: "openai",
-          role: "assistant",
-        },
-      ];
-    });
-  }, []);
+        if (existing) {
+          return currentMessages.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  content: nextTranscript || "Kyro is speaking...",
+                  links:
+                    assistantLinks.length > 0 ? assistantLinks : message.links,
+                }
+              : message,
+          );
+        }
+
+        return [
+          ...currentMessages,
+          {
+            content: nextTranscript || "Kyro is speaking...",
+            createdAt: new Date().toISOString(),
+            id: messageId,
+            links: assistantLinks.length > 0 ? assistantLinks : undefined,
+            model: REALTIME_MODEL,
+            provider: "openai",
+            role: "assistant",
+          },
+        ];
+      });
+    },
+    [],
+  );
 
   const addUserTranscript = useCallback((transcript: string) => {
     const cleanedTranscript = transcript.trim();
@@ -243,7 +253,12 @@ export function RealtimeVoiceConsole({
       const callId = textValue(call.call_id);
       const name = textValue(call.name);
 
-      if (!dataChannel || dataChannel.readyState !== "open" || !callId || !name) {
+      if (
+        !dataChannel ||
+        dataChannel.readyState !== "open" ||
+        !callId ||
+        !name
+      ) {
         return;
       }
 
@@ -339,13 +354,18 @@ export function RealtimeVoiceConsole({
             textValue(event.response?.id) ??
             textValue(event.item?.id) ??
             currentResponseIdRef.current;
-          updateAssistantTranscript(event.transcript ?? textValue(event.text) ?? "", true);
+          updateAssistantTranscript(
+            event.transcript ?? textValue(event.text) ?? "",
+            true,
+          );
           break;
         case "response.done": {
           currentResponseIdRef.current =
             textValue(event.response?.id) ?? currentResponseIdRef.current;
           const output = event.response?.output ?? [];
-          const functionCalls = output.filter((item) => item.type === "function_call");
+          const functionCalls = output.filter(
+            (item) => item.type === "function_call",
+          );
 
           if (functionCalls.length > 0) {
             setStatus("Checking Kyro workspace context...");
@@ -354,7 +374,9 @@ export function RealtimeVoiceConsole({
               await callRealtimeTool(call);
             }
 
-            dataChannelRef.current?.send(JSON.stringify({ type: "response.create" }));
+            dataChannelRef.current?.send(
+              JSON.stringify({ type: "response.create" }),
+            );
             return;
           }
 
@@ -491,8 +513,9 @@ export function RealtimeVoiceConsole({
     }
 
     const activeTurn =
-      transcript.querySelector<HTMLElement>('[data-active-voice-turn="true"]') ??
-      transcript.querySelector<HTMLElement>(".voice-turn:last-of-type");
+      transcript.querySelector<HTMLElement>(
+        '[data-active-voice-turn="true"]',
+      ) ?? transcript.querySelector<HTMLElement>(".voice-turn:last-of-type");
 
     if (!activeTurn) {
       transcript.scrollTop = 0;
@@ -591,9 +614,9 @@ function VoiceTurn({
     >
       {!isUser ? (
         <div className="voice-turn-meta">
-          <strong>Kyro</strong>
           <ClientMessageTime value={message.createdAt} />
-          <AssistantProviderPill message={message} />
+          <strong>Kyro</strong>
+          <span className="assistant-message-channel">Voice assistant</span>
         </div>
       ) : null}
       <p>{message.content}</p>
@@ -617,15 +640,11 @@ function VoiceTurn({
 }
 
 function ClientMessageTime({ value }: { value: string | undefined }) {
-  return <span suppressHydrationWarning>{formatMessageTime(value)}</span>;
-}
-
-function AssistantProviderPill({ message }: { message: AssistantThreadMessage }) {
-  if (!message.provider || !message.model) {
-    return null;
-  }
-
-  return <span className="assistant-provider-pill">{message.provider}</span>;
+  return (
+    <time className="assistant-message-time" suppressHydrationWarning>
+      {formatMessageTime(value)}
+    </time>
+  );
 }
 
 function textValue(value: unknown) {

@@ -25,8 +25,9 @@ priced, limited, and explained.
 
 Kyro currently records append-only `usage_events` for AI triage, Assistant work,
 inbound-email classification, reply drafting, document-template edits, pronunciation
-alias enrichment, realtime web-search tool calls, speech-to-text, text-to-speech,
-and real outbound email sends.
+alias enrichment, Assistant public web-search tool calls, speech-to-text,
+text-to-speech, real outbound email sends, Twilio SMS send/receive events, and
+completed Vapi/Twilio voice calls when duration or provider cost is available.
 The Settings usage/billing view is read-only and customer-facing. It shows:
 
 - total usage charge for the selected period,
@@ -74,7 +75,9 @@ or the decimal `customerCharge` values if the provider expects decimal amounts.
 For each usage event:
 
 ```text
-customer_charge = provider_cost_snapshot + kyro_markup
+provider_cost_snapshot = provider units * provider unit cost
+customer_charge_snapshot = provider_cost_snapshot * (1 + markup_snapshot)
+gross_margin = customer_charge_snapshot - provider_cost_snapshot
 ```
 
 Markup can be configured by:
@@ -90,7 +93,7 @@ Examples:
 - LLM usage: provider cost plus percentage margin.
 - SMS: provider segment cost plus percentage or fixed markup.
 - Voice: provider minute cost plus margin.
-- Image generation: per-render charge with margin.
+- Image generation: provider image token usage when returned, otherwise a per-render snapshot with margin.
 - Document rendering/storage: bundled up to a threshold, then metered.
 
 ## Cost Visibility
@@ -136,28 +139,75 @@ Current OpenAI metering behaviour:
 - OpenAI Realtime voice turns read token usage from the `response.done` event and
   split it into text input, audio input, cached input, text output, audio output,
   and reasoning rows. This keeps live voice costing aligned with the actual
-  `gpt-realtime-2` usage rather than a local estimate.
+  `gpt-realtime-2.1` / `gpt-realtime-2` usage rather than a local estimate.
 - OpenAI text-to-speech uses direct environment pricing when
   `OPENAI_TTS_UNIT_COST_PER_SECOND_USD` is configured. Otherwise the default
   `gpt-4o-mini-tts` path estimates text-input and audio-output cost from the current
   OpenAI rate card and marks the row metadata as price-estimated.
+- OpenAI image generation records one `image_generation` usage event per render/edit. When
+  the Image API response includes provider usage, Kyro prices the row from text input
+  tokens, image input tokens, cached input tokens if supplied, and output image tokens.
+  The token split and cost breakdown are stored in row metadata. If provider usage is
+  unavailable, Kyro falls back to `OPENAI_IMAGE_COST_PER_IMAGE` or the snapshotted
+  image-quality/size catalog and marks the row as estimated.
 - Known OpenAI model prices are snapshotted from the in-app catalog, with environment
   overrides available for production updates:
   `OPENAI_<MODEL>_INPUT_COST_PER_1M`, `OPENAI_<MODEL>_CACHED_INPUT_COST_PER_1M`,
   `OPENAI_<MODEL>_OUTPUT_COST_PER_1M`, or the generic `OPENAI_LLM_*_COST_PER_1M`
   fallbacks.
+- Image-generation token prices can be overridden with model-specific keys such as
+  `OPENAI_GPT_IMAGE_2_IMAGE_TEXT_INPUT_COST_PER_1M`,
+  `OPENAI_GPT_IMAGE_2_IMAGE_INPUT_COST_PER_1M`, and
+  `OPENAI_GPT_IMAGE_2_IMAGE_OUTPUT_COST_PER_1M`, or the generic `OPENAI_IMAGE_*`
+  fallback keys.
 - Realtime voice prices can be overridden independently with
   `OPENAI_<MODEL>_TEXT_INPUT_COST_PER_1M`, `OPENAI_<MODEL>_AUDIO_INPUT_COST_PER_1M`,
   `OPENAI_<MODEL>_TEXT_OUTPUT_COST_PER_1M`, `OPENAI_<MODEL>_AUDIO_OUTPUT_COST_PER_1M`,
   `OPENAI_<MODEL>_CACHED_INPUT_COST_PER_1M`, or the generic
   `OPENAI_REALTIME_*_COST_PER_1M` fallbacks.
-- Kyro markup defaults to `25%` and can be overridden with `OPENAI_LLM_MARKUP_RATE`
-  or `USAGE_MARKUP_RATE`.
+- Kyro usage markup is cost-plus. The normal global knob is
+  `KYRO_USAGE_MARKUP_RATE`, which defaults to `0.25` (`25%`) when unset.
+  `USAGE_MARKUP_RATE` remains supported as a legacy alias. Provider-specific
+  markup vars such as `OPENAI_LLM_MARKUP_RATE`, `OPENAI_STT_MARKUP_RATE`,
+  `OPENAI_TTS_MARKUP_RATE`, `ELEVENLABS_TTS_MARKUP_RATE`,
+  `TWILIO_MARKUP_RATE`, and `GOOGLE_API_MARKUP_RATE` are optional deliberate
+  exceptions; leave them blank when the global Kyro margin should apply across
+  the board.
+- Workspace-specific usage margin lives on `workspace_policies.workspace_general`
+  as `usageMarkupRate` (decimal, so `0.25` means 25%). The workspace value wins
+  over provider-specific env markup and is used for future usage rows only.
+  New workspace bootstrap persists the current global default so older accounts
+  can be grandfathered manually from the hidden Developer settings margin
+  control while newer signups can use a higher margin.
+- Twilio SMS records `outbound_sms` and `inbound_sms` rows with provider `twilio`
+  and service `sms`. Outbound rows use Twilio-returned message price when available,
+  otherwise `TWILIO_SMS_OUTBOUND_UNIT_COST_USD`; inbound rows use
+  `TWILIO_SMS_INBOUND_UNIT_COST_USD`. Workspace margin controls the SMS markup
+  snapshot when set; otherwise `TWILIO_MARKUP_RATE` or the global Kyro usage
+  margin applies.
+- Phone-number rental has a pricing seam through `TWILIO_NUMBER_MONTHLY_COST_USD`.
+  Vapi/Twilio voice calls record `voice_call` usage rows from completed call
+  events, preferring Vapi/Twilio provider cost when supplied and falling back to
+  `TWILIO_VOICE_UNIT_COST_USD`-style minute pricing. UI number purchase and final
+  voice billing reconciliation remain future hardening.
+- Authenticated Google Maps address lookups record `provider_api_calls` rows with
+  provider `google` and service `google_maps`. Places autocomplete, place details,
+  and Address Validation have separate per-1K-call defaults with optional overrides
+  through `GOOGLE_PLACES_AUTOCOMPLETE_COST_PER_1K_CALLS`,
+  `GOOGLE_PLACES_DETAILS_COST_PER_1K_CALLS`,
+  `GOOGLE_ADDRESS_VALIDATION_COST_PER_1K_CALLS`, or generic
+  `GOOGLE_API_COST_PER_1K_CALLS`. Workspace margin controls the Google markup
+  when set; otherwise `GOOGLE_API_MARKUP_RATE` or the global Kyro usage margin
+  applies.
+  Pre-account signup autocomplete is not recorded in the workspace ledger because
+  no workspace exists yet.
 - Local Ollama/stub usage is still metered with token counts where available, but
   provider cost and customer charge are `0` because there is no provider invoice.
 
 Before public launch, billing periods should be finalized into immutable invoice/charge
-records and the pricing catalog should be reviewed against the live provider pricing page.
+records, the pricing catalog should be reviewed against the live provider pricing page, and
+a provider reconciliation job should compare Kyro's `usage_events` with provider-side usage
+exports or organization usage APIs for OpenAI and any later SMS/voice/image providers.
 
 ## Budget Controls
 

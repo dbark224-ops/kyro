@@ -35,6 +35,7 @@ type QuoteDraftEditorFormProps = {
   quoteDraftId?: string;
   status: string;
   statusOptions: ReadonlyArray<{ label: string; value: string }>;
+  submitLabel?: string;
   templateKey?: string | null;
   title: string;
 };
@@ -110,6 +111,7 @@ export function QuoteDraftEditorForm({
   quoteDraftId,
   status,
   statusOptions,
+  submitLabel = "Save quote draft",
   templateKey = null,
   title,
 }: QuoteDraftEditorFormProps) {
@@ -493,7 +495,7 @@ export function QuoteDraftEditorForm({
         </label>
       </div>
       <button className="primary-button profile-submit" type="submit">
-        Save quote draft
+        {submitLabel}
       </button>
     </form>
   );

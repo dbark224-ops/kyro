@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  buildReplyDraftPrompt,
-  type ReplyDraftContext,
-} from "./route";
+import { buildReplyDraftPrompt, type ReplyDraftContext } from "./route";
 
 function parsePrompt(context: ReplyDraftContext) {
   return JSON.parse(buildReplyDraftPrompt(context)) as {
@@ -34,9 +31,7 @@ describe("buildReplyDraftPrompt", () => {
       prompt.context.skippedEmail?.subject,
       "Action required: payment failed",
     );
-    assert.ok(
-      prompt.rules.some((rule) => rule.includes("filtered-out email")),
-    );
+    assert.ok(prompt.rules.some((rule) => rule.includes("filtered-out email")));
     assert.ok(
       prompt.rules.some((rule) => rule.includes("Do not ask for job details")),
     );
@@ -73,5 +68,67 @@ describe("buildReplyDraftPrompt", () => {
       prompt.rules.some((rule) => rule.includes("filtered-out email")),
       false,
     );
+  });
+
+  it("treats a time supplied by the user as authorized reply context", () => {
+    const prompt = parsePrompt({
+      contactName: "Mikel",
+      inquiryFacts: {
+        address: null,
+        missingInfo: ["Job address", "Preferred time", "Phone number"],
+        preferredTime: null,
+      },
+      latestSubject: "Renovation quote",
+      prompt: "Reply for me and tell him we can come around Tuesday at 10am.",
+      source: "conversation",
+      thread: [
+        {
+          body: "Could you come out this week to quote the renovation?",
+          direction: "inbound",
+          subject: "Renovation quote",
+        },
+      ],
+    });
+
+    assert.ok(
+      prompt.rules.some((rule) =>
+        rule.includes("Treat a day or time explicitly supplied by the user"),
+      ),
+    );
+    assert.ok(
+      prompt.rules.some((rule) =>
+        rule.includes("unless supplied by the user's reply instruction"),
+      ),
+    );
+  });
+
+  it("includes saved outbound writing settings in the draft rules", () => {
+    const prompt = parsePrompt({
+      contactName: "Sarah",
+      latestSubject: "Drain quote",
+      prompt: null,
+      replyWriting: {
+        messageLength: "short",
+        reusableInstructions: "Ask for photos before booking drain work.",
+        signOff: "Use the saved signature only.",
+        tone: "Warm but no nonsense",
+        tradePhrasing: "Use plumbing language and mention site access.",
+        wordingStyle: "Plain text with short sentences.",
+      },
+      source: "conversation",
+      thread: [
+        {
+          body: "Can you look at my blocked drain?",
+          direction: "inbound",
+          subject: "Drain quote",
+        },
+      ],
+    });
+
+    assert.equal(prompt.context.replyWriting?.tone, "Warm but no nonsense");
+    assert.ok(
+      prompt.rules.some((rule) => rule.includes("Writing style - Tone")),
+    );
+    assert.ok(prompt.rules.some((rule) => rule.includes("Ask for photos")));
   });
 });

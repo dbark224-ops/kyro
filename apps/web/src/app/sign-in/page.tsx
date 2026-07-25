@@ -1,5 +1,6 @@
 import { BrandMark } from "../components/brand-mark";
-import { signInAction, signUpAction } from "../auth/actions";
+import { signInAction } from "../auth/actions";
+import { SignInForm } from "./auth-forms";
 import { hasSupabaseEnv } from "../../lib/env";
 import { createServerSupabaseClient } from "../../lib/supabase/server";
 import Link from "next/link";
@@ -25,7 +26,9 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             <BrandMark />
           </div>
           <h1>Supabase env vars are missing.</h1>
-          <p className="form-copy">Add the values from `.env.example`, then restart the dev server.</p>
+          <p className="form-copy">
+            Add the values from `.env.example`, then restart the dev server.
+          </p>
           <Link className="secondary-button link-button" href="/">
             Back
           </Link>
@@ -36,63 +39,36 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
 
   const supabase = await createServerSupabaseClient();
   const {
-    data: { user }
+    data: { user },
   } = await supabase.auth.getUser();
 
   if (user) {
-    redirect("/");
+    redirect("/dashboard");
   }
 
   return (
     <main className="auth-shell">
-      <section className="auth-panel wide">
-        <div className="brand-lockup">
+      <section className="auth-panel auth-centered">
+        <div className="brand-lockup centered">
           <BrandMark />
         </div>
 
-        <div className="auth-copy">
-          <p className="eyebrow">Web-first billing, native-ready backend</p>
+        <div className="auth-copy centered">
           <h1>Sign in to your Kyro workspace.</h1>
         </div>
 
-        {params?.error ? <p className="form-alert error">{params.error}</p> : null}
-        {params?.message ? <p className="form-alert">{params.message}</p> : null}
+        {params?.error ? (
+          <p className="form-alert error">{params.error}</p>
+        ) : null}
+        {params?.message ? (
+          <p className="form-alert">{params.message}</p>
+        ) : null}
 
-        <div className="auth-grid">
-          <form className="form-card" action={signInAction}>
-            <h2>Sign in</h2>
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="email" required />
-            </label>
-            <label>
-              Password
-              <input name="password" type="password" autoComplete="current-password" required />
-            </label>
-            <button className="primary-button" type="submit">
-              Sign in
-            </button>
-          </form>
+        <SignInForm action={signInAction} />
 
-          <form className="form-card" action={signUpAction}>
-            <h2>Create account</h2>
-            <label>
-              Name
-              <input name="name" type="text" autoComplete="name" />
-            </label>
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="email" required />
-            </label>
-            <label>
-              Password
-              <input name="password" type="password" autoComplete="new-password" required minLength={8} />
-            </label>
-            <button className="secondary-button" type="submit">
-              Create account
-            </button>
-          </form>
-        </div>
+        <p className="auth-link-row">
+          New to Kyro? <Link href="/create-account">Create account</Link>
+        </p>
       </section>
     </main>
   );

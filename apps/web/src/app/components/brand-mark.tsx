@@ -10,7 +10,7 @@ export function BrandMark() {
         height={500}
         priority
         src="/brand/kyro-logo.png"
-        width={1024}
+        width={1000}
       />
     </div>
   );

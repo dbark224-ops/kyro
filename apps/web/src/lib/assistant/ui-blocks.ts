@@ -1,6 +1,37 @@
 import type { AssistantLink, AssistantUiBlock } from "./types";
 
-export function linkCardsBlock(title: string, links: AssistantLink[]): AssistantUiBlock[] {
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function normalizeAssistantUiBlocks(value: unknown): AssistantUiBlock[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((block): block is AssistantUiBlock => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+
+    const record = block as Record<string, unknown>;
+    return [
+      "approval_queue",
+      "generated_image",
+      "link_cards",
+      "memory_notice",
+      "memory_suggestion",
+      "outbound_call_request",
+      "summary_cards",
+      "timeline",
+    ].includes(textValue(record.type) ?? "");
+  });
+}
+
+export function linkCardsBlock(
+  title: string,
+  links: AssistantLink[],
+): AssistantUiBlock[] {
   return links.length > 0
     ? [
         {
@@ -20,6 +51,67 @@ export function memoryNoticeBlock(content: string): AssistantUiBlock {
   };
 }
 
+export function memorySuggestionBlock({
+  content,
+  memoryId,
+}: {
+  content: string;
+  memoryId: string;
+}): AssistantUiBlock {
+  return {
+    content,
+    memoryId,
+    status: "pending_approval",
+    title: "Suggested memory",
+    type: "memory_suggestion",
+  };
+}
+
+export function summaryCardsBlock(
+  title: string,
+  cards: Extract<AssistantUiBlock, { type: "summary_cards" }>["cards"],
+): AssistantUiBlock[] {
+  return cards.length > 0
+    ? [
+        {
+          cards,
+          title,
+          type: "summary_cards",
+        },
+      ]
+    : [];
+}
+
+export function timelineBlock(
+  title: string,
+  items: Extract<AssistantUiBlock, { type: "timeline" }>["items"],
+): AssistantUiBlock[] {
+  return items.length > 0
+    ? [
+        {
+          items,
+          title,
+          type: "timeline",
+        },
+      ]
+    : [];
+}
+
+export function approvalQueueBlock(
+  title: string,
+  items: Extract<AssistantUiBlock, { type: "approval_queue" }>["items"],
+): AssistantUiBlock[] {
+  return items.length > 0
+    ? [
+        {
+          items,
+          title,
+          type: "approval_queue",
+        },
+      ]
+    : [];
+}
+
 export function generatedImageBlock(
   title: string,
   images: Extract<AssistantUiBlock, { type: "generated_image" }>["images"],
@@ -35,10 +127,55 @@ export function generatedImageBlock(
     : [];
 }
 
+export function outboundCallRequestBlock(
+  title: string,
+  request: Extract<AssistantUiBlock, { type: "outbound_call_request" }>["request"],
+): AssistantUiBlock[] {
+  return request.phoneNumber && request.instructions
+    ? [
+        {
+          request,
+          title,
+          type: "outbound_call_request",
+        },
+      ]
+    : [];
+}
+
 export function linksFromBlocks(blocks: AssistantUiBlock[]) {
   return blocks.flatMap((block) => {
     if (block.type === "link_cards") {
       return block.links;
+    }
+
+    if (block.type === "summary_cards") {
+      return block.cards
+        .filter((card) => card.href)
+        .map((card) => ({
+          href: card.href as string,
+          label: card.label,
+          meta: card.detail ?? card.value,
+        }));
+    }
+
+    if (block.type === "timeline") {
+      return block.items
+        .filter((item) => item.href)
+        .map((item) => ({
+          href: item.href as string,
+          label: item.label,
+          meta: item.detail ?? item.at ?? undefined,
+        }));
+    }
+
+    if (block.type === "approval_queue") {
+      return block.items
+        .filter((item) => item.href)
+        .map((item) => ({
+          href: item.href as string,
+          label: item.label,
+          meta: item.detail ?? item.status,
+        }));
     }
 
     if (block.type === "generated_image") {

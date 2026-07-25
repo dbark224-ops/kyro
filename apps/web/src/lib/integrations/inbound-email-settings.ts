@@ -75,7 +75,8 @@ export type InboundEmailOperationalSummary = {
 
 export const DEFAULT_INBOUND_EMAIL_ACTION_INSTRUCTIONS = [
   "Promote emails that look like customer enquiries, quote requests, booking changes, job updates, supplier/work logistics, urgent service issues, or other business matters Kyro can help action.",
-  "Do not promote personal jokes, family messages, newsletters, receipts, marketing blasts, social notifications, automated system mail, spam, or low-value FYI messages unless they clearly affect the business.",
+  "Do not promote personal jokes, family messages, newsletters, receipts, marketing blasts, social notifications, automated system mail, spam, or low-value FYI messages.",
+  "Software and platform notices about billing, payouts, subscriptions, passwords, security, verification, or account configuration stay out of the CRM even when they ask the owner to take an action.",
   "It is okay for Kyro to be aware that a skipped email existed, but only actionable business mail should become a lead, conversation, or draft reply.",
 ].join(" ");
 
@@ -414,6 +415,13 @@ function quietWindowKey(date: Date, settings: InboundEmailSettings) {
   return null;
 }
 
+export function inboundQuietHoursActiveNow(
+  settings: InboundEmailSettings,
+  now = new Date(),
+) {
+  return settings.quietHoursEnabled && Boolean(quietWindowKey(now, settings));
+}
+
 function minutesSince(value: string | null, now: Date) {
   if (!value) {
     return Number.POSITIVE_INFINITY;
@@ -427,6 +435,8 @@ function minutesSince(value: string | null, now: Date) {
 
   return (now.getTime() - timestamp) / 60_000;
 }
+
+const SCHEDULED_POLL_DUE_TOLERANCE_MINUTES = 0.75;
 
 export function normalizeInboundEmailSettings(value: unknown): InboundEmailSettings {
   const settings = objectRecord(value);
@@ -589,7 +599,11 @@ export function shouldRunInboundEmailSync({
     return false;
   }
 
-  const regularIntervalDue = minutesSince(lastSyncAt, now) >= settings.pollIntervalMinutes;
+  const dueAfterMinutes = Math.max(
+    settings.pollIntervalMinutes - SCHEDULED_POLL_DUE_TOLERANCE_MINUTES,
+    1,
+  );
+  const regularIntervalDue = minutesSince(lastSyncAt, now) >= dueAfterMinutes;
 
   if (!settings.quietHoursEnabled) {
     return regularIntervalDue;

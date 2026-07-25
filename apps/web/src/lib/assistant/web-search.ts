@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type { AssistantLink } from "./types";
 import {
   estimateTokens,
@@ -5,6 +6,10 @@ import {
   openAiUsageFromResponse,
   type OpenAiTokenUsage,
 } from "../usage/openai";
+import {
+  openAiBalancedModel,
+  openAiReasoningRequest,
+} from "../ai/openai-models";
 
 type WebSearchInput = {
   apiKey?: string;
@@ -16,6 +21,7 @@ type WebSearchInput = {
 type WebSearchResult = {
   fallbackReason?: string;
   inputTokens: number;
+  model: string;
   outputTokens: number;
   providerUsageId?: string;
   sources: AssistantLink[];
@@ -160,7 +166,9 @@ function responseUsedWebSearch(payload: unknown) {
     ? (objectRecord(payload).output as unknown[])
     : [];
 
-  return output.some((item) => textValue(objectRecord(item).type) === "web_search_call");
+  return output.some(
+    (item) => textValue(objectRecord(item).type) === "web_search_call",
+  );
 }
 
 export function assistantWebSearchEnabled() {
@@ -168,12 +176,16 @@ export function assistantWebSearchEnabled() {
     envValue("ASSISTANT_WEB_SEARCH_ENABLED") ||
     envValue("OPENAI_WEB_SEARCH_ENABLED");
 
-  return isEnabledValue(value);
+  if (value) {
+    return isEnabledValue(value);
+  }
+
+  return Boolean(envValue("OPENAI_API_KEY"));
 }
 
 export function openAiWebSearchTool() {
   return {
-    type: "web_search",
+    type: "web_search_preview",
   };
 }
 
@@ -234,11 +246,7 @@ export function normalizeAssistantLinks(value: unknown) {
 export async function runAssistantWebSearch({
   apiKey = envValue("OPENAI_API_KEY"),
   maxOutputTokens,
-  model =
-    envValue("ASSISTANT_WEB_SEARCH_MODEL") ||
-    envValue("OPENAI_BALANCED_MODEL") ||
-    envValue("ASSISTANT_MODEL") ||
-    "gpt-4.1-mini",
+  model = envValue("ASSISTANT_WEB_SEARCH_MODEL") || openAiBalancedModel(),
   prompt,
 }: WebSearchInput): Promise<WebSearchResult> {
   const trimmedPrompt = prompt.trim();
@@ -248,6 +256,7 @@ export async function runAssistantWebSearch({
     return {
       fallbackReason: "OPENAI_API_KEY is not configured for web search.",
       inputTokens: estimateTokens(trimmedPrompt),
+      model,
       outputTokens: 0,
       sources: [],
       text: "Web search is not configured yet.",
@@ -259,6 +268,7 @@ export async function runAssistantWebSearch({
     return {
       fallbackReason: "Assistant web search is disabled.",
       inputTokens: estimateTokens(trimmedPrompt),
+      model,
       outputTokens: 0,
       sources: [],
       text: "Web search is disabled for this assistant.",
@@ -267,21 +277,29 @@ export async function runAssistantWebSearch({
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      body: JSON.stringify({
-        input: trimmedPrompt,
-        instructions:
-          "You are Kyro's web search tool. Search the public web when needed, answer concisely, and rely only on sourced public information. Do not claim access to Kyro CRM data, user accounts, private documents, or actions. Include source-backed wording and avoid unsupported certainty.",
-        max_output_tokens: outputTokenLimit,
-        model,
-        tools: [openAiWebSearchTool()],
-      }),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const response = await fetchAiProvider(
+      "https://api.openai.com/v1/responses",
+      {
+        body: JSON.stringify({
+          input: trimmedPrompt,
+          instructions:
+            "You are Kyro's web search tool. Search the public web when needed, answer concisely, and rely only on sourced public information. Cite the sources you use so the response includes url citation annotations for the app to render as source cards. Do not claim access to Kyro CRM data, user accounts, private documents, or actions. Include source-backed wording and avoid unsupported certainty.",
+          max_output_tokens: outputTokenLimit,
+          model,
+          ...openAiReasoningRequest(
+            model,
+            "OPENAI_WEB_SEARCH_REASONING_EFFORT",
+            "low",
+          ),
+          tools: [openAiWebSearchTool()],
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
+    );
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
@@ -296,17 +314,21 @@ export async function runAssistantWebSearch({
 
     return {
       ...responseUsage(payload, trimmedPrompt, text),
+      model,
       sources: extractWebSearchSources(payload),
       text,
       webSearchUsed: hasWebSearchCall(payload),
     };
   } catch (error) {
     const fallbackReason =
-      error instanceof Error ? error.message : "OpenAI web search request failed.";
+      error instanceof Error
+        ? error.message
+        : "OpenAI web search request failed.";
 
     return {
       fallbackReason,
       inputTokens: estimateTokens(trimmedPrompt),
+      model,
       outputTokens: estimateTokens(fallbackReason),
       sources: [],
       text: "I could not complete the web search just now.",

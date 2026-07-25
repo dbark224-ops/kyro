@@ -40,6 +40,7 @@ function settingsRedirect(
 ) {
   const url = new URL("/settings", request.url);
   url.searchParams.set("section", "integrations");
+  url.searchParams.set("panel", "email-accounts");
   url.searchParams.set(key, message);
 
   return NextResponse.redirect(url);
@@ -93,14 +94,18 @@ async function exchangeMicrosoftCode({
 
   if (!response.ok || token.error || !token.access_token) {
     throw new Error(
-      token.error_description ?? token.error ?? "Microsoft token exchange failed.",
+      token.error_description ??
+        token.error ??
+        "Microsoft token exchange failed.",
     );
   }
 
   return token;
 }
 
-async function getMicrosoftProfile(accessToken: string): Promise<MicrosoftProfile> {
+async function getMicrosoftProfile(
+  accessToken: string,
+): Promise<MicrosoftProfile> {
   const response = await fetch(
     "https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName",
     {
@@ -152,7 +157,9 @@ async function upsertOutlookChannel({
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Unable to inspect Outlook channel: ${existingError.message}`);
+    throw new Error(
+      `Unable to inspect Outlook channel: ${existingError.message}`,
+    );
   }
 
   if (existingChannel) {
@@ -176,7 +183,9 @@ async function upsertOutlookChannel({
     .single();
 
   if (error || !channel) {
-    throw new Error(`Unable to create Outlook channel: ${error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create Outlook channel: ${error?.message ?? "unknown error"}`,
+    );
   }
 
   return String(channel.id);
@@ -198,11 +207,19 @@ export async function GET(request: Request) {
   }
 
   if (!code || !state) {
-    return settingsRedirect(request, "engine_error", "Microsoft OAuth returned without a code.");
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Microsoft OAuth returned without a code.",
+    );
   }
 
   if (!config) {
-    return settingsRedirect(request, "engine_error", "Microsoft OAuth is not configured.");
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Microsoft OAuth is not configured.",
+    );
   }
 
   if (!hasIntegrationTokenEncryptionKey()) {
@@ -238,11 +255,22 @@ export async function GET(request: Request) {
   }
 
   if (oauthState.user_id !== user.id) {
-    return settingsRedirect(request, "engine_error", "Microsoft OAuth user did not match this session.");
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Microsoft OAuth user did not match this session.",
+    );
   }
 
-  if (oauthState.consumed_at || new Date(String(oauthState.expires_at)).getTime() < Date.now()) {
-    return settingsRedirect(request, "engine_error", "Microsoft OAuth state has expired.");
+  if (
+    oauthState.consumed_at ||
+    new Date(String(oauthState.expires_at)).getTime() < Date.now()
+  ) {
+    return settingsRedirect(
+      request,
+      "engine_error",
+      "Microsoft OAuth state has expired.",
+    );
   }
 
   try {
@@ -252,7 +280,8 @@ export async function GET(request: Request) {
       redirectUri: config.redirectUri,
     });
     const profile = await getMicrosoftProfile(token.access_token!);
-    const accountEmail = textValue(profile.mail) ?? textValue(profile.userPrincipalName);
+    const accountEmail =
+      textValue(profile.mail) ?? textValue(profile.userPrincipalName);
     const externalAccountId = textValue(profile.id);
     const connectionKey = `microsoft:${externalAccountId ?? accountEmail ?? user.id}`;
     const now = new Date();
@@ -301,7 +330,9 @@ export async function GET(request: Request) {
       .single();
 
     if (connectionError || !connection) {
-      throw new Error(connectionError?.message ?? "Unable to save Microsoft connection.");
+      throw new Error(
+        connectionError?.message ?? "Unable to save Microsoft connection.",
+      );
     }
 
     await upsertOutlookChannel({
@@ -332,12 +363,18 @@ export async function GET(request: Request) {
       },
     });
 
-    return settingsRedirect(request, "engine_message", "Microsoft Outlook connected.");
+    return settingsRedirect(
+      request,
+      "engine_message",
+      "Microsoft Outlook connected.",
+    );
   } catch (error) {
     return settingsRedirect(
       request,
       "engine_error",
-      error instanceof Error ? error.message : "Microsoft OAuth callback failed.",
+      error instanceof Error
+        ? error.message
+        : "Microsoft OAuth callback failed.",
     );
   }
 }

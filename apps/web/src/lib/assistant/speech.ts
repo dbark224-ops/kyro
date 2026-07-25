@@ -1,6 +1,14 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  applyUsageMarkup,
+  roundUsageMoney,
+  usageMarkupRate,
+} from "../usage/pricing";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   getActivePronunciationEntries,
   pronunciationGuideText,
@@ -13,7 +21,6 @@ const DEFAULT_TTS_VOICE = "ballad";
 const DEFAULT_TTS_FORMAT = "wav";
 const DEFAULT_TTS_SPEED = 1;
 const MIN_USABLE_TTS_SPEED = 1;
-const DEFAULT_MARKUP_RATE = 0.25;
 const OPENAI_PRICE_SOURCE = "openai_api_pricing_2026_05_24";
 const OPENAI_TTS_AUDIO_TOKENS_PER_SECOND = 20;
 const DEFAULT_TTS_INSTRUCTIONS =
@@ -81,7 +88,9 @@ function openAiTtsModel() {
 
 function openAiTtsVoice(voiceSettings: VoiceSettings) {
   return (
-    voiceSettings.openAiVoice || envValue("OPENAI_TTS_VOICE") || DEFAULT_TTS_VOICE
+    voiceSettings.openAiVoice ||
+    envValue("OPENAI_TTS_VOICE") ||
+    DEFAULT_TTS_VOICE
   );
 }
 
@@ -104,9 +113,7 @@ function openAiTtsInstructions(entries: AssistantPronunciationEntry[]) {
 }
 
 function openAiTtsMarkupRate() {
-  const parsed = Number(envValue("OPENAI_TTS_MARKUP_RATE"));
-
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
+  return usageMarkupRate("OPENAI_TTS_MARKUP_RATE");
 }
 
 function openAiTtsSpeed() {
@@ -175,9 +182,7 @@ function elevenLabsApiKey() {
 }
 
 function elevenLabsTtsMarkupRate() {
-  const parsed = Number(envValue("ELEVENLABS_TTS_MARKUP_RATE"));
-
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
+  return usageMarkupRate("ELEVENLABS_TTS_MARKUP_RATE");
 }
 
 function elevenLabsTtsUnitCostPerCharacter() {
@@ -427,6 +432,7 @@ async function synthesizeOpenAiSpeech(
   input: string,
   pronunciationEntries: AssistantPronunciationEntry[],
   voiceSettings: VoiceSettings,
+  usageMarkupRateOverride?: number | null,
 ): Promise<ProviderSpeechResult> {
   const apiKey = openAiApiKey();
 
@@ -438,23 +444,26 @@ async function synthesizeOpenAiSpeech(
   const voice = openAiTtsVoice(voiceSettings);
   const responseFormat = openAiTtsFormat();
   const speed = openAiTtsSpeed();
-  const response = await fetch("https://api.openai.com/v1/audio/speech", {
-    body: JSON.stringify({
-      input,
-      model,
-      response_format: responseFormat,
-      speed,
-      voice,
-      ...(!["tts-1", "tts-1-hd"].includes(model)
-        ? { instructions: openAiTtsInstructions(pronunciationEntries) }
-        : {}),
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/audio/speech",
+    {
+      body: JSON.stringify({
+        input,
+        model,
+        response_format: responseFormat,
+        speed,
+        voice,
+        ...(!["tts-1", "tts-1-hd"].includes(model)
+          ? { instructions: openAiTtsInstructions(pronunciationEntries) }
+          : {}),
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   if (!response.ok) {
     const payload = await parseProviderErrorPayload(response);
@@ -471,7 +480,7 @@ async function synthesizeOpenAiSpeech(
   );
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
   const pricing = openAiTtsCost({ estimatedSeconds, model, text: input });
-  const markup = openAiTtsMarkupRate();
+  const markup = usageMarkupRateOverride ?? openAiTtsMarkupRate();
 
   return {
     audio,
@@ -483,7 +492,9 @@ async function synthesizeOpenAiSpeech(
     speed,
     usage: {
       costSnapshot: pricing.cost,
-      customerChargeSnapshot: Number((pricing.cost * (1 + markup)).toFixed(8)),
+      customerChargeSnapshot: roundUsageMoney(
+        applyUsageMarkup(pricing.cost, markup),
+      ),
       markupSnapshot: markup,
       priceEstimated: pricing.priceEstimated,
       priceSource: pricing.priceSource,
@@ -499,6 +510,7 @@ async function synthesizeOpenAiSpeech(
 async function synthesizeElevenLabsSpeech(
   input: string,
   voiceSettings: VoiceSettings,
+  usageMarkupRateOverride?: number | null,
 ): Promise<ProviderSpeechResult> {
   const apiKey = elevenLabsApiKey();
 
@@ -509,7 +521,7 @@ async function synthesizeElevenLabsSpeech(
   const model = voiceSettings.elevenLabsModel;
   const voice = voiceSettings.elevenLabsVoiceId;
   const responseFormat = voiceSettings.elevenLabsOutputFormat;
-  const response = await fetch(
+  const response = await fetchAiProvider(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
       voice,
     )}/stream?output_format=${encodeURIComponent(responseFormat)}`,
@@ -547,7 +559,7 @@ async function synthesizeElevenLabsSpeech(
   const estimatedSeconds = estimatedSpeechSeconds(input, speed);
   const quantity = input.length;
   const unitCost = elevenLabsTtsUnitCostPerCharacter();
-  const markup = elevenLabsTtsMarkupRate();
+  const markup = usageMarkupRateOverride ?? elevenLabsTtsMarkupRate();
   const cost = Number((quantity * unitCost).toFixed(8));
 
   return {
@@ -562,7 +574,7 @@ async function synthesizeElevenLabsSpeech(
     speed,
     usage: {
       costSnapshot: cost,
-      customerChargeSnapshot: Number((cost * (1 + markup)).toFixed(8)),
+      customerChargeSnapshot: roundUsageMoney(applyUsageMarkup(cost, markup)),
       markupSnapshot: markup,
       priceEstimated: false,
       priceSource: "elevenlabs_pricing_env",
@@ -583,6 +595,7 @@ export async function synthesizeAssistantSpeech({
   user,
   workspace,
 }: SynthesizeAssistantSpeechInput): Promise<SynthesizeAssistantSpeechResult> {
+  await assertWorkspaceAutomationAllowed(workspace.id);
   const input = sanitizeSpeechText(text);
 
   if (!input) {
@@ -593,10 +606,26 @@ export async function synthesizeAssistantSpeech({
   const pronunciationEntries =
     pronunciationEntriesOverride ??
     (await getActivePronunciationEntries(supabase, workspace.id));
+  const usageMarkupRateOverride = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    voiceSettings.provider === "elevenlabs"
+      ? "ELEVENLABS_TTS_MARKUP_RATE"
+      : "OPENAI_TTS_MARKUP_RATE",
+  );
   const speech =
     voiceSettings.provider === "elevenlabs"
-      ? await synthesizeElevenLabsSpeech(input, voiceSettings)
-      : await synthesizeOpenAiSpeech(input, pronunciationEntries, voiceSettings);
+      ? await synthesizeElevenLabsSpeech(
+          input,
+          voiceSettings,
+          usageMarkupRateOverride,
+        )
+      : await synthesizeOpenAiSpeech(
+          input,
+          pronunciationEntries,
+          voiceSettings,
+          usageMarkupRateOverride,
+        );
 
   const { error: usageError } = await supabase.from("usage_events").insert(
     toUsageEventRow({

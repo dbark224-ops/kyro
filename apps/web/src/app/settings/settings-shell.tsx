@@ -1,11 +1,31 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { SettingsRoutePrefetcher } from "./settings-route-prefetcher";
+import { SettingsSearch } from "./settings-search";
+import {
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+
+const intentPrefetchedSettingsRoutes = new Set<string>();
+
+type PendingSettingsNavigation = {
+  fromHref: string;
+  toHref: string;
+};
 
 export type SettingsSection =
   | "general"
   | "integrations"
+  | "calendar"
+  | "notifications"
   | "usage"
-  | "voice";
+  | "voice"
+  | "developer";
 
 export type SettingsMenuItem = {
   detail: string;
@@ -15,18 +35,85 @@ export type SettingsMenuItem = {
   title: string;
 };
 
+export type SettingsNestedItem = {
+  detail: string;
+  href: string;
+  key: string;
+  selected: boolean;
+  title: string;
+};
+
 export function SettingsShell({
   detail,
   empty,
   items,
+  nestedItems,
   selectedSection,
 }: Readonly<{
   detail: ReactNode | null;
   empty: ReactNode;
   items: SettingsMenuItem[];
+  nestedItems: SettingsNestedItem[];
   selectedSection: SettingsSection | null;
 }>) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingSettingsNavigation | null>(null);
   const hasDetail = Boolean(selectedSection && detail);
+  const prefetchHrefs = useMemo(
+    () => [
+      ...nestedItems.map((item) => item.href),
+      ...items.map((item) => item.href),
+    ],
+    [items, nestedItems],
+  );
+  const currentHref = useMemo(() => {
+    const query = searchParams.toString();
+
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams]);
+  const detailIsLoading = Boolean(
+    pendingNavigation &&
+      pendingNavigation.fromHref === currentHref &&
+      pendingNavigation.toHref !== currentHref,
+  );
+
+  function markRoutePending(
+    event: MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) {
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0 ||
+      href === currentHref
+    ) {
+      return;
+    }
+
+    setPendingNavigation({
+      fromHref: currentHref,
+      toHref: href,
+    });
+  }
+
+  function prefetchRouteOnIntent(href: string) {
+    if (href === currentHref || intentPrefetchedSettingsRoutes.has(href)) {
+      return;
+    }
+
+    intentPrefetchedSettingsRoutes.add(href);
+    try {
+      router.prefetch(href);
+    } catch {
+      intentPrefetchedSettingsRoutes.delete(href);
+    }
+  }
 
   return (
     <section
@@ -34,13 +121,26 @@ export function SettingsShell({
         hasDetail ? "settings-workspace has-detail" : "settings-workspace"
       }
     >
-      <section className="panel settings-list-panel">
+      <SettingsRoutePrefetcher activeHref={currentHref} hrefs={prefetchHrefs} />
+      <section className="panel settings-list-panel settings-primary-panel">
         <div className="panel-heading">
           <div>
             <p className="eyebrow">Settings</p>
             <h2>Workspace controls</h2>
           </div>
         </div>
+
+        <SettingsSearch
+          currentHref={currentHref}
+          includeDeveloper={items.some((item) => item.section === "developer")}
+          onNavigate={(href) =>
+            setPendingNavigation({
+              fromHref: currentHref,
+              toHref: href,
+            })
+          }
+          onPrefetch={prefetchRouteOnIntent}
+        />
 
         <div className="settings-menu-list">
           {items.map((item) => (
@@ -55,19 +155,81 @@ export function SettingsShell({
               }
               href={item.href}
               key={item.section}
+              onClick={(event) => markRoutePending(event, item.href)}
+              onFocus={() => prefetchRouteOnIntent(item.href)}
+              onMouseEnter={() => prefetchRouteOnIntent(item.href)}
+              onTouchStart={() => prefetchRouteOnIntent(item.href)}
               prefetch={false}
-              >
-                <div className="settings-menu-main">
-                  <p className="eyebrow">{item.eyebrow}</p>
-                  <strong>{item.title}</strong>
-                  <span>{item.detail}</span>
-                </div>
-              </Link>
+            >
+              <div className="settings-menu-main">
+                <p className="eyebrow">{item.eyebrow}</p>
+                <strong>{item.title}</strong>
+                <span>{item.detail}</span>
+              </div>
+            </Link>
           ))}
         </div>
       </section>
 
-      {hasDetail ? detail : empty}
+      <section className="panel settings-list-panel settings-nested-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Section</p>
+            <h2>Choose a setting</h2>
+          </div>
+        </div>
+
+        <div className="settings-menu-list settings-nested-list">
+          {nestedItems.length > 0 ? (
+            nestedItems.map((item) => (
+              <Link
+                aria-current={item.selected ? "page" : undefined}
+                className={
+                  item.selected
+                    ? "settings-menu-row settings-nested-row active"
+                    : "settings-menu-row settings-nested-row"
+                }
+                href={item.href}
+                key={item.key}
+                onClick={(event) => markRoutePending(event, item.href)}
+                onFocus={() => prefetchRouteOnIntent(item.href)}
+                onMouseEnter={() => prefetchRouteOnIntent(item.href)}
+                onTouchStart={() => prefetchRouteOnIntent(item.href)}
+                prefetch={false}
+              >
+                <div className="settings-menu-main">
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+              </Link>
+            ))
+          ) : (
+            <p className="empty-copy">
+              Pick a settings area to see its controls.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <div
+        aria-busy={detailIsLoading}
+        className={
+          detailIsLoading
+            ? "settings-detail-transition is-loading"
+            : "settings-detail-transition"
+        }
+      >
+        {hasDetail ? detail : empty}
+        {detailIsLoading ? (
+          <div className="settings-detail-loading-overlay" aria-live="polite">
+            <span
+              className="settings-detail-loading-spinner"
+              aria-hidden="true"
+            />
+            <span>Loading settings</span>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

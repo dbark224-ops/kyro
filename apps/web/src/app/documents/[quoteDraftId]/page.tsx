@@ -15,6 +15,7 @@ import {
   quoteRevisionLabel,
   quoteRevisionState,
 } from "../../../lib/documents/revisions";
+import { getGeneratedDocumentsForQuoteDraft } from "../../../lib/documents/generated-documents";
 import {
   getLatestQuoteApprovalLinkForDraft,
   isQuoteApprovalLinkExpired,
@@ -28,6 +29,8 @@ import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import { QuoteDraftEditorForm } from "./quote-draft-editor-form";
 import {
   createQuoteApprovalLinkAction,
+  fileGeneratedDocumentToDriveAction,
+  generateInvoiceDocumentAction,
   prepareQuoteDraftSendAction,
 } from "../actions";
 import Link from "next/link";
@@ -192,10 +195,13 @@ export default async function QuoteDraftPage({
     quoteDraft.status === "changes_requested" ||
     Boolean(revisionState.pendingChangeRequest);
   const latestDocumentEvent = documentFreshness.latest;
-  const approvalLink = await getLatestQuoteApprovalLinkForDraft(supabase, {
-    quoteDraftId: quoteDraft.id,
-    workspaceId: workspace.id,
-  });
+  const [approvalLink, generatedDocuments] = await Promise.all([
+    getLatestQuoteApprovalLinkForDraft(supabase, {
+      quoteDraftId: quoteDraft.id,
+      workspaceId: workspace.id,
+    }),
+    getGeneratedDocumentsForQuoteDraft(supabase, workspace.id, quoteDraft.id),
+  ]);
   const approvalUrl = query?.approval_token
     ? quoteApprovalPublicUrl(query.approval_token)
     : null;
@@ -204,7 +210,7 @@ export default async function QuoteDraftPage({
     : false;
 
   return (
-    <AppFrame active="Documents">
+    <AppFrame active="Files">
       <header className="topbar">
         <div>
           <p className="eyebrow">{workspace.name}</p>
@@ -230,16 +236,22 @@ export default async function QuoteDraftPage({
               Attach to reply
             </Link>
           ) : null}
+          <form action={generateInvoiceDocumentAction}>
+            <input name="quoteDraftId" type="hidden" value={quoteDraft.id} />
+            <button className="secondary-button link-button" type="submit">
+              Generate invoice
+            </button>
+          </form>
           <Link
             className="primary-button link-button"
-            href={`/documents/${quoteDraft.id}/pdf`}
+            href={`/files/${quoteDraft.id}/pdf`}
             prefetch={false}
           >
             Download PDF
           </Link>
           <Link
             className="secondary-button link-button"
-            href={`/documents/${quoteDraft.id}/print`}
+            href={`/files/${quoteDraft.id}/print`}
             prefetch={false}
             target="_blank"
             rel="noreferrer"
@@ -255,8 +267,8 @@ export default async function QuoteDraftPage({
               Open inquiry
             </Link>
           ) : null}
-          <Link className="secondary-button link-button" href="/documents" prefetch>
-            Back to documents
+          <Link className="secondary-button link-button" href="/files" prefetch>
+            Back to files
           </Link>
         </div>
       </header>
@@ -376,6 +388,70 @@ export default async function QuoteDraftPage({
               ))}
             </div>
           ) : null}
+        </article>
+
+        <article className="panel inquiry-summary-card">
+          <div className="summary-title">
+            <div>
+              <p className="eyebrow">Files</p>
+              <h2>Saved PDFs</h2>
+            </div>
+            <span className="pill">{generatedDocuments.length} records</span>
+          </div>
+          {generatedDocuments.length > 0 ? (
+            <div className="engine-list compact-history-list">
+              {generatedDocuments.slice(0, 5).map((document) => (
+                <div className="engine-row compact-history-row" key={document.id}>
+                  <div>
+                    <strong>{formatLabel(document.documentType)}</strong>
+                    <span>
+                      {formatLabel(document.lifecycleStatus)} -{" "}
+                      {document.documentVersion ?? "v1"} -{" "}
+                      {formatDate(document.updatedAt)}
+                    </span>
+                  </div>
+                  <div className="template-card-actions">
+                    {document.fileId ? (
+                      <Link
+                        className="secondary-button compact link-button"
+                        href={`/api/files/${document.fileId}`}
+                        prefetch={false}
+                      >
+                        Download
+                      </Link>
+                    ) : null}
+                    {document.googleDriveWebUrl ? (
+                      <Link
+                        className="secondary-button compact link-button"
+                        href={document.googleDriveWebUrl}
+                        prefetch={false}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Drive
+                      </Link>
+                    ) : (
+                      <form action={fileGeneratedDocumentToDriveAction}>
+                        <input
+                          name="generatedDocumentId"
+                          type="hidden"
+                          value={document.id}
+                        />
+                        <input name="quoteDraftId" type="hidden" value={quoteDraft.id} />
+                        <button className="secondary-button compact" type="submit">
+                          File
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">
+              Download, send, or generate an invoice to create the first saved PDF.
+            </p>
+          )}
         </article>
 
         <article className="panel inquiry-summary-card">

@@ -8,6 +8,7 @@ import {
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
+import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { user, workspace } = await requireMobileWorkspaceContext(request);
+    const { supabase, user, workspace } = await requireMobileWorkspaceContext(request);
     const body = objectValue(await request.json().catch(() => null));
     const operation = textValue(body.operation);
     const amountCents = Math.round(numberValue(body.amountCents));
@@ -56,13 +57,19 @@ export async function POST(request: Request) {
     }
 
     if (operation === "connect_stripe") {
-      if (!user.email) {
+      const generalSettings = await getWorkspaceGeneralSettings(supabase, workspace.id);
+      const businessName =
+        generalSettings.businessProfile.businessName || workspace.name;
+      const email = user.email ?? generalSettings.businessProfile.publicEmail;
+
+      if (!email) {
         throw new Error("Add an account email before connecting Stripe payments.");
       }
 
       const url = await createStripeConnectOnboardingLink({
-        businessName: workspace.name,
-        email: user.email,
+        businessName,
+        email,
+        generalSettings,
         supabase: createServiceSupabaseClient(),
         workspaceId: workspace.id,
       });

@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   GOOGLE_PROVIDER,
@@ -58,19 +59,25 @@ function textValue(value: unknown) {
 
 function normalizeScopes(value: unknown) {
   return Array.isArray(value)
-    ? value.filter((scope): scope is string => typeof scope === "string" && scope.length > 0)
+    ? value.filter(
+        (scope): scope is string =>
+          typeof scope === "string" && scope.length > 0,
+      )
     : [];
 }
 
 function tokenExpiresAt(tokenSet: GoogleTokenSet) {
   const obtainedAt = textValue(tokenSet.obtainedAt);
-  const expiresIn = typeof tokenSet.expiresIn === "number" ? tokenSet.expiresIn : null;
+  const expiresIn =
+    typeof tokenSet.expiresIn === "number" ? tokenSet.expiresIn : null;
 
   if (!obtainedAt || !expiresIn) {
     return null;
   }
 
-  return new Date(new Date(obtainedAt).getTime() + expiresIn * 1000).toISOString();
+  return new Date(
+    new Date(obtainedAt).getTime() + expiresIn * 1000,
+  ).toISOString();
 }
 
 function isExpiring(tokenSet: GoogleTokenSet) {
@@ -80,7 +87,9 @@ function isExpiring(tokenSet: GoogleTokenSet) {
     return true;
   }
 
-  return new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS;
+  return (
+    new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS
+  );
 }
 
 function encodeMimeHeader(value: string) {
@@ -171,7 +180,10 @@ function buildRawEmail({
       "Content-Transfer-Encoding: 8bit",
     ];
 
-    return Buffer.from(`${headers.join("\r\n")}\r\n\r\n${body}`, "utf8").toString("base64url");
+    return Buffer.from(
+      `${headers.join("\r\n")}\r\n\r\n${body}`,
+      "utf8",
+    ).toString("base64url");
   }
 
   if (attachments.length === 0 && htmlBody) {
@@ -197,10 +209,7 @@ function buildRawEmail({
         `--${boundary}`,
         `Content-Type: multipart/alternative; boundary="${mimeBoundary("alt")}"`,
       ]
-    : [
-        `--${boundary}`,
-        ...textPart(body),
-      ];
+    : [`--${boundary}`, ...textPart(body)];
   const alternativeBoundary = htmlBody
     ? bodyParts[1]?.match(/boundary="([^"]+)"/)?.[1]
     : null;
@@ -211,9 +220,9 @@ function buildRawEmail({
       : []),
     ...attachments.flatMap((attachment) => {
       const filename = sanitizeFilename(attachment.filename);
-      const disposition = attachment.disposition ?? (
-        attachment.contentId ? "inline" : "attachment"
-      );
+      const disposition =
+        attachment.disposition ??
+        (attachment.contentId ? "inline" : "attachment");
 
       return [
         `--${boundary}`,
@@ -229,7 +238,10 @@ function buildRawEmail({
     "",
   ];
 
-  return Buffer.from(`${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}`, "utf8").toString("base64url");
+  return Buffer.from(
+    `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}`,
+    "utf8",
+  ).toString("base64url");
 }
 
 function simplifyGoogleApiError(message: string) {
@@ -237,8 +249,8 @@ function simplifyGoogleApiError(message: string) {
 
   if (
     message.includes("Gmail API has not been used") ||
-    message.toLowerCase().includes("gmail api") &&
-      message.toLowerCase().includes("disabled")
+    (message.toLowerCase().includes("gmail api") &&
+      message.toLowerCase().includes("disabled"))
   ) {
     const projectText = projectMatch?.[1]
       ? ` for Google Cloud project ${projectMatch[1]}`
@@ -293,7 +305,10 @@ async function updateConnectionLastError({
   }
 }
 
-async function loadActiveGoogleConnection(supabase: SupabaseClient, workspaceId: string) {
+async function loadActiveGoogleConnection(
+  supabase: SupabaseClient,
+  workspaceId: string,
+) {
   const { data, error } = await supabase
     .from("integration_connections")
     .select("id,account_email,scopes,token_set")
@@ -306,11 +321,15 @@ async function loadActiveGoogleConnection(supabase: SupabaseClient, workspaceId:
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Unable to load connected Google account: ${error.message}`);
+    throw new Error(
+      `Unable to load connected Google account: ${error.message}`,
+    );
   }
 
   if (!data) {
-    throw new Error("Connect a Google account in Settings before sending real email.");
+    throw new Error(
+      "Connect a Google account in Settings before sending real email.",
+    );
   }
 
   return data as GoogleConnectionRow;
@@ -331,7 +350,9 @@ async function refreshAccessToken({
   const refreshToken = textValue(tokenSet.refreshToken);
 
   if (!config || !refreshToken) {
-    throw new Error("Google access expired. Reconnect Google in Settings to refresh Gmail access.");
+    throw new Error(
+      "Google access expired. Reconnect Google in Settings to refresh Gmail access.",
+    );
   }
 
   const body = new URLSearchParams({
@@ -340,13 +361,16 @@ async function refreshAccessToken({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
   });
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    body,
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
+  const response = await fetchWithTimeout(
+    "https://oauth2.googleapis.com/token",
+    {
+      body,
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   if (!response.ok) {
     const message = await readGoogleApiError(response);
@@ -357,7 +381,9 @@ async function refreshAccessToken({
       workspaceId,
     });
 
-    throw new Error("Google access expired and refresh failed. Reconnect Google in Settings.");
+    throw new Error(
+      "Google access expired and refresh failed. Reconnect Google in Settings.",
+    );
   }
 
   const refreshed = (await response.json()) as {
@@ -378,7 +404,9 @@ async function refreshAccessToken({
     tokenType: refreshed.token_type ?? tokenSet.tokenType ?? null,
   };
 
-  const encrypted = encryptIntegrationTokenSet(updatedTokenSet as Record<string, unknown>);
+  const encrypted = encryptIntegrationTokenSet(
+    updatedTokenSet as Record<string, unknown>,
+  );
   const { error } = await supabase
     .from("integration_connections")
     .update({
@@ -390,7 +418,9 @@ async function refreshAccessToken({
     .eq("id", connection.id);
 
   if (error) {
-    throw new Error(`Unable to save refreshed Google access token: ${error.message}`);
+    throw new Error(
+      `Unable to save refreshed Google access token: ${error.message}`,
+    );
   }
 
   return updatedTokenSet;
@@ -418,7 +448,9 @@ export async function sendGmailMessage(
   const scopes = normalizeScopes(connection.scopes);
 
   if (!scopes.includes(GMAIL_SEND_SCOPE)) {
-    throw new Error("The connected Google account is missing the Gmail send scope.");
+    throw new Error(
+      "The connected Google account is missing the Gmail send scope.",
+    );
   }
 
   let tokenSet = decryptIntegrationTokenSet<GoogleTokenSet>(
@@ -437,26 +469,31 @@ export async function sendGmailMessage(
   const accessToken = textValue(tokenSet.accessToken);
 
   if (!accessToken) {
-    throw new Error("The connected Google account does not have a usable access token.");
+    throw new Error(
+      "The connected Google account does not have a usable access token.",
+    );
   }
 
-  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-    body: JSON.stringify({
-      raw: buildRawEmail({
-        attachments,
-        body,
-        from: textValue(connection.account_email),
-        htmlBody,
-        subject,
-        to,
+  const response = await fetchWithTimeout(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    {
+      body: JSON.stringify({
+        raw: buildRawEmail({
+          attachments,
+          body,
+          from: textValue(connection.account_email),
+          htmlBody,
+          subject,
+          to,
+        }),
       }),
-    }),
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   if (!response.ok) {
     const message = await readGoogleApiError(response);

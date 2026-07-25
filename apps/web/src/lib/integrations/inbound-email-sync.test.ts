@@ -6,6 +6,7 @@ import {
   inboundEmailIdempotencyKey,
   inboundEmailReferenceIds,
   isRecoverableTokenAccessError,
+  normalizeEmailClassification,
   normalizeEmailMessageId,
   normalizeEmailSubject,
   summarizeInboundEmailAttachments,
@@ -14,15 +15,26 @@ import {
 describe("isRecoverableTokenAccessError", () => {
   it("treats encrypted OAuth token decrypt failures as reconnect-needed", () => {
     assert.equal(
-      isRecoverableTokenAccessError("Unsupported state or unable to authenticate data"),
+      isRecoverableTokenAccessError(
+        "Unsupported state or unable to authenticate data",
+      ),
       true,
     );
-    assert.equal(isRecoverableTokenAccessError("Invalid authentication tag"), true);
+    assert.equal(
+      isRecoverableTokenAccessError("Invalid authentication tag"),
+      true,
+    );
   });
 
   it("does not hide provider/API failures behind reconnect state", () => {
-    assert.equal(isRecoverableTokenAccessError("Gmail API returned 429"), false);
-    assert.equal(isRecoverableTokenAccessError("Unable to load email integrations"), false);
+    assert.equal(
+      isRecoverableTokenAccessError("Gmail API returned 429"),
+      false,
+    );
+    assert.equal(
+      isRecoverableTokenAccessError("Unable to load email integrations"),
+      false,
+    );
   });
 });
 
@@ -59,7 +71,8 @@ describe("classifyInboundEmailHeuristically", () => {
   it("keeps newsletter and automated mail out of the CRM queue", () => {
     const classification = classifyInboundEmailHeuristically({
       automated: false,
-      bodyText: "This week's offers. Click unsubscribe to stop receiving these.",
+      bodyText:
+        "This week's offers. Click unsubscribe to stop receiving these.",
       fromEmail: "marketing@example.com",
       snippet: "Weekly offers",
       subject: "Newsletter",
@@ -92,6 +105,49 @@ describe("classifyInboundEmailHeuristically", () => {
     });
 
     assert.equal(classification.category, "business_reference");
+    assert.equal(classification.promote, false);
+  });
+
+  it("keeps automated account and payout notices out of CRM work", () => {
+    const classification = classifyInboundEmailHeuristically({
+      automated: false,
+      bodyText:
+        "Update your payout information so your software account can receive payments.",
+      fromEmail: "support@stripe.com",
+      snippet: "Update payout details",
+      subject: "Update your Stripe account to receive your funds",
+    });
+
+    assert.equal(classification.category, "business_reference");
+    assert.equal(classification.promote, false);
+  });
+});
+
+describe("normalizeEmailClassification", () => {
+  it("blocks CRM promotion when the model identifies an automated account notice", () => {
+    const fallback = classifyInboundEmailHeuristically({
+      automated: false,
+      bodyText: "Neutral email",
+      fromEmail: "person@example.com",
+      snippet: null,
+      subject: "Hello",
+    });
+    const classification = normalizeEmailClassification(
+      {
+        actionHint: "Update the account payout details.",
+        category: "business_actionable",
+        confidence: 0.99,
+        messageType: "automated_account_notice",
+        promote: true,
+        reason: "An automated platform account notice.",
+        suggestedServiceType: null,
+        summary: "A payout configuration request.",
+      },
+      fallback,
+      "openai",
+    );
+
+    assert.equal(classification.messageType, "automated_account_notice");
     assert.equal(classification.promote, false);
   });
 });
@@ -165,7 +221,10 @@ describe("inboundEmailIdempotencyKey", () => {
 
 describe("email thread metadata helpers", () => {
   it("normalizes provider message ids and reply reference ids", () => {
-    assert.equal(normalizeEmailMessageId("<ABC@example.com>"), "abc@example.com");
+    assert.equal(
+      normalizeEmailMessageId("<ABC@example.com>"),
+      "abc@example.com",
+    );
     assert.deepEqual(
       inboundEmailReferenceIds({
         "in-reply-to": "<reply@example.com>",

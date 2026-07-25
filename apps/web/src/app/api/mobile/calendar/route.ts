@@ -1,45 +1,21 @@
 import {
+  createCalendarEventRecord,
+  getCalendarEvents,
+  normalizeCalendarEventStatus,
+  normalizeCalendarEventType,
+  updateCalendarEventRecord,
+  type CalendarEventItem,
+  type CalendarEventMutationInput,
+} from "../../../../lib/calendar/events";
+import { deleteAppointmentFromExternalCalendar } from "../../../../lib/calendar/provider-sync";
+import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
+import {
   MobileApiError,
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
 
 export const dynamic = "force-dynamic";
-
-const EVENT_SELECT =
-  "id,conversation_id,contact_id,lead_id,appointment_type,title,description,status,starts_at,ends_at,location,external_calendar_provider,external_sync_status,created_at,updated_at";
-const CALENDAR_EVENT_TYPES = [
-  "quote_visit",
-  "job",
-  "follow_up",
-  "site_visit",
-  "internal",
-  "other",
-] as const;
-const CALENDAR_EVENT_STATUSES = [
-  "suggested",
-  "scheduled",
-  "completed",
-  "cancelled",
-] as const;
-
-type AppointmentRow = {
-  appointment_type: string | null;
-  contact_id: string | null;
-  conversation_id: string | null;
-  created_at: string;
-  description: string | null;
-  ends_at: string | null;
-  external_calendar_provider: string | null;
-  external_sync_status: string | null;
-  id: string;
-  lead_id: string | null;
-  location: string | null;
-  starts_at: string | null;
-  status: string | null;
-  title: string | null;
-  updated_at: string;
-};
 
 type CalendarMutationPayload = {
   appointmentType?: unknown;
@@ -54,29 +30,6 @@ type CalendarMutationPayload = {
   status?: unknown;
   title?: unknown;
 };
-
-type CalendarMutationInput = {
-  appointmentType: (typeof CALENDAR_EVENT_TYPES)[number];
-  contactId: string | null;
-  conversationId: string | null;
-  description: string | null;
-  endsAt: string | null;
-  leadId: string | null;
-  location: string | null;
-  startsAt: string | null;
-  status: (typeof CALENDAR_EVENT_STATUSES)[number];
-  title: string;
-};
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function uniqueIds(values: Array<string | null | undefined>) {
-  return [
-    ...new Set(values.filter((value): value is string => Boolean(value))),
-  ];
-}
 
 function defaultRange() {
   const from = new Date();
@@ -111,30 +64,6 @@ function requiredString(value: unknown, message: string) {
   }
 
   return text;
-}
-
-function normalizeEventType(value: unknown) {
-  const type = nullableString(value);
-
-  return CALENDAR_EVENT_TYPES.includes(
-    type as (typeof CALENDAR_EVENT_TYPES)[number],
-  )
-    ? (type as (typeof CALENDAR_EVENT_TYPES)[number])
-    : "other";
-}
-
-function normalizeEventStatus(value: unknown, startsAt: string | null) {
-  const status = nullableString(value);
-
-  if (
-    CALENDAR_EVENT_STATUSES.includes(
-      status as (typeof CALENDAR_EVENT_STATUSES)[number],
-    )
-  ) {
-    return status as (typeof CALENDAR_EVENT_STATUSES)[number];
-  }
-
-  return startsAt ? "scheduled" : "suggested";
 }
 
 function optionalIsoDateTime(value: unknown, field: string) {
@@ -230,7 +159,7 @@ async function eventInputFromPayload({
     ReturnType<typeof requireMobileWorkspaceContext>
   >["supabase"];
   workspaceId: string;
-}): Promise<CalendarMutationInput> {
+}): Promise<CalendarEventMutationInput> {
   const startsAt = optionalIsoDateTime(payload.startsAt, "start");
   const endsAt = optionalIsoDateTime(payload.endsAt, "end");
   const title = requiredString(payload.title, "Add an event title first.");
@@ -251,112 +180,66 @@ async function eventInputFromPayload({
   });
 
   return {
-    appointmentType: normalizeEventType(payload.appointmentType),
+    appointmentType: normalizeCalendarEventType(payload.appointmentType),
     contactId: linked.contactId,
     conversationId: nullableString(payload.conversationId),
     description: nullableString(payload.description),
     endsAt,
     leadId: linked.leadId,
     location: nullableString(payload.location),
+    locationAddress: null,
+    metadata: { source: "mobile_calendar" },
     startsAt,
-    status: normalizeEventStatus(payload.status, startsAt),
+    status: normalizeCalendarEventStatus(
+      nullableString(payload.status) ?? "",
+      startsAt,
+    ),
     title,
   };
 }
 
-async function hydrateSingleEvent(
+async function loadEventById({
+  eventId,
+  eventTime,
+  supabase,
+  workspaceId,
+}: {
+  eventId: string;
+  eventTime: string | null;
   supabase: Awaited<
     ReturnType<typeof requireMobileWorkspaceContext>
-  >["supabase"],
-  workspaceId: string,
-  row: AppointmentRow,
-) {
-  const [event] = await hydrateEvents(supabase, workspaceId, [row]);
+  >["supabase"];
+  workspaceId: string;
+}) {
+  const date = eventTime ? new Date(eventTime) : new Date();
+  const from = new Date(date);
+  from.setDate(from.getDate() - 1);
+  const to = new Date(date);
+  to.setDate(to.getDate() + 2);
+  const events = await getCalendarEvents(supabase, workspaceId, {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  });
 
-  return event;
+  return events.find((event) => event.id === eventId) ?? null;
 }
 
-async function hydrateEvents(
-  supabase: Awaited<
+function mutationResponse({
+  event,
+  message,
+  workspace,
+}: {
+  event: CalendarEventItem | null;
+  message: string;
+  workspace: Awaited<
     ReturnType<typeof requireMobileWorkspaceContext>
-  >["supabase"],
-  workspaceId: string,
-  rows: AppointmentRow[],
-) {
-  const contactIds = uniqueIds(rows.map((row) => row.contact_id));
-  const leadIds = uniqueIds(rows.map((row) => row.lead_id));
-
-  const [contacts, leads] = await Promise.all([
-    contactIds.length
-      ? supabase
-          .from("contacts")
-          .select("id,name,email,phone,company")
-          .eq("workspace_id", workspaceId)
-          .in("id", contactIds)
-      : Promise.resolve({ data: [], error: null }),
-    leadIds.length
-      ? supabase
-          .from("leads")
-          .select("id,title,status,priority,service_type")
-          .eq("workspace_id", workspaceId)
-          .in("id", leadIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (contacts.error) {
-    throw new Error(
-      `Unable to load calendar contacts: ${contacts.error.message}`,
-    );
-  }
-
-  if (leads.error) {
-    throw new Error(`Unable to load calendar leads: ${leads.error.message}`);
-  }
-
-  const contactsById = new Map(
-    (contacts.data ?? []).map((contact) => [
-      String(contact.id),
-      {
-        company: textValue(contact.company),
-        email: textValue(contact.email),
-        id: String(contact.id),
-        name: textValue(contact.name),
-        phone: textValue(contact.phone),
-      },
-    ]),
-  );
-  const leadsById = new Map(
-    (leads.data ?? []).map((lead) => [
-      String(lead.id),
-      {
-        id: String(lead.id),
-        priority: textValue(lead.priority),
-        serviceType: textValue(lead.service_type),
-        status: textValue(lead.status),
-        title: textValue(lead.title) ?? "Lead",
-      },
-    ]),
-  );
-
-  return rows.map((row) => ({
-    appointmentType: row.appointment_type ?? "quote_visit",
-    contact: row.contact_id ? (contactsById.get(row.contact_id) ?? null) : null,
-    contactId: row.contact_id,
-    conversationId: row.conversation_id,
-    createdAt: row.created_at,
-    description: textValue(row.description),
-    endsAt: row.ends_at,
-    externalCalendarProvider: row.external_calendar_provider,
-    externalSyncStatus: row.external_sync_status,
-    id: String(row.id),
-    lead: row.lead_id ? (leadsById.get(row.lead_id) ?? null) : null,
-    leadId: row.lead_id,
-    location: textValue(row.location),
-    startsAt: row.starts_at,
-    status: row.status ?? (row.starts_at ? "scheduled" : "suggested"),
-    title: textValue(row.title) ?? "Kyro appointment",
-    updatedAt: row.updated_at,
-  }));
+  >["workspace"];
+}) {
+  return Response.json({
+    event,
+    message,
+    workspace,
+  });
 }
 
 export async function GET(request: Request) {
@@ -367,25 +250,10 @@ export async function GET(request: Request) {
     const fallback = defaultRange();
     const from = safeIsoDate(url.searchParams.get("from")) ?? fallback.from;
     const to = safeIsoDate(url.searchParams.get("to")) ?? fallback.to;
-
-    const { data, error } = await supabase
-      .from("conversation_appointments")
-      .select(EVENT_SELECT)
-      .eq("workspace_id", workspace.id)
-      .or(`starts_at.gte.${from},ends_at.gte.${from}`)
-      .lt("starts_at", to)
-      .order("starts_at", { ascending: true, nullsFirst: false })
-      .limit(500);
-
-    if (error) {
-      throw new Error(`Unable to load calendar: ${error.message}`);
-    }
-
-    const events = await hydrateEvents(
-      supabase,
-      workspace.id,
-      (data ?? []) as AppointmentRow[],
-    );
+    const events = await getCalendarEvents(supabase, workspace.id, {
+      from,
+      to,
+    });
 
     return Response.json({
       events,
@@ -407,37 +275,20 @@ export async function POST(request: Request) {
       supabase,
       workspaceId: workspace.id,
     });
+    const appointmentId = await createCalendarEventRecord({
+      input,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
 
-    const { data, error } = await supabase
-      .from("conversation_appointments")
-      .insert({
-        appointment_type: input.appointmentType,
-        contact_id: input.contactId,
-        conversation_id: input.conversationId,
-        created_by_user_id: user.id,
-        description: input.description,
-        ends_at: input.endsAt,
-        lead_id: input.leadId,
-        location: input.location,
-        metadata: { source: "mobile_calendar" },
-        starts_at: input.startsAt,
-        status: input.status,
-        title: input.title,
-        workspace_id: workspace.id,
-      })
-      .select(EVENT_SELECT)
-      .single();
-
-    if (error || !data) {
-      throw new Error(error?.message ?? "Unable to create calendar event.");
-    }
-
-    return Response.json({
-      event: await hydrateSingleEvent(
+    return mutationResponse({
+      event: await loadEventById({
+        eventId: appointmentId,
+        eventTime: input.startsAt,
         supabase,
-        workspace.id,
-        data as AppointmentRow,
-      ),
+        workspaceId: workspace.id,
+      }),
       message: "Calendar event saved.",
       workspace,
     });
@@ -448,10 +299,10 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { supabase, workspace } =
+    const { supabase, user, workspace } =
       await requireMobileWorkspaceContext(request);
     const payload = await requestPayload(request);
-    const eventId = requiredString(
+    const appointmentId = requiredString(
       payload.eventId,
       "Choose an event to update.",
     );
@@ -461,39 +312,21 @@ export async function PATCH(request: Request) {
       workspaceId: workspace.id,
     });
 
-    const { data, error } = await supabase
-      .from("conversation_appointments")
-      .update({
-        appointment_type: input.appointmentType,
-        contact_id: input.contactId,
-        conversation_id: input.conversationId,
-        description: input.description,
-        ends_at: input.endsAt,
-        lead_id: input.leadId,
-        location: input.location,
-        starts_at: input.startsAt,
-        status: input.status,
-        title: input.title,
-      })
-      .eq("workspace_id", workspace.id)
-      .eq("id", eventId)
-      .select(EVENT_SELECT)
-      .maybeSingle();
+    await updateCalendarEventRecord({
+      appointmentId,
+      input,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
 
-    if (error) {
-      throw new Error(`Unable to update calendar event: ${error.message}`);
-    }
-
-    if (!data) {
-      throw new MobileApiError("Calendar event was not found.", 404);
-    }
-
-    return Response.json({
-      event: await hydrateSingleEvent(
+    return mutationResponse({
+      event: await loadEventById({
+        eventId: appointmentId,
+        eventTime: input.startsAt,
         supabase,
-        workspace.id,
-        data as AppointmentRow,
-      ),
+        workspaceId: workspace.id,
+      }),
       message: "Calendar event updated.",
       workspace,
     });
@@ -504,19 +337,25 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { supabase, workspace } =
+    const { supabase, user, workspace } =
       await requireMobileWorkspaceContext(request);
     const payload = await requestPayload(request);
-    const eventId = requiredString(
+    const appointmentId = requiredString(
       payload.eventId,
       "Choose an event to delete.",
     );
+
+    await deleteAppointmentFromExternalCalendar({
+      appointmentId,
+      supabase,
+      workspaceId: workspace.id,
+    });
 
     const { data, error } = await supabase
       .from("conversation_appointments")
       .delete()
       .eq("workspace_id", workspace.id)
-      .eq("id", eventId)
+      .eq("id", appointmentId)
       .select("id")
       .maybeSingle();
 
@@ -528,8 +367,17 @@ export async function DELETE(request: Request) {
       throw new MobileApiError("Calendar event was not found.", 404);
     }
 
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      actorType: "user",
+      actorId: user.id,
+      action: "calendar_event.deleted",
+      entityType: "conversation_appointment",
+      entityId: appointmentId,
+    });
+
     return Response.json({
-      deletedEventId: eventId,
+      deletedEventId: appointmentId,
       event: null,
       message: "Calendar event deleted.",
       workspace,

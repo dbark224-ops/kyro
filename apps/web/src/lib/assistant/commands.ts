@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { generateReplyDraft } from "../ai/reply-draft-generation";
 import {
   getContactList,
   getContactProfile,
@@ -10,6 +11,22 @@ import {
   type ConversationListItem,
   type QuoteDraftListItem,
 } from "../crm/queries";
+import { normalizeContactPhoneForRegion } from "../crm/identity";
+import { recordOutboundDirectSms } from "../communication/outbound";
+import {
+  createCalendarEventRecord,
+  deleteCalendarEventRecord,
+  getCalendarEventById,
+  getCalendarEvents,
+  resolveCalendarLinkedEntities,
+  updateCalendarEventRecord,
+  type CalendarEventStatus,
+  type CalendarEventItem,
+} from "../calendar/events";
+import {
+  getCalendarSettings,
+  type CalendarEventType,
+} from "../calendar/settings";
 import {
   DOCUMENT_TEMPLATE_POLICY_TYPE,
   type CustomDocumentTemplate,
@@ -46,7 +63,11 @@ import {
   quoteTemplateCatalog,
   type QuoteTemplate,
 } from "../documents/templates";
-import { insertAuditLog } from "../engine/event-action-audit";
+import {
+  approveAction,
+  executeAction,
+  insertAuditLog,
+} from "../engine/event-action-audit";
 import {
   generateKyroImage,
   looksLikeKyroImageGenerationRequest,
@@ -55,14 +76,22 @@ import { syncInboundEmail } from "../integrations/inbound-email-sync";
 import { getInboundEmailOperationalSummary } from "../integrations/inbound-email-settings";
 import {
   buildLlmUsageEvents,
+  buildOpenAiWebSearchCallUsageEvent,
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
+import { getUsageReport } from "../usage/queries";
 import {
   conversationToAssistantLink,
   isConversationInLiveWorkQueue,
 } from "./conversation-links";
+import { searchAssistantHistory } from "./context-compaction";
 import { getAssistantKnowledge } from "./knowledge";
+import {
+  looksLikeLegislationKnowledgeRequest,
+  searchLegislationKnowledge,
+} from "../knowledge-base/queries";
 import {
   getPronunciationEntries,
   normalizePronunciationPhrase,
@@ -74,8 +103,54 @@ import {
   looksLikeSettingsUpdatePrompt,
   updateAssistantEditableSettings,
 } from "./settings-tools";
-import type { AssistantCommandResult, AssistantLink } from "./types";
-import { generatedImageBlock } from "./ui-blocks";
+import type {
+  AssistantCalendarOperation,
+  AssistantToolSelection,
+} from "./tool-planner";
+import type {
+  AssistantCommandResult,
+  AssistantLink,
+  AssistantRecentMessage,
+  AssistantRequestActor,
+  AssistantUiBlock,
+} from "./types";
+import {
+  approvalQueueBlock,
+  generatedImageBlock,
+  linkCardsBlock,
+  outboundCallRequestBlock,
+  summaryCardsBlock,
+  timelineBlock,
+} from "./ui-blocks";
+import { runAssistantWebSearch } from "./web-search";
+import {
+  looksLikeOutboundCallRequest,
+  looksLikeSelfOutboundCallRequest,
+  resolveOutboundCallRequest,
+  type OutboundCallRequestResolution,
+} from "../voice/outbound-call-requests";
+import { createInternalUserVoiceCall } from "../voice/calls";
+import { findWorkspaceAvailableSlots } from "../voice/inbound-booking";
+import { vapiUserIdentityFromUser } from "./vapi-user-context";
+import { getVoiceSettings } from "./voice-settings";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
+import {
+  addDaysToDateKey,
+  addMonthsToDateKey,
+  dateKeyInTimeZone,
+  isoRangeForDateKeyRange,
+  startOfMonthDateKey,
+  startOfWeekDateKey,
+} from "../timezone";
+import {
+  buildAssistantCurrentTimeContext,
+  type AssistantCurrentTimeContext,
+} from "./current-time";
+import {
+  completeBusinessAnswerFutureStep,
+  getPendingBusinessAnswerFutureStepForConversations,
+  upsertCalendarConfirmationFutureStep,
+} from "../workflow/inquiry-future-steps";
 
 type WorkspaceInput = {
   id: string;
@@ -83,11 +158,32 @@ type WorkspaceInput = {
 };
 
 type CommandInput = {
+  actor?: AssistantRequestActor | null;
+  currentTime?: AssistantCurrentTimeContext;
+  inputSource?: string;
   prompt: string;
+  recentMessages?: AssistantRecentMessage[];
   supabase: SupabaseClient;
+  threadId?: string | null;
+  toolPlanModelPlanned?: boolean;
+  toolSelection?: AssistantToolSelection | null;
   user: User;
   workspace: WorkspaceInput;
 };
+
+type ExecutableConversationAction = {
+  id: string;
+  conversationId: string;
+  createdAt: string;
+  input: Record<string, unknown>;
+  status: "approved" | "pending_approval";
+  subject: string | null;
+};
+
+type RecentGeneratedImage = Extract<
+  AssistantUiBlock,
+  { type: "generated_image" }
+>["images"][number];
 
 function normalized(value: string) {
   return value
@@ -114,18 +210,37 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function assistantDate(value: string | null | undefined) {
+export function assistantDate(
+  value: string | null | undefined,
+  timeZone?: string | null,
+) {
   if (!value) {
     return "an unknown time";
   }
 
-  return new Intl.DateTimeFormat("en", {
+  const safeZone = timeZone ? safeTimeZone(timeZone) : null;
+  const options: Intl.DateTimeFormatOptions = {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(value));
+  };
+
+  if (safeZone) {
+    options.timeZone = safeZone;
+    options.timeZoneName = "short";
+  }
+
+  return new Intl.DateTimeFormat("en", options).format(new Date(value));
+}
+
+function assistantMoney(value: number, currency: string) {
+  return new Intl.NumberFormat("en", {
+    currency,
+    maximumFractionDigits: value < 1 ? 6 : 2,
+    style: "currency",
+  }).format(value);
 }
 
 function quoteSearchTerm(prompt: string) {
@@ -226,7 +341,9 @@ function scoreTemplateMatch(prompt: string, template: QuoteTemplate) {
     score += 80;
   }
 
-  const labelMatches = labelTokens.filter((token) => promptText.includes(token));
+  const labelMatches = labelTokens.filter((token) =>
+    promptText.includes(token),
+  );
   const keyMatches = keyTokens.filter((token) => promptText.includes(token));
   const descriptionMatches = descriptionTokens.filter((token) =>
     promptText.includes(token),
@@ -342,6 +459,109 @@ export function selectContactForAssistantPrompt(
   return tied.length === 1 ? best.contact : null;
 }
 
+function recentContactIdFromMessages(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+    const links = [
+      ...(message.links ?? []),
+      ...(message.uiBlocks ?? []).flatMap((block) => {
+        if (block.type === "link_cards") {
+          return block.links;
+        }
+
+        if (block.type === "summary_cards") {
+          return block.cards
+            .filter((card) => card.href)
+            .map((card) => ({
+              href: card.href as string,
+              label: card.label,
+              meta: card.detail ?? card.value,
+            }));
+        }
+
+        return [];
+      }),
+    ];
+
+    for (const link of links) {
+      const match = link.href.match(/^\/contacts\/([^/?#]+)/);
+
+      if (match?.[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    }
+  }
+
+  return null;
+}
+
+function compactOutboundContextText(value: string, maxLength = 280) {
+  const clean = value.replace(/\s+/g, " ").trim();
+
+  if (!clean) {
+    return null;
+  }
+
+  return clean.length > maxLength
+    ? `${clean.slice(0, maxLength - 1)}...`
+    : clean;
+}
+
+function outboundCallContextFromRecentMessages({
+  prompt,
+  recentMessages = [],
+}: {
+  prompt: string;
+  recentMessages?: readonly AssistantRecentMessage[];
+}) {
+  const lines: string[] = [];
+
+  for (const message of recentMessages.slice(-10)) {
+    const content = compactOutboundContextText(message.content);
+
+    if (content) {
+      lines.push(`${message.role === "user" ? "User" : "Kyro"}: ${content}`);
+    }
+
+    for (const block of message.uiBlocks ?? []) {
+      if (block.type !== "outbound_call_request") {
+        continue;
+      }
+
+      const request = block.request;
+      const callDetails = [
+        request.contactName ? `recipient ${request.contactName}` : null,
+        request.phoneNumber ? `phone ${request.phoneNumber}` : null,
+        `instructions ${request.instructions}`,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join("; ");
+
+      lines.push(`Kyro prepared an outbound call: ${callDetails}`);
+    }
+  }
+
+  const currentPrompt = compactOutboundContextText(prompt, 360);
+
+  if (currentPrompt) {
+    lines.push(`Current user request: ${currentPrompt}`);
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const summary = lines.join("\n").trim();
+
+  return summary.length > 1800
+    ? `Recent Assistant context before this outbound call request:\n${summary.slice(
+        summary.length - 1800,
+      )}`
+    : `Recent Assistant context before this outbound call request:\n${summary}`;
+}
+
 type QuoteDraftSelection =
   | {
       candidates: Array<{
@@ -418,7 +638,10 @@ function quoteSendReadiness(quote: QuoteDraftListItem) {
     blockers.push(`status is ${titleCase(quote.status)}`);
   }
 
-  if (quote.status === "changes_requested" || revisionState.pendingChangeRequest) {
+  if (
+    quote.status === "changes_requested" ||
+    revisionState.pendingChangeRequest
+  ) {
     blockers.push("customer changes need to be edited and saved first");
   }
 
@@ -519,7 +742,9 @@ export function selectQuoteDraftForAssistantPrompt(
   if (!searchTerm) {
     if (candidates.length === 1) {
       return {
-        candidates: [{ quote: candidates[0], reasons: ["only unsent quote"], score: 1 }],
+        candidates: [
+          { quote: candidates[0], reasons: ["only unsent quote"], score: 1 },
+        ],
         kind: "selected",
         quote: candidates[0],
         searchTerm,
@@ -592,11 +817,17 @@ export function documentTemplateControlIntent(prompt: string) {
     return null;
   }
 
-  if (/\b(create|build|generate)\b/.test(text) || /\bnew\b.*\btemplate\b/.test(text)) {
+  if (
+    /\b(create|build|generate)\b/.test(text) ||
+    /\bnew\b.*\btemplate\b/.test(text)
+  ) {
     return "create" as const;
   }
 
-  if (/\bmake me\b.*\btemplate\b/.test(text) || /\bmake us\b.*\btemplate\b/.test(text)) {
+  if (
+    /\bmake me\b.*\btemplate\b/.test(text) ||
+    /\bmake us\b.*\btemplate\b/.test(text)
+  ) {
     return "create" as const;
   }
 
@@ -760,6 +991,18 @@ function recordsContext<T extends Record<string, unknown>>(items: T[]) {
   return items.slice(0, 8);
 }
 
+function joinHumanList(items: string[]) {
+  if (items.length === 0) {
+    return "";
+  }
+
+  if (items.length === 1) {
+    return items[0];
+  }
+
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
 function looksLikeInquiryLookup(prompt: string) {
   const text = normalized(prompt);
   const searchTerm = inquirySearchTerm(prompt);
@@ -771,6 +1014,14 @@ function looksLikeInquiryLookup(prompt: string) {
   if (
     text.includes("needs reply") ||
     text.includes("need reply") ||
+    text.includes("needs a reply") ||
+    text.includes("need a reply") ||
+    text.includes("needs response") ||
+    text.includes("need response") ||
+    text.includes("needs a response") ||
+    text.includes("need a response") ||
+    text.includes("need responding") ||
+    text.includes("needs responding") ||
     text.includes("work queue") ||
     text.includes("what should i do")
   ) {
@@ -786,6 +1037,36 @@ function looksLikeInquiryLookup(prompt: string) {
     text.includes("where are we") ||
     text.includes("where is") ||
     text.includes("status")
+  );
+}
+
+function looksLikeWorkQueueRequest(prompt: string) {
+  const text = normalized(prompt);
+  const hasQueueSubject =
+    /\b(leads?|inquiries|enquiries|jobs?|conversations?|messages?|inbox|work queue|queue)\b/.test(
+      text,
+    );
+  const hasAttentionIntent =
+    /\b(needs?|needing|need|responding|respond|response|reply|replies|replied|unanswered|unresponded|unreplied|pending|open|waiting|attention|urgent|action|follow up|follow-up)\b/.test(
+      text,
+    );
+
+  return (
+    text.includes("needs reply") ||
+    text.includes("need reply") ||
+    text.includes("needs a reply") ||
+    text.includes("need a reply") ||
+    text.includes("needs response") ||
+    text.includes("need response") ||
+    text.includes("needs a response") ||
+    text.includes("need a response") ||
+    text.includes("need responding") ||
+    text.includes("needs responding") ||
+    text.includes("work queue") ||
+    text.includes("what should i do") ||
+    text.includes("what needs attention") ||
+    text.includes("anything urgent") ||
+    (hasQueueSubject && hasAttentionIntent)
   );
 }
 
@@ -845,9 +1126,8 @@ export function looksLikeInboundEmailAwarenessRequest(prompt: string) {
     return true;
   }
 
-  const hasEmailSubject = /\b(email|emails|mail|gmail|outlook|emailed|inbound)\b/.test(
-    text,
-  );
+  const hasEmailSubject =
+    /\b(email|emails|mail|gmail|outlook|emailed|inbound)\b/.test(text);
   const hasAwarenessIntent =
     /\b(anyone|anybody|customer|client|reply|replied|sent|came|come|overnight|today|morning|latest|new|recent|seen|ignored|skipped|filtered|attachment|attachments)\b/.test(
       text,
@@ -856,11 +1136,23 @@ export function looksLikeInboundEmailAwarenessRequest(prompt: string) {
   return hasEmailSubject && hasAwarenessIntent;
 }
 
+function looksLikeAssistantHistorySearchRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(earlier|previously|before|yesterday|last week|last month|remember|talked|discussed|chat history|conversation history)\b/.test(
+      text,
+    ) &&
+    /\b(what|where|when|did|have|find|search|show|pull|look|talked|discussed)\b/.test(
+      text,
+    )
+  );
+}
+
 export function looksLikeQuoteSendRequest(prompt: string) {
   const text = normalized(prompt);
-  const hasQuoteTarget = /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(
-    text,
-  );
+  const hasQuoteTarget =
+    /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(text);
 
   if (!hasQuoteTarget) {
     return false;
@@ -886,9 +1178,8 @@ export function looksLikeQuoteSendRequest(prompt: string) {
 
 export function looksLikeQuoteSendReadyListRequest(prompt: string) {
   const text = normalized(prompt);
-  const hasQuoteTarget = /\b(quote|quotes|document|documents|invoice|invoices)\b/.test(
-    text,
-  );
+  const hasQuoteTarget =
+    /\b(quote|quotes|document|documents|invoice|invoices)\b/.test(text);
 
   if (!hasQuoteTarget) {
     return false;
@@ -903,9 +1194,8 @@ export function looksLikeQuoteSendReadyListRequest(prompt: string) {
 
 export function looksLikeQuoteHistoryRequest(prompt: string) {
   const text = normalized(prompt);
-  const hasQuoteTarget = /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(
-    text,
-  );
+  const hasQuoteTarget =
+    /\b(quote|quotes|document|documents|invoice|invoices|pdf)\b/.test(text);
 
   if (!hasQuoteTarget) {
     return false;
@@ -1012,13 +1302,782 @@ function looksLikeHelpRequest(prompt: string) {
   return directHelpIntent || (explainerIntent && kyroTopic);
 }
 
-export async function resolveAssistantCommand({
+function looksLikeUsageSummaryRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(usage|cost|spend|billing|api bill|tokens?|metered)\b/.test(text) &&
+    /\b(summary|report|how much|costing|spending|this month|last 30|today|week|show|where)\b/.test(
+      text,
+    )
+  );
+}
+
+export function looksLikeWebSearchRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  const explicitSearch =
+    /\b(search|google|look up|lookup|check|find)\b/.test(text) &&
+    /\b(web|internet|online|public|news|latest|current|today|recent|website|site)\b/.test(
+      text,
+    );
+  const currentPublic =
+    /\b(latest|current|today|recent|news|price|pricing|regulation|rules|standard|law|weather|exchange rate|stock price)\b/.test(
+      text,
+    ) &&
+    !/\b(kyro|workspace|inbox|crm|contact|lead|quote|document|file|setting|usage|billing|email sync|outbox)\b/.test(
+      text,
+    );
+
+  return explicitSearch || currentPublic;
+}
+
+function latestGeneratedImageFromRecentMessages(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+): RecentGeneratedImage | null {
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+    const image = latestGeneratedImageFromBlocks(message?.uiBlocks);
+
+    if (image) {
+      return image;
+    }
+  }
+
+  return null;
+}
+
+function generatedImageFromValue(value: unknown): RecentGeneratedImage | null {
+  const image = objectRecord(value);
+  const fileId = textValue(image.fileId);
+
+  if (!fileId) {
+    return null;
+  }
+
+  return {
+    alt: textValue(image.alt) ?? "Generated image",
+    contentType: textValue(image.contentType) ?? "image/png",
+    downloadHref: textValue(image.downloadHref) ?? `/api/files/${fileId}`,
+    editMode: Boolean(image.editMode),
+    fileId,
+    filename: textValue(image.filename) ?? "generated-image.png",
+    href: textValue(image.href) ?? `/api/files/${fileId}?disposition=inline`,
+    meta: textValue(image.meta) ?? undefined,
+    model: textValue(image.model) ?? "unknown",
+    prompt: textValue(image.prompt) ?? "",
+    provider: textValue(image.provider) ?? "openai",
+    quality: textValue(image.quality) ?? "unknown",
+    referenceCount: Number.isFinite(Number(image.referenceCount))
+      ? Number(image.referenceCount)
+      : 0,
+    size: textValue(image.size) ?? "auto",
+  };
+}
+
+function latestGeneratedImageFromBlocks(blocksValue: unknown) {
+  const blocks = Array.isArray(blocksValue) ? blocksValue : [];
+
+  for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+    const block = objectRecord(blocks[blockIndex]);
+
+    if (block.type !== "generated_image") {
+      continue;
+    }
+
+    const images = Array.isArray(block.images) ? block.images : [];
+
+    for (let imageIndex = images.length - 1; imageIndex >= 0; imageIndex -= 1) {
+      const image = generatedImageFromValue(images[imageIndex]);
+
+      if (image) {
+        return image;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function latestGeneratedImageFromThread({
+  supabase,
+  threadId,
+  workspaceId,
+}: {
+  supabase: SupabaseClient;
+  threadId?: string | null;
+  workspaceId: string;
+}) {
+  if (!threadId) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("assistant_messages")
+    .select("ui_blocks")
+    .eq("workspace_id", workspaceId)
+    .eq("thread_id", threadId)
+    .eq("role", "assistant")
+    .order("created_at", { ascending: false })
+    .limit(80);
+
+  if (error) {
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    const image = latestGeneratedImageFromBlocks(objectRecord(row).ui_blocks);
+
+    if (image) {
+      return image;
+    }
+  }
+
+  return null;
+}
+
+function looksLikeImageEditFollowUpText(prompt: string) {
+  const text = normalized(prompt);
+  const explicitEdit =
+    /\b(edit|change|update|adjust|modify|redo|regenerate|rework|revise)\b.*\b(image|picture|photo|render|rendering|version|it|that|this|one)\b/.test(
+      text,
+    ) ||
+    /\b(image|picture|photo|render|rendering|version)\b.*\b(edit|change|update|adjust|modify|redo|regenerate|rework|revise)\b/.test(
+      text,
+    );
+  const action =
+    /\b(make|turn|change|edit|redo|regenerate|rework|update|adjust|modify|revise|create|generate|render|produce)\b/.test(
+      text,
+    );
+  const target =
+    /\b(it|that|this|image|picture|photo|render|rendering|version|one|previous|same)\b/.test(
+      text,
+    );
+  const visualChange =
+    /\b(night|nighttime|evening|day|daytime|morning|darker|brighter|lighting|light|colour|color|style|view|background|realistic|luxury|modern|warmer|cooler|different|another|variation|variant|more|less|black|white|blue|green|red|replace|remove|add|with|without)\b/.test(
+      text,
+    );
+
+  return explicitEdit || (action && target && visualChange);
+}
+
+function previousImagePromptSummary(prompt: string) {
+  return prompt
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        !/\b(?:kyro\s+file\s+id|file\s+id|source\s+file)\s*:/i.test(line),
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
+export function looksLikeImageFollowUpRequest(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  return (
+    Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
+    looksLikeImageEditFollowUpText(prompt)
+  );
+}
+
+function looksLikeDirectImageGenerationCommand(prompt: string) {
+  if (!looksLikeKyroImageGenerationRequest(prompt)) {
+    return false;
+  }
+
+  const text = normalized(prompt);
+  const directCreation =
+    /\b(create|generate|make|render|draw|produce|design|visualise|visualize|mock up)\b/.test(
+      text,
+    ) &&
+    /\b(image|picture|photo|render|rendering|visual|mockup|concept|graphic|flyer|poster)\b/.test(
+      text,
+    );
+  const discussion =
+    /\b(do you think|what do you think|will|would|should|could|why|how|explain|tell me about|matter|important|useful)\b/.test(
+      text,
+    );
+
+  return directCreation || !discussion;
+}
+
+function imageFollowUpPromptFromRecentMessages(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  return imageFollowUpPromptForImage(
+    prompt,
+    latestGeneratedImageFromRecentMessages(recentMessages),
+  );
+}
+
+async function imageFollowUpPromptFromThread({
   prompt,
   supabase,
+  threadId,
+  workspaceId,
+}: {
+  prompt: string;
+  supabase: SupabaseClient;
+  threadId?: string | null;
+  workspaceId: string;
+}) {
+  if (!looksLikeImageEditFollowUpText(prompt)) {
+    return null;
+  }
+
+  return imageFollowUpPromptForImage(
+    prompt,
+    await latestGeneratedImageFromThread({
+      supabase,
+      threadId,
+      workspaceId,
+    }),
+  );
+}
+
+function imageFollowUpPromptForImage(
+  prompt: string,
+  image: RecentGeneratedImage | null,
+) {
+  if (!image || !looksLikeImageEditFollowUpText(prompt)) {
+    return null;
+  }
+
+  const previousPrompt = image.prompt
+    ? previousImagePromptSummary(image.prompt)
+    : null;
+
+  return [
+    `Edit the previously generated image using this follow-up request: ${prompt.trim()}`,
+    `Source file: ${image.fileId}`,
+    previousPrompt ? `Previous image prompt: ${previousPrompt}` : null,
+    "Preserve the same core subject and composition unless the follow-up explicitly asks to change them.",
+    "Generate and save the edited image; do not only describe the edit.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function looksLikeGeneratedImageRecallText(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(where|show|open|find|download|send|see|view)\b/.test(text) &&
+    /\b(it|that|this|image|picture|photo|render|rendering|file|download)\b/.test(
+      text,
+    )
+  );
+}
+
+function looksLikeGeneratedImageRecallRequest(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  return (
+    Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
+    looksLikeGeneratedImageRecallText(prompt)
+  );
+}
+
+function generatedImageRecallResult({
+  image,
+  prompt,
+}: {
+  image: RecentGeneratedImage | null;
+  prompt: string;
+}): AssistantCommandResult {
+  if (!image) {
+    return {
+      context: {
+        prompt,
+      },
+      fallbackAnswer: generalChatFallback(prompt),
+      intent: "general_chat",
+      links: [],
+      title: "Chat",
+    };
+  }
+
+  const label = image.editMode
+    ? "Generated image with references"
+    : "Generated image";
+  const meta = [image.provider, image.model, image.size, image.quality]
+    .filter(Boolean)
+    .join(" - ");
+
+  return {
+    context: {
+      generatedImage: {
+        editMode: image.editMode,
+        fileId: image.fileId,
+        filename: image.filename,
+        model: image.model,
+        provider: image.provider,
+        quality: image.quality,
+        referenceCount: image.referenceCount,
+        size: image.size,
+      },
+    },
+    fallbackAnswer: "Here is the latest generated image from this thread.",
+    intent: "image_generation_recall",
+    links: [
+      rowLink(label, image.href, meta),
+      rowLink("Download image", image.downloadHref, image.filename),
+    ],
+    title: "Generated image",
+    uiBlocks: generatedImageBlock("Generated image", [image]),
+  };
+}
+
+async function generatedImageRecallCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "recentMessages" | "supabase" | "threadId" | "workspace"
+>): Promise<AssistantCommandResult> {
+  return generatedImageRecallResult({
+    image:
+      latestGeneratedImageFromRecentMessages(recentMessages) ??
+      (await latestGeneratedImageFromThread({
+        supabase,
+        threadId,
+        workspaceId: workspace.id,
+      })),
+    prompt,
+  });
+}
+
+async function resolvePlannedAssistantCommand({
+  actor = null,
+  currentTime,
+  inputSource = "typed",
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  toolSelection,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult | null> {
+  if (!toolSelection) {
+    return null;
+  }
+
+  const plannedPrompt = toolSelection.prompt.trim() || prompt;
+
+  switch (toolSelection.name) {
+    case "general_chat":
+      if (looksLikeWorkQueueRequest(prompt)) {
+        return workQueueCommand({ supabase, workspace });
+      }
+
+      return generalChatCommand({ prompt });
+    case "work_queue":
+      return workQueueCommand({ supabase, workspace });
+    case "inquiry_lookup":
+      return inquiryLookupCommand({
+        prompt: plannedPrompt,
+        supabase,
+        workspace,
+      });
+    case "contact_lookup":
+      return contactCommand({ prompt: plannedPrompt, supabase, workspace });
+    case "quote_lookup":
+      return quoteCommand({ prompt: plannedPrompt, supabase, workspace });
+    case "quote_create":
+      return createQuoteDraftCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "quote_send":
+      return quoteSendCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "quote_send_ready_list":
+      return quoteSendReadyListCommand({ supabase, workspace });
+    case "quote_history":
+      return quoteHistoryCommand({
+        prompt: plannedPrompt,
+        supabase,
+        workspace,
+      });
+    case "image_recall":
+      return generatedImageRecallCommand({
+        prompt,
+        recentMessages,
+        supabase,
+        threadId,
+        workspace,
+      });
+    case "image_generation": {
+      const imagePrompt =
+        toolSelection.mode === "edit_previous_image"
+          ? (imageFollowUpPromptFromRecentMessages(
+              plannedPrompt,
+              recentMessages,
+            ) ??
+            (await imageFollowUpPromptFromThread({
+              prompt: plannedPrompt,
+              supabase,
+              threadId,
+              workspaceId: workspace.id,
+            })))
+          : null;
+
+      return imageGenerationCommand({
+        prompt: imagePrompt ?? plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    }
+    case "document_template_create":
+      return documentTemplateControlCommand({
+        intent: "create",
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "document_template_update":
+      return documentTemplateControlCommand({
+        intent: "update",
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "usage_summary":
+      return usageSummaryCommand({ supabase, workspace });
+    case "web_search":
+      return webSearchCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "outbound_call":
+      return outboundCallCommand({
+        actor,
+        prompt: looksLikeSelfOutboundCallRequest(prompt)
+          ? prompt
+          : plannedPrompt,
+        recentMessages,
+        supabase,
+        threadId,
+        user,
+        workspace,
+      });
+    case "sms_send":
+      return workplaceSmsCommand({
+        prompt: plannedPrompt,
+        supabase,
+        user,
+        workspace,
+      });
+    case "calendar_event":
+      if (
+        toolSelection.calendarOperation === "read" &&
+        looksLikeInquiryAvailabilityOfferRequest(
+          `${prompt}\n${plannedPrompt}`,
+        )
+      ) {
+        return replyToRecentInquiryCommand({
+          actor,
+          availabilityPrompt: plannedPrompt,
+          currentTime,
+          inputSource,
+          prompt,
+          recentMessages,
+          supabase,
+          threadId,
+          user,
+          userPrompt: prompt,
+          workspace,
+        });
+      }
+
+      return calendarCommand({
+        currentTime,
+        operationHint: toolSelection.calendarOperation,
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        userPrompt: prompt,
+        user,
+        workspace,
+      });
+    case "legislation_lookup":
+      return legislationKnowledgeCommand({
+        prompt: plannedPrompt,
+        workspace,
+      });
+    case "app_help":
+      return helpCommand({ prompt: plannedPrompt });
+    case "email_sync":
+      return emailSyncCommand({ supabase, user, workspace });
+    case "inbound_email_awareness":
+      return inboundEmailAwarenessCommand({
+        prompt: plannedPrompt,
+        supabase,
+        workspace,
+      });
+    case "history_search":
+      return assistantHistorySearchCommand({
+        prompt: plannedPrompt,
+        supabase,
+        threadId,
+        user,
+        workspace,
+      });
+    case "settings_update":
+      return updateAssistantEditableSettings({
+        prompt: plannedPrompt,
+        supabase,
+        user,
+        workspace,
+      });
+    case "memory_save":
+      return memoryCommand({ prompt: plannedPrompt });
+    case "pronunciation_update":
+      return pronunciationUpdateCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        toolSelection,
+        user,
+        workspace,
+      });
+    case "overview":
+      return overviewCommand({ supabase, workspace });
+    case "action_execution":
+      return executeApprovedWorkQueueRepliesCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        user,
+        workspace,
+      });
+    case "inquiry_reply":
+      return replyToRecentInquiryCommand({
+        actor,
+        currentTime,
+        inputSource,
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        threadId,
+        user,
+        userPrompt: prompt,
+        workspace,
+      });
+    case "inquiry_internal_answer":
+      return answerPendingInquiryQuestionCommand({
+        allowWorkspaceFallback: true,
+        actor,
+        currentTime,
+        inputSource,
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        threadId,
+        user,
+        workspace,
+      });
+    default:
+      return null;
+  }
+}
+
+export async function resolveAssistantCommand({
+  actor = null,
+  currentTime,
+  inputSource = "typed",
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  toolPlanModelPlanned = false,
+  toolSelection = null,
   user,
   workspace,
 }: CommandInput): Promise<AssistantCommandResult> {
   const text = normalized(prompt);
+
+  if (looksLikeDirectWorkplaceSmsRequest(prompt)) {
+    return workplaceSmsCommand({ prompt, supabase, user, workspace });
+  }
+
+  const plannedCommand = await resolvePlannedAssistantCommand({
+    actor,
+    currentTime,
+    inputSource,
+    prompt,
+    recentMessages,
+    supabase,
+    threadId,
+    toolSelection,
+    user,
+    workspace,
+  });
+
+  if (plannedCommand) {
+    return plannedCommand;
+  }
+
+  if (looksLikeActionExecutionRequest(prompt)) {
+    return executeApprovedWorkQueueRepliesCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
+  const pendingInquiryAnswer = await answerPendingInquiryQuestionCommand({
+    actor,
+    currentTime,
+    inputSource,
+    prompt,
+    recentMessages,
+    supabase,
+    threadId,
+    user,
+    workspace,
+  });
+
+  if (pendingInquiryAnswer) {
+    return pendingInquiryAnswer;
+  }
+
+  if (looksLikeContextualInquiryReplyRequest(prompt, recentMessages)) {
+    return replyToRecentInquiryCommand({
+      actor,
+      currentTime,
+      inputSource,
+      prompt,
+      recentMessages,
+      supabase,
+      threadId,
+      user,
+      workspace,
+    });
+  }
+
+  if (
+    looksLikeCalendarRequest(prompt) ||
+    looksLikeCalendarFollowUpRequest(prompt, recentMessages)
+  ) {
+    return calendarCommand({
+      currentTime,
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
+  if (looksLikeWorkQueueRequest(prompt)) {
+    return workQueueCommand({ supabase, workspace });
+  }
+
+  if (looksLikeOutboundCallRequest(prompt)) {
+    return outboundCallCommand({
+      actor,
+      prompt,
+      recentMessages,
+      supabase,
+      threadId,
+      user,
+      workspace,
+    });
+  }
+
+  const imageFollowUpPrompt =
+    imageFollowUpPromptFromRecentMessages(prompt, recentMessages) ??
+    (await imageFollowUpPromptFromThread({
+      prompt,
+      supabase,
+      threadId,
+      workspaceId: workspace.id,
+    }));
+
+  if (imageFollowUpPrompt) {
+    return imageGenerationCommand({
+      prompt: imageFollowUpPrompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
+  if (
+    toolPlanModelPlanned
+      ? looksLikeDirectImageGenerationCommand(prompt)
+      : looksLikeKyroImageGenerationRequest(prompt)
+  ) {
+    return imageGenerationCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      user,
+      workspace,
+    });
+  }
+
+  if (
+    looksLikeGeneratedImageRecallRequest(prompt, recentMessages) ||
+    looksLikeGeneratedImageRecallText(prompt)
+  ) {
+    return generatedImageRecallCommand({
+      prompt,
+      recentMessages,
+      supabase,
+      threadId,
+      workspace,
+    });
+  }
+
+  if (looksLikeLegislationKnowledgeRequest(prompt)) {
+    return legislationKnowledgeCommand({ prompt, workspace });
+  }
+
+  if (looksLikeWebSearchRequest(prompt)) {
+    return webSearchCommand({ prompt, supabase, user, workspace });
+  }
+
+  if (toolPlanModelPlanned) {
+    return generalChatCommand({ prompt });
+  }
 
   if (looksLikePronunciationUpdatePrompt(prompt)) {
     return pronunciationUpdateCommand({ prompt, supabase, user, workspace });
@@ -1049,8 +2108,8 @@ export async function resolveAssistantCommand({
     });
   }
 
-  if (looksLikeKyroImageGenerationRequest(prompt)) {
-    return imageGenerationCommand({ prompt, supabase, user, workspace });
+  if (looksLikeUsageSummaryRequest(prompt)) {
+    return usageSummaryCommand({ supabase, workspace });
   }
 
   if (looksLikeHelpRequest(prompt)) {
@@ -1063,6 +2122,16 @@ export async function resolveAssistantCommand({
 
   if (looksLikeInboundEmailAwarenessRequest(prompt)) {
     return inboundEmailAwarenessCommand({ prompt, supabase, workspace });
+  }
+
+  if (looksLikeAssistantHistorySearchRequest(prompt)) {
+    return assistantHistorySearchCommand({
+      prompt,
+      supabase,
+      threadId,
+      user,
+      workspace,
+    });
   }
 
   if (looksLikeQuoteHistoryRequest(prompt)) {
@@ -1093,16 +2162,6 @@ export async function resolveAssistantCommand({
   }
 
   if (
-    text.includes("lead") ||
-    text.includes("needs reply") ||
-    text.includes("work queue") ||
-    text.includes("what should i do") ||
-    text.includes("inbox")
-  ) {
-    return workQueueCommand({ supabase, workspace });
-  }
-
-  if (
     text.includes("customer") ||
     text.includes("client") ||
     text.includes("contact") ||
@@ -1117,6 +2176,424 @@ export async function resolveAssistantCommand({
   }
 
   return generalChatCommand({ prompt });
+}
+
+export function selfCallRecipientForAssistant(input: {
+  actor?: AssistantRequestActor | null;
+  prompt: string;
+  user: User;
+}) {
+  if (!looksLikeSelfOutboundCallRequest(input.prompt)) {
+    return null;
+  }
+
+  if (input.actor?.kind === "trusted_internal_messaging_sender") {
+    return {
+      displayName: input.actor.displayName,
+      firstName: input.actor.firstName,
+      phoneNumber: input.actor.phoneNumber,
+    };
+  }
+
+  const accountIdentity = vapiUserIdentityFromUser(input.user);
+
+  return accountIdentity.phone
+    ? {
+        displayName: accountIdentity.name,
+        firstName: accountIdentity.firstName,
+        phoneNumber: accountIdentity.phone,
+      }
+    : null;
+}
+
+async function outboundCallCommand({
+  actor = null,
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult> {
+  const selfCallRequested = looksLikeSelfOutboundCallRequest(prompt);
+  const selfRecipient = selfCallRecipientForAssistant({ actor, prompt, user });
+  const resolution = await resolveOutboundCallRequest({
+    authoritativeRecipient: selfCallRequested,
+    contactId: selfRecipient
+      ? null
+      : recentContactIdFromMessages(recentMessages),
+    contactName: selfRecipient?.displayName ?? null,
+    contextSummary: outboundCallContextFromRecentMessages({
+      prompt,
+      recentMessages,
+    }),
+    instructions: selfCallRequested
+      ? "Start a live internal Kyro voice-assistant conversation with the authenticated account user."
+      : null,
+    prompt,
+    phoneNumber: selfRecipient?.phoneNumber ?? null,
+    supabase,
+    workspaceId: workspace.id,
+  });
+
+  if (resolution.status === "ambiguous") {
+    const links = resolution.matches.map((contact) => ({
+      href: `/contacts/${contact.id}`,
+      label: contact.name ?? contact.company ?? contact.phone ?? "Contact",
+      meta: contact.email ?? contact.phone ?? undefined,
+    }));
+
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer:
+        "I found a few possible contacts for that call. Pick the right one, then tell me what you want Kyro to say.",
+      intent: "outbound_call_prepare",
+      links,
+      title: "Outbound phone call",
+      uiBlocks: [
+        {
+          links,
+          title: "Possible call recipients",
+          type: "link_cards",
+        },
+      ],
+    };
+  }
+
+  if (resolution.status === "missing_phone") {
+    const links = resolution.contactId
+      ? [
+          {
+            href: `/contacts/${resolution.contactId}`,
+            label: resolution.contactName ?? "Contact",
+            meta: "No phone number",
+          },
+        ]
+      : [];
+
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer:
+        "I found the contact, but there is no phone number saved yet. Add a phone number first, then I can prepare the call.",
+      intent: "outbound_call_prepare",
+      links,
+      title: "Outbound phone call",
+      uiBlocks: links.length
+        ? [
+            {
+              links,
+              title: "Contact needs a phone number",
+              type: "link_cards",
+            },
+          ]
+        : [],
+    };
+  }
+
+  if (resolution.status === "missing_instructions") {
+    const recognizedRecipient = selfRecipient
+      ? (selfRecipient.displayName ?? selfRecipient.firstName ?? "you")
+      : null;
+
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer: recognizedRecipient
+        ? `I know you mean ${recognizedRecipient} at ${selfRecipient?.phoneNumber}. What would you like Kyro to help with on the call?`
+        : "I have the phone number, but I need to know what you want Kyro to say on the call.",
+      intent: "outbound_call_prepare",
+      links: resolution.contactId
+        ? [
+            {
+              href: `/contacts/${resolution.contactId}`,
+              label:
+                resolution.contactName ?? resolution.phoneNumber ?? "Contact",
+              meta: resolution.phoneNumber ?? undefined,
+            },
+          ]
+        : [],
+      title: "Outbound phone call",
+      uiBlocks: [],
+    };
+  }
+
+  if (resolution.status === "not_found") {
+    return {
+      context: { outboundCall: resolution },
+      fallbackAnswer: selfCallRequested
+        ? "I don't have a mobile number saved for your Kyro account yet. Add your number in Business profile, then ask me to call you again."
+        : "I couldn't find a matching contact or phone number for that call. Give me the contact name or phone number and what you want Kyro to say.",
+      intent: "outbound_call_prepare",
+      links: selfCallRequested
+        ? [
+            {
+              href: "/settings?section=profile&panel=core-profile",
+              label: "Add your mobile number",
+              meta: "Business profile",
+            },
+          ]
+        : [],
+      title: "Outbound phone call",
+      uiBlocks: [],
+    };
+  }
+
+  const readyResolution = resolution as Extract<
+    OutboundCallRequestResolution,
+    { status: "ready" }
+  >;
+
+  if (selfCallRequested) {
+    const call = await createInternalUserVoiceCall({
+      contextSummary: readyResolution.contextSummary,
+      phoneNumber: readyResolution.phoneNumber,
+      supabase,
+      threadId,
+      user,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      context: {
+        outboundCall: readyResolution,
+        providerCallId: call.providerCallId,
+        status: call.status,
+        voiceCallId: call.voiceCallId,
+      },
+      fallbackAnswer: "Calling you now.",
+      intent: "internal_self_call",
+      links: [],
+      mutation: {
+        entityId: call.voiceCallId,
+        entityType: "voice_call",
+        label: "Internal voice call started",
+      },
+      title: "Calling you",
+      uiBlocks: [],
+    };
+  }
+
+  const recipient =
+    readyResolution.contactName ??
+    readyResolution.phoneNumber ??
+    "selected contact";
+  return {
+    context: { outboundCall: readyResolution },
+    fallbackAnswer: `I found ${recipient} and prepared the outbound call. Review the message, then press Confirm when you want Kyro to call.`,
+    intent: "outbound_call_prepare",
+    links: [],
+    title: "Outbound phone call",
+    uiBlocks: [
+      ...outboundCallRequestBlock("Outbound phone call", {
+        contactId: readyResolution.contactId,
+        contactName: readyResolution.contactName,
+        contextSummary: readyResolution.contextSummary,
+        conversationId: readyResolution.conversationId,
+        instructions: readyResolution.instructions,
+        leadId: readyResolution.leadId,
+        phoneNumber: readyResolution.phoneNumber,
+        threadId,
+      }),
+    ],
+  };
+}
+
+async function webSearchCommand({
+  prompt,
+  supabase,
+  user,
+  workspace,
+}: CommandInput): Promise<AssistantCommandResult> {
+  const search = await runAssistantWebSearch({
+    maxOutputTokens: 680,
+    prompt,
+  });
+  const sourceLinks = search.sources;
+
+  if (search.tokenUsage || search.webSearchUsed) {
+    const startedAt = Date.now();
+    const { data: aiRun, error: aiRunError } = await supabase
+      .from("ai_runs")
+      .insert({
+        actual_cost: "0",
+        estimated_cost: "0",
+        input_refs: {
+          prompt,
+          source: "assistant.web_search",
+        },
+        mode: "tool",
+        model: search.model,
+        output: {},
+        provider: "openai",
+        risk_level: "low",
+        status: "running",
+        task_type: "web_search",
+        tool_calls: [
+          {
+            input: {
+              prompt,
+            },
+            name: "web_search",
+            result: {},
+            status: "proposed",
+          },
+        ],
+        usage: {},
+        user_id: user.id,
+        workspace_id: workspace.id,
+      })
+      .select("id")
+      .single();
+
+    if (aiRunError || !aiRun) {
+      throw new Error(
+        `Unable to create web search AI run: ${
+          aiRunError?.message ?? "unknown error"
+        }`,
+      );
+    }
+
+    const aiRunId = String(aiRun.id);
+    const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+      supabase,
+      workspace.id,
+      "OPENAI_LLM_MARKUP_RATE",
+    );
+    const usageEvents = [
+      ...(search.tokenUsage
+        ? buildLlmUsageEvents({
+            context: {
+              aiRunId,
+              metadata: {
+                source: "assistant.web_search",
+                sourceCount: sourceLinks.length,
+                webSearchUsed: search.webSearchUsed,
+              },
+              providerUsageId: search.providerUsageId,
+              sourceId: aiRunId,
+              sourceType: "ai_run",
+              usageMarkupRate,
+              userId: user.id,
+              workspaceId: workspace.id,
+            },
+            model: search.model,
+            provider: "openai",
+            service: "llm",
+            usage: search.tokenUsage,
+          })
+        : []),
+      ...(search.webSearchUsed
+        ? [
+            buildOpenAiWebSearchCallUsageEvent({
+              context: {
+                aiRunId,
+                metadata: {
+                  source: "assistant.web_search",
+                  sourceCount: sourceLinks.length,
+                },
+                providerUsageId: search.providerUsageId,
+                sourceId: aiRunId,
+                sourceType: "ai_run",
+                usageMarkupRate,
+                userId: user.id,
+                workspaceId: workspace.id,
+              },
+              model: search.model,
+            }),
+          ]
+        : []),
+    ];
+    const usageTotals = usageEventTotals(usageEvents);
+
+    if (usageEvents.length > 0) {
+      const { error: usageError } = await supabase
+        .from("usage_events")
+        .insert(toUsageEventRows(usageEvents));
+
+      if (usageError) {
+        throw new Error(
+          `Unable to record web search usage: ${usageError.message}`,
+        );
+      }
+    }
+
+    const output = {
+      answer: search.text,
+      fallbackReason: search.fallbackReason ?? null,
+      sources: sourceLinks,
+      webSearchUsed: search.webSearchUsed,
+    };
+    const { error: completeError } = await supabase
+      .from("ai_runs")
+      .update({
+        actual_cost: String(usageTotals.costSnapshot),
+        completed_at: new Date().toISOString(),
+        estimated_cost: String(usageTotals.costSnapshot),
+        latency_ms: Date.now() - startedAt,
+        output,
+        status: search.fallbackReason ? "failed" : "completed",
+        tool_calls: [
+          {
+            input: {
+              prompt,
+            },
+            name: "web_search",
+            result: output,
+            status: search.fallbackReason ? "blocked" : "completed",
+          },
+        ],
+        usage: {
+          customerCharge: usageTotals.customerChargeSnapshot,
+          inputTokens: search.inputTokens,
+          outputTokens: search.outputTokens,
+          providerCost: usageTotals.costSnapshot,
+          sourceCount: sourceLinks.length,
+          webSearchUsed: search.webSearchUsed,
+        },
+      })
+      .eq("id", aiRunId);
+
+    if (completeError) {
+      throw new Error(
+        `Unable to complete web search AI run: ${completeError.message}`,
+      );
+    }
+
+    await insertAuditLog(supabase, {
+      workspaceId: workspace.id,
+      action: search.fallbackReason
+        ? "assistant_web_search.failed"
+        : "assistant_web_search.completed",
+      actorId: aiRunId,
+      actorType: "ai",
+      after: output,
+      entityId: aiRunId,
+      entityType: "ai_run",
+      metadata: {
+        requestedByUserId: user.id,
+        source: "assistant.web_search",
+      },
+    });
+  }
+
+  return {
+    context: {
+      answer: search.text,
+      fallbackReason: search.fallbackReason ?? null,
+      query: prompt,
+      sources: recordsContext(
+        sourceLinks.map((source) => ({
+          href: source.href,
+          label: source.label,
+          meta: source.meta ?? null,
+        })),
+      ),
+      webSearchUsed: search.webSearchUsed,
+    },
+    fallbackAnswer: search.text,
+    intent: "web_search",
+    links: sourceLinks,
+    title: "Web search",
+  };
 }
 
 async function helpCommand({
@@ -1137,6 +2614,73 @@ async function helpCommand({
     intent: "app_help",
     links: knowledge.links,
     title: "Kyro help",
+  };
+}
+
+async function legislationKnowledgeCommand({
+  prompt,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const result = await searchLegislationKnowledge({
+    prompt,
+    workspaceId: workspace.id,
+  });
+  const links = result.collectionMatches
+    .slice(0, 8)
+    .map((match) =>
+      rowLink(
+        match.title,
+        match.officialUrl,
+        `${match.jurisdictionRegion} - ${match.regulator}`,
+      ),
+    );
+
+  return {
+    context: {
+      collectionTargets: recordsContext(
+        result.collectionMatches.map((match) => ({
+          documentsToCollect: match.documentsToCollect,
+          industries: match.industries,
+          jurisdictionRegion: match.jurisdictionRegion,
+          licensingMode: match.licensingMode,
+          notes: match.notes,
+          officialUrl: match.officialUrl,
+          regulator: match.regulator,
+          sourceType: match.sourceType,
+          title: match.title,
+        })),
+      ),
+      guidance: result.hasStructuredContent
+        ? "Answer only from these legislation/guidance snippets and source links. If the snippets are incomplete or only mention standards references, say so plainly."
+        : "No ingested legislation text was found for this question yet. Use the matched official collection targets to explain which sources should be ingested next, and do not invent legal rules.",
+      query: prompt,
+      snippets: result.snippets,
+    },
+    fallbackAnswer: result.hasStructuredContent
+      ? `I found legislation and regulator guidance snippets that look relevant to that question.`
+      : result.collectionMatches.length > 0
+        ? `I found the official Australian sources we'd use for that topic, but the full legislation text has not been ingested into Kyro yet.`
+        : "I do not have legislation material ingested for that topic yet.",
+    intent: "legislation_lookup",
+    links,
+    title: "Legislation knowledge",
+    uiBlocks: [
+      ...timelineBlock(
+        "Official sources",
+        result.collectionMatches.slice(0, 6).map((match) => ({
+          detail: `${match.regulator} - ${match.licensingMode.replaceAll("_", " ")}`,
+          href: match.officialUrl,
+          label: `${match.jurisdictionRegion}: ${match.title}`,
+          tone:
+            match.licensingMode === "metadata_only"
+              ? "warning"
+              : ("cyan" as const),
+        })),
+      ),
+    ],
   };
 }
 
@@ -1271,26 +2815,35 @@ async function inboundEmailAwarenessCommand({
   prompt,
   supabase,
   workspace,
-}: Pick<CommandInput, "prompt" | "supabase" | "workspace">): Promise<AssistantCommandResult> {
+}: Pick<
+  CommandInput,
+  "prompt" | "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
   const text = normalized(prompt);
   const [operationalSummary, skippedSummary] = await Promise.all([
     getInboundEmailOperationalSummary(supabase, workspace.id),
     getSkippedEmailSummaries(supabase, workspace.id),
   ]);
   const decisions = operationalSummary.decisions;
-  const promoted = decisions.filter((decision) => decision.stage === "promoted");
-  const observed = decisions.filter((decision) => decision.stage === "observed");
+  const promoted = decisions.filter(
+    (decision) => decision.stage === "promoted",
+  );
+  const observed = decisions.filter(
+    (decision) => decision.stage === "observed",
+  );
   const failed = decisions.filter((decision) => decision.stage === "failed");
-  const withAttachments = decisions.filter((decision) => decision.attachmentCount > 0);
+  const withAttachments = decisions.filter(
+    (decision) => decision.attachmentCount > 0,
+  );
   const wantsSkipped =
     text.includes("skipped") ||
     text.includes("filtered") ||
     text.includes("ignored");
   const wantsAttachments = text.includes("attachment") || text.includes("file");
   const latest = wantsSkipped
-    ? observed[0] ?? decisions[0]
+    ? (observed[0] ?? decisions[0])
     : wantsAttachments
-      ? withAttachments[0] ?? decisions[0]
+      ? (withAttachments[0] ?? decisions[0])
       : decisions[0];
   const promotedLinks = promoted
     .filter((decision) => decision.conversationId)
@@ -1347,6 +2900,86 @@ async function inboundEmailAwarenessCommand({
   };
 }
 
+async function assistantHistorySearchCommand({
+  prompt,
+  supabase,
+  threadId,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "supabase" | "threadId" | "user" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const resolvedThreadId =
+    threadId ??
+    (await activeAssistantThreadId(supabase, workspace.id, user.id));
+  const result = await searchAssistantHistory({
+    query: prompt,
+    supabase,
+    threadId: resolvedThreadId,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+  const top = result.items.slice(0, 5);
+
+  return {
+    context: {
+      matches: result.items.map((item) => ({
+        excerpt: item.excerpt,
+        label: item.label,
+        meta: item.meta ?? null,
+        occurredAt: item.occurredAt,
+        type: item.type,
+      })),
+      query: prompt,
+      scope:
+        "Searches raw assistant messages and compacted long-term context snapshots for the current user's persistent assistant.",
+    },
+    fallbackAnswer:
+      top.length > 0
+        ? `I found ${top.length} relevant assistant history item${top.length === 1 ? "" : "s"}. The strongest match is "${top[0].label}" from ${assistantDate(top[0].occurredAt)}.`
+        : "I searched the assistant history I have indexed so far, but I did not find a clear match.",
+    intent: "assistant_history_search",
+    links: [],
+    title: "Assistant history",
+    uiBlocks: timelineBlock(
+      "Assistant history",
+      top.map((item) => ({
+        at: assistantDate(item.occurredAt),
+        detail: item.excerpt,
+        label: item.label,
+        tone: item.type === "snapshot" ? "purple" : "cyan",
+      })),
+    ),
+  };
+}
+
+async function activeAssistantThreadId(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  userId: string,
+) {
+  const { data, error } = await supabase
+    .from("assistant_threads")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load assistant thread: ${error.message}`);
+  }
+
+  if (!data?.id) {
+    throw new Error("Assistant thread was not found.");
+  }
+
+  return String(data.id);
+}
+
 async function memoryCommand({
   prompt,
 }: Pick<CommandInput, "prompt">): Promise<AssistantCommandResult> {
@@ -1393,6 +3026,2481 @@ function generalChatFallback(prompt: string) {
   return "I'm here. Ask me anything, serious or stupid, and we can get into it.";
 }
 
+const CALENDAR_WEEKDAYS = new Map([
+  ["sun", 0],
+  ["sunday", 0],
+  ["mon", 1],
+  ["monday", 1],
+  ["tue", 2],
+  ["tues", 2],
+  ["tuesday", 2],
+  ["wed", 3],
+  ["wednesday", 3],
+  ["thu", 4],
+  ["thur", 4],
+  ["thurs", 4],
+  ["thursday", 4],
+  ["fri", 5],
+  ["friday", 5],
+  ["sat", 6],
+  ["saturday", 6],
+]);
+
+const CALENDAR_MONTHS = new Map([
+  ["jan", 1],
+  ["january", 1],
+  ["feb", 2],
+  ["february", 2],
+  ["mar", 3],
+  ["march", 3],
+  ["apr", 4],
+  ["april", 4],
+  ["may", 5],
+  ["jun", 6],
+  ["june", 6],
+  ["jul", 7],
+  ["july", 7],
+  ["aug", 8],
+  ["august", 8],
+  ["sep", 9],
+  ["sept", 9],
+  ["september", 9],
+  ["oct", 10],
+  ["october", 10],
+  ["nov", 11],
+  ["november", 11],
+  ["dec", 12],
+  ["december", 12],
+]);
+
+const CALENDAR_LOOKUP_PAST_DAYS = 180;
+const CALENDAR_LOOKUP_FUTURE_DAYS = 365;
+const CALENDAR_IMPLICIT_CONTEXT_WINDOW_MS = 30 * 60 * 1000;
+
+type CalendarLocalDateParts = {
+  day: number;
+  hour: number;
+  minute: number;
+  month: number;
+  second: number;
+  weekday: number;
+  year: number;
+};
+
+type ParsedCalendarSchedule = {
+  assumedMeridiem: "am" | "pm" | null;
+  dateLabel: string;
+  durationMinutes: number;
+  durationSource: "default" | "prompt";
+  endsAt: string;
+  startsAt: string;
+  timeZone: string;
+};
+
+type ParsedCalendarDayRange = {
+  dateLabel: string;
+  from: string;
+  timeZone: string;
+  to: string;
+};
+
+type CalendarTargetResolution =
+  | { event: CalendarEventItem; kind: "selected" }
+  | { candidates: CalendarEventItem[]; kind: "ambiguous" }
+  | { kind: "none" };
+
+function looksLikeCalendarRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(calendar|appointment|appointments|site visit|quote visit|job visit|booking|booked)\b/.test(
+      text,
+    ) ||
+    (/\b(book|schedule|scheduled|add|create|move|reschedule|cancel|delete|remove|reserve|hold)\b/.test(
+      text,
+    ) &&
+      /\b(visit|quote|job|appointment|event|calendar|meeting|call back|callback)\b/.test(
+        text,
+      )) ||
+    /\b(block\s+(?:out|off)|reserve|hold|protect)\b.*\b(?:time|hours?|morning|afternoon|day|calendar)\b/.test(
+      text,
+    )
+  );
+}
+
+function wantsCalendarCreate(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    (/\b(add|create|book|schedule|put|reserve|hold)\b/.test(text) ||
+      /\b(block\s+(?:out|off)|protect)\b.*\b(?:time|hours?|morning|afternoon|day|calendar)\b/.test(
+        text,
+      ) ||
+      /\bmake\b.*\b(appointment|event|booking|meeting|visit)\b/.test(text))
+  );
+}
+
+function wantsCalendarFinalize(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    (/\b(finali[sz]e|save|confirm|approve)\b/.test(text) ||
+      /\block\s+it\s+in\b/.test(text) ||
+      /\b(create|make|turn)\s+(this|that|it)\b/.test(text) ||
+      /\bcreate\s+this\s+event\b/.test(text))
+  );
+}
+
+function wantsCalendarDelete(prompt: string) {
+  return /\b(cancel|delete|remove|clear)\b/.test(normalized(prompt));
+}
+
+function wantsCalendarUpdate(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    !wantsCalendarFinalize(prompt) &&
+    /\b(edit|update|move|reschedule|change|rename|retitle|complete|completed|done|mark)\b/.test(
+      text,
+    )
+  );
+}
+
+export function calendarOperationFromPrompts(
+  plannedPrompt: string,
+  userPrompt: string | null | undefined,
+  recentMessages: AssistantRecentMessage[] = [],
+  operationHint: AssistantCalendarOperation | null | undefined = null,
+) {
+  if (operationHint) {
+    return operationHint;
+  }
+
+  const operationPrompt = userPrompt?.trim() || plannedPrompt;
+
+  if (wantsCalendarDraftFinalize(operationPrompt, recentMessages)) {
+    return "finalize" as const;
+  }
+
+  if (wantsCalendarCreate(operationPrompt)) {
+    return "create" as const;
+  }
+
+  if (wantsCalendarDelete(operationPrompt)) {
+    return "delete" as const;
+  }
+
+  if (wantsCalendarUpdate(operationPrompt)) {
+    return "update" as const;
+  }
+
+  return "read" as const;
+}
+
+function inferCalendarEventType(prompt: string) {
+  const text = normalized(prompt);
+
+  if (/\b(follow up|follow-up|callback|call back)\b/.test(text)) {
+    return "follow_up" as const;
+  }
+
+  if (/\b(job|work)\b/.test(text)) {
+    return "job" as const;
+  }
+
+  if (/\b(site|inspect|inspection)\b/.test(text)) {
+    return "site_visit" as const;
+  }
+
+  if (/\b(quote|estimate|pricing|price|bid)\b/.test(text)) {
+    return "quote_visit" as const;
+  }
+
+  if (/\b(other|personal|admin|misc|miscellaneous|reminder)\b/.test(text)) {
+    return "other" as const;
+  }
+
+  return null;
+}
+
+const CALENDAR_TITLE_WEEKDAY =
+  "(?:mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)";
+const CALENDAR_TITLE_MONTH =
+  "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+
+function stripCalendarTitleTiming(value: string) {
+  return value
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*(?:this|next)?\\s*${CALENDAR_TITLE_WEEKDAY}\\b.*$`,
+        "i",
+      ),
+      "",
+    )
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*${CALENDAR_TITLE_MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b.*$`,
+        "i",
+      ),
+      "",
+    )
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+${CALENDAR_TITLE_MONTH}\\.?(?:,?\\s+\\d{4})?\\b.*$`,
+        "i",
+      ),
+      "",
+    )
+    .replace(/\s+\b(?:on|for)\s+\d{4}-\d{1,2}-\d{1,2}\b.*$/i, "")
+    .replace(/\s+\b(?:today|tomorrow)\b.*$/i, "")
+    .replace(
+      /\s+\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?\b.*$/i,
+      "",
+    )
+    .trim();
+}
+
+function isGenericCalendarTitle(value: string) {
+  const text = normalized(value);
+
+  return (
+    !/[a-z]/i.test(value) ||
+    new RegExp(`^(?:(?:this|next)\\s+)?${CALENDAR_TITLE_WEEKDAY}$`, "i").test(
+      value.trim(),
+    ) ||
+    /^(calendar )?(event|appointment|booking|entry|calendar entry|reminder)( in (the|my) calendar)?$/.test(
+      text,
+    ) ||
+    /^(?:in|on) (?:the|my) calendar$/.test(text)
+  );
+}
+
+function sentenceCaseCalendarTitle(value: string) {
+  const title = value.replace(/\s+/g, " ").trim();
+
+  if (!title) {
+    return title;
+  }
+
+  return `${title.charAt(0).toUpperCase()}${title.slice(1)}`;
+}
+
+function compactCalendarTitle(value: string) {
+  const title = value.replace(/\s+/g, " ").trim();
+  const meetingMatch = title.match(/^meeting\s+(?:with|for|at)\s+(.+)$/i);
+
+  if (meetingMatch?.[1]?.trim()) {
+    return `Meeting - ${meetingMatch[1].trim().replace(/^(?:the|an|a)\s+/i, "")}`;
+  }
+
+  return title;
+}
+
+function fallbackCalendarTitle(
+  prompt: string,
+  contact: ContactListItem | null,
+) {
+  const contactName =
+    contact?.name ?? contact?.company ?? contact?.email ?? contact?.phone;
+
+  if (!contactName) {
+    return "Kyro appointment";
+  }
+
+  const text = normalized(prompt);
+
+  if (/\b(quote|estimate|pricing|price|bid)\b/.test(text)) {
+    return `Quote visit with ${contactName}`;
+  }
+
+  if (/\b(site|inspect|inspection)\b/.test(text)) {
+    return `Site visit with ${contactName}`;
+  }
+
+  if (/\b(meet|meeting)\b/.test(text)) {
+    return `Meeting with ${contactName}`;
+  }
+
+  if (/\b(follow up|follow-up|callback|call back)\b/.test(text)) {
+    return `Follow-up with ${contactName}`;
+  }
+
+  return `Appointment with ${contactName}`;
+}
+
+function explicitCalendarTitle(prompt: string) {
+  const quoted = prompt.match(
+    /\b(?:titled|named|called)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”)/i,
+  );
+  const unquoted = quoted
+    ? null
+    : prompt.match(/\b(?:titled|named|called)\s+(.+)$/i);
+  const described =
+    quoted || unquoted
+      ? null
+      : prompt.match(/\b(?:it is|it's|this is)\s+(?:the\s+|an?\s+)?(.+)$/i);
+  const raw =
+    quoted?.slice(1).find((value) => Boolean(value?.trim())) ??
+    unquoted?.[1] ??
+    described?.[1];
+
+  if (!raw) {
+    return null;
+  }
+
+  const candidate = stripCalendarTitleTiming(raw)
+    .replace(/^["'“”]+|["'“”.,;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (candidate.length < 2 || isGenericCalendarTitle(candidate)) {
+    return null;
+  }
+
+  return sentenceCaseCalendarTitle(compactCalendarTitle(candidate)).slice(
+    0,
+    90,
+  );
+}
+
+export function cleanCalendarTitle(
+  prompt: string,
+  contact: ContactListItem | null,
+) {
+  const explicitTitle = explicitCalendarTitle(prompt);
+
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
+  let candidate = prompt.replace(/\s+/g, " ").trim();
+
+  candidate = candidate
+    .replace(/^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?/i, "")
+    .replace(
+      /^\s*(?:add|create|book|schedule|put|make|set\s+up|setup)\s+(?:the|an|a)?\s*/i,
+      "",
+    )
+    .trim();
+
+  for (let index = 0; index < 4; index += 1) {
+    const next = candidate
+      .replace(
+        /^\s*(?:(?:calendar\s+)?event|appointment|booking|calendar entry)(?:\s+(?:for|called|named|titled|about|with|at))?\s+(?:the|an|a)?\s*/i,
+        "",
+      )
+      .replace(/^\s*(?:for|called|named|titled|about)\s+(?:the|an|a)?\s*/i, "")
+      .trim();
+
+    if (next === candidate) {
+      break;
+    }
+
+    candidate = next;
+  }
+
+  candidate = stripCalendarTitleTiming(candidate)
+    .replace(/^\s*(?:the|an|a)\s+/i, "")
+    .replace(/\s*[-,;:]\s*$/g, "")
+    .trim();
+
+  if (candidate.length >= 4 && !isGenericCalendarTitle(candidate)) {
+    return sentenceCaseCalendarTitle(compactCalendarTitle(candidate)).slice(
+      0,
+      90,
+    );
+  }
+
+  return fallbackCalendarTitle(prompt, contact);
+}
+
+function safeTimeZone(value: string | null | undefined) {
+  const timeZone = value?.trim() || "UTC";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
+function zonedDateParts(date: Date, timeZone: string): CalendarLocalDateParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    weekday: "short",
+    year: "numeric",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  const weekday = CALENDAR_WEEKDAYS.get(
+    String(values.weekday ?? "").toLowerCase(),
+  );
+
+  return {
+    day: Number(values.day),
+    hour: Number(values.hour) % 24,
+    minute: Number(values.minute),
+    month: Number(values.month),
+    second: Number(values.second),
+    weekday: weekday ?? date.getUTCDay(),
+    year: Number(values.year),
+  };
+}
+
+function addDaysToLocalDate(
+  date: Pick<CalendarLocalDateParts, "day" | "month" | "year">,
+  days: number,
+) {
+  const utc = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
+
+  return {
+    day: utc.getUTCDate(),
+    month: utc.getUTCMonth() + 1,
+    year: utc.getUTCFullYear(),
+  };
+}
+
+function localDateOrdinal(
+  date: Pick<CalendarLocalDateParts, "day" | "month" | "year">,
+) {
+  return Date.UTC(date.year, date.month - 1, date.day);
+}
+
+function timeZoneOffsetMs(timeZone: string, date: Date) {
+  const parts = zonedDateParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedWallTimeToUtc({
+  day,
+  hour,
+  minute,
+  month,
+  timeZone,
+  year,
+}: {
+  day: number;
+  hour: number;
+  minute: number;
+  month: number;
+  timeZone: string;
+  year: number;
+}) {
+  const wallUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  let guess = wallUtc;
+
+  for (let index = 0; index < 3; index += 1) {
+    const offset = timeZoneOffsetMs(timeZone, new Date(guess));
+    const next = wallUtc - offset;
+
+    if (Math.abs(next - guess) < 1000) {
+      guess = next;
+      break;
+    }
+
+    guess = next;
+  }
+
+  return new Date(guess);
+}
+
+function nextWeekdayDateParts(
+  targetDay: number,
+  now: CalendarLocalDateParts,
+  forceNextWeek: boolean,
+) {
+  const offset = (targetDay + 7 - now.weekday) % 7 || (forceNextWeek ? 7 : 0);
+  const adjustedOffset = offset === 0 ? 0 : offset;
+
+  return addDaysToLocalDate(now, adjustedOffset);
+}
+
+function calendarDateFromPrompt(
+  prompt: string,
+  timeZone: string,
+  nowDate = new Date(),
+) {
+  const raw = prompt.toLowerCase();
+  const text = normalized(prompt);
+  const now = zonedDateParts(nowDate, timeZone);
+  const isoDate = raw.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+
+  if (isoDate) {
+    return {
+      day: Number(isoDate[3]),
+      label: `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`,
+      month: Number(isoDate[2]),
+      year: Number(isoDate[1]),
+    };
+  }
+
+  if (/\btomorrow\b/.test(text)) {
+    return {
+      ...addDaysToLocalDate(now, 1),
+      label: "tomorrow",
+    };
+  }
+
+  if (/\btoday\b/.test(text)) {
+    return {
+      day: now.day,
+      label: "today",
+      month: now.month,
+      year: now.year,
+    };
+  }
+
+  const monthNameDate = raw.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i,
+  );
+
+  if (monthNameDate) {
+    const month = CALENDAR_MONTHS.get(monthNameDate[1].toLowerCase());
+    const day = Number(monthNameDate[2]);
+    let year = monthNameDate[3] ? Number(monthNameDate[3]) : now.year;
+
+    if (
+      !monthNameDate[3] &&
+      localDateOrdinal({ day, month: month ?? now.month, year }) <
+        localDateOrdinal(now)
+    ) {
+      year += 1;
+    }
+
+    if (month) {
+      return {
+        day,
+        label: `${monthNameDate[1]} ${day}`,
+        month,
+        year,
+      };
+    }
+  }
+
+  const dayMonthDate = raw.match(
+    /\b(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:,?\s+(\d{4}))?\b/i,
+  );
+
+  if (dayMonthDate) {
+    const month = CALENDAR_MONTHS.get(dayMonthDate[2].toLowerCase());
+    const day = Number(dayMonthDate[1]);
+    let year = dayMonthDate[3] ? Number(dayMonthDate[3]) : now.year;
+
+    if (
+      !dayMonthDate[3] &&
+      localDateOrdinal({ day, month: month ?? now.month, year }) <
+        localDateOrdinal(now)
+    ) {
+      year += 1;
+    }
+
+    if (month) {
+      return {
+        day,
+        label: `${day} ${dayMonthDate[2]}`,
+        month,
+        year,
+      };
+    }
+  }
+
+  const weekday = raw.match(
+    /\b(?:(this|next)\s+)?(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/i,
+  );
+
+  if (weekday) {
+    const weekdayKey = weekday[2].toLowerCase();
+    const targetDay = CALENDAR_WEEKDAYS.get(weekdayKey);
+
+    if (targetDay !== undefined) {
+      return {
+        ...nextWeekdayDateParts(targetDay, now, weekday[1] === "next"),
+        label: `${weekday[1] ? `${weekday[1]} ` : ""}${weekday[2]}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function calendarDateRangeFromPrompt(
+  prompt: string,
+  {
+    now = new Date(),
+    timeZone = "UTC",
+  }: {
+    now?: Date;
+    timeZone?: string;
+  } = {},
+): ParsedCalendarDayRange | null {
+  const safeZone = safeTimeZone(timeZone);
+  const date = calendarDateFromPrompt(prompt, safeZone, now);
+  const todayDateKey = dateKeyInTimeZone(now, safeZone);
+
+  function rangeFromDateKeys(fromDateKey: string, toDateKey: string) {
+    const range = isoRangeForDateKeyRange(
+      { from: fromDateKey, to: toDateKey },
+      safeZone,
+    );
+    const labelFormat = new Intl.DateTimeFormat("en-US", {
+      day: "numeric",
+      month: "long",
+      timeZone: safeZone,
+      weekday: "long",
+      year: "numeric",
+    });
+    const fromLabel = labelFormat.format(new Date(range.from));
+    const lastDateKey = addDaysToDateKey(toDateKey, -1);
+    const lastDateRange = isoRangeForDateKeyRange(
+      { from: lastDateKey, to: toDateKey },
+      safeZone,
+    );
+    const dateLabel =
+      fromDateKey === lastDateKey
+        ? fromLabel
+        : `${fromLabel} through ${labelFormat.format(
+            new Date(lastDateRange.from),
+          )}`;
+
+    return {
+      dateLabel,
+      from: range.from,
+      timeZone: safeZone,
+      to: range.to,
+    };
+  }
+
+  if (date) {
+    const dateKey = `${date.year}-${String(date.month).padStart(
+      2,
+      "0",
+    )}-${String(date.day).padStart(2, "0")}`;
+
+    return rangeFromDateKeys(dateKey, addDaysToDateKey(dateKey, 1));
+  }
+
+  const text = normalized(prompt);
+  const thisWeekStart = startOfWeekDateKey(todayDateKey);
+  const nextWeekStart = addDaysToDateKey(thisWeekStart, 7);
+  const thisMonthStart = startOfMonthDateKey(todayDateKey);
+  const nextMonthStart = addMonthsToDateKey(todayDateKey, 1);
+
+  if (
+    /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+week\b/.test(
+      text,
+    ) ||
+    /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+week\b/.test(
+      text,
+    )
+  ) {
+    return rangeFromDateKeys(todayDateKey, nextWeekStart);
+  }
+
+  if (/\bnext\s+week\b/.test(text)) {
+    return rangeFromDateKeys(
+      nextWeekStart,
+      addDaysToDateKey(nextWeekStart, 7),
+    );
+  }
+
+  if (/\bthis\s+week\b/.test(text)) {
+    return rangeFromDateKeys(thisWeekStart, nextWeekStart);
+  }
+
+  if (
+    /\b(?:coming\s+week|week\s+ahead|next\s+seven\s+days)\b/.test(text)
+  ) {
+    return rangeFromDateKeys(todayDateKey, addDaysToDateKey(todayDateKey, 7));
+  }
+
+  const rollingRange = text.match(
+    /\bnext\s+(\d{1,2})\s+(day|days|week|weeks)\b/,
+  );
+
+  if (rollingRange) {
+    const amount = Math.max(1, Number(rollingRange[1]));
+    const days = rollingRange[2].startsWith("week")
+      ? Math.min(amount, 13) * 7
+      : Math.min(amount, 92);
+
+    return rangeFromDateKeys(
+      todayDateKey,
+      addDaysToDateKey(todayDateKey, days),
+    );
+  }
+
+  if (
+    /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+month\b/.test(
+      text,
+    ) ||
+    /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+month\b/.test(
+      text,
+    )
+  ) {
+    return rangeFromDateKeys(todayDateKey, nextMonthStart);
+  }
+
+  if (/\bnext\s+month\b/.test(text)) {
+    return rangeFromDateKeys(
+      nextMonthStart,
+      addMonthsToDateKey(nextMonthStart, 1),
+    );
+  }
+
+  if (/\bthis\s+month\b/.test(text)) {
+    return rangeFromDateKeys(thisMonthStart, nextMonthStart);
+  }
+
+  const namedMonth = prompt.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?\b/i,
+  );
+
+  if (namedMonth) {
+    const month = CALENDAR_MONTHS.get(namedMonth[1].toLowerCase());
+
+    if (month) {
+      const currentYear = Number(todayDateKey.slice(0, 4));
+      const currentMonth = Number(todayDateKey.slice(5, 7));
+      const year = namedMonth[2]
+        ? Number(namedMonth[2])
+        : month < currentMonth
+          ? currentYear + 1
+          : currentYear;
+      const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+
+      return rangeFromDateKeys(
+        monthStart,
+        addMonthsToDateKey(monthStart, 1),
+      );
+    }
+  }
+
+  return null;
+}
+
+export function calendarDateRangeFromPrompts(
+  prompt: string,
+  fallbackPrompt: string | null | undefined,
+  timeZone: string,
+  now = new Date(),
+) {
+  const fallback = fallbackPrompt?.trim();
+  const original = fallback
+    ? calendarDateRangeFromPrompt(fallback, { now, timeZone })
+    : null;
+
+  if (original) {
+    return original;
+  }
+
+  if (fallback === prompt.trim()) {
+    return null;
+  }
+
+  return calendarDateRangeFromPrompt(prompt, { now, timeZone });
+}
+
+function calendarTimeFromPrompt(prompt: string) {
+  const raw = prompt.toLowerCase();
+
+  if (/\b(noon|midday)\b/.test(raw)) {
+    return { assumedMeridiem: null, hour: 12, minute: 0 };
+  }
+
+  if (/\bmidnight\b/.test(raw)) {
+    return { assumedMeridiem: null, hour: 0, minute: 0 };
+  }
+
+  const meridiemTime = raw.match(
+    /\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)\b/,
+  );
+
+  if (meridiemTime) {
+    let hour = Number(meridiemTime[1]);
+    const minute = meridiemTime[2] ? Number(meridiemTime[2]) : 0;
+    const meridiem = meridiemTime[3].replace(/\./g, "").startsWith("p")
+      ? "pm"
+      : "am";
+
+    if (meridiem === "pm" && hour < 12) {
+      hour += 12;
+    }
+
+    if (meridiem === "am" && hour === 12) {
+      hour = 0;
+    }
+
+    return { assumedMeridiem: null, hour, minute };
+  }
+
+  const twentyFourHour = raw.match(/\b(?:at\s*)?([01]?\d|2[0-3]):(\d{2})\b/);
+
+  if (twentyFourHour) {
+    return {
+      assumedMeridiem: null,
+      hour: Number(twentyFourHour[1]),
+      minute: Number(twentyFourHour[2]),
+    };
+  }
+
+  const bareHour = raw.match(/\bat\s+(\d{1,2})\b/);
+
+  if (bareHour) {
+    const hour = Number(bareHour[1]);
+
+    if (hour >= 1 && hour <= 5) {
+      return { assumedMeridiem: "pm" as const, hour: hour + 12, minute: 0 };
+    }
+
+    if (hour >= 6 && hour <= 23) {
+      return { assumedMeridiem: "am" as const, hour, minute: 0 };
+    }
+  }
+
+  return null;
+}
+
+function calendarDurationMinutesFromPrompt(prompt: string) {
+  const raw = prompt.toLowerCase();
+
+  if (/\b(?:for\s+)?(?:an?|one)\s+hour\s+and\s+(?:a\s+)?half\b/.test(raw)) {
+    return 90;
+  }
+
+  if (/\b(?:for\s+)?half\s+(?:an?\s+)?hour\b/.test(raw)) {
+    return 30;
+  }
+
+  const numericDuration = raw.match(
+    /\b(?:for\s+)?(\d+(?:\.\d+)?)\s*(?:-\s*)?(hours?|hrs?|minutes?|mins?)\b/,
+  );
+
+  if (numericDuration) {
+    const amount = Number(numericDuration[1]);
+    const unit = numericDuration[2];
+
+    if (Number.isFinite(amount) && amount > 0) {
+      return Math.round(amount * (unit.startsWith("h") ? 60 : 1));
+    }
+  }
+
+  const wordDuration = raw.match(
+    /\b(?:for\s+)?(one|two|three|four|five|six|seven|eight)\s+(hours?|minutes?)\b/,
+  );
+
+  if (!wordDuration) {
+    return null;
+  }
+
+  const amount =
+    ["one", "two", "three", "four", "five", "six", "seven", "eight"].indexOf(
+      wordDuration[1],
+    ) + 1;
+
+  return amount * (wordDuration[2].startsWith("hour") ? 60 : 1);
+}
+
+function calendarDurationLabel(durationMinutes: number) {
+  if (durationMinutes % 60 === 0) {
+    const hours = durationMinutes / 60;
+
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+
+  return `${durationMinutes} minutes`;
+}
+
+export function parseAssistantCalendarTime(
+  prompt: string,
+  {
+    defaultDurationMinutes = 60,
+    now = new Date(),
+    timeZone = "UTC",
+  }: {
+    defaultDurationMinutes?: number;
+    now?: Date;
+    timeZone?: string;
+  } = {},
+): ParsedCalendarSchedule | null {
+  const safeZone = safeTimeZone(timeZone);
+  const date = calendarDateFromPrompt(prompt, safeZone, now);
+  const time = calendarTimeFromPrompt(prompt);
+
+  if (!date || !time) {
+    return null;
+  }
+
+  const startsAt = zonedWallTimeToUtc({
+    day: date.day,
+    hour: time.hour,
+    minute: time.minute,
+    month: date.month,
+    timeZone: safeZone,
+    year: date.year,
+  });
+
+  if (Number.isNaN(startsAt.getTime())) {
+    return null;
+  }
+
+  const requestedDuration = calendarDurationMinutesFromPrompt(prompt);
+  const durationMinutes = Math.max(
+    5,
+    Math.min(720, requestedDuration ?? defaultDurationMinutes),
+  );
+  const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
+
+  return {
+    assumedMeridiem: time.assumedMeridiem,
+    dateLabel: date.label,
+    durationMinutes,
+    durationSource: requestedDuration === null ? "default" : "prompt",
+    endsAt: endsAt.toISOString(),
+    startsAt: startsAt.toISOString(),
+    timeZone: safeZone,
+  };
+}
+
+export function parseAssistantCalendarTimeFromPrompts(
+  prompt: string,
+  fallbackPrompt: string | null | undefined,
+  options: {
+    defaultDurationMinutes?: number;
+    now?: Date;
+    timeZone?: string;
+  } = {},
+) {
+  const primary = parseAssistantCalendarTime(prompt, options);
+
+  if (primary) {
+    return primary;
+  }
+
+  const fallback = fallbackPrompt?.trim();
+
+  if (!fallback || fallback === prompt.trim()) {
+    return null;
+  }
+
+  return parseAssistantCalendarTime(fallback, options);
+}
+
+function calendarEventHrefFromParts(eventId: string, startsAt: string | null) {
+  const params = new URLSearchParams({
+    event: eventId,
+    view: "week",
+  });
+
+  if (startsAt) {
+    params.set("date", startsAt.slice(0, 10));
+  }
+
+  return `/calendar?${params.toString()}`;
+}
+
+function calendarEventHref(event: CalendarEventItem) {
+  return calendarEventHrefFromParts(event.id, event.startsAt);
+}
+
+function resolveCalendarContact(prompt: string, contacts: ContactListItem[]) {
+  const haystack = normalized(prompt);
+
+  return (
+    contacts.find((contact) =>
+      [contact.name, contact.company, contact.email, contact.phone].some(
+        (value) => {
+          const needle = normalized(value ?? "");
+
+          return needle.length >= 3 && haystack.includes(needle);
+        },
+      ),
+    ) ?? null
+  );
+}
+
+function assistantLinksFromMessage(message: AssistantRecentMessage) {
+  return [
+    ...(message.links ?? []).slice().reverse(),
+    ...(message.uiBlocks ?? []).flatMap((block) => {
+      if (block.type === "link_cards") {
+        return block.links.slice().reverse();
+      }
+
+      if (block.type === "summary_cards") {
+        return block.cards
+          .filter((card) => card.href)
+          .map((card) =>
+            rowLink(card.label, card.href as string, card.detail ?? card.value),
+          );
+      }
+
+      if (block.type === "timeline") {
+        return block.items
+          .filter((item) => item.href)
+          .map((item) => rowLink(item.label, item.href as string, item.detail));
+      }
+
+      return [];
+    }),
+  ];
+}
+
+function recentAssistantLinks(recentMessages: AssistantRecentMessage[]) {
+  return [...recentMessages]
+    .reverse()
+    .flatMap((message) => assistantLinksFromMessage(message));
+}
+
+function messageCreatedAtMs(message: AssistantRecentMessage) {
+  const createdAt = textValue(message.createdAt);
+
+  if (!createdAt) {
+    return null;
+  }
+
+  const timestamp = Date.parse(createdAt);
+
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function latestRecentMessageTimeMs(
+  recentMessages: readonly AssistantRecentMessage[],
+) {
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const timestamp = messageCreatedAtMs(recentMessages[index]);
+
+    if (timestamp !== null) {
+      return timestamp;
+    }
+  }
+
+  return null;
+}
+
+function isFreshImplicitCalendarContext(
+  message: AssistantRecentMessage,
+  referenceTimeMs: number,
+) {
+  const timestamp = messageCreatedAtMs(message);
+
+  if (timestamp === null) {
+    return false;
+  }
+
+  return (
+    timestamp <= referenceTimeMs + 60_000 &&
+    referenceTimeMs - timestamp <= CALENDAR_IMPLICIT_CONTEXT_WINDOW_MS
+  );
+}
+
+export function calendarConversationReferenceFromRecentMessages(
+  recentMessages: readonly AssistantRecentMessage[],
+  {
+    nowMs = Date.now(),
+    requireFresh = true,
+  }: {
+    nowMs?: number;
+    requireFresh?: boolean;
+  } = {},
+) {
+  const referenceTimeMs = latestRecentMessageTimeMs(recentMessages) ?? nowMs;
+
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+
+    if (
+      requireFresh &&
+      !isFreshImplicitCalendarContext(message, referenceTimeMs)
+    ) {
+      continue;
+    }
+
+    for (const link of assistantLinksFromMessage(message)) {
+      const conversationId = calendarConversationIdFromHref(link.href);
+
+      if (conversationId) {
+        return {
+          conversationId,
+          createdAt: textValue(message.createdAt),
+          label: link.label,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function calendarEventIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "http://kyro.local");
+    const eventId = textValue(url.searchParams.get("event"));
+
+    return url.pathname === "/calendar" ? eventId : null;
+  } catch {
+    return null;
+  }
+}
+
+function calendarConversationIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "http://kyro.local");
+
+    if (url.pathname === "/inbox") {
+      return textValue(url.searchParams.get("conversationId"));
+    }
+
+    const match = url.pathname.match(/^\/inbox\/([^/]+)$/);
+
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function latestCalendarLink(recentMessages: AssistantRecentMessage[]) {
+  return recentAssistantLinks(recentMessages).find((link) =>
+    link.href.startsWith("/calendar"),
+  );
+}
+
+export function looksLikeCalendarFollowUpRequest(
+  prompt: string,
+  recentMessages: AssistantRecentMessage[],
+) {
+  return (
+    Boolean(latestCalendarLink(recentMessages)) && wantsCalendarFinalize(prompt)
+  );
+}
+
+function wantsCalendarDraftFinalize(
+  prompt: string,
+  recentMessages: AssistantRecentMessage[],
+) {
+  return looksLikeCalendarFollowUpRequest(prompt, recentMessages);
+}
+
+export function calendarLinkIntentFromPrompt(prompt: string) {
+  const text = normalized(prompt);
+  const hasLinkVerb = /\b(link|associate|attach|connect|assign|relate)\b/.test(
+    text,
+  );
+  const hasCurrentEntity =
+    /\b(this|that|current|active|selected|open)\s+(contact|customer|client|lead|conversation|inquiry|enquiry|thread|profile|inbox|message|email)\b/.test(
+      text,
+    );
+  const namesContactEntity =
+    /\b(to|for|with)\s+(the\s+)?(contact|customer|client|lead|profile)\s+[a-z0-9]/.test(
+      text,
+    ) ||
+    /\b(contact|customer|client|lead|profile)\s+(called|named)\s+[a-z0-9]/.test(
+      text,
+    );
+  const linksNamedTarget =
+    hasLinkVerb &&
+    /\b(to|with|for)\s+(?!(the\s+)?(this|that|current|active|selected|open|contact|customer|client|lead|conversation|inquiry|enquiry|thread|profile|inbox|message|email)\b)(the\s+)?[a-z0-9]/.test(
+      text,
+    );
+  const linksConversationEntity =
+    hasLinkVerb &&
+    /\b(conversation|inquiry|enquiry|thread|inbox|message|email)\b/.test(text);
+
+  return {
+    allowNamedContact: namesContactEntity || linksNamedTarget,
+    allowRecentConversation: hasCurrentEntity || linksConversationEntity,
+  };
+}
+
+function explicitCalendarEventId(prompt: string) {
+  return (
+    prompt.match(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i,
+    )?.[0] ?? null
+  );
+}
+
+function statusFromCalendarPrompt(prompt: string): CalendarEventStatus | null {
+  const text = normalized(prompt);
+
+  if (/\b(done|completed|complete|finished)\b/.test(text)) {
+    return "completed";
+  }
+
+  if (/\b(cancelled|canceled|cancel)\b/.test(text)) {
+    return "cancelled";
+  }
+
+  if (/\b(scheduled|booked|confirmed)\b/.test(text)) {
+    return "scheduled";
+  }
+
+  return null;
+}
+
+function titleFromCalendarRenamePrompt(prompt: string) {
+  const match = prompt.match(
+    /\b(?:rename|retitle|call|title)\s+(?:the\s+)?(?:event|appointment|booking|it)?\s*(?:to|as)?\s+["']?([^"'\n.]+)["']?/i,
+  );
+  const value = match?.[1]?.replace(/\s+/g, " ").trim();
+
+  if (!value || value.length < 3) {
+    return null;
+  }
+
+  return value.slice(0, 90);
+}
+
+function calendarEventSearchText(event: CalendarEventItem) {
+  return normalized(
+    [
+      event.title,
+      event.description,
+      event.location,
+      event.status,
+      event.appointmentType,
+      event.contact?.name,
+      event.contact?.company,
+      event.contact?.email,
+      event.contact?.phone,
+      event.lead?.title,
+      event.lead?.serviceType,
+      event.conversation?.leadTitle,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+function sameLocalDate(
+  leftIso: string | null,
+  rightIso: string,
+  timeZone: string,
+) {
+  if (!leftIso) {
+    return false;
+  }
+
+  const left = zonedDateParts(new Date(leftIso), timeZone);
+  const right = zonedDateParts(new Date(rightIso), timeZone);
+
+  return (
+    left.year === right.year &&
+    left.month === right.month &&
+    left.day === right.day
+  );
+}
+
+function scoreCalendarTarget(
+  event: CalendarEventItem,
+  prompt: string,
+  scheduled: ParsedCalendarSchedule | null,
+  timeZone: string,
+) {
+  const promptText = normalized(prompt);
+  const eventText = calendarEventSearchText(event);
+  const title = normalized(event.title);
+  const tokens = meaningfulTokens(promptText).filter(
+    (token) =>
+      ![
+        "calendar",
+        "event",
+        "appointment",
+        "booking",
+        "move",
+        "reschedule",
+        "change",
+        "delete",
+        "remove",
+        "cancel",
+        "update",
+        "edit",
+        "to",
+        "at",
+        "on",
+        "the",
+        "it",
+        "this",
+        "that",
+      ].includes(token),
+  );
+  let score = 0;
+
+  if (title && promptText.includes(title)) {
+    score += 110;
+  }
+
+  for (const token of tokens) {
+    if (eventText.includes(token)) {
+      score += 12;
+    }
+  }
+
+  if (
+    event.contact?.email &&
+    prompt.toLowerCase().includes(event.contact.email)
+  ) {
+    score += 90;
+  }
+
+  if (event.contact?.phone) {
+    const promptDigits = prompt.replace(/\D/g, "");
+    const phoneDigits = event.contact.phone.replace(/\D/g, "");
+
+    if (phoneDigits.length >= 6 && promptDigits.includes(phoneDigits)) {
+      score += 90;
+    }
+  }
+
+  if (
+    scheduled?.startsAt &&
+    sameLocalDate(event.startsAt, scheduled.startsAt, timeZone)
+  ) {
+    score += 35;
+  }
+
+  if (event.status === "cancelled") {
+    score -= 30;
+  }
+
+  return score;
+}
+
+async function loadCalendarTargetEvents({
+  supabase,
+  workspaceId,
+}: {
+  supabase: CommandInput["supabase"];
+  workspaceId: string;
+}) {
+  const now = new Date();
+  const from = new Date(
+    now.getTime() - CALENDAR_LOOKUP_PAST_DAYS * 24 * 60 * 60_000,
+  );
+  const to = new Date(
+    now.getTime() + CALENDAR_LOOKUP_FUTURE_DAYS * 24 * 60 * 60_000,
+  );
+
+  return getCalendarEvents(supabase, workspaceId, {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  });
+}
+
+async function resolveCalendarTargetEvent({
+  prompt,
+  recentMessages,
+  scheduled,
+  supabase,
+  timeZone,
+  workspaceId,
+}: {
+  prompt: string;
+  recentMessages: AssistantRecentMessage[];
+  scheduled: ParsedCalendarSchedule | null;
+  supabase: CommandInput["supabase"];
+  timeZone: string;
+  workspaceId: string;
+}): Promise<CalendarTargetResolution> {
+  const latestEventId = latestCalendarLink(recentMessages)
+    ? calendarEventIdFromHref(latestCalendarLink(recentMessages)!.href)
+    : null;
+  const eventId = explicitCalendarEventId(prompt) ?? latestEventId;
+
+  if (eventId) {
+    const event = await getCalendarEventById(supabase, workspaceId, eventId);
+
+    return event ? { event, kind: "selected" } : { kind: "none" };
+  }
+
+  const events = await loadCalendarTargetEvents({ supabase, workspaceId });
+  const ranked = events
+    .map((event) => ({
+      event,
+      score: scoreCalendarTarget(event, prompt, scheduled, timeZone),
+    }))
+    .filter((candidate) => candidate.score >= 30)
+    .sort((left, right) => right.score - left.score);
+  const best = ranked[0];
+
+  if (!best) {
+    return { kind: "none" };
+  }
+
+  const tied = ranked.filter((candidate) => best.score - candidate.score <= 8);
+
+  if (tied.length > 1) {
+    return {
+      candidates: tied.slice(0, 5).map((candidate) => candidate.event),
+      kind: "ambiguous",
+    };
+  }
+
+  return { event: best.event, kind: "selected" };
+}
+
+async function calendarLinkedContext({
+  contacts,
+  prompt,
+  recentMessages,
+  supabase,
+  workspaceId,
+}: {
+  contacts: ContactListItem[];
+  prompt: string;
+  recentMessages: AssistantRecentMessage[];
+  supabase: CommandInput["supabase"];
+  workspaceId: string;
+}) {
+  const linkIntent = calendarLinkIntentFromPrompt(prompt);
+  const explicitContact = linkIntent.allowNamedContact
+    ? resolveCalendarContact(prompt, contacts)
+    : null;
+  const freshConversationReference =
+    explicitContact?.id || !linkIntent.allowRecentConversation
+      ? null
+      : calendarConversationReferenceFromRecentMessages(recentMessages, {
+          requireFresh: true,
+        });
+  const staleConversationReference =
+    explicitContact?.id ||
+    !linkIntent.allowRecentConversation ||
+    freshConversationReference
+      ? null
+      : calendarConversationReferenceFromRecentMessages(recentMessages, {
+          requireFresh: false,
+        });
+  const conversationId = freshConversationReference?.conversationId ?? null;
+
+  if (!explicitContact && !conversationId) {
+    if (staleConversationReference) {
+      const staleLinked = await resolveCalendarLinkedEntities({
+        contactId: null,
+        conversationId: staleConversationReference.conversationId,
+        leadId: null,
+        supabase,
+        workspaceId,
+      });
+      const suggestedContact =
+        contacts.find((item) => item.id === staleLinked.contactId) ?? null;
+
+      return {
+        contact: null,
+        contactId: null,
+        conversationId: null,
+        leadId: null,
+        skippedLinkReason: "stale_context" as const,
+        suggestedContact,
+      };
+    }
+
+    return {
+      contact: null,
+      contactId: null,
+      conversationId: null,
+      leadId: null,
+      skippedLinkReason: null,
+      suggestedContact: null,
+    };
+  }
+
+  const linked = await resolveCalendarLinkedEntities({
+    contactId: explicitContact?.id ?? null,
+    conversationId,
+    leadId: null,
+    supabase,
+    workspaceId,
+  });
+  const contact =
+    explicitContact ??
+    contacts.find((item) => item.id === linked.contactId) ??
+    null;
+
+  return {
+    contact,
+    contactId: linked.contactId,
+    conversationId,
+    leadId: linked.leadId,
+    skippedLinkReason: null,
+    suggestedContact: null,
+  };
+}
+
+function calendarContactDisplayName(contact: ContactListItem | null) {
+  return (
+    textValue(contact?.name) ??
+    textValue(contact?.company) ??
+    textValue(contact?.email) ??
+    "that contact"
+  );
+}
+
+function calendarStatusLabel(status: string | null | undefined) {
+  return status === "suggested" ? "Draft" : titleCase(status ?? "scheduled");
+}
+
+function eventDurationMinutes(event: CalendarEventItem, fallback: number) {
+  if (!event.startsAt || !event.endsAt) {
+    return fallback;
+  }
+
+  const minutes = Math.round(
+    (new Date(event.endsAt).getTime() - new Date(event.startsAt).getTime()) /
+      60_000,
+  );
+
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : fallback;
+}
+
+function defaultCalendarEndIso(startsAt: string, durationMinutes: number) {
+  const startMs = Date.parse(startsAt);
+
+  if (!Number.isFinite(startMs)) {
+    return null;
+  }
+
+  return new Date(
+    startMs + Math.max(5, Math.min(720, durationMinutes)) * 60_000,
+  ).toISOString();
+}
+
+function rescheduledEventEnd(
+  event: CalendarEventItem,
+  startsAt: string,
+  fallbackDurationMinutes: number,
+) {
+  return (
+    defaultCalendarEndIso(
+      startsAt,
+      eventDurationMinutes(event, fallbackDurationMinutes),
+    ) ?? startsAt
+  );
+}
+
+function calendarChangeSummary(changes: string[]) {
+  if (changes.length === 0) {
+    return "No calendar fields changed.";
+  }
+
+  if (changes.length === 1) {
+    return changes[0];
+  }
+
+  return `${changes.slice(0, -1).join(", ")} and ${
+    changes[changes.length - 1]
+  }`;
+}
+
+async function calendarCommand({
+  currentTime,
+  operationHint = null,
+  prompt,
+  recentMessages = [],
+  supabase,
+  userPrompt = null,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  | "currentTime"
+  | "prompt"
+  | "recentMessages"
+  | "supabase"
+  | "user"
+  | "workspace"
+> & {
+  operationHint?: AssistantCalendarOperation | null;
+  userPrompt?: string | null;
+}): Promise<AssistantCommandResult> {
+  const [calendarSettings, generalSettings] = await Promise.all([
+    getCalendarSettings(supabase, workspace.id),
+    currentTime
+      ? Promise.resolve(null)
+      : getWorkspaceGeneralSettings(supabase, workspace.id),
+  ]);
+  const clock =
+    currentTime ??
+    buildAssistantCurrentTimeContext(generalSettings?.timeZone ?? "UTC");
+  const timeZone = clock.currentTimezone;
+  const turnNow = new Date(clock.currentIsoUtc);
+  const scheduled = parseAssistantCalendarTimeFromPrompts(prompt, userPrompt, {
+    defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
+    now: turnNow,
+    timeZone,
+  });
+  const requestedDay = calendarDateRangeFromPrompts(
+    prompt,
+    userPrompt,
+    timeZone,
+    turnNow,
+  );
+  const operation = calendarOperationFromPrompts(
+    prompt,
+    userPrompt,
+    recentMessages,
+    operationHint,
+  );
+
+  if (operation === "finalize") {
+    const resolution = await resolveCalendarTargetEvent({
+      prompt,
+      recentMessages,
+      scheduled,
+      supabase,
+      timeZone,
+      workspaceId: workspace.id,
+    });
+
+    if (resolution.kind !== "selected") {
+      return {
+        context: {
+          candidateCount:
+            resolution.kind === "ambiguous" ? resolution.candidates.length : 0,
+          reason: "Calendar draft finalization needs a resolved draft event.",
+        },
+        fallbackAnswer:
+          resolution.kind === "ambiguous"
+            ? "I found more than one possible draft event. Choose the exact one before I save it."
+            : "I could not find a draft calendar event to save.",
+        intent: "calendar_event",
+        links:
+          resolution.kind === "ambiguous"
+            ? resolution.candidates.map((event) =>
+                rowLink(
+                  event.title,
+                  calendarEventHref(event),
+                  event.startsAt
+                    ? assistantDate(event.startsAt, timeZone)
+                    : calendarStatusLabel(event.status),
+                ),
+              )
+            : [],
+        title: "Choose calendar draft",
+        uiBlocks:
+          resolution.kind === "ambiguous"
+            ? linkCardsBlock(
+                "Calendar drafts",
+                resolution.candidates.map((event) =>
+                  rowLink(
+                    event.title,
+                    calendarEventHref(event),
+                    event.startsAt
+                      ? assistantDate(event.startsAt, timeZone)
+                      : calendarStatusLabel(event.status),
+                  ),
+                ),
+              )
+            : [],
+      };
+    }
+
+    const event = resolution.event;
+    const link = rowLink(
+      event.title,
+      calendarEventHref(event),
+      event.startsAt ? assistantDate(event.startsAt, timeZone) : "Draft",
+    );
+
+    if (event.status !== "suggested") {
+      return {
+        context: {
+          eventId: event.id,
+          status: event.status,
+          title: event.title,
+        },
+        fallbackAnswer: `${event.title} is already saved on the calendar.`,
+        intent: "calendar_event",
+        links: [link],
+        title: "Calendar event already saved",
+        uiBlocks: linkCardsBlock("Calendar event", [link]),
+      };
+    }
+
+    if (!event.startsAt || !event.endsAt) {
+      const recoveredSchedule = parseAssistantCalendarTimeFromPrompts(
+        event.title,
+        userPrompt ?? prompt,
+        {
+          defaultDurationMinutes: calendarSettings.defaultDurationMinutes,
+          now: turnNow,
+          timeZone,
+        },
+      );
+      const recoveredStartsAt = event.startsAt ?? recoveredSchedule?.startsAt;
+      const recoveredEndsAt =
+        event.endsAt ??
+        recoveredSchedule?.endsAt ??
+        (recoveredStartsAt
+          ? defaultCalendarEndIso(
+              recoveredStartsAt,
+              calendarSettings.defaultDurationMinutes,
+            )
+          : null);
+
+      if (recoveredStartsAt && recoveredEndsAt) {
+        const recoveredTitle = cleanCalendarTitle(event.title, null);
+
+        await updateCalendarEventRecord({
+          appointmentId: event.id,
+          input: {
+            appointmentType: event.appointmentType,
+            contactId: event.contactId,
+            conversationId: event.conversationId,
+            description: event.description,
+            endsAt: recoveredEndsAt,
+            leadId: event.leadId,
+            location: event.location,
+            locationAddress: event.locationAddress,
+            metadata: { source: "assistant_calendar_command" },
+            startsAt: recoveredStartsAt,
+            status: "scheduled",
+            title: recoveredTitle,
+          },
+          supabase,
+          userId: user.id,
+          workspaceId: workspace.id,
+        });
+
+        const recoveredLink = rowLink(
+          recoveredTitle,
+          calendarEventHrefFromParts(event.id, recoveredStartsAt),
+          assistantDate(recoveredStartsAt, timeZone),
+        );
+
+        return {
+          context: {
+            eventId: event.id,
+            scheduledAt: recoveredStartsAt,
+            scheduledAtLocal: assistantDate(recoveredStartsAt, timeZone),
+            workspaceTimeZone: timeZone,
+            title: recoveredTitle,
+          },
+          fallbackAnswer: `I saved ${recoveredTitle} on the calendar for ${assistantDate(
+            recoveredStartsAt,
+            timeZone,
+          )}.`,
+          intent: "calendar_event",
+          links: [recoveredLink],
+          mutation: {
+            entityId: event.id,
+            entityType: "conversation_appointment",
+            label: "Calendar event saved",
+          },
+          title: "Calendar event saved",
+          uiBlocks: linkCardsBlock("Calendar event", [recoveredLink]),
+        };
+      }
+
+      return {
+        context: {
+          eventId: event.id,
+          missing: ["start_time", "end_time"],
+          status: event.status,
+          title: event.title,
+        },
+        fallbackAnswer:
+          "That draft still needs a date and time before I can save it as a calendar event.",
+        intent: "calendar_event",
+        links: [link],
+        title: "Calendar draft needs time",
+        uiBlocks: linkCardsBlock("Calendar draft", [link]),
+      };
+    }
+
+    await updateCalendarEventRecord({
+      appointmentId: event.id,
+      input: {
+        appointmentType: event.appointmentType,
+        contactId: event.contactId,
+        conversationId: event.conversationId,
+        description: event.description,
+        endsAt: event.endsAt,
+        leadId: event.leadId,
+        location: event.location,
+        locationAddress: event.locationAddress,
+        metadata: { source: "assistant_calendar_command" },
+        startsAt: event.startsAt,
+        status: "scheduled",
+        title: event.title,
+      },
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      context: {
+        eventId: event.id,
+        scheduledAt: event.startsAt,
+        scheduledAtLocal: assistantDate(event.startsAt, timeZone),
+        workspaceTimeZone: timeZone,
+        title: event.title,
+      },
+      fallbackAnswer: `I saved ${event.title} on the calendar for ${assistantDate(
+        event.startsAt,
+        timeZone,
+      )}.`,
+      intent: "calendar_event",
+      links: [link],
+      mutation: {
+        entityId: event.id,
+        entityType: "conversation_appointment",
+        label: "Calendar event saved",
+      },
+      title: "Calendar event saved",
+      uiBlocks: linkCardsBlock("Calendar event", [link]),
+    };
+  }
+
+  if (operation === "create") {
+    const contacts = await getContactList(supabase, workspace.id);
+    const linked = await calendarLinkedContext({
+      contacts,
+      prompt,
+      recentMessages,
+      supabase,
+      workspaceId: workspace.id,
+    });
+    const contact = linked.contact;
+    const title = cleanCalendarTitle(prompt, contact);
+    const appointmentId = await createCalendarEventRecord({
+      input: {
+        appointmentType:
+          inferCalendarEventType(prompt) ?? calendarSettings.defaultEventType,
+        contactId: linked.contactId,
+        conversationId: linked.conversationId,
+        description: `Created from Assistant request: ${userPrompt ?? prompt}`,
+        endsAt: scheduled?.endsAt ?? null,
+        leadId: linked.leadId,
+        location: contact?.address ?? null,
+        locationAddress: null,
+        metadata: { source: "assistant_calendar_command" },
+        startsAt: scheduled?.startsAt ?? null,
+        status: scheduled?.startsAt ? "scheduled" : "suggested",
+        title,
+      },
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+    const href = calendarEventHrefFromParts(
+      appointmentId,
+      scheduled?.startsAt ?? null,
+    );
+    const link = rowLink(
+      title,
+      href,
+      scheduled?.startsAt
+        ? assistantDate(scheduled.startsAt, timeZone)
+        : "Draft",
+    );
+    const assumedTime =
+      scheduled?.assumedMeridiem === "pm"
+        ? " I treated that as PM."
+        : scheduled?.assumedMeridiem === "am"
+          ? " I treated that as AM."
+          : "";
+    const suggestedContactQuestion =
+      linked.skippedLinkReason === "stale_context" && linked.suggestedContact
+        ? ` Should I link it to ${calendarContactDisplayName(
+            linked.suggestedContact,
+          )}?`
+        : "";
+
+    return {
+      context: {
+        appointmentId,
+        contactId: linked.contactId,
+        conversationId: linked.conversationId,
+        externalSyncStatus: "attempted_if_connected",
+        leadId: linked.leadId,
+        scheduled,
+        scheduledAtLocal: scheduled?.startsAt
+          ? assistantDate(scheduled.startsAt, timeZone)
+          : null,
+        scheduledEndsAtLocal: scheduled?.endsAt
+          ? assistantDate(scheduled.endsAt, timeZone)
+          : null,
+        scheduledDurationMinutes: scheduled?.durationMinutes ?? null,
+        scheduledDurationSource: scheduled?.durationSource ?? null,
+        skippedLinkReason: linked.skippedLinkReason,
+        status: scheduled?.startsAt ? "scheduled" : "suggested",
+        suggestedContactId: linked.suggestedContact?.id ?? null,
+        suggestedContactName: linked.suggestedContact
+          ? calendarContactDisplayName(linked.suggestedContact)
+          : null,
+        title,
+        workspaceTimeZone: timeZone,
+      },
+      fallbackAnswer: scheduled?.startsAt
+        ? `I created ${title} for ${assistantDate(
+            scheduled.startsAt,
+            timeZone,
+          )} and set it for ${calendarDurationLabel(
+            scheduled.durationMinutes,
+          )}.${assumedTime}${
+            scheduled.durationSource === "default"
+              ? " A location and any extra details can be added later."
+              : ""
+          }${suggestedContactQuestion}`
+        : `I drafted ${title}. Open it to add the date and time before saving it to the calendar.${suggestedContactQuestion}`,
+      intent: "calendar_event",
+      links: [link],
+      mutation: {
+        entityId: appointmentId,
+        entityType: "conversation_appointment",
+        label: title,
+      },
+      title: scheduled?.startsAt
+        ? "Calendar event created"
+        : "Calendar draft created",
+      uiBlocks: linkCardsBlock(
+        scheduled?.startsAt ? "Calendar event" : "Calendar draft",
+        [link],
+      ),
+    };
+  }
+
+  if (operation === "delete") {
+    const resolution = await resolveCalendarTargetEvent({
+      prompt,
+      recentMessages,
+      scheduled,
+      supabase,
+      timeZone,
+      workspaceId: workspace.id,
+    });
+
+    if (resolution.kind !== "selected") {
+      const links =
+        resolution.kind === "ambiguous"
+          ? resolution.candidates.map((event) =>
+              rowLink(
+                event.title,
+                calendarEventHref(event),
+                event.startsAt
+                  ? assistantDate(event.startsAt, timeZone)
+                  : event.status,
+              ),
+            )
+          : [rowLink("Calendar", "/calendar", "Choose the event")];
+
+      return {
+        context: {
+          candidateCount:
+            resolution.kind === "ambiguous" ? resolution.candidates.length : 0,
+          reason: "Calendar delete requests need a resolved target event.",
+        },
+        fallbackAnswer:
+          resolution.kind === "ambiguous"
+            ? "I found more than one possible calendar event. Choose the exact one before I delete anything."
+            : "I could not confidently identify which calendar event to delete.",
+        intent: "calendar_event",
+        links,
+        title: "Choose calendar event",
+        uiBlocks: linkCardsBlock("Possible calendar events", links),
+      };
+    }
+
+    await deleteCalendarEventRecord({
+      appointmentId: resolution.event.id,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      context: {
+        deletedEventId: resolution.event.id,
+        title: resolution.event.title,
+      },
+      fallbackAnswer: `I deleted ${resolution.event.title} from the calendar.`,
+      intent: "calendar_event",
+      links: [rowLink("Calendar", "/calendar", "View calendar")],
+      mutation: {
+        entityId: resolution.event.id,
+        entityType: "conversation_appointment",
+        label: "Calendar event deleted",
+      },
+      title: "Calendar event deleted",
+    };
+  }
+
+  if (operation === "update") {
+    const resolution = await resolveCalendarTargetEvent({
+      prompt,
+      recentMessages,
+      scheduled,
+      supabase,
+      timeZone,
+      workspaceId: workspace.id,
+    });
+
+    if (resolution.kind !== "selected") {
+      const links =
+        resolution.kind === "ambiguous"
+          ? resolution.candidates.map((event) =>
+              rowLink(
+                event.title,
+                calendarEventHref(event),
+                event.startsAt
+                  ? assistantDate(event.startsAt, timeZone)
+                  : event.status,
+              ),
+            )
+          : [rowLink("Calendar", "/calendar", "Choose the event")];
+
+      return {
+        context: {
+          candidateCount:
+            resolution.kind === "ambiguous" ? resolution.candidates.length : 0,
+          reason: "Calendar update requests need a resolved target event.",
+        },
+        fallbackAnswer:
+          resolution.kind === "ambiguous"
+            ? "I found more than one possible calendar event. Choose the exact one before I change anything."
+            : "I could not confidently identify which calendar event to update.",
+        intent: "calendar_event",
+        links,
+        title: "Choose calendar event",
+        uiBlocks: linkCardsBlock("Possible calendar events", links),
+      };
+    }
+
+    const event = resolution.event;
+    const newTitle = titleFromCalendarRenamePrompt(prompt);
+    const newStatus = statusFromCalendarPrompt(prompt);
+    const changes: string[] = [];
+    const input = {
+      appointmentType: inferCalendarEventType(prompt) ?? event.appointmentType,
+      contactId: event.contactId,
+      conversationId: event.conversationId,
+      description: event.description,
+      endsAt: event.endsAt,
+      leadId: event.leadId,
+      location: event.location,
+      locationAddress: event.locationAddress,
+      metadata: { source: "assistant_calendar_command" },
+      startsAt: event.startsAt,
+      status: event.status as CalendarEventStatus,
+      title: event.title,
+    };
+
+    if (scheduled?.startsAt) {
+      input.startsAt = scheduled.startsAt;
+      input.endsAt = rescheduledEventEnd(
+        event,
+        scheduled.startsAt,
+        calendarSettings.defaultDurationMinutes,
+      );
+      input.status = event.status === "cancelled" ? "scheduled" : input.status;
+      changes.push(
+        `moved it to ${assistantDate(scheduled.startsAt, timeZone)}`,
+      );
+    }
+
+    if (newTitle) {
+      input.title = newTitle;
+      changes.push(`renamed it to ${newTitle}`);
+    }
+
+    if (newStatus && newStatus !== input.status) {
+      input.status = newStatus;
+      changes.push(`marked it ${newStatus}`);
+    }
+
+    if (input.appointmentType !== event.appointmentType) {
+      changes.push(`set the type to ${titleCase(input.appointmentType)}`);
+    }
+
+    if (changes.length === 0) {
+      const link = rowLink(
+        event.title,
+        calendarEventHref(event),
+        event.startsAt ? assistantDate(event.startsAt, timeZone) : event.status,
+      );
+
+      return {
+        context: {
+          eventId: event.id,
+          reason: "No supported calendar change was detected.",
+        },
+        fallbackAnswer:
+          "I found the event, but I could not read the change you wanted. Tell me the new time, title, or status.",
+        intent: "calendar_event",
+        links: [link],
+        title: "Calendar event found",
+        uiBlocks: linkCardsBlock("Calendar event", [link]),
+      };
+    }
+
+    await updateCalendarEventRecord({
+      appointmentId: event.id,
+      input,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    const href = calendarEventHrefFromParts(event.id, input.startsAt);
+    const link = rowLink(
+      input.title,
+      href,
+      input.startsAt ? assistantDate(input.startsAt, timeZone) : input.status,
+    );
+
+    return {
+      context: {
+        changes,
+        eventId: event.id,
+        scheduledAtLocal: input.startsAt
+          ? assistantDate(input.startsAt, timeZone)
+          : null,
+        title: input.title,
+        workspaceTimeZone: timeZone,
+      },
+      fallbackAnswer: `I updated ${input.title}: ${calendarChangeSummary(
+        changes,
+      )}.`,
+      intent: "calendar_event",
+      links: [link],
+      mutation: {
+        entityId: event.id,
+        entityType: "conversation_appointment",
+        label: "Calendar event updated",
+      },
+      title: "Calendar event updated",
+      uiBlocks: linkCardsBlock("Calendar event", [link]),
+    };
+  }
+
+  const now = turnNow;
+  const to = new Date(now.getTime() + 30 * 24 * 60 * 60_000);
+  const events = await getCalendarEvents(supabase, workspace.id, {
+    from: requestedDay?.from ?? now.toISOString(),
+    to: requestedDay?.to ?? to.toISOString(),
+  });
+  const activeEvents = events.filter((event) => event.status !== "cancelled");
+  const contextEvents = activeEvents.slice(0, 30);
+  const top = activeEvents.slice(0, 10);
+  const requestedRangeIsOneDay = requestedDay
+    ? addDaysToDateKey(
+        dateKeyInTimeZone(requestedDay.from, requestedDay.timeZone),
+        1,
+      ) === dateKeyInTimeZone(requestedDay.to, requestedDay.timeZone)
+    : false;
+  const requestedDayAnswer = requestedDay
+    ? top.length > 0
+      ? `You have ${activeEvents.length} calendar event${
+          activeEvents.length === 1 ? "" : "s"
+        } ${requestedRangeIsOneDay ? "on" : "from"} ${
+          requestedDay.dateLabel
+        }: ${top
+          .map(
+            (event) =>
+              requestedRangeIsOneDay
+                ? `${event.title} at ${new Intl.DateTimeFormat("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZone,
+                    timeZoneName: "short",
+                  }).format(new Date(event.startsAt ?? requestedDay.from))}`
+                : `${event.title} on ${assistantDate(
+                    event.startsAt ?? requestedDay.from,
+                    timeZone,
+                  )}`,
+          )
+          .join(", ")}${
+          activeEvents.length > top.length
+            ? `, plus ${activeEvents.length - top.length} more`
+            : ""
+        }.`
+      : `You have no scheduled calendar events ${
+          requestedRangeIsOneDay ? "on" : "from"
+        } ${requestedDay.dateLabel}.`
+    : null;
+
+  return {
+    context: {
+      events: recordsContext(
+        contextEvents.map((event) => ({
+          contact:
+            event.contact?.name ??
+            event.contact?.company ??
+            event.contact?.email ??
+            null,
+          id: event.id,
+          location: event.location,
+          startsAt: event.startsAt,
+          startsAtLocal: event.startsAt
+            ? assistantDate(event.startsAt, timeZone)
+            : null,
+          status: event.status,
+          title: event.title,
+        })),
+      ),
+      range: requestedDay?.dateLabel ?? "next_30_days",
+      rangeFrom: requestedDay?.from ?? now.toISOString(),
+      rangeTo: requestedDay?.to ?? to.toISOString(),
+      totalEventCount: activeEvents.length,
+      workspaceTimeZone: timeZone,
+    },
+    fallbackAnswer:
+      requestedDayAnswer ??
+      (activeEvents.length > 0
+        ? `You have ${activeEvents.length} calendar event${activeEvents.length === 1 ? "" : "s"} coming up in the next 30 days.`
+        : "There are no scheduled calendar events in the next 30 days."),
+    intent: "calendar_event",
+    links: [
+      rowLink(
+        "Calendar",
+        "/calendar",
+        `${activeEvents.length} upcoming event${activeEvents.length === 1 ? "" : "s"}`,
+      ),
+      ...top
+        .slice(0, 4)
+        .map((event) =>
+          rowLink(
+            event.title,
+            calendarEventHref(event),
+            event.startsAt
+              ? assistantDate(event.startsAt, timeZone)
+              : event.status,
+          ),
+        ),
+    ],
+    title: "Calendar",
+    uiBlocks: [
+      ...summaryCardsBlock("Calendar summary", [
+        {
+          detail: requestedDay?.dateLabel ?? "Next 30 days",
+          href: "/calendar",
+          label: "Events",
+          tone: top.length > 0 ? "cyan" : "success",
+          value: String(activeEvents.length),
+        },
+      ]),
+      ...timelineBlock(
+        "Upcoming events",
+        top.map((event) => ({
+          at: event.startsAt,
+          detail:
+            [
+              event.contact?.name ?? event.contact?.company,
+              event.location,
+              event.status,
+            ]
+              .filter(Boolean)
+              .join(" - ") || undefined,
+          href: calendarEventHref(event),
+          label: event.title,
+          tone: event.status === "cancelled" ? "warning" : "cyan",
+        })),
+      ),
+    ],
+  };
+}
+
+export function looksLikeDirectWorkplaceSmsRequest(prompt: string) {
+  const text = normalized(prompt);
+  const hasSendInstruction = /\b(send|text)\b/.test(text);
+  const hasSmsChannel = /\b(sms|text|text message)\b/.test(text);
+  const hasContactTarget =
+    /\b(contact|team member|staff member|employee)\b/.test(text);
+  const hasInternalQualifier =
+    /\b(workplace|team|staff|internal|escalation)\b/.test(text);
+  const hasWorkplaceTarget = hasContactTarget && hasInternalQualifier;
+
+  return hasSendInstruction && hasSmsChannel && hasWorkplaceTarget;
+}
+
+function cleanSmsBody(value: string) {
+  return value
+    .trim()
+    .replace(/^[\s"'“”‘’:,;-]+/, "")
+    .replace(/[\s"'“”‘’]+$/, "")
+    .trim();
+}
+
+export function assistantSmsBodyFromPrompt(prompt: string) {
+  const explicitBodyPatterns = [
+    /\b(?:saying|that says|with (?:the )?(?:message|text))\s*[:,-]?\s*(.+)$/i,
+    /\b(?:sms|text message)\s*[:-]\s*(.+)$/i,
+  ];
+
+  for (const pattern of explicitBodyPatterns) {
+    const match = prompt.match(pattern);
+    const body = match?.[1] ? cleanSmsBody(match[1]) : "";
+
+    if (body) {
+      return body;
+    }
+  }
+
+  if (/\btest(?:ing)?\b/i.test(prompt)) {
+    return "This is a test SMS from Kyro.";
+  }
+
+  return null;
+}
+
+async function workplaceSmsCommand({
+  prompt,
+  supabase,
+  user,
+  workspace,
+}: Pick<CommandInput, "prompt" | "supabase" | "user" | "workspace">) {
+  const settings = await getWorkspaceGeneralSettings(supabase, workspace.id);
+  const contacts = settings.businessProfile.workplaceContacts;
+  const text = normalized(prompt);
+  const primaryRequested =
+    /\b(primary workplace contact|primary escalation contact)\b/.test(text);
+  const namedMatches = contacts
+    .filter((contact) => {
+      const name = normalized(contact.name);
+
+      return Boolean(name && text.includes(name));
+    })
+    .sort((left, right) => right.name.length - left.name.length);
+  const contact = primaryRequested
+    ? (contacts.find((item) => item.primaryEscalationContact) ??
+      contacts[0] ??
+      null)
+    : (namedMatches[0] ?? (contacts.length === 1 ? contacts[0] : null));
+  const settingsLink = rowLink(
+    "Workplace contacts",
+    "/settings?section=general&panel=workplace-contacts",
+    "Choose a contact and phone number",
+  );
+
+  if (!contact) {
+    return {
+      context: {
+        contactCount: contacts.length,
+        reason: "A workplace SMS needs one resolved workplace contact.",
+      },
+      fallbackAnswer:
+        contacts.length > 1
+          ? "Which workplace contact should I text?"
+          : "Add a workplace contact with a phone number before I send this SMS.",
+      intent: "sms_send",
+      links: [settingsLink],
+      title: "Choose workplace contact",
+    } satisfies AssistantCommandResult;
+  }
+
+  const recipientName = textValue(contact.name) ?? "workplace contact";
+  const recipientPhone = textValue(contact.phoneNumber);
+
+  if (!recipientPhone) {
+    return {
+      context: {
+        contactId: contact.id,
+        contactName: recipientName,
+        reason: "The selected workplace contact has no phone number.",
+      },
+      fallbackAnswer: `${recipientName} does not have a phone number saved yet.`,
+      intent: "sms_send",
+      links: [settingsLink],
+      title: "Phone number needed",
+    } satisfies AssistantCommandResult;
+  }
+
+  const body = assistantSmsBodyFromPrompt(prompt);
+
+  if (!body) {
+    return {
+      context: {
+        contactId: contact.id,
+        contactName: recipientName,
+        recipientPhone,
+      },
+      fallbackAnswer: `What would you like the SMS to ${recipientName} to say?`,
+      intent: "sms_send",
+      links: [],
+      title: "SMS message needed",
+    } satisfies AssistantCommandResult;
+  }
+
+  const normalizedPhone =
+    normalizeContactPhoneForRegion(
+      recipientPhone,
+      settings.defaultPhoneRegion,
+    ) ?? recipientPhone;
+  const result = await recordOutboundDirectSms(supabase, {
+    body,
+    recipientName,
+    recipientPhone: normalizedPhone,
+    source: "assistant.workplace_contact_sms",
+    userId: user.id,
+    workplaceContactId: contact.id,
+    workspaceId: workspace.id,
+  });
+
+  if (!result.externalSend) {
+    return {
+      context: {
+        contactId: contact.id,
+        contactName: recipientName,
+        outboundQueueId: result.outboundQueueId,
+        reason: "No active external SMS provider accepted the message.",
+      },
+      fallbackAnswer:
+        "Kyro could not reach the SMS service. Check the workspace Phone and SMS setup and try again.",
+      intent: "sms_send",
+      links: [
+        rowLink(
+          "Phone and SMS",
+          "/settings?section=integrations&panel=phone-sms",
+          "Check SMS setup",
+        ),
+      ],
+      title: "SMS not sent",
+    } satisfies AssistantCommandResult;
+  }
+
+  return {
+    context: {
+      body,
+      contactId: contact.id,
+      contactName: recipientName,
+      outboundQueueId: result.outboundQueueId,
+      provider: result.provider,
+      recipientPhone: normalizedPhone,
+    },
+    fallbackAnswer: `Sent an SMS to ${recipientName}.`,
+    intent: "sms_send",
+    links: [],
+    mutation: {
+      entityId: result.outboundRecordId,
+      entityType: "outbound_sms",
+      label: `SMS sent to ${recipientName}`,
+    },
+    title: "SMS sent",
+  } satisfies AssistantCommandResult;
+}
+
 async function workQueueCommand({
   supabase,
   workspace,
@@ -1403,6 +5511,17 @@ async function workQueueCommand({
   const conversations = await getConversationList(supabase, workspace.id);
   const actionable = conversations.filter(isConversationInLiveWorkQueue);
   const top = actionable.slice(0, 5);
+  const summaries = top.map(workQueueVoiceSummary);
+  const approvalItems = actionable
+    .filter((conversation) => conversation.pendingApprovalCount > 0)
+    .slice(0, 5)
+    .map((conversation) => ({
+      detail: `${conversation.pendingApprovalCount} approval${conversation.pendingApprovalCount === 1 ? "" : "s"} - ${conversation.nextActionLabel}`,
+      href: `/inbox/${conversation.id}`,
+      id: conversation.id,
+      label: conversation.contactName ?? conversation.leadTitle ?? "Inquiry",
+      status: conversation.workflowBucket,
+    }));
 
   return {
     context: {
@@ -1415,6 +5534,8 @@ async function workQueueCommand({
             conversation.leadServiceType ??
             conversation.leadTitle,
           nextAction: conversation.nextActionLabel,
+          operatorSummary: workQueueVoiceSummary(conversation),
+          missingInfo: conversation.inquiryFacts?.missingInfo ?? [],
           status: conversation.status,
           workflowBucket: conversation.workflowBucket,
         })),
@@ -1422,12 +5543,1353 @@ async function workQueueCommand({
     },
     fallbackAnswer:
       top.length > 0
-        ? `${top.length} conversations need attention. The first one is ${top[0].contactName ?? "an unknown contact"}: ${top[0].nextActionLabel}.`
+        ? `${actionable.length} conversation${actionable.length === 1 ? "" : "s"} need attention. ${summaries.join(" ")}`
         : "There are no conversations needing immediate attention in the current work queue.",
     intent: "work_queue",
     links: top.map(conversationToAssistantLink),
     title: "Work queue",
+    uiBlocks: [
+      ...summaryCardsBlock("Queue summary", [
+        {
+          detail: "Live work queue",
+          href: "/inbox",
+          label: "Needs attention",
+          tone: actionable.length > 0 ? "warning" : "success",
+          value: String(actionable.length),
+        },
+      ]),
+      ...approvalQueueBlock("Approval queue", approvalItems),
+    ],
   };
+}
+
+export function looksLikeActionExecutionRequest(prompt: string) {
+  if (looksLikeDirectWorkplaceSmsRequest(prompt)) {
+    return false;
+  }
+
+  if (looksLikeInquiryAvailabilityOfferRequest(prompt)) {
+    return false;
+  }
+
+  const text = normalized(prompt);
+
+  if (
+    /\b(what|which|show|list|review|open|pull up|find|check)\b/.test(text) &&
+    !/\b(send|approve|execute|action|handle|deal with|take care of|sort)\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    /^(do i have|have i got|have i|are there|is there)\b/.test(text) &&
+    !/\b(send|approve|execute|action|handle|deal with|take care of|sort)\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+
+  const directExecutionTarget =
+    /\b(action|handle|execute|approve|send|deal with|take care of|sort)\s+(?:the\s+)?(?:(?:it|that|this|them|these|those|both|everything|ones?)\b|(?:all|both)?\s*(?:the\s+)?(?:pending\s+)?(?:replies|drafts?|leads?|inquiries|messages|approvals?|work queue|queue)\b)/.test(
+      text,
+    );
+  const directReplyTarget =
+    /\b(reply|respond)\s+(?:to\s+)?(?:it|that|this|them|these|those|both|all|everything|ones?|replies|drafts?|leads?|inquiries|messages)\b/.test(
+      text,
+    );
+  const directDoTarget =
+    /\bdo\s+(it|that|this|them|these|those|both|all|everything|ones?)\b/.test(
+      text,
+    );
+
+  return directExecutionTarget || directReplyTarget || directDoTarget;
+}
+
+export function looksLikeInquiryAvailabilityOfferRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(offer|propose|suggest)\b.{0,60}\b(time|slot|availability)\b/.test(
+      text,
+    ) ||
+    /\b(time|slot)\b.{0,50}\b(free|available)\b/.test(text) ||
+    /\bcheck\b.{0,40}\bavailability\b/.test(text)
+  );
+}
+
+function requestedActionLimit(prompt: string) {
+  const text = normalized(prompt);
+
+  if (/\b(both|two|2)\b/.test(text)) {
+    return 2;
+  }
+
+  if (/\b(all|everything|every)\b/.test(text)) {
+    return 10;
+  }
+
+  if (/\b(first|one|1|it|that|this)\b/.test(text)) {
+    return 1;
+  }
+
+  return 5;
+}
+
+function conversationIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "https://kyro.local");
+
+    if (url.pathname.startsWith("/inbox/")) {
+      const id = url.pathname.split("/").filter(Boolean)[1];
+
+      return id || null;
+    }
+
+    return url.searchParams.get("conversationId");
+  } catch {
+    const match = href.match(/^\/inbox\/([^/?#]+)/);
+
+    return match?.[1] ?? null;
+  }
+}
+
+function recentWorkQueueConversationIds(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+  options: { maxAgeMs?: number } = {},
+) {
+  const ids: string[] = [];
+  const now = Date.now();
+
+  for (const message of [...recentMessages].reverse()) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    if (options.maxAgeMs && message.createdAt) {
+      const createdAt = new Date(message.createdAt).getTime();
+
+      if (
+        Number.isFinite(createdAt) &&
+        Math.max(0, now - createdAt) > options.maxAgeMs
+      ) {
+        continue;
+      }
+    }
+
+    const hasWorkQueueIntent =
+      message.intent === "work_queue" ||
+      message.intent === "inquiry_owner_question";
+    const hasWorkQueueBlock = (message.uiBlocks ?? []).some((block) => {
+      if (block.type === "approval_queue") {
+        return true;
+      }
+
+      if (block.type !== "summary_cards") {
+        return false;
+      }
+
+      return /\b(queue|work|approval|reply|inbox)\b/i.test(block.title);
+    });
+
+    if (!hasWorkQueueIntent && !hasWorkQueueBlock) {
+      continue;
+    }
+
+    for (const link of message.links ?? []) {
+      const conversationId = conversationIdFromHref(link.href);
+
+      if (conversationId && !ids.includes(conversationId)) {
+        ids.push(conversationId);
+      }
+    }
+
+    for (const block of message.uiBlocks ?? []) {
+      if (block.type !== "approval_queue") {
+        continue;
+      }
+
+      for (const item of block.items) {
+        const conversationId = item.href
+          ? conversationIdFromHref(item.href)
+          : null;
+
+        if (conversationId && !ids.includes(conversationId)) {
+          ids.push(conversationId);
+        }
+      }
+    }
+
+    if (ids.length > 0) {
+      break;
+    }
+  }
+
+  return ids;
+}
+
+export function looksLikeContextualInquiryReplyRequest(
+  prompt: string,
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  if (
+    recentWorkQueueConversationIds(recentMessages, {
+      maxAgeMs: 30 * 60 * 1000,
+    }).length === 0
+  ) {
+    return false;
+  }
+
+  const text = normalized(prompt);
+  const asksForAdvice =
+    /\b(what|how)\s+(?:should|would|could)\s+(?:i|we)\s+(?:reply|respond|say)\b/.test(
+      text,
+    );
+
+  if (asksForAdvice || /\b(draft|prepare|suggest)\b/.test(text)) {
+    return false;
+  }
+
+  return (
+    /\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:reply|respond|email|message|write back|tell)\b/.test(
+      text,
+    ) ||
+    /^(?:please\s+)?(?:reply|respond|email|message|write back|tell)\b/.test(
+      text,
+    ) ||
+    /\b(?:reply|respond)\s+for\s+(?:me|us)\b/.test(text)
+  );
+}
+
+async function executableDraftReplyActionsForConversations({
+  conversationIds,
+  supabase,
+  workspaceId,
+}: {
+  conversationIds: string[];
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  if (conversationIds.length === 0) {
+    return [] as ExecutableConversationAction[];
+  }
+
+  const { data, error } = await supabase
+    .from("actions")
+    .select("id,status,target_id,input,created_at")
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "conversation")
+    .eq("type", "draft_reply")
+    .in("status", ["pending_approval", "approved"])
+    .in("target_id", conversationIds)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Unable to load pending draft replies: ${error.message}`);
+  }
+
+  const conversationOrder = new Map(
+    conversationIds.map((conversationId, index) => [conversationId, index]),
+  );
+
+  return (data ?? [])
+    .map((action) => {
+      const status = String(action.status);
+
+      if (status !== "pending_approval" && status !== "approved") {
+        return null;
+      }
+
+      const input = objectRecord(action.input);
+
+      return {
+        conversationId: String(action.target_id),
+        createdAt: String(action.created_at),
+        id: String(action.id),
+        input,
+        status,
+        subject: textValue(input.subject),
+      } satisfies ExecutableConversationAction;
+    })
+    .filter((action): action is ExecutableConversationAction => Boolean(action))
+    .sort((left, right) => {
+      const leftConversationIndex =
+        conversationOrder.get(left.conversationId) ?? Number.MAX_SAFE_INTEGER;
+      const rightConversationIndex =
+        conversationOrder.get(right.conversationId) ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftConversationIndex !== rightConversationIndex) {
+        return leftConversationIndex - rightConversationIndex;
+      }
+
+      return (
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      );
+    });
+}
+
+export function recentInquiryConversationForPrompt({
+  conversationIds,
+  conversations,
+  prompt,
+}: {
+  conversationIds: string[];
+  conversations: Array<Pick<ConversationListItem, "contactName" | "id">>;
+  prompt: string;
+}) {
+  const order = new Map(
+    conversationIds.map((conversationId, index) => [conversationId, index]),
+  );
+  const available = conversations
+    .filter((conversation) => order.has(conversation.id))
+    .sort(
+      (left, right) =>
+        (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  const promptText = normalized(prompt);
+  const namedMatches = available.filter((conversation) => {
+    const contactName = normalized(conversation.contactName ?? "");
+    const emailLocalPart = conversation.contactName?.includes("@")
+      ? normalized(conversation.contactName.split("@")[0] ?? "")
+      : "";
+
+    return (
+      (contactName.length > 1 && promptText.includes(contactName)) ||
+      (emailLocalPart.length > 2 && promptText.includes(emailLocalPart))
+    );
+  });
+
+  if (namedMatches.length > 1) {
+    return {
+      ambiguous: true,
+      conversationId: null,
+      matches: namedMatches.map((conversation) => conversation.id),
+    };
+  }
+
+  return {
+    ambiguous: false,
+    conversationId: namedMatches[0]?.id ?? available[0]?.id ?? null,
+    matches: namedMatches.map((conversation) => conversation.id),
+  };
+}
+
+const INQUIRY_COMMITMENT_EVENT_SOURCE = "assistant_inquiry_commitment";
+
+type InquiryCommitmentEventRow = {
+  appointment_type: string | null;
+  contact_id: string | null;
+  conversation_id: string | null;
+  description: string | null;
+  ends_at: string | null;
+  id: string;
+  lead_id: string | null;
+  location: string | null;
+  metadata: unknown;
+  starts_at: string | null;
+  status: string | null;
+  title: string | null;
+};
+
+async function inquiryCommitmentEvent({
+  conversationId,
+  supabase,
+  workspaceId,
+}: {
+  conversationId: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data, error } = await supabase
+    .from("conversation_appointments")
+    .select(
+      "id,appointment_type,contact_id,conversation_id,description,ends_at,lead_id,location,metadata,starts_at,status,title",
+    )
+    .eq("workspace_id", workspaceId)
+    .eq("conversation_id", conversationId)
+    .in("status", [
+      "suggested",
+      "awaiting_customer",
+      "needs_business_approval",
+      "scheduled",
+    ])
+    .order("updated_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(
+      `Unable to load the linked calendar event: ${error.message}`,
+    );
+  }
+
+  return (
+    ((data ?? []) as InquiryCommitmentEventRow[]).find(
+      (event) =>
+        objectRecord(event.metadata).source === INQUIRY_COMMITMENT_EVENT_SOURCE,
+    ) ?? null
+  );
+}
+
+function inquiryCommitmentTitle(conversation: ConversationListItem) {
+  const job = conversationJobLabel(conversation).trim();
+
+  if (!job || job === "General inquiry") {
+    return "Quote visit";
+  }
+
+  const title = /\b(?:quote|quotation|estimate|site visit)\b/i.test(job)
+    ? job
+    : `${job} quote`;
+
+  return `${title.charAt(0).toUpperCase()}${title.slice(1)}`.slice(0, 90);
+}
+
+function inquiryCommitmentDuration(
+  event: InquiryCommitmentEventRow | null,
+  fallbackMinutes: number,
+) {
+  const startsAt = event?.starts_at ? Date.parse(event.starts_at) : Number.NaN;
+  const endsAt = event?.ends_at ? Date.parse(event.ends_at) : Number.NaN;
+  const duration = Math.round((endsAt - startsAt) / 60_000);
+
+  return Number.isFinite(duration) && duration >= 5 && duration <= 720
+    ? duration
+    : fallbackMinutes;
+}
+
+async function upsertInquiryCommitmentCalendarEvent({
+  actionId,
+  conversation,
+  currentTime,
+  prompt,
+  replyBody,
+  scheduleOverride = null,
+  supabase,
+  user,
+  workspace,
+}: {
+  actionId: string;
+  conversation: ConversationListItem;
+  currentTime?: AssistantCurrentTimeContext;
+  prompt: string;
+  replyBody: string;
+  scheduleOverride?: {
+    endsAt: string;
+    startsAt: string;
+  } | null;
+  supabase: SupabaseClient;
+  user: User;
+  workspace: WorkspaceInput;
+}) {
+  const [calendarSettings, existingEvent, generalSettings] = await Promise.all([
+    getCalendarSettings(supabase, workspace.id),
+    inquiryCommitmentEvent({
+      conversationId: conversation.id,
+      supabase,
+      workspaceId: workspace.id,
+    }),
+    currentTime
+      ? Promise.resolve(null)
+      : getWorkspaceGeneralSettings(supabase, workspace.id),
+  ]);
+  const clock =
+    currentTime ??
+    buildAssistantCurrentTimeContext(generalSettings?.timeZone ?? "UTC");
+  const timeZone = clock.currentTimezone;
+  const now = new Date(clock.currentIsoUtc);
+  const defaultDurationMinutes = inquiryCommitmentDuration(
+    existingEvent,
+    calendarSettings.defaultDurationMinutes,
+  );
+  let schedule =
+    scheduleOverride ??
+    parseAssistantCalendarTimeFromPrompts(
+      prompt,
+      conversation.latestBody,
+      {
+        defaultDurationMinutes,
+        now,
+        timeZone,
+      },
+    );
+
+  if (!schedule && existingEvent?.starts_at) {
+    const existingDate = dateKeyInTimeZone(existingEvent.starts_at, timeZone);
+    schedule = parseAssistantCalendarTime(
+      `${existingDate} ${prompt}\n${conversation.latestBody ?? ""}`,
+      {
+        defaultDurationMinutes,
+        now,
+        timeZone,
+      },
+    );
+  }
+
+  if (!schedule) {
+    return null;
+  }
+
+  const linked = await resolveCalendarLinkedEntities({
+    contactId: existingEvent?.contact_id ?? null,
+    conversationId: conversation.id,
+    leadId: existingEvent?.lead_id ?? null,
+    supabase,
+    workspaceId: workspace.id,
+  });
+  const title = inquiryCommitmentTitle(conversation);
+  const location =
+    conversation.inquiryFacts?.address ?? existingEvent?.location ?? null;
+  const metadata = {
+    actionId,
+    customerConfirmation: "awaiting_customer",
+    source: INQUIRY_COMMITMENT_EVENT_SOURCE,
+  };
+
+  async function saveFutureStep(eventId: string) {
+    const startsAt = Date.parse(schedule!.startsAt);
+    const minimumWait = Date.now() + 15 * 60 * 1000;
+    const standardWait = Date.now() + 24 * 60 * 60 * 1000;
+    const beforeAppointment = startsAt - 2 * 60 * 60 * 1000;
+    const expiresAt = Number.isFinite(startsAt)
+      ? new Date(
+          Math.max(minimumWait, Math.min(standardWait, beforeAppointment)),
+        ).toISOString()
+      : new Date(standardWait).toISOString();
+
+    await upsertCalendarConfirmationFutureStep({
+      calendarEventId: eventId,
+      contactId: linked.contactId,
+      conversationId: conversation.id,
+      expiresAt,
+      leadId: linked.leadId,
+      messageId: null,
+      offeredTimeLabel: replyBody,
+      supabase,
+      workspaceId: workspace.id,
+    });
+  }
+
+  if (existingEvent) {
+    await updateCalendarEventRecord({
+      appointmentId: existingEvent.id,
+      input: {
+        appointmentType:
+          (existingEvent.appointment_type as CalendarEventType | null) ??
+          calendarSettings.defaultEventType,
+        contactId: linked.contactId,
+        conversationId: conversation.id,
+        description: replyBody,
+        endsAt: schedule.endsAt,
+        leadId: linked.leadId,
+        location,
+        locationAddress: null,
+        metadata,
+        startsAt: schedule.startsAt,
+        status: "awaiting_customer",
+        title,
+      },
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    await saveFutureStep(existingEvent.id);
+
+    return {
+      action: "updated" as const,
+      eventId: existingEvent.id,
+      startsAt: schedule.startsAt,
+      timeZone,
+      title,
+    };
+  }
+
+  const eventId = await createCalendarEventRecord({
+    input: {
+      appointmentType: calendarSettings.defaultEventType,
+      contactId: linked.contactId,
+      conversationId: conversation.id,
+      description: replyBody,
+      endsAt: schedule.endsAt,
+      leadId: linked.leadId,
+      location,
+      locationAddress: null,
+      metadata,
+      startsAt: schedule.startsAt,
+      status: "awaiting_customer",
+      title,
+    },
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
+  });
+
+  await saveFutureStep(eventId);
+
+  return {
+    action: "created" as const,
+    eventId,
+    startsAt: schedule.startsAt,
+    timeZone,
+    title,
+  };
+}
+
+function recentOwnerQuestionConversationIds(
+  recentMessages: readonly AssistantRecentMessage[] = [],
+) {
+  const now = Date.now();
+
+  for (const message of [...recentMessages].reverse()) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    if (message.intent !== "inquiry_owner_question") {
+      return [];
+    }
+
+    if (message.createdAt) {
+      const createdAt = new Date(message.createdAt).getTime();
+
+      if (
+        Number.isFinite(createdAt) &&
+        Math.max(0, now - createdAt) > 30 * 24 * 60 * 60 * 1000
+      ) {
+        return [];
+      }
+    }
+
+    const ids: string[] = [];
+
+    for (const link of message.links ?? []) {
+      const conversationId = conversationIdFromHref(link.href);
+
+      if (conversationId && !ids.includes(conversationId)) {
+        ids.push(conversationId);
+      }
+    }
+
+    for (const block of message.uiBlocks ?? []) {
+      if (block.type !== "approval_queue") {
+        continue;
+      }
+
+      for (const item of block.items) {
+        const conversationId = item.href
+          ? conversationIdFromHref(item.href)
+          : null;
+
+        if (conversationId && !ids.includes(conversationId)) {
+          ids.push(conversationId);
+        }
+      }
+    }
+
+    return ids;
+  }
+
+  return [];
+}
+
+async function answerPendingInquiryQuestionCommand({
+  actor = null,
+  allowWorkspaceFallback = false,
+  currentTime,
+  inputSource = "typed",
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  | "actor"
+  | "currentTime"
+  | "inputSource"
+  | "prompt"
+  | "recentMessages"
+  | "supabase"
+  | "threadId"
+  | "user"
+  | "workspace"
+> & {
+  allowWorkspaceFallback?: boolean;
+}): Promise<AssistantCommandResult | null> {
+  const conversationIds = recentOwnerQuestionConversationIds(recentMessages);
+
+  if (conversationIds.length === 0 && !allowWorkspaceFallback) {
+    return null;
+  }
+
+  const step = await getPendingBusinessAnswerFutureStepForConversations(
+    supabase,
+    workspace.id,
+    conversationIds,
+  );
+
+  if (!step) {
+    return null;
+  }
+
+  const ownerQuestion =
+    textValue(step.triggerPayload.ownerQuestion) ??
+    textValue(step.metadata.ownerQuestion) ??
+    "What information should I give the customer?";
+  const instruction = [
+    `Kyro asked the business owner this question about the current customer inquiry: "${ownerQuestion}"`,
+    `The business owner answered: "${prompt.trim()}"`,
+    "Use that answer and the existing customer conversation to write and send the complete customer-facing response.",
+    "Do not ask the customer for information the business owner has supplied. Do not add unrelated service-intake questions.",
+  ].join("\n");
+  const result = await replyToRecentInquiryCommand({
+    actor,
+    conversationIdOverride: step.conversationId,
+    currentTime,
+    inputSource,
+    prompt: instruction,
+    recentMessages,
+    supabase,
+    threadId,
+    user,
+    userPrompt: instruction,
+    workspace,
+  });
+
+  if (result.context.attempted === true) {
+    await completeBusinessAnswerFutureStep({
+      outcome:
+        result.context.externalSend === true ? "reply_sent" : "draft_updated",
+      ownerAnswer: prompt.trim(),
+      stepId: step.id,
+      supabase,
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      ...result,
+      context: {
+        ...result.context,
+        answeredOwnerQuestion: ownerQuestion,
+        futureStepId: step.id,
+      },
+      intent: "inquiry_internal_answer",
+    };
+  }
+
+  return result;
+}
+
+async function replyToRecentInquiryCommand({
+  actor = null,
+  availabilityPrompt = null,
+  currentTime,
+  inputSource = "typed",
+  prompt,
+  recentMessages = [],
+  supabase,
+  threadId = null,
+  user,
+  userPrompt = null,
+  workspace,
+  conversationIdOverride = null,
+}: Pick<
+  CommandInput,
+  | "currentTime"
+  | "actor"
+  | "inputSource"
+  | "prompt"
+  | "recentMessages"
+  | "supabase"
+  | "threadId"
+  | "user"
+  | "workspace"
+> & {
+  availabilityPrompt?: string | null;
+  conversationIdOverride?: string | null;
+  userPrompt?: string | null;
+}): Promise<AssistantCommandResult> {
+  const instructionPrompt = userPrompt?.trim() || prompt;
+  const conversationIds = conversationIdOverride
+    ? [conversationIdOverride]
+    : recentWorkQueueConversationIds(recentMessages, {
+        maxAgeMs: 30 * 60 * 1000,
+      });
+
+  if (conversationIds.length === 0) {
+    return {
+      context: {
+        attempted: false,
+        reason:
+          "No recent inquiry notification identified the intended conversation.",
+      },
+      fallbackAnswer:
+        "I can do that, but I need to know which inquiry you mean. Open the work queue or tell me the customer's name.",
+      intent: "inquiry_reply",
+      links: [rowLink("Work queue", "/inbox", "Choose an inquiry")],
+      title: "Choose an inquiry",
+    };
+  }
+
+  const conversations = await getConversationList(supabase, workspace.id);
+  const selectedConversation = conversationIdOverride
+    ? {
+        ambiguous: false,
+        conversationId: conversationIdOverride,
+        matches: [conversationIdOverride],
+      }
+    : recentInquiryConversationForPrompt({
+        conversationIds,
+        conversations,
+        prompt: instructionPrompt,
+      });
+
+  if (selectedConversation.ambiguous) {
+    const matches = conversations.filter((conversation) =>
+      selectedConversation.matches.includes(conversation.id),
+    );
+
+    return {
+      context: {
+        attempted: false,
+        conversationIds: selectedConversation.matches,
+        reason: "The named customer has more than one recent inquiry.",
+      },
+      fallbackAnswer:
+        "I found more than one recent inquiry for that customer. Tell me the job or inquiry you mean and I will use the right one.",
+      intent: "inquiry_reply",
+      links: matches.map(conversationToInquiryLink),
+      title: "Choose an inquiry",
+    };
+  }
+
+  const conversationId =
+    selectedConversation.conversationId ?? conversationIds[0];
+  const conversation = conversations.find((item) => item.id === conversationId);
+  const customer = conversation
+    ? conversationDisplayName(conversation)
+    : "the customer";
+  const [action] = await executableDraftReplyActionsForConversations({
+    conversationIds: [conversationId],
+    supabase,
+    workspaceId: workspace.id,
+  });
+
+  if (!action) {
+    return {
+      context: {
+        attempted: false,
+        conversationId,
+        reason: "The referenced inquiry no longer has a pending reply action.",
+      },
+      fallbackAnswer: `I found ${customer}'s inquiry, but there is no pending response available to update and send. Open it in Kyro and I can work from the current conversation.`,
+      intent: "inquiry_reply",
+      links: [
+        rowLink(
+          customer,
+          `/inbox?conversationId=${conversationId}`,
+          "Open inquiry",
+        ),
+      ],
+      title: "No pending response",
+    };
+  }
+
+  let verifiedAvailability:
+    | {
+        endsAt: string;
+        label: string;
+        startsAt: string;
+        timeZone: string;
+      }
+    | null = null;
+
+  if (availabilityPrompt) {
+    const voiceSettings = await getVoiceSettings(supabase, workspace.id);
+
+    if (voiceSettings.phoneAgentInboundInquiryMode === "capture_notify") {
+      return {
+        context: {
+          attempted: false,
+          conversationId,
+          reason:
+            "The workspace requires the business to choose appointment times.",
+        },
+        fallbackAnswer:
+          "I found the inquiry, but this workspace is set to capture and notify rather than offer calendar times. Open the inquiry to choose a time, or change Inbound inquiry handling in Settings.",
+        intent: "inquiry_reply",
+        links: [
+          rowLink(
+            customer,
+            `/inbox?conversationId=${conversationId}`,
+            "Open inquiry",
+          ),
+          rowLink(
+            "Inbound inquiry handling",
+            "/settings?section=integrations&panel=inbound-inquiry-handling",
+            "Change booking autonomy",
+          ),
+        ],
+        title: "Choose an appointment time",
+      };
+    }
+
+    const generalSettings = currentTime
+      ? null
+      : await getWorkspaceGeneralSettings(supabase, workspace.id);
+    const clock =
+      currentTime ??
+      buildAssistantCurrentTimeContext(generalSettings?.timeZone ?? "UTC");
+    const range = calendarDateRangeFromPrompts(
+      availabilityPrompt,
+      instructionPrompt,
+      clock.currentTimezone,
+      new Date(clock.currentIsoUtc),
+    );
+
+    if (!range) {
+      return {
+        context: {
+          attempted: false,
+          conversationId,
+          reason: "No reliable calendar availability range was identified.",
+        },
+        fallbackAnswer:
+          "I found the inquiry, but I need a date range before I can check the calendar and offer a real time. Tell me which day or week to use.",
+        intent: "inquiry_reply",
+        links: [
+          rowLink(
+            customer,
+            `/inbox?conversationId=${conversationId}`,
+            "Open inquiry",
+          ),
+        ],
+        title: "Choose a date range",
+      };
+    }
+
+    const availability = await findWorkspaceAvailableSlots({
+      from: range.from,
+      limit: 1,
+      supabase,
+      to: range.to,
+      workspaceId: workspace.id,
+    });
+    const slot = availability.slots[0];
+
+    if (!slot) {
+      return {
+        context: {
+          attempted: false,
+          conversationId,
+          dateRange: range.dateLabel,
+          reason: "No available calendar slot was found.",
+        },
+        fallbackAnswer: `I checked ${range.dateLabel}, but there is no free time that fits the workspace calendar rules. I have not sent a reply or promised a time.`,
+        intent: "inquiry_reply",
+        links: [
+          rowLink(
+            customer,
+            `/inbox?conversationId=${conversationId}`,
+            "Open inquiry",
+          ),
+          rowLink("Calendar", "/calendar", "Review availability"),
+        ],
+        title: "No available time",
+      };
+    }
+
+    verifiedAvailability = {
+      endsAt: slot.endsAt,
+      label: slot.label,
+      startsAt: slot.startsAt,
+      timeZone: availability.timeZone,
+    };
+  }
+
+  const draft = await generateReplyDraft({
+    conversationId: action.conversationId,
+    prompt: instructionPrompt,
+    supabase,
+    userId: user.id,
+    verifiedAvailability,
+    workspaceId: workspace.id,
+  });
+  const now = new Date().toISOString();
+  const after = {
+    ...action.input,
+    body: draft.body,
+    gmailExternalSendEnabled: true,
+    settingsSnapshot: {
+      ...objectRecord(action.input.settingsSnapshot),
+      assistantInstruction: instructionPrompt,
+      assistantRequestOrigin: threadId
+        ? {
+            inputSource,
+            phoneNumber: actor?.phoneNumber ?? null,
+            threadId,
+            userId: user.id,
+          }
+        : null,
+      source: "assistant.contextual_inquiry_reply",
+    },
+    signatureVariant: "ai_generated",
+    subject: draft.subject,
+    userEditedDraft: false,
+  };
+  const { error: updateError } = await supabase
+    .from("actions")
+    .update({ input: after })
+    .eq("workspace_id", workspace.id)
+    .eq("id", action.id);
+
+  if (updateError) {
+    throw new Error(
+      `Unable to update the customer reply: ${updateError.message}`,
+    );
+  }
+
+  await insertAuditLog(supabase, {
+    workspaceId: workspace.id,
+    actorType: "user",
+    actorId: user.id,
+    action: "draft_reply.updated",
+    entityType: "action",
+    entityId: action.id,
+    before: { input: action.input },
+    after: { input: after },
+    metadata: {
+      assistantInstruction: instructionPrompt,
+      conversationId: action.conversationId,
+      source: "assistant.contextual_inquiry_reply",
+      updatedAt: now,
+    },
+  });
+
+  if (action.status === "pending_approval") {
+    await approveAction(supabase, user, action.id);
+  }
+
+  let execution: Awaited<ReturnType<typeof executeAction>>;
+
+  try {
+    execution = await executeAction(supabase, user, action.id);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "The delivery attempt failed.";
+    const reason = /does not have an email address/i.test(errorMessage)
+      ? "the contact does not have an email address"
+      : /does not have a phone number/i.test(errorMessage)
+        ? "the contact does not have a phone number"
+        : "the delivery provider did not complete the send";
+
+    return {
+      context: {
+        actionId: action.id,
+        attempted: true,
+        conversationId: action.conversationId,
+        customer,
+        deliveryError: errorMessage,
+        externalSend: false,
+        instruction: instructionPrompt,
+        subject: draft.subject,
+      },
+      fallbackAnswer: `I prepared this reply for ${customer}: “${draft.body}” It was not sent because ${reason}. The reply remains available in Kyro so you can retry it or choose another channel.`,
+      intent: "inquiry_reply",
+      links: [
+        rowLink(
+          customer,
+          `/inbox?conversationId=${action.conversationId}`,
+          "Reply not sent",
+        ),
+      ],
+      mutation: {
+        entityId: action.id,
+        entityType: "action",
+        label: "Reply not sent",
+      },
+      title: "Reply not sent",
+    };
+  }
+  const externalSend = execution.externalSend === true;
+  let calendarEvent: Awaited<
+    ReturnType<typeof upsertInquiryCommitmentCalendarEvent>
+  > | null = null;
+  let calendarError: string | null = null;
+
+  if (externalSend && draft.calendarCommitment && conversation) {
+    try {
+      calendarEvent = await upsertInquiryCommitmentCalendarEvent({
+        actionId: action.id,
+        conversation,
+        currentTime,
+        prompt: instructionPrompt,
+        replyBody: draft.body,
+        scheduleOverride: verifiedAvailability
+          ? {
+              endsAt: verifiedAvailability.endsAt,
+              startsAt: verifiedAvailability.startsAt,
+            }
+          : null,
+        supabase,
+        user,
+        workspace,
+      });
+    } catch (error) {
+      calendarError =
+        error instanceof Error ? error.message : "Calendar update failed.";
+      console.error("Unable to apply inquiry reply calendar commitment", {
+        actionId: action.id,
+        conversationId: action.conversationId,
+        error: calendarError,
+        workspaceId: workspace.id,
+      });
+    }
+  }
+
+  const links = [
+    rowLink(
+      customer,
+      `/inbox?conversationId=${action.conversationId}`,
+      externalSend ? "Reply sent" : "Reply recorded",
+    ),
+    ...(calendarEvent
+      ? [
+          rowLink(
+            calendarEvent.title,
+            calendarEventHrefFromParts(
+              calendarEvent.eventId,
+              calendarEvent.startsAt,
+            ),
+            assistantDate(calendarEvent.startsAt, calendarEvent.timeZone),
+          ),
+        ]
+      : []),
+  ];
+  const fallbackAnswer = !externalSend
+    ? `I updated the response for ${customer}, but Kyro could not confirm that it was delivered externally, so I did not change the calendar.`
+    : calendarError
+      ? `I sent the response to ${customer}, but the linked calendar update needs attention.`
+      : draft.calendarCommitment && !calendarEvent
+        ? `I sent the response to ${customer}. It included an attendance commitment, but I could not identify a reliable date and time to add to the calendar.`
+        : calendarEvent
+          ? `Done. I sent the response to ${customer} and ${
+              calendarEvent.action === "created" ? "added" : "updated"
+            } a tentative ${calendarEvent.title} on the calendar for ${assistantDate(
+              calendarEvent.startsAt,
+              calendarEvent.timeZone,
+            )}. It is marked as waiting for the customer until they confirm.`
+          : `Done. I updated the response with your instruction and sent it to ${customer}.`;
+
+  return {
+    context: {
+      actionId: action.id,
+      attempted: true,
+      calendarError,
+      calendarEventId: calendarEvent?.eventId ?? null,
+      calendarMutation: calendarEvent?.action ?? null,
+      calendarRequested: draft.calendarCommitment,
+      conversationId: action.conversationId,
+      customer,
+      externalSend,
+      instruction: instructionPrompt,
+      subject: draft.subject,
+    },
+    fallbackAnswer,
+    intent: "inquiry_reply",
+    links,
+    mutation: {
+      entityId: action.id,
+      entityType: "action",
+      label: externalSend ? "Customer reply sent" : "Customer reply recorded",
+    },
+    title: externalSend ? "Reply sent" : "Reply recorded",
+  };
+}
+
+async function executeApprovedWorkQueueRepliesCommand({
+  prompt,
+  recentMessages = [],
+  supabase,
+  user,
+  workspace,
+}: Pick<
+  CommandInput,
+  "prompt" | "recentMessages" | "supabase" | "user" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const conversations = await getConversationList(supabase, workspace.id);
+  const recentConversationIds = recentWorkQueueConversationIds(recentMessages);
+  const liveWorkQueueConversationIds = conversations
+    .filter(isConversationInLiveWorkQueue)
+    .map((conversation) => conversation.id);
+  const candidateConversationIds =
+    recentConversationIds.length > 0
+      ? recentConversationIds.filter((conversationId) =>
+          liveWorkQueueConversationIds.includes(conversationId),
+        )
+      : liveWorkQueueConversationIds;
+  const actions = (
+    await executableDraftReplyActionsForConversations({
+      conversationIds: candidateConversationIds,
+      supabase,
+      workspaceId: workspace.id,
+    })
+  ).slice(0, requestedActionLimit(prompt));
+
+  if (actions.length === 0) {
+    return {
+      context: {
+        attempted: false,
+        reason:
+          "No pending or approved draft replies matched the current work queue.",
+        requestedLimit: requestedActionLimit(prompt),
+      },
+      fallbackAnswer:
+        "I could not find any pending generated replies in the current work queue to send. Open the work queue and I can act on a specific item if needed.",
+      intent: "action_execution",
+      links: [rowLink("Work queue", "/inbox", "No generated replies ready")],
+      title: "No generated replies ready",
+    };
+  }
+
+  const conversationById = new Map(
+    conversations.map((conversation) => [conversation.id, conversation]),
+  );
+  const executed: Array<{
+    actionId: string;
+    conversationId: string;
+    customer: string;
+    subject: string | null;
+  }> = [];
+  const failed: Array<{
+    actionId: string;
+    conversationId: string;
+    customer: string;
+    error: string;
+  }> = [];
+
+  for (const action of actions) {
+    const conversation = conversationById.get(action.conversationId);
+    const customer = conversation
+      ? conversationDisplayName(conversation)
+      : "Customer";
+
+    try {
+      if (action.status === "pending_approval") {
+        await approveAction(supabase, user, action.id);
+      }
+
+      await executeAction(supabase, user, action.id);
+      executed.push({
+        actionId: action.id,
+        conversationId: action.conversationId,
+        customer,
+        subject: action.subject,
+      });
+    } catch (error) {
+      failed.push({
+        actionId: action.id,
+        conversationId: action.conversationId,
+        customer,
+        error: error instanceof Error ? error.message : "Action failed.",
+      });
+    }
+  }
+
+  const executedLinks = executed.map((item) =>
+    rowLink(item.customer, `/inbox/${item.conversationId}`, "Reply sent"),
+  );
+  const failedLinks = failed.map((item) =>
+    rowLink(item.customer, `/inbox/${item.conversationId}`, "Needs review"),
+  );
+
+  return {
+    context: {
+      attempted: true,
+      executed: recordsContext(executed),
+      failed: recordsContext(failed),
+      requestedLimit: requestedActionLimit(prompt),
+    },
+    fallbackAnswer:
+      failed.length === 0
+        ? `Done. I sent ${executed.length} generated repl${executed.length === 1 ? "y" : "ies"} from the work queue.`
+        : `I sent ${executed.length} generated repl${executed.length === 1 ? "y" : "ies"}, but ${failed.length} item${failed.length === 1 ? "" : "s"} still need review.`,
+    intent: "action_execution",
+    links: [...executedLinks, ...failedLinks],
+    mutation:
+      executed.length > 0
+        ? {
+            entityId: executed[0].actionId,
+            entityType: "action",
+            label:
+              executed.length === 1
+                ? "Generated reply sent"
+                : `${executed.length} generated replies sent`,
+          }
+        : undefined,
+    title: failed.length === 0 ? "Replies sent" : "Some replies need review",
+    uiBlocks: [
+      ...summaryCardsBlock("Action summary", [
+        {
+          detail: "Generated replies sent",
+          href: "/inbox",
+          label: "Sent",
+          tone: executed.length > 0 ? "success" : "warning",
+          value: String(executed.length),
+        },
+        {
+          detail: "Could not be completed automatically",
+          href: "/inbox",
+          label: "Needs review",
+          tone: failed.length > 0 ? "warning" : "success",
+          value: String(failed.length),
+        },
+      ]),
+    ],
+  };
+}
+
+function workQueueVoiceSummary(conversation: ConversationListItem) {
+  const customer = conversationDisplayName(conversation);
+  const job = conversationJobLabel(conversation);
+  const jobSuffix = job === "General inquiry" ? "" : ` for ${job}`;
+  const missing = conversation.inquiryFacts?.missingInfo ?? [];
+
+  if (conversation.workflowBucket === "missing_info") {
+    const missingText = joinHumanList(missing);
+
+    return `${customer}${jobSuffix}: missing ${missingText || "key details"}. Next step: send a short reply asking for that.`;
+  }
+
+  if (
+    conversation.pendingApprovalCount > 0 ||
+    conversation.status === "reply_drafted"
+  ) {
+    return `${customer}${jobSuffix}: a draft reply is waiting for review. Next step: review and send it.`;
+  }
+
+  if (conversation.workflowBucket === "follow_up_due") {
+    return `${customer}${jobSuffix}: follow-up is due. Next step: check the thread and nudge the customer if still relevant.`;
+  }
+
+  if (conversation.workflowBucket === "ready_to_quote") {
+    return `${customer}${jobSuffix}: ready for quote work. Next step: prepare or review the quote.`;
+  }
+
+  if (conversation.workflowBucket === "site_visit_needed") {
+    return `${customer}${jobSuffix}: likely needs a site visit. Next step: suggest a booking time.`;
+  }
+
+  if (conversation.workflowBucket === "needs_review") {
+    return `${customer}${jobSuffix}: needs review before action. Next step: check the profile and inquiry details.`;
+  }
+
+  return `${customer}${jobSuffix}: ${conversation.nextActionLabel}.`;
 }
 
 async function inquiryLookupCommand({
@@ -1453,10 +6915,10 @@ async function inquiryLookupCommand({
     return {
       context: {
         matchType: "exact",
-        records: recordsContext([inquiryRecord(conversation)]),
+        records: recordsContext([inquiryRecordForAssistant(conversation)]),
         searchTerm,
       },
-      fallbackAnswer: `${inquiryStatusSummary(conversation)} Open the inquiry below if you want to review or action it.`,
+      fallbackAnswer: inquiryLookupFallbackAnswerForAssistant(conversation),
       intent: "inquiry_lookup",
       links: [conversationToInquiryLink(conversation)],
       title: "Inquiry",
@@ -1467,7 +6929,7 @@ async function inquiryLookupCommand({
     return {
       context: {
         matchType: exactMatches.length > 1 ? "multiple_exact" : "partial",
-        records: recordsContext(top.map(inquiryRecord)),
+        records: recordsContext(top.map(inquiryRecordForAssistant)),
         searchTerm,
       },
       fallbackAnswer:
@@ -1569,7 +7031,7 @@ async function quoteCommand({
     links: top.map((quote) =>
       rowLink(
         quote.title,
-        `/documents/${quote.id}`,
+        `/files/${quote.id}`,
         `${titleCase(quote.status)} - ${quote.lineItemCount} line items`,
       ),
     ),
@@ -1634,13 +7096,17 @@ async function quoteSendReadyListCommand({
   const quotes = await getQuoteDraftList(supabase, workspace.id);
   const openQuotes = quotes.filter(quoteIsSendableStatus);
   const ready = openQuotes.filter((quote) => quoteSendReadiness(quote).ready);
-  const blocked = openQuotes.filter((quote) => !quoteSendReadiness(quote).ready);
+  const blocked = openQuotes.filter(
+    (quote) => !quoteSendReadiness(quote).ready,
+  );
   const top = ready.slice(0, 6);
 
   return {
     context: {
       blockedCount: blocked.length,
-      blockedExamples: recordsContext(blocked.slice(0, 6).map(quoteReadyRecord)),
+      blockedExamples: recordsContext(
+        blocked.slice(0, 6).map(quoteReadyRecord),
+      ),
       readyCount: ready.length,
       readyQuotes: recordsContext(top.map(quoteReadyRecord)),
     },
@@ -1654,7 +7120,7 @@ async function quoteSendReadyListCommand({
     links: top.map((quote) =>
       rowLink(
         quote.title,
-        `/documents/${quote.id}`,
+        `/files/${quote.id}`,
         `${quoteCustomerLabel(quote)} - ${titleCase(quote.status)}`,
       ),
     ),
@@ -1698,7 +7164,7 @@ async function quoteHistoryCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.quote.title,
-          `/documents/${candidate.quote.id}`,
+          `/files/${candidate.quote.id}`,
           `${quoteCustomerLabel(candidate.quote)} - ${titleCase(candidate.quote.status)}`,
         ),
       ),
@@ -1738,9 +7204,15 @@ async function quoteHistoryCommand({
     history,
   });
   const sentEvent = history.find((event) => event.kind === "email_sent");
-  const preparedEvent = history.find((event) => event.kind === "email_prepared");
-  const generatedEvent = history.find((event) => event.kind === "pdf_generated");
-  const approvedEvent = history.find((event) => event.kind === "customer_approved");
+  const preparedEvent = history.find(
+    (event) => event.kind === "email_prepared",
+  );
+  const generatedEvent = history.find(
+    (event) => event.kind === "pdf_generated",
+  );
+  const approvedEvent = history.find(
+    (event) => event.kind === "customer_approved",
+  );
   const changesRequestedEvent = history.find(
     (event) => event.kind === "customer_changes_requested",
   );
@@ -1762,10 +7234,10 @@ async function quoteHistoryCommand({
   const changedLine = revisionState.pendingChangeRequest
     ? `The customer requested changes to v${revisionState.pendingChangeRequest.requestedFromVersion}: ${revisionState.pendingChangeRequest.message ?? "no note was provided"}.`
     : freshness.latest
-    ? freshness.changed
-      ? "The quote has changed since the latest document event, so generate or prepare a fresh PDF before relying on it."
-      : "The latest document event matches the current quote content."
-    : "There is no document version to compare against yet.";
+      ? freshness.changed
+        ? "The quote has changed since the latest document event, so generate or prepare a fresh PDF before relying on it."
+        : "The latest document event matches the current quote content."
+      : "There is no document version to compare against yet.";
 
   return {
     context: {
@@ -1787,7 +7259,7 @@ async function quoteHistoryCommand({
     links: [
       rowLink(
         profile.quoteDraft.title,
-        `/documents/${profile.quoteDraft.id}`,
+        `/files/${profile.quoteDraft.id}`,
         "Quote history",
       ),
       ...(profile.quoteDraft.conversation
@@ -1893,7 +7365,9 @@ async function prepareQuoteDraftSendFromAssistant({
   ]);
 
   if (contactResult.error) {
-    throw new Error(`Unable to load customer contact: ${contactResult.error.message}`);
+    throw new Error(
+      `Unable to load customer contact: ${contactResult.error.message}`,
+    );
   }
 
   if (leadResult.error) {
@@ -1907,7 +7381,10 @@ async function prepareQuoteDraftSendFromAssistant({
   const customerEmail =
     textValue(contact.email) ?? textValue(metadata.customerEmail);
 
-  if (String(quoteDraft.status) === "changes_requested" || revisionState.pendingChangeRequest) {
+  if (
+    String(quoteDraft.status) === "changes_requested" ||
+    revisionState.pendingChangeRequest
+  ) {
     return {
       message:
         "That quote has customer-requested changes waiting. Open it, edit and save the revision, then I can prepare the revised quote email.",
@@ -1940,7 +7417,9 @@ async function prepareQuoteDraftSendFromAssistant({
     .limit(25);
 
   if (pending.error) {
-    throw new Error(`Unable to check pending quote emails: ${pending.error.message}`);
+    throw new Error(
+      `Unable to check pending quote emails: ${pending.error.message}`,
+    );
   }
 
   const duplicateAction = (pending.data ?? []).find((action) => {
@@ -2049,19 +7528,16 @@ async function prepareQuoteDraftSendFromAssistant({
     },
     source: "assistant.quote_send",
   });
-  const nextMetadata = appendQuoteDocumentHistory(
-    preparedMetadata,
-    {
-      actionId: String(action.id),
-      actorType: "ai",
-      contentHash: documentMetadata.contentHash,
-      document: documentMetadata,
-      kind: "email_prepared",
-      occurredAt: documentMetadata.generatedAt,
-      quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
-      source: "assistant.quote_send",
-    },
-  );
+  const nextMetadata = appendQuoteDocumentHistory(preparedMetadata, {
+    actionId: String(action.id),
+    actorType: "ai",
+    contentHash: documentMetadata.contentHash,
+    document: documentMetadata,
+    kind: "email_prepared",
+    occurredAt: documentMetadata.generatedAt,
+    quoteVersion: quoteRevisionState(preparedMetadata).currentVersion,
+    source: "assistant.quote_send",
+  });
   const { error: updateError } = await supabase
     .from("quote_drafts")
     .update({
@@ -2155,11 +7631,12 @@ async function quoteSendCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.quote.title,
-          `/documents/${candidate.quote.id}`,
+          `/files/${candidate.quote.id}`,
           `${quoteCustomerLabel(candidate.quote)} - ${titleCase(candidate.quote.status)}`,
         ),
       ),
-      title: selection.kind === "ambiguous" ? "Choose a quote" : "Quote not found",
+      title:
+        selection.kind === "ambiguous" ? "Choose a quote" : "Quote not found",
     };
   }
 
@@ -2176,7 +7653,7 @@ async function quoteSendCommand({
       links: [
         rowLink(
           selection.quote.title,
-          `/documents/${selection.quote.id}`,
+          `/files/${selection.quote.id}`,
           "Fix quote details",
         ),
       ],
@@ -2201,7 +7678,11 @@ async function quoteSendCommand({
       fallbackAnswer: result.message,
       intent: "quote_send_prepare",
       links: [
-        rowLink(result.quoteTitle, `/documents/${result.quoteDraftId}`, "Quote draft"),
+        rowLink(
+          result.quoteTitle,
+          `/files/${result.quoteDraftId}`,
+          "Quote draft",
+        ),
       ],
       title: "Quote needs setup",
     };
@@ -2218,8 +7699,16 @@ async function quoteSendCommand({
         "A quote email is already prepared for this draft. Review the pending message in the linked inquiry before creating another one.",
       intent: "quote_send_prepare",
       links: [
-        rowLink(result.quoteTitle, `/inbox/${result.conversationId}`, "Review email"),
-        rowLink(result.quoteTitle, `/documents/${result.quoteDraftId}`, "Quote draft"),
+        rowLink(
+          result.quoteTitle,
+          `/inbox/${result.conversationId}`,
+          "Review email",
+        ),
+        rowLink(
+          result.quoteTitle,
+          `/files/${result.quoteDraftId}`,
+          "Quote draft",
+        ),
       ],
       title: "Quote email already prepared",
     };
@@ -2238,8 +7727,16 @@ async function quoteSendCommand({
       "I prepared a reviewable customer email with the quote PDF attached. It has not been sent yet; open the inquiry, check the message, then send it when you are happy.",
     intent: "quote_send_prepare",
     links: [
-      rowLink(result.quoteTitle, `/inbox/${result.conversationId}`, "Review and send"),
-      rowLink(result.quoteTitle, `/documents/${result.quoteDraftId}`, "Quote draft"),
+      rowLink(
+        result.quoteTitle,
+        `/inbox/${result.conversationId}`,
+        "Review and send",
+      ),
+      rowLink(
+        result.quoteTitle,
+        `/files/${result.quoteDraftId}`,
+        "Quote draft",
+      ),
     ],
     mutation: {
       entityId: result.actionId,
@@ -2292,6 +7789,39 @@ async function contactCommand({
   }
 
   const profile = await getContactProfile(supabase, workspace.id, contact.id);
+  const contactTimeline = profile
+    ? [
+        ...profile.messages.slice(0, 4).map((message) => ({
+          at: message.receivedAt ?? message.sentAt ?? message.createdAt,
+          detail:
+            message.subject ??
+            message.bodyText?.slice(0, 120) ??
+            "Message recorded",
+          href: message.conversationId
+            ? `/inbox/${message.conversationId}`
+            : `/contacts/${contact.id}`,
+          label: `${titleCase(message.direction)} message`,
+          tone:
+            message.direction === "inbound"
+              ? ("cyan" as const)
+              : ("pink" as const),
+        })),
+        ...profile.quoteDrafts.slice(0, 2).map((quote) => ({
+          at: quote.updatedAt,
+          detail: `${titleCase(quote.status)} - ${quote.lineItemCount} line items`,
+          href: `/files/${quote.id}`,
+          label: quote.title,
+          tone: "purple" as const,
+        })),
+      ]
+        .sort((left, right) => {
+          const leftTime = left.at ? Date.parse(left.at) : 0;
+          const rightTime = right.at ? Date.parse(right.at) : 0;
+
+          return rightTime - leftTime;
+        })
+        .slice(0, 5)
+    : [];
 
   return {
     context: {
@@ -2330,6 +7860,32 @@ async function contactCommand({
       ),
     ],
     title: "Contact summary",
+    uiBlocks: [
+      ...summaryCardsBlock("Contact snapshot", [
+        {
+          detail: "Linked messages",
+          href: `/contacts/${contact.id}`,
+          label: "Messages",
+          tone: "cyan",
+          value: String(profile?.counts.messages ?? contact.messageCount),
+        },
+        {
+          detail: "Open or historical leads",
+          href: `/contacts/${contact.id}`,
+          label: "Leads",
+          tone: "purple",
+          value: String(profile?.counts.leads ?? 0),
+        },
+        {
+          detail: "Documents linked to this profile",
+          href: `/contacts/${contact.id}`,
+          label: "Quotes",
+          tone: "pink",
+          value: String(profile?.counts.quoteDrafts ?? 0),
+        },
+      ]),
+      ...timelineBlock("Recent contact timeline", contactTimeline),
+    ],
   };
 }
 
@@ -2404,6 +7960,7 @@ function inquiryHaystack(conversation: ConversationListItem) {
     conversation.leadServiceType,
     conversation.leadNextStep,
     conversation.latestSubject,
+    conversation.originalInquiryBody,
     conversation.latestBody,
     conversation.inquiryFacts?.jobType,
     conversation.inquiryFacts?.address,
@@ -2467,16 +8024,53 @@ function replyStatusForConversation(conversation: ConversationListItem) {
   return "not_applicable";
 }
 
-function inquiryRecord(conversation: ConversationListItem) {
+function assistantInquiryMessage(value: string | null) {
+  const text = value?.trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return text.length > 4_000 ? `${text.slice(0, 3_997)}...` : text;
+}
+
+export function inquiryRecordForAssistant(
+  conversation: ConversationListItem,
+) {
   return {
     customer: conversationDisplayName(conversation),
+    inquiryMessage: assistantInquiryMessage(conversation.originalInquiryBody),
     job: conversationJobLabel(conversation),
+    latestMessage: assistantInquiryMessage(conversation.latestBody),
+    latestMessageDirection: conversation.latestDirection,
     nextAction: conversation.nextActionLabel,
     operatorSummary: inquiryStatusSummary(conversation),
     replyStatus: replyStatusForConversation(conversation),
+    senderAddress: conversation.senderAddress,
     status: conversation.status,
+    subject: conversation.latestSubject,
     workflowBucket: conversation.workflowBucket,
   };
+}
+
+export function inquiryLookupFallbackAnswerForAssistant(
+  conversation: ConversationListItem,
+) {
+  const message = assistantInquiryMessage(
+    conversation.originalInquiryBody ?? conversation.latestBody,
+  );
+
+  if (!message) {
+    return `${inquiryStatusSummary(conversation)} Open the inquiry below if you want to review or action it.`;
+  }
+
+  const compactMessage = message.replace(/\s+/g, " ").trim();
+  const displayedMessage =
+    compactMessage.length > 700
+      ? `${compactMessage.slice(0, 697)}...`
+      : compactMessage;
+
+  return `The inquiry says: "${displayedMessage}" ${inquiryStatusSummary(conversation)}`;
 }
 
 function conversationToInquiryLink(
@@ -2501,6 +8095,10 @@ function inquiryStatusSummary(conversation: ConversationListItem) {
 
   if (conversation.workflowBucket === "awaiting_customer") {
     return `The ${customer} inquiry is waiting on the customer. A reply has already been recorded, so the next move is to wait for their response or follow up later.`;
+  }
+
+  if (conversation.workflowBucket === "follow_up_due") {
+    return `The ${customer} inquiry is due for an internal follow-up. A reply was recorded earlier and the configured follow-up delay has passed.`;
   }
 
   if (conversation.workflowBucket === "resolved") {
@@ -2556,10 +8154,14 @@ async function documentTemplateControlCommand({
     .maybeSingle();
 
   if (beforeError) {
-    throw new Error(`Unable to load document templates: ${beforeError.message}`);
+    throw new Error(
+      `Unable to load document templates: ${beforeError.message}`,
+    );
   }
 
-  const beforeSettings = normalizeDocumentTemplateSettings(beforePolicy?.settings);
+  const beforeSettings = normalizeDocumentTemplateSettings(
+    beforePolicy?.settings,
+  );
 
   if (intent === "update" && beforeSettings.customTemplates.length === 0) {
     return {
@@ -2569,7 +8171,7 @@ async function documentTemplateControlCommand({
       fallbackAnswer:
         "There are no reusable templates to edit yet. Create a template first, then Kyro can revise it from chat or voice.",
       intent: "document_template_update",
-      links: [rowLink("Create template", "/documents/templates/new", "Documents")],
+      links: [rowLink("Create template", "/files/templates/new", "Documents")],
       title: "Edit document template",
     };
   }
@@ -2602,7 +8204,7 @@ async function documentTemplateControlCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.template.label,
-          `/documents/templates/${encodeURIComponent(candidate.template.key)}`,
+          `/files/templates/${encodeURIComponent(candidate.template.key)}`,
           candidate.template.description,
         ),
       ),
@@ -2617,9 +8219,9 @@ async function documentTemplateControlCommand({
   const templatePayload = existingTemplate
     ? documentTemplateRevisionPayload(existingTemplate)
     : blankDocumentTemplateRevisionPayload({
-      label: templateLabelFromPrompt(prompt),
-      settings: beforeSettings,
-    });
+        label: templateLabelFromPrompt(prompt),
+        settings: beforeSettings,
+      });
   const revision = await runDocumentTemplateRevision({
     instruction: prompt,
     template: templatePayload,
@@ -2663,6 +8265,11 @@ async function documentTemplateControlCommand({
     );
   }
 
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
   const usageEvents = buildLlmUsageEvents({
     context: {
       metadata: {
@@ -2670,6 +8277,7 @@ async function documentTemplateControlCommand({
         templateKey: template.key,
       },
       providerUsageId: revision.usage.providerUsageId,
+      usageMarkupRate,
       userId: user.id,
       workspaceId: workspace.id,
     },
@@ -2776,12 +8384,12 @@ async function documentTemplateControlCommand({
     links: [
       rowLink(
         template.label,
-        `/documents/templates/${encodeURIComponent(template.key)}`,
+        `/files/templates/${encodeURIComponent(template.key)}`,
         "Review template",
       ),
       rowLink(
         "Create draft",
-        `/documents/new?templateKey=${encodeURIComponent(template.key)}`,
+        `/files/new?templateKey=${encodeURIComponent(template.key)}`,
         "Use this template",
       ),
     ],
@@ -2804,7 +8412,9 @@ async function createQuoteDraftCommand({
     supabase,
     workspace.id,
   );
-  const templates = quoteTemplateCatalog(documentTemplateSettings.customTemplates);
+  const templates = quoteTemplateCatalog(
+    documentTemplateSettings.customTemplates,
+  );
   const templateSelection = selectQuoteTemplateForAssistantPrompt(
     prompt,
     templates,
@@ -2818,9 +8428,7 @@ async function createQuoteDraftCommand({
       fallbackAnswer:
         "There are no document templates yet. Create a reusable quote template first, then Kyro can start quote drafts from it.",
       intent: "quote_create",
-      links: [
-        rowLink("Create template", "/documents/templates/new", "Documents"),
-      ],
+      links: [rowLink("Create template", "/files/templates/new", "Documents")],
       title: "Create quote draft",
     };
   }
@@ -2844,7 +8452,7 @@ async function createQuoteDraftCommand({
       links: candidates.map((candidate) =>
         rowLink(
           candidate.template.label,
-          `/documents/new?templateKey=${encodeURIComponent(candidate.template.key)}`,
+          `/files/new?templateKey=${encodeURIComponent(candidate.template.key)}`,
           candidate.template.description,
         ),
       ),
@@ -2939,10 +8547,10 @@ async function createQuoteDraftCommand({
     fallbackAnswer: `${quoteDraft.title} has been created as a draft.`,
     intent: "quote_create",
     links: [
-      rowLink(String(quoteDraft.title), `/documents/${quoteDraft.id}`, "Draft"),
+      rowLink(String(quoteDraft.title), `/files/${quoteDraft.id}`, "Draft"),
       rowLink(
         "Print / PDF",
-        `/documents/${quoteDraft.id}/print`,
+        `/files/${quoteDraft.id}/print`,
         "Customer document",
       ),
     ],
@@ -2987,8 +8595,8 @@ async function imageGenerationCommand({
     },
     fallbackAnswer:
       image.referenceFiles.length > 0
-        ? "I generated a referenced image from the attached file context and saved it to Kyro files."
-        : "I generated the image and saved it to Kyro files.",
+        ? `I generated a referenced image from the attached file context and saved it to Kyro files.`
+        : `I generated the image and saved it to Kyro files.`,
     intent: "image_generation",
     links: [
       rowLink(label, image.href, meta),
@@ -3021,6 +8629,81 @@ async function imageGenerationCommand({
   };
 }
 
+async function usageSummaryCommand({
+  supabase,
+  workspace,
+}: Pick<
+  CommandInput,
+  "supabase" | "workspace"
+>): Promise<AssistantCommandResult> {
+  const usage = await getUsageReport(supabase, workspace.id, "30d");
+  const totals = usage.totals;
+  const topTasks = usage.taskBreakdown.slice(0, 4);
+
+  return {
+    context: {
+      generatedAt: usage.generatedAt,
+      taskBreakdown: recordsContext(
+        topTasks.map((task) => ({
+          customerCharge: task.customerCharge,
+          events: task.events,
+          label: task.label,
+          quantity: task.quantity,
+        })),
+      ),
+      totals: {
+        customerCharge: totals.customerCharge,
+        currency: totals.currency,
+        events: totals.events,
+      },
+      window: usage.activeWindow,
+    },
+    fallbackAnswer: `The last 30 days show ${totals.events} metered events with a total usage charge of ${assistantMoney(
+      totals.customerCharge,
+      totals.currency,
+    )}.`,
+    intent: "usage_summary",
+    links: [
+      rowLink(
+        "Billing and metering",
+        "/settings?section=usage",
+        `${totals.events} events`,
+      ),
+    ],
+    title: "Usage summary",
+    uiBlocks: [
+      ...summaryCardsBlock("Usage summary", [
+        {
+          detail: "Final metered usage charge",
+          href: "/settings?section=usage",
+          label: "Usage charge",
+          tone: "purple",
+          value: assistantMoney(totals.customerCharge, totals.currency),
+        },
+        {
+          detail: "Recorded usage events",
+          href: "/settings?section=usage",
+          label: "Metered events",
+          tone: "cyan",
+          value: String(totals.events),
+        },
+      ]),
+      ...timelineBlock(
+        "Top metered work",
+        topTasks.map((task) => ({
+          detail: `${task.events} events - ${assistantMoney(
+            task.customerCharge,
+            task.currency,
+          )}`,
+          href: "/settings?section=usage",
+          label: task.label,
+          tone: "neutral" as const,
+        })),
+      ),
+    ],
+  };
+}
+
 async function overviewCommand({
   supabase,
   workspace,
@@ -3028,10 +8711,11 @@ async function overviewCommand({
   CommandInput,
   "supabase" | "workspace"
 >): Promise<AssistantCommandResult> {
-  const [conversations, quotes, contacts] = await Promise.all([
+  const [conversations, quotes, contacts, usage] = await Promise.all([
     getConversationList(supabase, workspace.id),
     getQuoteDraftList(supabase, workspace.id),
     getContactList(supabase, workspace.id),
+    getUsageReport(supabase, workspace.id, "30d"),
   ]);
   const needsReply = conversations.filter(
     (conversation) => conversation.workflowBucket === "needs_reply",
@@ -3044,15 +8728,51 @@ async function overviewCommand({
       needsReply: needsReply.length,
       quoteDrafts: quotes.length,
       readyQuotes: readyQuotes.length,
+      usage: usage.totals,
       workspaceName: workspace.name,
     },
     fallbackAnswer: `${workspace.name} has ${needsReply.length} conversations needing reply and ${readyQuotes.length} quote drafts ready.`,
     intent: "overview",
     links: [
       rowLink("Inbox", "/inbox", `${needsReply.length} need reply`),
-      rowLink("Documents", "/documents", `${readyQuotes.length} ready quotes`),
+      rowLink("Files", "/files", `${readyQuotes.length} ready quotes`),
       rowLink("Contacts", "/contacts", `${contacts.length} contacts`),
     ],
     title: "Workspace overview",
+    uiBlocks: [
+      ...summaryCardsBlock("Workspace snapshot", [
+        {
+          detail: "Conversations needing reply",
+          href: "/inbox?filter=needs_reply",
+          label: "Inbox",
+          tone: needsReply.length > 0 ? "warning" : "success",
+          value: String(needsReply.length),
+        },
+        {
+          detail: "Quote drafts ready",
+          href: "/files",
+          label: "Quotes",
+          tone: "purple",
+          value: String(readyQuotes.length),
+        },
+        {
+          detail: "Profiles indexed",
+          href: "/contacts",
+          label: "Contacts",
+          tone: "cyan",
+          value: String(contacts.length),
+        },
+        {
+          detail: `${usage.totals.events} metered events in 30 days`,
+          href: "/settings?section=usage",
+          label: "Usage",
+          tone: "pink",
+          value: assistantMoney(
+            usage.totals.customerCharge,
+            usage.totals.currency,
+          ),
+        },
+      ]),
+    ],
   };
 }

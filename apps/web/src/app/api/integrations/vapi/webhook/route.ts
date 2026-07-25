@@ -1,9 +1,40 @@
 import { NextResponse } from "next/server";
-import { verifyVapiWebhookRequest } from "../../../../../lib/integrations/vapi";
+import {
+  buildVapiAssistantRequestResponse,
+  isVapiAssistantRequest,
+} from "../../../../../lib/assistant/vapi-inbound";
+import {
+  getVapiConfig,
+  VAPI_TOOL_PATH,
+  VAPI_WEBHOOK_PATH,
+  vapiEndpointUrl,
+  verifyVapiWebhookRequest,
+} from "../../../../../lib/integrations/vapi";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import { upsertVoiceCallFromVapiEvent } from "../../../../../lib/voice/calls";
 
 export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const config = getVapiConfig();
+
+  return NextResponse.json({
+    configured: Boolean(config),
+    endpoint: "vapi_webhook",
+    expects: "Vapi JSON POST with x-kyro-vapi-secret or bearer secret.",
+    ok: true,
+    provider: "vapi",
+    serverApiKeyReady: Boolean(process.env.VAPI_API_KEY?.trim()),
+    toolCredentialReady: Boolean(process.env.VAPI_TOOL_CREDENTIAL_ID?.trim()),
+    toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
+    toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
+    webhookCredentialReady: Boolean(
+      process.env.VAPI_WEBHOOK_CREDENTIAL_ID?.trim(),
+    ),
+    webhookSecretReady: Boolean(process.env.VAPI_WEBHOOK_SECRET?.trim()),
+    webhookUrl: vapiEndpointUrl(VAPI_WEBHOOK_PATH),
+  });
+}
 
 export async function POST(request: Request) {
   if (!verifyVapiWebhookRequest(request)) {
@@ -21,6 +52,13 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createServiceSupabaseClient();
+
+    if (isVapiAssistantRequest(payload)) {
+      const result = await buildVapiAssistantRequestResponse(supabase, payload);
+
+      return NextResponse.json(result);
+    }
+
     const result = await upsertVoiceCallFromVapiEvent(supabase, payload);
 
     return NextResponse.json({ data: result });

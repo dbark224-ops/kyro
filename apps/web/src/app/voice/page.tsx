@@ -1,3 +1,4 @@
+import { AssistantModeSwitch } from "../components/assistant-mode-switch";
 import { AppFrame } from "../components/app-frame";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
@@ -34,12 +35,13 @@ export default async function VoicePage() {
       : { ...threadState, messages: [welcomeMessage] };
 
   return (
-    <AppFrame active="Voice">
+    <AppFrame active="Assistant">
       <div className="voice-page-shell">
         <header className="topbar voice-topbar">
           <div>
             <p className="eyebrow">{workspace.name}</p>
             <h1>Voice</h1>
+            <AssistantModeSwitch active="voice" />
           </div>
           <div className="topbar-right">
             <section className="metric-grid" aria-label="Voice context metrics">

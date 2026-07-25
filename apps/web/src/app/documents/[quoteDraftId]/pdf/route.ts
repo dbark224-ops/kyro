@@ -4,6 +4,10 @@ import {
   quotePdfMetadata,
 } from "../../../../lib/documents/pdf";
 import {
+  generatedDocumentMetadata,
+  recordQuoteGeneratedDocument,
+} from "../../../../lib/documents/generated-documents";
+import {
   quoteRevisionState,
   quoteVersionedDocumentMetadata,
 } from "../../../../lib/documents/revisions";
@@ -33,7 +37,7 @@ export async function GET(_request: Request, { params }: QuotePdfRouteProps) {
     const baseDocumentMetadata = quotePdfMetadata(artifact);
     const { data: quoteDraft, error: quoteDraftError } = await supabase
       .from("quote_drafts")
-      .select("metadata")
+      .select("id,title,status,metadata,contact_id,conversation_id,lead_id")
       .eq("workspace_id", workspace.id)
       .eq("id", quoteDraftId)
       .maybeSingle();
@@ -49,8 +53,19 @@ export async function GET(_request: Request, { params }: QuotePdfRouteProps) {
         !Array.isArray(quoteDraft.metadata)
           ? (quoteDraft.metadata as Record<string, unknown>)
           : {};
+      const generatedDocument = await recordQuoteGeneratedDocument(supabase, {
+        artifact,
+        createdByUserId: user.id,
+        documentType: "quote",
+        quoteDraft,
+        source: "documents.download_pdf",
+        workspaceId: workspace.id,
+      });
       const documentMetadata = quoteVersionedDocumentMetadata(
-        baseDocumentMetadata,
+        {
+          ...baseDocumentMetadata,
+          ...generatedDocumentMetadata(generatedDocument),
+        },
         metadata,
       );
       const nextMetadata = appendQuoteDocumentHistory(

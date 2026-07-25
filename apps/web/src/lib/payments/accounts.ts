@@ -1,13 +1,54 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-
 import {
   createStripeAccountLink,
   createStripeCheckoutSession,
   createStripeExpressAccount,
   getStripeConfig,
+  stripeWebhookUrl,
   STRIPE_PROVIDER,
   type StripeCheckoutLineItem,
 } from "./stripe";
+import { operatingCountryPhoneRegion } from "../workspace/operating-countries";
+import type { WorkspaceGeneralSettings } from "../workspace/general-settings";
+
+type PaymentAccountRow = {
+  charges_enabled: boolean;
+  country_code: string | null;
+  default_currency: string;
+  details_submitted: boolean;
+  id: string;
+  onboarding_url: string | null;
+  payouts_enabled: boolean;
+  provider: string;
+  provider_account_id: string | null;
+  status: string;
+  updated_at: string;
+  workspace_id: string;
+};
+
+export type WorkspaceStripePaymentOverview = {
+  account: PaymentAccountRow | null;
+  configured: boolean;
+  migrationReady: boolean;
+  webhookConfigured: boolean;
+  webhookUrl: string | null;
+};
+
+function tableMissing(error: { code?: string; message?: string } | null) {
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    error?.message?.includes("schema cache")
+  );
+}
+
+function stripeCountryFromSettings(settings: WorkspaceGeneralSettings) {
+  return (
+    operatingCountryPhoneRegion(settings.businessProfile.operatingCountry) ??
+    settings.defaultPhoneRegion ??
+    "AU"
+  );
+}
 
 function defaultCurrencyForCountry(country: string) {
   if (country === "US") return "USD";
@@ -18,16 +59,55 @@ function defaultCurrencyForCountry(country: string) {
   return "AUD";
 }
 
+export async function getWorkspaceStripePaymentOverview(
+  supabase: SupabaseClient,
+  workspaceId: string,
+): Promise<WorkspaceStripePaymentOverview> {
+  const config = getStripeConfig();
+  const { data, error } = await supabase
+    .from("workspace_payment_accounts")
+    .select(
+      "id,workspace_id,provider,provider_account_id,status,charges_enabled,payouts_enabled,details_submitted,default_currency,country_code,onboarding_url,updated_at",
+    )
+    .eq("workspace_id", workspaceId)
+    .eq("provider", STRIPE_PROVIDER)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if (tableMissing(error)) {
+      return {
+        account: null,
+        configured: config.configured,
+        migrationReady: false,
+        webhookConfigured: config.webhookConfigured,
+        webhookUrl: stripeWebhookUrl(),
+      };
+    }
+
+    throw new Error(`Unable to load Stripe payment account: ${error.message}`);
+  }
+
+  return {
+    account: data as PaymentAccountRow | null,
+    configured: config.configured,
+    migrationReady: true,
+    webhookConfigured: config.webhookConfigured,
+    webhookUrl: stripeWebhookUrl(),
+  };
+}
+
 export async function createStripeConnectOnboardingLink({
   businessName,
-  country = "AU",
   email,
+  generalSettings,
   supabase,
   workspaceId,
 }: {
   businessName: string;
-  country?: string;
   email: string;
+  generalSettings: WorkspaceGeneralSettings;
   supabase: SupabaseClient;
   workspaceId: string;
 }) {
@@ -37,6 +117,7 @@ export async function createStripeConnectOnboardingLink({
     throw new Error("NEXT_PUBLIC_APP_URL is not configured.");
   }
 
+  const country = stripeCountryFromSettings(generalSettings);
   const defaultCurrency = defaultCurrencyForCountry(country);
   const { data: existing, error: existingError } = await supabase
     .from("workspace_payment_accounts")
@@ -61,6 +142,7 @@ export async function createStripeConnectOnboardingLink({
       })
     ).id;
 
+  const now = new Date().toISOString();
   const accountPayload = {
     charges_enabled: false,
     country_code: country,
@@ -68,14 +150,14 @@ export async function createStripeConnectOnboardingLink({
     details_submitted: false,
     metadata: {
       businessName,
-      createdThrough: "kyro_mobile_settings",
+      createdThrough: "kyro_settings",
     },
     onboarding_url: null,
     payouts_enabled: false,
     provider: STRIPE_PROVIDER,
     provider_account_id: accountId,
     status: "onboarding",
-    updated_at: new Date().toISOString(),
+    updated_at: now,
     workspace_id: workspaceId,
   };
 
@@ -86,7 +168,9 @@ export async function createStripeConnectOnboardingLink({
       .eq("id", existing.id);
 
     if (error) {
-      throw new Error(`Unable to update Stripe payment account: ${error.message}`);
+      throw new Error(
+        `Unable to update Stripe payment account: ${error.message}`,
+      );
     }
   } else {
     const { error } = await supabase
@@ -94,7 +178,9 @@ export async function createStripeConnectOnboardingLink({
       .insert(accountPayload);
 
     if (error) {
-      throw new Error(`Unable to create Stripe payment account: ${error.message}`);
+      throw new Error(
+        `Unable to create Stripe payment account: ${error.message}`,
+      );
     }
   }
 
@@ -111,6 +197,52 @@ export async function createStripeConnectOnboardingLink({
     .eq("provider", STRIPE_PROVIDER);
 
   return accountLink.url;
+}
+
+export async function resetWorkspaceStripePaymentAccount({
+  supabase,
+  workspaceId,
+}: {
+  supabase: SupabaseClient;
+  workspaceId: string;
+}) {
+  const { data: account, error: loadError } = await supabase
+    .from("workspace_payment_accounts")
+    .select("id,status")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", STRIPE_PROVIDER)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (loadError) {
+    throw new Error(
+      `Unable to load Stripe payment account: ${loadError.message}`,
+    );
+  }
+
+  if (!account) {
+    return false;
+  }
+
+  if ((account as { status?: string }).status === "active") {
+    throw new Error(
+      "Stripe payments are already active. Disconnecting an active payout account needs a manual support flow.",
+    );
+  }
+
+  const { error: deleteError } = await supabase
+    .from("workspace_payment_accounts")
+    .delete()
+    .eq("id", (account as { id: string }).id)
+    .eq("workspace_id", workspaceId)
+    .eq("provider", STRIPE_PROVIDER);
+
+  if (deleteError) {
+    throw new Error(`Unable to reset Stripe setup: ${deleteError.message}`);
+  }
+
+  return true;
 }
 
 export async function createPaymentRequestCheckoutLink({
@@ -155,15 +287,18 @@ export async function createPaymentRequestCheckoutLink({
     .maybeSingle();
 
   if (accountError) {
-    throw new Error(`Unable to load Stripe payment account: ${accountError.message}`);
+    throw new Error(
+      `Unable to load Stripe payment account: ${accountError.message}`,
+    );
   }
 
   if (!account?.provider_account_id || account.status !== "active") {
     throw new Error("Stripe payments are not active for this workspace yet.");
   }
 
-  const normalizedCurrency =
-    (currency || account.default_currency || "AUD").trim().toUpperCase();
+  const normalizedCurrency = (currency || account.default_currency || "AUD")
+    .trim()
+    .toUpperCase();
   const { data: requestRow, error: insertError } = await supabase
     .from("payment_requests")
     .insert({

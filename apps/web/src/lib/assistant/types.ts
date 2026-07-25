@@ -1,9 +1,12 @@
 import type {
   ContactProfile,
+  ConversationListItem,
   ConversationReview,
   QuoteDraftProfile,
 } from "../crm/queries";
 import type { OpenAiTokenUsage } from "../usage/openai";
+import type { VoiceCallPreview } from "../voice/calls";
+import type { AssistantCurrentTimeContext } from "./current-time";
 
 export type AssistantLink = {
   label: string;
@@ -28,6 +31,47 @@ export type AssistantUiBlock =
       content: string;
     }
   | {
+      type: "memory_suggestion";
+      title: string;
+      content: string;
+      memoryId: string;
+      status: "active" | "pending_approval" | "rejected";
+    }
+  | {
+      type: "summary_cards";
+      title: string;
+      cards: Array<{
+        detail?: string;
+        href?: string;
+        label: string;
+        tone?: "cyan" | "purple" | "pink" | "warning" | "success" | "neutral";
+        value: string;
+      }>;
+    }
+  | {
+      type: "timeline";
+      title: string;
+      items: Array<{
+        at?: string | null;
+        detail?: string;
+        href?: string;
+        label: string;
+        tone?: "cyan" | "purple" | "pink" | "warning" | "success" | "neutral";
+      }>;
+    }
+  | {
+      type: "approval_queue";
+      title: string;
+      items: Array<{
+        actionLabel?: string;
+        detail?: string;
+        href?: string;
+        id: string;
+        label: string;
+        status: string;
+      }>;
+    }
+  | {
       type: "generated_image";
       title: string;
       images: Array<{
@@ -46,6 +90,20 @@ export type AssistantUiBlock =
         referenceCount: number;
         size: string;
       }>;
+    }
+  | {
+      type: "outbound_call_request";
+      title: string;
+      request: {
+        contactId?: string | null;
+        contactName?: string | null;
+        contextSummary?: string | null;
+        conversationId?: string | null;
+        instructions: string;
+        leadId?: string | null;
+        phoneNumber: string;
+        threadId?: string | null;
+      };
     };
 
 export type AssistantCommandResult = {
@@ -62,6 +120,15 @@ export type AssistantCommandResult = {
   };
 };
 
+export type AssistantRecentMessage = {
+  content: string;
+  createdAt?: string;
+  intent?: string | null;
+  links?: AssistantLink[];
+  role: "assistant" | "user";
+  uiBlocks?: AssistantUiBlock[];
+};
+
 export type AssistantToolCallRecord = {
   name: string;
   status: "completed" | "proposed" | "blocked";
@@ -69,16 +136,24 @@ export type AssistantToolCallRecord = {
   result: Record<string, unknown>;
 };
 
+export type AssistantRequestActor = {
+  displayName: string | null;
+  firstName: string | null;
+  kind: "trusted_internal_messaging_sender";
+  phoneNumber: string;
+  role: string | null;
+  userId: string;
+};
+
 export type AssistantModelInput = {
+  actor?: AssistantRequestActor | null;
   prompt: string;
   command: AssistantCommandResult;
+  contextSnapshots?: AssistantContextSnapshot[];
+  currentTime: AssistantCurrentTimeContext;
   inputSource?: "typed" | "voice" | string;
   memories?: AssistantMemoryItem[];
-  recentMessages?: Array<{
-    content: string;
-    intent?: string | null;
-    role: "assistant" | "user";
-  }>;
+  recentMessages?: AssistantRecentMessage[];
   threadSummary?: string | null;
 };
 
@@ -103,6 +178,7 @@ export type AssistantTurnResult = {
   id: string;
   role: "assistant";
   content: string;
+  contextLinks?: AssistantLink[];
   intent: string;
   provider: string;
   model: string;
@@ -132,12 +208,34 @@ export type AssistantMemoryItem = {
   tags: string[];
 };
 
+export type AssistantContextSnapshot = {
+  id: string;
+  snapshotType: "rolling" | "daily" | "weekly" | "monthly" | "manual" | string;
+  title: string;
+  summary: string;
+  keyPoints: string[];
+  entities: string[];
+  periodStart: string;
+  periodEnd: string;
+  messageCount: number;
+};
+
 export type AssistantThreadState = {
   memories?: AssistantMemoryItem[];
   messages: AssistantThreadMessage[];
   summary?: string | null;
   threadId?: string | null;
+  threads?: AssistantThreadSummary[];
   error?: string | null;
+};
+
+export type AssistantThreadSummary = {
+  createdAt: string;
+  id: string;
+  status: string;
+  summary: string | null;
+  title: string;
+  updatedAt: string;
 };
 
 export type AssistantResourcePreview =
@@ -158,6 +256,25 @@ export type AssistantResourcePreview =
       profile: ContactProfile;
       title: string;
       type: "contact";
+    }
+  | {
+      href: string;
+      profile: {
+        conversations: ConversationListItem[];
+        filter: string;
+        matchedCount: number;
+        query: string | null;
+        sort: string;
+        totalCount: number;
+      };
+      title: string;
+      type: "inbox_queue";
+    }
+  | {
+      href: string;
+      profile: VoiceCallPreview;
+      title: string;
+      type: "voice_call";
     };
 
 export type AssistantResourcePreviewResult = {

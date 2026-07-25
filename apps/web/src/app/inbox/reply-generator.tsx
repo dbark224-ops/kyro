@@ -104,22 +104,31 @@ export function ReplyGenerator({
   return (
     <div className="reply-generator" ref={rootRef}>
       <label className="reply-generator-input">
-        <span>Generate with AI</span>
+        <span className="reply-generator-heading">
+          <span>Prompt / generate with AI</span>
+          {status ? (
+            <span className="reply-generator-status">{status}</span>
+          ) : null}
+        </span>
         <textarea
           onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Tell Kyro what the reply should say..."
+          placeholder="Add notes for Kyro, then regenerate the email body..."
+          rows={2}
           value={prompt}
         />
       </label>
       <button
         className="secondary-button compact"
+        aria-busy={isGenerating}
         disabled={isGenerating}
         onClick={generateReply}
         type="button"
       >
+        {isGenerating ? (
+          <span className="settings-submit-spinner" aria-hidden="true" />
+        ) : null}
         {isGenerating ? "Generating..." : "Generate"}
       </button>
-      {status ? <span className="reply-generator-status">{status}</span> : null}
     </div>
   );
 }

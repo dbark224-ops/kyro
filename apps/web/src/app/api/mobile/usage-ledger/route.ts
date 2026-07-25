@@ -16,7 +16,9 @@ export async function GET(request: Request) {
   try {
     const context = await requireMobileWorkspaceContext(request);
     const url = new URL(request.url);
-    const usageWindow = normalizeUsageWindow(url.searchParams.get("usageWindow"));
+    const usageWindow = normalizeUsageWindow(
+      url.searchParams.get("usageWindow"),
+    );
     const [general, usageReport] = await Promise.all([
       getWorkspaceGeneralSettings(context.supabase, context.workspace.id),
       getUsageReport(context.supabase, context.workspace.id, usageWindow),

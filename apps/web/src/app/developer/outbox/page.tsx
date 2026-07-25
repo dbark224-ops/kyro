@@ -66,7 +66,13 @@ const STATUS_FILTERS = [
   { label: "All", value: "all" },
 ] as const;
 
-const ACTIVE_STATUSES = ["queued", "sending", "retry_scheduled", "failed"];
+const ACTIVE_STATUSES = [
+  "queued",
+  "sending",
+  "retry_scheduled",
+  "billing_paused",
+  "failed",
+];
 const RETRYABLE_STATUSES = new Set(["queued", "retry_scheduled", "failed"]);
 
 function isStatusFilter(
@@ -324,7 +330,10 @@ function MissingOutboxTablePage() {
           <Link className="secondary-button compact" href="/developer">
             Developer home
           </Link>
-          <Link className="secondary-button compact" href="/settings?section=integrations">
+          <Link
+            className="secondary-button compact"
+            href="/settings?section=integrations"
+          >
             Connected accounts
           </Link>
         </div>
@@ -446,7 +455,10 @@ function OutboxRowCard({
           <strong>Last error</strong>
           <p>{row.last_error}</p>
           {reconnectHint(row.last_error) ? (
-            <Link className="pill link-pill" href="/settings?section=integrations">
+            <Link
+              className="pill link-pill"
+              href="/settings?section=integrations"
+            >
               Check connected account
             </Link>
           ) : null}
@@ -548,11 +560,15 @@ export default async function OutboxOperationsPage({
   }
 
   if (rowsResult.error) {
-    throw new Error(`Unable to load outbox operations: ${rowsResult.error.message}`);
+    throw new Error(
+      `Unable to load outbox operations: ${rowsResult.error.message}`,
+    );
   }
 
   if (countResult.error) {
-    throw new Error(`Unable to load outbox counts: ${countResult.error.message}`);
+    throw new Error(
+      `Unable to load outbox counts: ${countResult.error.message}`,
+    );
   }
 
   const allCountRows = countResult.data ?? [];
@@ -574,7 +590,10 @@ export default async function OutboxOperationsPage({
           <Link className="secondary-button compact" href="/developer">
             Developer home
           </Link>
-          <Link className="secondary-button compact" href="/settings?section=integrations">
+          <Link
+            className="secondary-button compact"
+            href="/settings?section=integrations"
+          >
             Connected accounts
           </Link>
         </div>

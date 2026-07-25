@@ -1,11 +1,19 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { runStubAiTriage } from "../ai/triage";
+import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
 import { insertAuditLog } from "../engine/event-action-audit";
 
 export type ManualFollowUpInput = {
+  actorType?: "system" | "user";
+  channelId?: string | null;
   submissionKey?: string;
   conversationId: string;
+  eventSource?: string;
+  eventType?: string;
+  inboundChannelType?: string;
   message: string;
+  messageMetadata?: Record<string, unknown>;
+  subject?: string;
 };
 
 function nullableText(value?: string | null) {
@@ -26,14 +34,18 @@ function buildThreadSummary(
     direction: unknown;
     subject: unknown;
     body_text: unknown;
-  }>
+  }>,
 ) {
   return messages
     .slice(-8)
     .map((message, index) => {
       const direction = String(message.direction);
       const body = preview(
-        message.body_text ? String(message.body_text) : message.subject ? String(message.subject) : null
+        message.body_text
+          ? String(message.body_text)
+          : message.subject
+            ? String(message.subject)
+            : null,
       );
 
       return `${index + 1}. ${direction}: ${body}`;
@@ -45,7 +57,7 @@ export async function ingestManualConversationFollowUp(
   supabase: SupabaseClient,
   user: User,
   workspaceId: string,
-  input: ManualFollowUpInput
+  input: ManualFollowUpInput,
 ) {
   const messageText = nullableText(input.message);
 
@@ -61,7 +73,9 @@ export async function ingestManualConversationFollowUp(
     .maybeSingle();
 
   if (conversationError) {
-    throw new Error(`Unable to load conversation: ${conversationError.message}`);
+    throw new Error(
+      `Unable to load conversation: ${conversationError.message}`,
+    );
   }
 
   if (!conversation) {
@@ -80,19 +94,23 @@ export async function ingestManualConversationFollowUp(
     conversation.contact_id
       ? supabase
           .from("contacts")
-          .select("address")
+          .select("address,email,phone")
           .eq("workspace_id", workspaceId)
           .eq("id", conversation.contact_id)
           .maybeSingle()
-      : Promise.resolve({ data: null, error: null })
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   if (leadProfile.error) {
-    throw new Error(`Unable to load lead context: ${leadProfile.error.message}`);
+    throw new Error(
+      `Unable to load lead context: ${leadProfile.error.message}`,
+    );
   }
 
   if (contactProfile.error) {
-    throw new Error(`Unable to load contact context: ${contactProfile.error.message}`);
+    throw new Error(
+      `Unable to load contact context: ${contactProfile.error.message}`,
+    );
   }
 
   const idempotencyKey = `manual.follow_up.${input.conversationId}.${
@@ -102,15 +120,15 @@ export async function ingestManualConversationFollowUp(
     .from("events")
     .insert({
       workspace_id: workspaceId,
-      type: "inbound.manual_follow_up.received",
-      source: "web.inbox",
+      type: input.eventType ?? "inbound.manual_follow_up.received",
+      source: input.eventSource ?? "web.inbox",
       idempotency_key: idempotencyKey,
       payload: {
         stage: "received",
         conversationId: input.conversationId,
-        previousConversationStatus: conversation.status
+        previousConversationStatus: conversation.status,
       },
-      status: "processing"
+      status: "processing",
     })
     .select("id,type,status")
     .single();
@@ -126,11 +144,13 @@ export async function ingestManualConversationFollowUp(
 
       return {
         duplicate: true,
-        eventId: existingEvent ? String(existingEvent.id) : null
+        eventId: existingEvent ? String(existingEvent.id) : null,
       };
     }
 
-    throw new Error(`Unable to record follow-up event: ${eventError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to record follow-up event: ${eventError?.message ?? "unknown error"}`,
+    );
   }
 
   const now = new Date().toISOString();
@@ -139,22 +159,25 @@ export async function ingestManualConversationFollowUp(
     .insert({
       workspace_id: workspaceId,
       conversation_id: conversation.id,
-      channel_id: conversation.channel_id ?? null,
+      channel_id: input.channelId ?? conversation.channel_id ?? null,
       contact_id: conversation.contact_id ?? null,
       direction: "inbound",
-      subject: "Follow-up message",
+      subject: input.subject ?? "Follow-up message",
       body_text: messageText,
       received_at: now,
       metadata: {
-        source: "manual_follow_up",
-        eventId: event.id
-      }
+        ...input.messageMetadata,
+        source: input.eventSource ?? "manual_follow_up",
+        eventId: event.id,
+      },
     })
     .select("id")
     .single();
 
   if (messageError || !message) {
-    throw new Error(`Unable to create follow-up message: ${messageError?.message ?? "unknown error"}`);
+    throw new Error(
+      `Unable to create follow-up message: ${messageError?.message ?? "unknown error"}`,
+    );
   }
 
   const previousStatus = String(conversation.status);
@@ -162,19 +185,21 @@ export async function ingestManualConversationFollowUp(
     .from("conversations")
     .update({
       status: "open",
-      last_message_at: now
+      last_message_at: now,
     })
     .eq("workspace_id", workspaceId)
     .eq("id", input.conversationId);
 
   if (conversationUpdateError) {
-    throw new Error(`Unable to update conversation: ${conversationUpdateError.message}`);
+    throw new Error(
+      `Unable to update conversation: ${conversationUpdateError.message}`,
+    );
   }
 
   await insertAuditLog(supabase, {
     workspaceId,
-    actorType: "user",
-    actorId: user.id,
+    actorType: input.actorType ?? "user",
+    actorId: input.actorType === "system" ? undefined : user.id,
     action:
       previousStatus === "resolved"
         ? "conversation.reopened_by_inbound"
@@ -182,12 +207,12 @@ export async function ingestManualConversationFollowUp(
     entityType: "conversation",
     entityId: input.conversationId,
     before: {
-      status: previousStatus
+      status: previousStatus,
     },
     after: {
       status: "open",
-      messageId: String(message.id)
-    }
+      messageId: String(message.id),
+    },
   });
 
   const { data: cancelledActions, error: cancelError } = await supabase
@@ -197,8 +222,8 @@ export async function ingestManualConversationFollowUp(
       result: {
         cancelledReason: "new_inbound_message",
         cancelledByMessageId: String(message.id),
-        cancelledAt: now
-      }
+        cancelledAt: now,
+      },
     })
     .eq("workspace_id", workspaceId)
     .eq("target_type", "conversation")
@@ -208,13 +233,15 @@ export async function ingestManualConversationFollowUp(
       "ask_missing_info",
       "book_site_visit",
       "create_quote_draft",
-      "schedule_follow_up"
+      "schedule_follow_up",
     ])
     .in("status", ["pending_approval", "approved"])
     .select("id,status");
 
   if (cancelError) {
-    throw new Error(`Unable to cancel stale proposed actions: ${cancelError.message}`);
+    throw new Error(
+      `Unable to cancel stale proposed actions: ${cancelError.message}`,
+    );
   }
 
   for (const action of cancelledActions ?? []) {
@@ -226,26 +253,38 @@ export async function ingestManualConversationFollowUp(
       entityId: String(action.id),
       after: {
         status: "cancelled",
-        messageId: String(message.id)
+        messageId: String(message.id),
       },
       metadata: {
         requestedByUserId: user.id,
-        conversationId: input.conversationId
-      }
+        conversationId: input.conversationId,
+      },
     });
   }
+
+  const completedFollowUpReminderCount =
+    await completeOpenCustomerFollowUpReminders(supabase, {
+      workspaceId,
+      actorType: "system",
+      actorId: user.id,
+      conversationId: input.conversationId,
+      messageId: String(message.id),
+      reason: "new_manual_inbound_message",
+    });
 
   if (conversation.lead_id) {
     const { error: leadUpdateError } = await supabase
       .from("leads")
       .update({
-        next_step: "Review latest AI proposed reply"
+        next_step: "Review latest AI proposed reply",
       })
       .eq("workspace_id", workspaceId)
       .eq("id", conversation.lead_id);
 
     if (leadUpdateError) {
-      throw new Error(`Unable to update lead next step: ${leadUpdateError.message}`);
+      throw new Error(
+        `Unable to update lead next step: ${leadUpdateError.message}`,
+      );
     }
   }
 
@@ -259,15 +298,18 @@ export async function ingestManualConversationFollowUp(
         messageId: message.id,
         previousConversationStatus: previousStatus,
         cancelledDraftReplyCount: cancelledActions?.length ?? 0,
-        cancelledActionCount: cancelledActions?.length ?? 0
+        cancelledActionCount: cancelledActions?.length ?? 0,
+        completedFollowUpReminderCount,
       },
       status: "processed",
-      processed_at: now
+      processed_at: now,
     })
     .eq("id", event.id);
 
   if (eventUpdateError) {
-    throw new Error(`Unable to update follow-up event: ${eventUpdateError.message}`);
+    throw new Error(
+      `Unable to update follow-up event: ${eventUpdateError.message}`,
+    );
   }
 
   const { data: threadMessages, error: threadError } = await supabase
@@ -278,31 +320,48 @@ export async function ingestManualConversationFollowUp(
     .order("created_at", { ascending: true });
 
   if (threadError) {
-    throw new Error(`Unable to load conversation thread for AI triage: ${threadError.message}`);
+    throw new Error(
+      `Unable to load conversation thread for AI triage: ${threadError.message}`,
+    );
   }
 
   const threadSummary = buildThreadSummary(threadMessages ?? []);
   const aiResult = await runStubAiTriage(supabase, user, workspaceId, {
-    source: "manual_follow_up",
+    source: input.eventSource ?? "manual_follow_up",
     sourceEventId: String(event.id),
-    contactId: conversation.contact_id ? String(conversation.contact_id) : undefined,
+    contactId: conversation.contact_id
+      ? String(conversation.contact_id)
+      : undefined,
     leadId: conversation.lead_id ? String(conversation.lead_id) : undefined,
     conversationId: input.conversationId,
     messageId: String(message.id),
-    leadTitle: leadProfile.data?.title ? String(leadProfile.data.title) : undefined,
-    serviceType: leadProfile.data?.service_type ? String(leadProfile.data.service_type) : null,
-    contactAddress: contactProfile.data?.address ? String(contactProfile.data.address) : null,
+    leadTitle: leadProfile.data?.title
+      ? String(leadProfile.data.title)
+      : undefined,
+    serviceType: leadProfile.data?.service_type
+      ? String(leadProfile.data.service_type)
+      : null,
+    contactAddress: contactProfile.data?.address
+      ? String(contactProfile.data.address)
+      : null,
+    contactEmail: contactProfile.data?.email
+      ? String(contactProfile.data.email)
+      : null,
+    contactPhone: contactProfile.data?.phone
+      ? String(contactProfile.data.phone)
+      : null,
+    inboundChannelType: input.inboundChannelType ?? "manual_follow_up",
     summary: `Follow-up inbound message received. Full thread now has ${
       threadMessages?.length ?? 1
     } messages.`,
     threadMessageCount: threadMessages?.length ?? 1,
-    threadSummary
+    threadSummary,
   });
 
   await insertAuditLog(supabase, {
     workspaceId,
-    actorType: "user",
-    actorId: user.id,
+    actorType: input.actorType ?? "user",
+    actorId: input.actorType === "system" ? undefined : user.id,
     action: "inbound.manual_follow_up.ingested",
     entityType: "event",
     entityId: String(event.id),
@@ -312,8 +371,8 @@ export async function ingestManualConversationFollowUp(
       conversationId: input.conversationId,
       messageId: message.id,
       aiRunId: aiResult.aiRunId,
-      actionId: aiResult.actionId
-    }
+      actionId: aiResult.actionId,
+    },
   });
 
   return {
@@ -322,6 +381,6 @@ export async function ingestManualConversationFollowUp(
     conversationId: input.conversationId,
     messageId: String(message.id),
     aiRunId: aiResult.aiRunId,
-    actionId: aiResult.actionId
+    actionId: aiResult.actionId,
   };
 }

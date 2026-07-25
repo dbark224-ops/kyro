@@ -1,6 +1,10 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { applyUsageMarkup, roundUsageMoney } from "../usage/pricing";
+import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   getActivePronunciationEntries,
   pronunciationGuideText,
@@ -8,7 +12,6 @@ import {
 } from "./pronunciation";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
-const DEFAULT_MARKUP_RATE = 0.25;
 const DEFAULT_STT_PROMPT =
   "This audio is a voice note inside Kyro, an AI assistant for a trades CRM. The assistant is named Kyro, pronounced like Cairo. When the speaker addresses the assistant, transcribe variants such as Cairo, Kiro, Kyra, Cara, Kara, or Chiro as Kyro. Common product words include CRM, quote, invoice, inbox, lead, customer, tradie, Gmail, Outlook, Supabase, and Ollama.";
 const DEFAULT_UNIT_COSTS_PER_MINUTE: Record<string, number> = {
@@ -47,12 +50,6 @@ function openAiApiKey() {
 
 function sttModel() {
   return envValue("OPENAI_STT_MODEL") || DEFAULT_STT_MODEL;
-}
-
-function sttMarkupRate() {
-  const parsed = Number(envValue("OPENAI_STT_MARKUP_RATE"));
-
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MARKUP_RATE;
 }
 
 function sttPrompt(entries: AssistantPronunciationEntry[]) {
@@ -180,6 +177,7 @@ export async function transcribeAssistantAudio({
   user,
   workspace,
 }: TranscribeAudioInput): Promise<TranscribeAudioResult> {
+  await assertWorkspaceAutomationAllowed(workspace.id);
   const apiKey = openAiApiKey();
 
   if (!apiKey) {
@@ -201,7 +199,7 @@ export async function transcribeAssistantAudio({
     body.set("prompt", sttPrompt(pronunciationEntries));
   }
 
-  const response = await fetch(
+  const response = await fetchAiProvider(
     "https://api.openai.com/v1/audio/transcriptions",
     {
       body,
@@ -234,9 +232,13 @@ export async function transcribeAssistantAudio({
   const text = normalizeKyroAssistantName(rawText);
   const durationMinutes = durationMinutesForBilling(durationMs);
   const unitCost = sttUnitCostPerMinute(model);
-  const markup = sttMarkupRate();
+  const markup = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    workspace.id,
+    "OPENAI_STT_MARKUP_RATE",
+  );
   const cost = Number((durationMinutes * unitCost).toFixed(8));
-  const customerCharge = Number((cost * (1 + markup)).toFixed(8));
+  const customerCharge = roundUsageMoney(applyUsageMarkup(cost, markup));
 
   const { error: usageError } = await supabase.from("usage_events").insert(
     toUsageEventRow({

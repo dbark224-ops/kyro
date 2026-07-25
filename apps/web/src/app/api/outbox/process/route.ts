@@ -1,31 +1,25 @@
+import { runBackgroundJobCycle } from "../../../../lib/background/jobs";
 import { processDueOutboundMessages } from "../../../../lib/communication/outbound";
+import {
+  envSecrets,
+  hasAnyValidRequestSecret,
+} from "../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
 function syncSecret() {
-  return (
-    process.env.OUTBOUND_DELIVERY_SECRET?.trim() ??
-    process.env.INBOUND_EMAIL_SYNC_SECRET?.trim() ??
-    process.env.CRON_SECRET?.trim() ??
-    ""
+  return envSecrets(
+    "OUTBOUND_DELIVERY_SECRET",
+    "INBOUND_EMAIL_SYNC_SECRET",
+    "CRON_SECRET",
   );
 }
 
-function requestSecret(request: Request) {
-  const authorization = request.headers.get("authorization") ?? "";
-
-  if (authorization.toLowerCase().startsWith("bearer ")) {
-    return authorization.slice("bearer ".length).trim();
-  }
-
-  return request.headers.get("x-kyro-sync-secret")?.trim() ?? "";
-}
-
 async function runOutboxProcessor(request: Request) {
-  const expectedSecret = syncSecret();
+  const expectedSecrets = syncSecret();
 
-  if (!expectedSecret) {
+  if (expectedSecrets.length === 0) {
     return Response.json(
       {
         error:
@@ -35,7 +29,7 @@ async function runOutboxProcessor(request: Request) {
     );
   }
 
-  if (requestSecret(request) !== expectedSecret) {
+  if (!hasAnyValidRequestSecret(request, expectedSecrets)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -43,9 +37,19 @@ async function runOutboxProcessor(request: Request) {
   const limit = Number(url.searchParams.get("limit") ?? "25");
   const workspaceId = url.searchParams.get("workspaceId");
   const supabase = createServiceSupabaseClient();
-  const result = await processDueOutboundMessages(supabase, {
-    limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 25,
-    workspaceId,
+
+  if (workspaceId) {
+    const result = await processDueOutboundMessages(supabase, {
+      limit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 25,
+      workspaceId,
+    });
+
+    return Response.json({ ok: true, result });
+  }
+
+  const result = await runBackgroundJobCycle(supabase, {
+    claimLimit: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 25,
+    jobTypes: ["outbound_delivery"],
   });
 
   return Response.json(result);

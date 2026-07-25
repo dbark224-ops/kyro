@@ -1,17 +1,10 @@
 import {
-  ELEVENLABS_VOICE_PRESETS,
   OPENAI_VOICE_OPTIONS,
   OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
-  PHONE_AGENT_DEMEANORS,
-  PHONE_AGENT_ESCALATION_MODES,
-  PHONE_AGENT_HUMOUR_LEVELS,
-  PHONE_AGENT_VERBOSITIES,
   VOICE_SETTINGS_POLICY_TYPE,
-  elevenLabsVoicePresetById,
   getVoiceSettings,
   normalizeVoiceSettings,
 } from "../../../../lib/assistant/voice-settings";
-import { createClient } from "@supabase/supabase-js";
 import {
   PRONUNCIATION_CATEGORIES,
   PRONUNCIATION_STATUSES,
@@ -23,13 +16,6 @@ import {
   updatePronunciationEntry,
   upsertPronunciationEntry,
 } from "../../../../lib/assistant/pronunciation";
-import {
-  friendlyEmailVerificationSendError,
-  isKyroEmailVerified,
-  isSupabaseEmailConfirmed,
-  markKyroEmailVerificationStarted,
-  sendKyroEmailVerification,
-} from "../../../../lib/auth/email-verification";
 import {
   DISPLAY_CURRENCIES,
   displayCurrencySourceLabel,
@@ -44,12 +30,12 @@ import {
   normalizeCommunicationSettings,
   normalizeEmailSignatureSettings,
 } from "../../../../lib/communication/settings";
+import { normalizeContactPhoneForRegion } from "../../../../lib/crm/identity";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import {
   GOOGLE_GMAIL_READ_SCOPE,
   getGoogleIntegrationOverview,
 } from "../../../../lib/integrations/google";
-import { getSupabaseEnv } from "../../../../lib/env";
 import {
   INBOUND_EMAIL_POLL_INTERVALS,
   INBOUND_EMAIL_POLICY_TYPE,
@@ -68,6 +54,22 @@ import {
   getMicrosoftIntegrationOverview,
 } from "../../../../lib/integrations/microsoft";
 import {
+  CALENDAR_DAILY_DIGEST_TIMINGS,
+  CALENDAR_SMS_REMINDER_MINUTES,
+  NOTIFICATION_SETTINGS_POLICY_TYPE,
+  getNotificationSettings,
+  normalizeNotificationSettings,
+} from "../../../../lib/notifications/settings";
+import { createClient } from "@supabase/supabase-js";
+import {
+  friendlyEmailVerificationSendError,
+  isKyroEmailVerified,
+  isSupabaseEmailConfirmed,
+  markKyroEmailVerificationStarted,
+  sendKyroEmailVerification,
+} from "../../../../lib/auth/email-verification";
+import { getSupabaseEnv } from "../../../../lib/env";
+import {
   MobileApiError,
   mobileErrorResponse,
   requireMobileWorkspaceContext,
@@ -79,11 +81,8 @@ import {
   usageWindows,
 } from "../../../../lib/usage/queries";
 import {
-  PHONE_REGION_OPTIONS,
   WORKSPACE_GENERAL_POLICY_TYPE,
   getWorkspaceGeneralSettings,
-  normalizePhoneRegion,
-  normalizeWorkspaceBusinessProfileSettings,
   normalizeWorkspaceGeneralSettings,
 } from "../../../../lib/workspace/general-settings";
 
@@ -98,6 +97,7 @@ type MobileSettingsSection =
   | "communication"
   | "general"
   | "inboundEmail"
+  | "notifications"
   | "pronunciation"
   | "voice";
 
@@ -131,6 +131,7 @@ export async function PATCH(request: Request) {
       section !== "communication" &&
       section !== "general" &&
       section !== "inboundEmail" &&
+      section !== "notifications" &&
       section !== "pronunciation" &&
       section !== "voice"
     ) {
@@ -149,6 +150,8 @@ export async function PATCH(request: Request) {
       } else {
         await updateInboundEmailSettings(context, settings);
       }
+    } else if (section === "notifications") {
+      await updateNotificationSettings(context, settings);
     } else if (section === "pronunciation") {
       await updatePronunciationSettings(context, operation, settings);
     } else {
@@ -196,8 +199,9 @@ async function buildSettingsResponse(
     inboundEmail,
     inboundSummary,
     microsoft,
-    pronunciationEntries,
+    notifications,
     phoneSms,
+    pronunciationEntries,
     usageReport,
     voice,
   ] = await Promise.all([
@@ -207,8 +211,9 @@ async function buildSettingsResponse(
     getInboundEmailSettings(supabase, workspace.id),
     getInboundEmailOperationalSummary(supabase, workspace.id),
     getMicrosoftIntegrationOverview(supabase, workspace.id),
-    getPronunciationEntries(supabase, workspace.id),
+    getNotificationSettings(supabase, workspace.id),
     getMobilePhoneSmsStatus(supabase, workspace.id),
+    getPronunciationEntries(supabase, workspace.id),
     getUsageReport(supabase, workspace.id, usageWindow),
     getVoiceSettings(supabase, workspace.id),
   ]);
@@ -270,29 +275,20 @@ async function buildSettingsResponse(
       inboundPollIntervals: [...INBOUND_EMAIL_POLL_INTERVALS],
       inboundSenderRuleActions: [...INBOUND_EMAIL_SENDER_RULE_ACTIONS],
       inboundSyncModes: [...INBOUND_EMAIL_SYNC_MODES],
+      notificationDailyDigestTimings: [...CALENDAR_DAILY_DIGEST_TIMINGS],
+      notificationReminderMinutes: [...CALENDAR_SMS_REMINDER_MINUTES],
       outboundChannels: [...OUTBOUND_CHANNELS],
       outboundVoicePronunciationPolicies: [
         ...OUTBOUND_VOICE_PRONUNCIATION_POLICIES,
       ],
-      phoneAgentDemeanors: [...PHONE_AGENT_DEMEANORS],
-      phoneAgentEscalationModes: [...PHONE_AGENT_ESCALATION_MODES],
-      phoneAgentHumourLevels: [...PHONE_AGENT_HUMOUR_LEVELS],
-      phoneAgentVerbosities: [...PHONE_AGENT_VERBOSITIES],
-      phoneRegions: [...PHONE_REGION_OPTIONS],
       pronunciationCategories: [...PRONUNCIATION_CATEGORIES],
       pronunciationStatuses: [...PRONUNCIATION_STATUSES],
-      openAiVoices: [...OPENAI_VOICE_OPTIONS],
-      vapiVoices: ELEVENLABS_VOICE_PRESETS.map((preset) => ({
-        accent: preset.accent,
-        id: preset.id,
-        label: preset.label,
-        voiceId: preset.voiceId,
-      })),
       voices: [...OPENAI_VOICE_OPTIONS],
     },
+    phoneSms,
     pronunciationEntries: pronunciationEntries
       .filter((entry) => entry.status !== "ignored")
-      .slice(0, 80)
+      .slice(0, 10)
       .map((entry) => ({
         aliases: entry.aliases,
         category: entry.category,
@@ -334,32 +330,21 @@ async function buildSettingsResponse(
         syncMode: inboundEmail.syncMode,
         timeZone: inboundEmail.timeZone,
       },
+      notifications: {
+        calendarDailyDigestEnabled: notifications.calendarDailyDigestEnabled,
+        calendarDailyDigestTime: notifications.calendarDailyDigestTime,
+        calendarDailyDigestTiming: notifications.calendarDailyDigestTiming,
+        calendarSmsReminderMinutes: notifications.calendarSmsReminderMinutes,
+        calendarSmsRemindersEnabled: notifications.calendarSmsRemindersEnabled,
+        calendarSmsRecipientPhone: notifications.calendarSmsRecipientPhone,
+      },
       voice: {
-        elevenLabsVoiceAccent: elevenLabsVoicePresetById(
-          voice.elevenLabsVoicePresetId,
-        ).accent,
-        elevenLabsVoiceId: voice.elevenLabsVoiceId,
-        elevenLabsVoiceLabel: elevenLabsVoicePresetById(
-          voice.elevenLabsVoicePresetId,
-        ).label,
-        elevenLabsVoicePresetId: voice.elevenLabsVoicePresetId,
         openAiVoice: voice.openAiVoice,
         outboundVoicePronunciationPolicy:
           voice.outboundVoicePronunciationPolicy,
-        phoneAgentDemeanor: voice.phoneAgentDemeanor,
-        phoneAgentEnabled: voice.phoneAgentEnabled,
-        phoneAgentEscalationMode: voice.phoneAgentEscalationMode,
-        phoneAgentHumourLevel: voice.phoneAgentHumourLevel,
-        phoneAgentInboundEnabled: voice.phoneAgentInboundEnabled,
-        phoneAgentOutboundEnabled: voice.phoneAgentOutboundEnabled,
-        phoneAgentUserNumbers: voice.phoneAgentUserNumbers,
-        phoneAgentVerbosity: voice.phoneAgentVerbosity,
-        phoneAgentVoicemailOverflowEnabled:
-          voice.phoneAgentVoicemailOverflowEnabled,
         provider: voice.provider,
       },
     },
-    phoneSms,
     status: {
       connectedAccountCount: connectedCount,
       inboundDecisionCount: inboundSummary.decisions.length,
@@ -376,7 +361,26 @@ async function buildSettingsResponse(
     usage: {
       activeWindow: usageReport.activeWindow,
       generatedAt: usageReport.generatedAt,
-      ledger: [],
+      ledger: usageReport.ledger.slice(0, 60).map((row) => ({
+        createdAt: row.createdAt,
+        currency: row.currency,
+        customerCharge: row.customerCharge,
+        displayCustomerCharge: formatDisplayMoney(
+          row.customerCharge,
+          row.currency,
+          general,
+        ),
+        id: row.id,
+        model: row.model,
+        provider: row.provider,
+        quantity: row.quantity,
+        service: row.service,
+        sourceLabel: row.sourceLabel,
+        sourceMeta: row.sourceMeta,
+        taskLabel: row.taskLabel,
+        unit: row.unit,
+        userName: row.userName,
+      })),
       providerBreakdown: usageReport.providerBreakdown
         .slice(0, 6)
         .map((row) => ({
@@ -430,15 +434,7 @@ async function updateGeneralSettings(
   context: MobileContext,
   updates: Record<string, unknown>,
 ) {
-  const { supabase, user, workspace } = context;
-
-  if (!isKyroEmailVerified(user)) {
-    throw new MobileApiError(
-      "Verify your email before editing Business Profile settings.",
-      403,
-    );
-  }
-
+  const { supabase, workspace } = context;
   const [beforeGeneral, beforeInbound] = await Promise.all([
     loadPolicy(context, WORKSPACE_GENERAL_POLICY_TYPE),
     loadPolicy(context, INBOUND_EMAIL_POLICY_TYPE),
@@ -455,20 +451,8 @@ async function updateGeneralSettings(
 
   assertValidTimeZone(timeZone);
 
-  const businessProfile = normalizeWorkspaceBusinessProfileSettings(
-    {
-      ...beforeGeneralSettings.businessProfile,
-      ...objectRecord(updates.businessProfile),
-    },
-    beforeGeneralSettings.businessProfile,
-  );
   const settings = normalizeWorkspaceGeneralSettings({
     ...beforeGeneralSettings,
-    businessProfile,
-    defaultPhoneRegion: normalizePhoneRegion(
-      textValue(updates.defaultPhoneRegion),
-      beforeGeneralSettings.defaultPhoneRegion,
-    ),
     displayCurrency: normalizeDisplayCurrency(
       updates.displayCurrency,
       beforeGeneralSettings.displayCurrency,
@@ -501,66 +485,96 @@ async function updateGeneralSettings(
   }
 }
 
-async function getMobilePhoneSmsStatus(
-  supabase: MobileContext["supabase"],
-  workspaceId: string,
+async function updateNotificationSettings(
+  context: MobileContext,
+  updates: Record<string, unknown>,
 ) {
-  const { data, error } = await supabase
-    .from("workspace_phone_numbers")
-    .select(
-      "id,phone_number,normalized_phone,friendly_name,provider_phone_number_id,country_code,region,capabilities,status,monthly_cost_snapshot,currency,metadata",
+  const beforePolicy = await loadPolicy(
+    context,
+    NOTIFICATION_SETTINGS_POLICY_TYPE,
+  );
+  const beforeSettings = normalizeNotificationSettings(beforePolicy?.settings);
+  const generalSettings = await getWorkspaceGeneralSettings(
+    context.supabase,
+    context.workspace.id,
+  );
+  const reminderMinutes =
+    numberValue(updates.calendarSmsReminderMinutes) ??
+    beforeSettings.calendarSmsReminderMinutes;
+  const digestTiming =
+    textValue(updates.calendarDailyDigestTiming) ??
+    beforeSettings.calendarDailyDigestTiming;
+
+  if (
+    !CALENDAR_SMS_REMINDER_MINUTES.includes(
+      reminderMinutes as (typeof CALENDAR_SMS_REMINDER_MINUTES)[number],
     )
-    .eq("workspace_id", workspaceId)
-    .in("status", ["active", "pending"])
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    if (tableMissing(error)) {
-      return {
-        configured: false,
-        numbers: [],
-      };
-    }
-
-    throw new Error(`Unable to load phone and SMS numbers: ${error.message}`);
+  ) {
+    throw new Error("Choose a valid reminder time.");
   }
 
-  const numbers = ((data ?? []) as unknown as Record<string, unknown>[]).map(
-    (row) => {
-      const capabilities = objectRecord(row.capabilities);
-      const metadata = objectRecord(row.metadata);
-      const vapi = objectRecord(metadata.vapi);
+  if (
+    !CALENDAR_DAILY_DIGEST_TIMINGS.includes(
+      digestTiming as (typeof CALENDAR_DAILY_DIGEST_TIMINGS)[number],
+    )
+  ) {
+    throw new Error("Choose a valid daily report timing.");
+  }
 
-      return {
-        capabilities: {
-          mms: Boolean(capabilities.mms),
-          sms: Boolean(capabilities.sms),
-          voice: Boolean(capabilities.voice),
-        },
-        countryCode: textValue(row.country_code),
-        currency: textValue(row.currency) ?? "USD",
-        friendlyName: textValue(row.friendly_name),
-        id: String(row.id),
-        monthlyCostSnapshot: numberValue(row.monthly_cost_snapshot) ?? 0,
-        normalizedPhone: textValue(row.normalized_phone),
-        phoneNumber:
-          textValue(row.phone_number) ?? String(row.phone_number ?? ""),
-        providerPhoneNumberId: textValue(row.provider_phone_number_id),
-        region: textValue(row.region),
-        status: textValue(row.status) ?? "active",
-        vapiPhoneNumberId:
-          textValue(metadata.vapiPhoneNumberId) ??
-          textValue(metadata.vapi_phone_number_id) ??
-          textValue(vapi.phoneNumberId) ??
-          textValue(vapi.phone_number_id),
-      };
-    },
+  const recipientProvided = Object.prototype.hasOwnProperty.call(
+    updates,
+    "calendarSmsRecipientPhone",
   );
+  const rawRecipientPhone = recipientProvided
+    ? typeof updates.calendarSmsRecipientPhone === "string"
+      ? updates.calendarSmsRecipientPhone.trim()
+      : ""
+    : beforeSettings.calendarSmsRecipientPhone;
+  const normalizedRecipientPhone =
+    recipientProvided && rawRecipientPhone
+      ? normalizeContactPhoneForRegion(
+          rawRecipientPhone,
+          generalSettings.defaultPhoneRegion,
+        )
+      : rawRecipientPhone;
 
-  return {
-    configured: numbers.length > 0,
-    numbers,
+  if (
+    recipientProvided &&
+    rawRecipientPhone &&
+    !normalizedRecipientPhone?.startsWith("+")
+  ) {
+    throw new Error(
+      "Enter the SMS recipient number with a valid country code.",
+    );
+  }
+
+  const settings = {
+    ...normalizeNotificationSettings({
+      ...beforeSettings,
+      calendarDailyDigestEnabled: booleanValue(
+        updates.calendarDailyDigestEnabled,
+        beforeSettings.calendarDailyDigestEnabled,
+      ),
+      calendarDailyDigestTime:
+        textValue(updates.calendarDailyDigestTime) ??
+        beforeSettings.calendarDailyDigestTime,
+      calendarDailyDigestTiming: digestTiming,
+      calendarSmsReminderMinutes: reminderMinutes,
+      calendarSmsRemindersEnabled: booleanValue(
+        updates.calendarSmsRemindersEnabled,
+        beforeSettings.calendarSmsRemindersEnabled,
+      ),
+      calendarSmsRecipientPhone: normalizedRecipientPhone,
+    }),
+    calendarSmsRecipientPhone: normalizedRecipientPhone ?? "",
   };
+
+  await savePolicy(context, {
+    action: "notification_settings.updated",
+    beforePolicy,
+    policyType: NOTIFICATION_SETTINGS_POLICY_TYPE,
+    settings,
+  });
 }
 
 async function updateCommunicationSettings(
@@ -797,73 +811,11 @@ async function updateVoiceSettings(
     )
       ? updates.outboundVoicePronunciationPolicy
       : beforeSettings.outboundVoicePronunciationPolicy;
-  const elevenLabsVoicePresetId =
-    typeof updates.elevenLabsVoicePresetId === "string" &&
-    ELEVENLABS_VOICE_PRESETS.some(
-      (preset) => preset.id === updates.elevenLabsVoicePresetId,
-    )
-      ? updates.elevenLabsVoicePresetId
-      : beforeSettings.elevenLabsVoicePresetId;
   const settings = normalizeVoiceSettings({
     ...beforeSettings,
-    elevenLabsVoicePresetId,
     openAiVoice,
     outboundVoicePronunciationPolicy,
-    phoneAgentDemeanor:
-      typeof updates.phoneAgentDemeanor === "string" &&
-      PHONE_AGENT_DEMEANORS.includes(
-        updates.phoneAgentDemeanor as (typeof PHONE_AGENT_DEMEANORS)[number],
-      )
-        ? updates.phoneAgentDemeanor
-        : beforeSettings.phoneAgentDemeanor,
-    phoneAgentEnabled:
-      typeof updates.phoneAgentEnabled === "boolean"
-        ? updates.phoneAgentEnabled
-        : beforeSettings.phoneAgentEnabled,
-    phoneAgentEscalationMode:
-      typeof updates.phoneAgentEscalationMode === "string" &&
-      PHONE_AGENT_ESCALATION_MODES.includes(
-        updates.phoneAgentEscalationMode as (typeof PHONE_AGENT_ESCALATION_MODES)[number],
-      )
-        ? updates.phoneAgentEscalationMode
-        : beforeSettings.phoneAgentEscalationMode,
-    phoneAgentHumourLevel:
-      typeof updates.phoneAgentHumourLevel === "string" &&
-      PHONE_AGENT_HUMOUR_LEVELS.includes(
-        updates.phoneAgentHumourLevel as (typeof PHONE_AGENT_HUMOUR_LEVELS)[number],
-      )
-        ? updates.phoneAgentHumourLevel
-        : beforeSettings.phoneAgentHumourLevel,
-    phoneAgentInboundEnabled:
-      typeof updates.phoneAgentInboundEnabled === "boolean"
-        ? updates.phoneAgentInboundEnabled
-        : beforeSettings.phoneAgentInboundEnabled,
-    phoneAgentOutboundEnabled:
-      typeof updates.phoneAgentOutboundEnabled === "boolean"
-        ? updates.phoneAgentOutboundEnabled
-        : beforeSettings.phoneAgentOutboundEnabled,
-    phoneAgentUserNumbers: Array.isArray(updates.phoneAgentUserNumbers)
-      ? updates.phoneAgentUserNumbers
-          .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-          .filter(Boolean)
-      : textValue(updates.phoneAgentUserNumbers)
-        ? String(updates.phoneAgentUserNumbers)
-            .split(/[\n,]+/)
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-        : beforeSettings.phoneAgentUserNumbers,
-    phoneAgentVerbosity:
-      typeof updates.phoneAgentVerbosity === "string" &&
-      PHONE_AGENT_VERBOSITIES.includes(
-        updates.phoneAgentVerbosity as (typeof PHONE_AGENT_VERBOSITIES)[number],
-      )
-        ? updates.phoneAgentVerbosity
-        : beforeSettings.phoneAgentVerbosity,
-    phoneAgentVoicemailOverflowEnabled:
-      typeof updates.phoneAgentVoicemailOverflowEnabled === "boolean"
-        ? updates.phoneAgentVoicemailOverflowEnabled
-        : beforeSettings.phoneAgentVoicemailOverflowEnabled,
-    provider: beforeSettings.provider,
+    provider: "openai",
   });
 
   await savePolicy(context, {
@@ -966,52 +918,6 @@ async function updatePronunciationSettings(
   });
 }
 
-async function resendEmailVerification(
-  context: MobileContext,
-  request: Request,
-) {
-  const { user } = context;
-  const email = user.email?.trim();
-
-  if (!email) {
-    throw new MobileApiError("This account does not have an email address.", 400);
-  }
-
-  if (isKyroEmailVerified(user)) {
-    return;
-  }
-
-  const authSupabase = createMobilePublicSupabaseClient();
-  const { error } = await sendKyroEmailVerification({
-    email,
-    fallbackOrigin: request.headers.get("origin"),
-    nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
-    nextPath: "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
-    supabase: authSupabase,
-  });
-
-  if (error) {
-    throw new MobileApiError(
-      friendlyEmailVerificationSendError(error.message),
-      400,
-    );
-  }
-
-  const serviceSupabase = createServiceSupabaseClient();
-  await markKyroEmailVerificationStarted({ serviceSupabase, user });
-}
-
-function createMobilePublicSupabaseClient() {
-  const { supabaseAnonKey, supabaseUrl } = getSupabaseEnv();
-
-  return createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-}
-
 async function loadPolicy(
   { supabase, workspace }: MobileContext,
   policyType: string,
@@ -1083,6 +989,26 @@ function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function booleanValue(value: unknown, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+
+    if (["0", "false", "no", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return fallback;
+}
+
 function numberValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -1105,18 +1031,6 @@ function assertValidTimeZone(value: string) {
       "Enter a valid IANA timezone such as Australia/Brisbane, America/Denver, or UTC.",
     );
   }
-}
-
-function tableMissing(error: { code?: string; message?: string } | null) {
-  const message = error?.message?.toLowerCase() ?? "";
-
-  return (
-    error?.code === "42P01" ||
-    error?.code === "PGRST205" ||
-    message.includes("schema cache") ||
-    message.includes("workspace_phone_numbers") ||
-    message.includes("does not exist")
-  );
 }
 
 function integrationStatusLabel(overview: {
@@ -1155,4 +1069,128 @@ function developerEnabled(user: MobileContext["user"]) {
   const value = metadata.developer ?? metadata.mobileDeveloper;
 
   return value === true || value === "true" || value === "yes" || value === 1;
+}
+
+function tableMissing(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("workspace_phone_numbers") ||
+    message.includes("does not exist")
+  );
+}
+
+async function getMobilePhoneSmsStatus(
+  supabase: MobileContext["supabase"],
+  workspaceId: string,
+) {
+  const { data, error } = await supabase
+    .from("workspace_phone_numbers")
+    .select(
+      "id,phone_number,normalized_phone,friendly_name,provider_phone_number_id,country_code,region,capabilities,status,monthly_cost_snapshot,currency,metadata",
+    )
+    .eq("workspace_id", workspaceId)
+    .in("status", ["active", "pending"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (tableMissing(error)) {
+      return {
+        configured: false,
+        numbers: [],
+      };
+    }
+
+    throw new Error(`Unable to load phone and SMS numbers: ${error.message}`);
+  }
+
+  const numbers = ((data ?? []) as unknown as Record<string, unknown>[]).map(
+    (row) => {
+      const capabilities = objectRecord(row.capabilities);
+      const metadata = objectRecord(row.metadata);
+      const vapi = objectRecord(metadata.vapi);
+
+      return {
+        capabilities: {
+          mms: Boolean(capabilities.mms),
+          sms: Boolean(capabilities.sms),
+          voice: Boolean(capabilities.voice),
+        },
+        countryCode: textValue(row.country_code),
+        currency: textValue(row.currency) ?? "USD",
+        friendlyName: textValue(row.friendly_name),
+        id: String(row.id),
+        monthlyCostSnapshot: numberValue(row.monthly_cost_snapshot) ?? 0,
+        normalizedPhone: textValue(row.normalized_phone),
+        phoneNumber:
+          textValue(row.phone_number) ?? String(row.phone_number ?? ""),
+        providerPhoneNumberId: textValue(row.provider_phone_number_id),
+        region: textValue(row.region),
+        status: textValue(row.status) ?? "active",
+        vapiPhoneNumberId:
+          textValue(metadata.vapiPhoneNumberId) ??
+          textValue(metadata.vapi_phone_number_id) ??
+          textValue(vapi.phoneNumberId) ??
+          textValue(vapi.phone_number_id),
+      };
+    },
+  );
+
+  return {
+    configured: numbers.length > 0,
+    numbers,
+  };
+}
+
+async function resendEmailVerification(
+  context: MobileContext,
+  request: Request,
+) {
+  const { user } = context;
+  const email = user.email?.trim();
+
+  if (!email) {
+    throw new MobileApiError(
+      "This account does not have an email address.",
+      400,
+    );
+  }
+
+  if (isKyroEmailVerified(user)) {
+    return;
+  }
+
+  const authSupabase = createMobilePublicSupabaseClient();
+  const { error } = await sendKyroEmailVerification({
+    email,
+    fallbackOrigin: request.headers.get("origin"),
+    nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
+    nextPath:
+      "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+    supabase: authSupabase,
+  });
+
+  if (error) {
+    throw new MobileApiError(
+      friendlyEmailVerificationSendError(error.message),
+      400,
+    );
+  }
+
+  const serviceSupabase = createServiceSupabaseClient();
+  await markKyroEmailVerificationStarted({ serviceSupabase, user });
+}
+
+function createMobilePublicSupabaseClient() {
+  const { supabaseAnonKey, supabaseUrl } = getSupabaseEnv();
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }

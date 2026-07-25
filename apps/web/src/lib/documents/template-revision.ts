@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import {
   DEFAULT_DOCUMENT_TEMPLATE_SETTINGS,
   normalizeDocumentTemplateDesignSettings,
@@ -7,6 +8,10 @@ import {
   openAiProviderUsageId,
   openAiUsageFromResponse,
 } from "../usage/openai";
+import {
+  openAiBalancedModel,
+  openAiReasoningRequest,
+} from "../ai/openai-models";
 
 export type DocumentTemplateRevisionPayload = {
   description: string;
@@ -40,11 +45,7 @@ function openAiApiKey() {
 }
 
 function documentTemplateModel() {
-  return (
-    envValue("OPENAI_DOCUMENT_TEMPLATE_MODEL") ||
-    envValue("OPENAI_LOW_COST_MODEL") ||
-    "gpt-4.1-mini"
-  );
+  return envValue("OPENAI_DOCUMENT_TEMPLATE_MODEL") || openAiBalancedModel();
 }
 
 function textValue(value: unknown) {
@@ -185,7 +186,9 @@ export function parseDocumentTemplateRevision(
   );
 
   return {
-    description: (textValue(parsed.description) ?? "Custom quote template.").slice(0, 220),
+    description: (
+      textValue(parsed.description) ?? "Custom quote template."
+    ).slice(0, 220),
     label: (textValue(parsed.label) ?? "Custom quote template").slice(0, 120),
     lineItems: lineItems.map((item) => ({
       description: item.description,
@@ -218,88 +221,102 @@ export async function runDocumentTemplateRevision(input: {
 
   const model = documentTemplateModel();
   const prompt = buildTemplateRevisionPrompt(input);
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
-      input: prompt,
-      instructions:
-        "You revise deterministic quote document templates for Kyro, a trades/service CRM. Return compact JSON only.",
-      max_output_tokens: 1800,
-      model,
-      text: {
-        format: {
-          name: "kyro_document_template_revision",
-          schema: {
-            additionalProperties: false,
-            properties: {
-              description: { type: "string" },
-              label: { type: "string" },
-              lineItems: {
-                items: {
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/responses",
+    {
+      body: JSON.stringify({
+        input: prompt,
+        instructions:
+          "You revise deterministic quote document templates for Kyro, a trades/service CRM. Return compact JSON only.",
+        max_output_tokens: 1800,
+        model,
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_DOCUMENT_TEMPLATE_REASONING_EFFORT",
+          "medium",
+        ),
+        text: {
+          format: {
+            name: "kyro_document_template_revision",
+            schema: {
+              additionalProperties: false,
+              properties: {
+                description: { type: "string" },
+                label: { type: "string" },
+                lineItems: {
+                  items: {
+                    additionalProperties: false,
+                    properties: {
+                      description: { type: "string" },
+                      notes: { type: ["string", "null"] },
+                      quantity: { type: ["number", "null"] },
+                      unit: { type: ["string", "null"] },
+                      unitPrice: { type: ["number", "null"] },
+                    },
+                    required: [
+                      "description",
+                      "quantity",
+                      "unit",
+                      "unitPrice",
+                      "notes",
+                    ],
+                    type: "object",
+                  },
+                  type: "array",
+                },
+                notes: { type: "string" },
+                revisionRequest: { type: ["string", "null"] },
+                settings: {
                   additionalProperties: false,
                   properties: {
-                    description: { type: "string" },
-                    notes: { type: ["string", "null"] },
-                    quantity: { type: ["number", "null"] },
-                    unit: { type: ["string", "null"] },
-                    unitPrice: { type: ["number", "null"] },
+                    accentTheme: {
+                      enum: ["graphite", "cyan", "pink", "blue", "green"],
+                      type: "string",
+                    },
+                    currency: {
+                      enum: ["AUD", "USD", "NZD", "GBP", "EUR"],
+                      type: "string",
+                    },
+                    footerText: { type: "string" },
+                    paymentTerms: { type: "string" },
+                    quoteStyleDirection: { type: "string" },
+                    showPreparedBy: { type: "boolean" },
+                    validityDays: { maximum: 90, minimum: 1, type: "integer" },
                   },
-                  required: ["description", "quantity", "unit", "unitPrice", "notes"],
+                  required: [
+                    "accentTheme",
+                    "currency",
+                    "footerText",
+                    "paymentTerms",
+                    "quoteStyleDirection",
+                    "showPreparedBy",
+                    "validityDays",
+                  ],
                   type: "object",
                 },
-                type: "array",
               },
-              notes: { type: "string" },
-              revisionRequest: { type: ["string", "null"] },
-              settings: {
-                additionalProperties: false,
-                properties: {
-                  accentTheme: {
-                    enum: ["graphite", "cyan", "pink", "blue", "green"],
-                    type: "string",
-                  },
-                  currency: {
-                    enum: ["AUD", "USD", "NZD", "GBP", "EUR"],
-                    type: "string",
-                  },
-                  footerText: { type: "string" },
-                  paymentTerms: { type: "string" },
-                  quoteStyleDirection: { type: "string" },
-                  showPreparedBy: { type: "boolean" },
-                  validityDays: { maximum: 90, minimum: 1, type: "integer" },
-                },
-                required: [
-                  "accentTheme",
-                  "currency",
-                  "footerText",
-                  "paymentTerms",
-                  "quoteStyleDirection",
-                  "showPreparedBy",
-                  "validityDays",
-                ],
-                type: "object",
-              },
+              required: [
+                "label",
+                "description",
+                "lineItems",
+                "notes",
+                "revisionRequest",
+                "settings",
+              ],
+              type: "object",
             },
-            required: [
-              "label",
-              "description",
-              "lineItems",
-              "notes",
-              "revisionRequest",
-              "settings",
-            ],
-            type: "object",
+            strict: true,
+            type: "json_schema",
           },
-          strict: true,
-          type: "json_schema",
         },
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
