@@ -34,6 +34,7 @@ import {
   conversationToAssistantLink,
   isConversationInLiveWorkQueue,
 } from "../../lib/assistant/conversation-links";
+import { manualReplyIdempotencyKey } from "../../lib/communication/idempotency";
 import {
   recordOutboundMessage,
   type OutboundAttachment,
@@ -1026,11 +1027,15 @@ export async function sendAssistantManualReplyAction({
   channelType,
   href,
   subject,
+  submissionKey,
 }: {
   body: string;
   channelType: string;
   href: string;
   subject: string;
+  // Generated once per composed reply by the client and reused across retries,
+  // so a double-tap cannot deliver the same message to a customer twice.
+  submissionKey?: string | null;
 }): Promise<AssistantResourcePreviewResult> {
   try {
     const target = assistantPreviewTarget(href);
@@ -1084,6 +1089,14 @@ export async function sendAssistantManualReplyAction({
       body: signedBody.bodyText,
       htmlBody: signedBody.htmlBody,
       attachments: signedBody.inlineAttachments,
+      idempotencyKey: manualReplyIdempotencyKey({
+        body: cleanBody,
+        channelType,
+        conversationId: target.id,
+        source: "assistant.manual_reply",
+        subject: textValue(subject),
+        submissionKey,
+      }),
       source: "assistant.manual_reply",
       settingsSnapshot,
     });

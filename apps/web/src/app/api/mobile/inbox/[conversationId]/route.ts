@@ -7,6 +7,7 @@ import {
   buildSignedEmailBody,
   selectEmailSignature,
 } from "../../../../../lib/communication/signatures";
+import { manualReplyIdempotencyKey } from "../../../../../lib/communication/idempotency";
 import { recordOutboundMessage } from "../../../../../lib/communication/outbound";
 import { insertAuditLog } from "../../../../../lib/engine/event-action-audit";
 import {
@@ -149,11 +150,16 @@ async function buildDetail(request: Request, conversationId: string) {
 
   const visibleActions = profile.actions
     .filter((action) =>
-      ["draft_reply", "send_outbound_message", "create_quote_draft", "book_site_visit"].includes(
-        action.type,
-      ),
+      [
+        "draft_reply",
+        "send_outbound_message",
+        "create_quote_draft",
+        "book_site_visit",
+      ].includes(action.type),
     )
-    .filter((action) => ["pending_approval", "approved", "completed"].includes(action.status))
+    .filter((action) =>
+      ["pending_approval", "approved", "completed"].includes(action.status),
+    )
     .slice(0, 8)
     .map((action) => {
       const input = objectRecord(action.input);
@@ -270,6 +276,10 @@ export async function POST(request: Request, context: RouteContext) {
     const subject = textValue(payload.subject);
     const body = textValue(payload.body);
     const attachmentQuoteDraftId = textValue(payload.attachmentQuoteDraftId);
+    // Generated once per composed reply by the mobile client and reused across
+    // retries. Older builds send nothing, in which case the helper falls back to
+    // a short content-hash window so a double-tap still cannot double-send.
+    const submissionKey = textValue(payload.submissionKey);
     const includeSignature = payload.includeSignature !== false;
     const signatureVariant =
       textValue(payload.signatureVariant) === "ai_generated"
@@ -312,6 +322,14 @@ export async function POST(request: Request, context: RouteContext) {
       channelType,
       conversationId,
       htmlBody: signedBody.htmlBody,
+      idempotencyKey: manualReplyIdempotencyKey({
+        body: body ?? "",
+        channelType,
+        conversationId,
+        source: "mobile.inbox.manual_reply",
+        subject,
+        submissionKey,
+      }),
       settingsSnapshot: {
         allowedChannels: settings.allowedChannels,
         approvalRequired: settings.approvalRequired,
@@ -450,20 +468,31 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     if (!action) {
-      throw new MobileApiError("Action was not found for this conversation.", 404);
+      throw new MobileApiError(
+        "Action was not found for this conversation.",
+        404,
+      );
     }
 
     if (operation === "save_draft" || operation === "approve_execute") {
       if (String(action.type) !== "draft_reply") {
-        throw new MobileApiError("Only draft reply actions can be edited.", 400);
+        throw new MobileApiError(
+          "Only draft reply actions can be edited.",
+          400,
+        );
       }
 
       if (String(action.status) !== "pending_approval") {
-        throw new MobileApiError("Only pending draft replies can be edited.", 400);
+        throw new MobileApiError(
+          "Only pending draft replies can be edited.",
+          400,
+        );
       }
 
       const cleanSubject =
-        textValue(payload.subject) ?? textValue(objectRecord(action.input).subject) ?? "Thanks for reaching out";
+        textValue(payload.subject) ??
+        textValue(objectRecord(action.input).subject) ??
+        "Thanks for reaching out";
       const cleanBody = textValue(payload.body);
 
       if (!cleanBody) {
@@ -511,7 +540,9 @@ async function saveDraftReplyAction({
   beforeInput: Record<string, unknown>;
   body: string;
   subject: string;
-  supabase: Awaited<ReturnType<typeof requireMobileWorkspaceContext>>["supabase"];
+  supabase: Awaited<
+    ReturnType<typeof requireMobileWorkspaceContext>
+  >["supabase"];
   userId: string;
   workspaceId: string;
 }) {

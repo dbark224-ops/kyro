@@ -168,6 +168,8 @@ export function AssistantConsole({
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const draftRef = useRef("");
   const submissionInFlightRef = useRef(false);
+  // Per-conversation manual reply submission keys, kept until a send succeeds.
+  const manualReplySubmissionKeys = useRef(new Map<string, string>());
   const previousLastMessageIdRef = useRef(lastMessageId(state.messages));
   const previewCacheRef = useRef<Map<string, AssistantResourcePreviewResult>>(
     new Map(),
@@ -833,17 +835,25 @@ export function AssistantConsole({
   }) => {
     setPreviewActionId(`manual:${href}`);
 
+    // Held until the send succeeds so a double-tap or retry reuses the same key
+    // and the outbox rejects the duplicate instead of messaging the customer twice.
+    const submissionKey =
+      manualReplySubmissionKeys.current.get(href) ?? crypto.randomUUID();
+    manualReplySubmissionKeys.current.set(href, submissionKey);
+
     const result = await sendAssistantManualReplyAction({
       body,
       channelType,
       href,
       subject,
+      submissionKey,
     });
 
     setPreviewActionId(null);
     applyRefreshedLink(result);
 
     if (result.preview) {
+      manualReplySubmissionKeys.current.delete(href);
       setPreviewState({
         preview: result.preview,
         status: "ready",

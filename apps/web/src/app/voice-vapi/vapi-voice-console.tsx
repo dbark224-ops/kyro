@@ -245,6 +245,8 @@ export function VapiVoiceConsole({
     new Map(),
   );
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  // Per-conversation manual reply submission keys, kept until a send succeeds.
+  const manualReplySubmissionKeys = useRef(new Map<string, string>());
   const vapiRef = useRef<Vapi | null>(null);
   const currentUserTranscriptRef = useRef("");
   const currentAssistantTranscriptRef = useRef("");
@@ -425,10 +427,7 @@ export function VapiVoiceConsole({
             continue;
           }
 
-          const merged = mergeVoiceTurnContent(
-            message.content,
-            displayContent,
-          );
+          const merged = mergeVoiceTurnContent(message.content, displayContent);
 
           return currentMessages.map((currentMessage, currentIndex) =>
             currentIndex === index
@@ -500,9 +499,12 @@ export function VapiVoiceConsole({
       }
 
       reportedBugKeysRef.current.add(key);
-      window.setTimeout(() => {
-        reportedBugKeysRef.current.delete(key);
-      }, 15 * 60 * 1000);
+      window.setTimeout(
+        () => {
+          reportedBugKeysRef.current.delete(key);
+        },
+        15 * 60 * 1000,
+      );
 
       void fetch("/api/internal/bug-report", {
         body: JSON.stringify({
@@ -1044,11 +1046,7 @@ export function VapiVoiceConsole({
         setConnectionState("idle");
         setError(VOICE_SERVICE_UNAVAILABLE_MESSAGE);
         setStatus(VOICE_SERVICE_UNAVAILABLE_MESSAGE);
-        addLocalMessage(
-          "assistant",
-          VOICE_SERVICE_UNAVAILABLE_MESSAGE,
-          "vapi",
-        );
+        addLocalMessage("assistant", VOICE_SERVICE_UNAVAILABLE_MESSAGE, "vapi");
         return;
       }
 
@@ -1686,12 +1684,24 @@ export function VapiVoiceConsole({
     subject: string;
   }) => {
     setPreviewActionId(`manual:${href}`);
+
+    // Held until the send succeeds so a double-tap or retry reuses the same key
+    // and the outbox rejects the duplicate instead of messaging the customer twice.
+    const submissionKey =
+      manualReplySubmissionKeys.current.get(href) ?? crypto.randomUUID();
+    manualReplySubmissionKeys.current.set(href, submissionKey);
+
     const result = await sendAssistantManualReplyAction({
       body,
       channelType,
       href,
       subject,
+      submissionKey,
     });
+
+    if (result.preview) {
+      manualReplySubmissionKeys.current.delete(href);
+    }
 
     applyVoicePreviewResult(href, result, "Work item");
     setPreviewActionId(null);
@@ -2646,7 +2656,9 @@ function humanizeVapiReason(value: string) {
 
 function isVoiceProviderServiceIssue(value: unknown) {
   const text =
-    typeof value === "string" ? value : (safeJson(value) ?? errorMessage(value));
+    typeof value === "string"
+      ? value
+      : (safeJson(value) ?? errorMessage(value));
   const normalized = text.toLowerCase();
 
   return [
@@ -2680,7 +2692,10 @@ function clientBugReportKey(value: string) {
   return (
     canonicalTranscript(value)
       .replace(/\b\d{4}\s+\d{2}\s+\d{2}t?[a-z0-9 ]+/gi, "<timestamp>")
-      .replace(/\b[0-9a-f]{8}\b(?:\s+[0-9a-f]{4}\b){3}\s+[0-9a-f]{12}\b/gi, "<uuid>")
+      .replace(
+        /\b[0-9a-f]{8}\b(?:\s+[0-9a-f]{4}\b){3}\s+[0-9a-f]{12}\b/gi,
+        "<uuid>",
+      )
       .replace(/\b-?\d+(?:\s+\d+)?\b/g, "<number>")
       .slice(0, 180) || "unknown"
   );
