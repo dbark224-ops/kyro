@@ -190,6 +190,23 @@ if a bug appears that typed clients would genuinely have caught.
 
 ---
 
+- `[FIXED]` **The mobile API fork.** `codex/mobile-app` was 480 commits behind main while
+  both branches evolved `apps/web/src/app/api/mobile` independently — the iOS client
+  called endpoints that 404'd in production (`usage-ledger`, `addresses/*`) and shapes
+  that had drifted (`settings`, `workspace-tools`). Reconciled per-file into main
+  (commit `a7fd86b`): ported the branch-only routes rebuilt over main's metered/timed
+  Google helpers, merged settings (main's notifications + branch's account/email
+  verification/phoneSms) and workspace-tools (branch's shared-reports refactor), took
+  the branch's newer import-contacts, kept main's calendar/payments/inbox/reply-draft
+  after verifying client-contract compatibility field by field. Then merged main back
+  into `codex/mobile-app` (merge `b8beed3`, main-wins for all of `apps/web`) so mobile
+  development continues against current code. Branch now 0 behind / 39 ahead (all
+  `apps/mobile`).
+  - **David chose to keep the Expo app on its branch** rather than fold it into main
+    (keeps CI/Vercel installs lean). The standing risk: this fork re-opens unless
+    `origin/main` is merged into `codex/mobile-app` regularly. Any session doing mobile
+    work should start with that merge; `apps/web` conflicts resolve as main-wins.
+
 ## Tier 1 — all clear
 
 All Tier 1 items are fixed. Start at Tier 2.
