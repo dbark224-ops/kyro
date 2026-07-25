@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { getPublicAppUrl } from "../app-url";
 import { createServiceSupabaseClient } from "../supabase/service";
@@ -136,7 +137,7 @@ async function sendBrandedKyroVerificationEmail({
   }
 
   const { html, text } = buildKyroVerificationEmail({ actionLink, email });
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetchWithTimeout("https://api.resend.com/emails", {
     body: JSON.stringify({
       from: authEmailFromAddress(),
       html,
@@ -196,7 +197,10 @@ export function buildKyroEmailVerificationRedirectUrl({
   fallbackOrigin?: string | null;
   nextPath?: string;
 }) {
-  const callbackUrl = new URL("/auth/callback", getPublicAppUrl(fallbackOrigin));
+  const callbackUrl = new URL(
+    "/auth/callback",
+    getPublicAppUrl(fallbackOrigin),
+  );
 
   callbackUrl.searchParams.set("next", nextPath);
 
@@ -214,7 +218,10 @@ export function buildKyroEmailVerificationActionUrl({
   tokenHash: string;
   type: string;
 }) {
-  const callbackUrl = new URL("/auth/callback", getPublicAppUrl(fallbackOrigin));
+  const callbackUrl = new URL(
+    "/auth/callback",
+    getPublicAppUrl(fallbackOrigin),
+  );
 
   callbackUrl.searchParams.set("next", nextPath);
   callbackUrl.searchParams.set("token_hash", tokenHash);
@@ -233,8 +240,7 @@ export async function markKyroEmailVerificationStarted({
   const appMetadata = metadataRecord(user.app_metadata);
 
   if (!metadataString(appMetadata, KYRO_EMAIL_VERIFICATION_STARTED_AT)) {
-    appMetadata[KYRO_EMAIL_VERIFICATION_STARTED_AT] =
-      new Date().toISOString();
+    appMetadata[KYRO_EMAIL_VERIFICATION_STARTED_AT] = new Date().toISOString();
   }
 
   const { error } = await serviceSupabase.auth.admin.updateUserById(user.id, {
@@ -242,7 +248,9 @@ export async function markKyroEmailVerificationStarted({
   });
 
   if (error) {
-    throw new Error(`Unable to mark email verification pending: ${error.message}`);
+    throw new Error(
+      `Unable to mark email verification pending: ${error.message}`,
+    );
   }
 }
 

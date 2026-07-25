@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../../../lib/http/fetch-with-timeout";
 import { createServiceSupabaseClient } from "../../../lib/supabase/service";
 import { consumeApiRateLimit } from "../../../lib/security/rate-limit";
 import { NextResponse } from "next/server";
@@ -106,7 +107,7 @@ async function sendWaitlistNotification(details: WaitlistNotification) {
     )
     .join("");
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetchWithTimeout("https://api.resend.com/emails", {
     body: JSON.stringify({
       from,
       html: `
@@ -161,7 +162,14 @@ export async function POST(request: Request) {
   const serviceArea = stringValue(payload.serviceArea);
   const referrer = request.headers.get("referer") ?? "";
 
-  if (!name || !email || !businessName || !industry || !location || !adminFocus) {
+  if (
+    !name ||
+    !email ||
+    !businessName ||
+    !industry ||
+    !location ||
+    !adminFocus
+  ) {
     return NextResponse.json(
       { error: "Complete the required waitlist fields." },
       { status: 400 },

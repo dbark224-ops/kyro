@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../../../../../../lib/http/fetch-with-timeout";
 import { createHash } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import {
@@ -100,14 +101,17 @@ export async function POST(request: NextRequest) {
     }),
   );
 
-  const response = await fetch("https://api.openai.com/v1/realtime/calls", {
-    body: formData,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "OpenAI-Safety-Identifier": safetyIdentifier(user.id),
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/realtime/calls",
+    {
+      body: formData,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "OpenAI-Safety-Identifier": safetyIdentifier(user.id),
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const answer = await response.text();
 
   if (!response.ok) {

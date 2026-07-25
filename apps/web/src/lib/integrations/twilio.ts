@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -579,7 +580,7 @@ export async function sendTwilioSmsMessage(input: {
     form.set("StatusCallback", input.statusCallbackUrl);
   }
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`,
     {
       body: form,

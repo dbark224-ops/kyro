@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import crypto from "crypto";
 
 export const STRIPE_PROVIDER = "stripe";
@@ -261,7 +262,7 @@ export async function stripeApiRequest<T>(
   let response: Response;
 
   try {
-    response = await fetch(`https://api.stripe.com${path}`, init);
+    response = await fetchWithTimeout(`https://api.stripe.com${path}`, init);
   } catch (networkError) {
     // We never got a response, so the request may or may not have been applied.
     throw new StripeRequestError(

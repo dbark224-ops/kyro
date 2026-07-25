@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   MICROSOFT_PROVIDER,
@@ -42,19 +43,25 @@ function textValue(value: unknown) {
 
 function normalizeScopes(value: unknown) {
   return Array.isArray(value)
-    ? value.filter((scope): scope is string => typeof scope === "string" && scope.length > 0)
+    ? value.filter(
+        (scope): scope is string =>
+          typeof scope === "string" && scope.length > 0,
+      )
     : [];
 }
 
 function tokenExpiresAt(tokenSet: MicrosoftTokenSet) {
   const obtainedAt = textValue(tokenSet.obtainedAt);
-  const expiresIn = typeof tokenSet.expiresIn === "number" ? tokenSet.expiresIn : null;
+  const expiresIn =
+    typeof tokenSet.expiresIn === "number" ? tokenSet.expiresIn : null;
 
   if (!obtainedAt || !expiresIn) {
     return null;
   }
 
-  return new Date(new Date(obtainedAt).getTime() + expiresIn * 1000).toISOString();
+  return new Date(
+    new Date(obtainedAt).getTime() + expiresIn * 1000,
+  ).toISOString();
 }
 
 function isExpiring(tokenSet: MicrosoftTokenSet) {
@@ -64,7 +71,9 @@ function isExpiring(tokenSet: MicrosoftTokenSet) {
     return true;
   }
 
-  return new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS;
+  return (
+    new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS
+  );
 }
 
 function hasMailSendScope(scopes: string[]) {
@@ -114,7 +123,10 @@ async function updateConnectionLastError({
     .eq("id", connectionId);
 
   if (error) {
-    console.warn("Unable to update Microsoft integration status", error.message);
+    console.warn(
+      "Unable to update Microsoft integration status",
+      error.message,
+    );
   }
 }
 
@@ -134,11 +146,15 @@ async function loadActiveMicrosoftConnection(
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Unable to load connected Outlook account: ${error.message}`);
+    throw new Error(
+      `Unable to load connected Outlook account: ${error.message}`,
+    );
   }
 
   if (!data) {
-    throw new Error("Connect an Outlook account in Settings before sending Outlook email.");
+    throw new Error(
+      "Connect an Outlook account in Settings before sending Outlook email.",
+    );
   }
 
   return data as MicrosoftConnectionRow;
@@ -168,7 +184,7 @@ async function refreshAccessToken({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
   });
-  const response = await fetch(config.tokenEndpoint, {
+  const response = await fetchWithTimeout(config.tokenEndpoint, {
     body,
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -188,7 +204,9 @@ async function refreshAccessToken({
 
   if (!response.ok || refreshed.error || !refreshed.access_token) {
     const message =
-      refreshed.error_description ?? refreshed.error ?? "Microsoft token refresh failed.";
+      refreshed.error_description ??
+      refreshed.error ??
+      "Microsoft token refresh failed.";
     await updateConnectionLastError({
       connectionId: connection.id,
       message: `Microsoft token refresh failed: ${message}`,
@@ -196,7 +214,9 @@ async function refreshAccessToken({
       workspaceId,
     });
 
-    throw new Error("Microsoft access expired and refresh failed. Reconnect Outlook in Settings.");
+    throw new Error(
+      "Microsoft access expired and refresh failed. Reconnect Outlook in Settings.",
+    );
   }
 
   const updatedTokenSet: MicrosoftTokenSet = {
@@ -209,7 +229,9 @@ async function refreshAccessToken({
     scopes: refreshed.scope ? refreshed.scope.split(" ") : tokenSet.scopes,
     tokenType: refreshed.token_type ?? tokenSet.tokenType ?? null,
   };
-  const encrypted = encryptIntegrationTokenSet(updatedTokenSet as Record<string, unknown>);
+  const encrypted = encryptIntegrationTokenSet(
+    updatedTokenSet as Record<string, unknown>,
+  );
   const { error } = await supabase
     .from("integration_connections")
     .update({
@@ -221,7 +243,9 @@ async function refreshAccessToken({
     .eq("id", connection.id);
 
   if (error) {
-    throw new Error(`Unable to save refreshed Microsoft access token: ${error.message}`);
+    throw new Error(
+      `Unable to save refreshed Microsoft access token: ${error.message}`,
+    );
   }
 
   return updatedTokenSet;
@@ -261,7 +285,9 @@ export async function sendOutlookMessage(
   const scopes = normalizeScopes(connection.scopes);
 
   if (!hasMailSendScope(scopes)) {
-    throw new Error("The connected Outlook account is missing the Mail.Send scope.");
+    throw new Error(
+      "The connected Outlook account is missing the Mail.Send scope.",
+    );
   }
 
   let tokenSet = decryptIntegrationTokenSet<MicrosoftTokenSet>(
@@ -280,37 +306,42 @@ export async function sendOutlookMessage(
   const accessToken = textValue(tokenSet.accessToken);
 
   if (!accessToken) {
-    throw new Error("The connected Outlook account does not have a usable access token.");
+    throw new Error(
+      "The connected Outlook account does not have a usable access token.",
+    );
   }
 
   const providerRequestId = crypto.randomUUID();
-  const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
-    body: JSON.stringify({
-      message: {
-        attachments: graphAttachments(attachments),
-        body: {
-          content: htmlBody ?? body,
-          contentType: htmlBody ? "HTML" : "Text",
-        },
-        subject,
-        toRecipients: [
-          {
-            emailAddress: {
-              address: to,
-            },
+  const response = await fetchWithTimeout(
+    "https://graph.microsoft.com/v1.0/me/sendMail",
+    {
+      body: JSON.stringify({
+        message: {
+          attachments: graphAttachments(attachments),
+          body: {
+            content: htmlBody ?? body,
+            contentType: htmlBody ? "HTML" : "Text",
           },
-        ],
+          subject,
+          toRecipients: [
+            {
+              emailAddress: {
+                address: to,
+              },
+            },
+          ],
+        },
+        saveToSentItems: true,
+      }),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "client-request-id": providerRequestId,
+        "Content-Type": "application/json",
+        "return-client-request-id": "true",
       },
-      saveToSentItems: true,
-    }),
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "client-request-id": providerRequestId,
-      "Content-Type": "application/json",
-      "return-client-request-id": "true",
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   if (!response.ok) {
     const message = await readMicrosoftGraphError(response);

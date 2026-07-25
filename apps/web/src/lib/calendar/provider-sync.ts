@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -274,16 +275,19 @@ async function refreshGoogleAccessToken({
     );
   }
 
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    body: new URLSearchParams({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    method: "POST",
-  });
+  const response = await fetchWithTimeout(
+    "https://oauth2.googleapis.com/token",
+    {
+      body: new URLSearchParams({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    },
+  );
 
   if (!response.ok) {
     const message = await readApiError(response);
@@ -355,7 +359,7 @@ async function refreshMicrosoftAccessToken({
     );
   }
 
-  const response = await fetch(config.tokenEndpoint, {
+  const response = await fetchWithTimeout(config.tokenEndpoint, {
     body: new URLSearchParams({
       client_id: config.clientId,
       client_secret: config.clientSecret,
@@ -632,7 +636,7 @@ async function upsertGoogleEvent({
     );
   }
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     existingEventId
       ? googleCalendarUrl(settings, `/${encodeURIComponent(existingEventId)}`)
       : googleCalendarUrl(settings),
@@ -686,7 +690,7 @@ async function readGoogleEvent({
   eventId: string;
   settings: CalendarSettings;
 }) {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     googleCalendarUrl(settings, `/${encodeURIComponent(eventId)}`),
     {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -778,7 +782,7 @@ async function upsertMicrosoftEvent({
   }
 
   const requestId = randomUUID();
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     microsoftCalendarUrl(settings, existingEventId),
     {
       body: JSON.stringify({
@@ -827,7 +831,7 @@ async function readMicrosoftEvent({
   accessToken: string;
   eventId: string;
 }) {
-  const response = await fetch(microsoftEventUrl(eventId), {
+  const response = await fetchWithTimeout(microsoftEventUrl(eventId), {
     headers: { Authorization: `Bearer ${accessToken}` },
     method: "GET",
   });
@@ -1435,10 +1439,13 @@ async function listGoogleCalendarEvents({
       params.set("pageToken", pageToken);
     }
 
-    const response = await fetch(googleCalendarUrl(settings, `?${params}`), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      method: "GET",
-    });
+    const response = await fetchWithTimeout(
+      googleCalendarUrl(settings, `?${params}`),
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        method: "GET",
+      },
+    );
 
     if (!response.ok) {
       throw new Error(
@@ -1545,7 +1552,7 @@ async function listMicrosoftCalendarEvents({
   let url: string | null = microsoftCalendarViewUrl(settings, from, to);
 
   while (url && events.length < 1000) {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Prefer: 'outlook.timezone="UTC"',
@@ -2117,7 +2124,7 @@ export async function deleteAppointmentFromExternalCalendar({
       supabase,
       workspaceId,
     });
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       provider === "google"
         ? googleCalendarUrl(
             settings,

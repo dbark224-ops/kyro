@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import { selectModelRoute } from "@kyro/ai";
 import { getInitialActionStatus } from "@kyro/api";
 import type { ModelRouteRequest } from "@kyro/contracts";
@@ -232,7 +233,7 @@ function normalizeResponsePolicy(value: unknown): TriageResponsePolicy {
           ? "simple_business_message"
           : policy.mode === "tool_assisted_business_message"
             ? "tool_assisted_business_message"
-          : "service_inquiry",
+            : "service_inquiry",
     ownerQuestion: textValue(policy.ownerQuestion),
     reason: textValue(policy.reason),
   };
@@ -1069,41 +1070,44 @@ async function repairReplyDraftWithOpenAi(input: {
     verifiedAvailability: input.verifiedAvailability,
   });
   const model = openAiTriageModel();
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
-      input: prompt,
-      instructions:
-        "You repair Kyro customer reply drafts. Return compact JSON matching the requested contract.",
-      max_output_tokens: openAiReplyRepairMaxOutputTokens(),
-      model,
-      ...openAiReasoningRequest(
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/responses",
+    {
+      body: JSON.stringify({
+        input: prompt,
+        instructions:
+          "You repair Kyro customer reply drafts. Return compact JSON matching the requested contract.",
+        max_output_tokens: openAiReplyRepairMaxOutputTokens(),
         model,
-        "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
-        "low",
-      ),
-      text: {
-        format: {
-          name: "kyro_reply_repair",
-          schema: {
-            additionalProperties: false,
-            properties: {
-              body: { type: "string" },
-              subject: { type: ["string", "null"] },
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
+          "low",
+        ),
+        text: {
+          format: {
+            name: "kyro_reply_repair",
+            schema: {
+              additionalProperties: false,
+              properties: {
+                body: { type: "string" },
+                subject: { type: ["string", "null"] },
+              },
+              required: ["subject", "body"],
+              type: "object",
             },
-            required: ["subject", "body"],
-            type: "object",
+            strict: true,
+            type: "json_schema",
           },
-          strict: true,
-          type: "json_schema",
         },
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -1259,41 +1263,44 @@ async function ensureKnownBusinessFactReply(input: {
     2,
   );
   const model = openAiTriageModel();
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
-      input: prompt,
-      instructions:
-        "You write grounded Kyro business-fact replies. Return compact JSON matching the requested contract.",
-      max_output_tokens: openAiReplyRepairMaxOutputTokens(),
-      model,
-      ...openAiReasoningRequest(
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/responses",
+    {
+      body: JSON.stringify({
+        input: prompt,
+        instructions:
+          "You write grounded Kyro business-fact replies. Return compact JSON matching the requested contract.",
+        max_output_tokens: openAiReplyRepairMaxOutputTokens(),
         model,
-        "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
-        "low",
-      ),
-      text: {
-        format: {
-          name: "kyro_known_business_fact_reply",
-          schema: {
-            additionalProperties: false,
-            properties: {
-              body: { type: "string" },
-              subject: { type: ["string", "null"] },
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
+          "low",
+        ),
+        text: {
+          format: {
+            name: "kyro_known_business_fact_reply",
+            schema: {
+              additionalProperties: false,
+              properties: {
+                body: { type: "string" },
+                subject: { type: ["string", "null"] },
+              },
+              required: ["subject", "body"],
+              type: "object",
             },
-            required: ["subject", "body"],
-            type: "object",
+            strict: true,
+            type: "json_schema",
           },
-          strict: true,
-          type: "json_schema",
         },
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -1518,8 +1525,7 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
       outputContract: {
         summary: "string",
         responsePolicy: {
-          mode:
-            "known_business_fact|simple_business_message|tool_assisted_business_message|service_inquiry",
+          mode: "known_business_fact|simple_business_message|tool_assisted_business_message|service_inquiry",
           factKeys: [
             "businessName|industry|publicPhoneNumber|publicEmail|businessAddress|serviceArea|workingHours|contactHours",
           ],
@@ -1798,127 +1804,139 @@ async function runOpenAiTriage(
     throw new Error("OPENAI_API_KEY is not configured for inbound triage.");
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
-      input: prompt,
-      instructions:
-        "You are Kyro's business-message triage and reply engine. Understand the customer's latest message before choosing a workflow. Return compact JSON matching the requested contract.",
-      max_output_tokens: openAiTriageMaxOutputTokens(),
-      model,
-      ...openAiReasoningRequest(model, "OPENAI_TRIAGE_REASONING_EFFORT", "low"),
-      text: {
-        format: {
-          name: "kyro_inbound_triage",
-          schema: {
-            additionalProperties: false,
-            properties: {
-              inquiryFacts: {
-                additionalProperties: false,
-                properties: {
-                  address: { type: ["string", "null"] },
-                  budget: { type: ["string", "null"] },
-                  fit: {
-                    enum: ["likely_fit", "needs_review", "not_fit"],
-                    type: "string",
-                  },
-                  jobType: { type: ["string", "null"] },
-                  missingInfo: {
-                    items: { type: "string" },
-                    type: "array",
-                  },
-                  preferredTime: { type: ["string", "null"] },
-                  urgency: {
-                    enum: ["low", "normal", "urgent"],
-                    type: "string",
-                  },
-                },
-                required: [
-                  "jobType",
-                  "address",
-                  "preferredTime",
-                  "urgency",
-                  "budget",
-                  "fit",
-                  "missingInfo",
-                ],
-                type: "object",
-              },
-              responsePolicy: {
-                additionalProperties: false,
-                properties: {
-                  factKeys: {
-                    items: {
-                      enum: [...PUBLIC_BUSINESS_FACT_KEYS],
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/responses",
+    {
+      body: JSON.stringify({
+        input: prompt,
+        instructions:
+          "You are Kyro's business-message triage and reply engine. Understand the customer's latest message before choosing a workflow. Return compact JSON matching the requested contract.",
+        max_output_tokens: openAiTriageMaxOutputTokens(),
+        model,
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_TRIAGE_REASONING_EFFORT",
+          "low",
+        ),
+        text: {
+          format: {
+            name: "kyro_inbound_triage",
+            schema: {
+              additionalProperties: false,
+              properties: {
+                inquiryFacts: {
+                  additionalProperties: false,
+                  properties: {
+                    address: { type: ["string", "null"] },
+                    budget: { type: ["string", "null"] },
+                    fit: {
+                      enum: ["likely_fit", "needs_review", "not_fit"],
                       type: "string",
                     },
-                    type: "array",
+                    jobType: { type: ["string", "null"] },
+                    missingInfo: {
+                      items: { type: "string" },
+                      type: "array",
+                    },
+                    preferredTime: { type: ["string", "null"] },
+                    urgency: {
+                      enum: ["low", "normal", "urgent"],
+                      type: "string",
+                    },
                   },
-                  mode: {
-                    enum: [
-                      "known_business_fact",
-                      "simple_business_message",
-                      "tool_assisted_business_message",
-                      "service_inquiry",
-                    ],
-                    type: "string",
+                  required: [
+                    "jobType",
+                    "address",
+                    "preferredTime",
+                    "urgency",
+                    "budget",
+                    "fit",
+                    "missingInfo",
+                  ],
+                  type: "object",
+                },
+                responsePolicy: {
+                  additionalProperties: false,
+                  properties: {
+                    factKeys: {
+                      items: {
+                        enum: [...PUBLIC_BUSINESS_FACT_KEYS],
+                        type: "string",
+                      },
+                      type: "array",
+                    },
+                    mode: {
+                      enum: [
+                        "known_business_fact",
+                        "simple_business_message",
+                        "tool_assisted_business_message",
+                        "service_inquiry",
+                      ],
+                      type: "string",
+                    },
+                    informationNeed: { type: ["string", "null"] },
+                    ownerQuestion: { type: ["string", "null"] },
+                    reason: { type: ["string", "null"] },
                   },
-                  informationNeed: { type: ["string", "null"] },
-                  ownerQuestion: { type: ["string", "null"] },
-                  reason: { type: ["string", "null"] },
+                  required: [
+                    "mode",
+                    "factKeys",
+                    "reason",
+                    "informationNeed",
+                    "ownerQuestion",
+                  ],
+                  type: "object",
                 },
-                required: [
-                  "mode",
-                  "factKeys",
-                  "reason",
-                  "informationNeed",
-                  "ownerQuestion",
-                ],
-                type: "object",
-              },
-              futureStepDecision: {
-                additionalProperties: false,
-                properties: {
-                  outcome: {
-                    enum: ["confirmed", "countered", "cancelled", "unrelated"],
-                    type: "string",
+                futureStepDecision: {
+                  additionalProperties: false,
+                  properties: {
+                    outcome: {
+                      enum: [
+                        "confirmed",
+                        "countered",
+                        "cancelled",
+                        "unrelated",
+                      ],
+                      type: "string",
+                    },
+                    reason: { type: ["string", "null"] },
+                    requestedTime: { type: ["string", "null"] },
                   },
-                  reason: { type: ["string", "null"] },
-                  requestedTime: { type: ["string", "null"] },
+                  required: ["outcome", "requestedTime", "reason"],
+                  type: "object",
                 },
-                required: ["outcome", "requestedTime", "reason"],
-                type: "object",
-              },
-              replyDraft: {
-                additionalProperties: false,
-                properties: {
-                  body: { type: ["string", "null"] },
-                  subject: { type: ["string", "null"] },
+                replyDraft: {
+                  additionalProperties: false,
+                  properties: {
+                    body: { type: ["string", "null"] },
+                    subject: { type: ["string", "null"] },
+                  },
+                  required: ["subject", "body"],
+                  type: "object",
                 },
-                required: ["subject", "body"],
-                type: "object",
+                summary: { type: "string" },
               },
-              summary: { type: "string" },
+              required: [
+                "summary",
+                "inquiryFacts",
+                "replyDraft",
+                "futureStepDecision",
+                "responsePolicy",
+              ],
+              type: "object",
             },
-            required: [
-              "summary",
-              "inquiryFacts",
-              "replyDraft",
-              "futureStepDecision",
-              "responsePolicy",
-            ],
-            type: "object",
+            strict: true,
+            type: "json_schema",
           },
-          strict: true,
-          type: "json_schema",
         },
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -2031,9 +2049,7 @@ async function resolveToolAssistedBusinessMessage(input: {
   replyDraft: TriageDecision["replyDraft"];
   usage?: ReplyRepairUsage;
 }> {
-  if (
-    input.decision.responsePolicy.mode !== "tool_assisted_business_message"
-  ) {
+  if (input.decision.responsePolicy.mode !== "tool_assisted_business_message") {
     return {
       policy: input.decision.responsePolicy,
       replyDraft: input.decision.replyDraft,
@@ -2080,10 +2096,8 @@ async function resolveToolAssistedBusinessMessage(input: {
           (rule) => `Writing style - ${rule}`,
         ),
       ],
-      informationNeed:
-        input.decision.responsePolicy.informationNeed ?? null,
-      initialOwnerQuestion:
-        input.decision.responsePolicy.ownerQuestion ?? null,
+      informationNeed: input.decision.responsePolicy.informationNeed ?? null,
+      initialOwnerQuestion: input.decision.responsePolicy.ownerQuestion ?? null,
       latestCustomerMessage: input.context.latestMessage ?? null,
       initialDraft: input.decision.replyDraft,
       publicBusinessFacts: input.publicBusinessFacts,
@@ -2093,58 +2107,61 @@ async function resolveToolAssistedBusinessMessage(input: {
     2,
   );
   const model = openAiTriageModel();
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
-      input: prompt,
-      instructions:
-        "You are Kyro's scoped business-answer resolver. Return compact JSON matching the requested contract.",
-      max_output_tokens: openAiReplyRepairMaxOutputTokens(),
-      model,
-      ...openAiReasoningRequest(
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/responses",
+    {
+      body: JSON.stringify({
+        input: prompt,
+        instructions:
+          "You are Kyro's scoped business-answer resolver. Return compact JSON matching the requested contract.",
+        max_output_tokens: openAiReplyRepairMaxOutputTokens(),
         model,
-        "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
-        "low",
-      ),
-      text: {
-        format: {
-          name: "kyro_scoped_business_answer",
-          schema: {
-            additionalProperties: false,
-            properties: {
-              answerAvailable: { type: "boolean" },
-              informationNeed: { type: ["string", "null"] },
-              ownerQuestion: { type: ["string", "null"] },
-              reason: { type: ["string", "null"] },
-              replyDraft: {
-                additionalProperties: false,
-                properties: {
-                  body: { type: ["string", "null"] },
-                  subject: { type: ["string", "null"] },
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_REPLY_REPAIR_REASONING_EFFORT",
+          "low",
+        ),
+        text: {
+          format: {
+            name: "kyro_scoped_business_answer",
+            schema: {
+              additionalProperties: false,
+              properties: {
+                answerAvailable: { type: "boolean" },
+                informationNeed: { type: ["string", "null"] },
+                ownerQuestion: { type: ["string", "null"] },
+                reason: { type: ["string", "null"] },
+                replyDraft: {
+                  additionalProperties: false,
+                  properties: {
+                    body: { type: ["string", "null"] },
+                    subject: { type: ["string", "null"] },
+                  },
+                  required: ["subject", "body"],
+                  type: "object",
                 },
-                required: ["subject", "body"],
-                type: "object",
               },
+              required: [
+                "answerAvailable",
+                "informationNeed",
+                "ownerQuestion",
+                "reason",
+                "replyDraft",
+              ],
+              type: "object",
             },
-            required: [
-              "answerAvailable",
-              "informationNeed",
-              "ownerQuestion",
-              "reason",
-              "replyDraft",
-            ],
-            type: "object",
+            strict: true,
+            type: "json_schema",
           },
-          strict: true,
-          type: "json_schema",
         },
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -2161,8 +2178,7 @@ async function resolveToolAssistedBusinessMessage(input: {
   const answerAvailable = parsed.answerAvailable === true;
   const ownerQuestion = answerAvailable
     ? null
-    : textValue(parsed.ownerQuestion) ??
-      fallbackOwnerQuestion;
+    : (textValue(parsed.ownerQuestion) ?? fallbackOwnerQuestion);
   const usage = responseUsage(payload, prompt, content);
 
   return {
@@ -2172,8 +2188,7 @@ async function resolveToolAssistedBusinessMessage(input: {
         textValue(parsed.informationNeed) ??
         input.decision.responsePolicy.informationNeed,
       ownerQuestion,
-      reason:
-        textValue(parsed.reason) ?? input.decision.responsePolicy.reason,
+      reason: textValue(parsed.reason) ?? input.decision.responsePolicy.reason,
     },
     replyDraft: {
       body: textValue(replyDraft.body) ?? input.decision.replyDraft.body,

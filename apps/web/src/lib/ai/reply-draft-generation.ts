@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getConversationReview } from "../crm/queries";
 import {
@@ -170,7 +171,7 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
     Boolean(context.inquiryFacts?.address?.trim());
   const hasPreferredTime = Boolean(
     context.inquiryFacts?.preferredTime?.trim() ||
-      context.verifiedAvailability?.startsAt,
+    context.verifiedAvailability?.startsAt,
   );
   const hasPhone = Boolean(context.contactPhone?.trim());
   const hasEmail = Boolean(context.contactEmail?.trim());
@@ -298,42 +299,45 @@ async function runOpenAiReplyDraft(context: ReplyDraftContext) {
 
   const model = replyDraftModel();
   const prompt = buildReplyDraftPrompt(context);
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
-      input: prompt,
-      instructions:
-        "You draft customer replies for Kyro, a trades/service CRM. Apply the workspace writing style in the prompt and return compact JSON matching the schema.",
-      max_output_tokens: replyDraftMaxOutputTokens(),
-      model,
-      ...openAiReasoningRequest(
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/responses",
+    {
+      body: JSON.stringify({
+        input: prompt,
+        instructions:
+          "You draft customer replies for Kyro, a trades/service CRM. Apply the workspace writing style in the prompt and return compact JSON matching the schema.",
+        max_output_tokens: replyDraftMaxOutputTokens(),
         model,
-        "OPENAI_REPLY_DRAFT_REASONING_EFFORT",
-        "low",
-      ),
-      text: {
-        format: {
-          name: "kyro_reply_draft",
-          schema: {
-            additionalProperties: false,
-            properties: {
-              body: { type: "string" },
-              calendarCommitment: { type: "boolean" },
-              subject: { type: "string" },
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_REPLY_DRAFT_REASONING_EFFORT",
+          "low",
+        ),
+        text: {
+          format: {
+            name: "kyro_reply_draft",
+            schema: {
+              additionalProperties: false,
+              properties: {
+                body: { type: "string" },
+                calendarCommitment: { type: "boolean" },
+                subject: { type: "string" },
+              },
+              required: ["subject", "body", "calendarCommitment"],
+              type: "object",
             },
-            required: ["subject", "body", "calendarCommitment"],
-            type: "object",
+            strict: true,
+            type: "json_schema",
           },
-          strict: true,
-          type: "json_schema",
         },
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {

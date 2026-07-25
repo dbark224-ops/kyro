@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../../../lib/http/fetch-with-timeout";
 import { createServiceSupabaseClient } from "../../../lib/supabase/service";
 import { consumeApiRateLimit } from "../../../lib/security/rate-limit";
 import { NextResponse } from "next/server";
@@ -98,9 +99,7 @@ function notificationRows(details: AccountDeletionNotification) {
   ] as const;
 }
 
-async function sendDeletionNotification(
-  details: AccountDeletionNotification,
-) {
+async function sendDeletionNotification(details: AccountDeletionNotification) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const to = configuredDeletionNotificationEmails();
 
@@ -125,7 +124,7 @@ async function sendDeletionNotification(
     )
     .join("");
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetchWithTimeout("https://api.resend.com/emails", {
     body: JSON.stringify({
       from,
       html: `

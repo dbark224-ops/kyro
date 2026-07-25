@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
@@ -198,7 +199,7 @@ export async function transcribeAssistantAudio({
     body.set("prompt", sttPrompt(pronunciationEntries));
   }
 
-  const response = await fetch(
+  const response = await fetchAiProvider(
     "https://api.openai.com/v1/audio/transcriptions",
     {
       body,

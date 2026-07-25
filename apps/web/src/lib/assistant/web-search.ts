@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type { AssistantLink } from "./types";
 import {
   estimateTokens,
@@ -276,26 +277,29 @@ export async function runAssistantWebSearch({
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      body: JSON.stringify({
-        input: trimmedPrompt,
-        instructions:
-          "You are Kyro's web search tool. Search the public web when needed, answer concisely, and rely only on sourced public information. Cite the sources you use so the response includes url citation annotations for the app to render as source cards. Do not claim access to Kyro CRM data, user accounts, private documents, or actions. Include source-backed wording and avoid unsupported certainty.",
-        max_output_tokens: outputTokenLimit,
-        model,
-        ...openAiReasoningRequest(
+    const response = await fetchAiProvider(
+      "https://api.openai.com/v1/responses",
+      {
+        body: JSON.stringify({
+          input: trimmedPrompt,
+          instructions:
+            "You are Kyro's web search tool. Search the public web when needed, answer concisely, and rely only on sourced public information. Cite the sources you use so the response includes url citation annotations for the app to render as source cards. Do not claim access to Kyro CRM data, user accounts, private documents, or actions. Include source-backed wording and avoid unsupported certainty.",
+          max_output_tokens: outputTokenLimit,
           model,
-          "OPENAI_WEB_SEARCH_REASONING_EFFORT",
-          "low",
-        ),
-        tools: [openAiWebSearchTool()],
-      }),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+          ...openAiReasoningRequest(
+            model,
+            "OPENAI_WEB_SEARCH_REASONING_EFFORT",
+            "low",
+          ),
+          tools: [openAiWebSearchTool()],
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
+    );
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {

@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type {
   AssistantModelInput,
   AssistantModelOutput,
@@ -247,30 +248,33 @@ async function runOpenAiAssistant(
   try {
     const webSearchEnabled =
       assistantWebSearchEnabled() && input.command.intent !== "web_search";
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      body: JSON.stringify({
-        input: prompt,
-        instructions:
-          "You are Kyro, pronounced like Cairo, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done. When the user asks how Kyro works, use the bundled help/manual snippets provided in the command result and explain them plainly. If a voice-transcribed message addresses you as Cara, Kara, Cairo, Kiro, or Kyra, treat it as Kyro unless the user is clearly referring to another person.",
-        max_output_tokens: openAiMaxOutputTokens(),
-        model: route.model,
-        ...openAiReasoningRequest(
-          route.model,
-          "OPENAI_ASSISTANT_REASONING_EFFORT",
-          "low",
-        ),
-        ...(webSearchEnabled
-          ? {
-              tools: [openAiWebSearchTool()],
-            }
-          : {}),
-      }),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const response = await fetchAiProvider(
+      "https://api.openai.com/v1/responses",
+      {
+        body: JSON.stringify({
+          input: prompt,
+          instructions:
+            "You are Kyro, pronounced like Cairo, a friendly AI assistant inside a trades CRM. You can chat normally, answer casual questions, and have a light point of view. When the user asks about CRM data or business actions, use the provided command result as truth and stay clear about what the app has actually done. When the user asks how Kyro works, use the bundled help/manual snippets provided in the command result and explain them plainly. If a voice-transcribed message addresses you as Cara, Kara, Cairo, Kiro, or Kyra, treat it as Kyro unless the user is clearly referring to another person.",
+          max_output_tokens: openAiMaxOutputTokens(),
+          model: route.model,
+          ...openAiReasoningRequest(
+            route.model,
+            "OPENAI_ASSISTANT_REASONING_EFFORT",
+            "low",
+          ),
+          ...(webSearchEnabled
+            ? {
+                tools: [openAiWebSearchTool()],
+              }
+            : {}),
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
+    );
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {

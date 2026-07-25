@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicAppUrl } from "../app-url";
 import {
@@ -242,7 +243,9 @@ export function detectUrgentEscalationTriggers(
   }
 
   if (
-    /\b(commercial (?:job|project|property|site)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel)|full (?:home|house) (?:renovation|remodel)|emergency callout|large project)\b/.test(content)
+    /\b(commercial (?:job|project|property|site)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel)|full (?:home|house) (?:renovation|remodel)|emergency callout|large project)\b/.test(
+      content,
+    )
   ) {
     triggers.add("high_value_lead");
   }
@@ -509,7 +512,7 @@ async function sendEmailStep(
     throw new Error("Urgent escalation email recipient is not configured.");
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetchWithTimeout("https://api.resend.com/emails", {
     body: JSON.stringify({
       from:
         process.env.KYRO_ESCALATION_EMAIL_FROM?.trim() ||

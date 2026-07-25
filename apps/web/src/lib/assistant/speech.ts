@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import { createUsageEvent } from "@kyro/api";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
@@ -443,23 +444,26 @@ async function synthesizeOpenAiSpeech(
   const voice = openAiTtsVoice(voiceSettings);
   const responseFormat = openAiTtsFormat();
   const speed = openAiTtsSpeed();
-  const response = await fetch("https://api.openai.com/v1/audio/speech", {
-    body: JSON.stringify({
-      input,
-      model,
-      response_format: responseFormat,
-      speed,
-      voice,
-      ...(!["tts-1", "tts-1-hd"].includes(model)
-        ? { instructions: openAiTtsInstructions(pronunciationEntries) }
-        : {}),
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/audio/speech",
+    {
+      body: JSON.stringify({
+        input,
+        model,
+        response_format: responseFormat,
+        speed,
+        voice,
+        ...(!["tts-1", "tts-1-hd"].includes(model)
+          ? { instructions: openAiTtsInstructions(pronunciationEntries) }
+          : {}),
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   if (!response.ok) {
     const payload = await parseProviderErrorPayload(response);
@@ -517,7 +521,7 @@ async function synthesizeElevenLabsSpeech(
   const model = voiceSettings.elevenLabsModel;
   const voice = voiceSettings.elevenLabsVoiceId;
   const responseFormat = voiceSettings.elevenLabsOutputFormat;
-  const response = await fetch(
+  const response = await fetchAiProvider(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
       voice,
     )}/stream?output_format=${encodeURIComponent(responseFormat)}`,

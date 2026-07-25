@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   GOOGLE_DRIVE_FILE_SCOPE,
@@ -49,7 +50,8 @@ function objectRecord(value: unknown) {
 function normalizeScopes(value: unknown) {
   return Array.isArray(value)
     ? value.filter(
-        (scope): scope is string => typeof scope === "string" && scope.length > 0,
+        (scope): scope is string =>
+          typeof scope === "string" && scope.length > 0,
       )
     : [];
 }
@@ -63,7 +65,9 @@ function tokenExpiresAt(tokenSet: GoogleTokenSet) {
     return null;
   }
 
-  return new Date(new Date(obtainedAt).getTime() + expiresIn * 1000).toISOString();
+  return new Date(
+    new Date(obtainedAt).getTime() + expiresIn * 1000,
+  ).toISOString();
 }
 
 function isExpiring(tokenSet: GoogleTokenSet) {
@@ -73,7 +77,9 @@ function isExpiring(tokenSet: GoogleTokenSet) {
     return true;
   }
 
-  return new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS;
+  return (
+    new Date(expiresAt).getTime() - Date.now() < ACCESS_TOKEN_REFRESH_WINDOW_MS
+  );
 }
 
 async function readGoogleApiError(response: Response) {
@@ -106,11 +112,15 @@ async function loadActiveGoogleDriveConnection(
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Unable to load connected Google account: ${error.message}`);
+    throw new Error(
+      `Unable to load connected Google account: ${error.message}`,
+    );
   }
 
   if (!data) {
-    throw new Error("Connect Google in Settings before filing documents to Drive.");
+    throw new Error(
+      "Connect Google in Settings before filing documents to Drive.",
+    );
   }
 
   return data as GoogleDriveConnectionRow;
@@ -131,21 +141,26 @@ async function refreshAccessToken({
   const refreshToken = textValue(tokenSet.refreshToken);
 
   if (!config || !refreshToken) {
-    throw new Error("Google access expired. Reconnect Google in Settings to refresh Drive access.");
+    throw new Error(
+      "Google access expired. Reconnect Google in Settings to refresh Drive access.",
+    );
   }
 
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    body: new URLSearchParams({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
+  const response = await fetchWithTimeout(
+    "https://oauth2.googleapis.com/token",
+    {
+      body: new URLSearchParams({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   if (!response.ok) {
     const message = await readGoogleApiError(response);
@@ -156,7 +171,9 @@ async function refreshAccessToken({
       .eq("workspace_id", workspaceId)
       .eq("id", connection.id);
 
-    throw new Error("Google access expired and refresh failed. Reconnect Google in Settings.");
+    throw new Error(
+      "Google access expired and refresh failed. Reconnect Google in Settings.",
+    );
   }
 
   const refreshed = (await response.json()) as {
@@ -190,7 +207,9 @@ async function refreshAccessToken({
     .eq("id", connection.id);
 
   if (error) {
-    throw new Error(`Unable to save refreshed Google access token: ${error.message}`);
+    throw new Error(
+      `Unable to save refreshed Google access token: ${error.message}`,
+    );
   }
 
   return updatedTokenSet;
@@ -254,7 +273,9 @@ export async function fileGeneratedDocumentToGoogleDrive(
     .maybeSingle();
 
   if (documentError) {
-    throw new Error(`Unable to load generated document: ${documentError.message}`);
+    throw new Error(
+      `Unable to load generated document: ${documentError.message}`,
+    );
   }
 
   if (!document) {
@@ -271,11 +292,16 @@ export async function fileGeneratedDocumentToGoogleDrive(
     throw new Error("This document does not have a stored PDF file yet.");
   }
 
-  const connection = await loadActiveGoogleDriveConnection(supabase, workspaceId);
+  const connection = await loadActiveGoogleDriveConnection(
+    supabase,
+    workspaceId,
+  );
   const scopes = normalizeScopes(connection.scopes);
 
   if (!scopes.includes(GOOGLE_DRIVE_FILE_SCOPE)) {
-    throw new Error("The connected Google account is missing the Drive file scope.");
+    throw new Error(
+      "The connected Google account is missing the Drive file scope.",
+    );
   }
 
   let tokenSet = decryptIntegrationTokenSet<GoogleTokenSet>(
@@ -294,7 +320,9 @@ export async function fileGeneratedDocumentToGoogleDrive(
   const accessToken = textValue(tokenSet.accessToken);
 
   if (!accessToken) {
-    throw new Error("The connected Google account does not have a usable access token.");
+    throw new Error(
+      "The connected Google account does not have a usable access token.",
+    );
   }
 
   const serviceSupabase = createServiceSupabaseClient();
@@ -325,7 +353,7 @@ export async function fileGeneratedDocumentToGoogleDrive(
       description: `Kyro ${String(document.document_type)} document`,
     },
   });
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
     {
       body,
@@ -358,7 +386,8 @@ export async function fileGeneratedDocumentToGoogleDrive(
 
   const now = new Date().toISOString();
   const currentStatus =
-    document.lifecycle_status === "sent" || document.lifecycle_status === "voided"
+    document.lifecycle_status === "sent" ||
+    document.lifecycle_status === "voided"
       ? String(document.lifecycle_status)
       : "filed";
   const { data: updated, error: updateError } = await supabase

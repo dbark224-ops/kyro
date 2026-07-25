@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicAppUrl } from "../app-url";
 import {
@@ -210,7 +211,7 @@ async function sendDunningEmail(
   const message = messageForStage(input.stage, recipient.workspaceName);
 
   try {
-    const response = await fetch("https://api.resend.com/emails", {
+    const response = await fetchWithTimeout("https://api.resend.com/emails", {
       body: JSON.stringify({
         from:
           process.env.KYRO_BILLING_EMAIL_FROM?.trim() ||

@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../../../../../../lib/http/fetch-with-timeout";
 import { getConversationReview } from "../../../../../../lib/crm/queries";
 import {
   MobileApiError,
@@ -120,46 +121,49 @@ export async function POST(request: Request, context: RouteContext) {
 
     const model =
       process.env.OPENAI_REPLY_DRAFT_MODEL?.trim() || openAiBalancedModel();
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      body: JSON.stringify({
-        input: [
-          {
-            content:
-              "You draft concise, useful outbound replies for a trade/service business. Return strict JSON only with keys subject and body.",
-            role: "system",
-          },
-          {
-            content: JSON.stringify({
-              contact: profile.contact,
-              instruction: prompt,
-              lead: profile.lead,
-              requiredMissingInfo: mobileMissingInfo(profile),
-              thread,
-              rules: [
-                "Every customer service inquiry needs an attendable job address. Ask for it if not present in the thread or CRM profile.",
-                "Every customer service inquiry needs a preferred day or time. Ask for it if not present.",
-                "For email-originated inquiries, ask for a phone number if the customer profile/thread does not contain one.",
-                "Do not claim calendar availability unless the context explicitly provides it.",
-              ],
-              task: "Draft an outbound reply for the user to review before sending.",
-            }),
-            role: "user",
-          },
-        ],
-        max_output_tokens: 700,
-        model,
-        ...openAiReasoningRequest(
+    const response = await fetchAiProvider(
+      "https://api.openai.com/v1/responses",
+      {
+        body: JSON.stringify({
+          input: [
+            {
+              content:
+                "You draft concise, useful outbound replies for a trade/service business. Return strict JSON only with keys subject and body.",
+              role: "system",
+            },
+            {
+              content: JSON.stringify({
+                contact: profile.contact,
+                instruction: prompt,
+                lead: profile.lead,
+                requiredMissingInfo: mobileMissingInfo(profile),
+                thread,
+                rules: [
+                  "Every customer service inquiry needs an attendable job address. Ask for it if not present in the thread or CRM profile.",
+                  "Every customer service inquiry needs a preferred day or time. Ask for it if not present.",
+                  "For email-originated inquiries, ask for a phone number if the customer profile/thread does not contain one.",
+                  "Do not claim calendar availability unless the context explicitly provides it.",
+                ],
+                task: "Draft an outbound reply for the user to review before sending.",
+              }),
+              role: "user",
+            },
+          ],
+          max_output_tokens: 700,
           model,
-          "OPENAI_REPLY_DRAFT_REASONING_EFFORT",
-          "low",
-        ),
-      }),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+          ...openAiReasoningRequest(
+            model,
+            "OPENAI_REPLY_DRAFT_REASONING_EFFORT",
+            "low",
+          ),
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
+    );
     const data = (await response.json().catch(() => null)) as {
       error?: { message?: string };
       output_text?: string;

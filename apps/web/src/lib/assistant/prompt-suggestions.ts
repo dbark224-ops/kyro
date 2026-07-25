@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildLlmUsageEvents,
@@ -487,25 +488,28 @@ async function generateSuggestionsWithOpenAi({
     null,
     2,
   );
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
-      input,
-      instructions:
-        'You are Kyro\'s prompt suggestion curator. Output strict JSON only: {"suggestions":["..."]}. Never include customer-specific details.',
-      max_output_tokens: 420,
-      model,
-      ...openAiReasoningRequest(
+  const response = await fetchAiProvider(
+    "https://api.openai.com/v1/responses",
+    {
+      body: JSON.stringify({
+        input,
+        instructions:
+          'You are Kyro\'s prompt suggestion curator. Output strict JSON only: {"suggestions":["..."]}. Never include customer-specific details.',
+        max_output_tokens: 420,
         model,
-        "OPENAI_PROMPT_SUGGESTION_REASONING_EFFORT",
-        "none",
-      ),
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+        ...openAiReasoningRequest(
+          model,
+          "OPENAI_PROMPT_SUGGESTION_REASONING_EFFORT",
+          "none",
+        ),
+      }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {

@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "./http/fetch-with-timeout";
 import { createHash } from "node:crypto";
 
 type InternalBugNotificationContext = {
@@ -168,7 +169,7 @@ export async function sendInternalBugNotification({
     )
     .join("");
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetchWithTimeout("https://api.resend.com/emails", {
     body: JSON.stringify({
       from: internalNotificationFromAddress(),
       html: `

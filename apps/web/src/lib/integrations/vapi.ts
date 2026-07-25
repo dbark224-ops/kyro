@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import { timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VoiceSettings } from "../assistant/voice-settings";
@@ -167,7 +168,9 @@ function requestHasMatchingSecret(request: Request, validSecrets: string[]) {
   }
 
   return requestSecrets(request).some((providedSecret) =>
-    cleanValidSecrets.some((validSecret) => safeEquals(providedSecret, validSecret)),
+    cleanValidSecrets.some((validSecret) =>
+      safeEquals(providedSecret, validSecret),
+    ),
   );
 }
 
@@ -178,7 +181,7 @@ export function vapiRequestAuthDiagnostics(request: Request) {
     const url = new URL(request.url);
     hasQueryCredential = Boolean(
       url.searchParams.get("secret")?.trim() ||
-        url.searchParams.get("token")?.trim(),
+      url.searchParams.get("token")?.trim(),
     );
   } catch {
     hasQueryCredential = false;
@@ -232,7 +235,7 @@ export async function createVapiOutboundCall(input: {
     throw new Error("Vapi is not configured. Add VAPI_API_KEY first.");
   }
 
-  const response = await fetch(`${VAPI_API_BASE_URL}/call`, {
+  const response = await fetchWithTimeout(`${VAPI_API_BASE_URL}/call`, {
     body: JSON.stringify({
       assistantId: input.assistantId,
       assistantOverrides: input.assistantOverrides,
@@ -281,7 +284,7 @@ export async function deleteVapiCallData(
     };
   }
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${VAPI_API_BASE_URL}/call/${encodeURIComponent(callId)}`,
     {
       headers: {

@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { AddressSuggestion, StructuredAddress } from "./types";
 import type { PhoneRegion } from "../crm/identity";
 
@@ -88,9 +89,7 @@ function mapsApiKey() {
 }
 
 function addressValidationApiKey() {
-  return (
-    process.env.GOOGLE_ADDRESS_VALIDATION_API_KEY?.trim() || mapsApiKey()
-  );
+  return process.env.GOOGLE_ADDRESS_VALIDATION_API_KEY?.trim() || mapsApiKey();
 }
 
 export function hasGoogleAddressLookupConfig() {
@@ -202,7 +201,8 @@ async function googleErrorMessage(response: Response, fallback: string) {
     };
     const explicitMessage =
       textValue(payload.error_message) ?? textValue(payload.error?.message);
-    const status = textValue(payload.status) ?? textValue(payload.error?.status);
+    const status =
+      textValue(payload.status) ?? textValue(payload.error?.status);
 
     if (explicitMessage) {
       if (explicitMessage.toLowerCase().includes("enable billing")) {
@@ -229,7 +229,9 @@ function componentText(
 ) {
   const component = components.find((entry) => entry.types?.includes(type));
 
-  return textValue(mode === "short" ? component?.shortText : component?.longText);
+  return textValue(
+    mode === "short" ? component?.shortText : component?.longText,
+  );
 }
 
 function normalizeLegacyAddressComponents(
@@ -242,7 +244,10 @@ function normalizeLegacyAddressComponents(
   }));
 }
 
-function buildLine1(components: GoogleAddressComponent[], details: GooglePlaceDetails) {
+function buildLine1(
+  components: GoogleAddressComponent[],
+  details: GooglePlaceDetails,
+) {
   const streetNumber = componentText(components, "street_number");
   const route = componentText(components, "route");
   const premise = componentText(components, "premise");
@@ -251,7 +256,11 @@ function buildLine1(components: GoogleAddressComponent[], details: GooglePlaceDe
   const mainLine = [streetNumber, route].filter(Boolean).join(" ").trim();
   const unitLine = subpremise ? `Unit ${subpremise}` : null;
 
-  return textValue([unitLine, mainLine || premise || lineFromPostal].filter(Boolean).join(", "));
+  return textValue(
+    [unitLine, mainLine || premise || lineFromPostal]
+      .filter(Boolean)
+      .join(", "),
+  );
 }
 
 function normalizePlaceDetails(
@@ -290,9 +299,10 @@ function normalizePlaceDetails(
       googlePlace: details,
       validation,
     },
-    source: validation?.source === "google_address_validation"
-      ? "google_address_validation"
-      : "google_places",
+    source:
+      validation?.source === "google_address_validation"
+        ? "google_address_validation"
+        : "google_places",
     validationMessage: validation?.validationMessage ?? null,
     validationStatus:
       validation?.validationStatus === "validated"
@@ -305,7 +315,9 @@ function normalizePlaceDetails(
   return structured;
 }
 
-function normalizeValidationResult(value: unknown): Partial<StructuredAddress> | null {
+function normalizeValidationResult(
+  value: unknown,
+): Partial<StructuredAddress> | null {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -371,11 +383,13 @@ export async function autocompleteAddresses({
   const includedRegionCode = googleIncludedRegionCode(region);
   const includedPrimaryTypes = googleIncludedPrimaryTypes(primaryType);
 
-  const response = await fetch(PLACES_AUTOCOMPLETE_URL, {
+  const response = await fetchWithTimeout(PLACES_AUTOCOMPLETE_URL, {
     body: JSON.stringify({
       input: trimmed,
       includedPrimaryTypes,
-      includedRegionCodes: includedRegionCode ? [includedRegionCode] : undefined,
+      includedRegionCodes: includedRegionCode
+        ? [includedRegionCode]
+        : undefined,
       includePureServiceAreaBusinesses: false,
       locationBias: googleLocationBias(),
       regionCode: googleRegionCode(region),
@@ -475,7 +489,7 @@ async function autocompleteAddressesLegacy({
     url.searchParams.set("radius", String(Math.round(bias.circle.radius)));
   }
 
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
 
   if (!response.ok) {
     throw new Error(
@@ -523,7 +537,7 @@ async function validateGoogleAddress(
   }
 
   try {
-    const response = await fetch(ADDRESS_VALIDATION_URL, {
+    const response = await fetchWithTimeout(ADDRESS_VALIDATION_URL, {
       body: JSON.stringify({
         address: {
           addressLines: [address.formattedAddress],
@@ -573,13 +587,15 @@ export async function getAddressPlaceDetails({
     throw new Error("Google place id is required.");
   }
 
-  const url = new URL(`${PLACES_DETAILS_URL}/${encodeURIComponent(normalizedPlaceId)}`);
+  const url = new URL(
+    `${PLACES_DETAILS_URL}/${encodeURIComponent(normalizedPlaceId)}`,
+  );
 
   if (sessionToken) {
     url.searchParams.set("sessionToken", sessionToken);
   }
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
@@ -637,7 +653,7 @@ async function getAddressPlaceDetailsLegacy({
     url.searchParams.set("sessiontoken", sessionToken);
   }
 
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
 
   if (!response.ok) {
     throw new Error(

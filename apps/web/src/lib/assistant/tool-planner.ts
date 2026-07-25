@@ -1,3 +1,4 @@
+import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type {
   AssistantContextSnapshot,
   AssistantModelRoute,
@@ -372,14 +373,13 @@ function toolSchema(tool: ToolDefinition) {
           type: "string",
         },
         prompt: {
-          description:
-            isCalendarTool
-              ? "A self-contained calendar instruction resolved from the user's message and recent conversation. Include the complete event purpose and all established dates, times, durations, locations, or requested changes so the executor never has to reinterpret an isolated follow-up such as 'between 9 and 1 as you said'. For reads, preserve the full requested window and exact year; never substitute a weekday or collapse a range to one day. For create requests, purpose plus date and time is enough; duration and location are optional. Keep titles compact and exclude date/time wording. Preserve explicit event purpose, for example 'it's a sponsor event' becomes 'Sponsor event on Friday at 10am'. Do not add CRM associations unless the user explicitly requests them in the live conversation. Example: after Kyro recommends Friday and the user says 'block out four hours' then clarifies 'between 9 and 1', return 'Half day off on Friday, July 24, 2026 from 9:00 AM to 1:00 PM' with calendarOperation create."
-              : tool.name === "sms_send"
-                ? "The direct workplace-contact SMS instruction. Preserve the exact workplace contact name or primary-contact wording and the exact requested message. If the user is testing SMS without specifying copy, preserve that it is a test."
-                : tool.name === "outbound_call"
-                  ? "The outbound call instruction. Preserve first-person recipient wording such as me, myself, or my number exactly; actor supplies the authenticated internal sender identity. Preserve the requested call purpose or message."
-                  : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
+          description: isCalendarTool
+            ? "A self-contained calendar instruction resolved from the user's message and recent conversation. Include the complete event purpose and all established dates, times, durations, locations, or requested changes so the executor never has to reinterpret an isolated follow-up such as 'between 9 and 1 as you said'. For reads, preserve the full requested window and exact year; never substitute a weekday or collapse a range to one day. For create requests, purpose plus date and time is enough; duration and location are optional. Keep titles compact and exclude date/time wording. Preserve explicit event purpose, for example 'it's a sponsor event' becomes 'Sponsor event on Friday at 10am'. Do not add CRM associations unless the user explicitly requests them in the live conversation. Example: after Kyro recommends Friday and the user says 'block out four hours' then clarifies 'between 9 and 1', return 'Half day off on Friday, July 24, 2026 from 9:00 AM to 1:00 PM' with calendarOperation create."
+            : tool.name === "sms_send"
+              ? "The direct workplace-contact SMS instruction. Preserve the exact workplace contact name or primary-contact wording and the exact requested message. If the user is testing SMS without specifying copy, preserve that it is a test."
+              : tool.name === "outbound_call"
+                ? "The outbound call instruction. Preserve first-person recipient wording such as me, myself, or my number exactly; actor supplies the authenticated internal sender identity. Preserve the requested call purpose or message."
+                : "The concise user request to pass to Kyro's deterministic tool executor. Preserve names, job details, and follow-up intent.",
           type: "string",
         },
         reason: {
@@ -531,48 +531,51 @@ export async function planAssistantToolCall({
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      body: JSON.stringify({
-        input,
-        instructions: [
-          "You are Kyro's tool planner. Decide whether the user's message needs a Kyro app tool.",
-          "The structured currentTime object is the authoritative workspace-local clock. Use it for today, tomorrow, weekdays, and past/future decisions. Never use the UTC calendar date in place of currentTime.currentDateKey.",
-          "Call exactly one Kyro tool only when tool-backed app state, files, documents, images, settings, email sync, usage, CRM records, or outbound actions are needed.",
-          "For normal conversation, jokes, opinions, broad reasoning, or casual chat, do not call a tool.",
-          "Use compactedContext for continuity. If the user asks about older assistant chat history, what was discussed before, or where an older generated/saved thing went and recentMessages are insufficient, call kyro_history_search.",
-          "Use recentMessages to understand immediate follow-ups, but only treat them as live intent when the relevant message is from roughly the last 30 minutes. Older messages are background and must not create implicit CRM/contact/calendar associations.",
-          "When actor.kind is trusted_internal_messaging_sender, actor is the authenticated sender of this SMS or WhatsApp thread. First-person references such as me, my number, or call/ring me refer to that actor, never to a similarly named CRM contact.",
-          "A direct call me, ring me, phone me, or dial me request is a complete low-risk instruction. Select kyro_outbound_call immediately and do not require a call topic, script, or confirmation; Kyro will start the internal voice assistant call to the authenticated account user's saved number.",
-          "If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
-          "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
-          "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",
-          "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
-          "Use kyro_action_execution only to execute an existing pending work-queue action, draft reply, or approval. Never use it to create a new outbound message.",
-          "If the user replies to a fresh inquiry briefing with a natural instruction to reply, respond, email, message, or tell that customer something, call kyro_inquiry_reply. Preserve every date, time, promise, and requested detail from the user's instruction. Do not require the user to repeat the customer name when the recent briefing identifies one exact inquiry.",
-          "If the recent Kyro inquiry briefing asks the business owner one focused question and the user responds with the answer, call kyro_inquiry_internal_answer. Preserve the answer exactly and do not ask the user to identify the inquiry again when the recent briefing identifies it.",
-          "When the logged-in user directly asks to send or test an SMS to a workplace, team, staff, internal, primary, or escalation contact, call kyro_sms_send. This remains true when qualifiers appear in a different order, such as 'primary workplace escalation contact'.",
-          "When the user directly asks to create a calendar event and supplies an event purpose, date, and time, call kyro_calendar_event immediately. Duration and location are optional; preserve them when supplied, otherwise let Kyro use its configured defaults.",
-          "Treat block out, block off, reserve, hold, or protect time as calendar create requests. If the date, time, duration, event purpose, or requested operation was established in the immediately preceding conversation, resolve the follow-up into one complete calendar instruction instead of repeating only the newest fragment.",
-          "For kyro_calendar_event, calendarOperation is authoritative: use create for a new event or time block, read for a lookup, update for a change to an existing event, delete for a removal, and finalize only for saving an existing Kyro draft. Keep the same operation across clarification turns unless the user changes the request.",
-          "For calendar reads, preserve the user's exact requested date window in the calendar tool prompt. Phrases such as rest of this week, this week, next week, this month, next month, a named month, and next N days or weeks are ranges and must never be rewritten as today or one date.",
-          "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
-        ].join(" "),
-        max_output_tokens: 180,
-        model: route.model,
-        parallel_tool_calls: false,
-        ...openAiReasoningRequest(
-          route.model,
-          "OPENAI_TOOL_PLANNER_REASONING_EFFORT",
-          "low",
-        ),
-        tools: TOOL_DEFINITIONS.map(toolSchema),
-      }),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const response = await fetchAiProvider(
+      "https://api.openai.com/v1/responses",
+      {
+        body: JSON.stringify({
+          input,
+          instructions: [
+            "You are Kyro's tool planner. Decide whether the user's message needs a Kyro app tool.",
+            "The structured currentTime object is the authoritative workspace-local clock. Use it for today, tomorrow, weekdays, and past/future decisions. Never use the UTC calendar date in place of currentTime.currentDateKey.",
+            "Call exactly one Kyro tool only when tool-backed app state, files, documents, images, settings, email sync, usage, CRM records, or outbound actions are needed.",
+            "For normal conversation, jokes, opinions, broad reasoning, or casual chat, do not call a tool.",
+            "Use compactedContext for continuity. If the user asks about older assistant chat history, what was discussed before, or where an older generated/saved thing went and recentMessages are insufficient, call kyro_history_search.",
+            "Use recentMessages to understand immediate follow-ups, but only treat them as live intent when the relevant message is from roughly the last 30 minutes. Older messages are background and must not create implicit CRM/contact/calendar associations.",
+            "When actor.kind is trusted_internal_messaging_sender, actor is the authenticated sender of this SMS or WhatsApp thread. First-person references such as me, my number, or call/ring me refer to that actor, never to a similarly named CRM contact.",
+            "A direct call me, ring me, phone me, or dial me request is a complete low-risk instruction. Select kyro_outbound_call immediately and do not require a call topic, script, or confirmation; Kyro will start the internal voice assistant call to the authenticated account user's saved number.",
+            "If a recent generated image exists and the user says make it nighttime, darker, brighter, edit it, redo it, or similar, call kyro_image_generation with mode edit_previous_image.",
+            "If a recent generated image exists and the user asks where it is, show it again, open it, or download it, call kyro_image_recall.",
+            "If the user asks you to search the web, look something up online, check latest/current public information, news, public prices, public regulations, public business details, or public product information, call kyro_web_search.",
+            "Never call kyro_web_search for private Kyro workspace data, CRM records, connected inbox data, documents, usage, settings, or product-help questions.",
+            "Use kyro_action_execution only to execute an existing pending work-queue action, draft reply, or approval. Never use it to create a new outbound message.",
+            "If the user replies to a fresh inquiry briefing with a natural instruction to reply, respond, email, message, or tell that customer something, call kyro_inquiry_reply. Preserve every date, time, promise, and requested detail from the user's instruction. Do not require the user to repeat the customer name when the recent briefing identifies one exact inquiry.",
+            "If the recent Kyro inquiry briefing asks the business owner one focused question and the user responds with the answer, call kyro_inquiry_internal_answer. Preserve the answer exactly and do not ask the user to identify the inquiry again when the recent briefing identifies it.",
+            "When the logged-in user directly asks to send or test an SMS to a workplace, team, staff, internal, primary, or escalation contact, call kyro_sms_send. This remains true when qualifiers appear in a different order, such as 'primary workplace escalation contact'.",
+            "When the user directly asks to create a calendar event and supplies an event purpose, date, and time, call kyro_calendar_event immediately. Duration and location are optional; preserve them when supplied, otherwise let Kyro use its configured defaults.",
+            "Treat block out, block off, reserve, hold, or protect time as calendar create requests. If the date, time, duration, event purpose, or requested operation was established in the immediately preceding conversation, resolve the follow-up into one complete calendar instruction instead of repeating only the newest fragment.",
+            "For kyro_calendar_event, calendarOperation is authoritative: use create for a new event or time block, read for a lookup, update for a change to an existing event, delete for a removal, and finalize only for saving an existing Kyro draft. Keep the same operation across clarification turns unless the user changes the request.",
+            "For calendar reads, preserve the user's exact requested date window in the calendar tool prompt. Phrases such as rest of this week, this week, next week, this month, next month, a named month, and next N days or weeks are ranges and must never be rewritten as today or one date.",
+            "Never claim that an action was performed. Only choose the tool; Kyro code will execute or reject it.",
+          ].join(" "),
+          max_output_tokens: 180,
+          model: route.model,
+          parallel_tool_calls: false,
+          ...openAiReasoningRequest(
+            route.model,
+            "OPENAI_TOOL_PLANNER_REASONING_EFFORT",
+            "low",
+          ),
+          tools: TOOL_DEFINITIONS.map(toolSchema),
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
       },
-      method: "POST",
-    });
+    );
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {

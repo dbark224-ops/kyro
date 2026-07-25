@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import { selectModelRoute } from "@kyro/ai";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
@@ -1065,77 +1066,80 @@ async function classifyWithOpenAi({
   });
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      body: JSON.stringify({
-        input: prompt,
-        instructions:
-          "You are Kyro's inbound email classifier for a trades/service CRM. Return compact JSON matching the requested contract.",
-        max_output_tokens: 420,
-        model,
-        ...openAiReasoningRequest(
+    const response = await fetchWithTimeout(
+      "https://api.openai.com/v1/responses",
+      {
+        body: JSON.stringify({
+          input: prompt,
+          instructions:
+            "You are Kyro's inbound email classifier for a trades/service CRM. Return compact JSON matching the requested contract.",
+          max_output_tokens: 420,
           model,
-          "OPENAI_INBOUND_EMAIL_CLASSIFIER_REASONING_EFFORT",
-          "low",
-        ),
-        text: {
-          format: {
-            name: "kyro_inbound_email_classification",
-            schema: {
-              additionalProperties: false,
-              properties: {
-                actionHint: { type: ["string", "null"] },
-                category: {
-                  enum: [
-                    "business_actionable",
-                    "business_reference",
-                    "personal_possible_relevance",
-                    "personal_ignore",
-                    "newsletter_or_automated",
-                    "spam_or_noise",
-                  ],
-                  type: "string",
+          ...openAiReasoningRequest(
+            model,
+            "OPENAI_INBOUND_EMAIL_CLASSIFIER_REASONING_EFFORT",
+            "low",
+          ),
+          text: {
+            format: {
+              name: "kyro_inbound_email_classification",
+              schema: {
+                additionalProperties: false,
+                properties: {
+                  actionHint: { type: ["string", "null"] },
+                  category: {
+                    enum: [
+                      "business_actionable",
+                      "business_reference",
+                      "personal_possible_relevance",
+                      "personal_ignore",
+                      "newsletter_or_automated",
+                      "spam_or_noise",
+                    ],
+                    type: "string",
+                  },
+                  confidence: { type: "number" },
+                  messageType: {
+                    enum: [
+                      "customer_or_lead",
+                      "supplier_or_partner",
+                      "human_business_correspondence",
+                      "automated_account_notice",
+                      "newsletter_or_marketing",
+                      "personal",
+                      "spam_or_noise",
+                    ],
+                    type: "string",
+                  },
+                  promote: { type: "boolean" },
+                  reason: { type: "string" },
+                  suggestedServiceType: { type: ["string", "null"] },
+                  summary: { type: "string" },
                 },
-                confidence: { type: "number" },
-                messageType: {
-                  enum: [
-                    "customer_or_lead",
-                    "supplier_or_partner",
-                    "human_business_correspondence",
-                    "automated_account_notice",
-                    "newsletter_or_marketing",
-                    "personal",
-                    "spam_or_noise",
-                  ],
-                  type: "string",
-                },
-                promote: { type: "boolean" },
-                reason: { type: "string" },
-                suggestedServiceType: { type: ["string", "null"] },
-                summary: { type: "string" },
+                required: [
+                  "category",
+                  "promote",
+                  "confidence",
+                  "messageType",
+                  "reason",
+                  "summary",
+                  "actionHint",
+                  "suggestedServiceType",
+                ],
+                type: "object",
               },
-              required: [
-                "category",
-                "promote",
-                "confidence",
-                "messageType",
-                "reason",
-                "summary",
-                "actionHint",
-                "suggestedServiceType",
-              ],
-              type: "object",
+              strict: true,
+              type: "json_schema",
             },
-            strict: true,
-            type: "json_schema",
           },
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
         },
-      }),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+        method: "POST",
       },
-      method: "POST",
-    });
+    );
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
@@ -1320,18 +1324,21 @@ async function refreshGoogleAccessToken({
     throw new Error("Google access expired. Reconnect Google in Settings.");
   }
 
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    body: new URLSearchParams({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
+  const response = await fetchWithTimeout(
+    "https://oauth2.googleapis.com/token",
+    {
+      body: new URLSearchParams({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -1395,7 +1402,7 @@ async function refreshMicrosoftAccessToken({
     throw new Error("Microsoft access expired. Reconnect Outlook in Settings.");
   }
 
-  const response = await fetch(config.tokenEndpoint, {
+  const response = await fetchWithTimeout(config.tokenEndpoint, {
     body: new URLSearchParams({
       client_id: config.clientId,
       client_secret: config.clientSecret,
@@ -1574,7 +1581,7 @@ async function fetchGmailAttachmentContent({
   attachmentId: string;
   messageId: string;
 }) {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(
       messageId,
     )}/attachments/${encodeURIComponent(attachmentId)}`,
@@ -1738,7 +1745,7 @@ async function fetchGmailMessageById({
   connection: ProviderConnectionRow;
   messageId: string;
 }) {
-  const detailResponse = await fetch(
+  const detailResponse = await fetchWithTimeout(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
     {
       headers: {
@@ -1781,7 +1788,7 @@ async function fetchGmailMessages({
     `in:inbox newer_than:${settings.lookbackDays}d -in:sent -in:drafts -in:spam -in:trash`,
   );
 
-  const listResponse = await fetch(listUrl, {
+  const listResponse = await fetchWithTimeout(listUrl, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
@@ -1803,7 +1810,7 @@ async function fetchGmailMessages({
       continue;
     }
 
-    const detailResponse = await fetch(
+    const detailResponse = await fetchWithTimeout(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(item.id)}?format=full`,
       {
         headers: {
@@ -1965,7 +1972,7 @@ async function fetchOutlookMessageById({
     "$expand",
     "attachments($select=id,name,contentType,size,isInline,contentBytes)",
   );
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Prefer: 'outlook.body-content-type="html"',
@@ -2005,7 +2012,7 @@ async function fetchOutlookMessages({
     "attachments($select=id,name,contentType,size,isInline,contentBytes)",
   );
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Prefer: 'outlook.body-content-type="html"',
