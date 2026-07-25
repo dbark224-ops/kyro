@@ -100,6 +100,17 @@ items as leads, not facts.
     an empty array, so the mobile recent-files tool had silently returned nothing.
   - **Refresh the snapshot after any migration** (`npm run db:snapshot`), or CI will fail
     on correct code that uses a newly added column.
+- `[FIXED]` **Vapi tool tenancy could come from LLM-generated arguments.**
+  `vapiToolWorkspaceId` resolved `metadata.workspaceId` → `payload.workspaceId` →
+  `args.workspaceId`, and the tool route hands the result to a service-role client that
+  bypasses RLS. Never exploitable (the route requires `VAPI_TOOL_SECRET` and server-set
+  metadata won the precedence order), but the model's output must never be able to pick a
+  tenant. Now resolves from server-set call metadata only. Verified `metadata.workspaceId`
+  is set on all four call-creation paths before removing the fallbacks: internal voice,
+  inbound/voicemail overflow, outbound, and urgent escalation. 4 tests added.
+  Commit `ed13056`.
+  - A new Vapi call path must set `metadata.workspaceId` or its tool calls are rejected.
+    That is the safe failure direction, but it is a real constraint to remember.
 
 ---
 
@@ -136,29 +147,7 @@ if a bug appears that typed clients would genuinely have caught.
 
 ## Tier 1 — verified, small, do these first
 
-### 1. Vapi tool endpoint takes tenant ID from LLM output `[VERIFIED]`
-
-`lib/voice/calls.ts` — `vapiToolWorkspaceId()` resolves as:
-
-```
-metadata.workspaceId  →  payload.workspaceId  →  args.workspaceId
-```
-
-`args` are **LLM-generated function-call arguments**, and the caller
-(`app/api/integrations/vapi/tool/route.ts:1232`) then builds a service-role client that
-bypasses RLS entirely.
-
-**This is NOT currently exploitable.** The route's first statement is
-`if (!verifyVapiToolRequest(request))` → 401; it requires `VAPI_TOOL_SECRET`, which no
-ordinary user holds. Server-set `metadata.workspaceId` also wins the precedence order.
-It is a defence-in-depth gap, not an open door.
-
-Fix: delete the `payload.workspaceId` and `args.workspaceId` fallbacks so tenancy can
-only come from server-set call metadata. Confirm first that `metadata.workspaceId` is
-reliably populated on every Vapi path (internal voice, inbound, voicemail, outbound) —
-removing the fallbacks blindly could break voice tools.
-
-### 2. No timeout on any production provider call `[VERIFIED]`
+### 1. No timeout on any production provider call `[VERIFIED]`
 
 62 server-side `fetch` calls across `lib` and `app/api`. Only four files in `lib` use
 `AbortController`, and three of those are local-Ollama dev paths
@@ -171,7 +160,7 @@ workspace's email sync, calendar sync, and outbound delivery.
 
 Fix shape: one shared `fetchWithTimeout` helper, applied at the provider wrappers.
 
-### 3. Urgent escalation steps have no lease `[VERIFIED]`
+### 2. Urgent escalation steps have no lease `[VERIFIED]`
 
 `supabase/migrations/20260715213000_signup_billing_escalation_engines.sql` —
 `claim_due_urgent_escalation_steps` sets `status = 'processing'` with **no**
@@ -187,7 +176,7 @@ failure is least acceptable. Production already has rows in
 
 ## Tier 2 — verified, bigger
 
-### 4. Drizzle migration journal desynced two months ago `[VERIFIED]`
+### 3. Drizzle migration journal desynced two months ago `[VERIFIED]`
 
 `supabase/migrations/` holds **45** `.sql` files.
 `supabase/migrations/meta/_journal.json` lists **15**. Last journal entry is
@@ -201,7 +190,7 @@ Production works only because someone applied them by hand, recorded nowhere. Th
 currently **no working documented path to rebuild the database**, which also means no
 reliable staging environment and a bad surprise during any restore.
 
-### 5. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
+### 4. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
 
 Verified against the **live production database** via the Supabase connection:
 67 tables in production, 48 `pgTable(` declarations in the schema file.
@@ -220,7 +209,7 @@ following the doc produces a broken change.
 
 Decide: either regenerate/maintain the schema properly, or delete it and update both docs.
 
-### 6. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
+### 5. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
 
 `lib/crm/queries.ts:1040` — `getContactList` ends in `.limit(100)` with no offset or
 cursor. `app/contacts/page.tsx:73` sets `CRM_PAGE_SIZE = 10` and slices client-side
@@ -230,7 +219,7 @@ Harmless today (production has 25 contacts). At 300 contacts a customer silently
 two thirds of their CRM, and searching for a missing contact returns nothing. There are
 four separate `.limit(100)` sites in that file.
 
-### 7. Zero tests on the highest-consequence code `[VERIFIED]`
+### 6. Zero tests on the highest-consequence code `[VERIFIED]`
 
 Confirmed absent — no test file beside any of these:
 
@@ -249,7 +238,7 @@ Several of the riskiest functions here are already pure and could be tested quic
 
 Now that CI exists, tests added here actually protect every future change.
 
-### 8. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
+### 7. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
 
 135 files define their own `function textValue`. 129 are byte-identical
 (`trim() || null`). At least 6 differ — returning `""` instead of `null`:
