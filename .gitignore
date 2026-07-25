@@ -25,6 +25,9 @@ npm-debug.log*
 tmp/
 supabase/.temp/
 
+# Local work artifacts
+outputs/
+
 # OS/editor
 .DS_Store
 Thumbs.db
