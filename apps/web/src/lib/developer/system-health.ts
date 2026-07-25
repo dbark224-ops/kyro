@@ -1,5 +1,10 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import {
+  BACKGROUND_JOB_MAX_READY_AGE_SECONDS,
+  getBackgroundQueueMetrics,
+  type BackgroundJobType,
+} from "../background/jobs";
+import {
   GOOGLE_DRIVE_FILE_SCOPE,
   GOOGLE_GMAIL_READ_SCOPE,
   GOOGLE_GMAIL_SEND_SCOPE,
@@ -14,6 +19,90 @@ import { hasIntegrationTokenEncryptionKey } from "../integrations/token-vault";
 import { createServiceSupabaseClient } from "../supabase/service";
 
 export type DeveloperHealthStatus = "error" | "ok" | "warning";
+
+export type BackgroundQueueMetric = {
+  expiredLeaseCount: number;
+  failedCount: number;
+  jobType: string;
+  oldestReadyAgeSeconds: number;
+  oldestScheduleAgeSeconds: number;
+  overdueScheduleCount: number;
+  processingCount: number;
+  readyCount: number;
+};
+
+export function formatQueueAge(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "0m";
+  }
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${Math.max(1, minutes)}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * Turns one job type's real queue numbers into a dashboard status.
+ *
+ * Kept pure and exported so it can be tested without a database, and so it uses
+ * the same thresholds as `unhealthyBackgroundQueueMetrics` -- otherwise
+ * `/developer/system-health` and `/api/background/health` could disagree about
+ * whether the same queue is healthy, which is exactly the failure this replaced.
+ */
+export function backgroundQueueCheckStatus(metric: BackgroundQueueMetric): {
+  status: DeveloperHealthStatus;
+  summary: string;
+} {
+  const maxAgeSeconds =
+    BACKGROUND_JOB_MAX_READY_AGE_SECONDS[metric.jobType as BackgroundJobType] ??
+    60 * 60;
+  const stale =
+    metric.oldestReadyAgeSeconds > maxAgeSeconds ||
+    metric.oldestScheduleAgeSeconds > maxAgeSeconds;
+  const parts = [
+    `${metric.readyCount} ready`,
+    `${metric.processingCount} processing`,
+    `${metric.failedCount} dead-lettered`,
+  ];
+
+  if (metric.expiredLeaseCount > 0) {
+    parts.push(`${metric.expiredLeaseCount} expired lease(s)`);
+  }
+
+  if (metric.overdueScheduleCount > 0) {
+    parts.push(`${metric.overdueScheduleCount} overdue schedule(s)`);
+  }
+
+  if (metric.oldestReadyAgeSeconds > 0) {
+    parts.push(
+      `oldest waiting ${formatQueueAge(metric.oldestReadyAgeSeconds)}`,
+    );
+  }
+
+  const summary = parts.join(", ");
+
+  if (metric.failedCount > 0 || metric.expiredLeaseCount > 0) {
+    return {
+      status: "error",
+      summary: `${summary}. Replay dead letters through /api/background/retry.`,
+    };
+  }
+
+  if (stale) {
+    return {
+      status: "warning",
+      summary: `${summary}. Work is older than this job type allows -- the processor may not be running.`,
+    };
+  }
+
+  return { status: "ok", summary: `${summary}.` };
+}
 
 export type DeveloperHealthCheck = {
   detail?: string;
@@ -67,9 +156,17 @@ type TableRequirement = {
 const REQUIRED_TABLES: TableRequirement[] = [
   { label: "Current user", scope: "current_user", table: "users" },
   { label: "Workspace", scope: "current_workspace", table: "workspaces" },
-  { label: "Workspace members", scope: "workspace", table: "workspace_members" },
+  {
+    label: "Workspace members",
+    scope: "workspace",
+    table: "workspace_members",
+  },
   { label: "Business profile", scope: "workspace", table: "business_profiles" },
-  { label: "Workspace policies", scope: "workspace", table: "workspace_policies" },
+  {
+    label: "Workspace policies",
+    scope: "workspace",
+    table: "workspace_policies",
+  },
   { label: "Contacts", scope: "workspace", table: "contacts" },
   { label: "Leads", scope: "workspace", table: "leads" },
   { label: "Channels", scope: "workspace", table: "channels" },
@@ -78,18 +175,38 @@ const REQUIRED_TABLES: TableRequirement[] = [
   { label: "Events", scope: "workspace", table: "events" },
   { label: "Actions", scope: "workspace", table: "actions" },
   { label: "Inquiry facts", scope: "workspace", table: "inquiry_facts" },
-  { label: "Conversation tasks", scope: "workspace", table: "conversation_tasks" },
+  {
+    label: "Conversation tasks",
+    scope: "workspace",
+    table: "conversation_tasks",
+  },
   {
     label: "Conversation appointments",
     scope: "workspace",
     table: "conversation_appointments",
   },
-  { label: "Conversation notes", scope: "workspace", table: "conversation_notes" },
+  {
+    label: "Conversation notes",
+    scope: "workspace",
+    table: "conversation_notes",
+  },
   { label: "Quote drafts", scope: "workspace", table: "quote_drafts" },
-  { label: "Quote approval links", scope: "workspace", table: "quote_approval_links" },
-  { label: "Generated documents", scope: "workspace", table: "generated_documents" },
+  {
+    label: "Quote approval links",
+    scope: "workspace",
+    table: "quote_approval_links",
+  },
+  {
+    label: "Generated documents",
+    scope: "workspace",
+    table: "generated_documents",
+  },
   { label: "Files", scope: "workspace", table: "files" },
-  { label: "Outbound messages", scope: "workspace", table: "outbound_messages" },
+  {
+    label: "Outbound messages",
+    scope: "workspace",
+    table: "outbound_messages",
+  },
   {
     label: "Integration connections",
     scope: "workspace",
@@ -100,9 +217,21 @@ const REQUIRED_TABLES: TableRequirement[] = [
     scope: "workspace",
     table: "integration_oauth_states",
   },
-  { label: "Assistant threads", scope: "workspace", table: "assistant_threads" },
-  { label: "Assistant messages", scope: "workspace", table: "assistant_messages" },
-  { label: "Assistant memories", scope: "workspace", table: "assistant_memories" },
+  {
+    label: "Assistant threads",
+    scope: "workspace",
+    table: "assistant_threads",
+  },
+  {
+    label: "Assistant messages",
+    scope: "workspace",
+    table: "assistant_messages",
+  },
+  {
+    label: "Assistant memories",
+    scope: "workspace",
+    table: "assistant_memories",
+  },
   {
     label: "Assistant pronunciations",
     scope: "workspace",
@@ -295,7 +424,8 @@ async function checkTable({
     };
   } catch (error) {
     return {
-      detail: error instanceof Error ? error.message : "Unknown table check error.",
+      detail:
+        error instanceof Error ? error.message : "Unknown table check error.",
       id: `table:${requirement.table}`,
       status: "error",
       summary: "Unable to run table check.",
@@ -325,10 +455,13 @@ async function checkRequiredTables({
   );
 }
 
-async function checkStorageBucket(bucket: string): Promise<DeveloperHealthCheck> {
+async function checkStorageBucket(
+  bucket: string,
+): Promise<DeveloperHealthCheck> {
   if (!isConfigured("SUPABASE_SERVICE_ROLE_KEY")) {
     return {
-      detail: "Storage bucket checks need the server-only Supabase service role key.",
+      detail:
+        "Storage bucket checks need the server-only Supabase service role key.",
       id: "storage:bucket",
       status: "warning",
       summary: "Cannot verify private storage bucket without service role.",
@@ -422,7 +555,9 @@ async function integrationChecks({
   const microsoftConnected = microsoft.connections.filter(
     (connection) => connection.status === "connected",
   );
-  const googleScopes = googleConnected.flatMap((connection) => connection.scopes);
+  const googleScopes = googleConnected.flatMap(
+    (connection) => connection.scopes,
+  );
   const microsoftScopes = microsoftConnected.flatMap(
     (connection) => connection.scopes,
   );
@@ -445,7 +580,8 @@ async function integrationChecks({
       detail: microsoft.error ?? microsoft.redirectUri ?? undefined,
       href: "/settings?section=integrations",
       id: "integration:microsoft-config",
-      status: microsoft.configured && microsoft.migrationReady ? "ok" : "warning",
+      status:
+        microsoft.configured && microsoft.migrationReady ? "ok" : "warning",
       summary: microsoft.configured
         ? `${microsoftConnected.length} Microsoft account${
             microsoftConnected.length === 1 ? "" : "s"
@@ -521,7 +657,9 @@ async function latestIssues({
   const [outbound, events, actions, integrations] = await Promise.all([
     supabase
       .from("outbound_messages")
-      .select("id,recipient,subject,status,last_error,updated_at,conversation_id")
+      .select(
+        "id,recipient,subject,status,last_error,updated_at,conversation_id",
+      )
       .eq("workspace_id", workspaceId)
       .in("status", ["failed", "retry_scheduled"])
       .order("updated_at", { ascending: false })
@@ -535,7 +673,9 @@ async function latestIssues({
       .limit(5),
     supabase
       .from("actions")
-      .select("id,type,status,error,target_type,target_id,updated_at,created_at")
+      .select(
+        "id,type,status,error,target_type,target_id,updated_at,created_at",
+      )
       .eq("workspace_id", workspaceId)
       .eq("status", "failed")
       .order("updated_at", { ascending: false })
@@ -587,7 +727,8 @@ async function latestIssues({
 
   for (const row of integrations.data ?? []) {
     issues.push({
-      context: `${providerLabel(textValue(row.provider))} ${row.account_email ?? ""}`.trim(),
+      context:
+        `${providerLabel(textValue(row.provider))} ${row.account_email ?? ""}`.trim(),
       detail: row.last_error ?? "Provider connection has an error.",
       href: "/settings?section=integrations",
       occurredAt: textValue(row.updated_at),
@@ -618,7 +759,9 @@ function sectionStatus(checks: DeveloperHealthCheck[]): DeveloperHealthStatus {
   return "ok";
 }
 
-function tableSummaryCheck(checks: DeveloperHealthCheck[]): DeveloperHealthCheck {
+function tableSummaryCheck(
+  checks: DeveloperHealthCheck[],
+): DeveloperHealthCheck {
   const errors = checks.filter((check) => check.status === "error");
   const status = sectionStatus(checks);
 
@@ -638,6 +781,76 @@ function tableSummaryCheck(checks: DeveloperHealthCheck[]): DeveloperHealthCheck
   };
 }
 
+/**
+ * Real background-worker health, derived from the queue itself.
+ *
+ * This section used to report `isConfigured(SOME_SECRET) ? "ok" : "error"` for
+ * three hand-named workers, so it stayed green when cron stopped firing
+ * entirely, and it covered 3 of the 9 real job types. On 2026-07-25 production
+ * had a dead-lettered outbound_delivery job for two days while this screen
+ * showed "ok" and `/api/background/health` was returning 503 about the same
+ * queue. The env-var checks it duplicated already live in the Environment
+ * section (`env:inbound-secret`, `env:outbox-secret`).
+ */
+async function backgroundQueueChecks(): Promise<DeveloperHealthCheck[]> {
+  try {
+    const metrics = await getBackgroundQueueMetrics(
+      createServiceSupabaseClient(),
+    );
+
+    if (metrics.length === 0) {
+      return [
+        {
+          detail:
+            "No job types reported. The queue tables may be empty or unreachable.",
+          href: "/api/background/health",
+          id: "worker:queue",
+          status: "warning",
+          summary: "Background queue metrics returned no job types.",
+          title: "Background queue",
+        },
+      ];
+    }
+
+    return metrics
+      .map((metric) => {
+        const { status, summary } = backgroundQueueCheckStatus(metric);
+
+        return {
+          href: "/api/background/health",
+          id: `worker:${metric.jobType}`,
+          status,
+          summary,
+          title: formatJobTypeTitle(metric.jobType),
+        };
+      })
+      .sort((left, right) => left.title.localeCompare(right.title));
+  } catch (error) {
+    return [
+      {
+        detail:
+          "Worker health is unknown while this fails, so treat green elsewhere with caution.",
+        href: "/api/background/health",
+        id: "worker:queue",
+        status: "error",
+        summary:
+          error instanceof Error
+            ? `Unable to read background queue metrics: ${error.message}`
+            : "Unable to read background queue metrics.",
+        title: "Background queue",
+      },
+    ];
+  }
+}
+
+function formatJobTypeTitle(jobType: string) {
+  return jobType
+    .split(/[_-]+/g)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
 export async function loadDeveloperSystemHealth({
   supabase,
   user,
@@ -648,12 +861,14 @@ export async function loadDeveloperSystemHealth({
   workspace: WorkspaceInput;
 }): Promise<DeveloperSystemHealth> {
   const storageBucket = envValue("KYRO_FILE_STORAGE_BUCKET") || "kyro-files";
-  const [tableChecks, storageCheck, providerChecks, issues] = await Promise.all([
-    checkRequiredTables({ supabase, user, workspace }),
-    checkStorageBucket(storageBucket),
-    integrationChecks({ supabase, workspace }),
-    latestIssues({ supabase, workspaceId: workspace.id }),
-  ]);
+  const [tableChecks, storageCheck, providerChecks, issues, workerChecks] =
+    await Promise.all([
+      checkRequiredTables({ supabase, user, workspace }),
+      checkStorageBucket(storageBucket),
+      integrationChecks({ supabase, workspace }),
+      latestIssues({ supabase, workspaceId: workspace.id }),
+      backgroundQueueChecks(),
+    ]);
   const envChecks: DeveloperHealthCheck[] = [
     envCheck({
       id: "env:supabase-url",
@@ -677,7 +892,11 @@ export async function loadDeveloperSystemHealth({
     }),
     groupedSecretCheck({
       id: "env:outbox-secret",
-      keys: ["OUTBOUND_DELIVERY_SECRET", "CRON_SECRET", "INBOUND_EMAIL_SYNC_SECRET"],
+      keys: [
+        "OUTBOUND_DELIVERY_SECRET",
+        "CRON_SECRET",
+        "INBOUND_EMAIL_SYNC_SECRET",
+      ],
       title: "Outbox processor secret",
     }),
     envCheck({
@@ -776,58 +995,10 @@ export async function loadDeveloperSystemHealth({
         title: "Assistant and voice providers",
       },
       {
-        checks: [
-          {
-            href: "/api/integrations/email/sync",
-            id: "worker:inbound",
-            status:
-              isConfigured("INBOUND_EMAIL_SYNC_SECRET") || isConfigured("CRON_SECRET")
-                ? "ok"
-                : "error",
-            summary:
-              isConfigured("INBOUND_EMAIL_SYNC_SECRET") || isConfigured("CRON_SECRET")
-                ? "Protected sync endpoint can be called by cron."
-                : "Set INBOUND_EMAIL_SYNC_SECRET or CRON_SECRET.",
-            title: "Inbound email worker",
-          },
-          {
-            href: "/api/outbox/process",
-            id: "worker:outbox",
-            status:
-              isConfigured("OUTBOUND_DELIVERY_SECRET") ||
-              isConfigured("CRON_SECRET") ||
-              isConfigured("INBOUND_EMAIL_SYNC_SECRET")
-                ? "ok"
-                : "error",
-            summary:
-              isConfigured("OUTBOUND_DELIVERY_SECRET") ||
-              isConfigured("CRON_SECRET") ||
-              isConfigured("INBOUND_EMAIL_SYNC_SECRET")
-                ? "Protected outbox processor endpoint can be called by cron."
-                : "Set OUTBOUND_DELIVERY_SECRET, CRON_SECRET, or INBOUND_EMAIL_SYNC_SECRET.",
-            title: "Outbox retry worker",
-          },
-          {
-            href: "/api/billing/kyro/run",
-            id: "worker:kyro-billing",
-            status:
-              isConfigured("KYRO_BILLING_RUN_SECRET") ||
-              isConfigured("OUTBOUND_DELIVERY_SECRET") ||
-              isConfigured("CRON_SECRET")
-                ? "ok"
-                : "warning",
-            summary:
-              isConfigured("KYRO_BILLING_RUN_SECRET") ||
-              isConfigured("OUTBOUND_DELIVERY_SECRET") ||
-              isConfigured("CRON_SECRET")
-                ? "Protected Kyro billing runner can generate invoices and auto-charge non-developer accounts."
-                : "Set KYRO_BILLING_RUN_SECRET, OUTBOUND_DELIVERY_SECRET, or CRON_SECRET before enabling automated invoice runs.",
-            title: "Kyro billing runner",
-          },
-        ],
+        checks: workerChecks,
         eyebrow: "Operations",
         id: "workers",
-        title: "Cron and processor readiness",
+        title: "Background queue health",
       },
     ],
     storageBucket,
@@ -839,7 +1010,9 @@ export async function loadDeveloperSystemHealth({
 function findCheck(health: DeveloperSystemHealth, id: string) {
   return (
     health.tableChecks.find((check) => check.id === id) ??
-    health.sections.flatMap((section) => section.checks).find((check) => check.id === id)
+    health.sections
+      .flatMap((section) => section.checks)
+      .find((check) => check.id === id)
   );
 }
 
@@ -891,7 +1064,8 @@ export function smokeChecksFromSystemHealth(
 
   return [
     {
-      detail: "This runs through the same manual inbound path the old dashboard mock form used.",
+      detail:
+        "This runs through the same manual inbound path the old dashboard mock form used.",
       href: "/developer",
       id: "smoke:mock-inbound",
       status: combinedStatus(mockInboundChecks),
@@ -900,7 +1074,8 @@ export function smokeChecksFromSystemHealth(
         "Create a mock inquiry with name, email or phone, and a realistic message.",
         "Confirm the success banner appears and the inquiry appears in Inbox/CRM.",
       ],
-      summary: "Core CRM, event, action, AI, usage, and audit tables are reachable.",
+      summary:
+        "Core CRM, event, action, AI, usage, and audit tables are reachable.",
       title: "Create mock inbound inquiry",
     },
     {
@@ -921,7 +1096,8 @@ export function smokeChecksFromSystemHealth(
       title: "Review and send reply",
     },
     {
-      detail: "The check is for local readiness; real content still depends on quote draft data.",
+      detail:
+        "The check is for local readiness; real content still depends on quote draft data.",
       href: "/documents",
       id: "smoke:generated-document",
       status: combinedStatus(documentChecks),
@@ -934,7 +1110,8 @@ export function smokeChecksFromSystemHealth(
       title: "Generate quote or invoice PDF",
     },
     {
-      detail: "If no provider send scope is connected, this can still be tested as an internal/manual record.",
+      detail:
+        "If no provider send scope is connected, this can still be tested as an internal/manual record.",
       href: "/developer/outbox",
       id: "smoke:outbox",
       status: combinedStatus(outboundChecks),
@@ -943,11 +1120,13 @@ export function smokeChecksFromSystemHealth(
         "Open Developer -> Outbox operations.",
         "Confirm the row is sent, queued, retry-scheduled, or failed with a readable reason.",
       ],
-      summary: "Outbox table, processor secret, and at least one provider send path were checked.",
+      summary:
+        "Outbox table, processor secret, and at least one provider send path were checked.",
       title: "Inspect outbound delivery ledger",
     },
     {
-      detail: "Automatic polling depends on production cron, but manual checks prove the same sync engine.",
+      detail:
+        "Automatic polling depends on production cron, but manual checks prove the same sync engine.",
       href: "/settings?section=integrations",
       id: "smoke:inbound-sync",
       status: combinedStatus(inboundChecks),
@@ -956,7 +1135,8 @@ export function smokeChecksFromSystemHealth(
         "Run a manual inbox check or ask Assistant to check recent email.",
         "Confirm promoted mail, skipped-mail decisions, and sync health update.",
       ],
-      summary: "Inbound sync endpoint and at least one provider read path were checked.",
+      summary:
+        "Inbound sync endpoint and at least one provider read path were checked.",
       title: "Check inbound email awareness",
     },
     {
