@@ -231,6 +231,50 @@ if a bug appears that typed clients would genuinely have caught.
     transcript recorders, not full turns. Whether they should compact is a separate
     product question, not a bug.
 
+- `[FIXED]` **The operator health dashboard reported worker status from env vars.** Verified
+  before changing anything, and it was actively wrong in production at the time. The
+  "Cron and processor readiness" section computed `isConfigured(SECRET) ? "ok" : "error"`
+  for three hand-named workers — the summary text literally said *"can be called by
+  cron"*, asserting a capability rather than an outcome — and `system-health.ts` never
+  queried `background_jobs` at all. Commit `609d9e5`.
+  - **It was lying at the moment of inspection:** `outbound_delivery` had a dead-lettered
+    job sitting for two days while this screen showed "ok" and `/api/background/health`
+    was returning **503** about the same queue. Two screens in one app disagreeing, and
+    the misleading one is the one an operator opens.
+  - Coverage was worse than three fake checks: the queue runs **nine** job types and only
+    three were named, so `calendar_sync`, `calendar_notifications`,
+    `crm_lifecycle_review`, `recording_cleanup`, `assistant_suggestions`,
+    `billing_access` and `billing_cycle` had no representation at all.
+  - Now renders one check per real job type from `getBackgroundQueueMetrics`, using the
+    same per-type thresholds (`BACKGROUND_JOB_MAX_READY_AGE_SECONDS`) as
+    `unhealthyBackgroundQueueMetrics`, so the dashboard and the health endpoint cannot
+    disagree. 11 tests on the pure status function.
+  - The env-var checks it duplicated already existed in the Environment section, so
+    nothing was lost.
+  - **Resolved the stuck dead letter** it had been hiding: outbound SMS to `+1575855239`,
+    a number with only 9 digits after `+1`, so Twilio rejected every attempt. Retry could
+    never succeed, so the outbox row is `dismissed` and the job `cancelled`, both with
+    reasons recorded. Queue verified clean afterwards: 0 dead letters, 0 expired leases,
+    9 job types reporting.
+  - **Could not verify whether the alert fired.** `sendInternalBugNotification` emails via
+    Resend and writes nothing to the database, so absence of a record proves nothing.
+    Worth checking the internal bug mailbox around 2026-07-23.
+
+## New finding from that investigation
+
+### Undialable recipient numbers burn retries and dead-letter `[VERIFIED]`
+
+An inbound SMS from `+1575855239` (not a valid E.164 number) caused Kyro to auto-create a
+contact, run triage, generate a reply, queue an outbound SMS, and consume three Twilio
+attempts before dead-lettering. **Nothing validates that a recipient is dialable before
+queuing.** `lib/crm/identity.ts` already imports `parsePhoneNumberFromString`, so the
+capability exists but is not applied to the outbound path; `assertSmsSendAllowed` covers
+consent/opt-out, not validity.
+
+Left unfixed deliberately — it is a behaviour change to a customer-facing send path and
+the desired behaviour is a product decision: skip and flag the contact, mark it
+`needs_review`, or queue but fail fast without consuming retries.
+
 ## Tier 1 — all clear
 
 All Tier 1 items are fixed. Start at Tier 2.
