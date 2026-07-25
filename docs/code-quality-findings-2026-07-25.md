@@ -62,31 +62,23 @@ items as leads, not facts.
 - `[FIXED]` **Mobile branch existed only on local disk.** `codex/mobile-app` (37 commits)
   was unpushed and its worktree was cross-wired to the abandoned C: drive repo. Pushed to
   origin; rebound the worktree to the D: repo with `git worktree repair`.
+- `[FIXED]` **Assistant and mobile reply paths could double-send to customers.**
+  `recordOutboundMessage` falls back to a random UUID when no idempotency key is supplied,
+  defeating the unique index on `(workspace_id, idempotency_key)`. Added
+  `lib/communication/idempotency.ts` (`manualReplyIdempotencyKey`) with 10 tests: an
+  explicit submission key is used directly, and clients that send none fall back to a
+  content hash bucketed into 60s. Both assistant consoles and the mobile app now hold a
+  submission key until the send succeeds. Web commit `f73f683`; mobile commit `caeaa75`
+  on `codex/mobile-app`.
+  - Residual: the 60s fallback has a bucket-boundary gap and will collapse two
+    *intentional* identical messages sent inside one window. Only reachable by app builds
+    older than `caeaa75`.
 
 ---
 
 ## Tier 1 — verified, small, do these first
 
-### 1. Two send paths can double-message a customer `[VERIFIED]`
-
-Six call sites invoke `recordOutboundMessage`. Four pass an `idempotencyKey`. **Two do not:**
-
-- `app/api/mobile/inbox/[conversationId]/route.ts:308` — mobile manual reply
-- `app/assistant/actions.ts:1078` — assistant reply
-
-A double-tap, network retry, or client resubmit sends a real customer a duplicate
-email or SMS. The web composer is protected (`app/inbox/actions.ts:1414` uses
-`composer.outbound.${conversationId}.${submissionKey}`); these two are not.
-
-Needs first: read `recordOutboundMessage`'s dedupe semantics. Mobile sends no
-submission key, so a key must be derived (content hash + conversation + coarse time
-bucket). Getting this wrong either fails to dedupe or silently swallows a legitimate
-repeat message.
-
-> Note: the audit originally reported "three copies, only one protected." The real
-> numbers are six and four. Substance held, detail did not.
-
-### 2. Vapi tool endpoint takes tenant ID from LLM output `[VERIFIED]`
+### 1. Vapi tool endpoint takes tenant ID from LLM output `[VERIFIED]`
 
 `lib/voice/calls.ts` — `vapiToolWorkspaceId()` resolves as:
 
@@ -108,7 +100,7 @@ only come from server-set call metadata. Confirm first that `metadata.workspaceI
 reliably populated on every Vapi path (internal voice, inbound, voicemail, outbound) —
 removing the fallbacks blindly could break voice tools.
 
-### 3. Stripe charges carry no idempotency key `[VERIFIED]`
+### 2. Stripe charges carry no idempotency key `[VERIFIED]`
 
 `lib/payments/stripe.ts:186-227` — `stripeApiRequest` builds headers with only
 `Authorization` and `Stripe-Version`, and offers no way to pass an `Idempotency-Key`.
@@ -121,7 +113,7 @@ idempotency keys as required practice for exactly this case.
 > The four `Idempotency-Key` hits elsewhere in the repo are Resend/email paths
 > (`waitlist`, `account-deletion`, `dunning`, `internal-notifications`), not Stripe.
 
-### 4. No timeout on any production provider call `[VERIFIED]`
+### 3. No timeout on any production provider call `[VERIFIED]`
 
 62 server-side `fetch` calls across `lib` and `app/api`. Only four files in `lib` use
 `AbortController`, and three of those are local-Ollama dev paths
@@ -134,7 +126,7 @@ workspace's email sync, calendar sync, and outbound delivery.
 
 Fix shape: one shared `fetchWithTimeout` helper, applied at the provider wrappers.
 
-### 5. Urgent escalation steps have no lease `[VERIFIED]`
+### 4. Urgent escalation steps have no lease `[VERIFIED]`
 
 `supabase/migrations/20260715213000_signup_billing_escalation_engines.sql` —
 `claim_due_urgent_escalation_steps` sets `status = 'processing'` with **no**
