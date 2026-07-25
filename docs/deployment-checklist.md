@@ -24,7 +24,7 @@ Required for the current product:
 - `NEXT_PUBLIC_SUPABASE_URL`: Supabase project URL.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase publishable/anon key for browser clients.
 - `SUPABASE_SERVICE_ROLE_KEY`: server-only Supabase service role key.
-- `DATABASE_URL`: Postgres connection string used by Drizzle migrations.
+- `DATABASE_URL`: Postgres connection string used by `npm run db:migrate`.
 - `OPENAI_API_KEY`: OpenAI key for assistant, triage, realtime voice, transcription, reply drafting, and image generation.
 - `GOOGLE_CLIENT_ID`: Google OAuth client id.
 - `GOOGLE_CLIENT_SECRET`: Google OAuth client secret.
@@ -143,7 +143,7 @@ workspaces collecting customer payments through connected/customer payment flows
 Before deployment:
 
 ```bash
-npm run db:check
+npm run db:migrate -- --dry-run
 npm run db:migrate
 ```
 
@@ -348,6 +348,8 @@ Recommended deploy sequence:
 5. Run `npm run lint`.
 6. Run `npm run build`.
 7. Apply migrations with `npm run db:migrate` against production only when ready.
+   Then run `npm run db:snapshot` and commit the result, or CI's column check will
+   fail on correct code that uses a newly added column.
 8. Deploy.
 9. Open Developer -> System Health and confirm required production checks are green or explicitly understood.
 10. Confirm `/api/background/health` is healthy and the external monitor can authenticate.

@@ -16,7 +16,6 @@
     "@kyro/api": "0.1.0",
     "@kyro/contracts": "0.1.0",
     "@kyro/core": "0.1.0",
-    "@kyro/db": "0.1.0",
     "@kyro/jobs": "0.1.0",
     "@stripe/react-stripe-js": "^6.6.0",
     "@stripe/stripe-js": "^9.8.0",

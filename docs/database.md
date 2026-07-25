@@ -1,30 +1,55 @@
 # Database Setup
 
-Kyro uses Supabase Postgres with Drizzle as the TypeScript schema and migration tool.
+Kyro uses Supabase Postgres. Migrations are **hand-written SQL** in
+`supabase/migrations`, applied and tracked through Supabase's own ledger.
+
+> Drizzle was removed on 2026-07-25. It had generated only the first 15 of 46
+> migrations and stopped being used on 2026-05-27, while `npm run db:migrate` still
+> read its journal — so the documented rebuild procedure silently rebuilt about a
+> third of the database. `packages/db/src/schema.ts` was also 18 tables behind
+> production and imported by nothing at runtime, while two docs called it the
+> "source of truth". Both are gone; `supabase/migrations` is now the only source.
 
 ## Files
 
-- `packages/db/src/schema.ts`: Drizzle schema.
-- `packages/db/src/client.ts`: Postgres client factory.
-- `drizzle.config.ts`: Drizzle migration config.
-- `supabase/migrations`: generated SQL migrations and Drizzle migration metadata.
+- `supabase/migrations`: timestamped SQL migrations. The schema source of truth.
+- `scripts/db-migrate.mjs`: applies pending migrations (`npm run db:migrate`).
+- `scripts/refresh-schema-snapshot.mjs`: regenerates the CI column snapshot
+  (`npm run db:snapshot`).
+- `scripts/schema-snapshot.json`: committed table/column snapshot. `npm run lint:db`
+  validates every `.select()` in the app against it, so CI needs no database access.
 
 ## Environment
 
-Set `DATABASE_URL` in `.env` before applying migrations.
+Set `DATABASE_URL` in `.env` before applying migrations. Use the direct Postgres
+connection string. Runtime clients use Supabase Auth/session context from the API
+layer instead.
 
-For Supabase, use a direct Postgres connection string for migrations. Runtime clients should
-use Supabase Auth/session context from the API layer where appropriate.
+## Adding a migration
 
-## Commands
+1. Create `supabase/migrations/<UTC timestamp>_short_name.sql`. Keep the timestamp
+   ahead of the newest existing file; it defines apply order.
+2. Write plain SQL. Prefer `IF NOT EXISTS` / `CREATE OR REPLACE` so a re-run is safe.
+3. Include RLS policies and grants for any new table — every table is expected to
+   have RLS enabled.
+4. Apply it, then refresh the snapshot and commit both:
 
 ```bash
-npm run db:generate -- --name migration_name
-npm run db:generate:custom -- --name custom_migration_name
-npm run db:check
+npm run db:migrate -- --dry-run   # show what would run, change nothing
 npm run db:migrate
-npm run db:studio
+npm run db:snapshot               # commit the updated schema-snapshot.json
 ```
+
+Skipping `db:snapshot` makes CI fail on correct code that uses a newly added column.
+
+## Ledger
+
+Applied migrations are recorded in `supabase_migrations.schema_migrations`, keyed by
+the filename timestamp. On 2026-07-25 this was reconciled to list all 46 files: 15 were
+tracked only by the old Drizzle journal, 23 only by Supabase, and 8 — including
+`outbound_messages` and `vapi_voice_calls` — by neither. All 46 were verified applied
+before recording. Keep filenames and ledger versions matching, or the CLI will try to
+re-run migrations that are already live.
 
 ## Current Migration Shape
 

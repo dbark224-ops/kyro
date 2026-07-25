@@ -3,7 +3,9 @@
 All tenant-owned tables must include `workspace_id`.
 All important side effects must create audit logs.
 
-Schema source of truth: `packages/db/src/schema.ts`.
+Schema source of truth: `supabase/migrations` (hand-written SQL). This document
+describes the model and is not machine-checked; `scripts/schema-snapshot.json` holds a
+generated table/column snapshot used by CI.
 
 This document separates current implemented tables from planned later tables.
 Planned later tables are marked as planned and are not available in the current database yet.

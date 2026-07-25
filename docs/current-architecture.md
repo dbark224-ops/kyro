@@ -9,7 +9,7 @@ real versus intentionally stubbed.
 Kyro is a TypeScript monorepo.
 
 - `apps/web`: Next.js App Router web app.
-- `packages/db`: Drizzle schema and migration source.
+- `supabase/migrations`: hand-written SQL migrations. The schema source of truth.
 - `packages/api`: backend domain helpers for actions, events, bootstrap, usage, and policies.
 - `packages/ai`: model routing helper.
 - `packages/contracts`: shared TypeScript/Zod contracts.
@@ -25,7 +25,8 @@ Kyro is a TypeScript monorepo.
 - Next.js App Router renders the web app.
 - Supabase Auth handles sessions.
 - Supabase Postgres is the source of truth.
-- Drizzle owns schema/migration generation.
+- Migrations are hand-written SQL in `supabase/migrations`, tracked in Supabase's
+  `supabase_migrations.schema_migrations` ledger, applied with `npm run db:migrate`.
 - Server Components read workspace data.
 - Server Actions mutate data and then revalidate/redirect.
 - Client Components are used only where local UI state improves UX, such as instant contact filters.
@@ -122,7 +123,8 @@ All business data is workspace-scoped. The important tables are:
   future customer-facing documents.
 - `audit_logs`: append-only history of meaningful changes.
 
-Schema source: `packages/db/src/schema.ts`.
+Schema source: `supabase/migrations` (hand-written SQL). A generated column snapshot
+for CI lives at `scripts/schema-snapshot.json`; refresh with `npm run db:snapshot`.
 Applied migrations: `supabase/migrations`.
 
 ## Auth And Workspace Bootstrap
@@ -1133,7 +1135,6 @@ Files:
 - `apps/web/src/app/settings/page.tsx`
 - `apps/web/src/app/settings/actions.ts`
 - `supabase/migrations/20260518175710_pronunciation_vocabulary.sql`
-- `packages/db/src/schema.ts`
 
 Purpose:
 
@@ -1830,7 +1831,8 @@ Use this map before editing:
 - New report behavior: `apps/web/src/lib/reports/data.ts`, `apps/web/src/lib/reports/render.ts`,
   `apps/web/src/app/reports/page.tsx`, `apps/web/src/app/reports/print/route.ts`, and
   `apps/web/src/app/reports/pdf/route.ts`
-- New schema field/table: `packages/db/src/schema.ts`, then generate a migration.
+- New schema field/table: add a timestamped SQL file to `supabase/migrations`, apply
+  with `npm run db:migrate`, then run `npm run db:snapshot` and commit the snapshot.
 - New route loading state: add `loading.tsx` beside the route.
 - Shared layout/nav: `apps/web/src/app/components/app-frame.tsx`
 - Core route preloading: `apps/web/src/app/components/route-preloader.tsx`
@@ -1901,7 +1903,7 @@ npm run env:check
 npm run test
 npm run typecheck
 npm run lint
-npm run db:check
+npm run lint:db
 npm run build
 ```
 
@@ -1919,9 +1921,9 @@ setting normalisation, and printable quote HTML escaping/rendering.
 When schema changes are made:
 
 ```bash
-npm run db:generate -- --name descriptive_name
+# add supabase/migrations/<UTC timestamp>_descriptive_name.sql, then:
 npm run db:migrate
-npm run db:check
+npm run db:snapshot
 ```
 
 Production deployment and environment hardening steps live in

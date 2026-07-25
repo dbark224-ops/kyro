@@ -17,7 +17,6 @@
       "@/*": ["apps/web/src/*"],
       "@kyro/contracts": ["packages/contracts/src/index.ts"],
       "@kyro/core": ["packages/core/src/index.ts"],
-      "@kyro/db": ["packages/db/src/index.ts"],
       "@kyro/api": ["packages/api/src/index.ts"],
       "@kyro/ai": ["packages/ai/src/index.ts"],
       "@kyro/jobs": ["packages/jobs/src/index.ts"]
