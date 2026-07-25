@@ -123,6 +123,27 @@ items as leads, not facts.
   - The five calls left alone each already manage their own `AbortController` +
     `setTimeout` (local Ollama dev paths and the pronunciation preview).
   - New provider calls should use these helpers rather than bare `fetch`.
+- `[FIXED]` **Urgent escalation steps had no lease.**
+  `claim_due_urgent_escalation_steps` set `status = 'processing'` with no expiry and no
+  reclaim path, and only selected `status = 'pending'`. The worker's catch handles a
+  failed delivery, but if the process died between the claim and that catch the row
+  stayed `processing` forever — nothing retried, nothing alerted. On the 2am emergency
+  path that means nobody gets called. Migration `20260725213704` adds `lease_expires_at`
+  plus a partial index, reclaims expired leases while attempts remain, and fails out
+  exhausted ones so the incident can finish. Commit `3834e7e`.
+  - **Lease is 300s; the worker is bounded at `maxDuration = 60`.** The lease must
+    outlast the longest possible run or a step still being delivered could be reclaimed
+    and the contact called twice about the same emergency. **Raising `maxDuration`
+    without raising the lease breaks that guarantee.**
+  - Migration was applied to production *before* deploying the code, because the code
+    writes the new column.
+
+### Note on migration drift (relates to Tier 2 item 2)
+
+Applying this exposed a **three-way** mismatch, worse than the doc first recorded:
+`supabase/migrations/` holds 45 `.sql` files, the Drizzle journal lists 15, and the
+remote `supabase_migrations` table lists 23. All three disagree. Whoever tackles Tier 2
+item 2 should reconcile all three, not just the journal.
 
 ---
 
@@ -157,25 +178,11 @@ if a bug appears that typed clients would genuinely have caught.
 
 ---
 
-## Tier 1 — verified, small, do these first
+## Tier 1 — all clear
 
-### 1. Urgent escalation steps have no lease `[VERIFIED]`
+All Tier 1 items are fixed. Start at Tier 2.
 
-`supabase/migrations/20260715213000_signup_billing_escalation_engines.sql` —
-`claim_due_urgent_escalation_steps` sets `status = 'processing'` with **no**
-`lease_expires_at`, no expiry, no reclaim path. Compare `claim_background_jobs` in
-`20260716222532_durable_background_jobs.sql`, which does all three correctly.
-
-A step abandoned mid-flight (function timeout, crash) is stranded in `processing`
-forever with no alert. This is the 2am burst-pipe feature — the one place silent
-failure is least acceptable. Production already has rows in
-`urgent_escalation_incidents` (3) and `urgent_escalation_steps` (12), so this path is live.
-
----
-
-## Tier 2 — verified, bigger
-
-### 2. Drizzle migration journal desynced two months ago `[VERIFIED]`
+### 1. Drizzle migration journal desynced two months ago `[VERIFIED]`
 
 `supabase/migrations/` holds **45** `.sql` files.
 `supabase/migrations/meta/_journal.json` lists **15**. Last journal entry is
@@ -189,7 +196,7 @@ Production works only because someone applied them by hand, recorded nowhere. Th
 currently **no working documented path to rebuild the database**, which also means no
 reliable staging environment and a bad surprise during any restore.
 
-### 3. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
+### 2. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
 
 Verified against the **live production database** via the Supabase connection:
 67 tables in production, 48 `pgTable(` declarations in the schema file.
@@ -208,7 +215,7 @@ following the doc produces a broken change.
 
 Decide: either regenerate/maintain the schema properly, or delete it and update both docs.
 
-### 4. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
+### 3. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
 
 `lib/crm/queries.ts:1040` — `getContactList` ends in `.limit(100)` with no offset or
 cursor. `app/contacts/page.tsx:73` sets `CRM_PAGE_SIZE = 10` and slices client-side
@@ -218,7 +225,7 @@ Harmless today (production has 25 contacts). At 300 contacts a customer silently
 two thirds of their CRM, and searching for a missing contact returns nothing. There are
 four separate `.limit(100)` sites in that file.
 
-### 5. Zero tests on the highest-consequence code `[VERIFIED]`
+### 4. Zero tests on the highest-consequence code `[VERIFIED]`
 
 Confirmed absent — no test file beside any of these:
 
@@ -237,7 +244,7 @@ Several of the riskiest functions here are already pure and could be tested quic
 
 Now that CI exists, tests added here actually protect every future change.
 
-### 6. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
+### 5. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
 
 135 files define their own `function textValue`. 129 are byte-identical
 (`trim() || null`). At least 6 differ — returning `""` instead of `null`:
