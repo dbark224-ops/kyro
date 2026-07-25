@@ -88,6 +88,50 @@ items as leads, not facts.
     `payment_intent.succeeded` webhook meant a real double-charge also required the
     webhook to fail for 24h. Latent, not live.
 
+- `[FIXED]` **A `select()` could reference a column that does not exist, and nothing caught
+  it.** `lib/ai/triage.ts` selected `channel_type` from `messages` (which has `channel_id`),
+  so every owner-assisted inquiry reply failed silently from 2026-07-22 until it was found
+  in production three days later. Added `npm run lint:db` to CI: it validates all ~600
+  `.from("table").select(...)` calls against a committed schema snapshot
+  (`scripts/schema-snapshot.json`, refreshed with `npm run db:snapshot`). 17 tests.
+  Commits `dec1357` (the fix) and `752cc8b` (the lint).
+  - The lint immediately found a second live instance: `api/mobile/workspace-tools`
+    selected `kind` from `files`. That query failed every time and its handler returned
+    an empty array, so the mobile recent-files tool had silently returned nothing.
+  - **Refresh the snapshot after any migration** (`npm run db:snapshot`), or CI will fail
+    on correct code that uses a newly added column.
+
+---
+
+## Decided against: typing the Supabase client `[VERIFIED]`
+
+Investigated 2026-07-25 as a possible systemic fix for the above. **Do not re-open without
+new information** — this was measured, not assumed.
+
+Generating `Database` types (`supabase gen types typescript`) and applying them to the two
+client factories is cheap and produces only **33 errors across 938 query sites**, which
+speaks well of the codebase. But:
+
+1. **It does not catch the bug it was proposed for.** Re-introducing `channel_type`
+   produced 33 errors either way. supabase-js turns an unknown column into an error
+   *result type*, which only surfaces where a field is read — and in `triage.ts` the rows
+   went straight to `JSON.stringify` without any field being touched. The `lint:db` check
+   catches it because it inspects the select string directly.
+2. **All 33 errors are false positives**, reducing to two causes:
+   - **17 numeric-as-string.** `usage_events.cost_snapshot` and friends are unconstrained
+     Postgres `numeric`. Writing `String(value)` preserves exact decimal precision;
+     passing a JS float64 would introduce rounding artifacts in money. The code is
+     right and Supabase's generator (which maps `numeric` → `number`) is the imprecise
+     one.
+   - **16 jsonb object shapes.** TypeScript cannot prove a concrete object satisfies the
+     recursive `Json` union, e.g. `payload: stripeEvent`. Runtime is fine.
+3. **Adopting it would cost the codebase its best property.** Silencing 33 false
+   positives means ~33 casts or overrides, reintroducing exactly the `any`-style escape
+   hatches this codebase currently has *zero* of.
+
+Verdict: the lint delivers the actual protection at a fraction of the cost. Revisit only
+if a bug appears that typed clients would genuinely have caught.
+
 ---
 
 ## Tier 1 — verified, small, do these first
