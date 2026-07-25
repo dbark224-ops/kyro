@@ -111,6 +111,18 @@ items as leads, not facts.
   Commit `ed13056`.
   - A new Vapi call path must set `metadata.workspaceId` or its tool calls are rejected.
     That is the safe failure direction, but it is a real constraint to remember.
+- `[FIXED]` **No production provider call had a timeout.** Node's `fetch` never times out,
+  so one hung Gmail/Stripe/Twilio connection could consume the whole
+  `/api/background/process` budget (`maxDuration = 300`) and starve every other
+  workspace. Added `lib/http/fetch-with-timeout.ts` with two tiers — `fetchWithTimeout`
+  (30s) for providers expected to answer quickly, `fetchAiProvider` (120s) for model calls
+  that are legitimately slow. **58 calls across 28 files** are now bounded. 8 tests.
+  Commit `7638938`.
+  - A caller-supplied `signal` still works; only our own deadline raises
+    `FetchTimeoutError`, so existing cancellation logic is unchanged.
+  - The five calls left alone each already manage their own `AbortController` +
+    `setTimeout` (local Ollama dev paths and the pronunciation preview).
+  - New provider calls should use these helpers rather than bare `fetch`.
 
 ---
 
@@ -147,20 +159,7 @@ if a bug appears that typed clients would genuinely have caught.
 
 ## Tier 1 — verified, small, do these first
 
-### 1. No timeout on any production provider call `[VERIFIED]`
-
-62 server-side `fetch` calls across `lib` and `app/api`. Only four files in `lib` use
-`AbortController`, and three of those are local-Ollama dev paths
-(`ai/triage.ts`, `assistant/providers.ts`, `ai/dev-status.ts`). The only production one
-is `assistant/pronunciation.ts`.
-
-Node's `fetch` has no default timeout. One hung Gmail or Stripe connection can consume
-the entire `/api/background/process` budget (`maxDuration = 300`), starving every other
-workspace's email sync, calendar sync, and outbound delivery.
-
-Fix shape: one shared `fetchWithTimeout` helper, applied at the provider wrappers.
-
-### 2. Urgent escalation steps have no lease `[VERIFIED]`
+### 1. Urgent escalation steps have no lease `[VERIFIED]`
 
 `supabase/migrations/20260715213000_signup_billing_escalation_engines.sql` —
 `claim_due_urgent_escalation_steps` sets `status = 'processing'` with **no**
@@ -176,7 +175,7 @@ failure is least acceptable. Production already has rows in
 
 ## Tier 2 — verified, bigger
 
-### 3. Drizzle migration journal desynced two months ago `[VERIFIED]`
+### 2. Drizzle migration journal desynced two months ago `[VERIFIED]`
 
 `supabase/migrations/` holds **45** `.sql` files.
 `supabase/migrations/meta/_journal.json` lists **15**. Last journal entry is
@@ -190,7 +189,7 @@ Production works only because someone applied them by hand, recorded nowhere. Th
 currently **no working documented path to rebuild the database**, which also means no
 reliable staging environment and a bad surprise during any restore.
 
-### 4. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
+### 3. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
 
 Verified against the **live production database** via the Supabase connection:
 67 tables in production, 48 `pgTable(` declarations in the schema file.
@@ -209,7 +208,7 @@ following the doc produces a broken change.
 
 Decide: either regenerate/maintain the schema properly, or delete it and update both docs.
 
-### 5. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
+### 4. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
 
 `lib/crm/queries.ts:1040` — `getContactList` ends in `.limit(100)` with no offset or
 cursor. `app/contacts/page.tsx:73` sets `CRM_PAGE_SIZE = 10` and slices client-side
@@ -219,7 +218,7 @@ Harmless today (production has 25 contacts). At 300 contacts a customer silently
 two thirds of their CRM, and searching for a missing contact returns nothing. There are
 four separate `.limit(100)` sites in that file.
 
-### 6. Zero tests on the highest-consequence code `[VERIFIED]`
+### 5. Zero tests on the highest-consequence code `[VERIFIED]`
 
 Confirmed absent — no test file beside any of these:
 
@@ -238,7 +237,7 @@ Several of the riskiest functions here are already pure and could be tested quic
 
 Now that CI exists, tests added here actually protect every future change.
 
-### 7. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
+### 6. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
 
 135 files define their own `function textValue`. 129 are byte-identical
 (`trim() || null`). At least 6 differ — returning `""` instead of `null`:
