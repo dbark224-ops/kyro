@@ -60,11 +60,26 @@ import {
   getNotificationSettings,
   normalizeNotificationSettings,
 } from "../../../../lib/notifications/settings";
+import { createClient } from "@supabase/supabase-js";
 import {
+  friendlyEmailVerificationSendError,
+  isKyroEmailVerified,
+  isSupabaseEmailConfirmed,
+  markKyroEmailVerificationStarted,
+  sendKyroEmailVerification,
+} from "../../../../lib/auth/email-verification";
+import { getSupabaseEnv } from "../../../../lib/env";
+import {
+  MobileApiError,
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
-import { getUsageReport, normalizeUsageWindow, usageWindows } from "../../../../lib/usage/queries";
+import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
+import {
+  getUsageReport,
+  normalizeUsageWindow,
+  usageWindows,
+} from "../../../../lib/usage/queries";
 import {
   WORKSPACE_GENERAL_POLICY_TYPE,
   getWorkspaceGeneralSettings,
@@ -152,11 +167,31 @@ export async function PATCH(request: Request) {
   }
 }
 
-async function buildSettingsResponse({
-  supabase,
-  user,
-  workspace,
-}: MobileContext, usageWindow = normalizeUsageWindow("30d")) {
+export async function POST(request: Request) {
+  try {
+    const context = await requireMobileWorkspaceContext(request);
+    const payload = objectRecord(await request.json().catch(() => null));
+    const operation = textValue(payload.operation);
+
+    if (operation !== "resend_email_verification") {
+      throw new MobileApiError("Choose a supported settings action.", 400);
+    }
+
+    await resendEmailVerification(context, request);
+
+    return Response.json({
+      ...(await buildSettingsResponse(context)),
+      message: "Verification email sent. Check your inbox.",
+    });
+  } catch (error) {
+    return mobileErrorResponse(error);
+  }
+}
+
+async function buildSettingsResponse(
+  { supabase, user, workspace }: MobileContext,
+  usageWindow = normalizeUsageWindow("30d"),
+) {
   const [
     communication,
     general,
@@ -165,6 +200,7 @@ async function buildSettingsResponse({
     inboundSummary,
     microsoft,
     notifications,
+    phoneSms,
     pronunciationEntries,
     usageReport,
     voice,
@@ -176,6 +212,7 @@ async function buildSettingsResponse({
     getInboundEmailOperationalSummary(supabase, workspace.id),
     getMicrosoftIntegrationOverview(supabase, workspace.id),
     getNotificationSettings(supabase, workspace.id),
+    getMobilePhoneSmsStatus(supabase, workspace.id),
     getPronunciationEntries(supabase, workspace.id),
     getUsageReport(supabase, workspace.id, usageWindow),
     getVoiceSettings(supabase, workspace.id),
@@ -208,6 +245,12 @@ async function buildSettingsResponse({
   const latestSync = inboundSummary.syncRuns[0] ?? null;
 
   return {
+    account: {
+      email: user.email ?? null,
+      emailVerified: isKyroEmailVerified(user),
+      supabaseEmailConfirmed: isSupabaseEmailConfirmed(user),
+      verificationRequired: !isKyroEmailVerified(user),
+    },
     connections,
     integrations: {
       google: {
@@ -242,6 +285,7 @@ async function buildSettingsResponse({
       pronunciationStatuses: [...PRONUNCIATION_STATUSES],
       voices: [...OPENAI_VOICE_OPTIONS],
     },
+    phoneSms,
     pronunciationEntries: pronunciationEntries
       .filter((entry) => entry.status !== "ignored")
       .slice(0, 10)
@@ -337,20 +381,22 @@ async function buildSettingsResponse({
         unit: row.unit,
         userName: row.userName,
       })),
-      providerBreakdown: usageReport.providerBreakdown.slice(0, 6).map((row) => ({
-        customerCharge: row.customerCharge,
-        displayCustomerCharge: formatDisplayMoney(
-          row.customerCharge,
-          row.currency,
-          general,
-        ),
-        events: row.events,
-        key: row.key,
-        label: row.label,
-        model: row.model,
-        provider: row.provider,
-        service: row.service,
-      })),
+      providerBreakdown: usageReport.providerBreakdown
+        .slice(0, 6)
+        .map((row) => ({
+          customerCharge: row.customerCharge,
+          displayCustomerCharge: formatDisplayMoney(
+            row.customerCharge,
+            row.currency,
+            general,
+          ),
+          events: row.events,
+          key: row.key,
+          label: row.label,
+          model: row.model,
+          provider: row.provider,
+          service: row.service,
+        })),
       taskBreakdown: usageReport.taskBreakdown.slice(0, 6).map((row) => ({
         customerCharge: row.customerCharge,
         description: row.description,
@@ -400,7 +446,8 @@ async function updateGeneralSettings(
     beforeGeneral?.settings,
     { timeZone: beforeInboundSettings.timeZone },
   );
-  const timeZone = textValue(updates.timeZone) ?? beforeGeneralSettings.timeZone;
+  const timeZone =
+    textValue(updates.timeZone) ?? beforeGeneralSettings.timeZone;
 
   assertValidTimeZone(timeZone);
 
@@ -496,7 +543,9 @@ async function updateNotificationSettings(
     rawRecipientPhone &&
     !normalizedRecipientPhone?.startsWith("+")
   ) {
-    throw new Error("Enter the SMS recipient number with a valid country code.");
+    throw new Error(
+      "Enter the SMS recipient number with a valid country code.",
+    );
   }
 
   const settings = {
@@ -624,12 +673,14 @@ async function updateInboundEmailSettings(
   const settings = normalizeInboundEmailSettings({
     ...beforeSettings,
     actionInstructions:
-      textValue(updates.actionInstructions) ?? beforeSettings.actionInstructions,
+      textValue(updates.actionInstructions) ??
+      beforeSettings.actionInstructions,
     includeAwarenessEvents:
       typeof updates.includeAwarenessEvents === "boolean"
         ? updates.includeAwarenessEvents
         : beforeSettings.includeAwarenessEvents,
-    lookbackDays: numberValue(updates.lookbackDays) ?? beforeSettings.lookbackDays,
+    lookbackDays:
+      numberValue(updates.lookbackDays) ?? beforeSettings.lookbackDays,
     maxMessagesPerSync:
       numberValue(updates.maxMessagesPerSync) ??
       beforeSettings.maxMessagesPerSync,
@@ -661,7 +712,9 @@ async function updateInboundEmailSettings(
   });
 }
 
-function senderRuleMatchValue(value: unknown): InboundEmailSenderRule["match"] | null {
+function senderRuleMatchValue(
+  value: unknown,
+): InboundEmailSenderRule["match"] | null {
   return value === "email" || value === "domain" ? value : null;
 }
 
@@ -725,7 +778,10 @@ async function removeSenderRuleSettings(
     throw new Error("Choose a valid sender rule to remove.");
   }
 
-  const settings = removeInboundEmailSenderRule(beforeSettings, { match, value });
+  const settings = removeInboundEmailSenderRule(beforeSettings, {
+    match,
+    value,
+  });
 
   await savePolicy(context, {
     action: "inbound_email.sender_rule_removed",
@@ -862,7 +918,10 @@ async function updatePronunciationSettings(
   });
 }
 
-async function loadPolicy({ supabase, workspace }: MobileContext, policyType: string) {
+async function loadPolicy(
+  { supabase, workspace }: MobileContext,
+  policyType: string,
+) {
   const { data, error } = await supabase
     .from("workspace_policies")
     .select("id,settings")
@@ -993,7 +1052,9 @@ function integrationStatusLabel(overview: {
     return "Setup needed";
   }
 
-  if (overview.connections.some((connection) => connection.status === "connected")) {
+  if (
+    overview.connections.some((connection) => connection.status === "connected")
+  ) {
     return "Connected";
   }
 
@@ -1008,4 +1069,128 @@ function developerEnabled(user: MobileContext["user"]) {
   const value = metadata.developer ?? metadata.mobileDeveloper;
 
   return value === true || value === "true" || value === "yes" || value === 1;
+}
+
+function tableMissing(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("workspace_phone_numbers") ||
+    message.includes("does not exist")
+  );
+}
+
+async function getMobilePhoneSmsStatus(
+  supabase: MobileContext["supabase"],
+  workspaceId: string,
+) {
+  const { data, error } = await supabase
+    .from("workspace_phone_numbers")
+    .select(
+      "id,phone_number,normalized_phone,friendly_name,provider_phone_number_id,country_code,region,capabilities,status,monthly_cost_snapshot,currency,metadata",
+    )
+    .eq("workspace_id", workspaceId)
+    .in("status", ["active", "pending"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (tableMissing(error)) {
+      return {
+        configured: false,
+        numbers: [],
+      };
+    }
+
+    throw new Error(`Unable to load phone and SMS numbers: ${error.message}`);
+  }
+
+  const numbers = ((data ?? []) as unknown as Record<string, unknown>[]).map(
+    (row) => {
+      const capabilities = objectRecord(row.capabilities);
+      const metadata = objectRecord(row.metadata);
+      const vapi = objectRecord(metadata.vapi);
+
+      return {
+        capabilities: {
+          mms: Boolean(capabilities.mms),
+          sms: Boolean(capabilities.sms),
+          voice: Boolean(capabilities.voice),
+        },
+        countryCode: textValue(row.country_code),
+        currency: textValue(row.currency) ?? "USD",
+        friendlyName: textValue(row.friendly_name),
+        id: String(row.id),
+        monthlyCostSnapshot: numberValue(row.monthly_cost_snapshot) ?? 0,
+        normalizedPhone: textValue(row.normalized_phone),
+        phoneNumber:
+          textValue(row.phone_number) ?? String(row.phone_number ?? ""),
+        providerPhoneNumberId: textValue(row.provider_phone_number_id),
+        region: textValue(row.region),
+        status: textValue(row.status) ?? "active",
+        vapiPhoneNumberId:
+          textValue(metadata.vapiPhoneNumberId) ??
+          textValue(metadata.vapi_phone_number_id) ??
+          textValue(vapi.phoneNumberId) ??
+          textValue(vapi.phone_number_id),
+      };
+    },
+  );
+
+  return {
+    configured: numbers.length > 0,
+    numbers,
+  };
+}
+
+async function resendEmailVerification(
+  context: MobileContext,
+  request: Request,
+) {
+  const { user } = context;
+  const email = user.email?.trim();
+
+  if (!email) {
+    throw new MobileApiError(
+      "This account does not have an email address.",
+      400,
+    );
+  }
+
+  if (isKyroEmailVerified(user)) {
+    return;
+  }
+
+  const authSupabase = createMobilePublicSupabaseClient();
+  const { error } = await sendKyroEmailVerification({
+    email,
+    fallbackOrigin: request.headers.get("origin"),
+    nativeConfirmationRequired: !isSupabaseEmailConfirmed(user),
+    nextPath:
+      "/dashboard?engine_message=Email%20verified.%20Welcome%20to%20Kyro.",
+    supabase: authSupabase,
+  });
+
+  if (error) {
+    throw new MobileApiError(
+      friendlyEmailVerificationSendError(error.message),
+      400,
+    );
+  }
+
+  const serviceSupabase = createServiceSupabaseClient();
+  await markKyroEmailVerificationStarted({ serviceSupabase, user });
+}
+
+function createMobilePublicSupabaseClient() {
+  const { supabaseAnonKey, supabaseUrl } = getSupabaseEnv();
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }

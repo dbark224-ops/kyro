@@ -1,6 +1,4 @@
 import { getAiLedger } from "../../../../lib/ai/triage";
-import { getBillableUsageSummary } from "../../../../lib/billing/usage-summary";
-import { getConversationList } from "../../../../lib/crm/queries";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import { getEngineQueues } from "../../../../lib/engine/event-action-audit";
 import { syncInboundEmail } from "../../../../lib/integrations/inbound-email-sync";
@@ -9,64 +7,25 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
+import {
+  REPORT_CHANNELS,
+  REPORT_DIRECTIONS,
+  REPORT_TIMEFRAMES,
+  REPORT_TYPES,
+  buildWorkspaceReport,
+  getReportContactOptions,
+  parseReportFilters,
+  type WorkspaceReport,
+} from "../../../../lib/reports/data";
+
+// Report generation used to be duplicated here (own REPORT_TYPES/TIMEFRAMES/
+// DIRECTIONS/CHANNELS constants, its own period math, its own file/usage
+// summary queries) instead of reusing lib/reports/data.ts, which is the same
+// engine the web Reports tab uses. Reconciled against codex/mobile-app, which
+// had already made this switch, so mobile and web reports share one
+// implementation instead of drifting independently.
 
 export const dynamic = "force-dynamic";
-
-const REPORT_TYPES = [
-  {
-    description: "Email, SMS, phone, and CRM conversation history.",
-    label: "All communications",
-    value: "communications_log",
-  },
-  {
-    description: "Customer and supplier messages into the workspace.",
-    label: "Inbound communications",
-    value: "inbound_communications",
-  },
-  {
-    description: "Replies, sent emails, SMS, and outbound calls.",
-    label: "Outbound communications",
-    value: "outbound_communications",
-  },
-  {
-    description: "Billable AI, voice, SMS, and provider usage.",
-    label: "Usage ledger",
-    value: "usage_ledger",
-  },
-  {
-    description: "Generated quotes, invoices, images, PDFs, and files.",
-    label: "Document activity",
-    value: "documents_activity",
-  },
-  {
-    description: "Open leads, follow-ups, missing details, and quote readiness.",
-    label: "Work queue summary",
-    value: "work_queue_summary",
-  },
-] as const;
-
-const REPORT_TIMEFRAMES = [
-  { label: "This week", value: "this_week" },
-  { label: "This month", value: "this_month" },
-  { label: "This year", value: "this_year" },
-  { label: "Last week", value: "last_week" },
-  { label: "Last month", value: "last_month" },
-  { label: "Last year", value: "last_year" },
-] as const;
-
-const REPORT_DIRECTIONS = [
-  { label: "All directions", value: "all" },
-  { label: "Inbound", value: "inbound" },
-  { label: "Outbound", value: "outbound" },
-] as const;
-
-const REPORT_CHANNELS = [
-  { label: "All channels", value: "all" },
-  { label: "Email", value: "email" },
-  { label: "SMS", value: "sms" },
-  { label: "Phone", value: "phone" },
-  { label: "CRM/manual", value: "crm" },
-] as const;
 
 const ACTIVITY_FILTERS = [
   { label: "All", value: "all" },
@@ -120,12 +79,6 @@ function objectRecord(value: unknown) {
     : {};
 }
 
-function numberValue(value: unknown) {
-  const parsed = Number(value);
-
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 function formatLabel(value: string) {
   return value
     .split(/[_-]+/g)
@@ -139,60 +92,9 @@ function truncate(value: string | null, maxLength = 118) {
     return "No detail recorded";
   }
 
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
-}
-
-function optionValue<T extends readonly { value: string }[]>(
-  options: T,
-  value: string | null,
-): T[number]["value"] {
-  return options.some((option) => option.value === value)
-    ? (value as T[number]["value"])
-    : options[0].value;
-}
-
-function periodForTimeframe(timeframe: string) {
-  const now = new Date();
-  const start = new Date(now);
-  const end = new Date(now);
-
-  if (timeframe === "this_week") {
-    start.setDate(now.getDate() - now.getDay());
-  } else if (timeframe === "last_week") {
-    start.setDate(now.getDate() - now.getDay() - 7);
-    end.setDate(now.getDate() - now.getDay() - 1);
-  } else if (timeframe === "this_month") {
-    start.setDate(1);
-  } else if (timeframe === "last_month") {
-    start.setMonth(now.getMonth() - 1, 1);
-    end.setDate(0);
-  } else if (timeframe === "this_year") {
-    start.setMonth(0, 1);
-  } else if (timeframe === "last_year") {
-    start.setFullYear(now.getFullYear() - 1, 0, 1);
-    end.setFullYear(now.getFullYear() - 1, 11, 31);
-  }
-
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
-
-  return {
-    end: end.toISOString(),
-    label:
-      REPORT_TIMEFRAMES.find((option) => option.value === timeframe)?.label ??
-      "This month",
-    start: start.toISOString(),
-  };
-}
-
-function itemInPeriod(at: string | null | undefined, period: { start: string; end: string }) {
-  const time = new Date(at ?? "").getTime();
-
-  return (
-    Number.isFinite(time) &&
-    time >= new Date(period.start).getTime() &&
-    time <= new Date(period.end).getTime()
-  );
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength - 1)}...`
+    : value;
 }
 
 function activityMatchesFilter(item: ActivityItem, filter: string) {
@@ -238,10 +140,15 @@ function developerEnabled(user: MobileContext["user"]) {
   return value === true || value === "true" || value === "yes" || value === 1;
 }
 
-async function getRecentMessages(supabase: MobileContext["supabase"], workspaceId: string) {
+async function getRecentMessages(
+  supabase: MobileContext["supabase"],
+  workspaceId: string,
+) {
   const { data, error } = await supabase
     .from("messages")
-    .select("id,conversation_id,direction,subject,body_text,created_at,received_at,sent_at")
+    .select(
+      "id,conversation_id,direction,subject,body_text,created_at,received_at,sent_at",
+    )
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(40);
@@ -255,8 +162,8 @@ async function getRecentMessages(supabase: MobileContext["supabase"], workspaceI
       textValue(message.direction) === "outbound" ? "outbound" : "inbound";
     const at =
       direction === "outbound"
-        ? textValue(message.sent_at) ?? textValue(message.created_at)
-        : textValue(message.received_at) ?? textValue(message.created_at);
+        ? (textValue(message.sent_at) ?? textValue(message.created_at))
+        : (textValue(message.received_at) ?? textValue(message.created_at));
 
     return {
       at: at ?? new Date().toISOString(),
@@ -313,7 +220,9 @@ async function buildOperationalLogs(context: MobileContext) {
         title: "Inbound message",
         type: "message" as const,
       })),
-  ].sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime());
+  ].sort(
+    (left, right) => new Date(right.at).getTime() - new Date(left.at).getTime(),
+  );
   const outbound: OperationalLogItem[] = messages
     .filter((message) => message.direction === "outbound")
     .slice(0, 40)
@@ -340,35 +249,23 @@ async function buildOperationalLogs(context: MobileContext) {
   };
 }
 
-async function getRecentGeneratedFiles(
-  supabase: MobileContext["supabase"],
-  workspaceId: string,
-) {
-  const { data, error } = await supabase
-    .from("files")
-    // `files` has no `kind` column; selecting it made this query fail and the
-    // error handler below silently returned an empty list, so this tool has
-    // never returned anything. `source` is the real categorisation column.
-    .select("id,filename,content_type,source,created_at,size_bytes")
-    .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  if (error) {
-    return [];
-  }
-
-  return (data ?? []).map((file) => ({
-    at: String(file.created_at),
-    filename: textValue(file.filename) ?? "Untitled file",
-    id: String(file.id),
-    kind: textValue(file.source) ?? "file",
-    sizeBytes: numberValue(file.size_bytes),
-    source: textValue(file.source) ?? textValue(file.content_type) ?? "file",
-  }));
-}
-
 type MobileContext = Awaited<ReturnType<typeof requireMobileWorkspaceContext>>;
+
+function mobileReportFromWorkspaceReport(report: WorkspaceReport) {
+  return {
+    business: report.business,
+    filters: report.filters,
+    generatedAt: report.generatedAt,
+    notes: report.notes,
+    period: report.period,
+    periodLabel: report.period.label,
+    sections: report.sections,
+    subtitle: report.subtitle,
+    summaryCards: report.summaryCards,
+    title: report.title,
+    type: report.type,
+  };
+}
 
 async function buildActivityItems(
   context: MobileContext,
@@ -394,7 +291,9 @@ async function buildActivityItems(
       id: `message:${message.id}`,
       meta: message.direction === "outbound" ? "Outbound" : "Inbound",
       title:
-        message.direction === "outbound" ? "Outbound message" : "Inbound message",
+        message.direction === "outbound"
+          ? "Outbound message"
+          : "Inbound message",
       tone: message.direction as "inbound" | "outbound",
     })),
     ...engine.actions.map((action) => ({
@@ -460,136 +359,6 @@ async function buildActivityItems(
   );
 }
 
-async function buildReportPreview({
-  context,
-  direction,
-  timeframe,
-  type,
-}: {
-  channel: string;
-  context: MobileContext;
-  direction: string;
-  timeframe: string;
-  type: string;
-}) {
-  const { supabase, workspace } = context;
-  const period = periodForTimeframe(timeframe);
-  const [messages, conversations, files, usageSummary] = await Promise.all([
-    getRecentMessages(supabase, workspace.id).catch(() => []),
-    getConversationList(supabase, workspace.id, { limit: 50 }).catch(() => []),
-    getRecentGeneratedFiles(supabase, workspace.id),
-    getBillableUsageSummary(supabase, workspace.id, { period: "monthly" }).catch(
-      () => null,
-    ),
-  ]);
-  const reportType = REPORT_TYPES.find((option) => option.value === type);
-  const periodMessages = messages.filter(
-    (message) =>
-      itemInPeriod(message.at, period) &&
-      (direction === "all" || message.direction === direction),
-  );
-  const periodFiles = files.filter((file) => itemInPeriod(file.at, period));
-  const openQueue = conversations.filter(
-    (conversation) =>
-      conversation.status !== "resolved" &&
-      conversation.status !== "closed",
-  );
-  const usageCharge =
-    usageSummary?.totals.reduce((total, item) => total + item.customerCharge, 0) ??
-    0;
-  const summaryCards = [
-    {
-      detail: "Stored inbound and outbound",
-      label: "Messages",
-      value: String(periodMessages.length),
-    },
-    {
-      detail: "Open CRM conversations",
-      label: "Queue",
-      value: String(openQueue.length),
-    },
-    {
-      detail: "Generated and uploaded",
-      label: "Files",
-      value: String(periodFiles.length),
-    },
-    {
-      detail: usageSummary?.totals[0]?.currency ?? "USD",
-      label: "Usage",
-      value: `$${usageCharge.toFixed(2)}`,
-    },
-  ];
-  const sections =
-    type === "usage_ledger"
-      ? [
-          {
-            columns: ["Area", "Events", "Charge"],
-            emptyText: "No usage summary is available.",
-            rows:
-              usageSummary?.users.slice(0, 8).map((user) => [
-                user.displayName,
-                String(user.eventCount),
-                `$${user.totals.reduce(
-                  (total, item) => total + item.customerCharge,
-                  0,
-                ).toFixed(2)}`,
-              ]) ?? [],
-            title: "Usage ledger",
-          },
-        ]
-      : type === "documents_activity"
-        ? [
-            {
-              columns: ["File", "Source", "Created"],
-              emptyText: "No files were created in this period.",
-              rows: periodFiles.slice(0, 12).map((file) => [
-                file.filename,
-                formatLabel(file.source),
-                file.at,
-              ]),
-              title: "Document activity",
-            },
-          ]
-        : type === "work_queue_summary"
-          ? [
-              {
-                columns: ["Conversation", "Status", "Next"],
-                emptyText: "No open work queue items.",
-                rows: openQueue.slice(0, 12).map((conversation) => [
-                  conversation.contactName ??
-                    conversation.leadTitle ??
-                    conversation.latestSubject ??
-                    "Conversation",
-                  formatLabel(conversation.status),
-                  conversation.nextActionLabel,
-                ]),
-                title: "Work queue",
-              },
-            ]
-          : [
-              {
-                columns: ["Message", "Direction", "When"],
-                emptyText: "No communications match this report.",
-                rows: periodMessages.slice(0, 12).map((message) => [
-                  truncate(message.subject ?? message.body, 72),
-                  formatLabel(message.direction),
-                  message.at,
-                ]),
-                title: "Communications",
-              },
-            ];
-
-  return {
-    generatedAt: new Date().toISOString(),
-    periodLabel: period.label,
-    sections,
-    subtitle: `${workspace.name} - ${period.label}`,
-    summaryCards,
-    title: reportType?.label ?? "Workspace report",
-    type,
-  };
-}
-
 async function buildDeveloperSummary(context: MobileContext) {
   const { supabase, workspace } = context;
   const [engine, aiLedger] = await Promise.all([
@@ -639,7 +408,8 @@ async function buildDeveloperSummary(context: MobileContext) {
     checks,
     tools: [
       {
-        detail: "Create a manual inbound inquiry from the desktop developer UI.",
+        detail:
+          "Create a manual inbound inquiry from the desktop developer UI.",
         label: "Mock inbound",
         target: "/developer",
       },
@@ -671,28 +441,15 @@ export async function GET(request: Request) {
   try {
     const context = await requireMobileWorkspaceContext(request);
     const url = new URL(request.url);
-    const type = optionValue(REPORT_TYPES, url.searchParams.get("type"));
-    const timeframe = optionValue(
-      REPORT_TIMEFRAMES,
-      url.searchParams.get("timeframe"),
-    );
-    const direction = optionValue(
-      REPORT_DIRECTIONS,
-      url.searchParams.get("direction"),
-    );
-    const channel = optionValue(REPORT_CHANNELS, url.searchParams.get("channel"));
-    const [activityItems, developer, operationalLogs, preview] = await Promise.all([
-      buildActivityItems(context),
-      buildDeveloperSummary(context),
-      buildOperationalLogs(context),
-      buildReportPreview({
-        channel,
-        context,
-        direction,
-        timeframe,
-        type,
-      }),
-    ]);
+    const filters = parseReportFilters(url.searchParams);
+    const [activityItems, developer, operationalLogs, report, contacts] =
+      await Promise.all([
+        buildActivityItems(context),
+        buildDeveloperSummary(context),
+        buildOperationalLogs(context),
+        buildWorkspaceReport(context.supabase, context.workspace, filters),
+        getReportContactOptions(context.supabase, context.workspace.id),
+      ]);
 
     return Response.json({
       activity: {
@@ -708,8 +465,20 @@ export async function GET(request: Request) {
       operationalLogs,
       reports: {
         channels: REPORT_CHANNELS,
+        contacts: [
+          { label: "All contacts", value: "" },
+          ...contacts.map((contact) => ({
+            label:
+              contact.name ??
+              contact.company ??
+              contact.email ??
+              contact.phone ??
+              "Unnamed contact",
+            value: contact.id,
+          })),
+        ],
         directions: REPORT_DIRECTIONS,
-        preview,
+        preview: mobileReportFromWorkspaceReport(report),
         timeframes: REPORT_TIMEFRAMES,
         types: REPORT_TYPES,
       },
@@ -748,7 +517,10 @@ export async function POST(request: Request) {
     }
 
     if (operation === "mock_inbound_inquiry") {
-      const mock = await createMockInboundInquiry(context, objectRecord(payload.inquiry));
+      const mock = await createMockInboundInquiry(
+        context,
+        objectRecord(payload.inquiry),
+      );
 
       return Response.json({
         message: "Mock inbound inquiry recorded.",
