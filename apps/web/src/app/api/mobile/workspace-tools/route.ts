@@ -346,7 +346,10 @@ async function getRecentGeneratedFiles(
 ) {
   const { data, error } = await supabase
     .from("files")
-    .select("id,filename,content_type,kind,source,created_at,size_bytes")
+    // `files` has no `kind` column; selecting it made this query fail and the
+    // error handler below silently returned an empty list, so this tool has
+    // never returned anything. `source` is the real categorisation column.
+    .select("id,filename,content_type,source,created_at,size_bytes")
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(20);
@@ -359,7 +362,7 @@ async function getRecentGeneratedFiles(
     at: String(file.created_at),
     filename: textValue(file.filename) ?? "Untitled file",
     id: String(file.id),
-    kind: textValue(file.kind) ?? "file",
+    kind: textValue(file.source) ?? "file",
     sizeBytes: numberValue(file.size_bytes),
     source: textValue(file.source) ?? textValue(file.content_type) ?? "file",
   }));

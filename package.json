@@ -18,6 +18,8 @@
     "env:check": "node scripts/check-env.mjs",
     "env:check:production": "node scripts/check-env.mjs --production",
     "lint": "npm run lint --workspaces --if-present",
+    "lint:db": "node --test scripts/check-db-columns.test.mjs && node scripts/check-db-columns.mjs",
+    "db:snapshot": "node scripts/refresh-schema-snapshot.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --check ."

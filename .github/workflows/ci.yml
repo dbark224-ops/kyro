@@ -36,6 +36,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Validate database columns
+        run: npm run lint:db
+
       - name: Test
         run: npm run test
 
