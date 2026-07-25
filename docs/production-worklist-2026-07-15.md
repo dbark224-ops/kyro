@@ -6,6 +6,9 @@ This is the live production worklist. Completed build items are removed from the
 
 ## Active now
 
+- [ ] Work through `docs/code-quality-findings-2026-07-25.md` — the current code quality
+      backlog. Start at Tier 1; check the `[VERIFIED]`/`[UNVERIFIED]` tag on every item
+      before acting on it.
 - [ ] Complete production smoke testing for onboarding, billing/webhooks, inbound and outbound voice, SMS, voicemail overflow, email sync, calendar sync, escalation, and recovery paths.
 - [ ] Enable Supabase leaked-password protection in Auth settings and re-run the security advisor.
 
