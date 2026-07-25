@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
-import { createStripePaymentIntent } from "../payments/stripe";
+import {
+  createStripePaymentIntent,
+  findSucceededPaymentIntentForInvoice,
+  kyroInvoiceIdempotencyKey,
+  StripeRequestError,
+} from "../payments/stripe";
 import {
   getKyroUserBillingOverview,
   type KyroUserBillingOverview,
@@ -857,6 +862,63 @@ export async function chargeKyroInvoice(input: {
     };
   }
 
+  // Any invoice that has been attempted before might already carry a charge that
+  // succeeded at Stripe while its response was lost. Reconcile before charging
+  // again -- the idempotency key below cannot help here, because Stripe expires
+  // keys after 24h and the retry backoff is at least 24h.
+  const hasPriorAttempt =
+    failureCount > 0 ||
+    Boolean(textValue(invoice.stripe_payment_intent_id)) ||
+    status === "charging" ||
+    status === "payment_failed";
+
+  if (hasPriorAttempt) {
+    let settledIntent: Awaited<
+      ReturnType<typeof findSucceededPaymentIntentForInvoice>
+    > = null;
+
+    try {
+      settledIntent = await findSucceededPaymentIntentForInvoice(invoiceId);
+    } catch (reconcileError) {
+      // Never let reconciliation failure block billing; the charge below is still
+      // guarded by the idempotency key for the short window.
+      console.error(
+        "Unable to reconcile Kyro invoice against Stripe before charging",
+        reconcileError,
+      );
+    }
+
+    if (settledIntent) {
+      await markKyroInvoicePaid({
+        eventId: null,
+        paymentIntentId: settledIntent.id,
+        supabase: input.supabase,
+        workspaceId,
+        invoiceId,
+      });
+
+      await insertAuditLog(input.supabase, {
+        workspaceId,
+        actorType: "system",
+        action: "kyro_billing.invoice_charge_reconciled",
+        entityType: "kyro_invoice",
+        entityId: invoiceId,
+        after: {
+          paymentIntentId: settledIntent.id,
+          reason: "Existing succeeded PaymentIntent found before re-charging.",
+          totalAmount,
+        },
+      });
+
+      return {
+        charged: false,
+        invoiceId,
+        paymentIntentId: settledIntent.id,
+        status: "paid",
+      };
+    }
+  }
+
   const invoiceResult = await input.supabase
     .from("kyro_invoices")
     .update({ status: "charging" })
@@ -871,6 +933,7 @@ export async function chargeKyroInvoice(input: {
       currency,
       customerId,
       description: `Kyro invoice ${textValue(invoice.invoice_number) ?? invoiceId}`,
+      idempotencyKey: kyroInvoiceIdempotencyKey(invoiceId, failureCount),
       metadata: {
         billingPeriodId: textValue(invoice.billing_period_id) ?? "",
         flow: KYRO_BILLING_INVOICE_FLOW,
@@ -932,9 +995,18 @@ export async function chargeKyroInvoice(input: {
       status: paymentStatus === "succeeded" ? "paid" : paymentStatus,
     };
   } catch (error) {
+    // A 4xx from Stripe means the charge definitively did not happen. A network
+    // error, timeout, or 5xx means it may have succeeded and we lost the answer,
+    // so flag it -- the reconciliation above catches it before the next retry.
+    const outcomeKnown =
+      error instanceof StripeRequestError ? error.outcomeKnown : false;
+    const baseMessage =
+      error instanceof Error ? error.message : "Stripe charge failed.";
+
     await markKyroInvoiceFailed({
-      errorMessage:
-        error instanceof Error ? error.message : "Stripe charge failed.",
+      errorMessage: outcomeKnown
+        ? baseMessage
+        : `${baseMessage} [outcome unconfirmed - reconciled against Stripe before retry]`,
       eventId: null,
       paymentIntentId: null,
       supabase: input.supabase,

@@ -183,10 +183,52 @@ function nestedFormData(
   return form;
 }
 
+/**
+ * A failed Stripe request, carrying whether we actually know the outcome.
+ *
+ * This distinction matters for charges. A 4xx from Stripe is a definitive "this
+ * did not happen". A network error, timeout, or 5xx means the charge may well
+ * have succeeded and we simply never heard back — retrying that blindly is how a
+ * customer gets billed twice.
+ */
+export class StripeRequestError extends Error {
+  outcomeKnown: boolean;
+  status: number | null;
+
+  constructor(
+    message: string,
+    options: { outcomeKnown: boolean; status: number | null },
+  ) {
+    super(message);
+    this.name = "StripeRequestError";
+    this.outcomeKnown = options.outcomeKnown;
+    this.status = options.status;
+  }
+}
+
+/**
+ * Idempotency key for a Kyro invoice charge attempt.
+ *
+ * Guards the short window: two overlapping cron workers, or a retry inside the
+ * same invocation, both send the same key and Stripe collapses them into one
+ * charge. Stripe expires idempotency keys after 24h and the invoice retry
+ * backoff is at least 24h, so this deliberately does NOT cover the long retry
+ * path — `findSucceededPaymentIntentForInvoice` is what covers that.
+ */
+export function kyroInvoiceIdempotencyKey(
+  invoiceId: string,
+  attempt: number,
+): string {
+  return `kyro-invoice-${invoiceId}-${Math.max(0, Math.trunc(attempt))}`;
+}
+
 export async function stripeApiRequest<T>(
   path: string,
   body?: Record<string, unknown>,
-  options: { stripeAccount?: string | null } = {},
+  options: {
+    idempotencyKey?: string | null;
+    stripeAccount?: string | null;
+  } = {},
 ) {
   const config = getStripeConfig();
 
@@ -207,23 +249,68 @@ export async function stripeApiRequest<T>(
     headers["Stripe-Account"] = options.stripeAccount;
   }
 
+  if (options.idempotencyKey) {
+    headers["Idempotency-Key"] = options.idempotencyKey;
+  }
+
   if (body) {
     headers["Content-Type"] = "application/x-www-form-urlencoded";
     init.body = nestedFormData(body);
   }
 
-  const response = await fetch(`https://api.stripe.com${path}`, init);
+  let response: Response;
+
+  try {
+    response = await fetch(`https://api.stripe.com${path}`, init);
+  } catch (networkError) {
+    // We never got a response, so the request may or may not have been applied.
+    throw new StripeRequestError(
+      networkError instanceof Error
+        ? `Stripe request did not complete: ${networkError.message}`
+        : "Stripe request did not complete.",
+      { outcomeKnown: false, status: null },
+    );
+  }
+
   const payload = (await response.json().catch(() => null)) as {
     error?: { message?: string };
   } | null;
 
   if (!response.ok) {
-    throw new Error(
+    throw new StripeRequestError(
       payload?.error?.message ?? `Stripe request failed (${response.status}).`,
+      // 4xx is Stripe rejecting the request outright. 5xx may have been applied
+      // server-side before the failure, so treat it as unknown.
+      { outcomeKnown: response.status < 500, status: response.status },
     );
   }
 
   return payload as T;
+}
+
+/**
+ * Looks for an already-succeeded PaymentIntent for a Kyro invoice.
+ *
+ * Called before re-charging an invoice that has been attempted before, so a
+ * charge that succeeded at Stripe but whose response we lost is never charged a
+ * second time. Stripe's search index is eventually consistent (roughly a minute),
+ * which is well inside the >=24h retry backoff.
+ */
+export async function findSucceededPaymentIntentForInvoice(invoiceId: string) {
+  // Stripe search query values are single-quoted; strip anything that could
+  // terminate the literal rather than trusting the caller's id shape.
+  const safeInvoiceId = invoiceId.replace(/['"\\]/g, "");
+
+  if (!safeInvoiceId) {
+    return null;
+  }
+
+  const query = `metadata['invoiceId']:'${safeInvoiceId}'`;
+  const result = await stripeApiRequest<{ data?: StripePaymentIntent[] }>(
+    `/v1/payment_intents/search?query=${encodeURIComponent(query)}`,
+  );
+
+  return result.data?.find((intent) => intent.status === "succeeded") ?? null;
 }
 
 export function verifyStripeWebhookSignature(
@@ -401,6 +488,7 @@ export async function createStripePaymentIntent({
   currency,
   customerId,
   description,
+  idempotencyKey,
   metadata,
   paymentMethodId,
 }: {
@@ -408,19 +496,24 @@ export async function createStripePaymentIntent({
   currency: string;
   customerId: string;
   description: string;
+  idempotencyKey?: string | null;
   metadata: Record<string, string>;
   paymentMethodId: string;
 }) {
-  return stripeApiRequest<StripePaymentIntent>("/v1/payment_intents", {
-    amount: amountCents,
-    confirm: true,
-    currency: currency.toLowerCase(),
-    customer: customerId,
-    description,
-    metadata,
-    off_session: true,
-    payment_method: paymentMethodId,
-  });
+  return stripeApiRequest<StripePaymentIntent>(
+    "/v1/payment_intents",
+    {
+      amount: amountCents,
+      confirm: true,
+      currency: currency.toLowerCase(),
+      customer: customerId,
+      description,
+      metadata,
+      off_session: true,
+      payment_method: paymentMethodId,
+    },
+    { idempotencyKey },
+  );
 }
 
 export async function createStripeCheckoutSession({
