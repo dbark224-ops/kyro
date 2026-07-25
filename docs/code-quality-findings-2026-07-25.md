@@ -73,6 +73,20 @@ items as leads, not facts.
   - Residual: the 60s fallback has a bucket-boundary gap and will collapse two
     *intentional* identical messages sent inside one window. Only reachable by app builds
     older than `caeaa75`.
+- `[FIXED]` **A lost Stripe response could double-charge a customer's card.**
+  `createStripePaymentIntent` posts `confirm + off_session` — a real charge — and
+  `stripeApiRequest` had no way to send an `Idempotency-Key`. A charge that succeeded
+  with a lost response was indistinguishable from a decline, so the invoice went
+  `payment_failed` and was retried, charging the card again. Fixed with two defences:
+  an idempotency key (covers the short window — overlapping cron workers) and
+  `findSucceededPaymentIntentForInvoice`, which searches Stripe by invoice metadata
+  before re-charging any previously-attempted invoice (covers the ≥24h retry path, since
+  Stripe expires idempotency keys after 24h). Also adds `StripeRequestError.outcomeKnown`
+  so a 4xx is distinguished from a network error or 5xx. 14 tests added to a module that
+  had none. Commit `3d2e7e4`.
+  - Note: severity was lower than the audit implied. The ≥24h retry backoff plus the
+    `payment_intent.succeeded` webhook meant a real double-charge also required the
+    webhook to fail for 24h. Latent, not live.
 
 ---
 
@@ -100,20 +114,7 @@ only come from server-set call metadata. Confirm first that `metadata.workspaceI
 reliably populated on every Vapi path (internal voice, inbound, voicemail, outbound) —
 removing the fallbacks blindly could break voice tools.
 
-### 2. Stripe charges carry no idempotency key `[VERIFIED]`
-
-`lib/payments/stripe.ts:186-227` — `stripeApiRequest` builds headers with only
-`Authorization` and `Stripe-Version`, and offers no way to pass an `Idempotency-Key`.
-That includes `createStripePaymentIntent` (`:399`) which posts `confirm: true,
-off_session: true` — a real card charge.
-
-A lost response after a successful charge can double-bill a customer. Stripe documents
-idempotency keys as required practice for exactly this case.
-
-> The four `Idempotency-Key` hits elsewhere in the repo are Resend/email paths
-> (`waitlist`, `account-deletion`, `dunning`, `internal-notifications`), not Stripe.
-
-### 3. No timeout on any production provider call `[VERIFIED]`
+### 2. No timeout on any production provider call `[VERIFIED]`
 
 62 server-side `fetch` calls across `lib` and `app/api`. Only four files in `lib` use
 `AbortController`, and three of those are local-Ollama dev paths
@@ -126,7 +127,7 @@ workspace's email sync, calendar sync, and outbound delivery.
 
 Fix shape: one shared `fetchWithTimeout` helper, applied at the provider wrappers.
 
-### 4. Urgent escalation steps have no lease `[VERIFIED]`
+### 3. Urgent escalation steps have no lease `[VERIFIED]`
 
 `supabase/migrations/20260715213000_signup_billing_escalation_engines.sql` —
 `claim_due_urgent_escalation_steps` sets `status = 'processing'` with **no**
@@ -142,7 +143,7 @@ failure is least acceptable. Production already has rows in
 
 ## Tier 2 — verified, bigger
 
-### 6. Drizzle migration journal desynced two months ago `[VERIFIED]`
+### 4. Drizzle migration journal desynced two months ago `[VERIFIED]`
 
 `supabase/migrations/` holds **45** `.sql` files.
 `supabase/migrations/meta/_journal.json` lists **15**. Last journal entry is
@@ -156,7 +157,7 @@ Production works only because someone applied them by hand, recorded nowhere. Th
 currently **no working documented path to rebuild the database**, which also means no
 reliable staging environment and a bad surprise during any restore.
 
-### 7. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
+### 5. `packages/db/src/schema.ts` is missing 18 live tables `[VERIFIED]`
 
 Verified against the **live production database** via the Supabase connection:
 67 tables in production, 48 `pgTable(` declarations in the schema file.
@@ -175,7 +176,7 @@ following the doc produces a broken change.
 
 Decide: either regenerate/maintain the schema properly, or delete it and update both docs.
 
-### 8. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
+### 6. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
 
 `lib/crm/queries.ts:1040` — `getContactList` ends in `.limit(100)` with no offset or
 cursor. `app/contacts/page.tsx:73` sets `CRM_PAGE_SIZE = 10` and slices client-side
@@ -185,7 +186,7 @@ Harmless today (production has 25 contacts). At 300 contacts a customer silently
 two thirds of their CRM, and searching for a missing contact returns nothing. There are
 four separate `.limit(100)` sites in that file.
 
-### 9. Zero tests on the highest-consequence code `[VERIFIED]`
+### 7. Zero tests on the highest-consequence code `[VERIFIED]`
 
 Confirmed absent — no test file beside any of these:
 
@@ -204,7 +205,7 @@ Several of the riskiest functions here are already pure and could be tested quic
 
 Now that CI exists, tests added here actually protect every future change.
 
-### 10. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
+### 8. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
 
 135 files define their own `function textValue`. 129 are byte-identical
 (`trim() || null`). At least 6 differ — returning `""` instead of `null`:
