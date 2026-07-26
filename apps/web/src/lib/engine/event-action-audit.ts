@@ -78,7 +78,7 @@ function objectRecord(value: unknown) {
     : {};
 }
 
-function signatureVariantFromActionInput(
+export function signatureVariantFromActionInput(
   input: Record<string, unknown>,
   fallback: SignatureVariant,
 ): SignatureVariant {
