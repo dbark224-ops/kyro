@@ -17,6 +17,14 @@ import {
 } from "../usage/openai";
 import { openAiReasoningRequest } from "../ai/openai-models";
 import { assistantResponseSurface } from "./response-surface";
+import { smsCharacterBudget } from "../communication/sms-length";
+
+/**
+ * Two SMS segments of room for a texted answer, with a third available before
+ * the split gives up. Stated to the model rather than enforced by truncation:
+ * cutting a reply off costs the same to send and loses the end of it.
+ */
+const TEXT_ONLY_REPLY_BUDGET = smsCharacterBudget(2);
 import { objectRecord, textValue } from "@kyro/core";
 
 function envValue(key: string) {
@@ -173,6 +181,11 @@ function buildAssistantPrompt(input: AssistantModelInput) {
           "Never refer to a card, box, panel, preview, dynamic event, link below, item shown below, or anything being displayed on screen.",
           "State completed actions, calendar details, lookup results, blockers, and the useful next step directly in the message text.",
           "Only tell the user to open Kyro when an interface-only review or approval is genuinely required. Do not claim that you have displayed anything for them.",
+          // A text message is not a page. Long answers used to go out as one
+          // oversized body and arrive cut off, so the budget is stated rather
+          // than enforced afterwards by slicing the string.
+          `Aim to fit within about ${TEXT_ONLY_REPLY_BUDGET} characters. Longer answers are delivered as two or three separate texts, so if the answer genuinely needs the room, write it in complete sentences and let it run rather than trailing off.`,
+          "When quoting a drafted reply back to the user, give it in full if it fits and summarise it faithfully if it does not. Never stop mid-sentence.",
         ]
       : []),
   ];

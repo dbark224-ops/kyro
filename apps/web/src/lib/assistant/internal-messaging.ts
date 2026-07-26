@@ -1,6 +1,15 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { textValueOrEmpty as textValue } from "@kyro/core";
 import { recordOutboundDirectSms } from "../communication/outbound";
+import { splitIntoSmsMessages } from "../communication/sms-length";
+
+/**
+ * Two messages of room for an answer over SMS, and a hard stop at three.
+ *
+ * Enough to quote a drafted reply back in full; past that the owner is being
+ * texted an essay, and the answer belongs in the app.
+ */
+const MAX_ASSISTANT_SMS_PARTS = 3;
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { sendInternalBugNotification } from "../internal-notifications";
 import { runAssistantTurn } from "./engine";
@@ -225,22 +234,40 @@ export async function processInternalAssistantMessage(input: {
       workspaceId: workspace.id,
     });
 
-    await recordOutboundDirectSms(input.supabase, {
-      body: result.content,
-      consentNote: "Trusted internal Kyro user messaging the assistant.",
-      idempotencyKey: `${input.transport}.assistant.reply.${input.messageSid}`,
-      metadata: {
-        inboundEventId: input.eventId,
-        inboundMessageSid: input.messageSid,
+    // A long answer used to go out as one oversized body and come back to the
+    // owner cut off -- asking "what is your drafted reply" and getting half of
+    // it. Splitting on a sentence boundary costs exactly the same to send as
+    // being truncated by the carrier, and arrives whole.
+    const parts =
+      input.transport === "sms"
+        ? splitIntoSmsMessages(result.content, MAX_ASSISTANT_SMS_PARTS)
+        : [result.content.trim()].filter(Boolean);
+
+    for (const [index, body] of parts.entries()) {
+      await recordOutboundDirectSms(input.supabase, {
+        body,
+        consentNote: "Trusted internal Kyro user messaging the assistant.",
+        // Part index keeps each message distinct, so a retry still dedupes.
+        idempotencyKey: `${input.transport}.assistant.reply.${input.messageSid}${
+          index > 0 ? `.${index + 1}` : ""
+        }`,
+        metadata: {
+          inboundEventId: input.eventId,
+          inboundMessageSid: input.messageSid,
+          ...(parts.length > 1
+            ? { messagePart: index + 1, messageParts: parts.length }
+            : {}),
+          transport: input.transport,
+        },
+        recipientName:
+          user.user_metadata?.full_name ?? user.email ?? "Kyro user",
+        recipientPhone: barePhone(input.from),
+        source: `assistant.internal_${input.transport}`,
         transport: input.transport,
-      },
-      recipientName: user.user_metadata?.full_name ?? user.email ?? "Kyro user",
-      recipientPhone: barePhone(input.from),
-      source: `assistant.internal_${input.transport}`,
-      transport: input.transport,
-      userId: user.id,
-      workspaceId: workspace.id,
-    });
+        userId: user.id,
+        workspaceId: workspace.id,
+      });
+    }
   } catch (error) {
     await sendInternalBugNotification({
       context: {
