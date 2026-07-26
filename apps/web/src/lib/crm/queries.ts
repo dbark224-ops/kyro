@@ -855,6 +855,21 @@ function uniqueIds(values: Array<string | null | undefined>) {
   ];
 }
 
+/** One row per contact from the contact_message_activity aggregate. */
+type ContactMessageActivityRow = {
+  contact_id: string | null;
+  last_message_at: string | null;
+  message_count: number | string | null;
+};
+
+function numberValue(value: unknown) {
+  // Postgres returns bigint as a string over the wire, so count() arrives as
+  // "12" rather than 12.
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 type ContactIdentityRow = {
   id: unknown;
   email?: unknown;
@@ -1114,12 +1129,14 @@ export async function getContactList(
     (contacts ?? []).map((contact) => String(contact.id)),
   );
   const [messagesResult, identityResult] = await Promise.all([
+    // One aggregate row per contact, rather than every message row for every
+    // contact counted in memory. The old shape grew without bound as message
+    // history accumulated, and removing the 100-contact cap on this list
+    // widened it to the whole workspace.
     contactIds.length > 0
-      ? supabase
-          .from("messages")
-          .select("id,contact_id,created_at,received_at,sent_at")
-          .eq("workspace_id", workspaceId)
-          .in("contact_id", contactIds)
+      ? supabase.rpc("contact_message_activity", {
+          p_workspace_id: workspaceId,
+        })
       : Promise.resolve({ data: [], error: null }),
     supabase
       .from("contacts")
@@ -1150,27 +1167,21 @@ export async function getContactList(
     phoneRegion,
   );
 
-  for (const message of messagesResult.data ?? []) {
-    const contactId = message.contact_id ? String(message.contact_id) : null;
+  // The database has already done the counting and the max(); this only reads
+  // the answers into the shape the rows below expect.
+  for (const activity of (messagesResult.data ?? []) as ContactMessageActivityRow[]) {
+    const contactId = textValue(activity.contact_id);
 
-    if (contactId) {
-      messageCounts.set(contactId, (messageCounts.get(contactId) ?? 0) + 1);
-      const messageAt = message.sent_at
-        ? String(message.sent_at)
-        : message.received_at
-          ? String(message.received_at)
-          : message.created_at
-            ? String(message.created_at)
-            : null;
-      const previousMessageAt = latestMessageAtByContact.get(contactId);
+    if (!contactId) {
+      continue;
+    }
 
-      if (
-        messageAt &&
-        (!previousMessageAt ||
-          new Date(messageAt).getTime() > new Date(previousMessageAt).getTime())
-      ) {
-        latestMessageAtByContact.set(contactId, messageAt);
-      }
+    messageCounts.set(contactId, numberValue(activity.message_count));
+
+    const lastMessageAt = textValue(activity.last_message_at);
+
+    if (lastMessageAt) {
+      latestMessageAtByContact.set(contactId, lastMessageAt);
     }
   }
 
