@@ -8,18 +8,13 @@ import {
   disableVoicemailOverflowNumberAction,
   enableVoicemailOverflowNumberAction,
   connectStripePaymentsAction,
-  openKyroBillingPortalAction,
-  startKyroBillingSetupAction,
-  autosavePronunciationEntryAction,
   autosaveInboundEmailSettingsAction,
   createPronunciationEntryAction,
-  ignorePronunciationEntryAction,
   removeInboundEmailSenderRuleSettingsAction,
   resendEmailVerificationAction,
   syncInboundEmailNowAction,
   updateDashboardTutorialTestModeAction,
   updateCommunicationSettingsAction,
-  updateNotificationSettingsAction,
   updateInboundInquiryHandlingAction,
   updateWorkspaceUsageMarkupRateAction,
   updateGeneralSettingsAction,
@@ -28,7 +23,6 @@ import {
 } from "./actions";
 import { InboundEmailAutosaveForm } from "./inbound-email-autosave-form";
 import { PhoneNumberPicker } from "./phone-number-picker";
-import { PronunciationAutosaveForm } from "./pronunciation-autosave-form";
 import { PronunciationEntryExpander } from "./pronunciation-entry-expander";
 import { EscalationSettingsEditor } from "./escalation-settings-editor";
 import { EmergencyWindowEditor } from "./emergency-window-editor";
@@ -52,8 +46,6 @@ import {
 } from "../../lib/assistant/voice-settings";
 import {
   PRONUNCIATION_CATEGORIES,
-  defaultPronunciationHint,
-  formatPronunciationAliases,
   type AssistantPronunciationEntry,
 } from "../../lib/assistant/pronunciation";
 import {
@@ -67,12 +59,8 @@ import {
   DISPLAY_CURRENCIES,
   formatCurrencyAmount,
   formatDisplayMoney,
-  type DisplayCurrencySettings,
 } from "../../lib/billing/display-currency";
 import {
-  usageWindows,
-  type UsageBreakdownRow,
-  type UsageReport,
 } from "../../lib/usage/queries";
 import {
   GOOGLE_CALENDAR_EVENTS_SCOPE,
@@ -98,16 +86,11 @@ import {
 } from "../../lib/integrations/microsoft";
 import { type TwilioTelephonyOverview } from "../../lib/integrations/twilio";
 import { type WorkspaceStripePaymentOverview } from "../../lib/payments/accounts";
-import { type KyroUserBillingOverview } from "../../lib/billing/kyro-user-billing";
 import { type KyroBillingEngineOverview } from "../../lib/billing/kyro-billing-engine";
 import {
 } from "../../lib/calendar/settings";
 import {
-  CALENDAR_DAILY_DIGEST_TIMINGS,
-  CALENDAR_SMS_REMINDER_MINUTES,
-  type NotificationSettings,
 } from "../../lib/notifications/settings";
-import notificationStyles from "./notification-settings.module.css";
 import scheduleStyles from "./schedule-settings.module.css";
 import { isKyroEmailVerified } from "../../lib/auth/email-verification";
 import {
@@ -133,7 +116,6 @@ import { SettingsSubmitButton } from "./settings-submit-button";
 import { StripeResetButton } from "./stripe-reset-button";
 import {
   settingsPanelHref,
-  usageWindowHref,
   type IntegrationSettingsPanel,
 } from "./settings-navigation";
 import {
@@ -146,8 +128,6 @@ import {
 } from "./settings-page-loader";
 import { InfoBubble } from "./info-bubble";
 import { ManualSyncSubmitButton } from "./manual-sync-submit-button";
-import { PronunciationPreviewPlayer } from "./pronunciation-preview-player";
-import { UsageLedgerModal } from "./usage-ledger-modal";
 import { DefaultInvoiceTemplateForm } from "../payments/default-invoice-template-form";
 import {
   DeveloperMockInquiryForms,
@@ -171,6 +151,11 @@ import {
   type ProviderConnection,
 } from "./shared";
 import { CalendarSettingsDetail } from "./sections/calendar-settings";
+import { EmptySettingsDetail } from "./sections/empty-settings";
+import { KyroBillingSettingsDetail } from "./sections/kyro-billing-settings";
+import { NotificationSettingsDetail } from "./sections/notification-settings";
+import { UsageSettingsDetail } from "./sections/usage-settings";
+import { PronunciationEntryCard } from "./sections/pronunciation-entry-card";
 
 export const dynamic = "force-dynamic";
 
@@ -364,27 +349,6 @@ function workplaceContactsWithVoiceNumbers(
   return [...contacts, ...additions];
 }
 
-function pronunciationUsageLabel(entry: AssistantPronunciationEntry) {
-  const usage =
-    entry.usageCount === 1 ? "Used once" : `Used ${entry.usageCount} times`;
-
-  return entry.lastSeenAt
-    ? `${usage} - last ${formatDate(entry.lastSeenAt)}`
-    : usage;
-}
-
-function pronunciationEntrySourceLabel(entry: AssistantPronunciationEntry) {
-  return entry.source === "manual"
-    ? "Manual entry"
-    : entry.source === "assistant"
-      ? "Assistant updated"
-      : "Auto-added";
-}
-
-function pronunciationHintValue(entry: AssistantPronunciationEntry) {
-  return entry.pronunciationHint ?? defaultPronunciationHint(entry.phrase);
-}
-
 type IntegrationOverview = {
   configured: boolean;
   connections: Array<{ lastError: string | null; status: string }>;
@@ -411,22 +375,6 @@ function SettingsDetailShell({
         </div>
       </header>
       <div className="settings-detail-body">{children}</div>
-    </section>
-  );
-}
-
-function EmptySettingsDetail() {
-  return (
-    <section className="panel settings-detail-panel settings-placeholder">
-      <div>
-        <p className="eyebrow">Settings</p>
-        <h2>Select a settings area</h2>
-        <p>
-          Choose communication rules, workspace integrations, or billing and
-          metering from the settings list to view and edit the full details
-          here.
-        </p>
-      </div>
     </section>
   );
 }
@@ -614,165 +562,6 @@ function googlePermissionLabel(scope: string) {
     default:
       return scopeLabel(scope);
   }
-}
-
-function calendarNotificationFallbackRecipient(
-  settings: WorkspaceGeneralSettings,
-) {
-  const contacts = settings.businessProfile.workplaceContacts;
-  const primary = contacts.find(
-    (contact) => contact.primaryEscalationContact && contact.phoneNumber,
-  );
-  const firstWithPhone = contacts.find((contact) => contact.phoneNumber);
-
-  return (
-    primary?.phoneNumber ||
-    firstWithPhone?.phoneNumber ||
-    settings.businessProfile.publicPhoneNumber ||
-    ""
-  );
-}
-
-function notificationDigestTimingLabel(
-  timing: (typeof CALENDAR_DAILY_DIGEST_TIMINGS)[number],
-) {
-  return timing === "night_before" ? "Night before" : "Morning of";
-}
-
-function NotificationSettingsDetail({
-  generalSettings,
-  settings,
-}: Readonly<{
-  generalSettings: WorkspaceGeneralSettings;
-  settings: NotificationSettings;
-}>) {
-  const fallbackRecipient =
-    calendarNotificationFallbackRecipient(generalSettings);
-  const fallbackCopy = fallbackRecipient
-    ? `Leave blank to use ${fallbackRecipient}.`
-    : "Add a recipient number or a workplace contact phone number before turning this on.";
-  const notificationsEnabled =
-    settings.calendarSmsRemindersEnabled || settings.calendarDailyDigestEnabled;
-
-  return (
-    <form
-      action={updateNotificationSettingsAction}
-      className={notificationStyles.form}
-    >
-      <div className={notificationStyles.intro}>
-        <div>
-          <p className="eyebrow">SMS notifications</p>
-          <h3>Calendar alerts</h3>
-          <p>Receive event reminders and a compact summary of the day ahead.</p>
-        </div>
-        <span className={notificationsEnabled ? "pill success" : "pill"}>
-          {notificationsEnabled ? "On" : "Off"}
-        </span>
-      </div>
-
-      <div className={notificationStyles.preferenceList}>
-        <section className={notificationStyles.preferenceRow}>
-          <label className={notificationStyles.toggleLabel}>
-            <input
-              className={notificationStyles.toggleInput}
-              defaultChecked={settings.calendarSmsRemindersEnabled}
-              name="calendarSmsRemindersEnabled"
-              type="checkbox"
-            />
-            <span
-              aria-hidden="true"
-              className={notificationStyles.toggleTrack}
-            />
-            <span className={notificationStyles.preferenceCopy}>
-              <strong>Event reminders</strong>
-              <span>Send an SMS before each calendar event.</span>
-            </span>
-          </label>
-
-          <label className={notificationStyles.field}>
-            Reminder time
-            <select
-              defaultValue={settings.calendarSmsReminderMinutes}
-              name="calendarSmsReminderMinutes"
-            >
-              {CALENDAR_SMS_REMINDER_MINUTES.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {minutes < 60
-                    ? `${minutes} minutes before`
-                    : `${minutes / 60} hour${minutes === 60 ? "" : "s"} before`}
-                </option>
-              ))}
-            </select>
-          </label>
-        </section>
-
-        <section className={notificationStyles.preferenceRow}>
-          <label className={notificationStyles.toggleLabel}>
-            <input
-              className={notificationStyles.toggleInput}
-              defaultChecked={settings.calendarDailyDigestEnabled}
-              name="calendarDailyDigestEnabled"
-              type="checkbox"
-            />
-            <span
-              aria-hidden="true"
-              className={notificationStyles.toggleTrack}
-            />
-            <span className={notificationStyles.preferenceCopy}>
-              <strong>Daily calendar summary</strong>
-              <span>Send one SMS with the next day&apos;s events.</span>
-            </span>
-          </label>
-
-          <div className={notificationStyles.reportFields}>
-            <label className={notificationStyles.field}>
-              Send
-              <select
-                defaultValue={settings.calendarDailyDigestTiming}
-                name="calendarDailyDigestTiming"
-              >
-                {CALENDAR_DAILY_DIGEST_TIMINGS.map((timing) => (
-                  <option key={timing} value={timing}>
-                    {notificationDigestTimingLabel(timing)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className={notificationStyles.field}>
-              Time
-              <input
-                defaultValue={settings.calendarDailyDigestTime}
-                name="calendarDailyDigestTime"
-                type="time"
-              />
-            </label>
-          </div>
-        </section>
-      </div>
-
-      <section className={notificationStyles.deliveryRow}>
-        <label className={notificationStyles.field}>
-          SMS recipient
-          <input
-            defaultValue={settings.calendarSmsRecipientPhone}
-            name="calendarSmsRecipientPhone"
-            placeholder={fallbackRecipient || "+1 555 123 4567"}
-            type="tel"
-          />
-          <span>{fallbackCopy}</span>
-        </label>
-        <div className={notificationStyles.timeZone}>
-          <span>Workspace time zone</span>
-          <strong>{generalSettings.timeZone || "UTC"}</strong>
-        </div>
-      </section>
-
-      <div className={notificationStyles.footer}>
-        <SettingsSubmitButton>Save</SettingsSubmitButton>
-      </div>
-    </form>
-  );
 }
 
 function GoogleIntegrationSettings({
@@ -5043,484 +4832,6 @@ function PronunciationVocabularySettings({
           <p className="empty-copy">
             No pronunciation entries yet. Add common names, suburbs, acronyms,
             or business terms Kyro should say carefully.
-          </p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function PronunciationEntryCard({
-  entry,
-}: Readonly<{
-  entry: AssistantPronunciationEntry;
-}>) {
-  return (
-    <article className="pronunciation-entry-card">
-      <div className="pronunciation-entry-row">
-        <PronunciationAutosaveForm
-          action={autosavePronunciationEntryAction}
-          className="pronunciation-entry-inline-form"
-        >
-          <input name="entryId" type="hidden" value={entry.id} />
-          <label className="pronunciation-row-field">
-            <span>Phrase</span>
-            <input defaultValue={entry.phrase} name="phrase" required />
-          </label>
-          <label className="pronunciation-row-field pronunciation-hint-field">
-            <span>Say it like</span>
-            <input
-              defaultValue={pronunciationHintValue(entry)}
-              name="pronunciationHint"
-            />
-          </label>
-          <label className="pronunciation-row-field pronunciation-category-field">
-            <span>Category</span>
-            <select defaultValue={entry.category} name="category">
-              {PRONUNCIATION_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {formatLabel(category)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="pronunciation-row-field pronunciation-aliases-field">
-            <span>Aliases</span>
-            <input
-              defaultValue={formatPronunciationAliases(entry.aliases)}
-              name="aliases"
-            />
-          </label>
-          <PronunciationPreviewPlayer
-            entryId={entry.id}
-            fallbackSrc={`/api/assistant/pronunciation/preview?entryId=${entry.id}`}
-          />
-          <div className="pronunciation-row-meta">
-            <small>
-              {pronunciationEntrySourceLabel(entry)} -{" "}
-              {pronunciationUsageLabel(entry)}
-            </small>
-          </div>
-        </PronunciationAutosaveForm>
-
-        <form
-          action={ignorePronunciationEntryAction}
-          className="pronunciation-entry-remove-form"
-        >
-          <input name="entryId" type="hidden" value={entry.id} />
-          <input name="phrase" type="hidden" value={entry.phrase} />
-          <input
-            name="pronunciationHint"
-            type="hidden"
-            value={pronunciationHintValue(entry)}
-          />
-          <input name="category" type="hidden" value={entry.category} />
-          <input
-            name="aliases"
-            type="hidden"
-            value={formatPronunciationAliases(entry.aliases)}
-          />
-          <button
-            aria-label={`Remove ${entry.phrase}`}
-            className="pronunciation-icon-button danger"
-            title="Remove pronunciation"
-            type="submit"
-          >
-            <span aria-hidden="true">X</span>
-          </button>
-        </form>
-      </div>
-    </article>
-  );
-}
-
-function modelUsageDescription(row: UsageBreakdownRow) {
-  const model = row.model.toLowerCase();
-  const service = row.service.toLowerCase();
-
-  if (service === "realtime" || model.includes("realtime")) {
-    return "Used for Kyro's live voice assistant: low-latency spoken conversations, audio/text tokens, cached context, and voice tool calls.";
-  }
-
-  if (
-    service === "speech_to_text" ||
-    model.includes("transcribe") ||
-    model.includes("whisper")
-  ) {
-    return "Used when Kyro turns recorded or uploaded audio into text before it can answer or take action.";
-  }
-
-  if (service === "text_to_speech" || model.includes("tts")) {
-    return "Used for generated voice playback and pronunciation previews when Kyro reads text aloud outside the live realtime session.";
-  }
-
-  if (service === "web_search") {
-    return "Used when Kyro searches the internet to answer with current information. Search calls can also add model-token cost when result content is used.";
-  }
-
-  if (model.includes("gpt-5.6") || model.includes("gpt-5")) {
-    return "Kyro's OpenAI reasoning model family for assistant replies, settings help, email drafting, document/template edits, classification, and tool-aware work.";
-  }
-
-  if (model.includes("gpt-4.1")) {
-    return "Kyro's older OpenAI text model family for assistant replies, drafting, classification, and tool-aware work.";
-  }
-
-  if (model === "n/a") {
-    return "This is a provider or delivery event rather than a model-generated AI response.";
-  }
-
-  return "Used for AI work routed through this provider/model. The task breakdown above shows what business activity created the charge.";
-}
-
-function UsageSettingsDetail({
-  activeWindow,
-  displayCurrencySettings,
-  usageReport,
-}: Readonly<{
-  activeWindow: string;
-  displayCurrencySettings: DisplayCurrencySettings;
-  usageReport: UsageReport;
-}>) {
-  return (
-    <>
-      <section className="usage-summary-strip" aria-label="Usage metrics">
-        <nav
-          className="filter-bar usage-window-filter"
-          aria-label="Usage date range"
-        >
-          {usageWindows.map((window) => (
-            <Link
-              className={
-                activeWindow === window.value
-                  ? "filter-pill active"
-                  : "filter-pill"
-              }
-              href={usageWindowHref(window.value)}
-              key={window.value}
-              prefetch={false}
-            >
-              {window.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="usage-summary-actions">
-          <div className="usage-charge-summary">
-            <span>Usage charge</span>
-            <strong>
-              {formatDisplayMoney(
-                usageReport.totals.customerCharge,
-                usageReport.totals.currency,
-                displayCurrencySettings,
-              )}
-            </strong>
-          </div>
-          <UsageLedgerModal
-            displayCurrencySettings={displayCurrencySettings}
-            rows={usageReport.ledger}
-          />
-        </div>
-      </section>
-
-      <div className="usage-grid compact">
-        <article className="panel embedded-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Breakdown</p>
-              <h2>Usage by task</h2>
-            </div>
-          </div>
-          {usageReport.taskBreakdown.length > 0 ? (
-            <div className="usage-table">
-              <div
-                className="usage-row usage-row-three heading"
-                aria-hidden="true"
-              >
-                <span>Task</span>
-                <span>Events</span>
-                <span>Usage charge</span>
-              </div>
-              {usageReport.taskBreakdown.map((row) => (
-                <div className="usage-row usage-row-three" key={row.key}>
-                  <div className="usage-breakdown-copy">
-                    <strong>{row.label}</strong>
-                    <span>{row.description}</span>
-                  </div>
-                  <span>{row.events}</span>
-                  <span>
-                    {formatDisplayMoney(
-                      row.customerCharge,
-                      row.currency,
-                      displayCurrencySettings,
-                    )}
-                  </span>
-                </div>
-              ))}
-              <div className="usage-row usage-row-three usage-total-row">
-                <div className="usage-breakdown-copy">
-                  <strong>Total</strong>
-                  <span>All metered task usage in this range.</span>
-                </div>
-                <span>{usageReport.totals.events}</span>
-                <span>
-                  {formatDisplayMoney(
-                    usageReport.totals.customerCharge,
-                    usageReport.totals.currency,
-                    displayCurrencySettings,
-                  )}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <p className="empty-copy">
-              No metered usage in this date range yet.
-            </p>
-          )}
-        </article>
-
-        <article className="panel embedded-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Technical breakdown</p>
-              <h2>Provider and model</h2>
-            </div>
-          </div>
-          {usageReport.providerBreakdown.length > 0 ? (
-            <div className="usage-table">
-              <div
-                className="usage-row usage-row-three heading"
-                aria-hidden="true"
-              >
-                <span>Provider / model</span>
-                <span>Events</span>
-                <span>Usage charge</span>
-              </div>
-              {usageReport.providerBreakdown.map((row) => (
-                <div className="usage-row usage-row-three" key={row.key}>
-                  <div>
-                    <span className="usage-breakdown-info-title">
-                      <strong>
-                        {row.model === "n/a"
-                          ? row.provider
-                          : `${row.provider} / ${row.model}`}
-                      </strong>
-                      <InfoBubble
-                        label={`What ${row.model === "n/a" ? row.provider : row.model} is used for`}
-                      >
-                        {modelUsageDescription(row)}
-                      </InfoBubble>
-                    </span>
-                    <span>{formatLabel(row.service)}</span>
-                  </div>
-                  <span>{row.events}</span>
-                  <span>
-                    {formatDisplayMoney(
-                      row.customerCharge,
-                      row.currency,
-                      displayCurrencySettings,
-                    )}
-                  </span>
-                </div>
-              ))}
-              <div className="usage-row usage-row-three usage-total-row">
-                <div className="usage-breakdown-copy">
-                  <strong>Total</strong>
-                  <span>All provider and model usage in this range.</span>
-                </div>
-                <span>{usageReport.totals.events}</span>
-                <span>
-                  {formatDisplayMoney(
-                    usageReport.totals.customerCharge,
-                    usageReport.totals.currency,
-                    displayCurrencySettings,
-                  )}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <p className="empty-copy">
-              No metered usage in this date range yet.
-            </p>
-          )}
-        </article>
-      </div>
-    </>
-  );
-}
-
-function KyroBillingSettingsDetail({
-  billingEngineOverview,
-  billingOverview,
-}: Readonly<{
-  billingEngineOverview: KyroBillingEngineOverview;
-  billingOverview: KyroUserBillingOverview;
-}>) {
-  const billingReady = billingOverview.setupReady;
-  const billingBlocked =
-    !billingOverview.configured || !billingOverview.appUrlConfigured;
-  const trialEndsAt = billingOverview.settings.trialEndsAt
-    ? formatDate(billingOverview.settings.trialEndsAt)
-    : null;
-  const cardDisplay = billingOverview.defaultPaymentMethod;
-  const cardBrand = cardDisplay?.brand
-    ? cardDisplay.brand.replace(/_/g, " ").toUpperCase()
-    : "Card";
-  const cardExpiry =
-    cardDisplay?.expMonth && cardDisplay.expYear
-      ? `${String(cardDisplay.expMonth).padStart(2, "0")}/${String(
-          cardDisplay.expYear,
-        ).slice(-2)}`
-      : null;
-
-  return (
-    <section className="panel embedded-panel kyro-billing-card standalone">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Kyro subscription</p>
-          <h2>
-            {billingReady
-              ? "Payment method ready"
-              : "Add a card to start your trial"}
-          </h2>
-        </div>
-        <span className={billingReady ? "status-pill ready" : "status-pill"}>
-          {billingReady ? "Ready" : "Setup needed"}
-        </span>
-      </div>
-      <p className="kyro-billing-copy">
-        Add a credit or debit card to activate the two-week free trial. Kyro
-        meters usage during the trial, but trial usage is not billed. After the
-        trial, Kyro charges the saved payment method for metered usage.
-      </p>
-      {trialEndsAt ? (
-        <div className="kyro-billing-fact">
-          <span>Trial ends</span>
-          <strong>{trialEndsAt}</strong>
-        </div>
-      ) : null}
-      {cardDisplay?.last4 ? (
-        <div className="kyro-billing-fact">
-          <span>Saved card</span>
-          <strong>
-            {cardBrand} ending {cardDisplay.last4}
-            {cardExpiry ? ` - ${cardExpiry}` : ""}
-          </strong>
-        </div>
-      ) : billingReady ? (
-        <div className="kyro-billing-fact">
-          <span>Saved card</span>
-          <strong>Ready</strong>
-        </div>
-      ) : null}
-      {!billingOverview.configured ? (
-        <p className="form-alert error compact-alert">
-          Stripe is not configured for Kyro billing yet.
-        </p>
-      ) : null}
-      {!billingOverview.webhookConfigured ? (
-        <p className="form-alert error compact-alert">
-          Stripe webhook confirmation is not configured yet.
-        </p>
-      ) : null}
-      {!billingOverview.appUrlConfigured ? (
-        <p className="form-alert error compact-alert">
-          NEXT_PUBLIC_APP_URL is needed before starting billing setup.
-        </p>
-      ) : null}
-      <form
-        action={
-          billingReady
-            ? openKyroBillingPortalAction
-            : startKyroBillingSetupAction
-        }
-        className="kyro-billing-actions"
-      >
-        <SettingsSubmitButton
-          className="usage-ledger-open-button"
-          disabled={billingBlocked}
-          pendingLabel="Opening..."
-        >
-          {billingReady ? "Change payment method" : "Add card for free trial"}
-        </SettingsSubmitButton>
-      </form>
-      <div className="kyro-billing-engine-panel">
-        <div className="panel-heading compact-panel-heading">
-          <div>
-            <p className="eyebrow">Billing engine</p>
-            <h3>Kyro invoices</h3>
-          </div>
-          <span
-            className={
-              billingEngineOverview.pastDueInvoiceCount > 0
-                ? "settings-status-pill warning"
-                : "settings-status-pill ready"
-            }
-          >
-            {billingEngineOverview.pastDueInvoiceCount > 0
-              ? "Past due"
-              : "Current"}
-          </span>
-        </div>
-        <div className="detail-list compact-detail-list">
-          <div>
-            <span>Open invoices</span>
-            <strong>{billingEngineOverview.openInvoiceCount}</strong>
-          </div>
-          <div>
-            <span>Past due</span>
-            <strong>{billingEngineOverview.pastDueInvoiceCount}</strong>
-          </div>
-          <div>
-            <span>Latest invoice</span>
-            <strong>
-              {billingEngineOverview.latestInvoice
-                ? `${billingEngineOverview.latestInvoice.invoiceNumber} - ${formatDisplayMoney(
-                    billingEngineOverview.latestInvoice.totalAmount,
-                    billingEngineOverview.latestInvoice.currency,
-                    invoiceDisplayCurrencySettings(
-                      billingEngineOverview.latestInvoice.currency,
-                    ),
-                  )}`
-                : "None yet"}
-            </strong>
-          </div>
-        </div>
-        {billingEngineOverview.latestInvoice?.lastError ? (
-          <p className="form-alert error compact-alert">
-            {billingEngineOverview.latestInvoice.lastError}
-          </p>
-        ) : null}
-        {billingEngineOverview.invoices.length > 0 ? (
-          <div className="usage-table kyro-invoice-table">
-            <div
-              className="usage-row usage-row-three heading"
-              aria-hidden="true"
-            >
-              <span>Invoice</span>
-              <span>Status</span>
-              <span>Total</span>
-            </div>
-            {billingEngineOverview.invoices.slice(0, 5).map((invoice) => (
-              <div className="usage-row usage-row-three" key={invoice.id}>
-                <div>
-                  <strong>{invoice.invoiceNumber}</strong>
-                  <span>
-                    {invoice.issuedAt ? formatDate(invoice.issuedAt) : "Draft"}
-                  </span>
-                </div>
-                <span>{formatLabel(invoice.status)}</span>
-                <span>
-                  {formatDisplayMoney(invoice.totalAmount, invoice.currency, {
-                    ...invoiceDisplayCurrencySettings(invoice.currency),
-                  })}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="empty-copy">
-            No Kyro invoices have been generated yet. The billing runner creates
-            monthly invoices from metered usage after each period closes.
           </p>
         )}
       </div>
