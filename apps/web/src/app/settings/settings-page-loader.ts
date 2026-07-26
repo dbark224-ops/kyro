@@ -62,6 +62,36 @@ type DashboardTutorialStateSupabaseClient = {
   };
 };
 
+/**
+ * Let one section's data fail without taking the Settings page with it.
+ *
+ * Every load below is already scoped to the section being viewed, but they all
+ * ran inside a single Promise.all, which rejects as soon as any one of them
+ * does. So a Twilio outage did not just break the Twilio card -- it blanked the
+ * whole page, and you could not reach your business hours either.
+ *
+ * A failure now resolves to the same value the load produces when it is not
+ * needed, so the section renders in its empty state while the rest of the page
+ * works. The failure is logged rather than swallowed: degrading quietly for the
+ * user is the point, degrading invisibly for the operator is not.
+ */
+function optionalLoad<T>(
+  label: string,
+  workspaceId: string,
+  load: Promise<T>,
+  fallback: T,
+): Promise<T> {
+  return load.catch((error: unknown) => {
+    console.warn("Settings section data failed to load", {
+      error: error instanceof Error ? error.message : "unknown_error",
+      section: label,
+      workspaceId,
+    });
+
+    return fallback;
+  });
+}
+
 async function getDashboardTutorialState(
   supabase: unknown,
   workspaceId: string,
@@ -152,7 +182,7 @@ export async function loadSettingsPageData(
     return serviceSupabase;
   };
   const generalSettingsPromise = needsGeneralSettings
-    ? getWorkspaceGeneralSettings(supabase, workspace.id)
+    ? optionalLoad("general settings", workspace.id, getWorkspaceGeneralSettings(supabase, workspace.id), null)
     : Promise.resolve(null);
 
   const [
@@ -178,7 +208,12 @@ export async function loadSettingsPageData(
     developerMockEmailConnectionResult,
   ] = await Promise.all([
     needsCommunicationSettings
-      ? getCommunicationSettings(supabase, workspace.id)
+      ? optionalLoad(
+          "communication settings",
+          workspace.id,
+          getCommunicationSettings(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     needsPhoneSettings
       ? generalSettingsPromise
@@ -195,58 +230,138 @@ export async function loadSettingsPageData(
           .catch(() => [])
       : Promise.resolve([]),
     selectedSection === "calendar"
-      ? getCalendarSettings(supabase, workspace.id)
+      ? optionalLoad(
+          "calendar settings",
+          workspace.id,
+          getCalendarSettings(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     generalSettingsPromise,
     needsEmailProviderOverview
-      ? getGoogleIntegrationOverview(supabase, workspace.id)
+      ? optionalLoad(
+          "google integration",
+          workspace.id,
+          getGoogleIntegrationOverview(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     needsEmailProviderOverview
-      ? getMicrosoftIntegrationOverview(supabase, workspace.id)
+      ? optionalLoad(
+          "microsoft integration",
+          workspace.id,
+          getMicrosoftIntegrationOverview(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "integrations" &&
     activeIntegrationPanel === "inbound-email"
-      ? getInboundEmailSettings(supabase, workspace.id)
+      ? optionalLoad(
+          "inbound email settings",
+          workspace.id,
+          getInboundEmailSettings(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "integrations" &&
     activeIntegrationPanel === "inbound-email"
-      ? getInboundEmailOperationalSummary(supabase, workspace.id)
+      ? optionalLoad(
+          "inbound email summary",
+          workspace.id,
+          getInboundEmailOperationalSummary(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "notifications"
-      ? getNotificationSettings(supabase, workspace.id)
+      ? optionalLoad(
+          "notification settings",
+          workspace.id,
+          getNotificationSettings(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     needsPhoneSettings
-      ? getTwilioTelephonyOverview(supabase, workspace.id)
+      ? optionalLoad(
+          "twilio telephony",
+          workspace.id,
+          getTwilioTelephonyOverview(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "integrations" && activeIntegrationPanel === "stripe"
-      ? getWorkspaceStripePaymentOverview(supabase, workspace.id)
+      ? optionalLoad(
+          "stripe payments",
+          workspace.id,
+          getWorkspaceStripePaymentOverview(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "integrations" && activeIntegrationPanel === "stripe"
-      ? getDocumentTemplateSettings(supabase, workspace.id)
+      ? optionalLoad(
+          "document templates",
+          workspace.id,
+          getDocumentTemplateSettings(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "voice" && selectedPanel === "pronunciation"
-      ? getPronunciationEntries(supabase, workspace.id)
+      ? optionalLoad(
+          "pronunciation entries",
+          workspace.id,
+          getPronunciationEntries(supabase, workspace.id),
+          [],
+        )
       : Promise.resolve([]),
     needsAssignedPhoneNumbers
-      ? getWorkspaceAssignedPhoneNumbers(supabase, workspace.id)
+      ? optionalLoad(
+          "assigned phone numbers",
+          workspace.id,
+          getWorkspaceAssignedPhoneNumbers(supabase, workspace.id),
+          [],
+        )
       : Promise.resolve([]),
     selectedSection === "usage"
-      ? getUsageReport(supabase, workspace.id, activeWindow)
+      ? optionalLoad(
+          "usage report",
+          workspace.id,
+          getUsageReport(supabase, workspace.id, activeWindow),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "voice" ||
     needsInboundInquirySettings ||
     needsDeveloperOperationalSettings ||
     needsPhoneSettings
-      ? getVoiceSettings(supabase, workspace.id)
+      ? optionalLoad(
+          "voice settings",
+          workspace.id,
+          getVoiceSettings(supabase, workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "usage"
-      ? getKyroUserBillingOverview(getServiceSupabase(), workspace.id)
+      ? optionalLoad(
+          "kyro billing overview",
+          workspace.id,
+          getKyroUserBillingOverview(getServiceSupabase(), workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     selectedSection === "usage" || needsDeveloperOperationalSettings
-      ? getKyroBillingEngineOverview(getServiceSupabase(), workspace.id)
+      ? optionalLoad(
+          "billing engine overview",
+          workspace.id,
+          getKyroBillingEngineOverview(getServiceSupabase(), workspace.id),
+          null,
+        )
       : Promise.resolve(null),
     needsDeveloperOperationalSettings
-      ? getDashboardTutorialState(supabase, workspace.id)
+      ? optionalLoad(
+          "dashboard tutorial state",
+          workspace.id,
+          getDashboardTutorialState(supabase, workspace.id),
+          { forceShow: false },
+        )
       : Promise.resolve({ forceShow: false }),
     needsDeveloperMockInquiries
       ? supabase
