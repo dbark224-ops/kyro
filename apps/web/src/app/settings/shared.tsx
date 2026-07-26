@@ -92,27 +92,7 @@ export function formatDate(value: string, timeZone?: string) {
   return formatWorkspaceDateTime({ timeZone, value });
 }
 
-export function formatTimeOfDay(value: string) {
-  const [hourText, minuteText] = value.split(":");
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-
-  if (
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
-  ) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(2020, 0, 1, hour, minute));
-}
+export { formatTimeOfDay } from "../../lib/time/time-of-day";
 
 export function SettingCardHeading({
   children,

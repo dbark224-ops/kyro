@@ -1,5 +1,6 @@
 "use client";
 
+import { formatTimeOfDay as timeLabel } from "../../lib/time/time-of-day";
 import {
   BUSINESS_HOUR_DAYS,
   type BusinessHoursDaySettings,
@@ -16,28 +17,6 @@ type BusinessAvailabilityEditorProps = {
   workplaceContacts: WorkplaceContactSettings[];
   workingHoursSchedule: BusinessHoursScheduleSettings;
 };
-
-function timeLabel(value: string) {
-  const [hourText, minuteText] = value.split(":");
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-
-  if (
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
-  ) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(2020, 0, 1, hour, minute));
-}
 
 function scheduleSummary(schedule: BusinessHoursScheduleSettings) {
   const enabledDays = schedule.days.filter((day) => day.enabled);

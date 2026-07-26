@@ -402,7 +402,9 @@
 }
 
 .eventCard {
-  align-content: center;
+  /* Same reasoning as .timelineEvent: text against the top, not centred in
+     whatever height the block happened to take. */
+  align-content: start;
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
   border-radius: 9px;
@@ -665,7 +667,43 @@
   background: color-mix(in srgb, var(--cyan) 24%, var(--line));
 }
 
+/*
+ * The block that follows the pointer while a duration is being dragged out.
+ * Dashed and translucent so it reads as "not yet real", and pointer-events
+ * none so it never becomes the drag target itself.
+ */
+.timelineDragPreview {
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--cyan) 18%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--cyan) 70%, var(--line));
+  border-radius: 9px;
+  display: flex;
+  font-size: 0.68rem;
+  font-weight: 700;
+  left: 5px;
+  min-height: 14px;
+  overflow: hidden;
+  padding: 4px 7px;
+  pointer-events: none;
+  position: absolute;
+  right: 5px;
+  z-index: 3;
+}
+
+.timelineDragPreview span {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* No text selection while dragging out a time range. */
+.timelineDay[data-dragging="true"] {
+  cursor: ns-resize;
+  user-select: none;
+}
+
 .timelineEvent {
+  /* Rows stay their natural size instead of sharing out the block's height. */
+  align-content: start;
   background: color-mix(in srgb, var(--cyan) 10%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
   border-radius: 9px;
@@ -711,12 +749,23 @@
   min-width: 0;
 }
 
+/*
+ * Content sits at the top of the block, not floating in the middle of it.
+ *
+ * This used to be min-height: 100% with align-items: center, which stretched
+ * the header row to the full block height and centred it. Fine for a 30-minute
+ * block where that is the whole box; badly wrong for a three-hour one, where
+ * the time and title ended up marooned in the middle of a tall empty card.
+ *
+ * A block's height means its duration, so the text belongs against the start
+ * time it is labelling.
+ */
 .timelineEvent[data-compact="true"] .timelineEventTop {
-  align-items: center;
+  align-items: baseline;
   display: flex;
   gap: 5px;
-  line-height: 1;
-  min-height: 100%;
+  line-height: 1.2;
+  min-height: 0;
 }
 
 .timelineEventTop time {
@@ -837,6 +886,50 @@
 
 .editorPanel:not(.editorPanelModal) .dateTimeField {
   grid-column: 1 / -1;
+}
+
+/*
+ * Date and time as two controls rather than one datetime-local.
+ *
+ * Picking a time in a datetime-local means tabbing into the right segment and
+ * nudging it. Split, the date keeps its native picker and the time is a single
+ * list you can open, scroll, or type the first characters of.
+ */
+.dateTimeField {
+  display: grid;
+  gap: 6px;
+}
+
+.dateTimeFieldLabel {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dateTimeFieldControls {
+  /* The time needs less room than the date, and should not stretch to match. */
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+}
+
+.dateTimeFieldPart {
+  display: grid;
+  min-width: 0;
+}
+
+.dateTimeFieldPart input,
+.dateTimeFieldPart select {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 420px) {
+  .dateTimeFieldControls {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .fullWidth {

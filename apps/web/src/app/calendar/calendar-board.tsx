@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import {
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -48,6 +49,12 @@ import {
   todayDateKey,
   type DateKeyRange,
 } from "../../lib/timezone";
+import { formatTimeOfDay, timeOfDayOptions } from "../../lib/time/time-of-day";
+import {
+  timelineCreateDurationMinutes,
+  useTimelineDragCreate,
+  type TimelineDragCreate,
+} from "./use-timeline-drag-create";
 import styles from "./calendar-board.module.css";
 
 type CalendarBoardProps = Readonly<{
@@ -84,6 +91,24 @@ const TIMELINE_END_MINUTES =
 const TIMELINE_TOTAL_MINUTES = TIMELINE_END_MINUTES - TIMELINE_START_MINUTES;
 const TIMELINE_MIN_EVENT_MINUTES = 34;
 const TIMELINE_CREATE_SLOT_MINUTES = 30;
+/**
+ * What a click or drag rounds to. Quarter hours, because that is the grain
+ * appointments are actually booked on and what every other calendar snaps to.
+ */
+const TIMELINE_SNAP_MINUTES = 15;
+
+type TimelineDragController = ReturnType<typeof useTimelineDragCreate>;
+
+/** "14:30" past midnight as a readable clock time, for the drag preview. */
+function formatMinutesLabel(minutes: number) {
+  const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.round(minutes)));
+
+  return formatTimeOfDay(
+    `${String(Math.floor(clamped / 60)).padStart(2, "0")}:${String(
+      clamped % 60,
+    ).padStart(2, "0")}`,
+  );
+}
 const TIMELINE_LABEL_HOURS = Array.from(
   { length: TIMELINE_VISIBLE_END_HOUR - TIMELINE_VISIBLE_START_HOUR + 1 },
   (_, index) => TIMELINE_VISIBLE_START_HOUR + index,
@@ -208,30 +233,34 @@ function timelineClickMinutes(position: TimelineClickPosition) {
       : 0;
   const rawMinutes = TIMELINE_START_MINUTES + TIMELINE_TOTAL_MINUTES * ratio;
   const rounded =
-    Math.round(rawMinutes / TIMELINE_CREATE_SLOT_MINUTES) *
-    TIMELINE_CREATE_SLOT_MINUTES;
+    Math.round(rawMinutes / TIMELINE_SNAP_MINUTES) * TIMELINE_SNAP_MINUTES;
 
   return clampTimelineMinutes(rounded);
 }
 
 function timelineCreateTimes({
   day,
-  position,
+  endMinutes,
   settings,
+  startMinutes,
   timeZone,
 }: {
   day: Date;
-  position: TimelineClickPosition;
+  /** Where the drag finished. Equal to startMinutes for a plain click. */
+  endMinutes: number;
   settings: CalendarSettings;
+  startMinutes: number;
   timeZone: string;
 }): NewEventTimes {
-  const start = isoFromCalendarDayAndMinutes(
-    day,
-    timelineClickMinutes(position),
-    timeZone,
-  );
+  const start = isoFromCalendarDayAndMinutes(day, startMinutes, timeZone);
+  const durationMinutes = timelineCreateDurationMinutes({
+    defaultDurationMinutes: settings.defaultDurationMinutes,
+    endMinutes,
+    snapMinutes: TIMELINE_SNAP_MINUTES,
+    startMinutes,
+  });
   const end = new Date(
-    new Date(start).getTime() + settings.defaultDurationMinutes * 60_000,
+    new Date(start).getTime() + durationMinutes * 60_000,
   ).toISOString();
 
   return { end, start };
@@ -550,25 +579,52 @@ function DateTimeInput({
   name: string;
   timeZone: string;
 }>) {
-  const [value, setValue] = useState(
-    dateTimeLocalValue(defaultValue, timeZone),
+  const initial = dateTimeLocalValue(defaultValue, timeZone);
+  const [date, setDate] = useState(initial.slice(0, 10));
+  const [time, setTime] = useState(initial.slice(11, 16));
+
+  // A datetime-local input made picking a time a matter of tabbing through
+  // segments and nudging each one. Split, the date keeps its native picker and
+  // the time becomes one list you can open, scroll, or type into.
+  const timeOptions = useMemo(
+    () => timeOfDayOptions({ include: time }),
+    [time],
   );
+  const value = date && time ? `${date}T${time}` : "";
 
   return (
-    <label className={styles.dateTimeField}>
-      {label}
-      <input
-        name={`${name}Local`}
-        onChange={(event) => setValue(event.target.value)}
-        type="datetime-local"
-        value={value}
-      />
+    <div className={styles.dateTimeField}>
+      <span className={styles.dateTimeFieldLabel}>{label}</span>
+      <div className={styles.dateTimeFieldControls}>
+        <label className={styles.dateTimeFieldPart}>
+          <span className="sr-only">{`${label} date`}</span>
+          <input
+            onChange={(event) => setDate(event.target.value)}
+            type="date"
+            value={date}
+          />
+        </label>
+        <label className={styles.dateTimeFieldPart}>
+          <span className="sr-only">{`${label} time`}</span>
+          <select
+            onChange={(event) => setTime(event.target.value)}
+            value={time}
+          >
+            {timeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <input name={`${name}Local`} type="hidden" value={value} />
       <input
         name={name}
         type="hidden"
         value={isoFromDateTimeLocal(value, timeZone)}
       />
-    </label>
+    </div>
   );
 }
 
@@ -610,6 +666,62 @@ function EventCard({
       {event.location ? <span>{event.location}</span> : null}
       {linkedLabel ? <span>{linkedLabel}</span> : null}
     </button>
+  );
+}
+
+/**
+ * One day's column: the click/drag surface, the events, and the ghost block
+ * that follows the pointer while a duration is being dragged out.
+ *
+ * Shared by the day and week views so the gesture behaves identically in both.
+ */
+function TimelineColumn({
+  children,
+  day,
+  drag,
+  view,
+}: Readonly<{
+  children: ReactNode;
+  day: Date;
+  drag: TimelineDragController;
+  view: "day" | "week";
+}>) {
+  // Dates are rebuilt every render, so the preview is matched by day key
+  // rather than by identity.
+  const preview =
+    drag.preview && formatDateParam(drag.preview.day) === formatDateParam(day)
+      ? drag.preview
+      : null;
+
+  return (
+    <div
+      className={styles.timelineDay}
+      data-clickable="true"
+      data-dragging={preview ? "true" : undefined}
+      data-view={view}
+      onPointerCancel={drag.onPointerCancel}
+      onPointerDown={(event) => drag.onPointerDown(day, event)}
+      onPointerMove={drag.onPointerMove}
+      onPointerUp={drag.onPointerUp}
+    >
+      <TimelineLines />
+      {children}
+      {preview ? (
+        <div
+          aria-hidden="true"
+          className={styles.timelineDragPreview}
+          style={{
+            height: `${preview.heightPercent}%`,
+            top: `${preview.topPercent}%`,
+          }}
+        >
+          <span>
+            {formatMinutesLabel(preview.startMinutes)} -{" "}
+            {formatMinutesLabel(preview.endMinutes)}
+          </span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -795,8 +907,8 @@ function MonthView({
 function WeekView({
   activeEventId,
   anchor,
+  drag,
   events,
-  onCreateAt,
   onSelect,
   timeZone,
   weekDaysBefore,
@@ -804,8 +916,8 @@ function WeekView({
 }: Readonly<{
   activeEventId: string | null;
   anchor: Date;
+  drag: TimelineDragController;
   events: CalendarEventItem[];
-  onCreateAt: (day: Date, position: TimelineClickPosition) => void;
   onSelect: (eventId: string) => void;
   timeZone: string;
   weekDaysBefore: number;
@@ -833,20 +945,12 @@ function WeekView({
         const dayEvents = eventsForDay(events, day, timeZone);
 
         return (
-          <div
-            className={styles.timelineDay}
-            data-clickable="true"
+          <TimelineColumn
+            day={day}
+            drag={drag}
             key={formatDateParam(day)}
-            onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              onCreateAt(day, {
-                clientY: event.clientY,
-                height: rect.height,
-                top: rect.top,
-              });
-            }}
+            view="week"
           >
-            <TimelineLines />
             {dayEvents.map((event) => (
               <TimelineEventCard
                 active={event.id === activeEventId}
@@ -857,7 +961,7 @@ function WeekView({
                 timeZone={timeZone}
               />
             ))}
-          </div>
+          </TimelineColumn>
         );
       })}
     </div>
@@ -867,15 +971,15 @@ function WeekView({
 function DayView({
   activeEventId,
   anchor,
+  drag,
   events,
-  onCreateAt,
   onSelect,
   timeZone,
 }: Readonly<{
   activeEventId: string | null;
   anchor: Date;
+  drag: TimelineDragController;
   events: CalendarEventItem[];
-  onCreateAt: (day: Date, position: TimelineClickPosition) => void;
   onSelect: (eventId: string) => void;
   timeZone: string;
 }>) {
@@ -884,20 +988,7 @@ function DayView({
   return (
     <div className={styles.dayTimeline}>
       <TimelineAxis />
-      <div
-        className={styles.timelineDay}
-        data-clickable="true"
-        data-view="day"
-        onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          onCreateAt(anchor, {
-            clientY: event.clientY,
-            height: rect.height,
-            top: rect.top,
-          });
-        }}
-      >
-        <TimelineLines />
+      <TimelineColumn day={anchor} drag={drag} view="day">
         {dayEvents.length > 0 ? (
           dayEvents.map((event) => (
             <TimelineEventCard
@@ -911,7 +1002,7 @@ function DayView({
         ) : (
           <p className={styles.emptyState}>No events on this day yet.</p>
         )}
-      </div>
+      </TimelineColumn>
     </div>
   );
 }
@@ -1289,19 +1380,35 @@ export function CalendarBoard({
     setCreateOpen(false);
     setCreateTimes(null);
   };
-  const createEventFromTimeline = (
-    day: Date,
-    position: TimelineClickPosition,
-  ) => {
-    openCreateEvent(
-      timelineCreateTimes({
-        day,
-        position,
-        settings,
-        timeZone,
-      }),
-    );
-  };
+  const createEventFromTimeline = useCallback(
+    ({ day, endMinutes, startMinutes }: TimelineDragCreate) => {
+      openCreateEvent(
+        timelineCreateTimes({
+          day,
+          endMinutes,
+          settings,
+          startMinutes,
+          timeZone,
+        }),
+      );
+    },
+    // openCreateEvent only touches setState, which React keeps stable.
+    [settings, timeZone],
+  );
+  const timelineDrag = useTimelineDragCreate({
+    minutesFromPointer: useCallback(
+      (clientY: number, geometry: { height: number; top: number }) =>
+        timelineClickMinutes({
+          clientY,
+          height: geometry.height,
+          top: geometry.top,
+        }),
+      [],
+    ),
+    onCreate: createEventFromTimeline,
+    percentForMinutes: timelinePercent,
+    snapMinutes: TIMELINE_SNAP_MINUTES,
+  });
   const saveWeekSettings = (
     nextWeekLayout: CalendarWeekLayout,
     nextWeekDaysBefore: number,
@@ -1590,8 +1697,8 @@ export function CalendarBoard({
             <WeekView
               activeEventId={selectedEventId}
               anchor={anchor}
+              drag={timelineDrag}
               events={visibleEvents}
-              onCreateAt={createEventFromTimeline}
               onSelect={selectEvent}
               timeZone={timeZone}
               weekDaysBefore={weekDaysBefore}
@@ -1602,8 +1709,8 @@ export function CalendarBoard({
             <DayView
               activeEventId={selectedEventId}
               anchor={anchor}
+              drag={timelineDrag}
               events={visibleEvents}
-              onCreateAt={createEventFromTimeline}
               onSelect={selectEvent}
               timeZone={timeZone}
             />
