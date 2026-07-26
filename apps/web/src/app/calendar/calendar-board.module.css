@@ -470,12 +470,30 @@
   width: 6px;
 }
 
-.eventCard .eventStatusDot,
-.timelineEvent[data-compact="true"] .eventStatusDot {
+.eventCard .eventStatusDot {
   left: 7px;
   margin: 0;
   position: absolute;
   top: 8px;
+}
+
+/*
+ * The dot rides the first line of the title, centred on it.
+ *
+ * In the timeline it used to be pinned to the block's top-left corner, which
+ * read as a separate marker floating away from the text rather than part of
+ * it. Half the line box less half the dot puts it on the optical middle of the
+ * line it belongs to -- and it tracks the title's font size, so it stays put
+ * if that changes.
+ *
+ * The row supplies the gap, so the shared margin-right is cleared here rather
+ * than spacing the dot twice.
+ */
+.timelineEvent .eventStatusDot {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  margin-right: 0;
+  margin-top: calc((1.2em - 6px) / 2);
 }
 
 .eventCard[data-status="awaiting_customer"] .eventStatusDot,
@@ -738,8 +756,15 @@
 }
 
 .timelineEvent[data-compact="true"] {
-  align-content: center;
-  padding: 5px 6px 5px 18px;
+  /* Top-aligned like every other block. This used to be `center`, which beat
+     the `start` on .timelineEvent by specificity and left tall week-view
+     blocks with their text marooned in the middle.
+
+     The left padding went back to normal with it: the status dot is part of
+     the title line now rather than pinned to the corner, so nothing needs
+     reserving space. */
+  align-content: start;
+  padding: 5px 6px;
 }
 
 /*
@@ -753,7 +778,9 @@
  * the text belongs against the start time it labels.
  */
 .timelineEventTop {
-  align-items: baseline;
+  /* Top-aligned, so the dot's own offset decides where it sits rather than a
+     baseline that would drop it to the bottom of the line. */
+  align-items: flex-start;
   display: flex;
   gap: 5px;
   min-width: 0;
@@ -914,6 +941,20 @@
 .dateTimeFieldPart select {
   min-width: 0;
   width: 100%;
+}
+
+/*
+ * The date sized to match the stepper's digits beside it.
+ *
+ * At the form's default input size it read as small print next to the time,
+ * which is the same piece of information at the same importance. Tabular
+ * figures so the day and month columns do not shuffle as the value changes.
+ */
+.dateTimeFieldPart input[type="date"] {
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.01em;
 }
 
 /*
