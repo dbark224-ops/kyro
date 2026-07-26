@@ -27,6 +27,7 @@ import {
   type WorkspaceGeneralSettings,
 } from "../workspace/general-settings";
 import { getNotificationSettings, type NotificationSettings } from "./settings";
+import { textValue } from "@kyro/core";
 
 type WorkspaceRow = {
   id: string;
@@ -60,10 +61,6 @@ export type CalendarNotificationProcessResult = {
 const DUE_LOOKBACK_MS = 12 * 60_000;
 const REMINDER_LOOKAHEAD_MS = 4 * 60 * 60_000;
 const DELIVERY_INSERT_DUPLICATE_CODES = new Set(["23505"]);
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function appUrl() {
   return process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ?? null;

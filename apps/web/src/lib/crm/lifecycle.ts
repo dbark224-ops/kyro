@@ -1,3 +1,5 @@
+import { textValue } from "@kyro/core";
+
 export const CONTACT_LIFECYCLE_STAGES = ["lead", "client"] as const;
 
 export type ContactLifecycleStage = (typeof CONTACT_LIFECYCLE_STAGES)[number];
@@ -115,10 +117,6 @@ function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizedTextToken(value: unknown) {

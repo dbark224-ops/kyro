@@ -4,6 +4,7 @@ import {
   runContactLifecycleReviewAction,
   updateContactProfileAction,
 } from "../actions";
+import { textValue } from "@kyro/core";
 import { AppFrame } from "../../components/app-frame";
 import { AddressAutocompleteField } from "../../components/address-autocomplete-field";
 import {
@@ -75,10 +76,6 @@ function formatMoney(
   displayCurrencySettings: DisplayCurrencySettings,
 ) {
   return formatDisplayMoney(value, sourceCurrency, displayCurrencySettings);
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function formatLabel(value: string | null) {

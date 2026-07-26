@@ -6,6 +6,7 @@ import type {
   AssistantThreadMessage,
   AssistantThreadState,
 } from "../../lib/assistant/types";
+import { textValue } from "@kyro/core";
 
 type ConnectionState = "connected" | "connecting" | "idle" | "speaking";
 
@@ -645,10 +646,6 @@ function ClientMessageTime({ value }: { value: string | undefined }) {
       {formatMessageTime(value)}
     </time>
   );
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {

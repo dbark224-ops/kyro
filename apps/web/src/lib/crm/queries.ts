@@ -10,6 +10,7 @@ import {
   normalizeContactLifecycleSource,
   normalizeContactLifecycleStage,
 } from "./lifecycle";
+import { textValue } from "@kyro/core";
 
 const LIST_MESSAGE_LIMIT = 500;
 const LIST_ACTION_LIMIT = 500;
@@ -2390,10 +2391,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function isUnavailableRelationError(error: {

@@ -39,6 +39,7 @@ import { ConversationWorkflowPanel } from "../inbox/conversation-workflow-panel"
 import { ReplyGenerator } from "../inbox/reply-generator";
 import { formatLeadTitle, formatServiceType } from "../../lib/crm/display";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
+import { textValue } from "@kyro/core";
 
 const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -4359,10 +4360,6 @@ function lineItemMeta(item: unknown) {
       .filter(Boolean)
       .join(" - ") || "No pricing set"
   );
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function arrayValue(value: unknown) {

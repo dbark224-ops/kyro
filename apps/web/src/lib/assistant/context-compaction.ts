@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateTokens } from "../usage/openai";
 import type { AssistantContextSnapshot } from "./types";
+import { textValue } from "@kyro/core";
 
 const COMPACTION_FETCH_LIMIT = 120;
 const COMPACTION_KEEP_RECENT_MESSAGES = 12;
@@ -855,10 +856,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function numberValue(value: unknown) {

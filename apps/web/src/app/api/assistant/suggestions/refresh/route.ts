@@ -5,6 +5,7 @@ import {
   hasAnyValidRequestSecret,
 } from "../../../../../lib/http/request-secret";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,10 +30,6 @@ type WorkspaceMapEntry = readonly [
 
 function syncSecret() {
   return envSecrets("ASSISTANT_SUGGESTION_REFRESH_SECRET", "CRON_SECRET");
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function clampLimit(value: string | null) {

@@ -1,4 +1,5 @@
 import { BrandMark } from "./brand-mark";
+import { textValue } from "@kyro/core";
 import { FloatingAssistantWidget } from "./floating-assistant-widget";
 import { GlobalSearch } from "./global-search";
 import { PendingSmartPrefetchLink } from "./pending-smart-prefetch-link";
@@ -109,10 +110,6 @@ function numberValue(value: unknown) {
   return 0;
 }
 
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "USD";
-}
-
 function optionalTextValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -209,7 +206,7 @@ async function loadUsageInternalCostPillData() {
 
     const totals = (usageResult.data ?? []).reduce(
       (current, row) => {
-        const currency = textValue(row.currency);
+        const currency = textValue(row.currency) ?? "USD";
         const provider =
           convertDisplayMoney(
             numberValue(row.cost_snapshot),

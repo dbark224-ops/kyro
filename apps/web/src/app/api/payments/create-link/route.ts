@@ -2,12 +2,9 @@ import { NextResponse } from "next/server";
 import { createPaymentRequestCheckoutLink } from "../../../../lib/payments/accounts";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function objectValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)

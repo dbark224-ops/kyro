@@ -17,6 +17,7 @@ import {
 } from "../integrations/microsoft";
 import { hasIntegrationTokenEncryptionKey } from "../integrations/token-vault";
 import { createServiceSupabaseClient } from "../supabase/service";
+import { textValue } from "@kyro/core";
 
 export type DeveloperHealthStatus = "error" | "ok" | "warning";
 
@@ -356,10 +357,6 @@ function hasScope(scopes: string[], requested: string) {
   const requestedScope = normalizeScope(requested);
 
   return scopes.some((scope) => normalizeScope(scope) === requestedScope);
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function objectRecord(value: unknown) {

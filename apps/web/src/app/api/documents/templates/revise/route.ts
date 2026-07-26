@@ -10,15 +10,12 @@ import {
 } from "../../../../../lib/usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
 import { requireWorkspaceContext } from "../../../../../lib/workspace/context";
+import { textValue } from "@kyro/core";
 
 type TemplateRevisionRequest = {
   instruction?: unknown;
   template?: unknown;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 export async function POST(request: Request) {
   try {

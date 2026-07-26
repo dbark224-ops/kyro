@@ -15,6 +15,7 @@ import type {
   AssistantThreadMessage,
   AssistantThreadState,
 } from "../../lib/assistant/types";
+import { textValue } from "@kyro/core";
 
 const VOICE_REPLY_PLAYBACK_RATE = 1;
 const VOICE_AUTO_SILENCE_MS = 900;
@@ -954,10 +955,6 @@ function jsonErrorMessage(payload: unknown) {
   }
 
   return null;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function nowMs() {

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceSupabaseClient } from "../supabase/service";
 import type { QuotePdfArtifact } from "./pdf";
 import { quoteRevisionState } from "./revisions";
+import { textValue } from "@kyro/core";
 
 export const GENERATED_DOCUMENT_STORAGE_BUCKET =
   process.env.KYRO_FILE_STORAGE_BUCKET?.trim() || "kyro-files";
@@ -59,10 +60,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function numberValue(value: unknown, fallback = 0) {

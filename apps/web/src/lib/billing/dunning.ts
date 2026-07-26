@@ -5,6 +5,7 @@ import {
   reconcileWorkspaceBillingAccess,
   type WorkspaceBillingAccess,
 } from "./access";
+import { textValue } from "@kyro/core";
 
 type DunningStage =
   | "payment_failed"
@@ -19,10 +20,6 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function stageForAccess(

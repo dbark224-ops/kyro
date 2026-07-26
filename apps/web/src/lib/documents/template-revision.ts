@@ -12,6 +12,7 @@ import {
   openAiBalancedModel,
   openAiReasoningRequest,
 } from "../ai/openai-models";
+import { textValue } from "@kyro/core";
 
 export type DocumentTemplateRevisionPayload = {
   description: string;
@@ -46,10 +47,6 @@ function openAiApiKey() {
 
 function documentTemplateModel() {
   return envValue("OPENAI_DOCUMENT_TEMPLATE_MODEL") || openAiBalancedModel();
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function objectRecord(value: unknown) {

@@ -22,6 +22,7 @@ import type {
   AssistantTurnResult,
   AssistantUiBlock,
 } from "./types";
+import { textValue } from "@kyro/core";
 
 const THREAD_MESSAGE_LIMIT = 40;
 const MODEL_RECENT_MESSAGE_LIMIT = 8;
@@ -1258,10 +1259,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function extractExplicitMemory(prompt: string) {

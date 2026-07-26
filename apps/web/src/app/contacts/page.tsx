@@ -33,6 +33,7 @@ import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { ManualLeadModal } from "./manual-lead-modal";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -168,10 +169,6 @@ function formatLabel(value: string | null) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizeSearch(value: string | undefined) {

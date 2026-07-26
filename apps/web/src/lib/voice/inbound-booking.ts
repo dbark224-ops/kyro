@@ -19,6 +19,7 @@ import {
 } from "../timezone";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { notifyInboundVoiceInquiry } from "./inbound-inquiry-notifications";
+import { textValue } from "@kyro/core";
 
 export const INBOUND_BOOKING_TOOL_NAME = "kyro_request_booking" as const;
 
@@ -38,10 +39,6 @@ type InboundBookingRequest = {
   supabase: SupabaseClient;
   workspaceId: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function numberValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {

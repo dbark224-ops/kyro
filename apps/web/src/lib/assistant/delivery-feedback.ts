@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { recordOutboundDirectSms } from "../communication/outbound";
+import { textValue } from "@kyro/core";
 
 export type AssistantDeliveryOrigin = {
   inputSource: string;
@@ -12,10 +13,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export function assistantDeliveryOrigin(value: unknown) {

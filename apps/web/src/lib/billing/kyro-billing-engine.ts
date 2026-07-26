@@ -11,6 +11,7 @@ import {
   type KyroUserBillingOverview,
 } from "./kyro-user-billing";
 import { reconcileAndProcessWorkspaceBilling } from "./dunning";
+import { textValue } from "@kyro/core";
 
 export const KYRO_BILLING_INVOICE_FLOW = "kyro_user_billing_invoice";
 
@@ -110,10 +111,6 @@ export type KyroBillingEngineOverview = {
     currency: string;
   }>;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function numberValue(value: unknown) {
   const parsed =

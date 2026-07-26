@@ -12,6 +12,7 @@ import {
   openAiLowCostModel,
   openAiReasoningRequest,
 } from "../ai/openai-models";
+import { textValue } from "@kyro/core";
 
 export const DEFAULT_ASSISTANT_PROMPT_SUGGESTIONS = [
   "Show me leads needing reply",
@@ -68,10 +69,6 @@ function openAiApiKey() {
 
 function suggestionModel() {
   return envValue("ASSISTANT_SUGGESTION_MODEL") || openAiLowCostModel();
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function objectRecord(value: unknown) {

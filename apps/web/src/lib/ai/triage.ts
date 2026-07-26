@@ -44,6 +44,7 @@ import {
   firstCustomerTurnFromCount,
 } from "./customer-reply-style";
 import { openAiLowCostModel, openAiReasoningRequest } from "./openai-models";
+import { textValue } from "@kyro/core";
 
 export type AiRunItem = {
   id: string;
@@ -213,10 +214,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizeResponsePolicy(value: unknown): TriageResponsePolicy {

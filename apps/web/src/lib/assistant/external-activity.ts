@@ -4,6 +4,7 @@ import {
   getRecentVoiceCallsForActivity,
   isVoiceCallTableMissing,
 } from "../voice/calls";
+import { textValue } from "@kyro/core";
 
 type MessageActivityRow = {
   body_text: string | null;
@@ -66,10 +67,6 @@ export type AssistantExternalActivityItem = {
   title: string;
   tone: "failed" | "inbound" | "outbound" | "system";
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function firstRelation<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] : value;

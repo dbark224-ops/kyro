@@ -8,6 +8,7 @@ import {
   getStripeConfig,
   retrieveStripePaymentMethod,
 } from "../payments/stripe";
+import { textValue } from "@kyro/core";
 
 export const KYRO_USER_BILLING_POLICY_TYPE = "kyro_user_billing";
 export const KYRO_BILLING_SETUP_FLOW = "kyro_workspace_billing_setup";
@@ -52,10 +53,6 @@ export type KyroUserBillingSetupIntent = {
   stripeCustomerId: string;
   trialEndsAt: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function boolValue(value: unknown) {
   return value === true;

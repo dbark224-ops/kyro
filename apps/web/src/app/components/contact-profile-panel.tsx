@@ -23,6 +23,7 @@ import {
 import { profileResolutionNotice } from "../../lib/crm/profile-resolution-notice";
 import { InfoBubble } from "../settings/info-bubble";
 import type { ContactProfile } from "../../lib/crm/queries";
+import { textValue } from "@kyro/core";
 
 type ContactProfilePanelProps = Readonly<{
   className?: string;
@@ -849,6 +850,3 @@ function formatLabel(value: string | null) {
     .join(" ");
 }
 
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}

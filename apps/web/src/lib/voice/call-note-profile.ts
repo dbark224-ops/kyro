@@ -1,12 +1,10 @@
+import { textValue } from "@kyro/core";
+
 export type VoiceCallProfileFacts = {
   address: string | null;
   email: string | null;
   name: string | null;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function firstText(...values: unknown[]) {
   for (const value of values) {

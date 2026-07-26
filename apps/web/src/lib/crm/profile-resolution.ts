@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { textValue } from "@kyro/core";
 
 export const CONTACT_PROFILE_MERGE_ACTION_TYPE = "merge_contact_profiles";
 
@@ -50,10 +51,6 @@ type ContactMergeSnapshot = {
   tags: unknown;
   updated_at: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function stringArray(value: unknown) {
   return Array.isArray(value)

@@ -14,6 +14,7 @@ import {
   normalizeCalendarEventType as normalizeCalendarEventTypeValue,
   type CalendarEventType,
 } from "./settings";
+import { textValue } from "@kyro/core";
 export { normalizeCalendarEventType } from "./settings";
 
 export const CALENDAR_EVENT_STATUSES = [
@@ -134,10 +135,6 @@ type CalendarAppointmentRow = {
   title: string | null;
   updated_at: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)

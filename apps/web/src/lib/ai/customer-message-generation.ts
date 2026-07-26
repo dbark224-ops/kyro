@@ -19,6 +19,7 @@ import {
   providerErrorMessage,
   responseOutputText,
 } from "./reply-draft-generation";
+import { textValue } from "@kyro/core";
 
 /**
  * Write a customer-facing message with an LLM.
@@ -52,10 +53,6 @@ function customerMessageMaxOutputTokens() {
   const parsed = Number(envValue("OPENAI_CUSTOMER_MESSAGE_MAX_OUTPUT_TOKENS"));
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 700;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function missingLiterals(message: string, mustInclude: string[]) {

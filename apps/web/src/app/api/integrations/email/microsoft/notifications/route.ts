@@ -6,12 +6,9 @@ import {
 import { MICROSOFT_PROVIDER } from "../../../../../../lib/integrations/microsoft";
 import { syncInboundEmail } from "../../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../../lib/supabase/service";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function expectedSecret() {
   return envSecret(

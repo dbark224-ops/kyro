@@ -1,8 +1,5 @@
 import type { AddressColumnUpdates, StructuredAddress } from "./types";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+import { textValue } from "@kyro/core";
 
 function numberValue(value: unknown) {
   const text = textValue(value);

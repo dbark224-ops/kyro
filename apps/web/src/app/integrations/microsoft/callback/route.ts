@@ -12,6 +12,7 @@ import {
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import { NextResponse } from "next/server";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +45,6 @@ function settingsRedirect(
   url.searchParams.set(key, message);
 
   return NextResponse.redirect(url);
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function scopesFromToken(token: MicrosoftTokenResponse) {

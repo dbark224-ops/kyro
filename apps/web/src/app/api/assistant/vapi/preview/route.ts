@@ -1,12 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getContactProfile } from "../../../../../lib/crm/queries";
 import { getApiWorkspaceContext } from "../../../../../lib/workspace/api-context";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function contactIdFromHref(href: string) {
   try {

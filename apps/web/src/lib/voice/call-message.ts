@@ -1,8 +1,6 @@
-const CALL_MESSAGE_SOURCE = "vapi_post_call_automation";
+import { textValue } from "@kyro/core";
 
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+const CALL_MESSAGE_SOURCE = "vapi_post_call_automation";
 
 export function voiceCallIdFromMessageMetadata(
   metadata: Record<string, unknown>,

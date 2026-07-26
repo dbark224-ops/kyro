@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { textValueOrEmpty as textValue } from "@kyro/core";
 import {
   KYRO_BILLING_SETUP_FLOW,
   markKyroUserBillingSetupIntentComplete,
@@ -12,10 +13,6 @@ type CompleteCardPayload = {
   setupIntentId?: string;
   workspaceId?: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
 
 function errorResponse(message: string, status = 400) {
   return NextResponse.json({ error: message, ok: false }, { status });

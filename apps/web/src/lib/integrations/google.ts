@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hasIntegrationTokenEncryptionKey } from "./token-vault";
+import { textValue } from "@kyro/core";
 
 export const GOOGLE_PROVIDER = "google";
 export const GOOGLE_SERVICE = "google_workspace";
@@ -106,10 +107,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function inboundEmailMetadata(value: unknown) {

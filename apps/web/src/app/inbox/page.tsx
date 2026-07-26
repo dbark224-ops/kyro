@@ -60,6 +60,7 @@ import {
 } from "../engine/actions";
 import { MessageAttachmentList } from "../components/message-attachments";
 import type { ReactNode } from "react";
+import { textValue } from "@kyro/core";
 
 type CommunicationSettings = Awaited<
   ReturnType<typeof getCommunicationSettings>
@@ -299,10 +300,6 @@ function skippedEmailSearchText(email: SkippedEmailSummaryItem) {
 
 function workflowRank(value: string) {
   return WORKFLOW_RANK[value] ?? 99;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function arrayValue(value: unknown) {

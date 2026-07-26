@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { textValue } from "@kyro/core";
 
 export const NOTIFICATION_SETTINGS_POLICY_TYPE = "notifications";
 
@@ -37,10 +38,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function booleanValue(value: unknown, fallback = false) {

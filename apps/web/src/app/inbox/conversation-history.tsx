@@ -4,6 +4,7 @@ import type {
   ConversationHistoryDetailSection,
   ConversationHistoryItem,
 } from "./conversation-history-types";
+import { textValue } from "@kyro/core";
 
 type DetailSection = ConversationHistoryDetailSection;
 type HistoryItem = Omit<ConversationHistoryItem, "occurredAtLabel"> & {
@@ -41,10 +42,6 @@ function formatLabel(value: string | null | undefined) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function sanitizeString(value: string) {

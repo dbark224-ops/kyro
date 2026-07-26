@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@kyro/contracts": "0.1.0",
+    "@kyro/core": "0.1.0",
     "zod": "latest"
   },
   "devDependencies": {

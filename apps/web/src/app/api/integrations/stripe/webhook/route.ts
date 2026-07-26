@@ -13,6 +13,7 @@ import {
 } from "../../../../../lib/billing/kyro-user-billing";
 import { reconcileKyroInvoicePaymentIntent } from "../../../../../lib/billing/kyro-billing-engine";
 import { sendInternalBugNotification } from "../../../../../lib/internal-notifications";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,10 +25,6 @@ type StripeWebhookEvent = {
   id?: string;
   type?: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function boolValue(value: unknown) {
   return value === true;

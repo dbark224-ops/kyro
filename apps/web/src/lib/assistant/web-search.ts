@@ -10,6 +10,7 @@ import {
   openAiBalancedModel,
   openAiReasoningRequest,
 } from "../ai/openai-models";
+import { textValue } from "@kyro/core";
 
 type WebSearchInput = {
   apiKey?: string;
@@ -32,10 +33,6 @@ type WebSearchResult = {
 
 function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function objectRecord(value: unknown) {

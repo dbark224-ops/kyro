@@ -14,6 +14,7 @@ import {
   twilioMessageTransportForWorkspace,
 } from "../integrations/twilio";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
+import { textValue } from "@kyro/core";
 
 type InquiryNotificationOutcome = "booked" | "captured" | "proposed";
 
@@ -43,10 +44,6 @@ type InquiryNotificationInput = {
   voiceCallId?: string | null;
   workspaceId: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function compactText(value: string, maxLength: number) {
   const clean = value.replace(/\s+/g, " ").trim();

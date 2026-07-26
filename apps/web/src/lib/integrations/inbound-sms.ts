@@ -24,6 +24,7 @@ import {
   telephonyUsageCost,
   TWILIO_PROVIDER,
 } from "./twilio";
+import { textValue } from "@kyro/core";
 
 type ServiceSupabase = ReturnType<typeof createServiceSupabaseClient>;
 
@@ -55,10 +56,6 @@ type InternalSmsMessage = InboundSmsPayload & {
 type InboundSmsProcessingOptions = {
   schedule?: (task: () => Promise<void>) => void;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 export function normalizeInboundSmsPayload(params: Record<string, string>) {
   const from = textValue(params.From);

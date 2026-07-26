@@ -66,6 +66,7 @@ import {
   requestInboundVoiceBooking,
 } from "../../../../../lib/voice/inbound-booking";
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -96,10 +97,6 @@ export async function GET() {
     toolSecretReady: Boolean(process.env.VAPI_TOOL_SECRET?.trim()),
     toolUrl: vapiEndpointUrl(VAPI_TOOL_PATH),
   });
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function singleLine(value: string) {

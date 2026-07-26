@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { textValueOrEmpty as textValue } from "@kyro/core";
 import { NextResponse } from "next/server";
 import { createKyroUserBillingSetupIntent } from "../../../../lib/billing/kyro-user-billing";
 import {
@@ -65,10 +66,6 @@ type ValidatedCreateAccountPayload =
         timeZone: string;
       };
     };
-
-function textValue(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
 
 function normalizeTimeZone(value: unknown) {
   const timeZone = textValue(value) || "UTC";

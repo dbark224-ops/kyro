@@ -2,14 +2,11 @@ import {
   autocompleteAddresses,
   type GoogleAutocompletePrimaryType,
 } from "../../../../../../lib/addresses/google";
+import { textValueOrEmpty as textValue } from "@kyro/core";
 import { operatingCountryPhoneRegion } from "../../../../../../lib/workspace/operating-countries";
 import { NextResponse, type NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: string | null) {
-  return value?.trim() || "";
-}
 
 function primaryType(value: string | null): GoogleAutocompletePrimaryType {
   return value === "cities" ? "cities" : "regions";

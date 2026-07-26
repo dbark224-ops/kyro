@@ -1,6 +1,7 @@
 import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { AddressSuggestion, StructuredAddress } from "./types";
 import type { PhoneRegion } from "../crm/identity";
+import { textValue } from "@kyro/core";
 
 const PLACES_AUTOCOMPLETE_URL =
   "https://places.googleapis.com/v1/places:autocomplete";
@@ -183,10 +184,6 @@ function googleLocationBias(): GoogleLocationBias | undefined {
       radius,
     },
   };
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 async function googleErrorMessage(response: Response, fallback: string) {

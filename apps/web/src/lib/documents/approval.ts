@@ -12,6 +12,7 @@ import {
   markQuoteCustomerApproved,
   quoteRevisionState,
 } from "./revisions";
+import { textValue } from "@kyro/core";
 
 export const QUOTE_APPROVAL_TOKEN_BYTES = 32;
 export const QUOTE_APPROVAL_LINK_DAYS = 30;
@@ -62,10 +63,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizeApprovalStatus(value: unknown): QuoteApprovalStatus {

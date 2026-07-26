@@ -40,6 +40,7 @@ import {
 import { VAPI_INTERNAL_CALENDAR_GUIDANCE } from "./vapi-tool-guidance";
 import type { PhoneAgentInboundInquiryMode } from "./voice-settings";
 import { INBOUND_BOOKING_TOOL_NAME } from "../voice/inbound-booking";
+import { textValue } from "@kyro/core";
 
 const VAPI_SERVER_MESSAGES = [
   "assistant.started",
@@ -165,10 +166,6 @@ function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function firstText(...values: unknown[]) {

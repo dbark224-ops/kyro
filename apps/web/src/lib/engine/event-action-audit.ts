@@ -19,6 +19,7 @@ import {
   buildSignedBodyForChannel,
   selectEmailSignature,
 } from "../communication/signatures";
+import { textValue } from "@kyro/core";
 
 type AuditInput = {
   workspaceId: string;
@@ -91,10 +92,6 @@ export function signatureVariantFromActionInput(
   return Boolean(input.userEditedDraft) || Boolean(input.editedByUserId)
     ? "manual"
     : fallback;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function arrayValue(value: unknown) {

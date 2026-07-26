@@ -9,12 +9,9 @@ import {
 } from "../../../../lib/mobile/context";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
 import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function objectValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)

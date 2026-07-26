@@ -19,6 +19,7 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../../lib/mobile/context";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +33,6 @@ const CONVERSATION_STATUSES = new Set([
   "replied",
   "resolved",
 ]);
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)

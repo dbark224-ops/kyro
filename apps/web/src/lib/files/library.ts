@@ -1,4 +1,5 @@
 import { createServiceSupabaseClient } from "../supabase/service";
+import { textValue } from "@kyro/core";
 
 export type WorkspaceFileKind =
   | "document"
@@ -20,10 +21,6 @@ export type WorkspaceFileLibraryItem = {
   downloadHref: string;
   inlineHref: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function numberValue(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;

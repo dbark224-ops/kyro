@@ -1,12 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createOutboundVoiceCall } from "../../../../lib/voice/calls";
 import { getApiWorkspaceContext } from "../../../../lib/workspace/api-context";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as Record<

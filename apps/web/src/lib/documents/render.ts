@@ -4,6 +4,7 @@ import {
   type QuoteLineItem,
 } from "./templates";
 import type { DocumentTemplateDesignSettings } from "./settings";
+import { textValue } from "@kyro/core";
 
 type WorkspaceForDocument = {
   name: string;
@@ -44,10 +45,6 @@ const THEME_COLORS: Record<DocumentTemplateDesignSettings["accentTheme"], string
   green: "#16a34a",
   pink: "#db2777",
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function escapeHtml(value: string | null | undefined) {
   return (value ?? "")

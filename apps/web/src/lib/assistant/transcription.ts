@@ -10,6 +10,7 @@ import {
   pronunciationGuideText,
   type AssistantPronunciationEntry,
 } from "./pronunciation";
+import { textValue } from "@kyro/core";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_PROMPT =
@@ -73,10 +74,6 @@ function sttUnitCostPerMinute(model: string) {
   }
 
   return DEFAULT_UNIT_COSTS_PER_MINUTE[model] ?? 0;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizeKyroAssistantName(transcript: string) {

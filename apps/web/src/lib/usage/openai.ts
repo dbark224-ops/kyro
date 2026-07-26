@@ -1,6 +1,7 @@
 import { createUsageEvent } from "@kyro/api";
 import type { UsageEventCreate, UsageType } from "@kyro/contracts";
 import { applyUsageMarkup, roundUsageMoney, usageMarkupRate } from "./pricing";
+import { textValue } from "@kyro/core";
 
 const PRICE_SOURCE = "openai_api_pricing_2026_07_15";
 const IMAGE_PRICE_SOURCE = "openai_api_pricing_2026_05_27";
@@ -270,10 +271,6 @@ function numberValue(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value);
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function clampTokenCount(value: number, max: number) {

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { textValue } from "@kyro/core";
 
 const PAGE_SIZE = 1000;
 const MAX_USAGE_ROWS = 100_000;
@@ -321,10 +322,6 @@ function parseDateParam(value: string | null | undefined) {
 
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function numberValue(value: unknown) {

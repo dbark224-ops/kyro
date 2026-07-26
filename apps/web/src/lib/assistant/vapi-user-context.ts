@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { textValueOrEmpty as textValue } from "@kyro/core";
 
 export type VapiUserIdentity = {
   email: string;
@@ -7,10 +8,6 @@ export type VapiUserIdentity = {
   name: string;
   phone: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "";
-}
 
 function firstText(...values: unknown[]) {
   for (const value of values) {

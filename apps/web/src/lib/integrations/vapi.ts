@@ -2,6 +2,7 @@ import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import { timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VoiceSettings } from "../assistant/voice-settings";
+import { textValue } from "@kyro/core";
 
 export const VAPI_PROVIDER = "vapi";
 export const VAPI_CARRIER_PROVIDER = "twilio";
@@ -48,10 +49,6 @@ export type VapiDeleteCallResult = {
   error: string | null;
   status: number | null;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function appUrl() {
   return process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") ?? null;

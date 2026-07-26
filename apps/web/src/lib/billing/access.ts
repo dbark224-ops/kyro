@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { getKyroUserBillingSettings } from "./kyro-user-billing";
+import { textValue } from "@kyro/core";
 
 export type WorkspaceBillingAccessStatus =
   | "trial"
@@ -36,10 +37,6 @@ type BillingAccessRow = {
   trial_ends_at: unknown;
   workspace_id: unknown;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function numberValue(value: unknown) {
   const number = typeof value === "number" ? value : Number(value);

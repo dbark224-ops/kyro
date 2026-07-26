@@ -6,6 +6,7 @@ import {
 import { GOOGLE_PROVIDER } from "../../../../../../lib/integrations/google";
 import { syncInboundEmail } from "../../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../../lib/supabase/service";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +14,6 @@ type GmailPushPayload = {
   emailAddress: string | null;
   historyId: string | null;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function expectedSecret() {
   return envSecret(

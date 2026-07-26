@@ -10,6 +10,7 @@ import {
   encryptIntegrationTokenSet,
 } from "./token-vault";
 import type { EmailAttachment, EmailSendResult } from "./mail-types";
+import { textValue } from "@kyro/core";
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
 
@@ -36,10 +37,6 @@ type MicrosoftGraphErrorPayload = {
     message?: string;
   };
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function normalizeScopes(value: unknown) {
   return Array.isArray(value)

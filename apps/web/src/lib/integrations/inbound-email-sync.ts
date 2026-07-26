@@ -47,6 +47,7 @@ import {
   decryptIntegrationTokenSet,
   encryptIntegrationTokenSet,
 } from "./token-vault";
+import { textValue } from "@kyro/core";
 
 export type InboundEmailSyncTrigger =
   | "assistant"
@@ -223,10 +224,6 @@ export function isRecoverableTokenAccessError(message: string) {
     /invalid authentication tag/i.test(message) ||
     /bad decrypt/i.test(message)
   );
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function numberValue(value: unknown) {

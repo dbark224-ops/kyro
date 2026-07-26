@@ -6,16 +6,13 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../../lib/mobile/context";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: Promise<{ contactId: string }>;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function nullableText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;

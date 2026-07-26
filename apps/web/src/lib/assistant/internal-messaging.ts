@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { textValueOrEmpty as textValue } from "@kyro/core";
 import { recordOutboundDirectSms } from "../communication/outbound";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { sendInternalBugNotification } from "../internal-notifications";
@@ -32,10 +33,6 @@ type InternalMessagingUserProfile = {
 
 function barePhone(value: string) {
   return value.replace(/^whatsapp:/i, "").trim();
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
 function normalizedPhone(value: string) {

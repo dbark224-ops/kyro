@@ -23,6 +23,7 @@ import {
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import type { TriageResponseMode } from "./triage";
+import { textValue } from "@kyro/core";
 
 export type ReplyDraftContext = {
   businessProfile?: {
@@ -90,10 +91,6 @@ function replyDraftMaxOutputTokens() {
   const parsed = Number(envValue("OPENAI_REPLY_DRAFT_MAX_OUTPUT_TOKENS"));
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 520;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function objectRecord(value: unknown) {

@@ -25,6 +25,7 @@ import {
 } from "../../lib/assistant/ui-blocks";
 import type { VapiInternalVoiceSession } from "../../lib/assistant/vapi-internal";
 import type { ContactProfile } from "../../lib/crm/queries";
+import { textValue } from "@kyro/core";
 
 type ConnectionState = "connecting" | "idle" | "listening" | "speaking";
 type StartTraceEntry = {
@@ -2716,10 +2717,6 @@ function withoutVoiceOverride(value: Record<string, unknown>) {
   delete rest.voice;
 
   return rest;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function roleFromVapiMessage(

@@ -15,6 +15,7 @@ import {
   type AssistantPronunciationEntry,
 } from "./pronunciation";
 import { getVoiceSettings, type VoiceSettings } from "./voice-settings";
+import { textValue } from "@kyro/core";
 
 const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE = "ballad";
@@ -189,10 +190,6 @@ function elevenLabsTtsUnitCostPerCharacter() {
   const parsed = Number(envValue("ELEVENLABS_TTS_UNIT_COST_PER_CHARACTER_USD"));
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function uuidValue(value: string | null) {

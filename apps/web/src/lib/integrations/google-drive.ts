@@ -12,6 +12,7 @@ import {
 } from "./token-vault";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { textValue } from "@kyro/core";
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
 
@@ -36,10 +37,6 @@ type DriveUploadResponse = {
   id?: string;
   webViewLink?: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)

@@ -1,3 +1,5 @@
+import { textValue } from "@kyro/core";
+
 export type QuoteLineItem = {
   description: string;
   quantity: number | null;
@@ -190,6 +192,3 @@ function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}

@@ -5,6 +5,7 @@ import {
   type ReplyDraftContext,
 } from "../../../../lib/ai/reply-draft-generation";
 import { requireWorkspaceContext } from "../../../../lib/workspace/context";
+import { textValue } from "@kyro/core";
 
 export { buildReplyDraftPrompt, type ReplyDraftContext };
 
@@ -13,10 +14,6 @@ type ReplyDraftRequest = {
   prompt?: unknown;
   skippedEmailId?: unknown;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 export async function POST(request: Request) {
   try {

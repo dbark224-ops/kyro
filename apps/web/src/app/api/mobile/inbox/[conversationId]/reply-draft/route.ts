@@ -10,16 +10,13 @@ import {
   openAiReasoningRequest,
 } from "../../../../../../lib/ai/openai-models";
 import { assertWorkspaceAutomationAllowed } from "../../../../../../lib/billing/access";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: Promise<{ conversationId: string }>;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function defaultSubject(subject: string | null) {
   const value = subject ?? "Thanks for reaching out";

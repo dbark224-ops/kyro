@@ -3,6 +3,7 @@ import {
   normalizeQuoteLineItems,
   type QuoteLineItem,
 } from "./templates";
+import { textValue } from "@kyro/core";
 
 export const DOCUMENT_TEMPLATE_POLICY_TYPE = "document_templates";
 
@@ -76,10 +77,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function booleanValue(value: unknown, fallback: boolean) {

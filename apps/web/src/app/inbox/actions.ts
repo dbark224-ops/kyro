@@ -35,6 +35,7 @@ import {
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { textValue } from "@kyro/core";
 
 const CONVERSATION_STATUSES = new Set([
   "open",
@@ -66,10 +67,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function nullableText(value: string) {

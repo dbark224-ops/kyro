@@ -1,3 +1,4 @@
+import { textValue } from "@kyro/core";
 import { createWorkspaceSlug } from "./workspace.service";
 
 export type WorkspaceBootstrapInput = {
@@ -11,10 +12,6 @@ export type WorkspaceBootstrapInput = {
   serviceArea?: string;
   timeZone?: string;
 };
-
-function textValue(value?: string) {
-  return value?.trim() || null;
-}
 
 function countryDefaults(country?: string) {
   const normalized = country?.trim().toLowerCase();

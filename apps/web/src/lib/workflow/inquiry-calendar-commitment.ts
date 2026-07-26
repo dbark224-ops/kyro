@@ -9,6 +9,7 @@ import {
   type CalendarEventType,
 } from "../calendar/settings";
 import { upsertCalendarConfirmationFutureStep } from "./inquiry-future-steps";
+import { textValue } from "@kyro/core";
 
 const INQUIRY_COMMITMENT_EVENT_SOURCE = "assistant_inquiry_commitment";
 const ACTIVE_COMMITMENT_STATUSES = [
@@ -38,10 +39,6 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export function verifiedInquiryAvailabilityFromActionInput(

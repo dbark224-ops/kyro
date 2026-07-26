@@ -29,6 +29,7 @@ import {
   vapiUserVariableValues,
 } from "./vapi-user-context";
 import { VAPI_INTERNAL_CALENDAR_GUIDANCE } from "./vapi-tool-guidance";
+import { textValue } from "@kyro/core";
 
 export type VapiInternalVoiceSession = {
   assistantId: string | null;
@@ -45,10 +46,6 @@ export type VapiInternalVoiceSession = {
   workspaceId: string;
   workspaceName: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function booleanEnvValue(key: string, fallback: boolean) {
   const raw = (process.env[key] ?? "").trim().toLowerCase();

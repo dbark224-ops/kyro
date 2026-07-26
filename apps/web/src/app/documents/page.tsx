@@ -17,6 +17,7 @@ import {
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { fileGeneratedDocumentToDriveAction } from "./actions";
 import Link from "next/link";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -91,10 +92,6 @@ function formatFileSize(value: number | null) {
   }
 
   return `${Math.round(value / 1024 / 102.4) / 10} MB`;
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function isDocumentFilter(

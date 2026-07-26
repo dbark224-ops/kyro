@@ -9,12 +9,9 @@ import {
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
 import { getPaymentsOverviewData } from "../../../../lib/payments/queries";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function contactLabel(contact: Awaited<ReturnType<typeof getContactList>>[number]) {
   return (

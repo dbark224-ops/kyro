@@ -1,3 +1,5 @@
+export { textValue, textValueOrEmpty } from "./values";
+
 export const KYRO_PRODUCT_POSITIONING =
   "Context-aware business assistant for communications, leads, documents, and controlled AI actions";
 

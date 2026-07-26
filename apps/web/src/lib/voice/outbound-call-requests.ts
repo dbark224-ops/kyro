@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getContactList, type ContactListItem } from "../crm/queries";
+import { textValue } from "@kyro/core";
 
 export type OutboundCallRequestResolution =
   | {
@@ -37,10 +38,6 @@ function normalized(value: string) {
     .replace(/[^a-z0-9+\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function directPhoneFromPrompt(prompt: string) {

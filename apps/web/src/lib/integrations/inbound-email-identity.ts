@@ -1,3 +1,5 @@
+import { textValue } from "@kyro/core";
+
 type InboundEmailIdentityInput = {
   bodyText?: string | null;
   fromEmail?: string | null;
@@ -9,10 +11,6 @@ const SIGN_OFF_PATTERN =
 
 const NON_PERSON_PATTERN =
   /\b(?:accounts?|admin|billing|company|contractors?|customer care|helpdesk|inc|inquiries|inquiry|llc|ltd|marketing|notifications?|plumbing|pty|sales|services?|support|team)\b/i;
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function comparable(value: string) {
   return value

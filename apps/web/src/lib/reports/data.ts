@@ -4,6 +4,7 @@ import { getContactList, getConversationList } from "../crm/queries";
 import { getGeneratedDocumentsForWorkspace } from "../documents/generated-documents";
 import type { WorkspaceSummary } from "../workspace/bootstrap";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { textValue } from "@kyro/core";
 
 export const REPORT_TYPES = [
   {
@@ -234,10 +235,6 @@ type CommunicationEvent = {
   status: string;
   subject: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function numberValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {

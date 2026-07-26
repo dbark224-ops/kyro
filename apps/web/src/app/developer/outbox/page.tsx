@@ -5,6 +5,7 @@ import {
   dismissOutboxDeliveryAction,
   retryOutboxDeliveryAction,
 } from "./actions";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -89,10 +90,6 @@ function objectRecord(value: unknown) {
 
 function arrayValue(value: unknown) {
   return Array.isArray(value) ? value : [];
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function numberValue(value: unknown) {

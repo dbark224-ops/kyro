@@ -4,6 +4,7 @@ import {
   type PhoneRegion,
 } from "../crm/identity";
 import { getWorkspacePhoneRegion } from "../workspace/general-settings";
+import { textValue } from "@kyro/core";
 
 export type SmsConsentStatus =
   | "unknown"
@@ -40,10 +41,6 @@ const OPT_OUT_KEYWORDS = new Set([
   "OPTOUT",
 ]);
 const OPT_IN_KEYWORDS = new Set(["START", "UNSTOP", "YES"]);
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 /**
  * Consent is keyed on `normalized_phone`, so the read path and the write path

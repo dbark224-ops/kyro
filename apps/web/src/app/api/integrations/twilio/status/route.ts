@@ -13,12 +13,9 @@ import {
   reportAssistantDeliveryFailure,
 } from "../../../../../lib/assistant/delivery-feedback";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 async function formParams(request: Request) {
   const form = await request.formData();

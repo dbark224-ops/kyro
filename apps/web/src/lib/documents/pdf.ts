@@ -8,6 +8,7 @@ import {
 } from "./settings";
 import { quoteDocumentContentHash } from "./history";
 import { normalizeQuoteLineItems, type QuoteLineItem } from "./templates";
+import { textValue } from "@kyro/core";
 
 type WorkspaceForDocument = {
   id?: string;
@@ -53,10 +54,6 @@ const THEME_COLORS: Record<DocumentTemplateDesignSettings["accentTheme"], [numbe
   green: [0.086, 0.639, 0.29],
   pink: [0.859, 0.153, 0.467],
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function safeFilename(value: string) {
   return (

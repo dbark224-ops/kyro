@@ -42,6 +42,7 @@ import {
 } from "./call-note-profile";
 import { buildVoiceCallInboxBody } from "./call-message";
 import { notifyInboundVoiceInquiry } from "./inbound-inquiry-notifications";
+import { textValue } from "@kyro/core";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
@@ -160,10 +161,6 @@ type PostCallTaskPlan = {
   taskType: string;
   title: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function remotelyReachableUrl(value: string | null) {
   if (!value) {

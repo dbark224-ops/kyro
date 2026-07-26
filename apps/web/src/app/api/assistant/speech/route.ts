@@ -2,15 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { synthesizeAssistantSpeech } from "../../../../lib/assistant/speech";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { getPrimaryWorkspace } from "../../../../lib/workspace/bootstrap";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_TEXT_CHARACTERS = 4096;
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 export async function POST(request: NextRequest) {
   const supabase = await createServerSupabaseClient();

@@ -25,6 +25,7 @@ import {
   type WorkspaceGeneralSettings,
 } from "../workspace/general-settings";
 import { getVoiceSettings } from "../assistant/voice-settings";
+import { textValue } from "@kyro/core";
 
 type UrgentEscalationInput = {
   content: string;
@@ -63,10 +64,6 @@ type EscalationIncidentRow = {
   title: string;
   workspace_id: string;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function boolValue(value: unknown) {
   return value === true || value === "true" || value === 1;

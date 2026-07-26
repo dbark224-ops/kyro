@@ -1,8 +1,5 @@
 import type { AssistantLink, AssistantUiBlock } from "./types";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+import { textValue } from "@kyro/core";
 
 export function normalizeAssistantUiBlocks(value: unknown): AssistantUiBlock[] {
   if (!Array.isArray(value)) {

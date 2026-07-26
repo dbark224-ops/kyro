@@ -6,6 +6,7 @@ import {
   type PhoneRegion,
 } from "../crm/identity";
 import { applyUsageMarkup, usageMarkupRate } from "../usage/pricing";
+import { textValue } from "@kyro/core";
 
 export const TWILIO_PROVIDER = "twilio";
 export const TWILIO_SMS_SERVICE = "programmable_messaging";
@@ -82,10 +83,6 @@ export type TwilioSmsDeliveryState = {
   normalizedStatus: string | null;
   succeeded: boolean;
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 export function twilioSmsDeliveryState(input: {
   errorCode?: unknown;

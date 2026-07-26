@@ -3,12 +3,9 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function uniqueIds(values: Array<string | null | undefined>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];

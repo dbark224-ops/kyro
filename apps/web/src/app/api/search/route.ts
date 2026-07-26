@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { getApiWorkspaceContext } from "../../../lib/workspace/api-context";
+import { textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -58,10 +59,6 @@ const TYPE_PRIORITY: Record<SearchResultType, number> = {
   voice: 34,
   activity: 24,
 };
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function cleanQuery(value: string) {
   return value

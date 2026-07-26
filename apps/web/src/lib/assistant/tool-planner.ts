@@ -13,6 +13,7 @@ import {
 } from "../usage/openai";
 import { openAiReasoningRequest } from "../ai/openai-models";
 import type { AssistantCurrentTimeContext } from "./current-time";
+import { textValue } from "@kyro/core";
 
 export type AssistantToolName =
   | "action_execution"
@@ -236,10 +237,6 @@ function envValue(key: string) {
 
 function openAiApiKey() {
   return envValue("OPENAI_API_KEY");
-}
-
-function textValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function numberValue(value: unknown) {
