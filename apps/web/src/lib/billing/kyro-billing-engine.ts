@@ -193,11 +193,11 @@ function emailIsConfiguredDeveloper(email: string | null) {
   return configuredDeveloperEmails().includes(email.toLowerCase());
 }
 
-function roundMoney(value: number) {
+export function roundMoney(value: number) {
   return Number(value.toFixed(8));
 }
 
-function toMinorUnits(value: number) {
+export function toMinorUnits(value: number) {
   return Math.max(0, Math.round(value * 100));
 }
 
@@ -236,7 +236,7 @@ export function previousMonthlyBillingPeriod(anchor = new Date()) {
   };
 }
 
-function invoiceNumber(workspaceId: string, periodStart: string) {
+export function invoiceNumber(workspaceId: string, periodStart: string) {
   const date = new Date(periodStart);
   const year = date.getUTCFullYear();
   const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
@@ -244,7 +244,7 @@ function invoiceNumber(workspaceId: string, periodStart: string) {
   return `KYRO-${year}${month}-${workspaceId.slice(0, 8).toUpperCase()}`;
 }
 
-function billablePeriodStart(input: {
+export function billablePeriodStart(input: {
   billingOverview: KyroUserBillingOverview;
   periodStart: string;
   periodEnd: string;
@@ -270,7 +270,7 @@ function billablePeriodStart(input: {
   return trialEnd.toISOString();
 }
 
-function proratedBasePlanAmount(input: {
+export function proratedBasePlanAmount(input: {
   billableStart: string;
   periodStart: string;
   periodEnd: string;
@@ -784,7 +784,7 @@ export async function generateKyroBillingInvoice(input: {
   };
 }
 
-function nextRetryAt(failureCount: number) {
+export function nextRetryAt(failureCount: number) {
   const hours = Math.min(24 * 7, Math.max(1, failureCount) * 24);
   const date = new Date();
   date.setUTCHours(date.getUTCHours() + hours);
