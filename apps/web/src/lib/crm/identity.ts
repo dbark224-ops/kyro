@@ -1,5 +1,6 @@
 import {
   getCountries,
+  getCountryCallingCode,
   parsePhoneNumberFromString,
   type CountryCode,
 } from "libphonenumber-js";
@@ -45,22 +46,10 @@ export function normalizeContactEmail(value?: string | null) {
   return trimmed ? trimmed : null;
 }
 
-function parsedE164(
-  value: string,
-  defaultCountry?: CountryCode,
-  options: { allowPossible?: boolean } = {},
-) {
+function parsedE164(value: string, defaultCountry?: CountryCode) {
   const phone = parsePhoneNumberFromString(value, defaultCountry);
 
-  if (!phone) {
-    return null;
-  }
-
-  if (!phone.isValid() && !(options.allowPossible && phone.isPossible())) {
-    return null;
-  }
-
-  return phone.number;
+  return phone?.isValid() ? phone.number : null;
 }
 
 function explicitInternationalCandidate(raw: string, digits: string) {
@@ -85,14 +74,6 @@ function explicitInternationalCandidate(raw: string, digits: string) {
   return null;
 }
 
-function fallbackInternationalDigits(digits: string) {
-  if (digits.length >= 8 && digits.length <= 15 && !digits.startsWith("0")) {
-    return `+${digits}`;
-  }
-
-  return null;
-}
-
 export function normalizePhoneRegion(
   value?: string | null,
   fallback: CountryCode = DEFAULT_PHONE_REGION,
@@ -104,40 +85,29 @@ export function normalizePhoneRegion(
     : fallback;
 }
 
-function prioritizedCountryOrder(
-  digits: string,
-  defaultCountry?: CountryCode | null,
-) {
-  const priority: CountryCode[] = [];
-
-  if (defaultCountry) {
-    priority.push(defaultCountry);
-  }
-
-  if (/^[2-9]\d{9}$/.test(digits)) {
-    priority.push("US", "CA");
-  } else if (/^1[3-9]\d{9}$/.test(digits)) {
-    priority.push("US", "CA", "CN", "HK", "SG");
-  } else if (/^4\d{8}$/.test(digits)) {
-    priority.push("AU");
-  } else if (/^0[2378]\d{8}$/.test(digits) || /^04\d{8}$/.test(digits)) {
-    priority.push("AU", "NZ", "GB", "IE", "ZA");
-  } else if (/^0\d{10}$/.test(digits)) {
-    priority.push("GB", "IE", "NZ", "ZA", "AU");
-  } else if (digits.startsWith("0")) {
-    priority.push("AU", "GB", "NZ", "IE", "ZA");
-  }
-
-  return [
-    ...priority,
-    ...phoneCountrySearchOrder.filter((country) => !priority.includes(country)),
-  ];
-}
-
-export function normalizeContactPhone(value?: string | null) {
-  return normalizeContactPhoneForRegion(value, null);
-}
-
+/**
+ * Canonicalize a phone number for a workspace.
+ *
+ * Kyro workspaces are hard-set to one operating country, and the customers of a
+ * local service business are overwhelmingly in that country. So a number is
+ * read one of two ways and no other:
+ *
+ *   1. Written with an explicit country code (`+61...`, `0011 1 415...`) --
+ *      honoured as written, so genuine overseas contacts still work.
+ *   2. Written the local way (`0412 345 678`, `412 345 678`, `02 9374 4000`) --
+ *      read as a number in the workspace's own country.
+ *
+ * Both spellings of the same local number land on the identical E.164 string,
+ * so `+61412345678`, `0412345678` and `412345678` are one contact, not three.
+ *
+ * If it parses as neither, the number is NOT quietly reinterpreted as some
+ * other country's. The previous implementation searched every country until
+ * something validated, which turned an unusable GB number into a valid-looking
+ * Indian one and hid the mistake -- a wrong number that looks right is worse
+ * than an obviously broken one. Instead the digits are returned unchanged: a
+ * stable key that still groups the contact, is visibly not E.164, and fails
+ * `isDialablePhoneNumber` so the contact is flagged for a human to fix.
+ */
 export function normalizeContactPhoneForRegion(
   value?: string | null,
   defaultCountry?: CountryCode | string | null,
@@ -161,66 +131,49 @@ export function normalizeContactPhoneForRegion(
   );
 
   if (internationalCandidate) {
-    return (
-      parsedE164(internationalCandidate, undefined, { allowPossible: true }) ??
-      fallbackInternationalDigits(internationalCandidate.replace(/\D/g, "")) ??
-      digits
-    );
+    return parsedE164(internationalCandidate) ?? digits;
   }
 
-  const normalizedDefaultCountry = defaultCountry
-    ? normalizePhoneRegion(String(defaultCountry), DEFAULT_PHONE_REGION)
-    : null;
-  const countryOrder = prioritizedCountryOrder(
-    digits,
-    normalizedDefaultCountry,
+  const region = normalizePhoneRegion(
+    defaultCountry ? String(defaultCountry) : null,
+    DEFAULT_PHONE_REGION,
   );
+  const localReading = parsedE164(withoutExtension, region);
 
-  for (const country of countryOrder) {
-    const parsed = parsedE164(withoutExtension, country);
+  if (localReading) {
+    return localReading;
+  }
 
-    if (parsed) {
-      return parsed;
+  // Same number, no plus: `61412345678` alongside `+61412345678`. Restricted to
+  // the workspace's own calling code, and only reached once the local reading
+  // has failed. Without that restriction a bare US number in an AU workspace
+  // would parse as `+41...` and quietly become Swiss -- the manufactured wrong
+  // answer this function exists to avoid.
+  const callingCode = getCountryCallingCode(region);
+
+  if (digits.startsWith(callingCode)) {
+    const withPlus = parsedE164(`+${digits}`);
+
+    if (withPlus) {
+      return withPlus;
     }
   }
 
-  for (const country of countryOrder) {
-    const parsed = parsedE164(withoutExtension, country, {
-      allowPossible: true,
-    });
-
-    if (parsed) {
-      return parsed;
-    }
-  }
-
-  const countryCodeCandidate = fallbackInternationalDigits(digits);
-
-  if (countryCodeCandidate) {
-    const parsed = parsedE164(countryCodeCandidate, undefined, {
-      allowPossible: true,
-    });
-
-    if (parsed) {
-      return parsed;
-    }
-  }
-
-  return countryCodeCandidate ?? digits;
+  return digits;
 }
 
 /**
  * Whether a number can actually be dialled, as opposed to merely stored.
  *
- * `normalizeContactPhoneForRegion` is deliberately lenient: it never rejects a
- * value that contains digits, falling back to raw digits so a contact is never
- * lost during identity matching. That is right for CRM matching and wrong for
- * sending -- `+1575855239` (nine digits after +1) normalizes happily, then
- * Twilio rejects it on every attempt.
+ * `normalizeContactPhoneForRegion` returns E.164 only when the number genuinely
+ * parses -- as an explicit international number, or as a local number in the
+ * workspace's own country. Anything else comes back as bare digits, which is
+ * deliberately not a phone number. So "did normalization produce E.164?" is
+ * exactly the question this needs to ask.
  *
- * This applies the same normalization and then asks libphonenumber whether the
- * result is genuinely valid, so local formats still pass (`0412345678` with an
- * AU workspace region) while structurally impossible numbers do not.
+ * `+1575855239` (nine digits after the country code) is stored, shown to the
+ * user as they typed it, and reported here as undialable rather than being
+ * retried against Twilio until the job dead-letters.
  */
 export function isDialablePhoneNumber(
   value?: string | null,
@@ -228,15 +181,7 @@ export function isDialablePhoneNumber(
 ) {
   const normalized = normalizeContactPhoneForRegion(value, defaultCountry);
 
-  if (!normalized) {
-    return false;
-  }
-
-  const region = defaultCountry
-    ? normalizePhoneRegion(String(defaultCountry), DEFAULT_PHONE_REGION)
-    : undefined;
-
-  return parsePhoneNumberFromString(normalized, region)?.isValid() ?? false;
+  return Boolean(normalized?.startsWith("+"));
 }
 
 export function normalizeCompanyName(value?: string | null) {

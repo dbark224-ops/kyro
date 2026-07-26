@@ -314,16 +314,59 @@ Two sites deliberately keep no region, both documented in code: matching a diall
 to the workspace that owns it (no workspace known yet) and stamping a call record's own
 from/to columns (provider-supplied E.164, which ignores the region anyway).
 
-**Known limit, recorded in a test rather than fixed.**
-`normalizeContactPhoneForRegion` treats the region as a strong hint, not a constraint — if
-a number is invalid there it keeps searching other countries. So `07700900123` for a GB
-workspace resolves to `+917700900123` (India) rather than failing, because that range is
-Ofcom's reserved fiction range and invalid in GB. The fallback is what lets a workspace
-hold foreign customers, so it is deliberate, but it means the new guard catches numbers
-*no* country can dial rather than numbers wrong for *this* one. Verified all ten common
-local formats (AU/US/GB/NZ/IE/CA/ZA/SG) resolve correctly under their own region.
-Tightening this would change what gets written to `normalized_phone` for existing rows, so
-it needs a backfill plan — not a drive-by change.
+### The cross-country search, removed `[FIXED]`
+
+Recorded above as a known limit and then fixed the same day on the owner's call, which was
+the right one: `normalizeContactPhoneForRegion` treated the workspace region as a hint and,
+when a number failed there, searched every other country until something validated. So
+`07700900123` for a GB workspace became `+917700900123` — a real, dialable Indian number —
+and was reported as fine.
+
+The business argument against that fallback is decisive. Kyro's users are local service
+businesses; someone inquiring about a plumber, accountant or photographer is in that
+country. A bare local number that does not parse there is a mistake, not a foreign
+customer. Searching 200 other countries almost never finds the truth and, when it
+"succeeds", manufactures a confident wrong answer that hides the error.
+
+A number is now read exactly two ways and no other:
+
+1. **With an explicit country code** (`+61…`, `0011 1 415…`) — honoured as written, so
+   genuine overseas contacts still work. This is the escape hatch.
+2. **The local way** (`0412 345 678`, `412 345 678`, `61412345678`) — read as a number in
+   the workspace's own country.
+
+Anything else is stored **as the user typed it**, kept as a stable digits-only key so the
+contact still groups, and fails `isDialablePhoneNumber` so it surfaces as `needs_review`
+for a human. No country is ever invented.
+
+Every spelling of one number collapses to one key — with or without the country code, with
+or without the leading zero, with or without the plus. `+61412345678`, `61412345678`,
+`0412345678`, `0412 345 678`, `412345678` and `0061412345678` are one contact, not six.
+Asserted for AU mobile, AU landline, US, GB, NZ and CA.
+
+Dropping the plus is restricted to the workspace's **own** calling code. Accepting a bare
+foreign code would read `4155550123` in an AU workspace as `+41…` and quietly make it
+Swiss — the same manufactured-answer failure in a new coat.
+
+- `normalizeContactPhone` (the region-less variant) is **deleted**. It had no production
+  callers left and silently meant "AU"; removing it makes omitting the region impossible.
+- The dead search machinery (`prioritizedCountryOrder`, `fallbackInternationalDigits`, the
+  `allowPossible` pass) is gone with it — roughly 60 lines.
+- `crm/queries.ts` had three region-blind sites. `contactSearchFilter` was the dangerous
+  one: without the region, searching `0412 345 678` would have stopped matching the contact
+  stored as `+61412345678`. All three now take the workspace region.
+
+**Measured against live data before shipping.** Of 20 contacts with phone numbers across
+both workspaces, **16 normalize byte-identically** and 4 change — and those 4 are exactly
+the 4 that were already undialable (`+1575578888`, `+1575855239`, `+61471782952`,
+`+15788522585`, all the owner's own mock inquiries). No legitimate number moved.
+
+**Correction to an earlier claim in this document's investigation:** a query against
+`policy_type = 'general'` returned no region and prompted the conclusion that signup never
+persists the operating country. That was a bad query — the real value is
+`workspace_general`. `packages/api/src/services/bootstrap.service.ts` has always mapped
+country → phone region → currency at bootstrap, and production confirms it: WFA Plumbing is
+`AU`, WFA Contractors is `US`. There is no gap.
 
 ## Tier 1 — all clear
 

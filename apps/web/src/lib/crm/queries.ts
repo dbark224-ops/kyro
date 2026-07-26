@@ -2,8 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   normalizeCompanyName,
   normalizeContactEmail,
-  normalizeContactPhone,
+  normalizeContactPhoneForRegion,
+  type PhoneRegion,
 } from "./identity";
+import { getWorkspacePhoneRegion } from "../workspace/general-settings";
 import {
   normalizeContactLifecycleSource,
   normalizeContactLifecycleStage,
@@ -805,21 +807,24 @@ function normalizedEmailForRow(row: ContactIdentityRow) {
   );
 }
 
-function normalizedPhoneForRow(row: ContactIdentityRow) {
+function normalizedPhoneForRow(row: ContactIdentityRow, region: PhoneRegion) {
   return (
     textValue(row.normalized_phone) ??
-    normalizeContactPhone(textValue(row.phone))
+    normalizeContactPhoneForRegion(textValue(row.phone), region)
   );
 }
 
-function buildContactDuplicateWarningMap(rows: ContactIdentityRow[]) {
+function buildContactDuplicateWarningMap(
+  rows: ContactIdentityRow[],
+  region: PhoneRegion,
+) {
   const emailGroups = new Map<string, string[]>();
   const phoneGroups = new Map<string, string[]>();
 
   for (const row of rows) {
     const id = String(row.id);
     const email = normalizedEmailForRow(row);
-    const phone = normalizedPhoneForRow(row);
+    const phone = normalizedPhoneForRow(row, region);
 
     if (email) {
       emailGroups.set(email, [...(emailGroups.get(email) ?? []), id]);
@@ -866,9 +871,10 @@ function buildContactDuplicateWarningMap(rows: ContactIdentityRow[]) {
 function duplicateWarningsForContact(
   contact: ContactIdentityRow,
   duplicateContacts: ContactIdentityRow[],
+  region: PhoneRegion,
 ) {
   const contactEmail = normalizedEmailForRow(contact);
-  const contactPhone = normalizedPhoneForRow(contact);
+  const contactPhone = normalizedPhoneForRow(contact, region);
   const warnings: IdentityDuplicateWarning[] = [];
   const emailMatches = contactEmail
     ? duplicateContacts.filter(
@@ -877,7 +883,7 @@ function duplicateWarningsForContact(
     : [];
   const phoneMatches = contactPhone
     ? duplicateContacts.filter(
-        (candidate) => normalizedPhoneForRow(candidate) === contactPhone,
+        (candidate) => normalizedPhoneForRow(candidate, region) === contactPhone,
       )
     : [];
 
@@ -1077,8 +1083,10 @@ export async function getContactList(
 
   const messageCounts = new Map<string, number>();
   const latestMessageAtByContact = new Map<string, string>();
+  const phoneRegion = await getWorkspacePhoneRegion(supabase, workspaceId);
   const duplicateWarningsByContact = buildContactDuplicateWarningMap(
     identityResult.data ?? [],
+    phoneRegion,
   );
 
   for (const message of messagesResult.data ?? []) {
@@ -1131,7 +1139,7 @@ export async function getContactList(
     notes: contact.notes ? String(contact.notes) : null,
     duplicateWarnings:
       duplicateWarningsByContact.get(String(contact.id)) ??
-      duplicateWarningsForContact(contact, []),
+      duplicateWarningsForContact(contact, [], phoneRegion),
     lastMessageAt: latestMessageAtByContact.get(String(contact.id)) ?? null,
     updatedAt: String(contact.updated_at),
     messageCount: messageCounts.get(String(contact.id)) ?? 0,
@@ -1147,7 +1155,7 @@ function contactSearchNeedle(value: string) {
     .slice(0, 100);
 }
 
-export function contactSearchFilter(value: string) {
+export function contactSearchFilter(value: string, region?: PhoneRegion) {
   const needle = contactSearchNeedle(value);
 
   if (needle.length < 2) {
@@ -1158,7 +1166,9 @@ export function contactSearchFilter(value: string) {
   const normalizedEmail = needle.includes("@")
     ? normalizeContactEmail(needle)
     : null;
-  const normalizedPhone = normalizeContactPhone(needle);
+  // Searching "0412 345 678" has to find the contact stored as +61412345678,
+  // so the needle is normalized exactly the way the stored value was.
+  const normalizedPhone = normalizeContactPhoneForRegion(needle, region);
   const normalizedCompany = normalizeCompanyName(needle);
   const filters = ["name", "company", "email", "phone", "address"].map(
     (column) => `${column}.ilike.${pattern}`,
@@ -1185,7 +1195,10 @@ export async function searchContacts(
   value: string,
   limit = 8,
 ): Promise<ContactSearchResult[]> {
-  const filter = contactSearchFilter(value);
+  const filter = contactSearchFilter(
+    value,
+    await getWorkspacePhoneRegion(supabase, workspaceId),
+  );
 
   if (!filter) {
     return [];
@@ -2367,7 +2380,10 @@ export async function getContactProfile(
     normalizeContactEmail(textValue(contact.email));
   const normalizedPhone =
     textValue(contact.normalized_phone) ??
-    normalizeContactPhone(textValue(contact.phone));
+    normalizeContactPhoneForRegion(
+      textValue(contact.phone),
+      await getWorkspacePhoneRegion(supabase, workspaceId),
+    );
   const normalizedCompany =
     textValue(contact.normalized_company) ??
     normalizeCompanyName(textValue(contact.company));
@@ -2542,6 +2558,7 @@ export async function getContactProfile(
   const duplicateWarnings = duplicateWarningsForContact(
     contact,
     duplicateContacts.data ?? [],
+    await getWorkspacePhoneRegion(supabase, workspaceId),
   );
   const candidateIds = uniqueIds([
     ...conflictContactIds,

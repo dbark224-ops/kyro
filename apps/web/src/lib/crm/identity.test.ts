@@ -4,7 +4,6 @@ import {
   isDialablePhoneNumber,
   normalizeCompanyName,
   normalizeContactEmail,
-  normalizeContactPhone,
   normalizeContactPhoneForRegion,
 } from "./identity";
 
@@ -18,16 +17,18 @@ describe("CRM identity normalization", () => {
   });
 
   it("normalizes common Australian phone variants", () => {
-    assert.equal(normalizeContactPhone("0474 783 952"), "+61474783952");
-    assert.equal(normalizeContactPhone("+61 474 783 952"), "+61474783952");
-    assert.equal(normalizeContactPhone("474-783-952"), "+61474783952");
-  });
-
-  it("normalizes common US and UK phone variants", () => {
-    assert.equal(normalizeContactPhone("+1 (303) 555-0199"), "+13035550199");
-    assert.equal(normalizeContactPhone("(303) 555-0199"), "+13035550199");
-    assert.equal(normalizeContactPhone("020 7183 8750"), "+442071838750");
-    assert.equal(normalizeContactPhone("+44 20 7183 8750"), "+442071838750");
+    assert.equal(
+      normalizeContactPhoneForRegion("0474 783 952", "AU"),
+      "+61474783952",
+    );
+    assert.equal(
+      normalizeContactPhoneForRegion("+61 474 783 952", "AU"),
+      "+61474783952",
+    );
+    assert.equal(
+      normalizeContactPhoneForRegion("474-783-952", "AU"),
+      "+61474783952",
+    );
   });
 
   it("uses the workspace default region for bare local numbers", () => {
@@ -45,11 +46,120 @@ describe("CRM identity normalization", () => {
     );
   });
 
-  it("normalizes explicit international prefixes for other countries", () => {
-    assert.equal(normalizeContactPhone("00 86 10 6552 9988"), "+861065529988");
-    assert.equal(normalizeContactPhone("011 81 3 1234 5678"), "+81312345678");
-    assert.equal(normalizeContactPhone("0011 49 30 901820"), "+4930901820");
-    assert.equal(normalizeContactPhone("138 0013 8000"), "+8613800138000");
+  it("normalizes explicit international prefixes regardless of region", () => {
+    // An overseas contact reached by dialling out of the workspace's country.
+    // The prefix says which country, so no guessing is involved.
+    assert.equal(
+      normalizeContactPhoneForRegion("00 86 10 6552 9988", "AU"),
+      "+861065529988",
+    );
+    assert.equal(
+      normalizeContactPhoneForRegion("011 81 3 1234 5678", "AU"),
+      "+81312345678",
+    );
+    assert.equal(
+      normalizeContactPhoneForRegion("0011 49 30 901820", "AU"),
+      "+4930901820",
+    );
+    assert.equal(
+      normalizeContactPhoneForRegion("+1 (303) 555-0199", "AU"),
+      "+13035550199",
+    );
+  });
+
+  it("stores a number it cannot read as typed, rather than guessing a country", () => {
+    // A bare foreign local number has no marker saying which country it is. The
+    // old behaviour searched every country until something validated, which
+    // turned these into confident wrong answers. Now the digits are kept as a
+    // stable key and the contact is flagged instead.
+    assert.equal(
+      normalizeContactPhoneForRegion("(303) 555-0199", "AU"),
+      "3035550199",
+    );
+    assert.equal(
+      normalizeContactPhoneForRegion("138 0013 8000", "AU"),
+      "13800138000",
+    );
+    assert.equal(
+      normalizeContactPhoneForRegion("020 7183 8750", "AU"),
+      "02071838750",
+    );
+  });
+
+  it("treats every spelling of one local number as the same contact", () => {
+    // The requirement: with or without the country code, with or without the
+    // leading zero, with or without a plus -- all one contact, not four.
+    const spellings: Array<[string, string, string[]]> = [
+      [
+        "AU mobile",
+        "AU",
+        [
+          "+61412345678",
+          "+61 412 345 678",
+          "61412345678",
+          "0412345678",
+          "0412 345 678",
+          "412345678",
+          "0061412345678",
+        ],
+      ],
+      [
+        "AU landline",
+        "AU",
+        ["+61293744000", "61293744000", "0293744000", "02 9374 4000"],
+      ],
+      [
+        "US",
+        "US",
+        ["+14155550123", "14155550123", "4155550123", "(415) 555-0123"],
+      ],
+      [
+        "GB mobile",
+        "GB",
+        ["+447911123456", "447911123456", "07911123456", "07911 123456"],
+      ],
+      [
+        "NZ mobile",
+        "NZ",
+        ["+64211234567", "64211234567", "0211234567", "021 123 4567"],
+      ],
+      [
+        "CA",
+        "CA",
+        ["+14165550123", "14165550123", "4165550123", "(416) 555-0123"],
+      ],
+    ];
+
+    for (const [label, region, forms] of spellings) {
+      const keys = new Set(
+        forms.map((form) => normalizeContactPhoneForRegion(form, region)),
+      );
+
+      assert.equal(
+        keys.size,
+        1,
+        `${label} should produce one key, got ${[...keys].join(" | ")}`,
+      );
+      assert.ok(
+        [...keys][0]?.startsWith("+"),
+        `${label} should normalize to E.164, got ${[...keys][0]}`,
+      );
+    }
+  });
+
+  it("only drops the plus for the workspace's own country code", () => {
+    // `61412345678` is the AU number written without its plus, so it resolves.
+    assert.equal(
+      normalizeContactPhoneForRegion("61412345678", "AU"),
+      "+61412345678",
+    );
+    // `4155550123` is a US number written without its plus. Accepting a bare
+    // foreign code would read it as +41 (Switzerland) -- a confident wrong
+    // answer. It is kept as typed and flagged instead.
+    assert.equal(
+      normalizeContactPhoneForRegion("4155550123", "AU"),
+      "4155550123",
+    );
   });
 
   it("normalizes company names for grouping", () => {
@@ -63,10 +173,13 @@ describe("CRM identity normalization", () => {
 describe("isDialablePhoneNumber", () => {
   it("rejects the number that dead-lettered a real send on 2026-07-25", () => {
     // +1575855239 is nine digits after the country code, one short of a US
-    // number. normalizeContactPhoneForRegion happily returns it, Twilio
-    // rejected it on every retry until the job dead-lettered.
-    assert.equal(normalizeContactPhoneForRegion("+1575855239"), "+1575855239");
-    assert.equal(isDialablePhoneNumber("+1575855239"), false);
+    // number. It is kept as typed so the operator can see what was entered,
+    // and reported undialable so Twilio is never asked to send to it.
+    assert.equal(
+      normalizeContactPhoneForRegion("+1575855239", "AU"),
+      "1575855239",
+    );
+    assert.equal(isDialablePhoneNumber("+1575855239", "AU"), false);
   });
 
   it("accepts bare local numbers written in the workspace's own region", () => {
@@ -97,21 +210,16 @@ describe("isDialablePhoneNumber", () => {
     }
   });
 
-  it("documents the limit: an invalid local number can resolve to another country", () => {
-    // normalizeContactPhoneForRegion treats the workspace region as a strong
-    // hint, not a constraint -- if a number is invalid there it keeps searching
-    // other countries. 07700 900123 is Ofcom's reserved fiction range, invalid
-    // in GB, and the search lands on a valid Indian number instead.
-    //
-    // That fallback is what lets a workspace hold foreign customers, so it is
-    // deliberate, but it means this guard catches numbers no country can dial
-    // rather than numbers wrong for this one. Recorded here so a future change
-    // to the search order shows up as a failure instead of a surprise.
+  it("flags a number invalid in its own country instead of reinterpreting it", () => {
+    // 07700 900123 is Ofcom's reserved fiction range: invalid in GB. The old
+    // search-every-country fallback turned it into +917700900123, a real and
+    // dialable Indian number, and reported it as fine. A GB plumber has no
+    // Indian customers -- the number is simply wrong, and now says so.
     assert.equal(
       normalizeContactPhoneForRegion("07700900123", "GB"),
-      "+917700900123",
+      "07700900123",
     );
-    assert.equal(isDialablePhoneNumber("07700900123", "GB"), true);
+    assert.equal(isDialablePhoneNumber("07700900123", "GB"), false);
   });
 
   it("accepts explicit international numbers regardless of workspace region", () => {
