@@ -18,6 +18,7 @@ import { openAiBalancedModel, openAiReasoningRequest } from "./openai-models";
 import {
   customerReplyConversationRules,
   firstCustomerTurnFromThread,
+  isSmsLikeChannel,
 } from "./customer-reply-style";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
@@ -257,7 +258,13 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
         "Treat context.verifiedAvailability as an authoritative calendar check. Use its exact date and time in the reply when present; do not invent another slot and do not ask the customer what time they prefer.",
         "Set calendarCommitment to true when the drafted reply makes a concrete commitment or proposal with a specific date and time for attendance, including an option that is still waiting for the customer to accept.",
         "Set calendarCommitment to false when the reply merely asks what time suits, asks for availability, requests missing information without offering a concrete time, or does not contain a sufficiently specific attendance date and time.",
-        "Use a normal email subject beginning with Re: when appropriate.",
+        // A text message has no subject line, so asking for one only invites
+        // the model to write a header the customer will never see.
+        ...(isSmsLikeChannel(context.channelType)
+          ? [
+              "This is a text message, not an email. There is no subject line -- put everything in the body.",
+            ]
+          : ["Use a normal email subject beginning with Re: when appropriate."]),
         ...customerReplyConversationRules({
           channel: context.channelType,
           isFirstCustomerTurn: firstCustomerTurnFromThread(context.thread),

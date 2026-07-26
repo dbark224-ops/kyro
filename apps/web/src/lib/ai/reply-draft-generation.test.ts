@@ -97,6 +97,10 @@ describe("buildReplyDraftPrompt", () => {
     // And it is never told to lean on the email signature, which is what
     // produced a signed SMS with a logo attached on 2026-07-25.
     assert.doesNotMatch(rules, /saved email signature/);
+
+    // A text has no subject line, so it is not asked for one.
+    assert.doesNotMatch(rules, /email subject beginning with Re:/);
+    assert.match(rules, /no subject line/);
   });
 
   it("keeps intake requirements for a genuine service inquiry", () => {
