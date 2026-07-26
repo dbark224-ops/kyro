@@ -83,8 +83,12 @@ import {
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { getUsageReport } from "../usage/queries";
 import {
+  conversationDisplayName,
+  conversationIdFromHref,
+  conversationJobLabel,
   conversationToAssistantLink,
   isConversationInLiveWorkQueue,
+  recentWorkQueueConversationIds,
 } from "./conversation-links";
 import { searchAssistantHistory } from "./context-compaction";
 import { getAssistantKnowledge } from "./knowledge";
@@ -141,6 +145,13 @@ import {
   type CalendarTargetResolution,
   type ParsedCalendarSchedule,
 } from "./calendar-intent";
+import {
+  inquiryLookupFallbackAnswerForAssistant,
+  inquiryRecordForAssistant,
+  looksLikeContextualInquiryReplyRequest,
+  looksLikeInquiryAvailabilityOfferRequest,
+  recentInquiryConversationForPrompt,
+} from "./inquiry-intent";
 import { meaningfulTokens, normalized } from "./prompt-text";
 import {
   customerEmailForQuote,
@@ -3935,18 +3946,6 @@ export function looksLikeActionExecutionRequest(prompt: string) {
   return directExecutionTarget || directReplyTarget || directDoTarget;
 }
 
-export function looksLikeInquiryAvailabilityOfferRequest(prompt: string) {
-  const text = normalized(prompt);
-
-  return (
-    /\b(offer|propose|suggest)\b.{0,60}\b(time|slot|availability)\b/.test(
-      text,
-    ) ||
-    /\b(time|slot)\b.{0,50}\b(free|available)\b/.test(text) ||
-    /\bcheck\b.{0,40}\bavailability\b/.test(text)
-  );
-}
-
 function requestedActionLimit(prompt: string) {
   const text = normalized(prompt);
 
@@ -3963,131 +3962,6 @@ function requestedActionLimit(prompt: string) {
   }
 
   return 5;
-}
-
-function conversationIdFromHref(href: string) {
-  try {
-    const url = new URL(href, "https://kyro.local");
-
-    if (url.pathname.startsWith("/inbox/")) {
-      const id = url.pathname.split("/").filter(Boolean)[1];
-
-      return id || null;
-    }
-
-    return url.searchParams.get("conversationId");
-  } catch {
-    const match = href.match(/^\/inbox\/([^/?#]+)/);
-
-    return match?.[1] ?? null;
-  }
-}
-
-function recentWorkQueueConversationIds(
-  recentMessages: readonly AssistantRecentMessage[] = [],
-  options: { maxAgeMs?: number } = {},
-) {
-  const ids: string[] = [];
-  const now = Date.now();
-
-  for (const message of [...recentMessages].reverse()) {
-    if (message.role !== "assistant") {
-      continue;
-    }
-
-    if (options.maxAgeMs && message.createdAt) {
-      const createdAt = new Date(message.createdAt).getTime();
-
-      if (
-        Number.isFinite(createdAt) &&
-        Math.max(0, now - createdAt) > options.maxAgeMs
-      ) {
-        continue;
-      }
-    }
-
-    const hasWorkQueueIntent =
-      message.intent === "work_queue" ||
-      message.intent === "inquiry_owner_question";
-    const hasWorkQueueBlock = (message.uiBlocks ?? []).some((block) => {
-      if (block.type === "approval_queue") {
-        return true;
-      }
-
-      if (block.type !== "summary_cards") {
-        return false;
-      }
-
-      return /\b(queue|work|approval|reply|inbox)\b/i.test(block.title);
-    });
-
-    if (!hasWorkQueueIntent && !hasWorkQueueBlock) {
-      continue;
-    }
-
-    for (const link of message.links ?? []) {
-      const conversationId = conversationIdFromHref(link.href);
-
-      if (conversationId && !ids.includes(conversationId)) {
-        ids.push(conversationId);
-      }
-    }
-
-    for (const block of message.uiBlocks ?? []) {
-      if (block.type !== "approval_queue") {
-        continue;
-      }
-
-      for (const item of block.items) {
-        const conversationId = item.href
-          ? conversationIdFromHref(item.href)
-          : null;
-
-        if (conversationId && !ids.includes(conversationId)) {
-          ids.push(conversationId);
-        }
-      }
-    }
-
-    if (ids.length > 0) {
-      break;
-    }
-  }
-
-  return ids;
-}
-
-export function looksLikeContextualInquiryReplyRequest(
-  prompt: string,
-  recentMessages: readonly AssistantRecentMessage[] = [],
-) {
-  if (
-    recentWorkQueueConversationIds(recentMessages, {
-      maxAgeMs: 30 * 60 * 1000,
-    }).length === 0
-  ) {
-    return false;
-  }
-
-  const text = normalized(prompt);
-  const asksForAdvice =
-    /\b(what|how)\s+(?:should|would|could)\s+(?:i|we)\s+(?:reply|respond|say)\b/.test(
-      text,
-    );
-
-  if (asksForAdvice || /\b(draft|prepare|suggest)\b/.test(text)) {
-    return false;
-  }
-
-  return (
-    /\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:reply|respond|email|message|write back|tell)\b/.test(
-      text,
-    ) ||
-    /^(?:please\s+)?(?:reply|respond|email|message|write back|tell)\b/.test(
-      text,
-    ) ||
-    /\b(?:reply|respond)\s+for\s+(?:me|us)\b/.test(text)
-  );
 }
 
 async function executableDraftReplyActionsForConversations({
@@ -4155,53 +4029,6 @@ async function executableDraftReplyActionsForConversations({
         new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
       );
     });
-}
-
-export function recentInquiryConversationForPrompt({
-  conversationIds,
-  conversations,
-  prompt,
-}: {
-  conversationIds: string[];
-  conversations: Array<Pick<ConversationListItem, "contactName" | "id">>;
-  prompt: string;
-}) {
-  const order = new Map(
-    conversationIds.map((conversationId, index) => [conversationId, index]),
-  );
-  const available = conversations
-    .filter((conversation) => order.has(conversation.id))
-    .sort(
-      (left, right) =>
-        (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-        (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-    );
-  const promptText = normalized(prompt);
-  const namedMatches = available.filter((conversation) => {
-    const contactName = normalized(conversation.contactName ?? "");
-    const emailLocalPart = conversation.contactName?.includes("@")
-      ? normalized(conversation.contactName.split("@")[0] ?? "")
-      : "";
-
-    return (
-      (contactName.length > 1 && promptText.includes(contactName)) ||
-      (emailLocalPart.length > 2 && promptText.includes(emailLocalPart))
-    );
-  });
-
-  if (namedMatches.length > 1) {
-    return {
-      ambiguous: true,
-      conversationId: null,
-      matches: namedMatches.map((conversation) => conversation.id),
-    };
-  }
-
-  return {
-    ambiguous: false,
-    conversationId: namedMatches[0]?.id ?? available[0]?.id ?? null,
-    matches: namedMatches.map((conversation) => conversation.id),
-  };
 }
 
 const INQUIRY_COMMITMENT_EVENT_SOURCE = "assistant_inquiry_commitment";
@@ -6269,109 +6096,6 @@ function inquiryHaystack(conversation: ConversationListItem) {
     .join(" ");
 }
 
-function conversationDisplayName(conversation: ConversationListItem) {
-  return conversation.contactName ?? conversation.leadTitle ?? "this inquiry";
-}
-
-function conversationJobLabel(conversation: ConversationListItem) {
-  const candidates = [
-    conversation.inquiryFacts?.jobType,
-    conversation.leadServiceType,
-    conversation.leadTitle,
-  ];
-
-  return (
-    candidates.find(
-      (candidate) => candidate && !isGenericInquiryLabel(candidate),
-    ) ?? "General inquiry"
-  );
-}
-
-function isGenericInquiryLabel(value: string) {
-  const label = normalized(value);
-
-  return (
-    label.startsWith("new inquiry from ") ||
-    label.startsWith("new enquiry from ") ||
-    label.startsWith("quote inquiry from ") ||
-    label.startsWith("quote enquiry from ") ||
-    label === "manual inbound" ||
-    label === "manual inbound enquiry"
-  );
-}
-
-function replyStatusForConversation(conversation: ConversationListItem) {
-  if (
-    conversation.workflowBucket === "awaiting_customer" ||
-    conversation.status === "replied" ||
-    conversation.latestDirection === "outbound"
-  ) {
-    return "replied";
-  }
-
-  if (
-    conversation.pendingApprovalCount > 0 ||
-    conversation.status === "reply_drafted"
-  ) {
-    return "draft_waiting_approval";
-  }
-
-  if (conversation.latestDirection === "inbound") {
-    return "needs_reply";
-  }
-
-  return "not_applicable";
-}
-
-function assistantInquiryMessage(value: string | null) {
-  const text = value?.trim();
-
-  if (!text) {
-    return null;
-  }
-
-  return text.length > 4_000 ? `${text.slice(0, 3_997)}...` : text;
-}
-
-export function inquiryRecordForAssistant(
-  conversation: ConversationListItem,
-) {
-  return {
-    customer: conversationDisplayName(conversation),
-    inquiryMessage: assistantInquiryMessage(conversation.originalInquiryBody),
-    job: conversationJobLabel(conversation),
-    latestMessage: assistantInquiryMessage(conversation.latestBody),
-    latestMessageDirection: conversation.latestDirection,
-    nextAction: conversation.nextActionLabel,
-    operatorSummary: inquiryStatusSummary(conversation),
-    replyStatus: replyStatusForConversation(conversation),
-    senderAddress: conversation.senderAddress,
-    status: conversation.status,
-    subject: conversation.latestSubject,
-    workflowBucket: conversation.workflowBucket,
-  };
-}
-
-export function inquiryLookupFallbackAnswerForAssistant(
-  conversation: ConversationListItem,
-) {
-  const message = assistantInquiryMessage(
-    conversation.originalInquiryBody ?? conversation.latestBody,
-  );
-
-  if (!message) {
-    return `${inquiryStatusSummary(conversation)} Open the inquiry below if you want to review or action it.`;
-  }
-
-  const compactMessage = message.replace(/\s+/g, " ").trim();
-  const displayedMessage =
-    compactMessage.length > 700
-      ? `${compactMessage.slice(0, 697)}...`
-      : compactMessage;
-
-  return `The inquiry says: "${displayedMessage}" ${inquiryStatusSummary(conversation)}`;
-}
-
 function conversationToInquiryLink(
   conversation: ConversationListItem,
 ): AssistantLink {
@@ -6386,54 +6110,6 @@ function conversationToInquiryLink(
         ? conversation.nextActionLabel
         : `${conversation.nextActionLabel} - ${jobLabel}`,
   };
-}
-
-function inquiryStatusSummary(conversation: ConversationListItem) {
-  const customer = conversationDisplayName(conversation);
-  const job = conversationJobLabel(conversation);
-
-  if (conversation.workflowBucket === "awaiting_customer") {
-    return `The ${customer} inquiry is waiting on the customer. A reply has already been recorded, so the next move is to wait for their response or follow up later.`;
-  }
-
-  if (conversation.workflowBucket === "follow_up_due") {
-    return `The ${customer} inquiry is due for an internal follow-up. A reply was recorded earlier and the configured follow-up delay has passed.`;
-  }
-
-  if (conversation.workflowBucket === "resolved") {
-    return `The ${customer} inquiry is marked resolved. The recorded job is ${job}.`;
-  }
-
-  if (
-    conversation.pendingApprovalCount > 0 ||
-    conversation.status === "reply_drafted"
-  ) {
-    return `The ${customer} inquiry is waiting on you. A draft reply is ready, but it has not been approved or sent yet.`;
-  }
-
-  if (conversation.workflowBucket === "missing_info") {
-    const missingInfo = conversation.inquiryFacts?.missingInfo.join(", ");
-
-    return `The ${customer} inquiry needs a reply asking for missing details${missingInfo ? `: ${missingInfo}` : ""}.`;
-  }
-
-  if (conversation.workflowBucket === "ready_to_quote") {
-    return `The ${customer} inquiry is ready for quote work. The recorded job is ${job}.`;
-  }
-
-  if (conversation.workflowBucket === "site_visit_needed") {
-    return `The ${customer} inquiry looks like it needs a site visit or booking plan. The recorded job is ${job}.`;
-  }
-
-  if (conversation.workflowBucket === "needs_review") {
-    return `The ${customer} inquiry needs review before Kyro treats it as ready to action. The recorded job is ${job}.`;
-  }
-
-  if (conversation.latestDirection === "inbound") {
-    return `The ${customer} inquiry has an inbound message and still needs a reply.`;
-  }
-
-  return `The ${customer} inquiry is currently ${conversation.nextActionLabel.toLowerCase()}. The recorded job is ${job}.`;
 }
 
 async function documentTemplateControlCommand({

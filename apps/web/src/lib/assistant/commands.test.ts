@@ -22,18 +22,20 @@ import {
   selectQuoteTemplateForAssistantPrompt,
 } from "./quote-intent";
 import {
-  assistantSmsBodyFromPrompt,
-  assistantDate,
   inquiryLookupFallbackAnswerForAssistant,
   inquiryRecordForAssistant,
   looksLikeContextualInquiryReplyRequest,
+  looksLikeInquiryAvailabilityOfferRequest,
+  recentInquiryConversationForPrompt,
+} from "./inquiry-intent";
+import {
+  assistantSmsBodyFromPrompt,
+  assistantDate,
   looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
   looksLikeActionExecutionRequest,
-  looksLikeInquiryAvailabilityOfferRequest,
   looksLikeInboundEmailAwarenessRequest,
   looksLikeDirectWorkplaceSmsRequest,
-  recentInquiryConversationForPrompt,
   resolveAssistantCommand,
   selfCallRecipientForAssistant,
   selectContactForAssistantPrompt,
