@@ -1,4 +1,9 @@
 import { fetchAiProvider } from "../http/fetch-with-timeout";
+import {
+  buildAssistantCurrentTimeContext,
+  type AssistantCurrentTimeContext,
+} from "../assistant/current-time";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getConversationReview } from "../crm/queries";
 import {
@@ -26,6 +31,15 @@ import type { TriageResponseMode } from "./triage";
 import { objectRecord, textValue } from "@kyro/core";
 
 export type ReplyDraftContext = {
+  /**
+   * What "today" is, in the workspace's timezone.
+   *
+   * Without this the model wrote customer-facing dates from its own sense of
+   * now: asked on Sunday 26 July 2026 to offer a time "on Monday", it offered
+   * Monday the 20th -- six days in the past. The date parser was never the
+   * problem; the writer simply did not know what day it was.
+   */
+  currentTime?: AssistantCurrentTimeContext | null;
   businessProfile?: {
     businessName: string | null;
     defaultReplyInstructions: string | null;
@@ -239,6 +253,10 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
       },
       rules: [
         "Return JSON only.",
+        // Every date the customer reads is written here, so the writer needs
+        // the workspace's own clock. First, because everything after it about
+        // weekdays and relative dates depends on knowing what day it is.
+        ...(context.currentTime ? [context.currentTime.promptLine] : []),
         "Write as Kyro on behalf of the business owner, not as an AI assistant.",
         "Apply context.replyWriting to tone, wording style, message length, sign-off behavior, trade phrasing, and reusable instructions.",
         "Do not invent prices, availability, addresses, phone numbers, or promises not present in context.",
@@ -496,6 +514,7 @@ export async function loadBusinessProfile(
 
 export async function generateReplyDraft({
   conversationId,
+  currentTime,
   prompt,
   skippedEmailId,
   supabase,
@@ -504,6 +523,8 @@ export async function generateReplyDraft({
   workspaceId,
 }: {
   conversationId?: string | null;
+  /** Pass the caller's clock when it already has one; otherwise it is loaded. */
+  currentTime?: AssistantCurrentTimeContext | null;
   prompt?: string | null;
   skippedEmailId?: string | null;
   supabase: SupabaseClient;
@@ -534,13 +555,21 @@ export async function generateReplyDraft({
     throw new Error("Unable to find reply context.");
   }
 
-  const [businessProfile, communicationSettings] = await Promise.all([
-    loadBusinessProfile(supabase, workspaceId),
-    getCommunicationSettings(supabase, workspaceId),
-  ]);
+  const [businessProfile, communicationSettings, generalSettings] =
+    await Promise.all([
+      loadBusinessProfile(supabase, workspaceId),
+      getCommunicationSettings(supabase, workspaceId),
+      // Only needed for the timezone, and only when the caller has no clock.
+      currentTime
+        ? Promise.resolve(null)
+        : getWorkspaceGeneralSettings(supabase, workspaceId),
+    ]);
   context.businessProfile = businessProfile;
   context.replyWriting = communicationSettings.replyWriting;
   context.verifiedAvailability = verifiedAvailability ?? null;
+  context.currentTime =
+    currentTime ??
+    buildAssistantCurrentTimeContext(generalSettings?.timeZone ?? "UTC");
 
   const startedAt = Date.now();
   const draft = await runOpenAiReplyDraft(context);

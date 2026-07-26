@@ -5,6 +5,8 @@ import {
   replyWritingPromptRules,
 } from "../communication/settings";
 import { fetchAiProvider } from "../http/fetch-with-timeout";
+import { buildAssistantCurrentTimeContext } from "../assistant/current-time";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import {
   buildLlmUsageEvents,
   openAiProviderUsageId,
@@ -62,6 +64,7 @@ function missingLiterals(message: string, mustInclude: string[]) {
 function buildPrompt(input: {
   contextFacts: Record<string, unknown>;
   correction?: string[];
+  currentTimeLine?: string | null;
   mustInclude: string[];
   purposeRules: string[];
   task: string;
@@ -73,6 +76,10 @@ function buildPrompt(input: {
       outputContract: { body: "string", subject: "string" },
       rules: [
         "Return JSON only.",
+        // Same reason as the reply writer: anything this composes may name a
+        // day or a date, and it cannot do that correctly without knowing what
+        // today is in the workspace's timezone.
+        ...(input.currentTimeLine ? [input.currentTimeLine] : []),
         ...input.purposeRules,
         ...(input.mustInclude.length
           ? [
@@ -232,10 +239,15 @@ export async function generateCustomerMessage(input: {
   }
 
   const mustInclude = (input.mustInclude ?? []).filter(Boolean);
-  const [businessProfile, communicationSettings] = await Promise.all([
-    loadBusinessProfile(input.supabase, input.workspaceId),
-    getCommunicationSettings(input.supabase, input.workspaceId),
-  ]);
+  const [businessProfile, communicationSettings, generalSettings] =
+    await Promise.all([
+      loadBusinessProfile(input.supabase, input.workspaceId),
+      getCommunicationSettings(input.supabase, input.workspaceId),
+      getWorkspaceGeneralSettings(input.supabase, input.workspaceId),
+    ]);
+  const currentTimeLine = buildAssistantCurrentTimeContext(
+    generalSettings.timeZone,
+  ).promptLine;
   const writingRules = audienceWritingRules({
     audience: input.audience ?? "customer",
     channelType: input.channelType,
@@ -255,6 +267,7 @@ export async function generateCustomerMessage(input: {
     model,
     prompt: buildPrompt({
       contextFacts,
+      currentTimeLine,
       mustInclude,
       purposeRules: input.purposeRules,
       task: input.task,
@@ -277,6 +290,7 @@ export async function generateCustomerMessage(input: {
             " | ",
           )}. Rewrite the message so each appears exactly as given, worded naturally.`,
         ],
+        currentTimeLine,
         mustInclude,
         purposeRules: input.purposeRules,
         task: input.task,

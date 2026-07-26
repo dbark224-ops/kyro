@@ -7,6 +7,7 @@ import {
 } from "../assistant/persistence";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { recordOutboundDirectSms } from "../communication/outbound";
+import { smsCharacterBudget } from "../communication/sms-length";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import {
   getActiveWorkspaceSmsNumber,
@@ -36,6 +37,14 @@ type InquiryNotificationInput = {
   ownerQuestion?: string | null;
   preferredTime?: string | null;
   preparedReplyAvailable?: boolean;
+  /**
+   * The drafted reply itself, not just whether one exists.
+   *
+   * The alert used to say only that a reply was ready, so approving it meant
+   * approving something the owner had not read. The model summarises this the
+   * same way it summarises the customer's message -- gist, not transcript.
+   */
+  preparedReplyBody?: string | null;
   providerCallId?: string | null;
   recommendedAction?: string | null;
   sourceId?: string | null;
@@ -216,6 +225,39 @@ export function buildInboundInquiryNotificationBody(
  * decides what to recommend rather than picking from five sentences this file
  * used to hold.
  */
+/**
+ * Two SMS segments. Enough to name the customer, say what they want, summarise
+ * the drafted reply and carry the link, without becoming something the owner
+ * scrolls past on a job site.
+ */
+const INQUIRY_ALERT_CHARACTER_BUDGET = smsCharacterBudget(2);
+
+/**
+ * What the new-inquiry alert has to achieve, for the model to write from.
+ *
+ * Two of these earned their wording the hard way. The alert used to announce
+ * that a reply was drafted without saying what it said, so approving it meant
+ * approving something unread. And it told the owner to "reply SEND IT", which
+ * was both restrictive and false -- nothing matches that phrase, the reply is
+ * read by the assistant and any clear yes works.
+ *
+ * Exported so the rules can be asserted directly rather than inferred from a
+ * model's output.
+ */
+export function inboundInquiryAlertRules() {
+  return [
+    "This tells the business owner a new customer inquiry has arrived and what to do about it.",
+    "Open with the channel it came in on and who it is from.",
+    "Say what they want. Quote the customer only when their wording matters; otherwise summarise it in a few words.",
+    "If context.kyroQuestionForOwner is set, that question is the point of the message -- ask it plainly and say a reply here will be used to finish the customer response.",
+    "If context.preparedReplyDraft is set, say in your own words what that reply would tell the customer, so they know what they are approving without having to open the app. Convey the gist, not the wording -- the same judgement you use on the customer's message.",
+    "When a reply is drafted, invite them to confirm however they like. Do not instruct them to send a specific phrase; any clear yes will do, and they can also just tell you what to change.",
+    "If Kyro already answered, say so and do not ask them to act.",
+    "End with the Kyro link. Include the phone number only when the owner would plausibly call rather than open the app.",
+    `Keep it under ${INQUIRY_ALERT_CHARACTER_BUDGET} characters. It is a text message read on a phone between jobs.`,
+  ];
+}
+
 async function writeInboundInquiryNotification(
   input: InquiryNotificationInput,
 ) {
@@ -234,20 +276,13 @@ async function writeInboundInquiryNotification(
         outcome: input.outcome ?? "captured",
         preferredTime: textValue(input.preferredTime),
         preparedReplyAvailable: Boolean(input.preparedReplyAvailable),
+        preparedReplyDraft: textValue(input.preparedReplyBody),
         replyAlreadySent: Boolean(input.autoReplySent),
         scheduledFor: textValue(input.eventLabel),
         stillNeededFromCustomer: [...new Set(input.missingInfo ?? [])],
       },
       mustInclude: [kyroLink],
-      purposeRules: [
-        "This tells the business owner a new customer inquiry has arrived and what to do about it.",
-        "Open with the channel it came in on and who it is from.",
-        "Say what they want. Quote the customer only when their wording matters; otherwise summarise it in a few words.",
-        "If context.kyroQuestionForOwner is set, that question is the point of the message -- ask it plainly and say a reply here will be used to finish the customer response.",
-        "If a reply is already drafted, tell them they can reply SEND IT to send it. If Kyro already answered, say so and do not ask them to act.",
-        "End with the Kyro link. Include the phone number only when the owner would plausibly call rather than open the app.",
-        "Keep it under 320 characters. It is a text message read on a phone between jobs.",
-      ],
+      purposeRules: inboundInquiryAlertRules(),
       supabase: input.supabase,
       task: "Write the new-inquiry alert for the business owner.",
       taskType: "inbound_inquiry_notification",

@@ -560,6 +560,7 @@ export async function processInboundSmsPayload(
       ownerQuestion: result.ownerQuestion,
       preferredTime: result.inquiryFacts?.preferredTime ?? null,
       preparedReplyAvailable: Boolean(result.replyDraft?.body),
+      preparedReplyBody: result.replyDraft?.body ?? null,
       sourceId: input.messageSid,
       summary: result.triageSummary ?? "New SMS inquiry received.",
       supabase,

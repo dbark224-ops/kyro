@@ -4529,6 +4529,7 @@ async function replyToRecentInquiryCommand({
 
   const draft = await generateReplyDraft({
     conversationId: action.conversationId,
+    currentTime,
     prompt: instructionPrompt,
     supabase,
     userId: user.id,

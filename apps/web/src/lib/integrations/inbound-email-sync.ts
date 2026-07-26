@@ -3281,6 +3281,9 @@ async function processMessage({
       preferredTime: promoted.inquiryFacts?.preferredTime ?? null,
       preparedReplyAvailable:
         !promoted.autoReplySent && Boolean(promoted.replyDraft?.body),
+      preparedReplyBody: promoted.autoReplySent
+        ? null
+        : (promoted.replyDraft?.body ?? null),
       recommendedAction: classification.actionHint,
       sourceId: String(event.id),
       summary: promoted.triageSummary ?? classification.summary,
