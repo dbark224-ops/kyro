@@ -16,15 +16,55 @@ import type { AssistantRecentMessage } from "./types";
  * on the resolved inquiry stayed behind.
  */
 
+/**
+ * Is the user asking Kyro to check the calendar and offer the customer a time?
+ *
+ * This gate decides whether a real slot is resolved and handed to the reply
+ * writer as verifiedAvailability. Miss it and the writer has no slot to name,
+ * so it falls back to "we can come Tuesday, what time suits" -- which is
+ * exactly the vagueness the owner kept running into.
+ *
+ * The first version required one of offer/propose/suggest next to one of
+ * time/slot/availability, which missed most of how people actually ask:
+ * "give him a time", "offer them an appointment", "propose something for
+ * Monday", "book him in Tuesday", "see when we're free". Six of twelve
+ * realistic phrasings fell through.
+ *
+ * Widened deliberately rather than exhaustively. A false positive here is
+ * cheap: Kyro resolves a genuine free slot and offers it, which is what
+ * someone naming a day almost always wants. A false negative is the bug.
+ */
+const OFFER_VERBS =
+  "offer|propose|suggest|give|book|schedule|slot|pencil|find|get|put";
+const TIME_NOUNS =
+  "time|times|slot|slots|availability|appointment|appointments|booking|visit|something|one";
+
 export function looksLikeInquiryAvailabilityOfferRequest(prompt: string) {
   const text = normalized(prompt);
 
+  // Asking what to say is asking for advice, not for a slot to be reserved.
+  if (/\b(what|how)\s+(?:should|would|could)\s+(?:i|we)\b/.test(text)) {
+    return false;
+  }
+
   return (
-    /\b(offer|propose|suggest)\b.{0,60}\b(time|slot|availability)\b/.test(
+    new RegExp(`\\b(?:${OFFER_VERBS})\\b.{0,60}\\b(?:${TIME_NOUNS})\\b`).test(
       text,
     ) ||
-    /\b(time|slot)\b.{0,50}\b(free|available)\b/.test(text) ||
-    /\bcheck\b.{0,40}\bavailability\b/.test(text)
+    new RegExp(`\\b(?:${TIME_NOUNS})\\b.{0,50}\\b(?:free|available|open)\\b`).test(
+      text,
+    ) ||
+    // "see when we're free on Monday", "what days are we free this week"
+    /\b(?:when|what day|what days|which day|which days)\b.{0,40}\b(?:free|available|open)\b/.test(
+      text,
+    ) ||
+    /\b(?:free|available|open)\b.{0,40}\b(?:on|this|next)\b.{0,20}\b(?:mon|tue|wed|thu|fri|sat|sun|week|day)/.test(
+      text,
+    ) ||
+    // Any explicit instruction to consult the calendar for this reply.
+    /\b(?:check|look at|see|review|consult)\b.{0,30}\b(?:calendar|diary|schedule|availability)\b/.test(
+      text,
+    )
   );
 }
 
