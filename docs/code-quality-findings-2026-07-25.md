@@ -372,7 +372,7 @@ country → phone region → currency at bootstrap, and production confirms it: 
 
 All Tier 1 items are fixed. Start at Tier 2.
 
-### 1. Contacts and Inbox are hard-capped at 100 rows `[VERIFIED]`
+### 1. Contacts and Inbox are hard-capped at 100 rows `[FIXED]`
 
 `lib/crm/queries.ts:1040` — `getContactList` ends in `.limit(100)` with no offset or
 cursor. `app/contacts/page.tsx:73` sets `CRM_PAGE_SIZE = 10` and slices client-side
@@ -382,7 +382,7 @@ Harmless today (production has 25 contacts). At 300 contacts a customer silently
 two thirds of their CRM, and searching for a missing contact returns nothing. There are
 four separate `.limit(100)` sites in that file.
 
-### 2. Zero tests on the highest-consequence code `[VERIFIED]`
+### 2. Zero tests on the highest-consequence code `[FIXED]`
 
 Confirmed absent — no test file beside any of these:
 
@@ -401,7 +401,7 @@ Several of the riskiest functions here are already pure and could be tested quic
 
 Now that CI exists, tests added here actually protect every future change.
 
-### 3. `textValue` is defined 135 times with divergent contracts `[VERIFIED]`
+### 3. `textValue` is defined 135 times with divergent contracts `[FIXED]`
 
 135 files define their own `function textValue`. 129 are byte-identical
 (`trim() || null`). At least 6 differ — returning `""` instead of `null`:
@@ -422,6 +422,46 @@ the fallback.
 ## Unverified long tail
 
 **Everything below was reported by an audit agent and never fact-checked. Confirm before acting.**
+
+### Triage pass, 2026-07-26
+
+The list below was written before a day of fixes and was never revisited, so it had
+drifted badly out of date. A pass over it found three groups.
+
+**Already resolved by later work — ignore these entries below:**
+
+- `commands.ts` at 8,778 lines → split, now 6,606 across seven modules.
+- `settings/page.tsx` at 6,311 lines → split, now **337** across fourteen sections.
+- The assistant turn pipeline written four times → unified.
+- `/api/mobile` as a parallel re-implementation → reconciled into main.
+- Worker health computed from environment variables → now derived from real queue metrics.
+- `textValue` duplication → one definition. `objectRecord` (73 copies) went with it.
+- `packages/core` "100% dead" → **no longer true**: 144 files import it, because the
+  shared value helpers now live there.
+
+**Checked and found FALSE — do not resurrect:**
+
+- `settings/page.tsx` "correctness rests on an undocumented never-conditionally-render,
+  only-CSS-hide invariant". The opposite is true: the page renders exactly one section
+  through a chain of `selectedSection === …` ternaries and CSS-hides nothing. There was no
+  invariant to break, which is also why the split was safe on that axis.
+
+**Confirmed real and still open — these are the ones worth acting on:**
+
+- `[VERIFIED]` **12 of the 19 `formatDate` implementations ignore the workspace timezone.**
+  Not the mechanical duplication the entry below implies: there are 12 genuinely distinct
+  implementations, differing in format, empty label and timezone handling, so merging them
+  would change what users see and needs a product decision. The real defect is narrower and
+  worse: pages including contacts, the contact profile panel and documents render dates in
+  the *server's* timezone. On Vercel that is UTC, so for an AU workspace a 9am Melbourne
+  message displays as the previous day. `lib/timezone.ts` already has a tested
+  `formatWorkspaceDateTime`; those call sites bypass it.
+- `[VERIFIED]` The `@/*` path alias is declared and used **zero** times. Harmless, but it
+  means every import is a deep relative path.
+- `[VERIFIED]` `getContactList` fetched every message row to compute two integers — see
+  Fixed above. Confirmed real, and closed on 2026-07-26.
+
+Everything else below remains genuinely unchecked.
 
 ### Structure and size
 
