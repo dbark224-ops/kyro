@@ -19,6 +19,8 @@ import {
   formatContactLifecycleSource,
   formatContactLifecycleStage,
 } from "../../lib/crm/lifecycle";
+import { profileResolutionNotice } from "../../lib/crm/profile-resolution-notice";
+import { InfoBubble } from "../settings/info-bubble";
 import {
   getContactList,
   getContactProfile,
@@ -217,8 +219,10 @@ function contactNeedsProfileReview(contact: ContactListItem) {
 }
 
 function profileResolutionLabel(contact: ContactListItem) {
-  if (contact.profileResolutionStatus === "needs_review") {
-    return "Profile conflict";
+  const notice = profileResolutionNotice(contact);
+
+  if (notice) {
+    return notice.label;
   }
 
   if (contact.profileResolutionStatus === "merged") {
@@ -402,6 +406,9 @@ function ContactRow({
   sort: CrmSort;
 }>) {
   const warningLabel = profileResolutionLabel(contact);
+  // A native title rather than the InfoBubble used in the panel: the whole row
+  // is a link, and a focusable tooltip inside it would swallow the click.
+  const warningExplanation = profileResolutionNotice(contact)?.explanation;
 
   return (
     <PendingSmartPrefetchLink
@@ -432,7 +439,9 @@ function ContactRow({
       </div>
       <div className="crm-row-meta">
         {warningLabel ? (
-          <span className="pill warning">{warningLabel}</span>
+          <span className="pill warning" title={warningExplanation}>
+            {warningLabel}
+          </span>
         ) : null}
         <span>{contact.messageCount} messages</span>
         <span>{formatDate(contact.lastMessageAt ?? contact.updatedAt)}</span>
@@ -598,6 +607,7 @@ function ProfileResolutionPanelBody({
   const shouldShowReviewAction = hasConflict || hasWarnings;
   const showReviewWithCandidate =
     shouldShowReviewAction && profile.resolutionCandidates.length === 1;
+  const resolutionNotice = profileResolutionNotice(profile.contact);
 
   return (
     <section className="assistant-preview-panel profile-warning-panel profile-resolution-panel">
@@ -614,8 +624,13 @@ function ProfileResolutionPanelBody({
             leads, quote drafts, or audit history.
           </p>
         </div>
-        {hasConflict ? (
-          <span className="pill warning">Needs review</span>
+        {resolutionNotice ? (
+          <span className="pill warning">
+            {resolutionNotice.label}
+            <InfoBubble label={resolutionNotice.label}>
+              {resolutionNotice.explanation}
+            </InfoBubble>
+          </span>
         ) : null}
         {hasMerged ? <span className="pill">Merged</span> : null}
       </div>

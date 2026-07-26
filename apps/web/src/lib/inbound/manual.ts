@@ -301,7 +301,7 @@ async function createContactProfile(
     match.status === "conflict_created"
       ? match.reason
       : undialablePhone
-        ? `Phone number ${phone} is not a valid number for this workspace's region, so Kyro cannot send SMS or call it.`
+        ? `${phone} isn't a valid phone number, so Kyro can't text or call it.`
         : null;
 
   const { data: contact, error } = await supabase

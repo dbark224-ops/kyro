@@ -9439,6 +9439,22 @@ button.voice-card {
   color: var(--muted);
 }
 
+/* An info bubble explaining a pill sits inside it, so it has to shrink to the
+   pill's line height instead of stretching it to the bubble's default 22px. */
+.pill .info-bubble,
+.pill .info-bubble-mark {
+  width: 15px;
+  height: 15px;
+}
+
+.pill .info-bubble {
+  margin-left: 6px;
+}
+
+.pill .info-bubble-mark {
+  font-size: 0.625rem;
+}
+
 .review-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

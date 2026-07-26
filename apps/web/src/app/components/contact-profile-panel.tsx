@@ -20,6 +20,8 @@ import {
   formatContactLifecycleSource,
   formatContactLifecycleStage,
 } from "../../lib/crm/lifecycle";
+import { profileResolutionNotice } from "../../lib/crm/profile-resolution-notice";
+import { InfoBubble } from "../settings/info-bubble";
 import type { ContactProfile } from "../../lib/crm/queries";
 
 type ContactProfilePanelProps = Readonly<{
@@ -552,7 +554,6 @@ function ProfileResolutionPanel({
       <details className="profile-resolution-disclosure">
         <summary>Resolve duplicates</summary>
         <ProfileResolutionPanelBody
-          hasConflict={hasConflict}
           hasMerged={hasMerged}
           hasWarnings={hasWarnings}
           profile={profile}
@@ -567,7 +568,6 @@ function ProfileResolutionPanel({
 
   return (
     <ProfileResolutionPanelBody
-      hasConflict={hasConflict}
       hasMerged={hasMerged}
       hasWarnings={hasWarnings}
       profile={profile}
@@ -580,7 +580,6 @@ function ProfileResolutionPanel({
 }
 
 function ProfileResolutionPanelBody({
-  hasConflict,
   hasMerged,
   hasWarnings,
   profile,
@@ -589,7 +588,6 @@ function ProfileResolutionPanelBody({
   showReviewWithCandidate,
   successHref,
 }: Readonly<{
-  hasConflict: boolean;
   hasMerged: boolean;
   hasWarnings: boolean;
   profile: ContactProfile;
@@ -598,6 +596,8 @@ function ProfileResolutionPanelBody({
   showReviewWithCandidate: boolean;
   successHref: (contactId: string) => string;
 }>) {
+  const resolutionNotice = profileResolutionNotice(profile.contact);
+
   return (
     <section className="assistant-preview-panel profile-warning-panel profile-resolution-panel">
       {hasWarnings ? (
@@ -613,7 +613,14 @@ function ProfileResolutionPanelBody({
             leads, quote drafts, or audit history.
           </p>
         </div>
-        {hasConflict ? <span className="pill warning">Needs review</span> : null}
+        {resolutionNotice ? (
+          <span className="pill warning">
+            {resolutionNotice.label}
+            <InfoBubble label={resolutionNotice.label}>
+              {resolutionNotice.explanation}
+            </InfoBubble>
+          </span>
+        ) : null}
         {hasMerged ? <span className="pill">Merged</span> : null}
       </div>
 
