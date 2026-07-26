@@ -20,6 +20,7 @@ import {
   buildQuotePdfArtifactForDraft,
   quotePdfMetadata,
 } from "../../lib/documents/pdf";
+import { generateQuoteSendMessage } from "../../lib/documents/quote-send-message";
 import {
   generatedDocumentMetadata,
   recordQuoteGeneratedDocument,
@@ -159,37 +160,6 @@ function slugValue(value: string) {
       .replace(/^-+|-+$/g, "")
       .slice(0, 64) || "template"
   );
-}
-
-function quoteSendSubject(title: string) {
-  return `Your quote: ${title}`;
-}
-
-function quoteSendBody({
-  approvalUrl,
-  customerName,
-  jobLabel,
-}: {
-  approvalUrl?: string | null;
-  customerName: string | null;
-  jobLabel: string | null;
-}) {
-  const greeting = customerName ? `Hi ${customerName},` : "Hi,";
-  const scope = jobLabel
-    ? ` for ${jobLabel}`
-    : "";
-
-  return [
-    greeting,
-    "",
-    `Thanks for the opportunity. I have attached the quote${scope} for you to review.`,
-    "",
-    approvalUrl
-      ? `You can approve the quote or request changes here: ${approvalUrl}`
-      : "Please let me know if you would like anything changed, or if you are happy for us to proceed.",
-    "",
-    "If the link gives you any trouble, just reply to this email and I will help.",
-  ].join("\n");
 }
 
 function quoteLineItemsFromForm(formData: FormData) {
@@ -1009,14 +979,15 @@ export async function prepareQuoteDraftSendAction(formData: FormData) {
     textValue(lead.service_type) ??
     textValue(lead.title) ??
     String(quoteDraft.title);
-  const subject =
-    revisionState.currentVersion > 1
-      ? `Your revised quote: ${String(quoteDraft.title)}`
-      : quoteSendSubject(String(quoteDraft.title));
-  const body = quoteSendBody({
+  const { body, subject } = await generateQuoteSendMessage({
     approvalUrl: approvalLink.url,
     customerName,
     jobLabel,
+    quoteTitle: String(quoteDraft.title),
+    revisionNumber: revisionState.currentVersion,
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
   });
 
   const { data: action, error: actionError } = await supabase

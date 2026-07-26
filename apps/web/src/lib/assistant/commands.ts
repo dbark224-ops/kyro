@@ -1,5 +1,6 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { generateReplyDraft } from "../ai/reply-draft-generation";
+import { generateQuoteSendMessage } from "../documents/quote-send-message";
 import {
   getContactList,
   getContactProfile,
@@ -7039,34 +7040,6 @@ async function quoteCommand({
   };
 }
 
-function quoteSendSubject(title: string) {
-  return `Your quote: ${title}`;
-}
-
-function quoteSendBody({
-  approvalUrl,
-  customerName,
-  jobLabel,
-}: {
-  approvalUrl?: string | null;
-  customerName: string | null;
-  jobLabel: string | null;
-}) {
-  const greeting = customerName ? `Hi ${customerName},` : "Hi,";
-  const scope = jobLabel ? ` for ${jobLabel}` : "";
-
-  return [
-    greeting,
-    "",
-    `Thanks for the opportunity. I have attached the quote${scope} for you to review.`,
-    "",
-    approvalUrl
-      ? `You can approve the quote or request changes here: ${approvalUrl}`
-      : "Please let me know if you would like anything changed, or if you are happy for us to proceed.",
-    "",
-    "If the link gives you any trouble, just reply to this email and I will help.",
-  ].join("\n");
-}
 
 function quoteReadyRecord(quote: QuoteDraftListItem) {
   const readiness = quoteSendReadiness(quote);
@@ -7463,14 +7436,15 @@ async function prepareQuoteDraftSendFromAssistant({
     textValue(lead.service_type) ??
     textValue(lead.title) ??
     quoteTitle;
-  const subject =
-    revisionState.currentVersion > 1
-      ? `Your revised quote: ${quoteTitle}`
-      : quoteSendSubject(quoteTitle);
-  const body = quoteSendBody({
+  const { body, subject } = await generateQuoteSendMessage({
     approvalUrl: approvalLink.url,
     customerName,
     jobLabel,
+    quoteTitle,
+    revisionNumber: revisionState.currentVersion,
+    supabase,
+    userId: user.id,
+    workspaceId: workspace.id,
   });
 
   const { data: action, error: actionError } = await supabase

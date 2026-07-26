@@ -101,13 +101,13 @@ function objectRecord(value: unknown) {
     : {};
 }
 
-function providerErrorMessage(payload: unknown) {
+export function providerErrorMessage(payload: unknown) {
   const error = objectRecord(objectRecord(payload).error);
 
   return textValue(error.message) ?? "OpenAI reply generation failed.";
 }
 
-function responseOutputText(payload: unknown) {
+export function responseOutputText(payload: unknown) {
   const root = objectRecord(payload);
   const direct = textValue(root.output_text);
 
@@ -470,7 +470,7 @@ async function skippedEmailContext(
   };
 }
 
-async function loadBusinessProfile(
+export async function loadBusinessProfile(
   supabase: SupabaseClient,
   workspaceId: string,
 ) {
