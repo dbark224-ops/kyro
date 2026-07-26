@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createUsageEvent } from "@kyro/api";
 import type { UsageEventCreate, UsageType } from "@kyro/contracts";
 import { applyUsageMarkup, roundUsageMoney, usageMarkupRate } from "./pricing";
@@ -1219,4 +1220,73 @@ export function toUsageEventRow(input: UsageEventDraft): UsageEventDatabaseRow {
 
 export function toUsageEventRows(events: UsageEventDraft[]) {
   return events.map((event) => toUsageEventRow(event));
+}
+
+/**
+ * Write usage events, and never let the write fail quietly.
+ *
+ * `usage_events` is what customer charges are computed from, so a dropped
+ * insert is lost revenue with no trace of what was lost. Three call sites used
+ * to do this insert inline and two of them ignored the returned error.
+ *
+ * This deliberately does not throw. Two of the three callers sit on the
+ * message-generation path, where the model has already run and been paid for;
+ * throwing there would discard the generated message and the retry would buy
+ * the same tokens twice. Instead the failure is written to the audit log --
+ * with the full event payload, so the charge can be reconstructed -- and
+ * returned to the caller, which decides whether it is fatal.
+ */
+export async function recordUsageEvents(
+  supabase: SupabaseClient,
+  {
+    context,
+    events,
+    userId = null,
+    workspaceId,
+  }: {
+    context: string;
+    events: UsageEventDraft[];
+    userId?: string | null;
+    workspaceId: string;
+  },
+): Promise<{ error: Error | null }> {
+  if (events.length === 0) {
+    return { error: null };
+  }
+
+  const { error } = await supabase
+    .from("usage_events")
+    .insert(toUsageEventRows(events));
+
+  if (!error) {
+    return { error: null };
+  }
+
+  const failure = new Error(
+    `Unable to record usage events (${context}): ${error.message}`,
+  );
+
+  console.error(failure.message, {
+    eventCount: events.length,
+    workspaceId,
+  });
+
+  // Best effort, and intentionally not awaited into the failure path: if the
+  // audit write fails too there is nowhere left to put this.
+  try {
+    await supabase.from("audit_logs").insert({
+      action: "usage.recording_failed",
+      actor_id: userId,
+      actor_type: "system",
+      after: { events: toUsageEventRows(events) },
+      entity_id: workspaceId,
+      entity_type: "workspace",
+      metadata: { context, reason: error.message },
+      workspace_id: workspaceId,
+    });
+  } catch {
+    // Swallowed on purpose -- console.error above is the last resort.
+  }
+
+  return { error: failure };
 }

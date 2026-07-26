@@ -22,6 +22,7 @@ import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-setting
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { objectRecord } from "@kyro/core";
+import { rethrowNextControlFlow } from "../../lib/http/next-control-flow";
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -559,6 +560,7 @@ export async function mergeContactProfilesAction(formData: FormData) {
       }.`,
     );
   } catch (error) {
+    rethrowNextControlFlow(error);
     redirectWithStatus(
       redirectTo,
       "engine_error",

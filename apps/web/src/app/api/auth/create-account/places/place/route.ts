@@ -1,4 +1,5 @@
 import { getAddressPlaceDetails } from "../../../../../../lib/addresses/google";
+import { withinPlacesRateLimit } from "../rate-limit";
 import { NextResponse, type NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,11 @@ export async function GET(request: NextRequest) {
       { error: "Google place id is required." },
       { status: 400 },
     );
+  }
+
+  // See ../rate-limit: unauthenticated, paid, and previously unthrottled.
+  if (!(await withinPlacesRateLimit(request.headers, "place"))) {
+    return NextResponse.json({ data: null, unavailable: true });
   }
 
   try {

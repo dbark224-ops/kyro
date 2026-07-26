@@ -23,7 +23,7 @@ import {
   openAiProviderUsageId,
   openAiUsageFromResponse,
   openAiUsageFromTokenCounts,
-  toUsageEventRows,
+  recordUsageEvents,
   usageEventTotals,
   type OpenAiTokenUsage,
 } from "../usage/openai";
@@ -2650,12 +2650,16 @@ export async function runStubAiTriage(
   const usageEvents = [...mainUsageEvents, ...repairUsageEvents];
   const usageTotals = usageEventTotals(usageEvents);
 
-  const { error: usageError } = await supabase
-    .from("usage_events")
-    .insert(toUsageEventRows(usageEvents));
+  // Unlike the message-generation callers, this runs in a background job where
+  // the work is retried, so a failure here is worth stopping for.
+  const { error: usageError } = await recordUsageEvents(supabase, {
+    context: "triage",
+    events: usageEvents,
+    workspaceId,
+  });
 
   if (usageError) {
-    throw new Error(`Unable to record usage events: ${usageError.message}`);
+    throw usageError;
   }
 
   await patchContactFromExtractedInquiryFacts({

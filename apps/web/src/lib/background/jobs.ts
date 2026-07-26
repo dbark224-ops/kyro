@@ -21,6 +21,44 @@ import { cleanupExpiredVoiceCallRecordings } from "../voice/calls";
 import { processExpiredInquiryFutureSteps } from "../workflow/inquiry-future-steps";
 import { objectRecord, textValue } from "@kyro/core";
 
+/**
+ * Why a sync counts as failed.
+ *
+ * Both sync jobs used to return their result unread, so a run where every
+ * mailbox or calendar errored was recorded as a completed job: inbound mail
+ * stops arriving and the queue still shows green. An expired OAuth token and a
+ * genuinely quiet inbox produced identical job records.
+ *
+ * These are exported so the rule is testable on its own. `needsReconnect` is
+ * deliberately excluded -- it needs the owner to reauthorise, and no amount of
+ * retrying fixes it, so it is tracked as a connection status instead.
+ */
+export function inboundEmailSyncFailure(result: {
+  errors: Array<{ accountEmail: string | null; message: string }>;
+}) {
+  if (result.errors.length === 0) {
+    return null;
+  }
+
+  return result.errors
+    .map((item) =>
+      item.accountEmail ? `${item.accountEmail}: ${item.message}` : item.message,
+    )
+    .join("; ");
+}
+
+export function calendarSyncFailure(result: {
+  providers: Array<{ error: string | null; provider: string }>;
+}) {
+  const failed = result.providers.filter((item) => item.error);
+
+  if (failed.length === 0) {
+    return null;
+  }
+
+  return failed.map((item) => `${item.provider}: ${item.error}`).join("; ");
+}
+
 export const BACKGROUND_JOB_TYPES = [
   "outbound_delivery",
   "inbound_email_sync",
@@ -266,6 +304,12 @@ async function dispatchBackgroundJob(
         workspaceId: workspace.id,
       });
 
+      const emailFailure = inboundEmailSyncFailure(result);
+
+      if (emailFailure) {
+        throw new Error(emailFailure);
+      }
+
       return { result: serializeResult(result) };
     }
 
@@ -282,6 +326,12 @@ async function dispatchBackgroundJob(
         userId: workspace.owner_user_id,
         workspaceId: workspace.id,
       });
+
+      const calendarFailure = calendarSyncFailure(result);
+
+      if (calendarFailure) {
+        throw new Error(calendarFailure);
+      }
 
       return { result: serializeResult(result) };
     }

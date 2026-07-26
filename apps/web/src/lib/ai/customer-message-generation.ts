@@ -9,7 +9,7 @@ import {
   buildLlmUsageEvents,
   openAiProviderUsageId,
   openAiUsageFromResponse,
-  toUsageEventRows,
+  recordUsageEvents,
   usageEventTotals,
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
@@ -313,7 +313,7 @@ export async function generateCustomerMessage(input: {
     usage: attempt.usage,
   });
   const usageTotals = usageEventTotals(usageEvents);
-  const { data: aiRun } = await input.supabase
+  const { data: aiRun, error: aiRunError } = await input.supabase
     .from("ai_runs")
     .insert({
       actual_cost: String(usageTotals.costSnapshot),
@@ -346,20 +346,29 @@ export async function generateCustomerMessage(input: {
     .select("id")
     .single();
 
-  if (aiRun?.id) {
-    const aiRunId = String(aiRun.id);
-
-    await input.supabase.from("usage_events").insert(
-      toUsageEventRows(
-        usageEvents.map((event) => ({
-          ...event,
-          aiRunId,
-          sourceId: aiRunId,
-          sourceType: "ai_run",
-        })),
-      ),
+  // The model has already run and been charged for by this point, so a failure
+  // to record the charge must not discard the message -- but it must not pass
+  // silently either. recordUsageEvents writes the payload to the audit log so
+  // the charge stays reconstructable.
+  if (aiRunError) {
+    console.error(
+      `Unable to record ai_run for ${input.taskType}: ${aiRunError.message}`,
     );
   }
+
+  const aiRunId = aiRun?.id ? String(aiRun.id) : null;
+
+  await recordUsageEvents(input.supabase, {
+    context: `customer_message:${input.taskType}`,
+    events: usageEvents.map((event) => ({
+      ...event,
+      ...(aiRunId
+        ? { aiRunId, sourceId: aiRunId, sourceType: "ai_run" as const }
+        : {}),
+    })),
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+  });
 
   return { body: attempt.body, model, subject: attempt.subject };
 }

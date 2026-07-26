@@ -11,7 +11,7 @@ import {
   buildLlmUsageEvents,
   openAiProviderUsageId,
   openAiUsageFromResponse,
-  toUsageEventRows,
+  recordUsageEvents,
   usageEventTotals,
 } from "../usage/openai";
 import { openAiBalancedModel, openAiReasoningRequest } from "./openai-models";
@@ -563,7 +563,7 @@ export async function generateReplyDraft({
     usage: draft.usage,
   });
   const usageTotals = usageEventTotals(usageEvents);
-  const { data: aiRun } = await supabase
+  const { data: aiRun, error: aiRunError } = await supabase
     .from("ai_runs")
     .insert({
       actual_cost: String(usageTotals.costSnapshot),
@@ -602,17 +602,25 @@ export async function generateReplyDraft({
     .select("id")
     .single();
 
-  if (aiRun?.id) {
-    const aiRunId = String(aiRun.id);
-    const rows = usageEvents.map((event) => ({
-      ...event,
-      aiRunId,
-      sourceId: aiRunId,
-      sourceType: "ai_run",
-    }));
-
-    await supabase.from("usage_events").insert(toUsageEventRows(rows));
+  // See customer-message-generation: the model has already been paid for, so
+  // record the charge even if the ai_runs row failed, and never drop it silently.
+  if (aiRunError) {
+    console.error(`Unable to record ai_run for reply draft: ${aiRunError.message}`);
   }
+
+  const aiRunId = aiRun?.id ? String(aiRun.id) : null;
+
+  await recordUsageEvents(supabase, {
+    context: "reply_draft",
+    events: usageEvents.map((event) => ({
+      ...event,
+      ...(aiRunId
+        ? { aiRunId, sourceId: aiRunId, sourceType: "ai_run" as const }
+        : {}),
+    })),
+    userId,
+    workspaceId,
+  });
 
   return {
     body: draft.body,

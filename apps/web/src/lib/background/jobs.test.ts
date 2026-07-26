@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   BACKGROUND_JOB_MAX_READY_AGE_SECONDS,
+  calendarSyncFailure,
+  inboundEmailSyncFailure,
   unhealthyBackgroundQueueMetrics,
 } from "./jobs";
 
@@ -75,5 +77,53 @@ describe("background queue health", () => {
     const failed = metric({ failedCount: 4 });
 
     assert.deepEqual(unhealthyBackgroundQueueMetrics([failed]), [failed]);
+  });
+});
+
+describe("a failed sync fails its job", () => {
+  it("passes a clean inbound email sync", () => {
+    assert.equal(inboundEmailSyncFailure({ errors: [] }), null);
+  });
+
+  it("fails when a mailbox errored, and names it", () => {
+    assert.equal(
+      inboundEmailSyncFailure({
+        errors: [{ accountEmail: "owner@example.com", message: "Token expired" }],
+      }),
+      "owner@example.com: Token expired",
+    );
+  });
+
+  it("reports every failing mailbox, not just the first", () => {
+    assert.equal(
+      inboundEmailSyncFailure({
+        errors: [
+          { accountEmail: "a@example.com", message: "Token expired" },
+          { accountEmail: null, message: "Fetch failed" },
+        ],
+      }),
+      "a@example.com: Token expired; Fetch failed",
+    );
+  });
+
+  it("passes a clean calendar sync", () => {
+    assert.equal(calendarSyncFailure({ providers: [] }), null);
+    assert.equal(
+      calendarSyncFailure({ providers: [{ error: null, provider: "google" }] }),
+      null,
+    );
+  });
+
+  it("fails when any calendar provider errored", () => {
+    assert.equal(
+      calendarSyncFailure({
+        providers: [
+          { error: null, provider: "google" },
+          { error: "Consent revoked", provider: "microsoft" },
+        ],
+      }),
+      "microsoft: Consent revoked",
+      "one healthy provider must not mask a broken one",
+    );
   });
 });

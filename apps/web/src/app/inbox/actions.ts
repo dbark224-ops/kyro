@@ -36,6 +36,7 @@ import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { objectRecord, textValue } from "@kyro/core";
+import { rethrowNextControlFlow } from "../../lib/http/next-control-flow";
 
 const CONVERSATION_STATUSES = new Set([
   "open",
@@ -1604,6 +1605,7 @@ export async function promoteSkippedEmailToWorkItemAction(formData: FormData) {
         : "Promoted filtered-out email into a work item.",
     );
   } catch (error) {
+    rethrowNextControlFlow(error);
     redirectWithInboxMessage(
       "engine_error",
       error instanceof Error

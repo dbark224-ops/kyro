@@ -9,6 +9,7 @@ import {
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { rethrowNextControlFlow } from "../../lib/http/next-control-flow";
 
 function redirectWithEngineStatus(
   redirectTo: string,
@@ -142,6 +143,7 @@ export async function processNextEventAction() {
         : "/?engine_message=No pending events to process.",
     );
   } catch (error) {
+    rethrowNextControlFlow(error);
     redirectWithEngineError(
       error instanceof Error ? error.message : "Unable to process event.",
     );
