@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 import type { ConversationReview } from "../../lib/crm/queries";
 import {
   voiceCallIdFromMessageMetadata,
@@ -10,17 +11,7 @@ import { CallLogLauncher } from "../components/call-log-modal";
 import { MessageAttachmentList } from "../components/message-attachments";
 
 function formatDate(value: string | null, timeZone?: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    timeZone: timeZone || undefined,
-  }).format(new Date(value));
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatLabel(value: string | null) {

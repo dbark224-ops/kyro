@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 import type { VoiceCallPreview } from "../../lib/voice/calls";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -16,19 +17,7 @@ function formatLabel(value: string | null | undefined) {
 }
 
 function formatDate(value: string | null | undefined, timeZone?: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  try {
-    return new Intl.DateTimeFormat("en", {
-      dateStyle: "medium",
-      timeStyle: "short",
-      ...(timeZone ? { timeZone } : {}),
-    }).format(new Date(value));
-  } catch {
-    return new Date(value).toLocaleString();
-  }
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatDuration(seconds: number | null) {

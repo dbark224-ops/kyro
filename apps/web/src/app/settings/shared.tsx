@@ -1,4 +1,5 @@
 import type { DeveloperMockMode } from "../developer/mock-inquiry-forms";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 import type { VoiceSettings } from "../../lib/assistant/voice-settings";
 import {
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
@@ -88,13 +89,7 @@ export function aiAssistantSignatureForEditor({
 }
 
 export function formatDate(value: string, timeZone?: string) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    timeZone,
-  }).format(new Date(value));
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 export function formatTimeOfDay(value: string) {

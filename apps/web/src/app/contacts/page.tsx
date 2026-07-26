@@ -29,7 +29,9 @@ import {
   type ContactProfile,
   type LeadListItem,
 } from "../../lib/crm/queries";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { ManualLeadModal } from "./manual-lead-modal";
@@ -80,6 +82,10 @@ type CrmSearchState = {
   phone: string;
   q: string;
 };
+
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
+}
 
 function isCrmFilter(value: string | undefined): value is CrmFilter {
   return CRM_FILTERS.some((filter) => filter.value === value);
@@ -145,19 +151,6 @@ function crmHref({
   const query = params.toString();
 
   return query ? `/contacts?${query}` : "/contacts";
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
 }
 
 function formatLabel(value: string | null) {
@@ -388,6 +381,7 @@ function sortLeads(
 }
 
 function ContactRow({
+  timeZone,
   activeFilter,
   contact,
   isSelected,
@@ -395,6 +389,7 @@ function ContactRow({
   search,
   sort,
 }: Readonly<{
+  timeZone: string;
   activeFilter: CrmFilter;
   contact: ContactListItem;
   isSelected: boolean;
@@ -441,7 +436,7 @@ function ContactRow({
           </span>
         ) : null}
         <span>{contact.messageCount} messages</span>
-        <span>{formatDate(contact.lastMessageAt ?? contact.updatedAt)}</span>
+        <span>{formatDate(contact.lastMessageAt ?? contact.updatedAt, timeZone)}</span>
         <span className="pill">
           {formatContactLifecycleStage(contact.lifecycleStage)}
         </span>
@@ -452,6 +447,7 @@ function ContactRow({
 }
 
 function LeadRow({
+  timeZone,
   activeFilter,
   isSelected,
   lead,
@@ -459,6 +455,7 @@ function LeadRow({
   search,
   sort,
 }: Readonly<{
+  timeZone: string;
   activeFilter: CrmFilter;
   isSelected: boolean;
   lead: LeadListItem;
@@ -506,7 +503,7 @@ function LeadRow({
           <span className="pill warning">Follow-up due</span>
         ) : null}
         <span>{formatLabel(lead.status)}</span>
-        <span>{formatDate(lead.updatedAt)}</span>
+        <span>{formatDate(lead.updatedAt, timeZone)}</span>
         <span className={lead.priority === "high" ? "pill warning" : "pill"}>
           Lead
         </span>
@@ -774,6 +771,7 @@ function ProfileResolutionReviewForm({
 }
 
 function ProfilePanel({
+  timeZone,
   activeFilter,
   engineError,
   engineMessage,
@@ -781,6 +779,7 @@ function ProfilePanel({
   search,
   sort,
 }: Readonly<{
+  timeZone: string;
   activeFilter: CrmFilter;
   engineError?: string;
   engineMessage?: string;
@@ -1050,7 +1049,7 @@ function ProfilePanel({
                 formatContactLifecycleSource(profile.contact.lifecycleSource),
               ],
               ["Lifecycle reason", profile.contact.lifecycleReason],
-              ["Updated", formatDate(profile.contact.updatedAt)],
+              ["Updated", formatDate(profile.contact.updatedAt, timeZone)],
             ]}
           />
         </section>
@@ -1134,6 +1133,7 @@ function ProfilePanel({
                           message.receivedAt ??
                             message.sentAt ??
                             message.createdAt,
+                          timeZone,
                         )}
                       </span>
                     </div>
@@ -1178,7 +1178,7 @@ function ProfilePanel({
                     {quoteDraft.lineItemCount} line items
                   </span>
                 </div>
-                <span>{formatDate(quoteDraft.updatedAt)}</span>
+                <span>{formatDate(quoteDraft.updatedAt, timeZone)}</span>
               </SmartPrefetchLink>
             ))}
             {profile.actions.slice(0, 4).map((action) => (
@@ -1187,7 +1187,7 @@ function ProfilePanel({
                   <strong>{formatLabel(action.type)}</strong>
                   <span>
                     {formatLabel(action.status)} -{" "}
-                    {formatDate(action.createdAt)}
+                    {formatDate(action.createdAt, timeZone)}
                   </span>
                   {textValue(action.input.body) ? (
                     <p>{textValue(action.input.body)}</p>
@@ -1241,13 +1241,15 @@ export default async function ContactsPage({
     Boolean(searchState.address);
   const hasSearch = Boolean(searchState.q) || hasAdvancedSearch;
   const selectedContactId = query?.contactId?.trim() ?? "";
-  const [contacts, leads, selectedProfile] = await Promise.all([
+  const [contacts, leads, selectedProfile, generalSettings] = await Promise.all([
     getContactList(supabase, workspace.id),
     getLeadList(supabase, workspace.id),
     selectedContactId
       ? getContactProfile(supabase, workspace.id, selectedContactId)
       : Promise.resolve(null),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
+  const timeZone = generalSettings.timeZone;
   const withAddress = contacts.filter((contact) => contact.address).length;
   const totalMessages = contacts.reduce(
     (sum, contact) => sum + contact.messageCount,
@@ -1474,6 +1476,7 @@ export default async function ContactsPage({
               sortedLeads.length > 0 ? (
                 paginatedLeads.map((lead) => (
                   <LeadRow
+          timeZone={timeZone}
                     activeFilter={activeFilter}
                     isSelected={Boolean(
                       selectedProfile &&
@@ -1492,6 +1495,7 @@ export default async function ContactsPage({
             ) : sortedContacts.length > 0 ? (
               paginatedContacts.map((contact) => (
                 <ContactRow
+          timeZone={timeZone}
                   activeFilter={activeFilter}
                   contact={contact}
                   isSelected={selectedProfile?.contact.id === contact.id}
@@ -1559,6 +1563,7 @@ export default async function ContactsPage({
 
         {selectedProfile ? (
           <ProfilePanel
+          timeZone={timeZone}
             activeFilter={activeFilter}
             engineError={query?.engine_error}
             engineMessage={query?.engine_message}
