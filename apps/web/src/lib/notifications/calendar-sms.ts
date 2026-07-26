@@ -21,6 +21,7 @@ import {
   isoRangeForDateKeyRange,
   safeTimeZone,
 } from "../timezone";
+import { writeOrThrow } from "../supabase/write";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import {
   getWorkspaceGeneralSettings,
@@ -250,7 +251,9 @@ async function markDeliveryFailed(
   const message =
     error instanceof Error ? error.message : "Unable to send calendar SMS.";
 
-  await supabase
+  // Logged rather than thrown: the caller is already handling a failure, and
+  // replacing it with a bookkeeping error would lose why the send failed.
+  const { error: markFailedError } = await supabase
     .from("calendar_notification_deliveries")
     .update({
       attempt_count: 1,
@@ -258,6 +261,12 @@ async function markDeliveryFailed(
       status: "failed",
     })
     .eq("id", deliveryId);
+
+  if (markFailedError) {
+    console.error(
+      `Unable to mark calendar delivery ${deliveryId} as failed: ${markFailedError.message}`,
+    );
+  }
 }
 
 async function sendCalendarSmsDelivery(
@@ -290,10 +299,16 @@ async function sendCalendarSmsDelivery(
     throw new Error("No Kyro SMS sender number is available.");
   }
 
-  await supabase
-    .from("calendar_notification_deliveries")
-    .update({ attempt_count: 1, status: "processing" })
-    .eq("id", input.deliveryId);
+  // Claiming the delivery before sending is what stops a retry sending the
+  // same reminder twice. Failing here is safe -- nothing has gone out yet --
+  // so it is worth stopping for.
+  await writeOrThrow(
+    supabase
+      .from("calendar_notification_deliveries")
+      .update({ attempt_count: 1, status: "processing" })
+      .eq("id", input.deliveryId),
+    "Unable to claim the calendar notification delivery",
+  );
 
   const result = await sendTwilioSmsMessage({
     body: input.body,
@@ -326,30 +341,35 @@ async function sendCalendarSmsDelivery(
     workspaceId: input.workspaceId,
   });
 
-  await supabase
-    .from("calendar_notification_deliveries")
-    .update({
-      attempt_count: 1,
-      error: null,
-      metadata: {
-        channelId,
-        twilio: {
-          accountSid: result.accountSid,
-          direction: result.direction,
-          numSegments: result.numSegments,
-          price: result.price,
-          priceUnit: result.priceUnit,
-          status: result.status,
+  // The claim above already stops a retry re-sending, so throwing here makes a
+  // lost record visible without risking a duplicate reminder.
+  await writeOrThrow(
+    supabase
+      .from("calendar_notification_deliveries")
+      .update({
+        attempt_count: 1,
+        error: null,
+        metadata: {
+          channelId,
+          twilio: {
+            accountSid: result.accountSid,
+            direction: result.direction,
+            numSegments: result.numSegments,
+            price: result.price,
+            priceUnit: result.priceUnit,
+            status: result.status,
+          },
+          workspacePhoneNumberId: workspaceSmsNumber?.id ?? null,
         },
-        workspacePhoneNumberId: workspaceSmsNumber?.id ?? null,
-      },
-      provider: TWILIO_PROVIDER,
-      provider_message_id: result.messageId,
-      provider_request_id: result.providerRequestId,
-      sent_at: now,
-      status: "sent",
-    })
-    .eq("id", input.deliveryId);
+        provider: TWILIO_PROVIDER,
+        provider_message_id: result.messageId,
+        provider_request_id: result.providerRequestId,
+        sent_at: now,
+        status: "sent",
+      })
+      .eq("id", input.deliveryId),
+    "Unable to record the sent calendar notification",
+  );
 
   const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
     supabase,
@@ -364,7 +384,10 @@ async function sendCalendarSmsDelivery(
     providerPrice: result.price ? Math.abs(result.price) : null,
   });
 
-  await supabase.from("usage_events").insert({
+  // Billable, so a dropped insert is lost revenue -- the same silent path as
+  // the AI, outbound and escalation usage writes. Reported rather than thrown:
+  // the SMS has already gone out and failing here would not un-send it.
+  const { error: usageError } = await supabase.from("usage_events").insert({
     cost_snapshot: String(telephonyCost.cost),
     currency: telephonyCost.currency,
     customer_charge_snapshot: String(telephonyCost.customerCharge),
@@ -392,6 +415,12 @@ async function sendCalendarSmsDelivery(
     user_id: input.userId,
     workspace_id: input.workspaceId,
   });
+
+  if (usageError) {
+    console.error(
+      `Unable to record calendar SMS usage for delivery ${input.deliveryId}: ${usageError.message}`,
+    );
+  }
 }
 
 async function loadUpcomingReminderEvents(

@@ -1757,7 +1757,6 @@ Files:
 
 - \`apps/web/src/app/voice/page.tsx\`
 - \`apps/web/src/app/voice/realtime-voice-console.tsx\`
-- \`apps/web/src/app/voice/voice-console.tsx\`
 - \`apps/web/src/app/api/assistant/realtime/call/route.ts\`
 - \`apps/web/src/app/api/assistant/realtime/tool/route.ts\`
 - \`apps/web/src/app/api/assistant/realtime/persist/route.ts\`
@@ -1779,9 +1778,8 @@ Purpose:
 
 Voice mode now uses OpenAI Realtime as the primary local development path. The server creates an ephemeral realtime
 session with the same workspace/user context, the browser connects over WebRTC, and the voice client persists the final
-transcript back into the Assistant thread so a user can move between chat and voice without losing context. The older
-turn-based \`voice-console.tsx\`, transcription route, and speech route remain useful as fallback/test surfaces for
-non-realtime experiments.
+transcript back into the Assistant thread so a user can move between chat and voice without losing context. The
+transcription and speech routes remain useful as fallback/test surfaces for non-realtime experiments.
 
 OpenAI is the product-owned speech provider for Kyro. Users do not choose between OpenAI and third-party TTS providers
 in Settings; they choose the OpenAI assistant voice and pronunciation behavior. The saved \`assistant_voice\` policy's

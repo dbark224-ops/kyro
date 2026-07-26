@@ -22,13 +22,6 @@ const NOT_TIMESTAMP_FORMATTERS = new Map([
   ["formatTimeOfDay", 'parses a wall-clock "09:00" string, which has no date'],
 ]);
 
-/**
- * apps/web/src/app/voice/voice-console.tsx is imported by nothing -- it is a
- * dead third copy of the voice console, superseded by realtime-voice-console
- * and vapi-voice-console. Exempt until it is deleted, not fixed in place.
- */
-const DEAD_FILES = new Set(["apps/web/src/app/voice/voice-console.tsx"]);
-
 function sourceFiles() {
   return repoSourceFiles("apps/web/src/**/*.ts", "apps/web/src/**/*.tsx");
 }
@@ -38,7 +31,6 @@ describe("dates render in the workspace timezone", () => {
     const offenders: string[] = [];
 
     for (const file of sourceFiles()) {
-      if (DEAD_FILES.has(file)) continue;
 
       // The shared formatters take their timezone inside an options object.
       if (file.endsWith("lib/time/format.ts")) continue;
@@ -70,7 +62,6 @@ describe("dates render in the workspace timezone", () => {
     for (const file of sourceFiles()) {
       // lib/time and lib/timezone are where this is allowed to live.
       if (file.includes("lib/time/") || file.includes("lib/timezone")) continue;
-      if (DEAD_FILES.has(file)) continue;
 
       const source = readRepoFile(file);
 
