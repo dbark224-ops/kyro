@@ -14,3 +14,16 @@ export function normalized(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * The words in a prompt worth matching on, dropping single characters.
+ *
+ * Used by every kind of fuzzy lookup in the assistant -- templates, quote
+ * drafts, contacts, calendar events -- which is why it sits with `normalized`
+ * rather than inside any one of them.
+ */
+export function meaningfulTokens(value: string) {
+  return normalized(value)
+    .split(/\s+/)
+    .filter((token) => token.length > 1);
+}

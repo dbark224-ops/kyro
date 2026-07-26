@@ -14,9 +14,16 @@ import {
   parseAssistantCalendarTimeFromPrompts,
 } from "./calendar-intent";
 import {
+  documentTemplateControlIntent,
+  looksLikeQuoteHistoryRequest,
+  looksLikeQuoteSendReadyListRequest,
+  looksLikeQuoteSendRequest,
+  selectQuoteDraftForAssistantPrompt,
+  selectQuoteTemplateForAssistantPrompt,
+} from "./quote-intent";
+import {
   assistantSmsBodyFromPrompt,
   assistantDate,
-  documentTemplateControlIntent,
   inquiryLookupFallbackAnswerForAssistant,
   inquiryRecordForAssistant,
   looksLikeContextualInquiryReplyRequest,
@@ -25,16 +32,11 @@ import {
   looksLikeActionExecutionRequest,
   looksLikeInquiryAvailabilityOfferRequest,
   looksLikeInboundEmailAwarenessRequest,
-  looksLikeQuoteHistoryRequest,
-  looksLikeQuoteSendReadyListRequest,
-  looksLikeQuoteSendRequest,
   looksLikeDirectWorkplaceSmsRequest,
   recentInquiryConversationForPrompt,
   resolveAssistantCommand,
   selfCallRecipientForAssistant,
   selectContactForAssistantPrompt,
-  selectQuoteDraftForAssistantPrompt,
-  selectQuoteTemplateForAssistantPrompt,
 } from "./commands";
 import type {
   ContactListItem,
