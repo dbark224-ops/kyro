@@ -8,7 +8,7 @@ import {
   MobileApiError,
   requireMobileWorkspaceContext,
 } from "../../../../../lib/mobile/context";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -74,11 +74,5 @@ export async function POST(request: Request) {
   } catch (error) {
     return mobileErrorResponse(error);
   }
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 

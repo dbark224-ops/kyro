@@ -4,7 +4,7 @@ import {
   getRecentVoiceCallsForActivity,
   isVoiceCallTableMissing,
 } from "../voice/calls";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 type MessageActivityRow = {
   body_text: string | null;
@@ -92,12 +92,6 @@ function truncate(value: string | null, maxLength = 140) {
 
 function cleanPreview(value: string | null) {
   return value?.replace(/\s+/g, " ").trim() ?? null;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function channelKind(value: string) {

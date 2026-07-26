@@ -1,6 +1,6 @@
 "use client";
 
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 type MessageAttachment = {
   contentType: string | null;
@@ -9,12 +9,6 @@ type MessageAttachment = {
   sizeBytes: number | null;
   storageStatus: string | null;
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function numberValue(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;

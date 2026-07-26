@@ -7,7 +7,7 @@ import {
   normalizeContactLifecycleStage,
   type ContactLifecycleStage,
 } from "./lifecycle";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 type LifecycleReviewOptions = {
   contactId?: string | null;
@@ -59,12 +59,6 @@ export type ContactLifecycleReviewSummary = {
   suggested: number;
   unchanged: number;
 };
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function groupByContact<T extends { contact_id?: string | null }>(rows: T[]) {
   const grouped = new Map<string, T[]>();

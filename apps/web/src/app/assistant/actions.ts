@@ -57,18 +57,12 @@ import {
 } from "../../lib/voice/calls";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
 
   return typeof value === "string" ? value.trim() : "";
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function nullableText(value: string) {

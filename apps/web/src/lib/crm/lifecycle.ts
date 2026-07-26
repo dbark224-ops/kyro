@@ -1,4 +1,4 @@
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const CONTACT_LIFECYCLE_STAGES = ["lead", "client"] as const;
 
@@ -111,12 +111,6 @@ function nullableText(value?: string | null) {
 
 function normalizeToken(value?: string | null) {
   return nullableText(value)?.toLowerCase().replace(/\s+/g, "_") ?? "";
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function normalizedTextToken(value: unknown) {

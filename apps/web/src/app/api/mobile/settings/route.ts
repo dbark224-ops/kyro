@@ -85,7 +85,7 @@ import {
   getWorkspaceGeneralSettings,
   normalizeWorkspaceGeneralSettings,
 } from "../../../../lib/workspace/general-settings";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -978,12 +978,6 @@ async function savePolicy(
     entityType: "workspace_policy",
     workspaceId: workspace.id,
   });
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function booleanValue(value: unknown, fallback = false) {

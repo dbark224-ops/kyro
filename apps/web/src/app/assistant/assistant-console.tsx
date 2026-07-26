@@ -39,7 +39,7 @@ import { ConversationWorkflowPanel } from "../inbox/conversation-workflow-panel"
 import { ReplyGenerator } from "../inbox/reply-generator";
 import { formatLeadTitle, formatServiceType } from "../../lib/crm/display";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const FALLBACK_QUICK_PROMPTS = [
   "Show me leads needing reply",
@@ -4370,12 +4370,6 @@ function stringValues(value: unknown) {
   return arrayValue(value)
     .map((item) => textValue(item))
     .filter((item): item is string => Boolean(item));
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function formatMessageTime(value: string) {

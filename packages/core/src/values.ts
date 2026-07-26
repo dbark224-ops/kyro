@@ -24,3 +24,20 @@ export function textValue(value: unknown): string | null {
 export function textValueOrEmpty(value: unknown): string {
   return textValue(value) ?? "";
 }
+
+/**
+ * A plain object, or an empty one when the value is anything else.
+ *
+ * The same story as `textValue`: 73 copies across the codebase, 72 of them
+ * functionally identical. Arrays are excluded deliberately -- they are objects
+ * to `typeof`, but reading `.someKey` off one is always a mistake.
+ *
+ * Returning `{}` rather than null means callers can keep reading properties
+ * without a guard, which is the whole reason it exists at every JSON and
+ * database boundary in the app.
+ */
+export function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}

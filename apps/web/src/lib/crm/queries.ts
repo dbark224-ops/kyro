@@ -10,7 +10,7 @@ import {
   normalizeContactLifecycleSource,
   normalizeContactLifecycleStage,
 } from "./lifecycle";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const LIST_MESSAGE_LIMIT = 500;
 const LIST_ACTION_LIMIT = 500;
@@ -2385,12 +2385,6 @@ function deriveConversationWorkflow({
     nextActionLabel,
     workflowBucket,
   };
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function isUnavailableRelationError(error: {

@@ -22,7 +22,7 @@ import type {
   AssistantTurnResult,
   AssistantUiBlock,
 } from "./types";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const THREAD_MESSAGE_LIMIT = 40;
 const MODEL_RECENT_MESSAGE_LIMIT = 8;
@@ -1253,12 +1253,6 @@ function toMemorySuggestionStatus(
   return value === "active" || value === "rejected"
     ? value
     : "pending_approval";
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function extractExplicitMemory(prompt: string) {

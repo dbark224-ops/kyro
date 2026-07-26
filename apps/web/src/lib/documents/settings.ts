@@ -3,7 +3,7 @@ import {
   normalizeQuoteLineItems,
   type QuoteLineItem,
 } from "./templates";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const DOCUMENT_TEMPLATE_POLICY_TYPE = "document_templates";
 
@@ -72,12 +72,6 @@ export const DEFAULT_DOCUMENT_TEMPLATE_SETTINGS: DocumentTemplateSettings = {
   customTemplates: [],
   defaultInvoiceTemplateKey: null,
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function booleanValue(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;

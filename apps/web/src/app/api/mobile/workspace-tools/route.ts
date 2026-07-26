@@ -17,7 +17,7 @@ import {
   parseReportFilters,
   type WorkspaceReport,
 } from "../../../../lib/reports/data";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 // Report generation used to be duplicated here (own REPORT_TYPES/TIMEFRAMES/
 // DIRECTIONS/CHANNELS constants, its own period math, its own file/usage
@@ -69,12 +69,6 @@ type OperationalLogItem = {
   title: string;
   type: "decision" | "event" | "message" | "sync";
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function formatLabel(value: string) {
   return value

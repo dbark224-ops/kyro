@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isSmsLikeChannel, smsSignOffRule } from "../ai/customer-reply-style";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const COMMUNICATION_POLICY_TYPE = "communication_outbound";
 export const DEFAULT_FOLLOW_UP_DELAY_DAYS = 2;
@@ -88,12 +88,6 @@ export const DEFAULT_COMMUNICATION_SETTINGS: CommunicationSettings = {
   replyWriting: DEFAULT_REPLY_WRITING_SETTINGS,
   useSeparateAiSignature: false,
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function numberValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {

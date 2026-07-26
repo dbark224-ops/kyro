@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { QuoteDraftProfile } from "../crm/queries";
 import type { DocumentTemplateDesignSettings } from "./settings";
 import { normalizeQuoteLineItems } from "./templates";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export type QuoteDocumentEventKind =
   | "customer_approved"
@@ -48,12 +48,6 @@ const VOLATILE_METADATA_KEYS = new Set([
   "sentMessageId",
   "updatedFrom",
 ]);
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) {

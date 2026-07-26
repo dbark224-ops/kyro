@@ -12,15 +12,10 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../../../lib/mobile/context";
+import { objectRecord } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 export async function GET(
   request: Request,

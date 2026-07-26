@@ -18,7 +18,7 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,12 +31,6 @@ const QUOTE_DRAFT_STATUSES = new Set([
   "ready",
   "sent",
 ]);
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function boundedText(value: unknown, fallback: string, maxLength: number) {
   return (textValue(value) ?? fallback).slice(0, maxLength);

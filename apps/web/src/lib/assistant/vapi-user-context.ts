@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { textValueOrEmpty as textValue } from "@kyro/core";
+import { objectRecord, textValueOrEmpty as textValue } from "@kyro/core";
 
 export type VapiUserIdentity = {
   email: string;
@@ -19,12 +19,6 @@ function firstText(...values: unknown[]) {
   }
 
   return "";
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function emailName(value: string) {

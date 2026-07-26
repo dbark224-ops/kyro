@@ -44,7 +44,7 @@ import {
   recordSmsRecipientPreference,
 } from "./sms-compliance";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const SCHEDULED_PROCESS_LIMIT = 25;
@@ -200,12 +200,6 @@ export type RecordOutboundMessageResult = {
 
 function numberValue(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function nowIso() {

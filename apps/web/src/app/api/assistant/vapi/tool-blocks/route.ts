@@ -2,15 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { normalizeAssistantUiBlocks } from "../../../../../lib/assistant/ui-blocks";
 import { isVoiceCallTableMissing } from "../../../../../lib/voice/calls";
 import { getApiWorkspaceContext } from "../../../../../lib/workspace/api-context";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 export async function GET(request: NextRequest) {
   const context = await getApiWorkspaceContext(request);

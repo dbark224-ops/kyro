@@ -10,7 +10,7 @@ import {
   usageEventTotals,
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const GENERATED_IMAGE_BUCKET =
   process.env.KYRO_FILE_STORAGE_BUCKET?.trim() || "kyro-files";
@@ -160,12 +160,6 @@ function safeStorageSegment(value: string) {
       .replace(/^-|-$/g, "")
       .slice(0, 96) || "image"
   );
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function openAiErrorMessage(payload: unknown) {

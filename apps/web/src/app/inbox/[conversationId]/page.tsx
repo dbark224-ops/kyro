@@ -50,7 +50,7 @@ import {
 import { prepareQuoteDraftSendAction } from "../../documents/actions";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -101,12 +101,6 @@ function formatLabel(value: string | null) {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function arrayValue(value: unknown) {

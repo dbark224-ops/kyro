@@ -25,7 +25,7 @@ import {
 } from "../../lib/assistant/ui-blocks";
 import type { VapiInternalVoiceSession } from "../../lib/assistant/vapi-internal";
 import type { ContactProfile } from "../../lib/crm/queries";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 type ConnectionState = "connecting" | "idle" | "listening" | "speaking";
 type StartTraceEntry = {
@@ -2700,12 +2700,6 @@ function clientBugReportKey(value: string) {
       .replace(/\b-?\d+(?:\s+\d+)?\b/g, "<number>")
       .slice(0, 180) || "unknown"
   );
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function hasVoiceOverride(value: unknown) {

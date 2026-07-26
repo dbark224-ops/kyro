@@ -18,15 +18,9 @@ import {
 } from "../../../../../lib/integrations/inbound-email-sync";
 import { requireWorkspaceContext } from "../../../../../lib/workspace/context";
 import { assertWorkspaceAutomationAllowed } from "../../../../../lib/billing/access";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 export async function POST(request: Request) {
   const body = objectRecord(await request.json().catch(() => ({})));

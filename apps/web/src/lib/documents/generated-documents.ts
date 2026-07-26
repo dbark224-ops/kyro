@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceSupabaseClient } from "../supabase/service";
 import type { QuotePdfArtifact } from "./pdf";
 import { quoteRevisionState } from "./revisions";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const GENERATED_DOCUMENT_STORAGE_BUCKET =
   process.env.KYRO_FILE_STORAGE_BUCKET?.trim() || "kyro-files";
@@ -55,12 +55,6 @@ type QuoteDraftDocumentRow = {
 };
 
 const ensuredGeneratedDocumentBuckets = new Set<string>();
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function numberValue(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;

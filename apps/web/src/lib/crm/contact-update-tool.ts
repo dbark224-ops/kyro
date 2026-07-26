@@ -14,7 +14,7 @@ import {
   normalizeContactPhoneForRegion,
   type PhoneRegion,
 } from "./identity";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 type ContactUpdateArgs = Record<string, unknown>;
 
@@ -45,12 +45,6 @@ type ContactUpdateResult =
 
 const CONTACT_SELECT =
   "id,name,email,phone,company,contact_type,address,notes,normalized_email,normalized_phone,normalized_company,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at";
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function nullableText(value: string | null) {
   return value ? value : null;

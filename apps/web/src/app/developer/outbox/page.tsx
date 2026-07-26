@@ -5,7 +5,7 @@ import {
   dismissOutboxDeliveryAction,
   retryOutboxDeliveryAction,
 } from "./actions";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -80,12 +80,6 @@ function isStatusFilter(
   value: string | undefined,
 ): value is (typeof STATUS_FILTERS)[number]["value"] {
   return STATUS_FILTERS.some((status) => status.value === value);
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function arrayValue(value: unknown) {

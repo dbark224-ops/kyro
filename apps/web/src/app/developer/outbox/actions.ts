@@ -5,6 +5,7 @@ import { insertAuditLog } from "../../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { objectRecord } from "@kyro/core";
 
 const RETRYABLE_OUTBOX_STATUSES = new Set([
   "queued",
@@ -16,12 +17,6 @@ function formString(formData: FormData, key: string) {
   const value = formData.get(key);
 
   return typeof value === "string" ? value.trim() : "";
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function safeOutboxRedirect(value: string) {

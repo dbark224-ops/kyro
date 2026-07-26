@@ -5,7 +5,7 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../../lib/mobile/context";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +31,6 @@ type ExistingContact = {
   source: string | null;
   tags: unknown;
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function jsonArray(value: unknown) {
   return Array.isArray(value) ? value : [];

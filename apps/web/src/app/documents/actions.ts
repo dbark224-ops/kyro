@@ -41,7 +41,7 @@ import { insertAuditLog } from "../../lib/engine/event-action-audit";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const QUOTE_DRAFT_STATUSES = new Set([
   "approved",
@@ -65,12 +65,6 @@ function formStringValues(formData: FormData, key: string) {
 
 function nullableText(value: string) {
   return value.trim() ? value.trim() : null;
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function documentPath(quoteDraftId: string) {

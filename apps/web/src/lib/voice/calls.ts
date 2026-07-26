@@ -42,7 +42,7 @@ import {
 } from "./call-note-profile";
 import { buildVoiceCallInboxBody } from "./call-message";
 import { notifyInboundVoiceInquiry } from "./inbound-inquiry-notifications";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
@@ -190,12 +190,6 @@ function numberValue(value: unknown) {
   }
 
   return null;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function arrayRecords(value: unknown): Record<string, unknown>[] {

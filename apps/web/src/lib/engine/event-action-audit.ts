@@ -19,7 +19,7 @@ import {
   buildSignedBodyForChannel,
   selectEmailSignature,
 } from "../communication/signatures";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 type AuditInput = {
   workspaceId: string;
@@ -72,12 +72,6 @@ type TransitionAction = {
 type ExecuteActionOptions = {
   draftReplyAttachments?: OutboundAttachment[];
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 export function signatureVariantFromActionInput(
   input: Record<string, unknown>,

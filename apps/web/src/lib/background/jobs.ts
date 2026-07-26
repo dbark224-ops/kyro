@@ -19,7 +19,7 @@ import { sendInternalBugNotification } from "../internal-notifications";
 import { processDueCalendarSmsNotifications } from "../notifications/calendar-sms";
 import { cleanupExpiredVoiceCallRecordings } from "../voice/calls";
 import { processExpiredInquiryFutureSteps } from "../workflow/inquiry-future-steps";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const BACKGROUND_JOB_TYPES = [
   "outbound_delivery",
@@ -117,12 +117,6 @@ class BackgroundJobDispatchError extends Error {
     this.permanent = Boolean(options.permanent);
     this.retryAt = options.retryAt ?? null;
   }
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function errorMessage(error: unknown) {

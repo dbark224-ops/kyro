@@ -12,7 +12,7 @@ import {
   openAiLowCostModel,
   openAiReasoningRequest,
 } from "../ai/openai-models";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const DEFAULT_ASSISTANT_PROMPT_SUGGESTIONS = [
   "Show me leads needing reply",
@@ -69,12 +69,6 @@ function openAiApiKey() {
 
 function suggestionModel() {
   return envValue("ASSISTANT_SUGGESTION_MODEL") || openAiLowCostModel();
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function dateOr(value: Date | string | null | undefined, fallback: Date) {

@@ -10,6 +10,7 @@ import {
   mobileErrorResponse,
   requireMobileWorkspaceContext,
 } from "../../../../../lib/mobile/context";
+import { objectRecord } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +23,6 @@ const REPORT_FILTER_KEYS = [
   "timeframe",
   "type",
 ] as const;
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function payloadToSearchParams(payload: unknown) {
   const record = objectRecord(payload);

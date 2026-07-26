@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hasIntegrationTokenEncryptionKey } from "./token-vault";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const MICROSOFT_PROVIDER = "microsoft";
 export const MICROSOFT_SERVICE = "outlook_mail";
@@ -83,12 +83,6 @@ function normalizeScopes(value: unknown): string[] {
   return value.filter(
     (scope): scope is string => typeof scope === "string" && scope.length > 0,
   );
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function inboundEmailMetadata(value: unknown) {

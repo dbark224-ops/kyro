@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateTokens } from "../usage/openai";
 import type { AssistantContextSnapshot } from "./types";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const COMPACTION_FETCH_LIMIT = 120;
 const COMPACTION_KEEP_RECENT_MESSAGES = 12;
@@ -850,12 +850,6 @@ function startOfUtcMonth(value: Date) {
 
 function maxDate(left: Date, right: Date) {
   return left.getTime() > right.getTime() ? left : right;
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function numberValue(value: unknown) {

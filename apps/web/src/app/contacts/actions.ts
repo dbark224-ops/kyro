@@ -21,6 +21,7 @@ import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { objectRecord } from "@kyro/core";
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -44,12 +45,6 @@ function nullableMoney(value: string) {
 
 function safeRedirectPath(value: string, fallback: string) {
   return value.startsWith("/") && !value.startsWith("//") ? value : fallback;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function redirectWithStatus(

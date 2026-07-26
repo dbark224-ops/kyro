@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const INBOUND_EMAIL_POLICY_TYPE = "inbound_email";
 
@@ -111,12 +111,6 @@ function defaultTimeZone() {
   } catch {
     return "UTC";
   }
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function booleanValue(value: unknown, fallback: boolean) {

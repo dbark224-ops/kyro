@@ -47,7 +47,7 @@ import {
   decryptIntegrationTokenSet,
   encryptIntegrationTokenSet,
 } from "./token-vault";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export type InboundEmailSyncTrigger =
   | "assistant"
@@ -210,12 +210,6 @@ const INBOUND_ATTACHMENT_BUCKET =
 const ensuredAttachmentBuckets = new Set<string>();
 const TOKEN_DECRYPT_RECONNECT_MESSAGE =
   "Reconnect this account because Kyro cannot decrypt the stored OAuth token with the current integration encryption key.";
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 export function isRecoverableTokenAccessError(message: string) {
   return (

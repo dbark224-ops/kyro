@@ -16,7 +16,7 @@ import {
 } from "../crm/identity";
 import { normalizeUsageMarkupRate, usageMarkupRate } from "../usage/pricing";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const WORKSPACE_GENERAL_POLICY_TYPE = "workspace_general";
 
@@ -332,12 +332,6 @@ function defaultTimeZone() {
   } catch {
     return "UTC";
   }
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function cappedTextValue(value: unknown, fallback = "", maxLength = 1200) {

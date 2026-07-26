@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const CALENDAR_SETTINGS_POLICY_TYPE = "calendar_settings";
 
@@ -58,12 +58,6 @@ export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
   weekDaysBefore: 2,
   weekLayout: "rolling",
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function booleanValue(value: unknown, fallback = false) {
   if (typeof value === "boolean") {

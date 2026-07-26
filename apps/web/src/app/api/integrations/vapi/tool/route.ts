@@ -66,7 +66,7 @@ import {
   requestInboundVoiceBooking,
 } from "../../../../../lib/voice/inbound-booking";
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
 
@@ -312,12 +312,6 @@ async function vapiToolCanSendOutboundSms({
   return settings.phoneAgentUserNumbers.some((phoneNumber) =>
     phoneKeySetsOverlap(callerKeys, phoneComparisonKeys(phoneNumber, region)),
   );
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function clipped(value: string, maxLength = 1_600) {

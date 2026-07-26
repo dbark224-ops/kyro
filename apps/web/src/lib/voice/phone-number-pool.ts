@@ -10,7 +10,7 @@ import {
   TWILIO_PROVIDER,
 } from "../integrations/twilio";
 import { insertAuditLog } from "../engine/event-action-audit";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export type WorkspacePhoneNumberPoolAssignment = {
   assigned: boolean;
@@ -59,12 +59,6 @@ function numberValue(value: unknown) {
   }
 
   return null;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function capabilitiesValue(value: unknown) {

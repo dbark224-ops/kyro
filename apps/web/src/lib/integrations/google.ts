@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hasIntegrationTokenEncryptionKey } from "./token-vault";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const GOOGLE_PROVIDER = "google";
 export const GOOGLE_SERVICE = "google_workspace";
@@ -101,12 +101,6 @@ export function hasGoogleScope(
       scope === requestedScope ||
       GOOGLE_SCOPE_ALIASES[requestedScope]?.includes(scope),
   );
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function inboundEmailMetadata(value: unknown) {

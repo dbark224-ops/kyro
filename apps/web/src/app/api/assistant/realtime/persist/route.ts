@@ -15,15 +15,9 @@ import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/worksp
 import { getApiWorkspaceContext } from "../../../../../lib/workspace/api-context";
 import { revalidatePath } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const dynamic = "force-dynamic";
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 export async function POST(request: NextRequest) {
   const body = objectRecord(await request.json().catch(() => ({})));

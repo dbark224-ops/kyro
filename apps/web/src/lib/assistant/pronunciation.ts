@@ -11,7 +11,7 @@ import {
   openAiLowCostModel,
   openAiReasoningRequest,
 } from "../ai/openai-models";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const PRONUNCIATION_CATEGORIES = [
   "person",
@@ -135,12 +135,6 @@ export function pronunciationStatusValue(value: unknown): PronunciationStatus {
   return PRONUNCIATION_STATUSES.includes(value as PronunciationStatus)
     ? (value as PronunciationStatus)
     : "suggested";
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function numberValue(value: unknown) {

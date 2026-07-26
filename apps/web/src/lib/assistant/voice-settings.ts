@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const VOICE_SETTINGS_POLICY_TYPE = "assistant_voice";
 
@@ -214,12 +214,6 @@ export type PhoneAgentUserNumberDetail = {
 
 function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function numberValue(value: unknown) {

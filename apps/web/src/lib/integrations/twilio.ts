@@ -6,7 +6,7 @@ import {
   type PhoneRegion,
 } from "../crm/identity";
 import { applyUsageMarkup, usageMarkupRate } from "../usage/pricing";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const TWILIO_PROVIDER = "twilio";
 export const TWILIO_SMS_SERVICE = "programmable_messaging";
@@ -117,12 +117,6 @@ function numberValue(value: unknown) {
   }
 
   return null;
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function whatsappPhoneNumber(value: unknown) {

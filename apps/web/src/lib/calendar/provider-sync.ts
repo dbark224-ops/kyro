@@ -29,7 +29,7 @@ import {
   type CalendarSyncProvider,
   calendarProviderSyncErrorMessage,
 } from "./sync-errors";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 60_000;
 const EXTERNAL_EVENT_REFRESH_INTERVAL_MS = 5 * 60_000;
@@ -133,12 +133,6 @@ export type ExternalCalendarImportSummary = {
   skipped: boolean;
   updated: number;
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function stringRecord(value: unknown) {
   return Object.fromEntries(

@@ -195,7 +195,7 @@ import {
   getPendingBusinessAnswerFutureStepForConversations,
   upsertCalendarConfirmationFutureStep,
 } from "../workflow/inquiry-future-steps";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 type WorkspaceInput = {
   id: string;
@@ -229,12 +229,6 @@ type RecentGeneratedImage = Extract<
   AssistantUiBlock,
   { type: "generated_image" }
 >["images"][number];
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function titleCase(value: string) {
   return value

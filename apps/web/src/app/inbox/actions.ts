@@ -35,7 +35,7 @@ import {
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const CONVERSATION_STATUSES = new Set([
   "open",
@@ -61,12 +61,6 @@ function formSignatureVariant(formData: FormData): SignatureVariant {
   return formString(formData, "signatureVariant") === "ai_generated"
     ? "ai_generated"
     : "manual";
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function nullableText(value: string) {

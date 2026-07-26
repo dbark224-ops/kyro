@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 const USAGE_EVENT_LIMIT = 500;
 
@@ -816,12 +816,6 @@ function uniqueIds(values: Array<string | null | undefined>) {
   return [
     ...new Set(values.filter((value): value is string => Boolean(value))),
   ];
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function valueId(value: unknown) {

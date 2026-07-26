@@ -17,7 +17,7 @@ import {
 } from "../usage/openai";
 import { openAiReasoningRequest } from "../ai/openai-models";
 import { assistantResponseSurface } from "./response-surface";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
@@ -79,12 +79,6 @@ function providerErrorMessage(payload: unknown) {
   const message = textValue(error.message);
 
   return message ?? "OpenAI assistant request failed.";
-}
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function responseOutputText(payload: unknown) {

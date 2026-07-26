@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { textValue, textValueOrEmpty } from "./values";
+import { objectRecord, textValue, textValueOrEmpty } from "./values";
 
 /**
  * This replaced 137 copy-pasted definitions across the codebase, so its
@@ -58,5 +58,32 @@ describe("textValueOrEmpty", () => {
   it("never returns the string 'null', which is why it exists", () => {
     // Callers that concatenate need a string every time; null would render.
     assert.equal(`${textValueOrEmpty(null)}`, "");
+  });
+});
+
+describe("objectRecord", () => {
+  it("passes a plain object through", () => {
+    const value = { a: 1 };
+
+    assert.equal(objectRecord(value), value);
+  });
+
+  it("returns an empty object for anything that is not one", () => {
+    for (const value of [null, undefined, 0, 1, "", "text", true, false]) {
+      assert.deepEqual(objectRecord(value), {});
+    }
+  });
+
+  it("rejects arrays, which typeof calls objects", () => {
+    // Reading a named key off an array is always a mistake, so it is treated
+    // as absence rather than passed through.
+    assert.deepEqual(objectRecord([]), {});
+    assert.deepEqual(objectRecord([{ a: 1 }]), {});
+  });
+
+  it("lets callers read properties without a guard", () => {
+    // The reason it returns {} rather than null: this is the shape every JSON
+    // and database boundary in the app relies on.
+    assert.equal(objectRecord(null).anything, undefined);
   });
 });

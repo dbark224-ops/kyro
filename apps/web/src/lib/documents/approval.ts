@@ -12,7 +12,7 @@ import {
   markQuoteCustomerApproved,
   quoteRevisionState,
 } from "./revisions";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export const QUOTE_APPROVAL_TOKEN_BYTES = 32;
 export const QUOTE_APPROVAL_LINK_DAYS = 30;
@@ -58,12 +58,6 @@ export type QuoteApprovalPortal = {
     name: string;
   };
 };
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function normalizeApprovalStatus(value: unknown): QuoteApprovalStatus {
   return QUOTE_APPROVAL_STATUSES.includes(value as QuoteApprovalStatus)

@@ -1,5 +1,5 @@
 import { quoteDocumentHistory, type QuoteDocumentHistoryEvent } from "./history";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 
 export type QuoteRevisionState = {
   currentVersion: number;
@@ -34,12 +34,6 @@ const VOLATILE_METADATA_KEYS = new Set([
   "sentMessageId",
   "updatedFrom",
 ]);
-
-function objectRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function numberValue(value: unknown, fallback = 1) {
   const parsed = typeof value === "number" ? value : Number(value);
