@@ -6,6 +6,7 @@ import {
   type WorkspaceBillingAccess,
 } from "./access";
 import { textValue } from "@kyro/core";
+import { writeOrThrow } from "../supabase/write";
 
 type DunningStage =
   | "payment_failed"
@@ -238,31 +239,47 @@ async function sendDunningEmail(
       );
     }
 
-    await supabase
-      .from("billing_dunning_deliveries")
-      .update({
-        provider_message_id: textValue(payload.id),
-        sent_at: new Date().toISOString(),
-        status: "sent",
-      })
-      .eq("id", delivery.id);
-    await supabase
-      .from("workspace_billing_access")
-      .update({
-        dunning_stage: input.number,
-        next_dunning_at: null,
-      })
-      .eq("workspace_id", input.access.workspaceId);
+    await writeOrThrow(
+      supabase
+        .from("billing_dunning_deliveries")
+        .update({
+          provider_message_id: textValue(payload.id),
+          sent_at: new Date().toISOString(),
+          status: "sent",
+        })
+        .eq("id", delivery.id),
+      "Unable to record dunning email as sent",
+    );
+    await writeOrThrow(
+      supabase
+        .from("workspace_billing_access")
+        .update({
+          dunning_stage: input.number,
+          next_dunning_at: null,
+        })
+        .eq("workspace_id", input.access.workspaceId),
+      "Unable to advance the workspace dunning stage",
+    );
 
     return true;
   } catch (error) {
-    await supabase
+    // Logged rather than thrown: `error` below is the real failure, and
+    // replacing it with a bookkeeping error would lose the reason dunning
+    // failed in the first place.
+    const { error: markFailedError } = await supabase
       .from("billing_dunning_deliveries")
       .update({
         error: error instanceof Error ? error.message : "Dunning email failed.",
         status: "failed",
       })
       .eq("id", delivery.id);
+
+    if (markFailedError) {
+      console.error(
+        `Unable to mark dunning delivery ${delivery.id} as failed: ${markFailedError.message}`,
+      );
+    }
+
     throw error;
   }
 }

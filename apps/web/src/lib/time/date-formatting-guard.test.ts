@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { readRepoFile, repoSourceFiles } from "../testing/repo-files";
 
 /**
  * Dates must render in the workspace's timezone, everywhere.
@@ -31,13 +30,7 @@ const NOT_TIMESTAMP_FORMATTERS = new Map([
 const DEAD_FILES = new Set(["apps/web/src/app/voice/voice-console.tsx"]);
 
 function sourceFiles() {
-  return execSync(
-    'git ls-files "apps/web/src/**/*.ts" "apps/web/src/**/*.tsx"',
-    { encoding: "utf8" },
-  )
-    .trim()
-    .split("\n")
-    .filter((file) => file && !file.endsWith(".test.ts") && !file.endsWith(".test.tsx"));
+  return repoSourceFiles("apps/web/src/**/*.ts", "apps/web/src/**/*.tsx");
 }
 
 describe("dates render in the workspace timezone", () => {
@@ -50,7 +43,7 @@ describe("dates render in the workspace timezone", () => {
       // The shared formatters take their timezone inside an options object.
       if (file.endsWith("lib/time/format.ts")) continue;
 
-      const source = readFileSync(file, "utf8");
+      const source = readRepoFile(file);
 
       for (const match of source.matchAll(
         /(?:export )?function (format[A-Za-z]*(?:Date|Time)[A-Za-z]*)\(([^)]*)\)/g,
@@ -79,7 +72,7 @@ describe("dates render in the workspace timezone", () => {
       if (file.includes("lib/time/") || file.includes("lib/timezone")) continue;
       if (DEAD_FILES.has(file)) continue;
 
-      const source = readFileSync(file, "utf8");
+      const source = readRepoFile(file);
 
       for (const match of source.matchAll(/new Intl\.DateTimeFormat\(/g)) {
         const start = match.index ?? 0;

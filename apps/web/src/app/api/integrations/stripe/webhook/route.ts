@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { throwOnDatabaseError } from "../../../../../lib/supabase/write";
 import {
   getStripeConfig,
   getStripeWebhookSecrets,
@@ -28,17 +29,6 @@ type StripeWebhookEvent = {
 
 function boolValue(value: unknown) {
   return value === true;
-}
-
-function throwOnDatabaseError(
-  result: { error: { message?: string } | null },
-  operation: string,
-) {
-  if (result.error) {
-    throw new Error(
-      `${operation}: ${result.error.message ?? "Unknown database error."}`,
-    );
-  }
 }
 
 function stripeAccountStatus(account: Record<string, unknown>) {

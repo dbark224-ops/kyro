@@ -1390,8 +1390,16 @@ async function resolvePlannedAssistantCommand({
         user,
         workspace,
       });
-    default:
-      return null;
+    default: {
+      // Every member of AssistantToolName has a case above, so this is
+      // unreachable -- and saying so in the type system is the point. A plain
+      // `return null` here would let a newly added tool compile with no case
+      // and no warning, and the only symptom would be an assistant that
+      // silently does nothing when the planner picks it.
+      const unhandled: never = toolSelection.name;
+
+      return unhandled;
+    }
   }
 }
 

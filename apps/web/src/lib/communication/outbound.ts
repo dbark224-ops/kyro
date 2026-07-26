@@ -23,6 +23,7 @@ import {
 } from "../integrations/twilio";
 import { isDialablePhoneNumber } from "../crm/identity";
 import { createServiceSupabaseClient } from "../supabase/service";
+import { writeOrThrow } from "../supabase/write";
 import { getWorkspacePhoneRegion } from "../workspace/general-settings";
 import { buildQuotePdfArtifactForDraft } from "../documents/pdf";
 import {
@@ -1290,23 +1291,26 @@ async function markOutboundProviderAccepted(
     metadata: Record<string, unknown>;
   },
 ) {
-  await supabase
-    .from("outbound_messages")
-    .update({
-      channel_id: input.channelId,
-      connection_id: input.emailResult.connectionId,
-      provider: input.emailResult.provider,
-      provider_message_id: input.emailResult.messageId,
-      provider_request_id: input.emailResult.providerRequestId ?? null,
-      provider_thread_id: input.emailResult.threadId,
-      service: input.emailResult.service,
-      metadata: {
-        ...objectRecord(row.metadata),
-        ...input.metadata,
-        providerAcceptedAt: nowIso(),
-      },
-    })
-    .eq("id", row.id);
+  await writeOrThrow(
+    supabase
+      .from("outbound_messages")
+      .update({
+        channel_id: input.channelId,
+        connection_id: input.emailResult.connectionId,
+        provider: input.emailResult.provider,
+        provider_message_id: input.emailResult.messageId,
+        provider_request_id: input.emailResult.providerRequestId ?? null,
+        provider_thread_id: input.emailResult.threadId,
+        service: input.emailResult.service,
+        metadata: {
+          ...objectRecord(row.metadata),
+          ...input.metadata,
+          providerAcceptedAt: nowIso(),
+        },
+      })
+      .eq("id", row.id),
+    "Unable to record that the email provider accepted the message",
+  );
 }
 
 async function markOutboundExternalProviderAccepted(
@@ -1323,23 +1327,26 @@ async function markOutboundExternalProviderAccepted(
     threadId?: string | null;
   },
 ) {
-  await supabase
-    .from("outbound_messages")
-    .update({
-      channel_id: input.channelId,
-      connection_id: input.connectionId ?? null,
-      provider: input.provider,
-      provider_message_id: input.messageId,
-      provider_request_id: input.providerRequestId ?? null,
-      provider_thread_id: input.threadId ?? null,
-      service: input.service,
-      metadata: {
-        ...objectRecord(row.metadata),
-        ...input.metadata,
-        providerAcceptedAt: nowIso(),
-      },
-    })
-    .eq("id", row.id);
+  await writeOrThrow(
+    supabase
+      .from("outbound_messages")
+      .update({
+        channel_id: input.channelId,
+        connection_id: input.connectionId ?? null,
+        provider: input.provider,
+        provider_message_id: input.messageId,
+        provider_request_id: input.providerRequestId ?? null,
+        provider_thread_id: input.threadId ?? null,
+        service: input.service,
+        metadata: {
+          ...objectRecord(row.metadata),
+          ...input.metadata,
+          providerAcceptedAt: nowIso(),
+        },
+      })
+      .eq("id", row.id),
+    "Unable to record that the external provider accepted the message",
+  );
 }
 
 async function markOutboundFailed(
@@ -1362,20 +1369,23 @@ async function markOutboundFailed(
   });
   const message = errorMessage(error);
 
-  await supabase
-    .from("outbound_messages")
-    .update({
-      failed_at: failedAt,
-      last_error: message,
-      next_attempt_at: nextAttemptAt,
-      status,
-      metadata: {
-        ...objectRecord(row.metadata),
-        lastFailureAt: failedAt,
-        lastFailureMessage: message,
-      },
-    })
-    .eq("id", row.id);
+  await writeOrThrow(
+    supabase
+      .from("outbound_messages")
+      .update({
+        failed_at: failedAt,
+        last_error: message,
+        next_attempt_at: nextAttemptAt,
+        status,
+        metadata: {
+          ...objectRecord(row.metadata),
+          lastFailureAt: failedAt,
+          lastFailureMessage: message,
+        },
+      })
+      .eq("id", row.id),
+    "Unable to record outbound delivery failure",
+  );
 
   await insertOutboundAuditLog(supabase, {
     workspaceId: row.workspace_id,
@@ -1409,19 +1419,22 @@ async function markOutboundRecordFailed(
 ) {
   const message = errorMessage(error);
 
-  await supabase
-    .from("outbound_messages")
-    .update({
-      failed_at: nowIso(),
-      last_error: message,
-      status: "sent",
-      metadata: {
-        ...objectRecord(row.metadata),
-        externalSendRecorded: false,
-        recordError: message,
-      },
-    })
-    .eq("id", row.id);
+  await writeOrThrow(
+    supabase
+      .from("outbound_messages")
+      .update({
+        failed_at: nowIso(),
+        last_error: message,
+        status: "sent",
+        metadata: {
+          ...objectRecord(row.metadata),
+          externalSendRecorded: false,
+          recordError: message,
+        },
+      })
+      .eq("id", row.id),
+    "Unable to record outbound record failure",
+  );
 
   await insertOutboundAuditLog(supabase, {
     workspaceId: row.workspace_id,
@@ -1541,15 +1554,18 @@ async function deliverOutboundQueueItem(
     await assertWorkspaceAutomationAllowed(row.workspace_id);
   } catch (error) {
     if (error instanceof BillingAccessRestrictedError) {
-      await supabase
-        .from("outbound_messages")
-        .update({
-          last_error: error.message,
-          next_attempt_at: null,
-          status: "billing_paused",
-        })
-        .eq("id", row.id)
-        .in("status", ["queued", "retry_scheduled", "failed"]);
+      await writeOrThrow(
+        supabase
+          .from("outbound_messages")
+          .update({
+            last_error: error.message,
+            next_attempt_at: null,
+            status: "billing_paused",
+          })
+          .eq("id", row.id)
+          .in("status", ["queued", "retry_scheduled", "failed"]),
+        "Unable to pause outbound delivery for billing",
+      );
     }
 
     throw error;
@@ -2055,7 +2071,13 @@ async function deliverOutboundQueueItem(
       const usageCustomerCharge = telephonyCost?.customerCharge ?? 0;
       const usageCurrency = telephonyCost?.currency ?? "USD";
 
-      await supabase.from("usage_events").insert({
+      // SMS and voice delivery is billable, so this is the same silent
+      // revenue-loss path as the AI usage writes: a dropped insert takes the
+      // charge with it. Reported rather than thrown -- the message has already
+      // gone out, and failing here would not un-send it.
+      const { error: usageError } = await supabase
+        .from("usage_events")
+        .insert({
         workspace_id: activeRow.workspace_id,
         user_id: activeRow.user_id,
         source_type: outboundRecordType,
@@ -2088,7 +2110,13 @@ async function deliverOutboundQueueItem(
           sentFrom,
           sentTo,
         },
-      });
+        });
+
+      if (usageError) {
+        console.error(
+          `Unable to record ${channelType} delivery usage for outbound ${outboundRecordId}: ${usageError.message}`,
+        );
+      }
     }
 
     const result: RecordOutboundMessageResult = {

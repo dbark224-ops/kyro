@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { readRepoFile, repoSourceFiles } from "../testing/repo-files";
 import { isNextControlFlowSignal, rethrowNextControlFlow } from "./next-control-flow";
 
 function withDigest(digest: unknown) {
@@ -53,18 +52,15 @@ describe("no catch block silently swallows a redirect", () => {
     // redirect() signals by throwing. A catch that wraps one and does not
     // re-throw it turns a completed action into a reported failure, which is
     // exactly the bug this module exists to prevent. Three sites had it.
-    const files = execSync(
-      'git ls-files "apps/web/src/**/*.ts" "apps/web/src/**/*.tsx"',
-      { encoding: "utf8" },
-    )
-      .trim()
-      .split("\n")
-      .filter((file) => file && !file.includes(".test."));
+    const files = repoSourceFiles(
+      "apps/web/src/**/*.ts",
+      "apps/web/src/**/*.tsx",
+    );
 
     const offenders: string[] = [];
 
     for (const file of files) {
-      const source = readFileSync(file, "utf8");
+      const source = readRepoFile(file);
 
       if (!/\bredirect\w*\(/.test(source)) continue;
 

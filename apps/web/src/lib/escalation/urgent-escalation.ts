@@ -26,6 +26,7 @@ import {
 } from "../workspace/general-settings";
 import { getVoiceSettings } from "../assistant/voice-settings";
 import { textValue } from "@kyro/core";
+import { writeOrThrow } from "../supabase/write";
 
 type UrgentEscalationInput = {
   content: string;
@@ -472,10 +473,13 @@ export async function createUrgentEscalationIncident(
       );
     }
   } else {
-    await supabase
-      .from("urgent_escalation_incidents")
-      .update({ status: "exhausted" })
-      .eq("id", incident.id);
+    await writeOrThrow(
+      supabase
+        .from("urgent_escalation_incidents")
+        .update({ status: "exhausted" })
+        .eq("id", incident.id),
+      "Unable to mark the urgent escalation incident exhausted",
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -693,7 +697,10 @@ async function sendSmsStep(
     providerCurrency: result.priceUnit,
   });
 
-  await supabase.from("usage_events").insert({
+  // Billable, so a dropped insert is lost revenue -- the same silent path as
+  // the AI and outbound usage writes. Reported rather than thrown: the SMS has
+  // already gone out and failing here would not un-send it.
+  const { error: usageError } = await supabase.from("usage_events").insert({
     cost_snapshot: String(usage.cost),
     currency: usage.currency,
     customer_charge_snapshot: String(usage.customerCharge),
@@ -710,6 +717,12 @@ async function sendSmsStep(
     usage_type: "outbound_sms",
     workspace_id: incident.workspace_id,
   });
+
+  if (usageError) {
+    console.error(
+      `Unable to record urgent escalation SMS usage for incident ${incident.id}: ${usageError.message}`,
+    );
+  }
 
   return { messageId: result.messageId, requestId: result.providerRequestId };
 }
@@ -801,11 +814,14 @@ async function finishIncidentIfExhausted(
       ["sent", "failed", "skipped", "cancelled"].includes(status),
     )
   ) {
-    await supabase
-      .from("urgent_escalation_incidents")
-      .update({ status: "exhausted" })
-      .eq("id", incidentId)
-      .eq("status", "open");
+    await writeOrThrow(
+      supabase
+        .from("urgent_escalation_incidents")
+        .update({ status: "exhausted" })
+        .eq("id", incidentId)
+        .eq("status", "open"),
+      "Unable to mark the urgent escalation incident exhausted",
+    );
   }
 }
 
@@ -830,10 +846,13 @@ async function processClaimedStep(
   const incident = data as EscalationIncidentRow;
 
   if (incident.status !== "open") {
-    await supabase
-      .from("urgent_escalation_steps")
-      .update({ status: "cancelled" })
-      .eq("id", step.id);
+    await writeOrThrow(
+      supabase
+        .from("urgent_escalation_steps")
+        .update({ status: "cancelled" })
+        .eq("id", step.id),
+      "Unable to cancel the urgent escalation step",
+    );
     return { cancelled: true, stepId: step.id };
   }
 
@@ -847,18 +866,21 @@ async function processClaimedStep(
           ? await sendPhoneStep(supabase, incident, contact)
           : { messageId: null, requestId: null };
 
-  await supabase
-    .from("urgent_escalation_steps")
-    .update({
-      error: null,
-      // Release the claim lease so a finished step is never reclaimed.
-      lease_expires_at: null,
-      provider_message_id: delivery.messageId,
-      provider_request_id: delivery.requestId,
-      sent_at: new Date().toISOString(),
-      status: "sent",
-    })
-    .eq("id", step.id);
+  await writeOrThrow(
+    supabase
+      .from("urgent_escalation_steps")
+      .update({
+        error: null,
+        // Release the claim lease so a finished step is never reclaimed.
+        lease_expires_at: null,
+        provider_message_id: delivery.messageId,
+        provider_request_id: delivery.requestId,
+        sent_at: new Date().toISOString(),
+        status: "sent",
+      })
+      .eq("id", step.id),
+    "Unable to record urgent escalation step delivery",
+  );
   await finishIncidentIfExhausted(supabase, step.incident_id);
 
   return { channel: step.channel, sent: true, stepId: step.id };
@@ -884,7 +906,11 @@ export async function processDueUrgentEscalations(
       results.push(await processClaimedStep(supabase, rawStep));
     } catch (stepError) {
       const terminal = rawStep.attempt_count >= rawStep.max_attempts;
-      await supabase
+      // Not thrown: the loop still has other steps to process, and stepError
+      // below is the failure worth reporting. Losing this write would strand
+      // the step holding its lease, which is what the lease expiry exists to
+      // recover from -- but it should be visible when it happens.
+      const { error: markStepError } = await supabase
         .from("urgent_escalation_steps")
         .update({
           due_at: terminal
@@ -902,6 +928,12 @@ export async function processDueUrgentEscalations(
           status: terminal ? "failed" : "pending",
         })
         .eq("id", rawStep.id);
+
+      if (markStepError) {
+        console.error(
+          `Unable to record urgent escalation step ${rawStep.id} failure, lease will expire instead: ${markStepError.message}`,
+        );
+      }
       await finishIncidentIfExhausted(supabase, rawStep.incident_id);
       results.push({
         error:
@@ -939,11 +971,14 @@ export async function acknowledgeUrgentEscalation(
     return null;
   }
 
-  await supabase
-    .from("urgent_escalation_steps")
-    .update({ status: "cancelled" })
-    .eq("incident_id", incident.id)
-    .eq("status", "pending");
+  await writeOrThrow(
+    supabase
+      .from("urgent_escalation_steps")
+      .update({ status: "cancelled" })
+      .eq("incident_id", incident.id)
+      .eq("status", "pending"),
+    "Unable to cancel pending urgent escalation steps",
+  );
   await insertAuditLog(supabase, {
     workspaceId: String(incident.workspace_id),
     actorType: input.userId ? "user" : "system",

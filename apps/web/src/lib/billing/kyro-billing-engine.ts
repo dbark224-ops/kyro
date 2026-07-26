@@ -12,6 +12,7 @@ import {
 } from "./kyro-user-billing";
 import { reconcileAndProcessWorkspaceBilling } from "./dunning";
 import { textValue } from "@kyro/core";
+import { throwOnDatabaseError, writeOrThrow } from "../supabase/write";
 
 export const KYRO_BILLING_INVOICE_FLOW = "kyro_user_billing_invoice";
 
@@ -127,17 +128,6 @@ function intValue(value: unknown) {
   const parsed = numberValue(value);
 
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-}
-
-function throwOnDatabaseError(
-  result: { error: { message?: string } | null },
-  operation: string,
-) {
-  if (result.error) {
-    throw new Error(
-      `${operation}: ${result.error.message ?? "Unknown database error."}`,
-    );
-  }
 }
 
 function envNumber(name: string, fallback: number) {
@@ -721,36 +711,42 @@ export async function generateKyroBillingInvoice(input: {
     const nextStatus: BillingStatus = totalAmount > 0 ? "open" : "paid";
     const paidAt = nextStatus === "paid" ? new Date().toISOString() : null;
 
-    await input.supabase
-      .from("kyro_invoices")
-      .update({
-        currency,
-        paid_at: paidAt,
-        provider_cost_amount: String(providerCostAmount),
-        status: nextStatus,
-        subtotal_amount: String(subtotal),
-        tax_amount: String(taxAmount),
-        total_amount: String(totalAmount),
-      })
-      .eq("workspace_id", input.workspaceId)
-      .eq("id", invoiceId);
+    await writeOrThrow(
+      input.supabase
+        .from("kyro_invoices")
+        .update({
+          currency,
+          paid_at: paidAt,
+          provider_cost_amount: String(providerCostAmount),
+          status: nextStatus,
+          subtotal_amount: String(subtotal),
+          tax_amount: String(taxAmount),
+          total_amount: String(totalAmount),
+        })
+        .eq("workspace_id", input.workspaceId)
+        .eq("id", invoiceId),
+      "Unable to update Kyro invoice totals",
+    );
 
-    await input.supabase
-      .from("kyro_billing_periods")
-      .update({
-        base_subscription_amount: String(basePlanAmount),
-        currency,
-        generated_at: new Date().toISOString(),
-        invoice_id: invoiceId,
-        provider_cost_amount: String(providerCostAmount),
-        status: nextStatus,
-        subtotal_amount: String(subtotal),
-        tax_amount: String(taxAmount),
-        total_amount: String(totalAmount),
-        usage_amount: String(usageAmount),
-      })
-      .eq("workspace_id", input.workspaceId)
-      .eq("id", periodId);
+    await writeOrThrow(
+      input.supabase
+        .from("kyro_billing_periods")
+        .update({
+          base_subscription_amount: String(basePlanAmount),
+          currency,
+          generated_at: new Date().toISOString(),
+          invoice_id: invoiceId,
+          provider_cost_amount: String(providerCostAmount),
+          status: nextStatus,
+          subtotal_amount: String(subtotal),
+          tax_amount: String(taxAmount),
+          total_amount: String(totalAmount),
+          usage_amount: String(usageAmount),
+        })
+        .eq("workspace_id", input.workspaceId)
+        .eq("id", periodId),
+      "Unable to update Kyro billing period",
+    );
   }
 
   await insertAuditLog(input.supabase, {
@@ -838,17 +834,20 @@ export async function chargeKyroInvoice(input: {
   if (!customerId || !paymentMethodId) {
     const nextFailureCount = failureCount + 1;
 
-    await input.supabase
-      .from("kyro_invoices")
-      .update({
-        failed_at: new Date().toISOString(),
-        failure_count: nextFailureCount,
-        last_error: "Missing Stripe customer or saved payment method.",
-        next_retry_at: nextRetryAt(nextFailureCount),
-        status: "payment_failed",
-      })
-      .eq("workspace_id", workspaceId)
-      .eq("id", invoiceId);
+    await writeOrThrow(
+      input.supabase
+        .from("kyro_invoices")
+        .update({
+          failed_at: new Date().toISOString(),
+          failure_count: nextFailureCount,
+          last_error: "Missing Stripe customer or saved payment method.",
+          next_retry_at: nextRetryAt(nextFailureCount),
+          status: "payment_failed",
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", invoiceId),
+      "Unable to record Kyro invoice payment failure",
+    );
 
     await refreshBillingAccess(input.supabase, workspaceId);
 
@@ -950,15 +949,18 @@ export async function chargeKyroInvoice(input: {
         invoiceId,
       });
     } else if (paymentStatus === "processing") {
-      await input.supabase
-        .from("kyro_invoices")
-        .update({
-          last_error: null,
-          status: "charging",
-          stripe_payment_intent_id: paymentIntent.id,
-        })
-        .eq("workspace_id", workspaceId)
-        .eq("id", invoiceId);
+      await writeOrThrow(
+        input.supabase
+          .from("kyro_invoices")
+          .update({
+            last_error: null,
+            status: "charging",
+            stripe_payment_intent_id: paymentIntent.id,
+          })
+          .eq("workspace_id", workspaceId)
+          .eq("id", invoiceId),
+        "Unable to mark Kyro invoice as charging",
+      );
     } else {
       await markKyroInvoiceFailed({
         errorMessage:
