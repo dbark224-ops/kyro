@@ -3,7 +3,7 @@ import {
   buildLlmUsageEvents,
   openAiProviderUsageId,
   openAiUsageFromResponse,
-  toUsageEventRows,
+  recordUsageEvents,
   usageEventTotals,
 } from "../usage/openai";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
@@ -853,16 +853,19 @@ async function enrichPronunciationCandidatesWithAliases({
     if (aiRun?.id) {
       const aiRunId = String(aiRun.id);
 
-      await supabase.from("usage_events").insert(
-        toUsageEventRows(
-          usageEvents.map((event) => ({
-            ...event,
-            aiRunId,
-            sourceId: aiRunId,
-            sourceType: "ai_run",
-          })),
-        ),
-      );
+      // Through the shared recorder like the other AI paths, so a failed write
+      // leaves the charge reconstructable in the audit log rather than lost.
+      await recordUsageEvents(supabase, {
+        context: "pronunciation_alias_enrichment",
+        events: usageEvents.map((event) => ({
+          ...event,
+          aiRunId,
+          sourceId: aiRunId,
+          sourceType: "ai_run",
+        })),
+        userId: user.id,
+        workspaceId,
+      });
     }
 
     const parsed = extractJsonObject(content);

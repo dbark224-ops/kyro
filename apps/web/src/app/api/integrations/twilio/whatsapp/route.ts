@@ -16,6 +16,7 @@ import {
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
 import { textValue } from "@kyro/core";
+import { logWriteError } from "../../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -212,13 +213,16 @@ async function markInboundEvent(
   eventId: string,
   status: "failed" | "processed",
 ) {
-  await supabase
-    .from("events")
-    .update({
-      processed_at: new Date().toISOString(),
-      status,
-    })
-    .eq("id", eventId);
+  await logWriteError(
+    supabase
+      .from("events")
+      .update({
+        processed_at: new Date().toISOString(),
+        status,
+      })
+      .eq("id", eventId),
+    "Unable to mark the WhatsApp event processed",
+  );
 }
 
 async function processSandboxMessage(input: SandboxMessage) {

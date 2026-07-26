@@ -19,6 +19,7 @@ import {
 import { requireWorkspaceContext } from "../../../../../lib/workspace/context";
 import { assertWorkspaceAutomationAllowed } from "../../../../../lib/billing/access";
 import { objectRecord, textValue } from "@kyro/core";
+import { logWriteError } from "../../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 
@@ -189,15 +190,18 @@ export async function POST(request: Request) {
       if (aiRun?.id) {
         const aiRunId = String(aiRun.id);
 
-        await supabase.from("usage_events").insert(
-          toUsageEventRows(
-            usageEvents.map((event) => ({
-              ...event,
-              aiRunId,
-              sourceId: aiRunId,
-              sourceType: "ai_run",
-            })),
+        await logWriteError(
+          supabase.from("usage_events").insert(
+            toUsageEventRows(
+              usageEvents.map((event) => ({
+                ...event,
+                aiRunId,
+                sourceId: aiRunId,
+                sourceType: "ai_run",
+              })),
+            ),
           ),
+          "Unable to record realtime tool usage",
         );
       }
     }

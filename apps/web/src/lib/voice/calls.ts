@@ -43,6 +43,7 @@ import {
 import { buildVoiceCallInboxBody } from "./call-message";
 import { notifyInboundVoiceInquiry } from "./inbound-inquiry-notifications";
 import { objectRecord, textValue } from "@kyro/core";
+import { writeOrThrow } from "../supabase/write";
 
 export const VOICE_RECORDING_RETENTION_DAYS = 30;
 
@@ -1611,7 +1612,10 @@ async function recordVoiceCallUsageIfNeeded(
       ? input.customerCharge / Math.max(input.providerCost, 0.000001) - 1
       : 0;
 
-  await supabase.from("usage_events").insert({
+  // Billable minutes. Reported rather than thrown -- the call has already
+  // happened and failing the webhook would not un-bill it -- but never silent,
+  // because a dropped insert here is revenue with no trace of what was lost.
+  const { error: usageError } = await supabase.from("usage_events").insert({
     workspace_id: input.workspaceId,
     user_id: null,
     source_type: "voice_call",
@@ -1633,6 +1637,12 @@ async function recordVoiceCallUsageIfNeeded(
       durationSeconds: input.durationSeconds,
     },
   });
+
+  if (usageError) {
+    console.error(
+      `Unable to record voice call usage for call ${input.callId}: ${usageError.message}`,
+    );
+  }
 }
 
 export async function upsertVoiceCallFromVapiEvent(
@@ -1806,13 +1816,24 @@ export async function upsertVoiceCallFromVapiEvent(
 
   const callId = String(result.data.id);
 
-  await supabase.from("voice_call_events").insert({
-    workspace_id: workspaceId,
-    voice_call_id: callId,
-    provider: VAPI_PROVIDER,
-    event_type: event,
-    payload,
-  });
+  // The provider event trail. Not worth failing the webhook over -- the call
+  // row itself is already updated above -- but losing it silently makes a
+  // call's history unexplainable after the fact.
+  const { error: eventError } = await supabase
+    .from("voice_call_events")
+    .insert({
+      workspace_id: workspaceId,
+      voice_call_id: callId,
+      provider: VAPI_PROVIDER,
+      event_type: event,
+      payload,
+    });
+
+  if (eventError) {
+    console.error(
+      `Unable to record voice call event ${event} for call ${callId}: ${eventError.message}`,
+    );
+  }
 
   if (status === "completed") {
     await recordVoiceCallUsageIfNeeded(supabase, {
@@ -1905,7 +1926,10 @@ export async function cleanupExpiredVoiceCallRecordings(
           : "Vapi provider call id is missing.";
       failures.push({ callId, error: reason });
 
-      await supabase
+      // Not thrown: this loop must keep cleaning up the other calls, and the
+      // reason is already returned to the caller in `failures`. Logged so a
+      // row that never records its delete_failed state is still traceable.
+      const { error: markError } = await supabase
         .from("voice_calls")
         .update({
           metadata: {
@@ -1920,6 +1944,12 @@ export async function cleanupExpiredVoiceCallRecordings(
         .eq("workspace_id", workspaceId)
         .eq("id", callId);
 
+      if (markError) {
+        console.error(
+          `Unable to record recording delete failure for call ${callId}: ${markError.message}`,
+        );
+      }
+
       continue;
     }
 
@@ -1930,7 +1960,8 @@ export async function cleanupExpiredVoiceCallRecordings(
       const reason = deleteResult.error ?? "Vapi recording delete failed.";
       failures.push({ callId, error: reason });
 
-      await supabase
+      // Same reasoning as the branch above.
+      const { error: markError } = await supabase
         .from("voice_calls")
         .update({
           metadata: {
@@ -1945,6 +1976,12 @@ export async function cleanupExpiredVoiceCallRecordings(
         })
         .eq("workspace_id", workspaceId)
         .eq("id", callId);
+
+      if (markError) {
+        console.error(
+          `Unable to record recording delete failure for call ${callId}: ${markError.message}`,
+        );
+      }
 
       continue;
     }
@@ -2228,25 +2265,31 @@ async function ensureVoiceCallConversation(input: {
     conversationId = String(conversation.id);
 
     if (call.id) {
-      await input.supabase
-        .from("voice_calls")
-        .update({
-          conversation_id: conversationId,
-        })
-        .eq("workspace_id", input.workspaceId)
-        .eq("id", call.id);
+      await writeOrThrow(
+        input.supabase
+          .from("voice_calls")
+          .update({
+            conversation_id: conversationId,
+          })
+          .eq("workspace_id", input.workspaceId)
+          .eq("id", call.id),
+        "Unable to link the voice call to its conversation",
+      );
     }
   } else {
-    await input.supabase
-      .from("conversations")
-      .update({
-        contact_id: call.contactId,
-        last_message_at: now,
-        lead_id: call.leadId,
-        status: "open",
-      })
-      .eq("workspace_id", input.workspaceId)
-      .eq("id", conversationId);
+    await writeOrThrow(
+      input.supabase
+        .from("conversations")
+        .update({
+          contact_id: call.contactId,
+          last_message_at: now,
+          lead_id: call.leadId,
+          status: "open",
+        })
+        .eq("workspace_id", input.workspaceId)
+        .eq("id", conversationId),
+      "Unable to update the conversation for the voice call",
+    );
   }
 
   const { data: existingMessage, error: existingMessageError } =
@@ -2564,14 +2607,17 @@ async function ensureVoiceCallCrmArtifacts(input: {
   }
 
   if (call.id && (contactId !== call.contactId || leadId !== call.leadId)) {
-    await input.supabase
-      .from("voice_calls")
-      .update({
-        contact_id: contactId,
-        lead_id: leadId,
-      })
-      .eq("workspace_id", input.workspaceId)
-      .eq("id", call.id);
+    await writeOrThrow(
+      input.supabase
+        .from("voice_calls")
+        .update({
+          contact_id: contactId,
+          lead_id: leadId,
+        })
+        .eq("workspace_id", input.workspaceId)
+        .eq("id", call.id),
+      "Unable to link the voice call to its contact and lead",
+    );
   }
 
   return {
@@ -3127,7 +3173,12 @@ export async function createOutboundVoiceCall(input: {
       phoneNumberId: phoneNumberSelection.phoneNumberId,
     });
 
-    await input.supabase
+    // Deliberately not thrown. The call is already placed with the provider by
+    // this point, and the catch below marks the row `failed` -- so throwing
+    // here would record a live, ringing call as a failure. Logged instead, and
+    // loudly: provider_call_id is how the status webhooks find this row again,
+    // so losing it leaves the call unmatchable.
+    const { error: recordError } = await input.supabase
       .from("voice_calls")
       .update({
         provider_call_id: result.id,
@@ -3140,13 +3191,21 @@ export async function createOutboundVoiceCall(input: {
       .eq("workspace_id", input.workspaceId)
       .eq("id", inserted.id);
 
+    if (recordError) {
+      console.error(
+        `Placed Vapi call ${result.id} but could not record it against voice call ${inserted.id}: ${recordError.message}`,
+      );
+    }
+
     return {
       providerCallId: result.id,
       status: result.status ?? "queued",
       voiceCallId: String(inserted.id),
     };
   } catch (error) {
-    await input.supabase
+    // Logged rather than thrown: `error` is the real failure and must reach
+    // the caller intact, not be replaced by a bookkeeping one.
+    const { error: markFailedError } = await input.supabase
       .from("voice_calls")
       .update({
         ended_reason:
@@ -3157,6 +3216,12 @@ export async function createOutboundVoiceCall(input: {
       })
       .eq("workspace_id", input.workspaceId)
       .eq("id", inserted.id);
+
+    if (markFailedError) {
+      console.error(
+        `Unable to mark voice call ${inserted.id} failed: ${markFailedError.message}`,
+      );
+    }
 
     throw error;
   }

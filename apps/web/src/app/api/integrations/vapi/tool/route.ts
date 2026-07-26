@@ -67,6 +67,7 @@ import {
 } from "../../../../../lib/voice/inbound-booking";
 import type { WorkspaceSummary } from "../../../../../lib/workspace/bootstrap";
 import { objectRecord, textValue } from "@kyro/core";
+import { logWriteError } from "../../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 
@@ -1142,15 +1143,18 @@ async function recordWebSearchUsage({
 
   const aiRunId = String(aiRun.id);
 
-  await supabase.from("usage_events").insert(
-    toUsageEventRows(
-      usageEvents.map((event) => ({
-        ...event,
-        aiRunId,
-        sourceId: aiRunId,
-        sourceType: "ai_run",
-      })),
+  await logWriteError(
+    supabase.from("usage_events").insert(
+      toUsageEventRows(
+        usageEvents.map((event) => ({
+          ...event,
+          aiRunId,
+          sourceId: aiRunId,
+          sourceType: "ai_run",
+        })),
+      ),
     ),
+    "Unable to record Vapi tool usage",
   );
 }
 

@@ -6,6 +6,7 @@ import {
 } from "../../../../../lib/billing/kyro-user-billing";
 import { retrieveStripeSetupIntent } from "../../../../../lib/payments/stripe";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
+import { logWriteError } from "../../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 
@@ -64,22 +65,25 @@ export async function POST(request: Request) {
     workspaceId,
   });
 
-  await supabase.from("events").upsert(
-    {
-      idempotency_key: `stripe.setup_intent.client.${setupIntentId}`,
-      payload: {
-        flow: KYRO_BILLING_SETUP_FLOW,
-        stripeCustomerId:
-          typeof setupIntent.customer === "string" ? setupIntent.customer : null,
-        stripeSetupIntentId: setupIntentId,
+  await logWriteError(
+    supabase.from("events").upsert(
+      {
+        idempotency_key: `stripe.setup_intent.client.${setupIntentId}`,
+        payload: {
+          flow: KYRO_BILLING_SETUP_FLOW,
+          stripeCustomerId:
+            typeof setupIntent.customer === "string" ? setupIntent.customer : null,
+          stripeSetupIntentId: setupIntentId,
+        },
+        processed_at: new Date().toISOString(),
+        source: "stripe.client",
+        status: "processed",
+        type: "billing.setup.completed",
+        workspace_id: workspaceId,
       },
-      processed_at: new Date().toISOString(),
-      source: "stripe.client",
-      status: "processed",
-      type: "billing.setup.completed",
-      workspace_id: workspaceId,
-    },
-    { ignoreDuplicates: true, onConflict: "idempotency_key" },
+      { ignoreDuplicates: true, onConflict: "idempotency_key" },
+    ),
+    "Unable to record the Stripe setup-intent event",
   );
 
   return NextResponse.json({ ok: true });

@@ -25,6 +25,7 @@ import {
   TWILIO_PROVIDER,
 } from "./twilio";
 import { textValue } from "@kyro/core";
+import { logWriteError } from "../supabase/write";
 
 type ServiceSupabase = ReturnType<typeof createServiceSupabaseClient>;
 
@@ -182,30 +183,33 @@ async function recordInboundSmsUsage(
     ),
   });
 
-  await supabase.from("usage_events").insert({
-    workspace_id: input.workspaceId,
-    user_id: null,
-    source_type: input.eventId ? "event" : "sms_webhook",
-    source_id: input.eventId,
-    provider: TWILIO_PROVIDER,
-    service: "sms",
-    model: null,
-    usage_type: "inbound_sms",
-    quantity: "1",
-    unit: "message",
-    unit_cost_snapshot: String(usage.cost),
-    markup_snapshot: String(usage.markup),
-    currency: usage.currency,
-    cost_snapshot: String(usage.cost),
-    customer_charge_snapshot: String(usage.customerCharge),
-    provider_usage_id: input.messageSid,
-    metadata: {
-      billingTask: "sms_delivery",
-      direction: "inbound",
-      from: input.from,
-      to: input.to,
-    },
-  });
+  await logWriteError(
+    supabase.from("usage_events").insert({
+      workspace_id: input.workspaceId,
+      user_id: null,
+      source_type: input.eventId ? "event" : "sms_webhook",
+      source_id: input.eventId,
+      provider: TWILIO_PROVIDER,
+      service: "sms",
+      model: null,
+      usage_type: "inbound_sms",
+      quantity: "1",
+      unit: "message",
+      unit_cost_snapshot: String(usage.cost),
+      markup_snapshot: String(usage.markup),
+      currency: usage.currency,
+      cost_snapshot: String(usage.cost),
+      customer_charge_snapshot: String(usage.customerCharge),
+      provider_usage_id: input.messageSid,
+      metadata: {
+        billingTask: "sms_delivery",
+        direction: "inbound",
+        from: input.from,
+        to: input.to,
+      },
+    }),
+    "Unable to record inbound SMS usage",
+  );
 }
 
 async function reserveInternalSmsEvent(

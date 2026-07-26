@@ -10,6 +10,7 @@ import {
 } from "./stripe";
 import { operatingCountryPhoneRegion } from "../workspace/operating-countries";
 import type { WorkspaceGeneralSettings } from "../workspace/general-settings";
+import { logWriteError } from "../supabase/write";
 
 type PaymentAccountRow = {
   charges_enabled: boolean;
@@ -190,11 +191,14 @@ export async function createStripeConnectOnboardingLink({
     returnUrl: `${config.appUrl}/settings?section=integrations&engine_message=Stripe%20payments%20setup%20saved.`,
   });
 
-  await supabase
-    .from("workspace_payment_accounts")
-    .update({ onboarding_url: accountLink.url })
-    .eq("workspace_id", workspaceId)
-    .eq("provider", STRIPE_PROVIDER);
+  await logWriteError(
+    supabase
+      .from("workspace_payment_accounts")
+      .update({ onboarding_url: accountLink.url })
+      .eq("workspace_id", workspaceId)
+      .eq("provider", STRIPE_PROVIDER),
+    "Unable to store the Stripe onboarding link",
+  );
 
   return accountLink.url;
 }

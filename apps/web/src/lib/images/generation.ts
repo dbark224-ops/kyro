@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { createServiceSupabaseClient } from "../supabase/service";
+import { logWriteError } from "../supabase/write";
 import {
   buildOpenAiImageGenerationUsageEvent,
   openAiImageUsageFromResponse,
@@ -721,29 +722,32 @@ export async function generateKyroImage({
     const message =
       error instanceof Error ? error.message : "Unable to generate image.";
 
-    await supabase
-      .from("ai_runs")
-      .update({
-        completed_at: new Date().toISOString(),
-        error: message,
-        latency_ms: Date.now() - startedAt,
-        status: "failed",
-        tool_calls: [
-          {
-            input: {
-              model,
-              prompt: requestedPrompt,
-              quality,
-              referenceFileCount: references.length,
-              size,
+    await logWriteError(
+      supabase
+        .from("ai_runs")
+        .update({
+          completed_at: new Date().toISOString(),
+          error: message,
+          latency_ms: Date.now() - startedAt,
+          status: "failed",
+          tool_calls: [
+            {
+              input: {
+                model,
+                prompt: requestedPrompt,
+                quality,
+                referenceFileCount: references.length,
+                size,
+              },
+              name: references.length > 0 ? "image.edit" : "image.generate",
+              result: { error: message },
+              status: "blocked",
             },
-            name: references.length > 0 ? "image.edit" : "image.generate",
-            result: { error: message },
-            status: "blocked",
-          },
-        ],
-      })
-      .eq("id", aiRunId);
+          ],
+        })
+        .eq("id", aiRunId),
+      "Unable to record the failed image generation ai_run",
+    );
 
     throw error;
   }

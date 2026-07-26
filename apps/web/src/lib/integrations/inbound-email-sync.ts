@@ -36,6 +36,7 @@ import {
   getMicrosoftOAuthConfig,
 } from "./microsoft";
 import { createServiceSupabaseClient } from "../supabase/service";
+import { logWriteError } from "../supabase/write";
 import {
   findInboundEmailSenderRule,
   getInboundEmailSettings,
@@ -1040,21 +1041,24 @@ async function classifyWithOpenAi({
 
   const aiRunId = String(aiRun.id);
 
-  await supabase.from("model_route_decisions").insert({
-    workspace_id: workspaceId,
-    user_id: user.id,
-    ai_run_id: aiRunId,
-    task_type: "inbound_email_classification",
-    risk_level: "low",
-    selected_provider: "openai",
-    selected_model: model,
-    fallback_used: false,
-    decision_reason: route.reason,
-    budget_snapshot: {
-      estimatedInputTokens: 900,
-      source: "inbound_email_sync",
-    },
-  });
+  await logWriteError(
+    supabase.from("model_route_decisions").insert({
+      workspace_id: workspaceId,
+      user_id: user.id,
+      ai_run_id: aiRunId,
+      task_type: "inbound_email_classification",
+      risk_level: "low",
+      selected_provider: "openai",
+      selected_model: model,
+      fallback_used: false,
+      decision_reason: route.reason,
+      budget_snapshot: {
+        estimatedInputTokens: 900,
+        source: "inbound_email_sync",
+      },
+    }),
+    "Unable to record the inbound email model route decision",
+  );
 
   try {
     const response = await fetchWithTimeout(
@@ -1166,42 +1170,48 @@ async function classifyWithOpenAi({
       workspaceId,
     });
 
-    await supabase
-      .from("ai_runs")
-      .update({
-        actual_cost: String(usageTotals.costSnapshot),
-        completed_at: new Date().toISOString(),
-        output: classification,
-        status: "completed",
-        usage: {
-          cachedInputTokens: tokenUsage.cachedInputTokens,
-          customerCharge: usageTotals.customerChargeSnapshot,
-          inputTokens: tokenUsage.inputTokens,
-          outputTokens: tokenUsage.outputTokens,
-          reasoningTokens: tokenUsage.reasoningTokens,
-          totalTokens: tokenUsage.totalTokens,
-        },
-      })
-      .eq("workspace_id", workspaceId)
-      .eq("id", aiRunId);
+    await logWriteError(
+      supabase
+        .from("ai_runs")
+        .update({
+          actual_cost: String(usageTotals.costSnapshot),
+          completed_at: new Date().toISOString(),
+          output: classification,
+          status: "completed",
+          usage: {
+            cachedInputTokens: tokenUsage.cachedInputTokens,
+            customerCharge: usageTotals.customerChargeSnapshot,
+            inputTokens: tokenUsage.inputTokens,
+            outputTokens: tokenUsage.outputTokens,
+            reasoningTokens: tokenUsage.reasoningTokens,
+            totalTokens: tokenUsage.totalTokens,
+          },
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", aiRunId),
+      "Unable to complete the inbound email classification ai_run",
+    );
 
     return classification;
   } catch (error) {
-    await supabase
-      .from("ai_runs")
-      .update({
-        completed_at: new Date().toISOString(),
-        error:
-          error instanceof Error
-            ? error.message
-            : "Email classification failed.",
-        output: {
-          fallback,
-        },
-        status: "failed",
-      })
-      .eq("workspace_id", workspaceId)
-      .eq("id", aiRunId);
+    await logWriteError(
+      supabase
+        .from("ai_runs")
+        .update({
+          completed_at: new Date().toISOString(),
+          error:
+            error instanceof Error
+              ? error.message
+              : "Email classification failed.",
+          output: {
+            fallback,
+          },
+          status: "failed",
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", aiRunId),
+      "Unable to record the failed inbound email classification ai_run",
+    );
 
     return {
       ...fallback,
@@ -2715,13 +2725,16 @@ async function promoteEmailMessage({
     });
 
   if (leadId) {
-    await supabase
-      .from("leads")
-      .update({
-        next_step: "Review latest AI proposed reply",
-      })
-      .eq("workspace_id", workspaceId)
-      .eq("id", leadId);
+    await logWriteError(
+      supabase
+        .from("leads")
+        .update({
+          next_step: "Review latest AI proposed reply",
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", leadId),
+      "Unable to update the lead next step after an inbound email",
+    );
   }
 
   await insertAuditLog(supabase, {
@@ -3192,31 +3205,34 @@ async function processMessage({
       settings.autoPromoteActionable && classification.promote;
 
     if (!shouldPromote) {
-      await supabase
-        .from("events")
-        .update({
-          payload: {
-            accountEmail: message.accountEmail,
-            classification,
-            fromEmail: message.fromEmail,
-            provider: message.provider,
-            receivedAt: message.receivedAt,
-            stage: "observed",
-            subject: message.subject,
-            bodyText: (message.bodyText ?? message.snippet ?? "").slice(
-              0,
-              12_000,
-            ),
-            summary: settings.includeAwarenessEvents
-              ? safeSummaryText(message)
-              : null,
-            ...inboundEmailEventMetadata(message),
-          },
-          processed_at: new Date().toISOString(),
-          status: "processed",
-        })
-        .eq("workspace_id", workspaceId)
-        .eq("id", event.id);
+      await logWriteError(
+        supabase
+          .from("events")
+          .update({
+            payload: {
+              accountEmail: message.accountEmail,
+              classification,
+              fromEmail: message.fromEmail,
+              provider: message.provider,
+              receivedAt: message.receivedAt,
+              stage: "observed",
+              subject: message.subject,
+              bodyText: (message.bodyText ?? message.snippet ?? "").slice(
+                0,
+                12_000,
+              ),
+              summary: settings.includeAwarenessEvents
+                ? safeSummaryText(message)
+                : null,
+              ...inboundEmailEventMetadata(message),
+            },
+            processed_at: new Date().toISOString(),
+            status: "processed",
+          })
+          .eq("workspace_id", workspaceId)
+          .eq("id", event.id),
+        "Unable to update the inbound email event payload",
+      );
       result.observedMessages += 1;
       return;
     }
@@ -3231,31 +3247,34 @@ async function processMessage({
       workspaceId,
     });
 
-    await supabase
-      .from("events")
-      .update({
-        payload: {
-          accountEmail: message.accountEmail,
-          classification,
-          contactEmail: message.fromEmail,
-          conversationId: promoted.conversationId,
-          leadId: promoted.leadId,
-          messageId: promoted.messageId,
-          provider: message.provider,
-          receivedAt: message.receivedAt,
-          stage: "promoted",
-          subject: message.subject,
-          summary: safeSummaryText(message),
-          threadMatchStrategy: promoted.threadMatchStrategy,
-          triageActionId: promoted.actionId,
-          triageAiRunId: promoted.aiRunId,
-          ...inboundEmailEventMetadata(message),
-        },
-        processed_at: new Date().toISOString(),
-        status: "processed",
-      })
-      .eq("workspace_id", workspaceId)
-      .eq("id", event.id);
+    await logWriteError(
+      supabase
+        .from("events")
+        .update({
+          payload: {
+            accountEmail: message.accountEmail,
+            classification,
+            contactEmail: message.fromEmail,
+            conversationId: promoted.conversationId,
+            leadId: promoted.leadId,
+            messageId: promoted.messageId,
+            provider: message.provider,
+            receivedAt: message.receivedAt,
+            stage: "promoted",
+            subject: message.subject,
+            summary: safeSummaryText(message),
+            threadMatchStrategy: promoted.threadMatchStrategy,
+            triageActionId: promoted.actionId,
+            triageAiRunId: promoted.aiRunId,
+            ...inboundEmailEventMetadata(message),
+          },
+          processed_at: new Date().toISOString(),
+          status: "processed",
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", event.id),
+      "Unable to update the processed inbound email event",
+    );
 
     if (promoted.duplicate) {
       result.duplicates += 1;
@@ -3306,22 +3325,25 @@ async function processMessage({
         ? error.message
         : "Inbound email processing failed.";
 
-    await supabase
-      .from("events")
-      .update({
-        payload: {
-          accountEmail: message.accountEmail,
-          error: messageText,
-          provider: message.provider,
-          stage: "failed",
-          subject: message.subject,
-          ...inboundEmailEventMetadata(message),
-        },
-        processed_at: new Date().toISOString(),
-        status: "failed",
-      })
-      .eq("workspace_id", workspaceId)
-      .eq("id", event.id);
+    await logWriteError(
+      supabase
+        .from("events")
+        .update({
+          payload: {
+            accountEmail: message.accountEmail,
+            error: messageText,
+            provider: message.provider,
+            stage: "failed",
+            subject: message.subject,
+            ...inboundEmailEventMetadata(message),
+          },
+          processed_at: new Date().toISOString(),
+          status: "failed",
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", event.id),
+      "Unable to record the failed inbound email event",
+    );
 
     throw error;
   }

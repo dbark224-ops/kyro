@@ -77,6 +77,7 @@ import { getInboundEmailOperationalSummary } from "../integrations/inbound-email
 import {
   buildLlmUsageEvents,
   buildOpenAiWebSearchCallUsageEvent,
+  recordUsageEvents,
   toUsageEventRows,
   usageEventTotals,
 } from "../usage/openai";
@@ -6163,16 +6164,19 @@ async function documentTemplateControlCommand({
   if (templateAiRun?.id) {
     const aiRunId = String(templateAiRun.id);
 
-    await supabase.from("usage_events").insert(
-      toUsageEventRows(
-        usageEvents.map((event) => ({
-          ...event,
-          aiRunId,
-          sourceId: aiRunId,
-          sourceType: "ai_run",
-        })),
-      ),
-    );
+    // Through the shared recorder like the other AI paths, so a failed write
+    // leaves the charge reconstructable in the audit log instead of vanishing.
+    await recordUsageEvents(supabase, {
+      context: "document_template_revision",
+      events: usageEvents.map((event) => ({
+        ...event,
+        aiRunId,
+        sourceId: aiRunId,
+        sourceType: "ai_run",
+      })),
+      userId: user.id,
+      workspaceId: workspace.id,
+    });
   }
 
   await insertAuditLog(supabase, {

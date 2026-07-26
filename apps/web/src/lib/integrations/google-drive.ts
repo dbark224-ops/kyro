@@ -11,6 +11,7 @@ import {
   encryptIntegrationTokenSet,
 } from "./token-vault";
 import { createServiceSupabaseClient } from "../supabase/service";
+import { logWriteError } from "../supabase/write";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { objectRecord, textValue } from "@kyro/core";
 
@@ -156,11 +157,14 @@ async function refreshAccessToken({
   if (!response.ok) {
     const message = await readGoogleApiError(response);
 
-    await supabase
-      .from("integration_connections")
-      .update({ last_error: `Google token refresh failed: ${message}` })
-      .eq("workspace_id", workspaceId)
-      .eq("id", connection.id);
+    await logWriteError(
+      supabase
+        .from("integration_connections")
+        .update({ last_error: `Google token refresh failed: ${message}` })
+        .eq("workspace_id", workspaceId)
+        .eq("id", connection.id),
+      "Unable to record the Google token refresh failure",
+    );
 
     throw new Error(
       "Google access expired and refresh failed. Reconnect Google in Settings.",
@@ -359,11 +363,14 @@ export async function fileGeneratedDocumentToGoogleDrive(
   if (!response.ok) {
     const message = await readGoogleApiError(response);
 
-    await supabase
-      .from("integration_connections")
-      .update({ last_error: `Google Drive upload failed: ${message}` })
-      .eq("workspace_id", workspaceId)
-      .eq("id", connection.id);
+    await logWriteError(
+      supabase
+        .from("integration_connections")
+        .update({ last_error: `Google Drive upload failed: ${message}` })
+        .eq("workspace_id", workspaceId)
+        .eq("id", connection.id),
+      "Unable to record the Google Drive upload failure",
+    );
 
     throw new Error(`Google Drive upload failed: ${message}`);
   }
@@ -413,11 +420,14 @@ export async function fileGeneratedDocumentToGoogleDrive(
     );
   }
 
-  await supabase
-    .from("integration_connections")
-    .update({ last_error: null })
-    .eq("workspace_id", workspaceId)
-    .eq("id", connection.id);
+  await logWriteError(
+    supabase
+      .from("integration_connections")
+      .update({ last_error: null })
+      .eq("workspace_id", workspaceId)
+      .eq("id", connection.id),
+    "Unable to clear the Google Drive connection error",
+  );
 
   await insertAuditLog(supabase, {
     workspaceId,

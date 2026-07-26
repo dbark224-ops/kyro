@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { recordOutboundDirectSms } from "../communication/outbound";
 import { objectRecord, textValue } from "@kyro/core";
+import { logWriteError } from "../supabase/write";
 
 export type AssistantDeliveryOrigin = {
   inputSource: string;
@@ -106,11 +107,14 @@ export async function reportAssistantDeliveryFailure({
     );
   }
 
-  await supabase
-    .from("assistant_threads")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("workspace_id", workspaceId)
-    .eq("id", origin.threadId);
+  await logWriteError(
+    supabase
+      .from("assistant_threads")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("workspace_id", workspaceId)
+      .eq("id", origin.threadId),
+    "Unable to touch the assistant thread after delivery feedback",
+  );
 
   if (
     origin.phoneNumber &&

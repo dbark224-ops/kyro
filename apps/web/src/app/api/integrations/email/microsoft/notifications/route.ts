@@ -7,6 +7,7 @@ import { MICROSOFT_PROVIDER } from "../../../../../../lib/integrations/microsoft
 import { syncInboundEmail } from "../../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../../lib/supabase/service";
 import { textValue } from "@kyro/core";
+import { logWriteError } from "../../../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 
@@ -128,21 +129,24 @@ export async function POST(request: Request) {
         textValue(item.subscriptionId) === configuredSubscriptionId,
     ).length;
 
-    await supabase
-      .from("integration_connections")
-      .update({
-        metadata: {
-          ...metadata,
-          microsoftGraph: {
-            ...(graph && typeof graph === "object"
-              ? (graph as Record<string, unknown>)
-              : {}),
-            lastNotificationAt: new Date().toISOString(),
-            lastNotificationCount: notificationCount,
+    await logWriteError(
+      supabase
+        .from("integration_connections")
+        .update({
+          metadata: {
+            ...metadata,
+            microsoftGraph: {
+              ...(graph && typeof graph === "object"
+                ? (graph as Record<string, unknown>)
+                : {}),
+              lastNotificationAt: new Date().toISOString(),
+              lastNotificationCount: notificationCount,
+            },
           },
-        },
-      })
-      .eq("id", connection.id);
+        })
+        .eq("id", connection.id),
+      "Unable to update the Microsoft connection metadata",
+    );
 
     if (!ownerUserId) {
       results.push({

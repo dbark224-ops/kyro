@@ -14,6 +14,7 @@ import {
 } from "../../../../../lib/assistant/delivery-feedback";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import { textValue } from "@kyro/core";
+import { logWriteError } from "../../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 
@@ -156,22 +157,25 @@ export async function POST(request: Request) {
     );
   }
 
-  await supabase.from("events").insert({
-    workspace_id: outbound.workspace_id,
-    type: "outbound.sms.status_callback",
-    source: "twilio.webhook",
-    idempotency_key: `twilio.sms.status.${messageSid}.${messageStatus}.${now}`,
-    payload: {
-      errorCode,
-      errorMessage,
-      messageSid,
-      outboundQueueId: outbound.id,
-      status: messageStatus,
-      to: textValue(params.To),
-    },
-    status: "processed",
-    processed_at: now,
-  });
+  await logWriteError(
+    supabase.from("events").insert({
+      workspace_id: outbound.workspace_id,
+      type: "outbound.sms.status_callback",
+      source: "twilio.webhook",
+      idempotency_key: `twilio.sms.status.${messageSid}.${messageStatus}.${now}`,
+      payload: {
+        errorCode,
+        errorMessage,
+        messageSid,
+        outboundQueueId: outbound.id,
+        status: messageStatus,
+        to: textValue(params.To),
+      },
+      status: "processed",
+      processed_at: now,
+    }),
+    "Unable to record the Twilio status callback event",
+  );
 
   if (
     outbound.source === "inbound_voice_inquiry" ||

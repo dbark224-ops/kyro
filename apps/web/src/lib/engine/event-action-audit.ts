@@ -20,6 +20,7 @@ import {
   selectEmailSignature,
 } from "../communication/signatures";
 import { objectRecord, textValue } from "@kyro/core";
+import { logWriteError } from "../supabase/write";
 
 type AuditInput = {
   workspaceId: string;
@@ -1153,14 +1154,17 @@ export async function executeAction(
       failedAt,
     };
 
-    await supabase
-      .from("actions")
-      .update({
-        result: failedResult,
-        status: "failed",
-      })
-      .eq("id", action.id)
-      .eq("status", "executing");
+    await logWriteError(
+      supabase
+        .from("actions")
+        .update({
+          result: failedResult,
+          status: "failed",
+        })
+        .eq("id", action.id)
+        .eq("status", "executing"),
+      "Unable to mark the action failed",
+    );
 
     await insertAuditLog(supabase, {
       workspaceId: action.workspaceId,

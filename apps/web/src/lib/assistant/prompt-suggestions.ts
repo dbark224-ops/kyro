@@ -13,6 +13,7 @@ import {
   openAiReasoningRequest,
 } from "../ai/openai-models";
 import { objectRecord, textValue } from "@kyro/core";
+import { logWriteError } from "../supabase/write";
 
 export const DEFAULT_ASSISTANT_PROMPT_SUGGESTIONS = [
   "Show me leads needing reply",
@@ -607,18 +608,24 @@ async function recordSuggestionGenerationUsage({
   });
 
   if (usageEvents.length > 0) {
-    await supabase.from("usage_events").insert(toUsageEventRows(usageEvents));
+    await logWriteError(
+      supabase.from("usage_events").insert(toUsageEventRows(usageEvents)),
+      "Unable to record prompt suggestion usage",
+    );
   }
 
   const totals = usageEventTotals(usageEvents);
 
-  await supabase
-    .from("ai_runs")
-    .update({
-      actual_cost: String(totals.costSnapshot),
-      estimated_cost: String(totals.customerChargeSnapshot),
-    })
-    .eq("id", aiRunId);
+  await logWriteError(
+    supabase
+      .from("ai_runs")
+      .update({
+        actual_cost: String(totals.costSnapshot),
+        estimated_cost: String(totals.customerChargeSnapshot),
+      })
+      .eq("id", aiRunId),
+    "Unable to complete the prompt suggestion ai_run",
+  );
 
   return aiRunId;
 }
@@ -670,12 +677,15 @@ export async function refreshAssistantPromptSuggestionsForUser({
     workspace,
   }).catch(() => null);
 
-  await supabase
-    .from("assistant_prompt_suggestion_sets")
-    .update({ status: "archived" })
-    .eq("workspace_id", workspace.id)
-    .eq("user_id", userId)
-    .eq("status", "active");
+  await logWriteError(
+    supabase
+      .from("assistant_prompt_suggestion_sets")
+      .update({ status: "archived" })
+      .eq("workspace_id", workspace.id)
+      .eq("user_id", userId)
+      .eq("status", "active"),
+    "Unable to store the generated prompt suggestions",
+  );
 
   const { data, error } = await supabase
     .from("assistant_prompt_suggestion_sets")

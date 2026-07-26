@@ -31,6 +31,31 @@ export function throwOnDatabaseError(result: WriteResult, operation: string) {
   }
 }
 
+/**
+ * Report a failed write without failing the caller.
+ *
+ * For writes that genuinely should not stop the work: telemetry, event trails,
+ * a UI hint, or bookkeeping that runs inside an error handler where throwing
+ * would replace the real failure with a database one. The point is that they
+ * stop being *silent* -- "this write does not matter enough to throw" and "no
+ * one will ever know it failed" are different decisions, and only the first is
+ * ever intended.
+ */
+export async function logWriteError<T extends WriteResult>(
+  write: PromiseLike<T>,
+  operation: string,
+): Promise<T> {
+  const result = await write;
+
+  if (result.error) {
+    console.error(
+      `${operation}: ${result.error.message ?? "unknown database error"}`,
+    );
+  }
+
+  return result;
+}
+
 /** Await and throw in one step. Use when the result is not otherwise needed. */
 export async function writeOrThrow<T extends WriteResult>(
   write: PromiseLike<T>,
