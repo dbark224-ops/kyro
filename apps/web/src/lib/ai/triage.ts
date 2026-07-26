@@ -848,40 +848,17 @@ function missingInfoPhrase(item: string) {
   }
 }
 
-function listPhrase(items: string[]) {
-  if (items.length <= 1) {
-    return items[0] ?? "";
-  }
-
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-
-  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
-}
-
-function missingInfoQuestion(items: string[]) {
-  return `To arrange the next step, could you please send through ${listPhrase(
-    items.map(missingInfoPhrase),
-  )}?`;
-}
-
-export function buildReplyBody(facts: InquiryFacts) {
-  if (facts.fit === "not_fit") {
-    return "Thanks for letting me know. I will close this off on my side.";
-  }
-
-  if (facts.missingInfo.length > 0) {
-    return `Thanks for getting in touch. I can help with that. Could you send through ${listPhrase(
-      facts.missingInfo.map(missingInfoPhrase),
-    )} so I can work out the next step?`;
-  }
-
-  if (facts.address && facts.preferredTime) {
-    return `Thanks, I have noted the job at ${facts.address}. ${facts.preferredTime} should work as a target, and I can line up the next step from here.`;
-  }
-
-  return "Thanks for the extra details. I have got that noted and can line up the next step from here.";
+/**
+ * The missing details the draft still does not ask about, in natural language
+ * for the model to act on.
+ *
+ * This is deliberately detection only. It used to have a twin that wrote the
+ * question itself and spliced it into the reply -- replacing the model's own
+ * sentence with a template, even when the model had written a perfectly good
+ * one. Code decides *what has to be covered*; the model decides how to say it.
+ */
+function missingInfoGapPhrases(items: string[]) {
+  return items.map(missingInfoPhrase);
 }
 
 function replyMentionsMissingInfo(body: string, item: string) {
@@ -905,62 +882,27 @@ function replyMentionsMissingInfo(body: string, item: string) {
   }
 }
 
-function sentenceMentionsAnyMissingInfo(
-  sentence: string,
-  missingInfo: string[],
-) {
-  return missingInfo.some((item) => replyMentionsMissingInfo(sentence, item));
-}
-
-function mergeMissingInfoIntoReplyBody(body: string, facts: InquiryFacts) {
-  const request = missingInfoQuestion(facts.missingInfo);
-  const sentences = body
-    .trim()
-    .split(/(?<=[.!?])\s+/)
-    .filter(Boolean);
-  const askIndex = sentences.findIndex((sentence) =>
-    sentenceMentionsAnyMissingInfo(sentence, facts.missingInfo),
-  );
-
-  if (askIndex >= 0) {
-    sentences[askIndex] = request;
-    return sentences.join(" ");
-  }
-
-  return `${body.trim()}\n\n${request}`;
-}
-
 function missingInfoNotAskedFor(body: string, facts: InquiryFacts) {
   return facts.missingInfo.filter(
     (item) => !replyMentionsMissingInfo(body, item),
   );
 }
 
-export function ensureReplyDraftCoversMissingInfo(
+/**
+ * Which required details a draft still does not ask for.
+ *
+ * The answer is reported, never repaired in place. A draft with gaps goes back
+ * to the model with the gaps named; if the model still will not ask, the draft
+ * keeps the model's wording and the gaps travel with it so the operator can see
+ * them. An empty draft has every detail outstanding, because nothing asks.
+ */
+export function replyDraftMissingInfoGaps(
   replyDraft: TriageDecision["replyDraft"],
   facts: InquiryFacts,
-): TriageDecision["replyDraft"] {
-  const body = replyDraft.body ?? buildReplyBody(facts);
-  const unasked = missingInfoNotAskedFor(body, facts);
-
-  if (unasked.length === 0) {
-    return replyDraft.body
-      ? replyDraft
-      : {
-          ...replyDraft,
-          body,
-        };
-  }
-
-  return {
-    ...replyDraft,
-    body: mergeMissingInfoIntoReplyBody(body, facts),
-    subject:
-      replyDraft.subject ??
-      (facts.missingInfo.length > 0
-        ? "A few details for your quote"
-        : "Thanks for the details"),
-  };
+): string[] {
+  return replyDraft.body
+    ? missingInfoNotAskedFor(replyDraft.body, facts)
+    : [...facts.missingInfo];
 }
 
 function buildReplyRepairPrompt(input: {
@@ -1007,7 +949,7 @@ function buildReplyRepairPrompt(input: {
         ),
       ],
       requiredMissingInfo: input.missingInfo,
-      requiredMissingInfoPhrases: input.missingInfo.map(missingInfoPhrase),
+      requiredMissingInfoPhrases: missingInfoGapPhrases(input.missingInfo),
       verifiedAvailability: input.verifiedAvailability ?? null,
       inquiryFacts: input.facts,
       originalDraft: {
@@ -1039,29 +981,24 @@ async function repairReplyDraftWithOpenAi(input: {
   repairUsage?: ReplyRepairUsage;
   replyDraft: TriageDecision["replyDraft"];
 }> {
-  const body = input.replyDraft.body ?? buildReplyBody(input.facts);
+  const body = input.replyDraft.body;
+
+  // Nothing to repair without a draft to repair. An empty draft is reported as
+  // empty rather than filled with text this module wrote.
+  if (!body) {
+    return { replyDraft: input.replyDraft };
+  }
+
   const unasked = missingInfoNotAskedFor(body, input.facts);
 
   if (unasked.length === 0 && !input.verifiedAvailability) {
-    return {
-      replyDraft: input.replyDraft.body
-        ? input.replyDraft
-        : {
-            ...input.replyDraft,
-            body,
-          },
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const apiKey = openAiApiKey();
 
   if (!apiKey) {
-    return {
-      replyDraft: ensureReplyDraftCoversMissingInfo(
-        input.replyDraft,
-        input.facts,
-      ),
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const prompt = buildReplyRepairPrompt({
@@ -1114,39 +1051,28 @@ async function repairReplyDraftWithOpenAi(input: {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    return {
-      replyDraft: ensureReplyDraftCoversMissingInfo(
-        input.replyDraft,
-        input.facts,
-      ),
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const content = responseOutputText(payload);
 
   if (!content) {
-    return {
-      replyDraft: ensureReplyDraftCoversMissingInfo(
-        input.replyDraft,
-        input.facts,
-      ),
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const usage = responseUsage(payload, prompt, content);
   const parsed = extractJsonObject(content);
   const repairedBody = textValue(parsed.body);
-  const repairedDraft = repairedBody
+  // A repair that came back empty leaves the original draft alone. A repair
+  // that came back still missing a detail is kept as written: the model's
+  // phrasing survives, and the outstanding gaps are reported rather than
+  // patched over with a sentence this file wrote.
+  const validatedDraft = repairedBody
     ? {
         body: repairedBody,
         subject: textValue(parsed.subject) ?? input.replyDraft.subject,
       }
-    : ensureReplyDraftCoversMissingInfo(input.replyDraft, input.facts);
-  const validatedDraft =
-    repairedDraft.body &&
-    missingInfoNotAskedFor(repairedDraft.body, input.facts).length === 0
-      ? repairedDraft
-      : ensureReplyDraftCoversMissingInfo(repairedDraft, input.facts);
+    : input.replyDraft;
 
   return {
     repairUsage: {
@@ -1158,40 +1084,6 @@ async function repairReplyDraftWithOpenAi(input: {
     },
     replyDraft: validatedDraft,
   };
-}
-
-function knownBusinessFactFallbackReply(input: {
-  factKeys: PublicBusinessFactKey[];
-  publicBusinessFacts: PublicBusinessFacts;
-}) {
-  const statements = input.factKeys.flatMap((key) => {
-    const value = textValue(input.publicBusinessFacts[key]);
-
-    if (!value) {
-      return [];
-    }
-
-    switch (key) {
-      case "publicPhoneNumber":
-        return [`You can call us on ${value}.`];
-      case "publicEmail":
-        return [`You can email us at ${value}.`];
-      case "businessAddress":
-        return [`Our business address is ${value}.`];
-      case "serviceArea":
-        return [`We service ${value}.`];
-      case "workingHours":
-        return [`Our working hours are ${value}.`];
-      case "contactHours":
-        return [`Our contact hours are ${value}.`];
-      case "businessName":
-        return [`Our business name is ${value}.`];
-      case "industry":
-        return [`We are in the ${value} industry.`];
-    }
-  });
-
-  return `Hi,\n\n${statements.join(" ")} Is there anything else we can help with?`;
 }
 
 async function ensureKnownBusinessFactReply(input: {
@@ -1221,16 +1113,10 @@ async function ensureKnownBusinessFactReply(input: {
     return { replyDraft: input.replyDraft };
   }
 
-  const fallbackBody = knownBusinessFactFallbackReply(input);
   const apiKey = openAiApiKey();
 
   if (!apiKey) {
-    return {
-      replyDraft: {
-        body: fallbackBody,
-        subject: input.replyDraft.subject,
-      },
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const requestedFacts = Object.fromEntries(
@@ -1307,29 +1193,19 @@ async function ensureKnownBusinessFactReply(input: {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    return {
-      replyDraft: {
-        body: fallbackBody,
-        subject: input.replyDraft.subject,
-      },
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const content = responseOutputText(payload);
 
   if (!content) {
-    return {
-      replyDraft: {
-        body: fallbackBody,
-        subject: input.replyDraft.subject,
-      },
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const parsed = extractJsonObject(content);
   const body = textValue(parsed.body);
   const candidate = {
-    body: body ?? fallbackBody,
+    body: body ?? input.replyDraft.body,
     subject: textValue(parsed.subject) ?? input.replyDraft.subject,
   };
   const grounded = canAnswerWithKnownBusinessFacts({
@@ -1339,12 +1215,7 @@ async function ensureKnownBusinessFactReply(input: {
   });
 
   if (!grounded) {
-    return {
-      replyDraft: {
-        body: fallbackBody,
-        subject: input.replyDraft.subject,
-      },
-    };
+    return { replyDraft: input.replyDraft };
   }
 
   const usage = responseUsage(payload, prompt, content);
@@ -1662,17 +1533,14 @@ function buildStubDecision(
     outputTokens: 180,
     providerUsed: "stub",
     responsePolicy,
+    // This decision is reached when no AI provider is configured or the
+    // provider threw. Triage can still classify the inquiry from local rules,
+    // but it cannot write to a customer, so it does not pretend to: the draft
+    // is empty and `fallbackReason` says why. An empty draft proposes no
+    // reply action, leaving the inquiry visibly awaiting a human.
     replyDraft: {
-      body:
-        responsePolicy.mode === "simple_business_message"
-          ? "Thanks for getting in touch. I will have the team confirm that for you."
-          : buildReplyBody(inquiryFacts),
-      subject:
-        responsePolicy.mode === "simple_business_message"
-          ? "Re: Your question"
-          : inquiryFacts.missingInfo.length > 0
-            ? "A few details for your quote"
-            : "Thanks for the details",
+      body: null,
+      subject: null,
     },
     summary:
       context.summary ??
@@ -1773,12 +1641,8 @@ async function runOllamaTriage(
       providerUsed: "ollama",
       responsePolicy,
       replyDraft: {
-        body: textValue(replyDraft.body) ?? buildReplyBody(facts),
-        subject:
-          textValue(replyDraft.subject) ??
-          (facts.missingInfo.length > 0
-            ? "A few details for your quote"
-            : "Thanks for the details"),
+        body: textValue(replyDraft.body),
+        subject: textValue(replyDraft.subject),
       },
       summary:
         textValue(parsed.summary) ??
@@ -1978,12 +1842,8 @@ async function runOpenAiTriage(
     providerUsed: "openai",
     responsePolicy,
     replyDraft: {
-      body: textValue(replyDraft.body) ?? buildReplyBody(facts),
-      subject:
-        textValue(replyDraft.subject) ??
-        (facts.missingInfo.length > 0
-          ? "A few details for your quote"
-          : "Thanks for the details"),
+      body: textValue(replyDraft.body),
+      subject: textValue(replyDraft.subject),
     },
     summary:
       textValue(parsed.summary) ??
@@ -2258,24 +2118,25 @@ function buildActionProposals(
     dryRun: true,
     channelType: outboundReplyChannelForInquiryContext(context),
   };
-  const proposals: ProposedActionInput[] = [
-    {
-      input: {
-        ...baseInput,
-        subject:
-          replyDraft.subject ??
-          (facts.missingInfo.length > 0
-            ? "A few details for your quote"
-            : "Thanks for the details"),
-        body: replyDraft.body ?? buildReplyBody(facts),
-      },
-      policyReason:
-        "Stub AI triage drafts outbound replies but never sends them.",
-      targetId: context.conversationId ?? null,
-      targetType: "conversation",
-      type: "draft_reply",
-    },
-  ];
+  // No draft, no reply action. Proposing one with an empty body would only
+  // fail later at send time, and filling it here would mean this file writing
+  // to a customer.
+  const proposals: ProposedActionInput[] = replyDraft.body
+    ? [
+        {
+          input: {
+            ...baseInput,
+            subject: replyDraft.subject,
+            body: replyDraft.body,
+          },
+          policyReason:
+            "Stub AI triage drafts outbound replies but never sends them.",
+          targetId: context.conversationId ?? null,
+          targetType: "conversation",
+          type: "draft_reply",
+        },
+      ]
+    : [];
 
   if (facts.fit === "not_fit") {
     proposals.push({

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  buildReplyBody,
+  replyDraftMissingInfoGaps,
   canAnswerWithKnownBusinessFacts,
   canAutoReplyWithKnownBusinessFacts,
   directKnownBusinessFactKeys,
-  ensureReplyDraftCoversMissingInfo,
+
   inquiryFactsWithVerifiedAvailability,
   applyResponsePolicyToInquiryFacts,
   extractInquiryFacts,
@@ -275,8 +275,11 @@ describe("inbound inquiry requirements", () => {
 
     assert.equal(facts.jobType, "Room Addition Quote");
     assert.deepEqual(facts.missingInfo, ["Job address", "Phone number"]);
-    assert.match(buildReplyBody(facts), /job address/i);
-    assert.match(buildReplyBody(facts), /phone number/i);
+    // A draft that asks for neither reports both as still outstanding.
+    assert.deepEqual(
+      replyDraftMissingInfoGaps({ body: "Thanks, I will take a look.", subject: null }, facts),
+      ["Job address", "Phone number"],
+    );
   });
 
   it("does not ask for phone when the CRM profile already has one", () => {
@@ -300,7 +303,9 @@ describe("inbound inquiry requirements", () => {
     });
 
     assert.equal(facts.missingInfo.includes("Email address"), true);
-    assert.match(buildReplyBody(facts), /email address/i);
+    assert.ok(
+      replyDraftMissingInfoGaps({ body: "No worries, I can help.", subject: null }, facts).includes("Email address"),
+    );
   });
 
   it("keeps SMS inquiries on SMS for generated replies", () => {
@@ -320,7 +325,7 @@ describe("inbound inquiry requirements", () => {
     );
   });
 
-  it("folds missing requirements into one natural reply ask", () => {
+  it("reports only the requirements the draft has not asked about", () => {
     const facts: InquiryFacts = {
       address: null,
       budget: null,
@@ -330,7 +335,8 @@ describe("inbound inquiry requirements", () => {
       preferredTime: null,
       urgency: "normal",
     };
-    const draft = ensureReplyDraftCoversMissingInfo(
+    // This draft asks for the address and the time, but not a phone number.
+    const gaps = replyDraftMissingInfoGaps(
       {
         subject: "Re: Bathroom remodel",
         body: "Thanks for reaching out about your bathroom remodel for the vanity sink and shower/bath. To arrange a quote visit next week, could you please provide the job address and your preferred day or time? Looking forward to helping you with this project.",
@@ -338,10 +344,24 @@ describe("inbound inquiry requirements", () => {
       facts,
     );
 
-    assert.match(draft.body ?? "", /job address/i);
-    assert.match(draft.body ?? "", /preferred day or time/i);
-    assert.match(draft.body ?? "", /phone number/i);
-    assert.doesNotMatch(draft.body ?? "", /could you also/i);
+    assert.deepEqual(gaps, ["Phone number"]);
+  });
+
+  it("treats an empty draft as covering nothing", () => {
+    const facts: InquiryFacts = {
+      address: null,
+      budget: null,
+      fit: "likely_fit",
+      jobType: "Bathroom remodel",
+      missingInfo: ["Job address", "Preferred time"],
+      preferredTime: null,
+      urgency: "normal",
+    };
+
+    assert.deepEqual(
+      replyDraftMissingInfoGaps({ body: null, subject: null }, facts),
+      ["Job address", "Preferred time"],
+    );
   });
 });
 
