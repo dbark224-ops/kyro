@@ -7,6 +7,7 @@ import {
   type PDFImage,
   type PDFPage,
 } from "pdf-lib";
+import { formatWorkspaceDateTimeWithYear } from "../time/format";
 
 const PAGE_WIDTH = 841.89;
 const PAGE_HEIGHT = 595.28;
@@ -22,14 +23,8 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value));
+function formatDateTime(value: string, timeZone?: string | null) {
+  return formatWorkspaceDateTimeWithYear({ timeZone, value });
 }
 
 function safeFilename(value: string) {
@@ -323,7 +318,7 @@ export function buildReportPrintHtml(report: WorkspaceReport, queryString = "") 
       </div>
       <div class="meta-card">
         <span>Generated</span>
-        <strong>${escapeHtml(formatDateTime(report.generatedAt))}</strong>
+        <strong>${escapeHtml(formatDateTime(report.generatedAt, report.timeZone))}</strong>
       </div>
       ${report.filters
         .slice(0, 2)
@@ -699,7 +694,7 @@ function drawHeader(
     fonts,
     items: [
       { label: "Workspace", value: report.business.name },
-      { label: "Generated", value: formatDateTime(report.generatedAt) },
+      { label: "Generated", value: formatDateTime(report.generatedAt, report.timeZone) },
       { label: "Period", value: report.period.label },
       {
         label:

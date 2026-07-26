@@ -38,7 +38,7 @@ import { ConversationMessageThread } from "../inbox/conversation-message-thread"
 import { ConversationWorkflowPanel } from "../inbox/conversation-workflow-panel";
 import { ReplyGenerator } from "../inbox/reply-generator";
 import { formatLeadTitle, formatServiceType } from "../../lib/crm/display";
-import { formatWorkspaceDateTime } from "../../lib/time/format";
+import { formatWorkspaceDateTime, formatWorkspaceTime } from "../../lib/time/format";
 import { objectRecord, textValue } from "@kyro/core";
 
 const FALLBACK_QUICK_PROMPTS = [
@@ -985,9 +985,9 @@ export function AssistantConsole({
                     <time
                       className="assistant-message-time"
                       dateTime={message.createdAt}
-                      title={formatFullMessageTime(message.createdAt)}
+                      title={formatFullMessageTime(message.createdAt, workspaceTimeZone)}
                     >
-                      {formatMessageTime(message.createdAt)}
+                      {formatMessageTime(message.createdAt, workspaceTimeZone)}
                     </time>
                   ) : null}
                   <strong>{assistantMessageAuthorLabel(message)}</strong>
@@ -1179,6 +1179,7 @@ export function AssistantConsole({
               items={externalActivityItems}
               onCollapse={() => updateActivityCollapsed(true)}
               onOpenPreview={openResourcePreview}
+              timeZone={workspaceTimeZone}
             />
           )}
         </div>
@@ -2025,10 +2026,12 @@ function AssistantExternalActivityPane({
   items,
   onCollapse,
   onOpenPreview,
+  timeZone,
 }: {
   items: AssistantExternalActivityItem[];
   onCollapse: () => void;
   onOpenPreview: (link: AssistantLink) => void;
+  timeZone: string;
 }) {
   return (
     <aside className="panel assistant-external-activity">
@@ -2064,9 +2067,9 @@ function AssistantExternalActivityPane({
                     </span>
                     <time
                       dateTime={item.at}
-                      title={formatFullMessageTime(item.at)}
+                      title={formatFullMessageTime(item.at, timeZone)}
                     >
-                      {formatActivityTime(item.at)}
+                      {formatActivityTime(item.at, timeZone)}
                     </time>
                   </div>
                   {item.subject ? (
@@ -2803,6 +2806,7 @@ export function AssistantPreviewPane({
     return (
       <ContactProfilePanel
         className="assistant-inline-preview assistant-contact-profile-panel"
+        timeZone={timeZone}
         engineError={engineError}
         engineMessage={engineMessage}
         onClose={onClose}
@@ -4372,27 +4376,16 @@ function stringValues(value: unknown) {
     .filter((item): item is string => Boolean(item));
 }
 
-function formatMessageTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+function formatMessageTime(value: string, timeZone?: string | null) {
+  return formatWorkspaceTime({ timeZone, value });
 }
 
-function formatActivityTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatActivityTime(value: string, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
-function formatFullMessageTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+function formatFullMessageTime(value: string, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatProviderLabel(value: string) {

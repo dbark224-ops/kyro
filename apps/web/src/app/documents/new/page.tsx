@@ -10,6 +10,7 @@ import {
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import { QuoteDraftEditorForm } from "../[quoteDraftId]/quote-draft-editor-form";
 import { redirect } from "next/navigation";
+import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -37,10 +38,10 @@ export default async function NewQuoteDraftPage({
     searchParams,
     requireWorkspaceContext(),
   ]);
-  const documentTemplateSettings = await getDocumentTemplateSettings(
-    supabase,
-    workspace.id,
-  );
+  const [documentTemplateSettings, generalSettings] = await Promise.all([
+    getDocumentTemplateSettings(supabase, workspace.id),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
+  ]);
   const templateKey = query?.templateKey?.trim() ?? "";
   const template = quoteTemplateCatalog(documentTemplateSettings.customTemplates).find(
     (item) => item.key === templateKey,
@@ -55,7 +56,11 @@ export default async function NewQuoteDraftPage({
   }
 
   const lineItems = normalizeQuoteLineItems(template.lineItems);
-  const title = draftTitleFromTemplate(template);
+  const title = draftTitleFromTemplate(
+    template,
+    new Date(),
+    generalSettings.timeZone,
+  );
 
   return (
     <AppFrame active="Files">

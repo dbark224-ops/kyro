@@ -73,6 +73,20 @@ export function formatWorkspaceDateWithYear(input: FormatInput) {
   });
 }
 
+/**
+ * Day, month, year and time: "26 Jul 2026, 6:57 am". For reports and exported
+ * documents, which are read long after the week they cover.
+ */
+export function formatWorkspaceDateTimeWithYear(input: FormatInput) {
+  return formatted(input, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 /** Time only: "6:57 am". For grouped views that already show the day. */
 export function formatWorkspaceTime(input: FormatInput) {
   return formatted(input, {

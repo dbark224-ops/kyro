@@ -6289,9 +6289,16 @@ async function createQuoteDraftCommand({
   }
 
   const template = templateSelection.template;
-  const contacts = await getContactList(supabase, workspace.id);
+  const [contacts, generalSettings] = await Promise.all([
+    getContactList(supabase, workspace.id),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
+  ]);
   const contact = selectContactForAssistantPrompt(prompt, contacts);
-  const title = draftTitleFromTemplate(template);
+  const title = draftTitleFromTemplate(
+    template,
+    new Date(),
+    generalSettings.timeZone,
+  );
   const templateRecord = objectRecord(template);
   const templateSettings = normalizeDocumentTemplateDesignSettings(
     templateRecord.settings ?? documentTemplateSettings,

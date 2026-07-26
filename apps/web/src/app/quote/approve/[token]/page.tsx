@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
 import { notFound } from "next/navigation";
 import {
   approveQuoteFromCustomerAction,
@@ -15,6 +16,7 @@ import {
   getDocumentTemplateSettings,
 } from "../../../../lib/documents/settings";
 import { createServiceSupabaseClient } from "../../../../lib/supabase/service";
+import { formatWorkspaceDateTime } from "../../../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -36,16 +38,8 @@ type QuoteApprovalPageProps = {
   }>;
 };
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function statusCopy(status: string | undefined) {
@@ -90,6 +84,10 @@ export default async function QuoteApprovalPage({
     !isQuoteApprovalLinkExpired(portal.approvalLink)
       ? await recordQuoteApprovalView(supabase, portal)
       : portal.approvalLink;
+  const { timeZone } = await getWorkspaceGeneralSettings(
+    supabase,
+    portal.workspace.id,
+  );
   const documentTemplateSettings = await getDocumentTemplateSettings(
     supabase,
     portal.workspace.id,
@@ -136,7 +134,7 @@ export default async function QuoteApprovalPage({
             <strong>
               {isExpired ? "Expired" : approvalLink.status.replace(/_/g, " ")}
             </strong>
-            <span>Valid until {formatDate(approvalLink.expiresAt)}</span>
+            <span>Valid until {formatDate(approvalLink.expiresAt, timeZone)}</span>
           </div>
         </header>
 

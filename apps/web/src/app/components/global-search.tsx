@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 
 type GlobalSearchResult = {
   description: string | null;
@@ -41,26 +42,16 @@ function formatType(value: string) {
     .join(" ");
 }
 
-function formatTimestamp(value: string | null) {
-  if (!value) {
+/** Null rather than a placeholder: the caller hides the element entirely. */
+function formatTimestamp(value: string | null, timeZone?: string | null) {
+  if (!value || Number.isNaN(new Date(value).getTime())) {
     return null;
   }
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(date);
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
-export function GlobalSearch() {
+export function GlobalSearch({ timeZone }: { timeZone?: string | null } = {}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GlobalSearchResult[]>([]);
@@ -322,7 +313,7 @@ export function GlobalSearch() {
         <div className="global-search-results" id="global-search-results" role="listbox">
           <div className="global-search-status">{statusText}</div>
           {displayedResults.map((result, index) => {
-            const timestamp = formatTimestamp(result.timestamp);
+            const timestamp = formatTimestamp(result.timestamp, timeZone);
             const isSelected = index === selectedIndex;
 
             return (

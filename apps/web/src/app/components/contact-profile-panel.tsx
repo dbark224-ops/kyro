@@ -24,6 +24,7 @@ import { profileResolutionNotice } from "../../lib/crm/profile-resolution-notice
 import { InfoBubble } from "../settings/info-bubble";
 import type { ContactProfile } from "../../lib/crm/queries";
 import { textValue } from "@kyro/core";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 
 type ContactProfilePanelProps = Readonly<{
   className?: string;
@@ -35,6 +36,7 @@ type ContactProfilePanelProps = Readonly<{
   profileHref?: (contactId: string) => string;
   redirectTo?: string;
   successHref?: (contactId: string) => string;
+  timeZone?: string | null;
   titleEyebrow?: string;
 }>;
 
@@ -48,6 +50,7 @@ export function ContactProfilePanel({
   profileHref,
   redirectTo,
   successHref,
+  timeZone,
   titleEyebrow = "Profile",
 }: ContactProfilePanelProps) {
   const displayName = contactTitle(profile.contact);
@@ -326,7 +329,7 @@ export function ContactProfilePanel({
                 formatContactLifecycleSource(profile.contact.lifecycleSource),
               ],
               ["Lifecycle reason", profile.contact.lifecycleReason],
-              ["Updated", formatDate(profile.contact.updatedAt)],
+              ["Updated", formatDate(profile.contact.updatedAt, timeZone)],
             ]}
           />
         </section>
@@ -402,11 +405,9 @@ export function ContactProfilePanel({
                     <div className="preview-message-meta">
                       <strong>{formatLabel(message.direction)}</strong>
                       <span>
-                        {formatDate(
-                          message.receivedAt ??
+                        {formatDate(message.receivedAt ??
                             message.sentAt ??
-                            message.createdAt,
-                        )}
+                            message.createdAt, timeZone)}
                       </span>
                     </div>
                     {message.subject ? <strong>{message.subject}</strong> : null}
@@ -447,7 +448,7 @@ export function ContactProfilePanel({
                   <strong>{appointment.title}</strong>
                   <span>
                     {formatLabel(appointment.appointmentType)} -{" "}
-                    {formatDate(appointment.startsAt)}
+                    {formatDate(appointment.startsAt, timeZone)}
                   </span>
                   {appointment.location ? <p>{appointment.location}</p> : null}
                 </div>
@@ -477,7 +478,7 @@ export function ContactProfilePanel({
                     {quoteDraft.lineItemCount} line items
                   </span>
                 </div>
-                <span>{formatDate(quoteDraft.updatedAt)}</span>
+                <span>{formatDate(quoteDraft.updatedAt, timeZone)}</span>
               </Link>
             ))}
             {profile.actions.slice(0, 4).map((action) => (
@@ -486,7 +487,7 @@ export function ContactProfilePanel({
                   <strong>{formatLabel(action.type)}</strong>
                   <span>
                     {formatLabel(action.status)} -{" "}
-                    {formatDate(action.createdAt)}
+                    {formatDate(action.createdAt, timeZone)}
                   </span>
                   {textValue(action.input.body) ? (
                     <p>{textValue(action.input.body)}</p>
@@ -809,17 +810,8 @@ function contactTitle(contact: {
   );
 }
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function calendarEventHref(eventId: string, startsAt: string | null) {

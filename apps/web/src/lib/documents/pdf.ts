@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatWorkspaceDateWithYear } from "../time/format";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { getQuoteDraftProfile, type QuoteDraftProfile } from "../crm/queries";
 import {
@@ -9,10 +10,13 @@ import {
 import { quoteDocumentContentHash } from "./history";
 import { normalizeQuoteLineItems, type QuoteLineItem } from "./templates";
 import { textValue } from "@kyro/core";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 
 type WorkspaceForDocument = {
   id?: string;
   name: string;
+  /** The workspace clock. A quote PDF is dated for the business that sent it. */
+  timeZone?: string | null;
 };
 
 type BusinessProfileForDocument = {
@@ -66,12 +70,8 @@ function safeFilename(value: string) {
   );
 }
 
-function formatDate(value: Date) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(value);
+function formatDate(value: Date, timeZone?: string | null) {
+  return formatWorkspaceDateWithYear({ timeZone, value });
 }
 
 function formatMoney(value: number | null, currency: string) {
@@ -322,8 +322,8 @@ export async function buildQuoteDocumentPdf({
   const metaY = PAGE_HEIGHT - MARGIN - 36;
   drawCard(page, { height: 86, width: 160, x: metaX, y: metaY + 8 });
   [
-    ["Created", formatDate(generatedAt)],
-    ["Valid until", formatDate(addDays(generatedAt, settings.validityDays))],
+    ["Created", formatDate(generatedAt, workspace.timeZone)],
+    ["Valid until", formatDate(addDays(generatedAt, settings.validityDays), workspace.timeZone)],
     ["Status", quote.status],
   ].forEach(([label, value], index) => {
     const rowY = metaY - index * 24;
@@ -598,7 +598,7 @@ export async function buildQuotePdfArtifactForDraft(
     workspace: WorkspaceForDocument & { id: string };
   },
 ) {
-  const [profile, settings, businessProfile] = await Promise.all([
+  const [profile, settings, businessProfile, generalSettings] = await Promise.all([
     getQuoteDraftProfile(supabase, workspace.id, quoteDraftId),
     getDocumentTemplateSettings(supabase, workspace.id),
     supabase
@@ -610,6 +610,7 @@ export async function buildQuotePdfArtifactForDraft(
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle(),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
 
   if (!profile) {
@@ -638,7 +639,7 @@ export async function buildQuotePdfArtifactForDraft(
       profile.quoteDraft.metadata,
       settings,
     ),
-    workspace,
+    workspace: { ...workspace, timeZone: generalSettings.timeZone },
   });
 }
 
@@ -654,7 +655,7 @@ export async function buildInvoicePdfArtifactForDraft(
     workspace: WorkspaceForDocument & { id: string };
   },
 ) {
-  const [profile, settings, businessProfile] = await Promise.all([
+  const [profile, settings, businessProfile, generalSettings] = await Promise.all([
     getQuoteDraftProfile(supabase, workspace.id, quoteDraftId),
     getDocumentTemplateSettings(supabase, workspace.id),
     supabase
@@ -666,6 +667,7 @@ export async function buildInvoicePdfArtifactForDraft(
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle(),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
 
   if (!profile) {
@@ -706,6 +708,6 @@ export async function buildInvoicePdfArtifactForDraft(
       profile.quoteDraft.metadata,
       settings,
     ),
-    workspace,
+    workspace: { ...workspace, timeZone: generalSettings.timeZone },
   });
 }

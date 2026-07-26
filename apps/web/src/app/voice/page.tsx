@@ -2,6 +2,7 @@ import { AssistantModeSwitch } from "../components/assistant-mode-switch";
 import { AppFrame } from "../components/app-frame";
 import { getAssistantThreadState } from "../../lib/assistant/persistence";
 import { getAssistantRouteMetrics } from "../../lib/assistant/route-metrics";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { RealtimeVoiceConsole } from "./realtime-voice-console";
 import type { AssistantThreadState } from "../../lib/assistant/types";
@@ -16,9 +17,10 @@ export default async function VoicePage() {
     user,
     workspace,
   });
-  const [metrics, threadState] = await Promise.all([
+  const [metrics, threadState, generalSettings] = await Promise.all([
     metricsPromise,
     threadStatePromise,
+    getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
 
   const { contactCount, needsReply, readyQuotes } = metrics;
@@ -64,7 +66,10 @@ export default async function VoicePage() {
           </div>
         </header>
 
-        <RealtimeVoiceConsole initialState={initialState} />
+        <RealtimeVoiceConsole
+          initialState={initialState}
+          workspaceTimeZone={generalSettings.timeZone}
+        />
       </div>
     </AppFrame>
   );

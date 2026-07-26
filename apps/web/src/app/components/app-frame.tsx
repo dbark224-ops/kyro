@@ -22,6 +22,7 @@ import { KYRO_USER_BILLING_POLICY_TYPE } from "../../lib/billing/kyro-user-billi
 import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
 import type { BillableUsageSummary } from "../../lib/billing/usage-summary";
 import { hasSupabaseEnv } from "../../lib/env";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 import {
   EMPTY_NOTIFICATION_SUMMARY,
   getNotificationSummary,
@@ -372,6 +373,8 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
         weeklyCurrency,
         settings,
       ),
+      // Settings load has a currency-only fallback, which carries no timezone.
+      timeZone: "timeZone" in settings ? settings.timeZone : null,
       userEmail: user.email?.trim() ?? "Signed in",
       workspaceName: workspace.name,
     };
@@ -464,23 +467,8 @@ function notificationCountLabel(count: number) {
   return count > 99 ? "99+" : String(count);
 }
 
-function formatNotificationTime(value: string | null) {
-  if (!value) {
-    return "Now";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Now";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(date);
+function formatNotificationTime(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ emptyLabel: "Now", timeZone, value });
 }
 
 function notificationSourceLabel(source: AppNotificationItem["source"]) {
@@ -542,6 +530,17 @@ async function AppNavLinks({
       ))}
     </>
   );
+}
+
+/**
+ * Search results carry timestamps, so the search box needs the workspace
+ * timezone. AppFrame itself is synchronous; this wrapper is how the other
+ * chrome widgets here get workspace data too.
+ */
+async function WorkspaceGlobalSearch() {
+  const data = await loadWorkspaceChromeData();
+
+  return <GlobalSearch timeZone={data?.timeZone ?? null} />;
 }
 
 async function NotificationBell() {
@@ -609,7 +608,7 @@ async function NotificationBell() {
                 </span>
                 <strong>{item.title}</strong>
                 <span>{item.detail}</span>
-                <small>{formatNotificationTime(item.timestamp)}</small>
+                <small>{formatNotificationTime(item.timestamp, data.timeZone)}</small>
               </SmartPrefetchLink>
             ))}
           </div>
@@ -934,7 +933,9 @@ export function AppFrame({
       <section className={workspaceClassName}>
         <div className="app-top-chrome">
           <div className="global-search-anchor" data-tour="global-search">
-            <GlobalSearch />
+            <Suspense fallback={<GlobalSearch />}>
+              <WorkspaceGlobalSearch />
+            </Suspense>
           </div>
           <div className="dev-top-controls">
             {topControls}

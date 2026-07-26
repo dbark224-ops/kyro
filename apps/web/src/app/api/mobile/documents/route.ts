@@ -19,6 +19,7 @@ import {
   requireMobileWorkspaceContext,
 } from "../../../../lib/mobile/context";
 import { objectRecord, textValue } from "@kyro/core";
+import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -158,10 +159,10 @@ export async function POST(request: Request) {
     let message = "Documents updated.";
 
     if (operation === "create_quote") {
-      const documentTemplateSettings = await getDocumentTemplateSettings(
-        supabase,
-        workspace.id,
-      );
+      const [documentTemplateSettings, generalSettings] = await Promise.all([
+        getDocumentTemplateSettings(supabase, workspace.id),
+        getWorkspaceGeneralSettings(supabase, workspace.id),
+      ]);
       const templateKey = textValue(body.templateKey);
       const template = templateKey
         ? getQuoteTemplate(templateKey, documentTemplateSettings.customTemplates)
@@ -174,7 +175,9 @@ export async function POST(request: Request) {
 
       const title =
         textValue(body.title) ??
-        (template ? draftTitleFromTemplate(template) : "Mobile quote draft");
+        (template
+          ? draftTitleFromTemplate(template, new Date(), generalSettings.timeZone)
+          : "Mobile quote draft");
       const metadata = {
         customerCompany: textValue(body.customerCompany),
         customerEmail: textValue(body.customerEmail),

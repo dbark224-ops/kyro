@@ -80,13 +80,18 @@ export function quoteTemplateOptions(
 export function draftTitleFromTemplate(
   template: Pick<QuoteTemplate, "label">,
   date = new Date(),
+  timeZone?: string | null,
 ) {
+  // A deliberately compact 24-hour stamp, kept local because it is a filename-
+  // like label rather than a rendered date. The title is saved with the
+  // document, so two drafts made an hour apart must not read as the same hour.
   const timestamp = new Intl.DateTimeFormat("en", {
     day: "numeric",
     hour: "2-digit",
     hour12: false,
     minute: "2-digit",
     month: "short",
+    timeZone: timeZone?.trim() || undefined,
   })
     .format(date)
     .replace(",", "");

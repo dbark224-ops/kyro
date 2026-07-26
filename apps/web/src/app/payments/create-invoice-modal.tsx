@@ -34,11 +34,13 @@ export function CreateInvoiceModal({
   disabled = false,
   disabledReason = null,
   templates,
+  timeZone,
 }: Readonly<{
   defaultTemplateKey: string | null;
   disabled?: boolean;
   disabledReason?: string | null;
   templates: QuoteTemplate[];
+  timeZone?: string | null;
 }>) {
   const initialTemplate = invoiceTemplateFallback(
     templates,
@@ -124,7 +126,11 @@ export function CreateInvoiceModal({
                     statusOptions={STATUS_OPTIONS}
                     submitLabel="Create invoice draft"
                     templateKey={selectedTemplate.key}
-                    title={draftTitleFromTemplate(selectedTemplate)}
+                    title={draftTitleFromTemplate(
+                      selectedTemplate,
+                      new Date(),
+                      timeZone,
+                    )}
                   />
                 ) : null}
               </>

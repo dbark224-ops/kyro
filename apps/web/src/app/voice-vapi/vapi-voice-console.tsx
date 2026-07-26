@@ -2,6 +2,7 @@
 
 import Vapi from "@vapi-ai/web";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatWorkspaceTime } from "../../lib/time/format";
 import {
   getAssistantResourcePreviewAction,
   runAssistantResourceActionAction,
@@ -1773,6 +1774,7 @@ export function VapiVoiceConsole({
               key={message.id}
               message={message}
               onOpenPreview={openVoicePreview}
+              timeZone={workspaceTimeZone}
             />
           ))}
           {liveTranscript && isConnected ? (
@@ -1819,10 +1821,12 @@ function VoiceTurn({
   isActive,
   message,
   onOpenPreview,
+  timeZone,
 }: {
   isActive: boolean;
   message: AssistantThreadMessage;
   onOpenPreview?: (target: VoicePreviewTarget) => void;
+  timeZone: string;
 }) {
   const isUser = message.role === "user";
   const shouldShowBlocks = !isUser && !isVapiStarterOnly(message.content);
@@ -1834,7 +1838,7 @@ function VoiceTurn({
     >
       {!isUser ? (
         <div className="voice-turn-meta">
-          <ClientMessageTime value={message.createdAt} />
+          <ClientMessageTime timeZone={timeZone} value={message.createdAt} />
           <strong>Kyro</strong>
           <span className="assistant-message-channel">Voice assistant</span>
         </div>
@@ -2222,10 +2226,16 @@ function humanizeLabel(value: string) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function ClientMessageTime({ value }: { value: string | undefined }) {
+function ClientMessageTime({
+  timeZone,
+  value,
+}: {
+  timeZone?: string | null;
+  value: string | undefined;
+}) {
   return (
-    <time className="assistant-message-time" suppressHydrationWarning>
-      {formatMessageTime(value)}
+    <time className="assistant-message-time">
+      {formatMessageTime(value, timeZone)}
     </time>
   );
 }
@@ -2789,16 +2799,8 @@ function isExternalHref(href: string) {
   }
 }
 
-function formatMessageTime(value: string | undefined) {
-  if (!value) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    hour12: true,
-    minute: "2-digit",
-  }).format(new Date(value));
+function formatMessageTime(value: string | undefined, timeZone?: string | null) {
+  return formatWorkspaceTime({ emptyLabel: "", timeZone, value });
 }
 
 function MicrophoneIcon() {

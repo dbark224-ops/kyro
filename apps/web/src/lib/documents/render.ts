@@ -1,4 +1,5 @@
 import type { QuoteDraftProfile } from "../crm/queries";
+import { formatWorkspaceDateWithYear } from "../time/format";
 import {
   normalizeQuoteLineItems,
   type QuoteLineItem,
@@ -8,6 +9,8 @@ import { textValue } from "@kyro/core";
 
 type WorkspaceForDocument = {
   name: string;
+  /** The workspace clock. A quote PDF is dated for the business that sent it. */
+  timeZone?: string | null;
 };
 
 type BusinessProfileForDocument = {
@@ -55,12 +58,8 @@ function escapeHtml(value: string | null | undefined) {
     .replace(/'/g, "&#39;");
 }
 
-function formatDate(value: Date) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(value);
+function formatDate(value: Date, timeZone?: string | null) {
+  return formatWorkspaceDateWithYear({ timeZone, value });
 }
 
 function formatMoney(value: number | null, currency: string) {
@@ -159,7 +158,7 @@ export function buildQuoteDocumentHtml({
   const accent = THEME_COLORS[settings.accentTheme];
   const businessName =
     textValue(businessProfile?.businessName) ?? workspace.name ?? "Kyro customer";
-  const validUntil = formatDate(addDays(generatedAt, settings.validityDays));
+  const validUntil = formatDate(addDays(generatedAt, settings.validityDays), workspace.timeZone);
   const meta = customerMeta(profile);
   const details = jobDetails(profile);
   const printActions =
@@ -225,7 +224,7 @@ export function buildQuoteDocumentHtml({
         <h1>${escapeHtml(quote.title)}</h1>
       </div>
       <aside class="quote-meta" aria-label="Quote metadata">
-        <div><span>Created</span><strong>${escapeHtml(formatDate(generatedAt))}</strong></div>
+        <div><span>Created</span><strong>${escapeHtml(formatDate(generatedAt, workspace.timeZone))}</strong></div>
         <div><span>Valid until</span><strong>${escapeHtml(validUntil)}</strong></div>
         <div><span>Status</span><strong>${escapeHtml(quote.status)}</strong></div>
       </aside>

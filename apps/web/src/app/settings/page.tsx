@@ -247,6 +247,7 @@ export default async function SettingsPage({
           <UsageSettingsDetail
             activeWindow={activeWindow}
             displayCurrencySettings={generalSettings}
+            timeZone={generalSettings.timeZone}
             usageReport={usageReport}
           />
         )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatWorkspaceTime } from "../../lib/time/format";
 import type {
   AssistantLink,
   AssistantThreadMessage,
@@ -32,8 +33,10 @@ function normalizedTranscript(value: string) {
 
 export function RealtimeVoiceConsole({
   initialState,
+  workspaceTimeZone,
 }: {
   initialState: AssistantThreadState;
+  workspaceTimeZone: string;
 }) {
   const [messages, setMessages] = useState(initialState.messages);
   const [connectionState, setConnectionState] =
@@ -588,6 +591,7 @@ export function RealtimeVoiceConsole({
             isActive={message.id === latestMessage?.id}
             key={message.id}
             message={message}
+            timeZone={workspaceTimeZone}
           />
         ))}
         {liveTranscript && isConnected ? (
@@ -602,9 +606,11 @@ export function RealtimeVoiceConsole({
 function VoiceTurn({
   isActive,
   message,
+  timeZone,
 }: {
   isActive: boolean;
   message: AssistantThreadMessage;
+  timeZone: string;
 }) {
   const isUser = message.role === "user";
 
@@ -615,7 +621,7 @@ function VoiceTurn({
     >
       {!isUser ? (
         <div className="voice-turn-meta">
-          <ClientMessageTime value={message.createdAt} />
+          <ClientMessageTime timeZone={timeZone} value={message.createdAt} />
           <strong>Kyro</strong>
           <span className="assistant-message-channel">Voice assistant</span>
         </div>
@@ -640,10 +646,16 @@ function VoiceTurn({
   );
 }
 
-function ClientMessageTime({ value }: { value: string | undefined }) {
+function ClientMessageTime({
+  timeZone,
+  value,
+}: {
+  timeZone?: string | null;
+  value: string | undefined;
+}) {
   return (
-    <time className="assistant-message-time" suppressHydrationWarning>
-      {formatMessageTime(value)}
+    <time className="assistant-message-time">
+      {formatMessageTime(value, timeZone)}
     </time>
   );
 }
@@ -758,16 +770,8 @@ function jsonErrorMessage(payload: unknown) {
   return textValue(error.message);
 }
 
-function formatMessageTime(value: string | undefined) {
-  if (!value) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    hour12: true,
-    minute: "2-digit",
-  }).format(new Date(value));
+function formatMessageTime(value: string | undefined, timeZone?: string | null) {
+  return formatWorkspaceTime({ emptyLabel: "", timeZone, value });
 }
 
 function MicrophoneIcon() {

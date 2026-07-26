@@ -6,6 +6,7 @@ import {
 } from "../addresses/google";
 import type { AddressColumnUpdates, StructuredAddress } from "../addresses/types";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { formatWorkspaceDateTimeWithYear } from "../time/format";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { normalizeContactType } from "./contact-types";
 import {
@@ -283,14 +284,17 @@ async function resolveAddressForAssistantUpdate({
   }
 }
 
-function appendNote(existing: string | null, note: string) {
-  const timestamp = new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date());
+function appendNote(
+  existing: string | null,
+  note: string,
+  timeZone?: string | null,
+) {
+  // This stamp is persisted into the contact's notes, so a wrong timezone here
+  // is wrong permanently -- it is not re-rendered from a stored instant.
+  const timestamp = formatWorkspaceDateTimeWithYear({
+    timeZone,
+    value: new Date(),
+  });
   const entry = `[Kyro note ${timestamp}] ${note}`;
 
   return existing ? `${existing.trim()}\n\n${entry}` : entry;
@@ -529,8 +533,17 @@ export async function updateContactFromAssistantTool({
   if (notes) {
     const currentNotes = textValue(before.notes);
 
-    update.notes =
-      notesMode === "replace" ? nullableText(notes) : appendNote(currentNotes, notes);
+    if (notesMode === "replace") {
+      update.notes = nullableText(notes);
+    } else {
+      const { timeZone } = await getWorkspaceGeneralSettings(
+        supabase,
+        workspaceId,
+      );
+
+      update.notes = appendNote(currentNotes, notes, timeZone);
+    }
+
     changedFields.push("notes");
   }
 

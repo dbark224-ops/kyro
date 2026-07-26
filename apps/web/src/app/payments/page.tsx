@@ -99,6 +99,7 @@ export default async function PaymentsPage() {
               disabled={!paymentLinksReady}
               disabledReason={paymentLinkDisabledReason}
               templates={documentTemplates}
+              timeZone={timeZone}
             />
             <SmartPrefetchLink
               aria-label="Payment settings"

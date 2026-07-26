@@ -68,10 +68,12 @@ export function modelUsageDescription(row: UsageBreakdownRow) {
 export function UsageSettingsDetail({
   activeWindow,
   displayCurrencySettings,
+  timeZone,
   usageReport,
 }: Readonly<{
   activeWindow: string;
   displayCurrencySettings: DisplayCurrencySettings;
+  timeZone?: string | null;
   usageReport: UsageReport;
 }>) {
   return (
@@ -110,6 +112,7 @@ export function UsageSettingsDetail({
           <UsageLedgerModal
             displayCurrencySettings={displayCurrencySettings}
             rows={usageReport.ledger}
+            timeZone={timeZone}
           />
         </div>
       </section>

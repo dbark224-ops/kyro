@@ -1,4 +1,9 @@
 import { getBillableUsageSummary } from "../billing/usage-summary";
+import {
+  formatWorkspaceDateTimeWithYear,
+  formatWorkspaceDateWithYear,
+} from "../time/format";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import type { ContactListItem, ConversationListItem } from "../crm/queries";
 import { getContactList, getConversationList } from "../crm/queries";
 import { getGeneratedDocumentsForWorkspace } from "../documents/generated-documents";
@@ -123,6 +128,7 @@ export type WorkspaceReport = {
   sections: ReportSection[];
   summaryCards: ReportSummaryCard[];
   subtitle: string;
+  timeZone: string | null;
   title: string;
   type: ReportType;
 };
@@ -278,26 +284,12 @@ function formatLabel(value: string | null | undefined) {
     .join(" ");
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value));
+function formatDateTime(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTimeWithYear({ timeZone, value });
 }
 
-function formatDateOnly(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value));
+function formatDateOnly(value: string, timeZone?: string | null) {
+  return formatWorkspaceDateWithYear({ timeZone, value });
 }
 
 function formatMoney(value: number, currency = "USD") {
@@ -365,7 +357,7 @@ function startOfWeek(date: Date) {
   return copy;
 }
 
-function resolveReportPeriod(filters: ReportFilters) {
+function resolveReportPeriod(filters: ReportFilters, timeZone?: string | null) {
   const now = new Date();
   let start = new Date(now);
   let end = new Date(now);
@@ -379,7 +371,7 @@ function resolveReportPeriod(filters: ReportFilters) {
 
       return {
         end: customEnd,
-        label: `${formatDateOnly(customStart)} - ${formatDateOnly(displayEnd)}`,
+        label: `${formatDateOnly(customStart, timeZone)} - ${formatDateOnly(displayEnd, timeZone)}`,
         start: customStart,
       };
     }
@@ -712,12 +704,15 @@ function communicationSummaryCards(events: CommunicationEvent[]) {
   ] satisfies ReportSummaryCard[];
 }
 
-function communicationSection(events: CommunicationEvent[]): ReportSection {
+function communicationSection(
+  events: CommunicationEvent[],
+  timeZone?: string | null,
+): ReportSection {
   return {
     columns: ["Date", "Direction", "Channel", "Contact", "Subject", "Preview", "Status"],
     emptyText: "No communications match this report filter.",
     rows: events.map((event) => [
-      formatDateTime(event.at),
+      formatDateTime(event.at, timeZone),
       formatLabel(event.direction),
       event.meta,
       event.contact,
@@ -734,9 +729,10 @@ function buildCommunicationReport(
   title: string,
   subtitle: string,
   events: CommunicationEvent[],
+  timeZone?: string | null,
 ) {
   return {
-    sections: [communicationSection(events)],
+    sections: [communicationSection(events, timeZone)],
     summaryCards: communicationSummaryCards(events),
     subtitle,
     title,
@@ -776,6 +772,7 @@ async function loadWorkQueueReport(
   supabase: SupabaseClient,
   workspaceId: string,
   period: { start: string; end: string },
+  timeZone?: string | null,
 ) {
   const conversations = await getConversationList(supabase, workspaceId, {
     limit: 500,
@@ -804,7 +801,7 @@ async function loadWorkQueueReport(
         columns: ["Updated", "Contact/lead", "Bucket", "Next step", "Missing details"],
         emptyText: "No work queue records match this period.",
         rows: visibleConversations.map((conversation) => [
-          formatDateTime(conversationUpdatedAt(conversation)),
+          formatDateTime(conversationUpdatedAt(conversation), timeZone),
           conversation.contactName ??
             conversation.leadTitle ??
             conversation.latestSubject ??
@@ -836,6 +833,7 @@ async function loadUsageLedgerReport(
   supabase: SupabaseClient,
   workspaceId: string,
   period: { start: string; end: string },
+  timeZone?: string | null,
 ) {
   const summary = await getBillableUsageSummary(supabase, workspaceId, {
     end: period.end,
@@ -869,7 +867,7 @@ async function loadUsageLedgerReport(
         columns: ["Date", "Provider", "Service", "Model", "Usage", "Charge"],
         emptyText: "No usage events match this period.",
         rows: rows.map((row) => [
-          formatDateTime(row.created_at),
+          formatDateTime(row.created_at, timeZone),
           textValue(row.provider) ?? "-",
           textValue(row.service) ?? textValue(row.usage_type) ?? "-",
           textValue(row.model) ?? "-",
@@ -897,6 +895,7 @@ async function loadDocumentsReport(
   supabase: SupabaseClient,
   workspaceId: string,
   period: { start: string; end: string },
+  timeZone?: string | null,
 ) {
   const { data, error } = await supabase
     .from("generated_documents")
@@ -921,7 +920,7 @@ async function loadDocumentsReport(
             rows: fallback
               .filter((document) => document.updatedAt >= period.start && document.updatedAt < period.end)
               .map((document) => [
-                formatDateTime(document.updatedAt),
+                formatDateTime(document.updatedAt, timeZone),
                 formatLabel(document.documentType),
                 formatLabel(document.lifecycleStatus),
                 document.title,
@@ -959,7 +958,7 @@ async function loadDocumentsReport(
         columns: ["Updated", "Type", "Status", "Title", "Filename", "Size"],
         emptyText: "No generated documents match this period.",
         rows: documents.map((document) => [
-          formatDateTime(document.updated_at),
+          formatDateTime(document.updated_at, timeZone),
           formatLabel(document.document_type),
           formatLabel(document.lifecycle_status),
           textValue(document.title) ?? "-",
@@ -1134,11 +1133,13 @@ export async function buildWorkspaceReport(
   workspace: WorkspaceSummary,
   filters: ReportFilters,
 ): Promise<WorkspaceReport> {
-  const [business, contacts] = await Promise.all([
+  const [business, contacts, generalSettings] = await Promise.all([
     loadReportBusiness(supabase, workspace),
     getReportContactOptions(supabase, workspace.id),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
-  const period = resolveReportPeriod(filters);
+  const timeZone = generalSettings.timeZone;
+  const period = resolveReportPeriod(filters, timeZone);
   let reportCore:
     | ReturnType<typeof buildCommunicationReport>
     | Awaited<ReturnType<typeof loadWorkQueueReport>>
@@ -1173,13 +1174,29 @@ export async function buildWorkspaceReport(
       title,
       definition.description,
       events,
+      timeZone,
     );
   } else if (filters.type === "usage_ledger") {
-    reportCore = await loadUsageLedgerReport(supabase, workspace.id, period);
+    reportCore = await loadUsageLedgerReport(
+      supabase,
+      workspace.id,
+      period,
+      timeZone,
+    );
   } else if (filters.type === "documents_activity") {
-    reportCore = await loadDocumentsReport(supabase, workspace.id, period);
+    reportCore = await loadDocumentsReport(
+      supabase,
+      workspace.id,
+      period,
+      timeZone,
+    );
   } else if (filters.type === "work_queue_summary") {
-    reportCore = await loadWorkQueueReport(supabase, workspace.id, period);
+    reportCore = await loadWorkQueueReport(
+      supabase,
+      workspace.id,
+      period,
+      timeZone,
+    );
   } else {
     reportCore = paymentHistoryReport();
   }
@@ -1196,6 +1213,7 @@ export async function buildWorkspaceReport(
     sections: reportCore.sections,
     summaryCards: reportCore.summaryCards,
     subtitle: reportCore.subtitle,
+    timeZone,
     title: reportCore.title,
     type: reportCore.type,
   };

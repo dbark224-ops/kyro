@@ -42,6 +42,7 @@ import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { objectRecord, textValue } from "@kyro/core";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 
 const QUOTE_DRAFT_STATUSES = new Set([
   "approved",
@@ -450,7 +451,11 @@ export async function applyQuoteTemplateAction(formData: FormData) {
     redirectWithDocumentMessage(quoteDraftId, "engine_error", "Quote draft was not found.");
   }
 
-  const title = draftTitleFromTemplate(template);
+  const { timeZone } = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
+  const title = draftTitleFromTemplate(template, new Date(), timeZone);
   const nextMetadata = {
     ...objectRecord(before.metadata),
     documentTemplateReferenceFiles:

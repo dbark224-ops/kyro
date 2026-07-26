@@ -1,6 +1,7 @@
 "use client";
 
 import type { UsageLedgerRow } from "../../lib/usage/queries";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 import {
   convertDisplayMoney,
   formatDisplayMoney,
@@ -22,11 +23,8 @@ function formatNumber(value: number) {
   }).format(value);
 }
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+function formatDateTime(value: string, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function csvCell(value: string | number | null | undefined) {
@@ -104,9 +102,11 @@ function usageLedgerFilename() {
 export function UsageLedgerModal({
   displayCurrencySettings,
   rows,
+  timeZone,
 }: Readonly<{
   displayCurrencySettings: DisplayCurrencySettings;
   rows: UsageLedgerRow[];
+  timeZone?: string | null;
 }>) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
@@ -225,7 +225,7 @@ export function UsageLedgerModal({
                           displayCurrencySettings,
                         )}
                       </strong>
-                      <time>{formatDateTime(row.createdAt)}</time>
+                      <time>{formatDateTime(row.createdAt, timeZone)}</time>
                     </div>
                   </article>
                 ))}
