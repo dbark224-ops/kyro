@@ -492,8 +492,10 @@
 .timelineEvent .eventStatusDot {
   flex: 0 0 auto;
   font-size: 0.7rem;
+  height: var(--event-dot-size);
   margin-right: 0;
-  margin-top: calc((1.2em - 6px) / 2);
+  margin-top: calc((1.2em - var(--event-dot-size)) / 2);
+  width: var(--event-dot-size);
 }
 
 .eventCard[data-status="awaiting_customer"] .eventStatusDot,
@@ -720,6 +722,12 @@
 }
 
 .timelineEvent {
+  /* The dot's footprint, shared by the three rules that need to agree on it:
+     the dot itself, the gap after it, and the indent that lines the time up
+     under the title rather than under the dot. */
+  --event-dot-size: 6px;
+  --event-dot-gap: 5px;
+
   /* Rows stay their natural size instead of sharing out the block's height. */
   align-content: start;
   background: color-mix(in srgb, var(--cyan) 10%, var(--surface));
@@ -782,7 +790,7 @@
      baseline that would drop it to the bottom of the line. */
   align-items: flex-start;
   display: flex;
-  gap: 5px;
+  gap: var(--event-dot-gap);
   min-width: 0;
 }
 
@@ -808,16 +816,21 @@
 }
 
 /*
- * The second line. Quieter than the title, and allowed to be clipped by a
- * short block rather than shrinking the title to make room for it.
+ * The second line. Indented past the dot so it starts where the title starts
+ * rather than under the dot -- the dot marks the event, not the time.
+ *
+ * Same size as the title, since there is room for it; the muted colour carries
+ * the hierarchy on its own. Allowed to be clipped by a short block rather than
+ * shrinking the title to make room.
  */
 .timelineEventTime {
   color: var(--muted);
   display: block;
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   font-weight: 800;
   line-height: 1.25;
   overflow: hidden;
+  padding-left: calc(var(--event-dot-size) + var(--event-dot-gap));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
