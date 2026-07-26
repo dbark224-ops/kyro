@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { generateOperatorAlert } from "../ai/customer-message-generation";
 import { getPublicAppUrl } from "../app-url";
 import {
   appendRealtimeAssistantMessage,
@@ -184,38 +185,90 @@ export function buildInboundInquiryNotificationBody(
       .filter((line): line is string => Boolean(line))
       .join("\n");
   }
-  const recommendation = input.autoReplySent
-    ? "Kyro answered this using the public business details saved in the workspace."
-    : modelRecommendation
-    ? modelRecommendation
-    : outcome === "booked"
-      ? `The booking is set for ${eventLabel ?? "the agreed time"}.`
-      : outcome === "proposed"
-        ? `Review the proposed ${eventLabel ?? "booking time"}.`
-        : missingInfo.length > 0
-          ? `${preferredTime ? `Confirm ${preferredTime} and ask for` : "Ask for"} ${humanList(
-              missingInfo.map(notificationFactLabel),
-            )}.`
-          : "Review the prepared response and follow up while the inquiry is fresh.";
-  const action = input.autoReplySent
-    ? null
-    : input.preparedReplyAvailable
-    ? "Reply SEND IT and I'll send the prepared response."
-    : outcome === "booked"
-      ? null
-      : "Reply here if you want me to help with the next step.";
   const contactPhone = textValue(input.contactPhone);
 
+  // Facts only. The old version also offered advice here -- "Review the
+  // prepared response and follow up while the inquiry is fresh" and four other
+  // branches -- which was this file inventing a recommendation it was in no
+  // position to make. Recommending is the model's job; this is the last resort
+  // for when the model could not be reached, so it states what is known and
+  // stops.
   return [
     `New ${channelLabel(channel)} inquiry - ${caller}`,
     `Summary: ${compactText(input.summary, 190)}`,
-    `I recommend: ${recommendation}`,
-    action,
+    modelRecommendation ? `Recommended: ${modelRecommendation}` : null,
+    outcome === "booked" && eventLabel ? `Booked: ${eventLabel}` : null,
+    preferredTime ? `Preferred time: ${preferredTime}` : null,
+    missingInfo.length > 0
+      ? `Still needed: ${humanList(missingInfo.map(notificationFactLabel))}`
+      : null,
+    input.preparedReplyAvailable ? "A reply is drafted and ready." : null,
     contactPhone ? `Call: ${contactPhone}` : null,
     `Open in Kyro: ${buildInboundInquiryLink(input.conversationId)}`,
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
+}
+
+/**
+ * The inbound-inquiry alert the owner reads.
+ *
+ * Same judgement as the urgent escalation: whether the customer's own words
+ * belong in the text, or whether "someone in Bendigo wants a bathroom quote" is
+ * more use. Code supplies the facts and the shape; the model writes it, and
+ * decides what to recommend rather than picking from five sentences this file
+ * used to hold.
+ */
+async function writeInboundInquiryNotification(
+  input: InquiryNotificationInput,
+) {
+  const kyroLink = buildInboundInquiryLink(input.conversationId);
+
+  try {
+    const written = await generateOperatorAlert({
+      contextFacts: {
+        arrivedVia: input.channel ?? "phone",
+        contactName: textValue(input.contactName),
+        contactPhone: textValue(input.contactPhone),
+        inquirySummary: input.summary,
+        kyroLink,
+        kyroQuestionForOwner: textValue(input.ownerQuestion),
+        modelRecommendation: textValue(input.recommendedAction),
+        outcome: input.outcome ?? "captured",
+        preferredTime: textValue(input.preferredTime),
+        preparedReplyAvailable: Boolean(input.preparedReplyAvailable),
+        replyAlreadySent: Boolean(input.autoReplySent),
+        scheduledFor: textValue(input.eventLabel),
+        stillNeededFromCustomer: [...new Set(input.missingInfo ?? [])],
+      },
+      mustInclude: [kyroLink],
+      purposeRules: [
+        "This tells the business owner a new customer inquiry has arrived and what to do about it.",
+        "Open with the channel it came in on and who it is from.",
+        "Say what they want. Quote the customer only when their wording matters; otherwise summarise it in a few words.",
+        "If context.kyroQuestionForOwner is set, that question is the point of the message -- ask it plainly and say a reply here will be used to finish the customer response.",
+        "If a reply is already drafted, tell them they can reply SEND IT to send it. If Kyro already answered, say so and do not ask them to act.",
+        "End with the Kyro link. Include the phone number only when the owner would plausibly call rather than open the app.",
+        "Keep it under 320 characters. It is a text message read on a phone between jobs.",
+      ],
+      supabase: input.supabase,
+      task: "Write the new-inquiry alert for the business owner.",
+      taskType: "inbound_inquiry_notification",
+      userId: "system",
+      workspaceId: input.workspaceId,
+    });
+
+    return written.body;
+  } catch (error) {
+    // Losing the alert is worse than sending a plain one, so this falls back
+    // to labelled facts rather than dropping the notification.
+    console.warn("Inbound inquiry notification generation failed", {
+      error: error instanceof Error ? error.message : "unknown_error",
+      workspaceId: input.workspaceId,
+    });
+
+    return buildInboundInquiryNotificationBody(input);
+  }
 }
 
 function notificationFactLabel(value: string) {
@@ -442,7 +495,7 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
     textValue(input.conversationId) ??
     "unknown";
   let result: Awaited<ReturnType<typeof recordOutboundDirectSms>>;
-  const notificationBody = buildInboundInquiryNotificationBody(input);
+  const notificationBody = await writeInboundInquiryNotification(input);
   const transport = twilioMessageTransportForWorkspace({
     recipientPhone: recipient.phoneNumber,
     workspaceId: input.workspaceId,

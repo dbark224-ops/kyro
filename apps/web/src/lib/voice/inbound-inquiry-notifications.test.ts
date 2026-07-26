@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildInboundInquiryNotificationBody } from "./inbound-inquiry-notifications";
 
+/**
+ * These cover the last-resort body, used only when the model could not be
+ * reached. Its job is to state what is known and stop -- it no longer offers
+ * advice, because recommending is the model's call and this file is in no
+ * position to make it.
+ */
+
 test("labels promoted email inquiries as email notifications", () => {
   const body = buildInboundInquiryNotificationBody({
     channel: "email",
@@ -17,33 +24,44 @@ test("labels promoted email inquiries as email notifications", () => {
   });
 
   assert.match(body, /^New email inquiry - Jason/);
-  assert.match(
-    body,
-    /I recommend: Offer an early-next-week quote visit and ask Jason to confirm the address and preferred time\./,
-  );
-  assert.match(body, /Reply SEND IT and I'll send the prepared response\./);
+  assert.match(body, /Summary: Landscaping quote requested/);
   assert.match(body, /Call: \+15755550123/);
   assert.match(body, /\/open\/inbox\?conversationId=conversation-1/);
-  assert.match(body, /conversationId=conversation-1/);
 });
 
-test("reports when Kyro already answered a known business fact", () => {
-  const body = buildInboundInquiryNotificationBody({
-    autoReplySent: true,
+test("passes through a model recommendation but never invents one", () => {
+  const withRecommendation = buildInboundInquiryNotificationBody({
     channel: "email",
-    contactName: "Jamie",
+    contactName: "Kyro",
     contactPhone: null,
-    conversationId: "conversation-auto-reply",
-    missingInfo: [],
+    conversationId: "conversation-account-notice",
+    missingInfo: ["Job address", "Preferred time", "Phone number"],
+    preferredTime: null,
     preparedReplyAvailable: false,
-    summary: "Asked for the public business phone number.",
+    recommendedAction:
+      "Review the Stripe payout settings in the account portal.",
+    summary: "Stripe requested updated payout information.",
+  });
+  const withoutRecommendation = buildInboundInquiryNotificationBody({
+    channel: "email",
+    contactName: "Kyro",
+    contactPhone: null,
+    conversationId: "conversation-account-notice",
+    missingInfo: ["Job address"],
+    preferredTime: null,
+    preparedReplyAvailable: false,
+    summary: "Stripe requested updated payout information.",
   });
 
   assert.match(
-    body,
-    /Kyro answered this using the public business details saved in the workspace\./,
+    withRecommendation,
+    /Recommended: Review the Stripe payout settings in the account portal\./,
   );
-  assert.doesNotMatch(body, /Reply SEND IT|help with the next step/i);
+  // With nothing from the model, the fallback states the gap and stops rather
+  // than reaching for "follow up while the inquiry is fresh".
+  assert.doesNotMatch(withoutRecommendation, /Recommended:/);
+  assert.match(withoutRecommendation, /Still needed: the job address/i);
+  assert.doesNotMatch(withoutRecommendation, /while the inquiry is fresh/i);
 });
 
 test("asks the owner one focused question when the customer answer is unavailable", () => {
@@ -68,28 +86,6 @@ test("asks the owner one focused question when the customer answer is unavailabl
     body,
     /Reply here with the answer and I'll finish the customer response\./,
   );
-  assert.doesNotMatch(body, /Reply SEND IT|I recommend:/);
-});
-
-test("uses the model recommendation instead of generic missing-info advice", () => {
-  const body = buildInboundInquiryNotificationBody({
-    channel: "email",
-    contactName: "Kyro",
-    contactPhone: null,
-    conversationId: "conversation-account-notice",
-    missingInfo: ["Job address", "Preferred time", "Phone number"],
-    preferredTime: null,
-    preparedReplyAvailable: false,
-    recommendedAction:
-      "Review the Stripe payout settings in the account portal.",
-    summary: "Stripe requested updated payout information.",
-  });
-
-  assert.match(
-    body,
-    /I recommend: Review the Stripe payout settings in the account portal\./,
-  );
-  assert.doesNotMatch(body, /job address|suitable day|callback number/i);
 });
 
 test("labels inbound SMS notifications without phone-call wording", () => {
@@ -109,7 +105,7 @@ test("labels inbound SMS notifications without phone-call wording", () => {
   assert.match(body, /Open in Kyro: .*\/open\/inbox/);
 });
 
-test("keeps the existing phone booking outcome wording", () => {
+test("states a booking as a fact rather than as advice", () => {
   const body = buildInboundInquiryNotificationBody({
     channel: "phone",
     contactName: "David",
@@ -124,9 +120,48 @@ test("keeps the existing phone booking outcome wording", () => {
   });
 
   assert.match(body, /^New phone inquiry - David/);
-  assert.match(
-    body,
-    /I recommend: The booking is set for Tuesday at 10:00 AM\./,
-  );
-  assert.doesNotMatch(body, /Reply SEND IT/);
+  assert.match(body, /Booked: Tuesday at 10:00 AM/);
+  assert.doesNotMatch(body, /I recommend:/);
+});
+
+test("offers no advice of its own anywhere", () => {
+  // The five sentences this builder used to choose between.
+  const bannedAdvice = [
+    "Review the prepared response and follow up while the inquiry is fresh",
+    "Reply SEND IT and I'll send the prepared response",
+    "Reply here if you want me to help with the next step",
+    "Kyro answered this using the public business details saved in the workspace",
+    "Review the proposed",
+  ];
+  const bodies = [
+    buildInboundInquiryNotificationBody({
+      autoReplySent: true,
+      channel: "email",
+      contactName: "Jamie",
+      contactPhone: null,
+      conversationId: "conversation-auto-reply",
+      missingInfo: [],
+      preparedReplyAvailable: false,
+      summary: "Asked for the public business phone number.",
+    }),
+    buildInboundInquiryNotificationBody({
+      channel: "phone",
+      contactName: "David",
+      contactPhone: null,
+      conversationId: "conversation-3",
+      missingInfo: [],
+      outcome: "proposed",
+      preparedReplyAvailable: true,
+      summary: "Bathroom quote requested.",
+    }),
+  ];
+
+  for (const body of bodies) {
+    for (const advice of bannedAdvice) {
+      assert.ok(
+        !body.includes(advice),
+        `fallback should not offer advice, found: ${advice}`,
+      );
+    }
+  }
 });
