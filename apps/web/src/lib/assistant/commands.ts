@@ -116,7 +116,6 @@ import type {
   AssistantLink,
   AssistantRecentMessage,
   AssistantRequestActor,
-  AssistantUiBlock,
 } from "./types";
 import {
   CALENDAR_LOOKUP_FUTURE_DAYS,
@@ -152,6 +151,16 @@ import {
   looksLikeInquiryAvailabilityOfferRequest,
   recentInquiryConversationForPrompt,
 } from "./inquiry-intent";
+import {
+  latestGeneratedImageFromBlocks,
+  latestGeneratedImageFromRecentMessages,
+  looksLikeImageEditFollowUpText,
+  type RecentGeneratedImage,
+} from "./generated-image-intent";
+import {
+  assistantSmsBodyFromPrompt,
+  looksLikeDirectWorkplaceSmsRequest,
+} from "./sms-intent";
 import { meaningfulTokens, normalized } from "./prompt-text";
 import {
   customerEmailForQuote,
@@ -224,11 +233,6 @@ type ExecutableConversationAction = {
   status: "approved" | "pending_approval";
   subject: string | null;
 };
-
-type RecentGeneratedImage = Extract<
-  AssistantUiBlock,
-  { type: "generated_image" }
->["images"][number];
 
 function titleCase(value: string) {
   return value
@@ -910,73 +914,6 @@ export function looksLikeWebSearchRequest(prompt: string) {
   return explicitSearch || currentPublic;
 }
 
-function latestGeneratedImageFromRecentMessages(
-  recentMessages: readonly AssistantRecentMessage[] = [],
-): RecentGeneratedImage | null {
-  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
-    const message = recentMessages[index];
-    const image = latestGeneratedImageFromBlocks(message?.uiBlocks);
-
-    if (image) {
-      return image;
-    }
-  }
-
-  return null;
-}
-
-function generatedImageFromValue(value: unknown): RecentGeneratedImage | null {
-  const image = objectRecord(value);
-  const fileId = textValue(image.fileId);
-
-  if (!fileId) {
-    return null;
-  }
-
-  return {
-    alt: textValue(image.alt) ?? "Generated image",
-    contentType: textValue(image.contentType) ?? "image/png",
-    downloadHref: textValue(image.downloadHref) ?? `/api/files/${fileId}`,
-    editMode: Boolean(image.editMode),
-    fileId,
-    filename: textValue(image.filename) ?? "generated-image.png",
-    href: textValue(image.href) ?? `/api/files/${fileId}?disposition=inline`,
-    meta: textValue(image.meta) ?? undefined,
-    model: textValue(image.model) ?? "unknown",
-    prompt: textValue(image.prompt) ?? "",
-    provider: textValue(image.provider) ?? "openai",
-    quality: textValue(image.quality) ?? "unknown",
-    referenceCount: Number.isFinite(Number(image.referenceCount))
-      ? Number(image.referenceCount)
-      : 0,
-    size: textValue(image.size) ?? "auto",
-  };
-}
-
-function latestGeneratedImageFromBlocks(blocksValue: unknown) {
-  const blocks = Array.isArray(blocksValue) ? blocksValue : [];
-
-  for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
-    const block = objectRecord(blocks[blockIndex]);
-
-    if (block.type !== "generated_image") {
-      continue;
-    }
-
-    const images = Array.isArray(block.images) ? block.images : [];
-
-    for (let imageIndex = images.length - 1; imageIndex >= 0; imageIndex -= 1) {
-      const image = generatedImageFromValue(images[imageIndex]);
-
-      if (image) {
-        return image;
-      }
-    }
-  }
-
-  return null;
-}
-
 async function latestGeneratedImageFromThread({
   supabase,
   threadId,
@@ -1014,31 +951,6 @@ async function latestGeneratedImageFromThread({
   return null;
 }
 
-function looksLikeImageEditFollowUpText(prompt: string) {
-  const text = normalized(prompt);
-  const explicitEdit =
-    /\b(edit|change|update|adjust|modify|redo|regenerate|rework|revise)\b.*\b(image|picture|photo|render|rendering|version|it|that|this|one)\b/.test(
-      text,
-    ) ||
-    /\b(image|picture|photo|render|rendering|version)\b.*\b(edit|change|update|adjust|modify|redo|regenerate|rework|revise)\b/.test(
-      text,
-    );
-  const action =
-    /\b(make|turn|change|edit|redo|regenerate|rework|update|adjust|modify|revise|create|generate|render|produce)\b/.test(
-      text,
-    );
-  const target =
-    /\b(it|that|this|image|picture|photo|render|rendering|version|one|previous|same)\b/.test(
-      text,
-    );
-  const visualChange =
-    /\b(night|nighttime|evening|day|daytime|morning|darker|brighter|lighting|light|colour|color|style|view|background|realistic|luxury|modern|warmer|cooler|different|another|variation|variant|more|less|black|white|blue|green|red|replace|remove|add|with|without)\b/.test(
-      text,
-    );
-
-  return explicitEdit || (action && target && visualChange);
-}
-
 function previousImagePromptSummary(prompt: string) {
   return prompt
     .split(/\r?\n/)
@@ -1050,16 +962,6 @@ function previousImagePromptSummary(prompt: string) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 500);
-}
-
-export function looksLikeImageFollowUpRequest(
-  prompt: string,
-  recentMessages: readonly AssistantRecentMessage[] = [],
-) {
-  return (
-    Boolean(latestGeneratedImageFromRecentMessages(recentMessages)) &&
-    looksLikeImageEditFollowUpText(prompt)
-  );
 }
 
 function looksLikeDirectImageGenerationCommand(prompt: string) {
@@ -3652,49 +3554,6 @@ async function calendarCommand({
       ),
     ],
   };
-}
-
-export function looksLikeDirectWorkplaceSmsRequest(prompt: string) {
-  const text = normalized(prompt);
-  const hasSendInstruction = /\b(send|text)\b/.test(text);
-  const hasSmsChannel = /\b(sms|text|text message)\b/.test(text);
-  const hasContactTarget =
-    /\b(contact|team member|staff member|employee)\b/.test(text);
-  const hasInternalQualifier =
-    /\b(workplace|team|staff|internal|escalation)\b/.test(text);
-  const hasWorkplaceTarget = hasContactTarget && hasInternalQualifier;
-
-  return hasSendInstruction && hasSmsChannel && hasWorkplaceTarget;
-}
-
-function cleanSmsBody(value: string) {
-  return value
-    .trim()
-    .replace(/^[\s"'“”‘’:,;-]+/, "")
-    .replace(/[\s"'“”‘’]+$/, "")
-    .trim();
-}
-
-export function assistantSmsBodyFromPrompt(prompt: string) {
-  const explicitBodyPatterns = [
-    /\b(?:saying|that says|with (?:the )?(?:message|text))\s*[:,-]?\s*(.+)$/i,
-    /\b(?:sms|text message)\s*[:-]\s*(.+)$/i,
-  ];
-
-  for (const pattern of explicitBodyPatterns) {
-    const match = prompt.match(pattern);
-    const body = match?.[1] ? cleanSmsBody(match[1]) : "";
-
-    if (body) {
-      return body;
-    }
-  }
-
-  if (/\btest(?:ing)?\b/i.test(prompt)) {
-    return "This is a test SMS from Kyro.";
-  }
-
-  return null;
 }
 
 async function workplaceSmsCommand({

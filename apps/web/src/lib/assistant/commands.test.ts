@@ -28,14 +28,16 @@ import {
   looksLikeInquiryAvailabilityOfferRequest,
   recentInquiryConversationForPrompt,
 } from "./inquiry-intent";
+import { looksLikeImageFollowUpRequest } from "./generated-image-intent";
 import {
   assistantSmsBodyFromPrompt,
+  looksLikeDirectWorkplaceSmsRequest,
+} from "./sms-intent";
+import {
   assistantDate,
   looksLikeWebSearchRequest,
-  looksLikeImageFollowUpRequest,
   looksLikeActionExecutionRequest,
   looksLikeInboundEmailAwarenessRequest,
-  looksLikeDirectWorkplaceSmsRequest,
   resolveAssistantCommand,
   selfCallRecipientForAssistant,
   selectContactForAssistantPrompt,
