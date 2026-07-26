@@ -63,11 +63,9 @@ import {
   OUTBOUND_CHANNELS,
   REPLY_MESSAGE_LENGTH_OPTIONS,
   type CommunicationSettings,
-  type EmailSignatureSettings,
 } from "../../lib/communication/settings";
 import {
   DISPLAY_CURRENCIES,
-  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   formatCurrencyAmount,
   formatDisplayMoney,
   type DisplayCurrencySettings,
@@ -83,7 +81,6 @@ import {
   GOOGLE_GMAIL_SEND_SCOPE,
   GOOGLE_PROVIDER,
   GOOGLE_GMAIL_READ_SCOPE,
-  hasGoogleScope,
   type GoogleIntegrationOverview,
 } from "../../lib/integrations/google";
 import {
@@ -162,6 +159,23 @@ import {
   DeveloperMockInquiryForms,
   type DeveloperMockMode,
 } from "../developer/mock-inquiry-forms";
+import {
+  aiAssistantSignatureForEditor,
+  connectionName,
+  connectionNeedsReconnect,
+  formatDate,
+  formatLabel,
+  formatTimeOfDay,
+  googlePermissionActive,
+  hasRequiredReadScope,
+  invoiceDisplayCurrencySettings,
+  isVoicemailOverflowPhoneNumber,
+  missingReadScope,
+  scopeLabel,
+  SettingCardHeading,
+  type EmailProviderConnection,
+  type ProviderConnection,
+} from "./shared";
 
 export const dynamic = "force-dynamic";
 
@@ -215,20 +229,6 @@ function workspaceTimeZoneOptions(currentTimeZone: string) {
     label: `${timeZone} (${formatTimeZoneOffset(timeZone)})`,
     value: timeZone,
   }));
-}
-
-function isVoicemailOverflowPhoneNumber(number: WorkspacePhoneNumberPoolRow) {
-  const purpose =
-    number.metadata.voicePurpose ?? number.metadata.purpose ?? null;
-
-  return purpose === "voicemail_overflow";
-}
-
-function formatLabel(value: string) {
-  return value
-    .split("_")
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
 }
 
 function metadataRecord(value: unknown) {
@@ -307,89 +307,12 @@ function displayUserLastName(user: {
   return displayUserName(user).split(/\s+/).slice(1).join(" ");
 }
 
-function defaultAiAssistantSignatureText({
-  businessName,
-  publicPhoneNumber,
-}: {
-  businessName: string;
-  publicPhoneNumber: string;
-}) {
-  return [
-    "Kind Regards, Kyro.",
-    `AI Assistant | ${businessName}`,
-    publicPhoneNumber,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function aiAssistantSignatureForEditor({
-  communicationSettings,
-  defaultPublicPhone,
-  profile,
-  workspaceName,
-}: {
-  communicationSettings: CommunicationSettings;
-  defaultPublicPhone: string;
-  profile: WorkspaceGeneralSettings["businessProfile"];
-  workspaceName: string;
-}): EmailSignatureSettings {
-  const defaultText = defaultAiAssistantSignatureText({
-    businessName: profile.businessName || workspaceName || "Your business",
-    publicPhoneNumber: profile.publicPhoneNumber || defaultPublicPhone,
-  });
-  const aiText = communicationSettings.aiGeneratedSignature.text.trim();
-  const manualText = communicationSettings.manualSignature.text.trim();
-  const shouldUseDefault =
-    !aiText ||
-    (!communicationSettings.useSeparateAiSignature && aiText === manualText);
-
-  return shouldUseDefault
-    ? {
-        ...communicationSettings.aiGeneratedSignature,
-        text: defaultText,
-      }
-    : communicationSettings.aiGeneratedSignature;
-}
-
 function formatMoney(value: number, currency: string) {
   return formatCurrencyAmount(value, currency);
 }
 
-function formatDate(value: string, timeZone?: string) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    timeZone,
-  }).format(new Date(value));
-}
-
 function pluralCount(value: number, singular: string, plural = `${singular}s`) {
   return `${value} ${value === 1 ? singular : plural}`;
-}
-
-function formatTimeOfDay(value: string) {
-  const [hourText, minuteText] = value.split(":");
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-
-  if (
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
-  ) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(2020, 0, 1, hour, minute));
 }
 
 function policyLabel(value: string) {
@@ -465,23 +388,6 @@ function pronunciationEntrySourceLabel(entry: AssistantPronunciationEntry) {
 
 function pronunciationHintValue(entry: AssistantPronunciationEntry) {
   return entry.pronunciationHint ?? defaultPronunciationHint(entry.phrase);
-}
-
-function SettingCardHeading({
-  children,
-  info,
-  infoPlacement,
-}: Readonly<{
-  children: React.ReactNode;
-  info: React.ReactNode;
-  infoPlacement?: "left" | "right";
-}>) {
-  return (
-    <div className="setting-card-heading">
-      <strong>{children}</strong>
-      <InfoBubble placement={infoPlacement}>{info}</InfoBubble>
-    </div>
-  );
 }
 
 type IntegrationOverview = {
@@ -713,17 +619,6 @@ function googlePermissionLabel(scope: string) {
     default:
       return scopeLabel(scope);
   }
-}
-
-function googlePermissionActive(
-  overview: GoogleIntegrationOverview,
-  scope: string,
-) {
-  return overview.connections.some(
-    (connection) =>
-      connection.status === "connected" &&
-      hasGoogleScope(connection.scopes, scope),
-  );
 }
 
 function microsoftPermissionActive(
@@ -2062,34 +1957,10 @@ function StripePaymentsSettings({
   );
 }
 
-type ProviderConnection = {
-  accountEmail: string | null;
-  accountName: string | null;
-  lastCheckedAt: string | null;
-  lastConnectedAt: string | null;
-  lastError: string | null;
-  lastSyncAt: string | null;
-  scopes: string[];
-  status: string;
-};
-
-type EmailProviderConnection = ProviderConnection & {
-  provider: "google" | "microsoft";
-  providerLabel: string;
-  requiredReadScope: string;
-};
-
 function latestConnectedConnection(connections: ProviderConnection[]) {
   return (
     connections.find((connection) => connection.status === "connected") ?? null
   );
-}
-
-function connectionName(
-  connection: ProviderConnection | null,
-  fallback: string,
-) {
-  return connection?.accountEmail ?? connection?.accountName ?? fallback;
 }
 
 function providerConnectedAccountsAnchor(
@@ -2123,34 +1994,6 @@ function latestTimestamp(
       .sort(
         (left, right) => new Date(right).getTime() - new Date(left).getTime(),
       )[0] ?? null
-  );
-}
-
-function hasRequiredReadScope(connection: EmailProviderConnection) {
-  if (connection.provider === "google") {
-    return connection.scopes.includes(connection.requiredReadScope);
-  }
-
-  const requested = connection.requiredReadScope.toLowerCase();
-
-  return connection.scopes.some((scope) => {
-    const normalized = scope.toLowerCase();
-
-    return normalized === requested || normalized.endsWith(`/${requested}`);
-  });
-}
-
-function missingReadScope(connection: EmailProviderConnection) {
-  return hasRequiredReadScope(connection) ? null : connection.requiredReadScope;
-}
-
-function isReconnectError(value: string | null) {
-  return Boolean(value?.toLowerCase().includes("reconnect"));
-}
-
-function connectionNeedsReconnect(connection: EmailProviderConnection) {
-  return Boolean(
-    missingReadScope(connection) || isReconnectError(connection.lastError),
   );
 }
 
@@ -2375,12 +2218,6 @@ function senderRuleCreatedLabel(rule: InboundEmailSenderRule) {
   return rule.createdAt
     ? `Added ${formatDate(rule.createdAt)}`
     : "Added before tracking";
-}
-
-function scopeLabel(value: string) {
-  return value
-    .replace("https://www.googleapis.com/auth/", "")
-    .replace("https://graph.microsoft.com/", "");
 }
 
 function EmailSyncHealthPanel({
@@ -5816,21 +5653,6 @@ function UsageSettingsDetail({
       </div>
     </>
   );
-}
-
-function invoiceDisplayCurrencySettings(
-  currency: string,
-): DisplayCurrencySettings {
-  const displayCurrency = DISPLAY_CURRENCIES.includes(
-    currency.toUpperCase() as (typeof DISPLAY_CURRENCIES)[number],
-  )
-    ? (currency.toUpperCase() as (typeof DISPLAY_CURRENCIES)[number])
-    : DEFAULT_DISPLAY_CURRENCY_SETTINGS.displayCurrency;
-
-  return {
-    ...DEFAULT_DISPLAY_CURRENCY_SETTINGS,
-    displayCurrency,
-  };
 }
 
 function KyroBillingSettingsDetail({
