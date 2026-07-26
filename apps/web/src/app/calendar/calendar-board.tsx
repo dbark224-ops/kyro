@@ -49,7 +49,8 @@ import {
   todayDateKey,
   type DateKeyRange,
 } from "../../lib/timezone";
-import { formatTimeOfDay, timeOfDayOptions } from "../../lib/time/time-of-day";
+import { formatTimeOfDay } from "../../lib/time/time-of-day";
+import { TimeStepper } from "./time-stepper";
 import {
   timelineCreateDurationMinutes,
   useTimelineDragCreate,
@@ -154,6 +155,20 @@ function formatTime(value: string | null, timeZone: string) {
     minute: "2-digit",
     timeZone,
   }).format(new Date(value));
+}
+
+/** "7:00 AM - 8:30 AM", or just the start when there is no end. */
+function formatEventTimeRange(
+  event: Pick<CalendarEventItem, "endsAt" | "startsAt">,
+  timeZone: string,
+) {
+  const start = formatTime(event.startsAt, timeZone);
+
+  if (!event.startsAt || !event.endsAt) {
+    return start;
+  }
+
+  return `${start} - ${formatTime(event.endsAt, timeZone)}`;
 }
 
 function calendarStatusLabel(status: string) {
@@ -585,11 +600,7 @@ function DateTimeInput({
 
   // A datetime-local input made picking a time a matter of tabbing through
   // segments and nudging each one. Split, the date keeps its native picker and
-  // the time becomes one list you can open, scroll, or type into.
-  const timeOptions = useMemo(
-    () => timeOfDayOptions({ include: time }),
-    [time],
-  );
+  // the time gets arrows on the hour and the minute.
   const value = date && time ? `${date}T${time}` : "";
 
   return (
@@ -604,19 +615,12 @@ function DateTimeInput({
             value={date}
           />
         </label>
-        <label className={styles.dateTimeFieldPart}>
-          <span className="sr-only">{`${label} time`}</span>
-          <select
-            onChange={(event) => setTime(event.target.value)}
-            value={time}
-          >
-            {timeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <TimeStepper
+          label={label}
+          onChange={setTime}
+          stepMinutes={TIMELINE_SNAP_MINUTES}
+          value={time}
+        />
       </div>
       <input name={`${name}Local`} type="hidden" value={value} />
       <input
@@ -791,16 +795,18 @@ function TimelineEventCard({
       style={metrics.style}
       type="button"
     >
+      {/*
+       * Title first, time underneath -- the same shape whether the block is
+       * half an hour or all day. The title is what you scan for; the time is
+       * confirmation. A short block simply clips the second line.
+       */}
       <span className={styles.timelineEventTop}>
-        {compact ? (
-          <span
-            aria-label={calendarStatusLabel(event.status)}
-            className={styles.eventStatusDot}
-            role="img"
-            title={calendarStatusLabel(event.status)}
-          />
-        ) : null}
-        <time>{formatTime(event.startsAt, timeZone)}</time>
+        <span
+          aria-label={calendarStatusLabel(event.status)}
+          className={styles.eventStatusDot}
+          role="img"
+          title={calendarStatusLabel(event.status)}
+        />
         <strong>{event.title}</strong>
         {compact ? null : (
           <span className={styles.eventStatusPill} data-status={event.status}>
@@ -808,6 +814,9 @@ function TimelineEventCard({
           </span>
         )}
       </span>
+      <time className={styles.timelineEventTime}>
+        {formatEventTimeRange(event, timeZone)}
+      </time>
       {compact ? null : (
         <>
           {event.description ? (

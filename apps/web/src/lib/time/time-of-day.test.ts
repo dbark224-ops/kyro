@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import {
   formatTimeOfDay,
   isTimeOfDay,
-  timeOfDayOptions,
+  stepTimeOfDay,
+  timeOfDayDisplayParts,
+  toggleTimeOfDayMeridiem,
 } from "./time-of-day";
 
 describe("formatTimeOfDay", () => {
@@ -39,53 +41,75 @@ describe("isTimeOfDay", () => {
   });
 });
 
-describe("timeOfDayOptions", () => {
-  it("covers the whole day at quarter-hour steps", () => {
-    const options = timeOfDayOptions();
-
-    assert.equal(options.length, 96);
-    assert.equal(options[0].value, "00:00");
-    assert.equal(options.at(-1)?.value, "23:45");
+describe("stepTimeOfDay", () => {
+  it("moves the hour and wraps around midnight", () => {
+    assert.equal(stepTimeOfDay("09:30", "hour", 1), "10:30");
+    assert.equal(stepTimeOfDay("09:30", "hour", -1), "08:30");
+    assert.equal(stepTimeOfDay("23:30", "hour", 1), "00:30");
+    assert.equal(stepTimeOfDay("00:30", "hour", -1), "23:30");
   });
 
-  it("labels each option on a 12-hour clock", () => {
-    const options = timeOfDayOptions();
+  it("moves the minute by the step when already on the grid", () => {
+    assert.equal(stepTimeOfDay("09:30", "minute", 1), "09:45");
+    assert.equal(stepTimeOfDay("09:30", "minute", -1), "09:15");
+  });
 
-    assert.equal(options[0].label, "12:00 AM");
-    assert.deepEqual(
-      options.find((option) => option.value === "14:30"),
-      { label: "2:30 PM", value: "14:30" },
-    );
+  it("tidies an off-grid minute onto the grid on the first press", () => {
+    // A synced event at 07:05 should become 07:15, not drift to 07:20.
+    assert.equal(stepTimeOfDay("07:05", "minute", 1), "07:15");
+    assert.equal(stepTimeOfDay("07:05", "minute", -1), "07:00");
+  });
+
+  it("carries the minute into the hour", () => {
+    // 09:45 pressed up is ten o'clock to anyone looking at it.
+    assert.equal(stepTimeOfDay("09:45", "minute", 1), "10:00");
+    assert.equal(stepTimeOfDay("09:00", "minute", -1), "08:45");
+  });
+
+  it("carries across midnight in both directions", () => {
+    assert.equal(stepTimeOfDay("23:45", "minute", 1), "00:00");
+    assert.equal(stepTimeOfDay("00:00", "minute", -1), "23:45");
   });
 
   it("honours a different step", () => {
-    assert.equal(timeOfDayOptions({ stepMinutes: 30 }).length, 48);
-    assert.equal(timeOfDayOptions({ stepMinutes: 60 }).length, 24);
+    assert.equal(stepTimeOfDay("09:00", "minute", 1, 5), "09:05");
+    assert.equal(stepTimeOfDay("09:00", "minute", 1, 30), "09:30");
   });
 
-  it("keeps an off-grid existing time selectable", () => {
-    // An event synced from Google at 07:05 must not silently snap to 07:00
-    // just because the picker offers quarter hours.
-    const options = timeOfDayOptions({ include: "07:05" });
-    const values = options.map((option) => option.value);
+  it("leaves an unparseable value alone", () => {
+    assert.equal(stepTimeOfDay("nope", "hour", 1), "nope");
+  });
+});
 
-    assert.ok(values.includes("07:05"));
-    assert.equal(
-      values.indexOf("07:05"),
-      values.indexOf("07:00") + 1,
-      "the extra option belongs in chronological order",
-    );
+describe("toggleTimeOfDayMeridiem", () => {
+  it("swaps morning and afternoon", () => {
+    assert.equal(toggleTimeOfDayMeridiem("09:30"), "21:30");
+    assert.equal(toggleTimeOfDayMeridiem("21:30"), "09:30");
   });
 
-  it("does not duplicate a time already on the grid", () => {
-    const values = timeOfDayOptions({ include: "07:00" }).map(
-      (option) => option.value,
-    );
+  it("handles the two noon/midnight edges", () => {
+    assert.equal(toggleTimeOfDayMeridiem("00:00"), "12:00");
+    assert.equal(toggleTimeOfDayMeridiem("12:00"), "00:00");
+  });
+});
 
-    assert.equal(values.filter((value) => value === "07:00").length, 1);
+describe("timeOfDayDisplayParts", () => {
+  it("splits into the pieces a stepper shows", () => {
+    assert.deepEqual(timeOfDayDisplayParts("14:30"), {
+      hour: 2,
+      meridiem: "PM",
+      minute: "30",
+    });
   });
 
-  it("ignores an unparseable include rather than adding junk", () => {
-    assert.equal(timeOfDayOptions({ include: "nope" }).length, 96);
+  it("shows 12 rather than 0 at midnight and noon", () => {
+    assert.equal(timeOfDayDisplayParts("00:15")?.hour, 12);
+    assert.equal(timeOfDayDisplayParts("00:15")?.meridiem, "AM");
+    assert.equal(timeOfDayDisplayParts("12:15")?.hour, 12);
+    assert.equal(timeOfDayDisplayParts("12:15")?.meridiem, "PM");
+  });
+
+  it("returns null for anything that is not a time", () => {
+    assert.equal(timeOfDayDisplayParts("nope"), null);
   });
 });

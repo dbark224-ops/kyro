@@ -742,67 +742,57 @@
   padding: 5px 6px 5px 18px;
 }
 
+/*
+ * Title on the first line, time on the second -- the same shape at every
+ * duration, so a half-hour block and an all-day block read identically.
+ *
+ * Content sits at the top rather than floating mid-block. The header row used
+ * to be min-height 100% with align-items center, which stretched it to the
+ * block's full height and centred it: invisible in a 30-minute block, marooned
+ * in the middle of a three-hour one. A block's height means its duration, so
+ * the text belongs against the start time it labels.
+ */
 .timelineEventTop {
-  align-items: center;
+  align-items: baseline;
   display: flex;
   gap: 5px;
   min-width: 0;
 }
 
-/*
- * Content sits at the top of the block, not floating in the middle of it.
- *
- * This used to be min-height: 100% with align-items: center, which stretched
- * the header row to the full block height and centred it. Fine for a 30-minute
- * block where that is the whole box; badly wrong for a three-hour one, where
- * the time and title ended up marooned in the middle of a tall empty card.
- *
- * A block's height means its duration, so the text belongs against the start
- * time it is labelling.
- */
-.timelineEvent[data-compact="true"] .timelineEventTop {
-  align-items: baseline;
-  display: flex;
-  gap: 5px;
-  line-height: 1.2;
-  min-height: 0;
-}
-
-.timelineEventTop time {
-  color: var(--muted);
-  display: inline-block;
-  font-size: 0.62rem;
-  font-weight: 900;
-  flex: 0 0 auto;
-  margin-right: 0;
-  vertical-align: baseline;
-  white-space: nowrap;
-}
-
-.timelineEvent[data-compact="true"] .timelineEventTop time {
-  line-height: 1;
-  margin-right: 0;
-}
-
 .timelineEventTop strong {
-  display: block;
   flex: 1 1 auto;
   font-size: 0.7rem;
-  line-height: 1.14;
+  line-height: 1.2;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Narrow week columns get two lines of title before ellipsing. */
 .timelineEvent[data-compact="true"] .timelineEventTop strong {
   display: -webkit-box;
-  flex: 1 1 auto;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  line-height: 1.05;
+  line-height: 1.15;
   overflow-wrap: anywhere;
+  text-overflow: clip;
   white-space: normal;
+}
+
+/*
+ * The second line. Quieter than the title, and allowed to be clipped by a
+ * short block rather than shrinking the title to make room for it.
+ */
+.timelineEventTime {
+  color: var(--muted);
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .timelineEventMeta,
@@ -924,6 +914,105 @@
 .dateTimeFieldPart select {
   min-width: 0;
   width: 100%;
+}
+
+/*
+ * Time as two small spinners rather than a list.
+ *
+ * You almost always know the time you want, so the job is nudging one part of
+ * a number you can already see -- not hunting through ninety-six options or
+ * tabbing between the segments of a datetime-local.
+ */
+.timeStepper {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: inline-flex;
+  gap: 2px;
+  justify-self: start;
+  padding: 3px 5px;
+}
+
+.timeStepperPart {
+  align-items: center;
+  display: grid;
+  gap: 1px;
+  justify-items: center;
+}
+
+.timeStepperArrow {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  height: 13px;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+  width: 100%;
+}
+
+.timeStepperArrow svg {
+  height: 6px;
+  width: 10px;
+}
+
+.timeStepperArrow:hover {
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--text);
+}
+
+.timeStepperValue {
+  border-radius: 5px;
+  color: var(--text);
+  cursor: ns-resize;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1.25;
+  min-width: 2ch;
+  padding: 1px 3px;
+  text-align: center;
+  user-select: none;
+}
+
+.timeStepperValue:focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 1px;
+}
+
+.timeStepperSeparator {
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 800;
+  padding-bottom: 1px;
+}
+
+.timeStepperMeridiem {
+  background: color-mix(in srgb, var(--cyan) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 34%, var(--line));
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-left: 4px;
+  padding: 4px 6px;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.timeStepperMeridiem:hover {
+  background: color-mix(in srgb, var(--cyan) 24%, transparent);
+  border-color: var(--pink);
 }
 
 @media (max-width: 420px) {
