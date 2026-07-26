@@ -55,6 +55,10 @@ function emptySupabase() {
     limit() {
       return Promise.resolve({ data: [], error: null });
     },
+    // Workspace lists page with .range() rather than a flat .limit().
+    range() {
+      return Promise.resolve({ data: [], error: null });
+    },
     maybeSingle() {
       return Promise.resolve({ data: null, error: null });
     },

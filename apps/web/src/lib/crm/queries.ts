@@ -16,6 +16,68 @@ const LIST_ACTION_LIMIT = 500;
 const LIST_QUOTE_DRAFT_LIMIT = 250;
 const LIST_TASK_LIMIT = 500;
 const CONTACT_IDENTITY_SCAN_LIMIT = 2000;
+
+/**
+ * How many rows a workspace list will load before it gives up.
+ *
+ * The CRM, inbox and documents lists used to stop at a flat `.limit(100)` with
+ * no offset, while the page filtered, sorted and paginated the result in
+ * memory. A workspace with 300 contacts therefore had 200 of them silently
+ * absent -- absent from the list, from every filter, and from search, which
+ * only ever saw the truncated array. Nothing said so.
+ *
+ * The fetch is now paged until the workspace is exhausted, so the in-memory
+ * sorting the pages rely on still works on the whole set. The ceiling exists
+ * only to stop one runaway workspace loading forever, and reaching it is
+ * reported rather than hidden.
+ */
+export const WORKSPACE_LIST_PAGE_SIZE = 500;
+export const WORKSPACE_LIST_MAX_ROWS = 5000;
+
+type RangedQueryResult<T> = PromiseLike<{
+  data: T[] | null;
+  error: { message: string } | null;
+}>;
+
+export async function fetchWorkspaceList<T>(
+  label: string,
+  workspaceId: string,
+  buildQuery: (from: number, to: number) => RangedQueryResult<T>,
+): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (
+    let from = 0;
+    from < WORKSPACE_LIST_MAX_ROWS;
+    from += WORKSPACE_LIST_PAGE_SIZE
+  ) {
+    const to =
+      Math.min(from + WORKSPACE_LIST_PAGE_SIZE, WORKSPACE_LIST_MAX_ROWS) - 1;
+    const { data, error } = await buildQuery(from, to);
+
+    if (error) {
+      throw new Error(`Unable to load ${label}: ${error.message}`);
+    }
+
+    const page = data ?? [];
+    rows.push(...page);
+
+    // A short page means the table is exhausted. A full one means there may be
+    // more, so keep going until the workspace runs out or the ceiling is hit.
+    if (page.length < to - from + 1) {
+      return rows;
+    }
+  }
+
+  // Reaching the ceiling is the one case that still hides rows, so it is
+  // reported rather than passed off as a complete list.
+  console.warn(`Workspace ${label} list hit the row ceiling`, {
+    maxRows: WORKSPACE_LIST_MAX_ROWS,
+    workspaceId,
+  });
+
+  return rows;
+}
 const REVIEW_MESSAGE_LIMIT = 120;
 const REVIEW_AI_RUN_LIMIT = 30;
 const REVIEW_ACTION_LIMIT = 80;
@@ -912,18 +974,16 @@ export async function getLeadList(
   supabase: SupabaseClient,
   workspaceId: string,
 ) {
-  const { data: leads, error } = await supabase
-    .from("leads")
-    .select(
-      "id,title,description,source,status,priority,service_type,next_step,estimated_value,contact_id,updated_at",
-    )
-    .eq("workspace_id", workspaceId)
-    .order("updated_at", { ascending: false })
-    .limit(100);
-
-  if (error) {
-    throw new Error(`Unable to load leads: ${error.message}`);
-  }
+  const leads = await fetchWorkspaceList("leads", workspaceId, (from, to) =>
+    supabase
+      .from("leads")
+      .select(
+        "id,title,description,source,status,priority,service_type,next_step,estimated_value,contact_id,updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false })
+      .range(from, to),
+  );
 
   const contactIds = uniqueIds(
     (leads ?? []).map((lead) => String(lead.contact_id ?? "")),
@@ -1035,20 +1095,20 @@ export async function getContactList(
   supabase: SupabaseClient,
   workspaceId: string,
 ) {
-  const { data: contacts, error } = await supabase
-    .from("contacts")
-    .select(
-      "id,name,email,phone,company,normalized_email,normalized_phone,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,source,notes,updated_at",
-    )
-    .eq("workspace_id", workspaceId)
-    .is("merged_into_contact_id", null)
-    .order("updated_at", { ascending: false })
-    .limit(100);
-
-  if (error) {
-    throw new Error(`Unable to load contacts: ${error.message}`);
-  }
-
+  const contacts = await fetchWorkspaceList(
+    "contacts",
+    workspaceId,
+    (from, to) =>
+      supabase
+        .from("contacts")
+        .select(
+          "id,name,email,phone,company,normalized_email,normalized_phone,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,source,notes,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .is("merged_into_contact_id", null)
+        .order("updated_at", { ascending: false })
+        .range(from, to),
+  );
   const contactIds = uniqueIds(
     (contacts ?? []).map((contact) => String(contact.id)),
   );
@@ -1241,31 +1301,47 @@ export async function getConversationList(
     return [] satisfies ConversationListItem[];
   }
 
-  let conversationsQuery = supabase
-    .from("conversations")
-    .select(
-      "id,status,last_message_at,contact_id,lead_id,created_at,deleted_at",
-    )
-    .eq("workspace_id", workspaceId)
-    .order("last_message_at", { ascending: false, nullsFirst: false });
+  const buildConversationsQuery = (from: number, to: number) => {
+    let query = supabase
+      .from("conversations")
+      .select(
+        "id,status,last_message_at,contact_id,lead_id,created_at,deleted_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .order("last_message_at", { ascending: false, nullsFirst: false });
 
-  if (options.mailbox === "deleted") {
-    conversationsQuery = conversationsQuery.not("deleted_at", "is", null);
-  } else if (options.mailbox !== "all") {
-    conversationsQuery = conversationsQuery.is("deleted_at", null);
-  }
+    if (options.mailbox === "deleted") {
+      query = query.not("deleted_at", "is", null);
+    } else if (options.mailbox !== "all") {
+      query = query.is("deleted_at", null);
+    }
 
-  if (selectedIds.length > 0) {
-    conversationsQuery = conversationsQuery.in("id", selectedIds);
-  }
+    if (selectedIds.length > 0) {
+      query = query.in("id", selectedIds);
+    }
 
-  const { data: conversations, error } = await conversationsQuery.limit(
-    options.limit ?? (selectedIds.length > 0 ? selectedIds.length : 100),
-  );
+    return query.range(from, to);
+  };
+  // A caller asking for specific conversations, or for an explicit number of
+  // them, gets exactly that. Only the unbounded inbox list pages through the
+  // whole mailbox, which is what it always looked like it was doing.
+  const explicitLimit =
+    options.limit ?? (selectedIds.length > 0 ? selectedIds.length : null);
+  const conversations = explicitLimit
+    ? await buildConversationsQuery(0, explicitLimit - 1).then(
+        ({ data, error }) => {
+          if (error) {
+            throw new Error(`Unable to load conversations: ${error.message}`);
+          }
 
-  if (error) {
-    throw new Error(`Unable to load conversations: ${error.message}`);
-  }
+          return data ?? [];
+        },
+      )
+    : await fetchWorkspaceList(
+        "conversations",
+        workspaceId,
+        buildConversationsQuery,
+      );
 
   const conversationIds = uniqueIds(
     (conversations ?? []).map((conversation) => String(conversation.id)),
@@ -2849,18 +2925,19 @@ export async function getQuoteDraftList(
   supabase: SupabaseClient,
   workspaceId: string,
 ): Promise<QuoteDraftListItem[]> {
-  const { data: quoteDrafts, error } = await supabase
-    .from("quote_drafts")
-    .select(
-      "id,title,status,line_items,notes,metadata,contact_id,lead_id,conversation_id,created_at,updated_at",
-    )
-    .eq("workspace_id", workspaceId)
-    .order("updated_at", { ascending: false })
-    .limit(100);
-
-  if (error) {
-    throw new Error(`Unable to load quote drafts: ${error.message}`);
-  }
+  const quoteDrafts = await fetchWorkspaceList(
+    "quote drafts",
+    workspaceId,
+    (from, to) =>
+      supabase
+        .from("quote_drafts")
+        .select(
+          "id,title,status,line_items,notes,metadata,contact_id,lead_id,conversation_id,created_at,updated_at",
+        )
+        .eq("workspace_id", workspaceId)
+        .order("updated_at", { ascending: false })
+        .range(from, to),
+  );
 
   const contactIds = uniqueIds(
     (quoteDrafts ?? []).map((quoteDraft) =>
