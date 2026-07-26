@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isSmsLikeChannel } from "../ai/customer-reply-style";
 
 export const COMMUNICATION_POLICY_TYPE = "communication_outbound";
 export const DEFAULT_FOLLOW_UP_DELAY_DAYS = 2;
@@ -303,12 +304,25 @@ export function replyWritingPromptContext(settings: ReplyWritingSettings) {
   };
 }
 
-export function replyWritingPromptRules(settings: ReplyWritingSettings) {
+/**
+ * `settings.signOff` describes email behaviour -- by default "use the saved
+ * email signature, do not duplicate it in the body". Sending that rule on an
+ * SMS contradicted the channel guidance telling the model to sign off itself,
+ * and the model obeyed this one: it wrote no sign-off, and the code then
+ * appended the email signature, logo attachment and all. Pass the channel so
+ * the two instructions cannot disagree.
+ */
+export function replyWritingPromptRules(
+  settings: ReplyWritingSettings,
+  channelType?: string | null,
+) {
   const rules = [
     `Tone: ${settings.tone}`,
     `Wording style: ${settings.wordingStyle}`,
     `Message length: ${settings.messageLength}`,
-    `Sign-off: ${settings.signOff}`,
+    isSmsLikeChannel(channelType)
+      ? "Sign-off: nothing is appended to an SMS, so open with a short greeting and close with a short sign-off naming the business. Never a full email signature, job title, phone number, address, or logo."
+      : `Sign-off: ${settings.signOff}`,
     `Trade-specific phrasing: ${settings.tradePhrasing}`,
   ];
 

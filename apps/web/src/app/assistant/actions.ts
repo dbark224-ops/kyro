@@ -42,7 +42,7 @@ import {
   isOutboundChannel,
 } from "../../lib/communication/settings";
 import {
-  buildSignedEmailBody,
+  buildSignedBodyForChannel,
   selectEmailSignature,
 } from "../../lib/communication/signatures";
 import {
@@ -1064,8 +1064,9 @@ export async function sendAssistantManualReplyAction({
     }
 
     const signature = selectEmailSignature(settings, "manual");
-    const signedBody = buildSignedEmailBody({
+    const signedBody = buildSignedBodyForChannel({
       body: cleanBody,
+      channelType,
       signature,
     });
     const settingsSnapshot = {

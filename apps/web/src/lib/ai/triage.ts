@@ -999,7 +999,7 @@ function buildReplyRepairPrompt(input: {
         "The replacement body must ask for every requiredMissingInfo item.",
         "If asking for several details, combine them naturally in one sentence where possible.",
         "Preserve the useful meaning of the original draft, but rewrite awkward wording if needed.",
-        ...replyWritingPromptRules(replyWriting).map(
+        ...replyWritingPromptRules(replyWriting, input.context.inboundChannelType).map(
           (rule) => `Writing style - ${rule}`,
         ),
       ],
@@ -1250,7 +1250,7 @@ async function ensureKnownBusinessFactReply(input: {
         "Do not ask for a job address, job description, preferred time, phone number, email address, confirmation, or serviceability.",
         "A short offer to help with anything else is acceptable.",
         "Keep the complete reply concise and natural.",
-        ...replyWritingPromptRules(replyWriting).map(
+        ...replyWritingPromptRules(replyWriting, input.context.inboundChannelType).map(
           (rule) => `Writing style - ${rule}`,
         ),
       ],
@@ -1588,7 +1588,7 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
               ? context.threadMessageCount <= 1
               : undefined,
         }),
-        ...replyWritingPromptRules(replyWriting).map(
+        ...replyWritingPromptRules(replyWriting, context.inboundChannelType).map(
           (rule) => `Writing style - ${rule}`,
         ),
       ],
@@ -2092,7 +2092,7 @@ async function resolveToolAssistedBusinessMessage(input: {
         "If the answer is unavailable, set answerAvailable false and ask exactly one focused ownerQuestion that would unlock the reply.",
         "When asking the owner, keep the customer draft pending. The draft may politely acknowledge the message but must not pretend the missing answer is known.",
         "Do not turn this into a service-intake checklist and do not ask for unrelated job details.",
-        ...replyWritingPromptRules(replyWriting).map(
+        ...replyWritingPromptRules(replyWriting, input.context.inboundChannelType).map(
           (rule) => `Writing style - ${rule}`,
         ),
       ],

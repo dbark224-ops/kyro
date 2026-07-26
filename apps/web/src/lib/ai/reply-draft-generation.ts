@@ -262,7 +262,7 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
               ? context.thread.length <= 1
               : undefined,
         }),
-        ...replyWritingPromptRules(replyWriting).map(
+        ...replyWritingPromptRules(replyWriting, context.channelType).map(
           (rule) => `Writing style - ${rule}`,
         ),
         ...skippedEmailRules,

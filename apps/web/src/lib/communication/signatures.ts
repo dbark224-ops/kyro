@@ -121,7 +121,44 @@ export function buildSignatureHtml(
   return `<div style="margin-top:18px">${textHtml}${logoHtml}</div>`;
 }
 
-export function buildSignedEmailBody({
+const UNSIGNED_BODY = {
+  htmlBody: null,
+  inlineAttachments: [] as OutboundAttachment[],
+  signatureApplied: false,
+};
+
+/**
+ * Apply the saved signature only where a signature makes sense.
+ *
+ * The signature is an *email* signature: display text, an HTML block, and the
+ * logo as an inline attachment. On 2026-07-25 an AI-drafted SMS reply went out
+ * carrying all three, because three of the five call sites appended it without
+ * checking the channel -- the text became part of the SMS body Twilio is handed,
+ * pushing a one-segment message to two, with a PNG attached.
+ *
+ * Channel is a required argument rather than a caller-side `if` so that adding
+ * a sixth caller cannot reintroduce the same bug. SMS instead asks the model to
+ * write its own short sign-off; see `customerReplyConversationRules`.
+ */
+export function buildSignedBodyForChannel({
+  body,
+  channelType,
+  includeSignature = true,
+  signature,
+}: {
+  body: string;
+  channelType: string;
+  includeSignature?: boolean;
+  signature: EmailSignatureSettings;
+}) {
+  if (channelType !== "email" || !includeSignature) {
+    return { ...UNSIGNED_BODY, bodyText: body.trim() };
+  }
+
+  return buildSignedEmailBody({ body, signature });
+}
+
+function buildSignedEmailBody({
   body,
   signature,
 }: {

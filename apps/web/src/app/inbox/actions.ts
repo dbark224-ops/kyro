@@ -8,7 +8,7 @@ import {
   type SignatureVariant,
 } from "../../lib/communication/settings";
 import {
-  buildSignedEmailBody,
+  buildSignedBodyForChannel,
   selectEmailSignature,
 } from "../../lib/communication/signatures";
 import {
@@ -1373,18 +1373,12 @@ export async function createMockOutboundMessageAction(formData: FormData) {
     }
   }
 
-  const shouldApplySignature = channelType === "email" && includeSignature;
-  const signedBody = shouldApplySignature
-    ? buildSignedEmailBody({
-        body,
-        signature: selectEmailSignature(settings, signatureVariant),
-      })
-    : {
-        bodyText: body.trim(),
-        htmlBody: null,
-        inlineAttachments: [],
-        signatureApplied: false,
-      };
+  const signedBody = buildSignedBodyForChannel({
+    body,
+    channelType,
+    includeSignature,
+    signature: selectEmailSignature(settings, signatureVariant),
+  });
   const settingsSnapshot = {
     approvalRequired: settings.approvalRequired,
     approvalSatisfiedBy: "manual_user_send",
@@ -1393,8 +1387,8 @@ export async function createMockOutboundMessageAction(formData: FormData) {
     gmailExternalSendEnabled: channelType === "email",
     localAttachmentCount: localAttachments.length,
     signatureApplied: signedBody.signatureApplied,
-    signatureIncluded: shouldApplySignature,
-    signatureVariant: shouldApplySignature ? signatureVariant : null,
+    signatureIncluded: signedBody.signatureApplied,
+    signatureVariant: signedBody.signatureApplied ? signatureVariant : null,
   };
 
   let outboundResult: Awaited<ReturnType<typeof recordOutboundMessage>>;
@@ -1903,18 +1897,14 @@ export async function sendSkippedEmailReplyAction(formData: FormData) {
   }
 
   const settings = await getCommunicationSettings(supabase, workspace.id);
-  const shouldApplySignature = includeSignature;
-  const signedBody = shouldApplySignature
-    ? buildSignedEmailBody({
-        body,
-        signature: selectEmailSignature(settings, signatureVariant),
-      })
-    : {
-        bodyText: body.trim(),
-        htmlBody: null,
-        inlineAttachments: [],
-        signatureApplied: false,
-      };
+  // This action only ever sends email, but the channel is stated rather than
+  // assumed so the guard travels with the call.
+  const signedBody = buildSignedBodyForChannel({
+    body,
+    channelType: "email",
+    includeSignature,
+    signature: selectEmailSignature(settings, signatureVariant),
+  });
   const resolvedSubject =
     subject ?? defaultSkippedReplySubject(textValue(payload.subject));
   let outboundResult: Awaited<ReturnType<typeof recordOutboundEventEmail>>;
@@ -1936,8 +1926,8 @@ export async function sendSkippedEmailReplyAction(formData: FormData) {
         approvalSatisfiedBy: "manual_user_send",
         allowedChannels: settings.allowedChannels,
         signatureApplied: signedBody.signatureApplied,
-        signatureIncluded: shouldApplySignature,
-        signatureVariant: shouldApplySignature ? signatureVariant : null,
+        signatureIncluded: signedBody.signatureApplied,
+        signatureVariant: signedBody.signatureApplied ? signatureVariant : null,
       },
       replyEventPayload: {
         originalEventId: eventId,

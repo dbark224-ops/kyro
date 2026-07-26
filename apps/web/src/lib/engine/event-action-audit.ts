@@ -16,7 +16,7 @@ import {
   type SignatureVariant,
 } from "../communication/settings";
 import {
-  buildSignedEmailBody,
+  buildSignedBodyForChannel,
   selectEmailSignature,
 } from "../communication/signatures";
 
@@ -310,7 +310,11 @@ async function recordDraftReplyOutbound(
     communicationSettings,
     signatureVariant,
   );
-  const signedBody = buildSignedEmailBody({ body, signature });
+  const signedBody = buildSignedBodyForChannel({
+    body,
+    channelType,
+    signature,
+  });
 
   const result = await recordOutboundMessage(supabase, {
     workspaceId: action.workspaceId,
@@ -587,7 +591,11 @@ async function recordSendOutboundMessage(
     communicationSettings,
     signatureVariant,
   );
-  const signedBody = buildSignedEmailBody({ body, signature });
+  const signedBody = buildSignedBodyForChannel({
+    body,
+    channelType,
+    signature,
+  });
 
   const result = await recordOutboundMessage(supabase, {
     workspaceId: action.workspaceId,

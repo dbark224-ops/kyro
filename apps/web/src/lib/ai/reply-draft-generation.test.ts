@@ -86,13 +86,17 @@ describe("buildReplyDraftPrompt", () => {
       rules: string[];
     };
 
-    assert.ok(
-      prompt.rules.some(
-        (rule) =>
-          rule.includes("For SMS") &&
-          rule.includes("short natural business sign-off"),
-      ),
-    );
+    const rules = prompt.rules.join("\n");
+
+    // An SMS carries its own greeting and sign-off, because nothing is
+    // appended to it after the model writes.
+    assert.match(rules, /addressing the customer/);
+    assert.match(rules, /signing off as the business/);
+    assert.match(rules, /nothing is appended to an SMS/i);
+
+    // And it is never told to lean on the email signature, which is what
+    // produced a signed SMS with a logo attached on 2026-07-25.
+    assert.doesNotMatch(rules, /saved email signature/);
   });
 
   it("keeps intake requirements for a genuine service inquiry", () => {

@@ -4,7 +4,7 @@ import {
   isOutboundChannel,
 } from "../../../../../lib/communication/settings";
 import {
-  buildSignedEmailBody,
+  buildSignedBodyForChannel,
   selectEmailSignature,
 } from "../../../../../lib/communication/signatures";
 import { manualReplyIdempotencyKey } from "../../../../../lib/communication/idempotency";
@@ -303,18 +303,12 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    const shouldApplySignature = channelType === "email" && includeSignature;
-    const signedBody = shouldApplySignature
-      ? buildSignedEmailBody({
-          body,
-          signature: selectEmailSignature(settings, signatureVariant),
-        })
-      : {
-          bodyText: body,
-          htmlBody: null,
-          inlineAttachments: [],
-          signatureApplied: false,
-        };
+    const signedBody = buildSignedBodyForChannel({
+      body,
+      channelType,
+      includeSignature,
+      signature: selectEmailSignature(settings, signatureVariant),
+    });
     const outboundResult = await recordOutboundMessage(supabase, {
       attachmentQuoteDraftId,
       attachments: signedBody.inlineAttachments,
