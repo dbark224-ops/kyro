@@ -170,7 +170,49 @@ async function runCustomerMessage(input: {
   };
 }
 
+/**
+ * How the message should read, which differs by who is reading it.
+ *
+ * "customer" inherits the workspace's configured tone and sign-off. "operator"
+ * is the business owner reading an alert on their phone: no greeting, no
+ * sign-off, no selling, and above all a judgement call the old templates could
+ * not make -- quote the customer word for word when the exact wording is the
+ * point, summarise when it is not.
+ */
+function audienceWritingRules(input: {
+  audience: "customer" | "operator";
+  channelType: string;
+  replyWriting: Parameters<typeof replyWritingPromptRules>[0];
+}) {
+  if (input.audience === "customer") {
+    return replyWritingPromptRules(input.replyWriting, input.channelType);
+  }
+
+  return [
+    "You are writing to the business owner, not to their customer. No greeting, no sign-off, no pleasantries.",
+    "Lead with what they need to know or do. They are reading this on a phone, probably while working.",
+    "Quote the customer's own words when the exact wording carries the meaning -- anger, a specific instruction, an unusual request, anything they would want to see for themselves. Put the quote in quotation marks.",
+    "Summarise instead when the wording does not matter and the facts do, for example a routine request for a quote.",
+    "Name the customer and where they are when those are known. Do not pad with detail the owner can already see in the app.",
+    "Never invent facts. Anything not in the context does not go in the message.",
+  ];
+}
+
+export async function generateOperatorAlert(input: {
+  contextFacts: Record<string, unknown>;
+  mustInclude?: string[];
+  purposeRules: string[];
+  supabase: SupabaseClient;
+  task: string;
+  taskType: string;
+  userId: string;
+  workspaceId: string;
+}) {
+  return generateCustomerMessage({ ...input, audience: "operator", channelType: "sms" });
+}
+
 export async function generateCustomerMessage(input: {
+  audience?: "customer" | "operator";
   channelType: string;
   contextFacts: Record<string, unknown>;
   /** Literals that must survive verbatim -- an approval URL, a reference code. */
@@ -197,10 +239,11 @@ export async function generateCustomerMessage(input: {
     loadBusinessProfile(input.supabase, input.workspaceId),
     getCommunicationSettings(input.supabase, input.workspaceId),
   ]);
-  const writingRules = replyWritingPromptRules(
-    communicationSettings.replyWriting,
-    input.channelType,
-  );
+  const writingRules = audienceWritingRules({
+    audience: input.audience ?? "customer",
+    channelType: input.channelType,
+    replyWriting: communicationSettings.replyWriting,
+  });
   const contextFacts = {
     ...input.contextFacts,
     businessProfile,

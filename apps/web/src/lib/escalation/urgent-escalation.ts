@@ -1,5 +1,6 @@
 import { fetchWithTimeout } from "../http/fetch-with-timeout";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { generateOperatorAlert } from "../ai/customer-message-generation";
 import { getPublicAppUrl } from "../app-url";
 import {
   assertSmsSendAllowed,
@@ -392,6 +393,10 @@ export async function createUrgentEscalationIncident(
     workspaceId,
   );
   const sourceKey = input.sourceKey.slice(0, 400);
+  const written = await writeEscalationAlert(supabase, workspaceId, {
+    input,
+    triggerKeys,
+  });
   const { data: incident, error: incidentError } = await supabase
     .from("urgent_escalation_incidents")
     .insert({
@@ -407,8 +412,8 @@ export async function createUrgentEscalationIncident(
       source_id: input.sourceId ?? null,
       source_key: sourceKey,
       source_type: input.sourceType,
-      summary: (input.summary ?? input.content).slice(0, 1_500),
-      title: (input.title ?? "Urgent customer inquiry").slice(0, 240),
+      summary: written.summary.slice(0, 1_500),
+      title: written.title.slice(0, 240),
       trigger_keys: triggerKeys,
       workspace_id: workspaceId,
     })
@@ -497,8 +502,108 @@ function acknowledgementUrl(token: string) {
   return `${getPublicAppUrl()}/api/escalations/acknowledge?token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * The alert the owner actually reads.
+ *
+ * The block header and the acknowledge line are structure, so they stay in
+ * code. What goes between them is a judgement the old version could not make:
+ * every escalation used the constant title "Urgent customer inquiry" and pasted
+ * the customer's raw message underneath, up to 1,500 characters -- roughly ten
+ * SMS segments of unreadable wall. Sometimes the exact words are the point
+ * ("get this car off my nature strip"); usually "Anne in Bendigo wants a
+ * bathroom quote" is more use at a glance. Only the model can tell those apart,
+ * so it writes the title and the body and decides which this is.
+ */
 function escalationMessage(incident: EscalationIncidentRow) {
   return `URGENT - ${incident.title}\n${incident.summary}\nAcknowledge: ${acknowledgementUrl(incident.acknowledgement_token)}`;
+}
+
+async function escalationAlertContext(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: UrgentEscalationInput,
+) {
+  if (!input.contactId) {
+    return null;
+  }
+
+  const { data } = await supabase
+    .from("contacts")
+    .select("name,company,address,contact_type")
+    .eq("workspace_id", workspaceId)
+    .eq("id", input.contactId)
+    .maybeSingle();
+
+  return data
+    ? {
+        contactAddress: textValue(data.address),
+        contactCompany: textValue(data.company),
+        contactName: textValue(data.name),
+        contactType: textValue(data.contact_type),
+      }
+    : null;
+}
+
+async function writeEscalationAlert(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  context: { input: UrgentEscalationInput; triggerKeys: string[] },
+) {
+  const { input, triggerKeys } = context;
+  // An explicit title or summary from the caller wins -- nothing overrides a
+  // human who already said what this is.
+  const explicitTitle = textValue(input.title);
+  const explicitSummary = textValue(input.summary);
+
+  if (explicitTitle && explicitSummary) {
+    return { summary: explicitSummary, title: explicitTitle };
+  }
+
+  try {
+    const contact = await escalationAlertContext(supabase, workspaceId, input);
+    const written = await generateOperatorAlert({
+      contextFacts: {
+        ...contact,
+        arrivedVia: input.sourceType,
+        customerMessage: input.content,
+        existingCustomer: input.existingCustomer ?? false,
+        priority: input.priority ?? "normal",
+        vipCustomer: input.vipCustomer ?? false,
+        whyUrgent: triggerKeys,
+      },
+      purposeRules: [
+        "This is an urgent alert about a customer message that needs the owner's attention now.",
+        "The subject is a short label for the alert header, at most six words. It names the situation, not the customer's whole message.",
+        "The body is one or two short lines. Say who it is and where they are when known, then what they want or what is wrong.",
+        "Decide from context.customerMessage whether to quote the customer word for word or to summarise. Quote when the wording is the point; summarise a routine request.",
+        "Keep the whole body under 300 characters. It is read on a phone as a text message.",
+        "Do not add an acknowledgement link, a greeting, or a sign-off. Those are added around your text.",
+      ],
+      supabase,
+      task: "Write the urgent escalation alert for the business owner.",
+      taskType: "urgent_escalation_alert",
+      userId: input.metadata?.userId ? String(input.metadata.userId) : "system",
+      workspaceId,
+    });
+
+    return {
+      summary: explicitSummary ?? written.body,
+      title: explicitTitle ?? written.subject,
+    };
+  } catch (error) {
+    // An urgent escalation must never be lost because the model was
+    // unavailable. This last resort is labelled facts rather than written
+    // prose, and it is the only path that reaches the owner unwritten.
+    console.warn("Urgent escalation alert generation failed", {
+      error: error instanceof Error ? error.message : "unknown_error",
+      workspaceId,
+    });
+
+    return {
+      summary: explicitSummary ?? input.content,
+      title: explicitTitle ?? "Urgent customer inquiry",
+    };
+  }
 }
 
 async function sendEmailStep(
