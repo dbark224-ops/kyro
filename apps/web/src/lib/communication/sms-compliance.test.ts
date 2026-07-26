@@ -110,12 +110,16 @@ describe("smsConsentCommand", () => {
     }
   });
 
-  it("records the limit: only a bare keyword counts, not STOP with words", () => {
+  it("matches a bare keyword only, which is deliberate", () => {
     // Letters are stripped together, so "stop please" becomes STOPPLEASE and
-    // matches nothing. Carriers handle the bare STOP upstream, which is why
-    // this has not bitten, but a recipient who types more than the keyword is
-    // not opted out by Kyro. Recorded so the behaviour is a decision rather
-    // than a surprise.
+    // matches nothing.
+    //
+    // Left as-is on the owner's call, 2026-07-26. Kyro has no marketing
+    // sends: every outbound message answers someone who contacted the
+    // business first, so this is conversational rather than promotional
+    // messaging. Twilio also honours a bare STOP at the carrier level before
+    // it reaches Kyro. Widening the match would risk opting out a customer
+    // who wrote "don't stop the work", which is the worse failure here.
     assert.equal(smsConsentCommand("stop please").status, null);
     assert.equal(smsConsentCommand("STOP TEXTING ME").status, null);
   });
