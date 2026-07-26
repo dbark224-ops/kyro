@@ -88,10 +88,10 @@ describe("buildReplyDraftPrompt", () => {
 
     const rules = prompt.rules.join("\n");
 
-    // An SMS carries its own greeting and sign-off, because nothing is
-    // appended to it after the model writes.
-    assert.match(rules, /addressing the customer/);
-    assert.match(rules, /signing off as the business/);
+    // One inbound message, so this is a first contact: the text is coming from
+    // a number the customer does not know and has to say who it is.
+    assert.match(rules, /first text/i);
+    assert.match(rules, /sign-off naming the business/i);
     assert.match(rules, /nothing is appended to an SMS/i);
 
     // And it is never told to lean on the email signature, which is what

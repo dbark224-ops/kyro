@@ -15,7 +15,10 @@ import {
   usageEventTotals,
 } from "../usage/openai";
 import { openAiBalancedModel, openAiReasoningRequest } from "./openai-models";
-import { customerReplyConversationRules } from "./customer-reply-style";
+import {
+  customerReplyConversationRules,
+  firstCustomerTurnFromThread,
+} from "./customer-reply-style";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import type { TriageResponseMode } from "./triage";
@@ -257,12 +260,9 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
         "Use a normal email subject beginning with Re: when appropriate.",
         ...customerReplyConversationRules({
           channel: context.channelType,
-          isFirstCustomerTurn:
-            Array.isArray(context.thread) && context.thread.length > 0
-              ? context.thread.length <= 1
-              : undefined,
+          isFirstCustomerTurn: firstCustomerTurnFromThread(context.thread),
         }),
-        ...replyWritingPromptRules(replyWriting, context.channelType).map(
+        ...replyWritingPromptRules(replyWriting, context.channelType, firstCustomerTurnFromThread(context.thread)).map(
           (rule) => `Writing style - ${rule}`,
         ),
         ...skippedEmailRules,

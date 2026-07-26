@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   customerReplyConversationRules,
+  firstCustomerTurnFromCount,
+  firstCustomerTurnFromThread,
   isSmsLikeChannel,
 } from "./customer-reply-style";
 import {
@@ -11,6 +13,20 @@ import {
 
 function joined(rules: string[]) {
   return rules.join("\n").toLowerCase();
+}
+
+function smsRules(isFirstCustomerTurn?: boolean) {
+  return joined([
+    ...replyWritingPromptRules(
+      DEFAULT_REPLY_WRITING_SETTINGS,
+      "sms",
+      isFirstCustomerTurn,
+    ),
+    ...customerReplyConversationRules({
+      channel: "sms",
+      isFirstCustomerTurn,
+    }),
+  ]);
 }
 
 describe("isSmsLikeChannel", () => {
@@ -24,83 +40,104 @@ describe("isSmsLikeChannel", () => {
   });
 });
 
-describe("customerReplyConversationRules", () => {
-  it("asks an SMS to carry its own greeting and sign-off", () => {
-    const rules = joined(customerReplyConversationRules({ channel: "sms" }));
-
-    assert.match(rules, /addressing the customer/);
-    assert.match(rules, /signing off as the business/);
+describe("first customer turn detection", () => {
+  it("reads a first turn from a thread count", () => {
+    assert.equal(firstCustomerTurnFromCount(1), true);
+    assert.equal(firstCustomerTurnFromCount(0), true);
+    assert.equal(firstCustomerTurnFromCount(4), false);
   });
 
-  it("tells an SMS that nothing is appended after it writes", () => {
-    const rules = joined(customerReplyConversationRules({ channel: "sms" }));
-
-    assert.match(rules, /nothing is appended to an sms/);
-    assert.match(rules, /never a full email signature/);
-  });
-
-  it("keeps SMS self-contained even mid-conversation", () => {
-    // Each text is read on its own, so the sign-off is not dropped just
-    // because the thread is established.
-    const rules = joined(
-      customerReplyConversationRules({
-        channel: "sms",
-        isFirstCustomerTurn: false,
-      }),
-    );
-
-    assert.match(rules, /signing off as the business/);
-    assert.doesNotMatch(rules, /without restarting with a greeting/);
-  });
-
-  it("tells email not to sign off, because the system appends one", () => {
-    const rules = joined(customerReplyConversationRules({ channel: "email" }));
-
-    assert.match(rules, /do not write your own sign-off/);
-    assert.match(rules, /appends the configured email signature/);
+  it("stays undecided rather than guessing first contact", () => {
+    // Defaulting to `true` would re-introduce the business mid-thread every
+    // time the count was missing.
+    assert.equal(firstCustomerTurnFromCount(undefined), undefined);
+    assert.equal(firstCustomerTurnFromCount(null), undefined);
+    assert.equal(firstCustomerTurnFromThread(undefined), undefined);
+    assert.equal(firstCustomerTurnFromThread([]), undefined);
+    assert.equal(firstCustomerTurnFromThread([{}]), true);
+    assert.equal(firstCustomerTurnFromThread([{}, {}]), false);
   });
 });
 
-describe("replyWritingPromptRules", () => {
-  it("does not tell an SMS to rely on the saved email signature", () => {
-    // The 2026-07-25 contradiction: this rule said "use the saved email
-    // signature", the channel rule said "sign off yourself". The model obeyed
-    // this one and wrote nothing, then the code appended the email signature.
-    const emailRules = joined(
-      replyWritingPromptRules(DEFAULT_REPLY_WRITING_SETTINGS, "email"),
-    );
-    const smsRules = joined(
-      replyWritingPromptRules(DEFAULT_REPLY_WRITING_SETTINGS, "sms"),
-    );
+describe("SMS reply rules", () => {
+  it("identifies the business on the first text from an unknown number", () => {
+    const rules = smsRules(true);
 
-    assert.match(emailRules, /saved email signature/);
-    assert.doesNotMatch(smsRules, /saved email signature/);
-  });
-
-  it("asks an SMS for both a greeting and a sign-off", () => {
-    const rules = joined(
-      replyWritingPromptRules(DEFAULT_REPLY_WRITING_SETTINGS, "sms"),
-    );
-
-    assert.match(rules, /short greeting/);
+    assert.match(rules, /first text/);
     assert.match(rules, /sign-off naming the business/);
+    assert.match(rules, /nothing is appended to an sms/);
   });
 
-  it("agrees with the channel rules rather than contradicting them", () => {
-    const combined = joined([
-      ...replyWritingPromptRules(DEFAULT_REPLY_WRITING_SETTINGS, "sms"),
-      ...customerReplyConversationRules({ channel: "sms" }),
+  it("drops the greeting and sign-off once the thread is underway", () => {
+    // The customer already knows who they are texting. Re-greeting and
+    // re-signing every message in a live back-and-forth reads like a robot.
+    const rules = smsRules(false);
+
+    assert.match(rules, /already underway|established text thread/);
+    assert.match(rules, /no greeting, no sign-off|no repeated sign-off/);
+    assert.doesNotMatch(rules, /must say who it is/);
+  });
+
+  it("asks the model to judge it when the thread position is unknown", () => {
+    const rules = smsRules(undefined);
+
+    assert.match(rules, /if this is a first contact|infer whether/);
+    assert.doesNotMatch(rules, /must say who it is/);
+  });
+
+  it("never lets an SMS lean on the saved email signature", () => {
+    // The 2026-07-25 contradiction: the writing-style rule said "use the saved
+    // email signature", the channel rule said "sign off yourself". The model
+    // obeyed the first and wrote nothing, then the code appended the email
+    // signature, logo and all.
+    for (const turn of [true, false, undefined]) {
+      const rules = smsRules(turn);
+
+      assert.doesNotMatch(rules, /saved email signature/);
+      assert.doesNotMatch(rules, /duplicate the signature text/);
+    }
+  });
+
+  it("bans the email signature furniture whatever the thread position", () => {
+    for (const turn of [true, false, undefined]) {
+      assert.match(
+        smsRules(turn),
+        /never a full email signature, job title, phone number, address, or logo/,
+      );
+    }
+  });
+});
+
+describe("email reply rules", () => {
+  it("keeps deferring to the configured signature", () => {
+    const rules = joined([
+      ...replyWritingPromptRules(DEFAULT_REPLY_WRITING_SETTINGS, "email", true),
+      ...customerReplyConversationRules({
+        channel: "email",
+        isFirstCustomerTurn: true,
+      }),
     ]);
 
-    // Exactly one instruction about what to do with a signature on SMS:
-    // write your own. Nothing anywhere telling it to defer to a saved one.
-    assert.doesNotMatch(combined, /saved email signature/);
-    assert.doesNotMatch(combined, /duplicate the signature text/);
+    assert.match(rules, /saved email signature/);
+    assert.match(rules, /do not write your own sign-off/);
+  });
+
+  it("still varies by thread position the way it always did", () => {
+    assert.match(
+      joined(
+        customerReplyConversationRules({
+          channel: "email",
+          isFirstCustomerTurn: false,
+        }),
+      ),
+      /without restarting with a greeting/,
+    );
   });
 
   it("falls back to the configured sign-off when no channel is given", () => {
-    const rules = joined(replyWritingPromptRules(DEFAULT_REPLY_WRITING_SETTINGS));
-
-    assert.match(rules, /saved email signature/);
+    assert.match(
+      joined(replyWritingPromptRules(DEFAULT_REPLY_WRITING_SETTINGS)),
+      /saved email signature/,
+    );
   });
 });

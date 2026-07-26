@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isSmsLikeChannel } from "../ai/customer-reply-style";
+import { isSmsLikeChannel, smsSignOffRule } from "../ai/customer-reply-style";
 
 export const COMMUNICATION_POLICY_TYPE = "communication_outbound";
 export const DEFAULT_FOLLOW_UP_DELAY_DAYS = 2;
@@ -315,13 +315,14 @@ export function replyWritingPromptContext(settings: ReplyWritingSettings) {
 export function replyWritingPromptRules(
   settings: ReplyWritingSettings,
   channelType?: string | null,
+  isFirstCustomerTurn?: boolean,
 ) {
   const rules = [
     `Tone: ${settings.tone}`,
     `Wording style: ${settings.wordingStyle}`,
     `Message length: ${settings.messageLength}`,
     isSmsLikeChannel(channelType)
-      ? "Sign-off: nothing is appended to an SMS, so open with a short greeting and close with a short sign-off naming the business. Never a full email signature, job title, phone number, address, or logo."
+      ? smsSignOffRule(isFirstCustomerTurn)
       : `Sign-off: ${settings.signOff}`,
     `Trade-specific phrasing: ${settings.tradePhrasing}`,
   ];
