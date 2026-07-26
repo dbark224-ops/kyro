@@ -1,3 +1,17 @@
+/**
+ * A hand-maintained catalogue of assistant capabilities. NOT the live tool set.
+ *
+ * Nothing generates or checks this file. The tools actually offered to the
+ * model are the `kyro_*` function definitions across lib/assistant, and they
+ * use a different taxonomy from the capability ids here -- so the two lists
+ * cannot be mechanically reconciled, and this one drifts silently whenever a
+ * tool is added or a permission changes.
+ *
+ * It is still useful as a review document, which is what the developer page
+ * renders it as. It must not be treated as the source of truth for what the
+ * assistant can do or what is gated: read the tool definitions and the
+ * permission checks in the executors for that.
+ */
 export type AssistantToolRegistryItem = {
   approval: "none" | "user_click" | "workspace_policy" | "provider_required";
   category:

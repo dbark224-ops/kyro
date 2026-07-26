@@ -21,7 +21,7 @@ export default function AssistantToolsPage() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Assistant admin</p>
-          <h1>Tool registry</h1>
+          <h1>Tool capability catalogue</h1>
         </div>
       </header>
 
@@ -32,8 +32,15 @@ export default function AssistantToolsPage() {
               <p className="eyebrow">Review</p>
               <h2>Production tools and UI cards</h2>
             </div>
-            <span className="pill">{summary.total} tools</span>
+            <span className="pill">{summary.total} entries</span>
           </div>
+
+          <p className="panel-copy">
+            Hand-maintained reference, not a live read of the assistant. Nothing
+            generates or verifies this list, so it can lag the tools the model is
+            actually offered. Check the tool definitions and their permission
+            checks before relying on anything here.
+          </p>
 
           <div className="metric-grid compact">
             <article className="metric-card cyan">

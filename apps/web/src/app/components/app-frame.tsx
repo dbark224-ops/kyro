@@ -19,8 +19,8 @@ import {
   formatCurrencyAmount,
 } from "../../lib/billing/display-currency";
 import { KYRO_USER_BILLING_POLICY_TYPE } from "../../lib/billing/kyro-user-billing";
-import { getBillableUsageSummary } from "../../lib/billing/usage-summary";
-import type { BillableUsageSummary } from "../../lib/billing/usage-summary";
+import { getBillableUsageTotals } from "../../lib/billing/usage-summary";
+import type { BillableUsageTotals } from "../../lib/billing/usage-summary";
 import { hasSupabaseEnv } from "../../lib/env";
 import { formatWorkspaceDateTime } from "../../lib/time/format";
 import {
@@ -131,7 +131,7 @@ function validDate(value: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function totalCustomerCharge(summary: BillableUsageSummary | null) {
+function totalCustomerCharge(summary: BillableUsageTotals | null) {
   return (summary?.totals ?? []).reduce<number>(
     (total, item) => total + item.customerCharge,
     0,
@@ -317,10 +317,10 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       getWorkspaceGeneralSettings(supabase, workspace.id).catch(
         () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
       ),
-      getBillableUsageSummary(supabase, workspace.id, {
+      getBillableUsageTotals(supabase, workspace.id, {
         period: "weekly",
       }).catch(() => null),
-      getBillableUsageSummary(supabase, workspace.id, {
+      getBillableUsageTotals(supabase, workspace.id, {
         period: "monthly",
       }).catch(() => null),
       loadKyroBillingPolicySettings(supabase, workspace.id).catch(() => null),
@@ -339,7 +339,7 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
     const isFreeTrialActive = Boolean(trialEndsAt && trialEndsAt > now);
     const trialUsageSummary =
       isFreeTrialActive && trialStartedAt && trialStartedAt < now
-        ? await getBillableUsageSummary(supabase, workspace.id, {
+        ? await getBillableUsageTotals(supabase, workspace.id, {
             end: now.toISOString(),
             period: "custom",
             start: trialStartedAt.toISOString(),

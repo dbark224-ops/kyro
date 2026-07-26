@@ -7,7 +7,15 @@ import type {
   AssistantThreadState,
 } from "../../lib/assistant/types";
 import Link from "next/link";
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 const FLOATING_ASSISTANT_OPEN_KEY = "kyro-floating-assistant-open";
 
@@ -17,6 +25,11 @@ function readStoredOpenState() {
   } catch {
     return false;
   }
+}
+
+/** No external store to watch -- the snapshot only has to differ across hydration. */
+function subscribeToNothing() {
+  return () => {};
 }
 
 function writeStoredOpenState(isOpen: boolean) {
@@ -48,7 +61,32 @@ export function FloatingAssistantWidget({
   );
   const [draft, setDraft] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isOpen, setIsOpen] = useState(readStoredOpenState);
+  // localStorage does not exist on the server, so seeding useState from it made
+  // the server render "closed" and the client render "open" for anyone who had
+  // left it open -- a hydration mismatch on every authenticated page.
+  //
+  // useSyncExternalStore exists for exactly this: its third argument is the
+  // server snapshot, used during SSR and hydration, after which React re-renders
+  // with the client value. Until the user touches it, `isOpen` is the stored
+  // value; once they do, their choice takes over.
+  const hasHydrated = useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null);
+  const isOpen =
+    openOverride ?? (hasHydrated ? readStoredOpenState() : false);
+  const setIsOpen = useCallback(
+    (next: boolean | ((current: boolean) => boolean)) => {
+      setOpenOverride((current) => {
+        const resolved = current ?? readStoredOpenState();
+
+        return typeof next === "function" ? next(resolved) : next;
+      });
+    },
+    [],
+  );
   const [optimisticMessage, setOptimisticMessage] =
     useState<AssistantThreadMessage | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -63,8 +101,14 @@ export function FloatingAssistantWidget({
   );
 
   useEffect(() => {
-    writeStoredOpenState(isOpen);
-  }, [isOpen]);
+    // Only once the user has actually chosen, so the pre-hydration "closed"
+    // render never overwrites a stored open state.
+    if (openOverride === null) {
+      return;
+    }
+
+    writeStoredOpenState(openOverride);
+  }, [openOverride]);
 
   useEffect(() => {
     if (

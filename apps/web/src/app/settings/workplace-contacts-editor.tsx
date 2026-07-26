@@ -8,10 +8,10 @@ import {
   type WorkplaceContactChannel,
   type WorkplaceContactSettings,
 } from "../../lib/workspace/general-settings";
-import {
-  normalizeContactPhoneForRegion,
-  type PhoneRegion,
-} from "../../lib/crm/identity";
+// Type-only: importing the module for real would pull libphonenumber-js and its
+// country metadata into the /settings client bundle for one onBlur handler.
+// The function itself is loaded on demand where it is used.
+import type { PhoneRegion } from "../../lib/crm/identity";
 import { useState } from "react";
 import scheduleStyles from "./schedule-settings.module.css";
 
@@ -788,9 +788,15 @@ export function WorkplaceContactsEditor({
                 Phone
                 <input
                   disabled={!isEditingSelectedContact}
-                  onBlur={(event) => {
+                  onBlur={async (event) => {
+                    // Read before awaiting: currentTarget is cleared once the
+                    // handler yields.
+                    const typed = event.currentTarget.value;
+                    const { normalizeContactPhoneForRegion } = await import(
+                      "../../lib/crm/identity"
+                    );
                     const normalized = normalizeContactPhoneForRegion(
-                      event.currentTarget.value,
+                      typed,
                       defaultPhoneRegion,
                     );
 

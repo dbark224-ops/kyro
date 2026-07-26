@@ -124,6 +124,79 @@ export function resolveBillingPeriod(input: BillingPeriodInput = {}) {
   };
 }
 
+export type BillableUsageTotals = {
+  eventCount: number;
+  period: {
+    kind: BillingPeriodKind;
+    start: string;
+    end: string;
+  };
+  quantity: number;
+  totals: BillingCurrencyTotal[];
+  workspaceId: string;
+};
+
+type UsageTotalsRow = {
+  currency: unknown;
+  customer_charge: unknown;
+  event_count: unknown;
+  provider_cost: unknown;
+  quantity: unknown;
+};
+
+/**
+ * Period totals without the per-user breakdown.
+ *
+ * The app chrome renders two or three usage pills on every authenticated page
+ * and reads nothing but `totals[0]`, yet getBillableUsageSummary pages through
+ * every raw usage_events row in the period to build a `users` array that is
+ * then discarded. That cost grows forever, on the most-executed path there is.
+ *
+ * This aggregates in Postgres instead and returns one row per currency. Use
+ * getBillableUsageSummary when the per-user split is actually wanted.
+ */
+export async function getBillableUsageTotals(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: BillingPeriodInput = {},
+): Promise<BillableUsageTotals> {
+  const period = resolveBillingPeriod(input);
+  const { data, error } = await supabase.rpc("billable_usage_totals", {
+    p_end: period.end,
+    p_start: period.start,
+    p_user_id: input.userId ?? null,
+    p_workspace_id: workspaceId,
+  });
+
+  if (error) {
+    throw new Error(`Unable to load billable usage totals: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as unknown as UsageTotalsRow[];
+  let eventCount = 0;
+  let quantity = 0;
+
+  const totals = rows
+    .map((row) => {
+      const providerCost = roundMoney(numberValue(row.provider_cost));
+      const customerCharge = roundMoney(numberValue(row.customer_charge));
+
+      eventCount += numberValue(row.event_count);
+      quantity += numberValue(row.quantity);
+
+      return {
+        currency: textValue(row.currency) ?? "USD",
+        customerCharge,
+        customerChargeMinorUnits: toMinorUnits(customerCharge),
+        grossMargin: roundMoney(customerCharge - providerCost),
+        providerCost,
+      };
+    })
+    .sort((a, b) => a.currency.localeCompare(b.currency));
+
+  return { eventCount, period, quantity, totals, workspaceId };
+}
+
 export async function getBillableUsageSummary(
   supabase: SupabaseClient,
   workspaceId: string,
