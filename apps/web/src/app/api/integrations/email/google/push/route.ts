@@ -7,6 +7,7 @@ import { GOOGLE_PROVIDER } from "../../../../../../lib/integrations/google";
 import { syncInboundEmail } from "../../../../../../lib/integrations/inbound-email-sync";
 import { createServiceSupabaseClient } from "../../../../../../lib/supabase/service";
 import { textValue } from "@kyro/core";
+import { writeOrThrow } from "../../../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 
@@ -103,20 +104,25 @@ export async function POST(request: Request) {
     (workspace as Record<string, unknown> | null)?.owner_user_id,
   );
 
-  await supabase
-    .from("integration_connections")
-    .update({
-      metadata: {
-        ...((connection.metadata && typeof connection.metadata === "object"
-          ? connection.metadata
-          : {}) as Record<string, unknown>),
-        gmailPush: {
-          historyId: notification.historyId,
-          lastNotificationAt: new Date().toISOString(),
+  // historyId is Gmail's cursor. Losing this write silently means the next
+  // push resumes from a stale point, so messages are re-processed or skipped.
+  await writeOrThrow(
+    supabase
+      .from("integration_connections")
+      .update({
+        metadata: {
+          ...((connection.metadata && typeof connection.metadata === "object"
+            ? connection.metadata
+            : {}) as Record<string, unknown>),
+          gmailPush: {
+            historyId: notification.historyId,
+            lastNotificationAt: new Date().toISOString(),
+          },
         },
-      },
-    })
-    .eq("id", connection.id);
+      })
+      .eq("id", connection.id),
+    "Unable to record the Gmail push cursor",
+  );
 
   if (!ownerUserId) {
     return Response.json({

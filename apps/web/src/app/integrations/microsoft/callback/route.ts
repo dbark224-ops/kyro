@@ -13,6 +13,7 @@ import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { insertAuditLog } from "../../../../lib/engine/event-action-audit";
 import { NextResponse } from "next/server";
 import { textValue } from "@kyro/core";
+import { writeOrThrow } from "../../../../lib/supabase/write";
 
 export const dynamic = "force-dynamic";
 
@@ -339,10 +340,15 @@ export async function GET(request: Request) {
       workspaceId: String(oauthState.workspace_id),
     });
 
-    await supabase
-      .from("integration_oauth_states")
-      .update({ consumed_at: now.toISOString() })
-      .eq("id", oauthState.id);
+    // Single-use enforcement for the OAuth state. Losing this write silently
+    // would leave the state replayable.
+    await writeOrThrow(
+      supabase
+        .from("integration_oauth_states")
+        .update({ consumed_at: now.toISOString() })
+        .eq("id", oauthState.id),
+      "Unable to consume the Microsoft OAuth state",
+    );
 
     await insertAuditLog(supabase, {
       workspaceId: String(oauthState.workspace_id),
