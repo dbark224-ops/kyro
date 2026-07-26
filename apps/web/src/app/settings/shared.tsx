@@ -1,3 +1,5 @@
+import type { DeveloperMockMode } from "../developer/mock-inquiry-forms";
+import type { VoiceSettings } from "../../lib/assistant/voice-settings";
 import {
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   DISPLAY_CURRENCIES,
@@ -12,7 +14,10 @@ import {
   type GoogleIntegrationOverview,
 } from "../../lib/integrations/google";
 import type { WorkspacePhoneNumberPoolRow } from "../../lib/voice/phone-number-pool";
-import type { WorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
+import type {
+  WorkplaceContactSettings,
+  WorkspaceGeneralSettings,
+} from "../../lib/workspace/general-settings";
 import { InfoBubble } from "./info-bubble";
 /**
  * The pieces more than one Settings section needs.
@@ -213,4 +218,170 @@ export function invoiceDisplayCurrencySettings(
     ...DEFAULT_DISPLAY_CURRENCY_SETTINGS,
     displayCurrency,
   };
+}
+
+export function developerMockMode(value: string | undefined): DeveloperMockMode {
+  return value === "email" || value === "sms" ? value : "manual";
+}
+
+export function metadataRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+export function metadataString(value: unknown, key: string) {
+  const candidate = metadataRecord(value)[key];
+
+  return typeof candidate === "string" ? candidate.trim() : "";
+}
+
+export function displayUserName(user: {
+  email?: string | null;
+  user_metadata?: unknown;
+}) {
+  const metadataFirstName =
+    metadataString(user.user_metadata, "first_name") ||
+    metadataString(user.user_metadata, "firstName");
+  const metadataLastName =
+    metadataString(user.user_metadata, "last_name") ||
+    metadataString(user.user_metadata, "lastName");
+  const splitName = [metadataFirstName, metadataLastName]
+    .filter(Boolean)
+    .join(" ");
+
+  if (splitName) {
+    return splitName;
+  }
+
+  const metadataName =
+    metadataString(user.user_metadata, "name") ||
+    metadataString(user.user_metadata, "full_name") ||
+    metadataString(user.user_metadata, "fullName") ||
+    metadataString(user.user_metadata, "display_name") ||
+    metadataString(user.user_metadata, "displayName");
+
+  if (metadataName) {
+    return metadataName;
+  }
+
+  const emailLocalPart = user.email?.split("@")[0]?.trim() ?? "";
+
+  return emailLocalPart.replace(/[._-]+/g, " ");
+}
+
+export function displayUserFirstName(user: {
+  email?: string | null;
+  user_metadata?: unknown;
+}) {
+  const metadataFirstName =
+    metadataString(user.user_metadata, "first_name") ||
+    metadataString(user.user_metadata, "firstName");
+
+  if (metadataFirstName) {
+    return metadataFirstName;
+  }
+
+  return displayUserName(user).split(/\s+/)[0] ?? "";
+}
+
+export function displayUserLastName(user: {
+  email?: string | null;
+  user_metadata?: unknown;
+}) {
+  const metadataLastName =
+    metadataString(user.user_metadata, "last_name") ||
+    metadataString(user.user_metadata, "lastName");
+
+  if (metadataLastName) {
+    return metadataLastName;
+  }
+
+  return displayUserName(user).split(/\s+/).slice(1).join(" ");
+}
+
+export function workplaceContactsWithVoiceNumbers(
+  contacts: WorkplaceContactSettings[],
+  voiceSettings: VoiceSettings,
+) {
+  const knownNumbers = new Set(
+    contacts.flatMap((contact) =>
+      [contact.phoneNumber, contact.privatePhoneNumber].filter(Boolean),
+    ),
+  );
+  const voiceRows =
+    voiceSettings.phoneAgentUserNumberDetails.length > 0
+      ? voiceSettings.phoneAgentUserNumberDetails
+      : voiceSettings.phoneAgentUserNumbers.map((phoneNumber) => ({
+          name: null,
+          phoneNumber,
+          role: null,
+        }));
+  const additions = voiceRows
+    .filter((row) => row.phoneNumber && !knownNumbers.has(row.phoneNumber))
+    .map(
+      (row, index): WorkplaceContactSettings => ({
+        activeDays: "",
+        email: "",
+        id: `voice-contact-${index + 1}-${
+          row.phoneNumber.replace(/\W/g, "").slice(-8) || "number"
+        }`,
+        name: row.name ?? "",
+        notes:
+          "Imported from existing voice assistant internal-number settings.",
+        phoneNumber: row.phoneNumber,
+        preferredChannel: "sms",
+        privatePhoneNumber: "",
+        primaryEscalationContact: false,
+        receivesEscalations: true,
+        role: row.role ?? "",
+        tradeSpecialty: "",
+        vehicleRegistration: "",
+        workingHours: "",
+      }),
+    );
+
+  return [...contacts, ...additions];
+}
+
+export type IntegrationOverview = {
+  configured: boolean;
+  connections: Array<{ lastError: string | null; status: string }>;
+  encryptionReady: boolean;
+  error: string | null;
+  migrationReady: boolean;
+};
+
+export function integrationStatusLabel({
+  configured,
+  connections,
+  encryptionReady,
+  error,
+  migrationReady,
+}: IntegrationOverview) {
+  if (!migrationReady) {
+    return "Migration pending";
+  }
+
+  if (!configured) {
+    return "Keys needed";
+  }
+
+  if (!encryptionReady) {
+    return "Encryption key needed";
+  }
+
+  if (error) {
+    return "Needs attention";
+  }
+
+  if (connections.some((connection) => connection.lastError)) {
+    return "Needs attention";
+  }
+
+  if (connections.some((connection) => connection.status === "connected")) {
+    return "Connected";
+  }
+
+  return "Ready to connect";
 }
