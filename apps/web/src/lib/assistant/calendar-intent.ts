@@ -1,0 +1,1273 @@
+import { textValue } from "@kyro/core";
+import type { CalendarEventItem, CalendarEventStatus } from "../calendar/events";
+import type { ContactListItem } from "../crm/queries";
+import {
+  addDaysToDateKey,
+  addMonthsToDateKey,
+  dateKeyInTimeZone,
+  isoRangeForDateKeyRange,
+  startOfMonthDateKey,
+  startOfWeekDateKey,
+} from "../timezone";
+import { normalized } from "./prompt-text";
+import type { AssistantCalendarOperation } from "./tool-planner";
+import type { AssistantRecentMessage } from "./types";
+import { rowLink } from "./ui-blocks";
+
+/**
+ * Reading calendar intent out of what the user typed.
+ *
+ * Lifted verbatim out of commands.ts, which was 8,749 lines. This is the part
+ * that decides what the user meant -- create or cancel, which day, what time,
+ * which event they are referring to -- and is pure text and date handling with
+ * no database access. The commands that act on that intent stayed behind.
+ *
+ * It is the most heavily tested block in the file, which is why it moved first:
+ * the existing suite proves the move changed nothing.
+ */
+const CALENDAR_WEEKDAYS = new Map([
+  ["sun", 0],
+  ["sunday", 0],
+  ["mon", 1],
+  ["monday", 1],
+  ["tue", 2],
+  ["tues", 2],
+  ["tuesday", 2],
+  ["wed", 3],
+  ["wednesday", 3],
+  ["thu", 4],
+  ["thur", 4],
+  ["thurs", 4],
+  ["thursday", 4],
+  ["fri", 5],
+  ["friday", 5],
+  ["sat", 6],
+  ["saturday", 6],
+]);
+
+const CALENDAR_MONTHS = new Map([
+  ["jan", 1],
+  ["january", 1],
+  ["feb", 2],
+  ["february", 2],
+  ["mar", 3],
+  ["march", 3],
+  ["apr", 4],
+  ["april", 4],
+  ["may", 5],
+  ["jun", 6],
+  ["june", 6],
+  ["jul", 7],
+  ["july", 7],
+  ["aug", 8],
+  ["august", 8],
+  ["sep", 9],
+  ["sept", 9],
+  ["september", 9],
+  ["oct", 10],
+  ["october", 10],
+  ["nov", 11],
+  ["november", 11],
+  ["dec", 12],
+  ["december", 12],
+]);
+
+export const CALENDAR_LOOKUP_PAST_DAYS = 180;
+export const CALENDAR_LOOKUP_FUTURE_DAYS = 365;
+const CALENDAR_IMPLICIT_CONTEXT_WINDOW_MS = 30 * 60 * 1000;
+
+type CalendarLocalDateParts = {
+  day: number;
+  hour: number;
+  minute: number;
+  month: number;
+  second: number;
+  weekday: number;
+  year: number;
+};
+
+export type ParsedCalendarSchedule = {
+  assumedMeridiem: "am" | "pm" | null;
+  dateLabel: string;
+  durationMinutes: number;
+  durationSource: "default" | "prompt";
+  endsAt: string;
+  startsAt: string;
+  timeZone: string;
+};
+
+type ParsedCalendarDayRange = {
+  dateLabel: string;
+  from: string;
+  timeZone: string;
+  to: string;
+};
+
+export type CalendarTargetResolution =
+  | { event: CalendarEventItem; kind: "selected" }
+  | { candidates: CalendarEventItem[]; kind: "ambiguous" }
+  | { kind: "none" };
+
+export function looksLikeCalendarRequest(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(calendar|appointment|appointments|site visit|quote visit|job visit|booking|booked)\b/.test(
+      text,
+    ) ||
+    (/\b(book|schedule|scheduled|add|create|move|reschedule|cancel|delete|remove|reserve|hold)\b/.test(
+      text,
+    ) &&
+      /\b(visit|quote|job|appointment|event|calendar|meeting|call back|callback)\b/.test(
+        text,
+      )) ||
+    /\b(block\s+(?:out|off)|reserve|hold|protect)\b.*\b(?:time|hours?|morning|afternoon|day|calendar)\b/.test(
+      text,
+    )
+  );
+}
+
+function wantsCalendarCreate(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    (/\b(add|create|book|schedule|put|reserve|hold)\b/.test(text) ||
+      /\b(block\s+(?:out|off)|protect)\b.*\b(?:time|hours?|morning|afternoon|day|calendar)\b/.test(
+        text,
+      ) ||
+      /\bmake\b.*\b(appointment|event|booking|meeting|visit)\b/.test(text))
+  );
+}
+
+function wantsCalendarFinalize(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    (/\b(finali[sz]e|save|confirm|approve)\b/.test(text) ||
+      /\block\s+it\s+in\b/.test(text) ||
+      /\b(create|make|turn)\s+(this|that|it)\b/.test(text) ||
+      /\bcreate\s+this\s+event\b/.test(text))
+  );
+}
+
+function wantsCalendarDelete(prompt: string) {
+  return /\b(cancel|delete|remove|clear)\b/.test(normalized(prompt));
+}
+
+function wantsCalendarUpdate(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    !wantsCalendarDelete(prompt) &&
+    !wantsCalendarFinalize(prompt) &&
+    /\b(edit|update|move|reschedule|change|rename|retitle|complete|completed|done|mark)\b/.test(
+      text,
+    )
+  );
+}
+
+export function calendarOperationFromPrompts(
+  plannedPrompt: string,
+  userPrompt: string | null | undefined,
+  recentMessages: AssistantRecentMessage[] = [],
+  operationHint: AssistantCalendarOperation | null | undefined = null,
+) {
+  if (operationHint) {
+    return operationHint;
+  }
+
+  const operationPrompt = userPrompt?.trim() || plannedPrompt;
+
+  if (wantsCalendarDraftFinalize(operationPrompt, recentMessages)) {
+    return "finalize" as const;
+  }
+
+  if (wantsCalendarCreate(operationPrompt)) {
+    return "create" as const;
+  }
+
+  if (wantsCalendarDelete(operationPrompt)) {
+    return "delete" as const;
+  }
+
+  if (wantsCalendarUpdate(operationPrompt)) {
+    return "update" as const;
+  }
+
+  return "read" as const;
+}
+
+export function inferCalendarEventType(prompt: string) {
+  const text = normalized(prompt);
+
+  if (/\b(follow up|follow-up|callback|call back)\b/.test(text)) {
+    return "follow_up" as const;
+  }
+
+  if (/\b(job|work)\b/.test(text)) {
+    return "job" as const;
+  }
+
+  if (/\b(site|inspect|inspection)\b/.test(text)) {
+    return "site_visit" as const;
+  }
+
+  if (/\b(quote|estimate|pricing|price|bid)\b/.test(text)) {
+    return "quote_visit" as const;
+  }
+
+  if (/\b(other|personal|admin|misc|miscellaneous|reminder)\b/.test(text)) {
+    return "other" as const;
+  }
+
+  return null;
+}
+
+const CALENDAR_TITLE_WEEKDAY =
+  "(?:mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)";
+const CALENDAR_TITLE_MONTH =
+  "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+
+function stripCalendarTitleTiming(value: string) {
+  return value
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*(?:this|next)?\\s*${CALENDAR_TITLE_WEEKDAY}\\b.*$`,
+        "i",
+      ),
+      "",
+    )
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*${CALENDAR_TITLE_MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b.*$`,
+        "i",
+      ),
+      "",
+    )
+    .replace(
+      new RegExp(
+        `\\s+\\b(?:on|for)?\\s*(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+${CALENDAR_TITLE_MONTH}\\.?(?:,?\\s+\\d{4})?\\b.*$`,
+        "i",
+      ),
+      "",
+    )
+    .replace(/\s+\b(?:on|for)\s+\d{4}-\d{1,2}-\d{1,2}\b.*$/i, "")
+    .replace(/\s+\b(?:today|tomorrow)\b.*$/i, "")
+    .replace(
+      /\s+\bat\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?\b.*$/i,
+      "",
+    )
+    .trim();
+}
+
+function isGenericCalendarTitle(value: string) {
+  const text = normalized(value);
+
+  return (
+    !/[a-z]/i.test(value) ||
+    new RegExp(`^(?:(?:this|next)\\s+)?${CALENDAR_TITLE_WEEKDAY}$`, "i").test(
+      value.trim(),
+    ) ||
+    /^(calendar )?(event|appointment|booking|entry|calendar entry|reminder)( in (the|my) calendar)?$/.test(
+      text,
+    ) ||
+    /^(?:in|on) (?:the|my) calendar$/.test(text)
+  );
+}
+
+function sentenceCaseCalendarTitle(value: string) {
+  const title = value.replace(/\s+/g, " ").trim();
+
+  if (!title) {
+    return title;
+  }
+
+  return `${title.charAt(0).toUpperCase()}${title.slice(1)}`;
+}
+
+function compactCalendarTitle(value: string) {
+  const title = value.replace(/\s+/g, " ").trim();
+  const meetingMatch = title.match(/^meeting\s+(?:with|for|at)\s+(.+)$/i);
+
+  if (meetingMatch?.[1]?.trim()) {
+    return `Meeting - ${meetingMatch[1].trim().replace(/^(?:the|an|a)\s+/i, "")}`;
+  }
+
+  return title;
+}
+
+function fallbackCalendarTitle(
+  prompt: string,
+  contact: ContactListItem | null,
+) {
+  const contactName =
+    contact?.name ?? contact?.company ?? contact?.email ?? contact?.phone;
+
+  if (!contactName) {
+    return "Kyro appointment";
+  }
+
+  const text = normalized(prompt);
+
+  if (/\b(quote|estimate|pricing|price|bid)\b/.test(text)) {
+    return `Quote visit with ${contactName}`;
+  }
+
+  if (/\b(site|inspect|inspection)\b/.test(text)) {
+    return `Site visit with ${contactName}`;
+  }
+
+  if (/\b(meet|meeting)\b/.test(text)) {
+    return `Meeting with ${contactName}`;
+  }
+
+  if (/\b(follow up|follow-up|callback|call back)\b/.test(text)) {
+    return `Follow-up with ${contactName}`;
+  }
+
+  return `Appointment with ${contactName}`;
+}
+
+function explicitCalendarTitle(prompt: string) {
+  const quoted = prompt.match(
+    /\b(?:titled|named|called)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”)/i,
+  );
+  const unquoted = quoted
+    ? null
+    : prompt.match(/\b(?:titled|named|called)\s+(.+)$/i);
+  const described =
+    quoted || unquoted
+      ? null
+      : prompt.match(/\b(?:it is|it's|this is)\s+(?:the\s+|an?\s+)?(.+)$/i);
+  const raw =
+    quoted?.slice(1).find((value) => Boolean(value?.trim())) ??
+    unquoted?.[1] ??
+    described?.[1];
+
+  if (!raw) {
+    return null;
+  }
+
+  const candidate = stripCalendarTitleTiming(raw)
+    .replace(/^["'“”]+|["'“”.,;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (candidate.length < 2 || isGenericCalendarTitle(candidate)) {
+    return null;
+  }
+
+  return sentenceCaseCalendarTitle(compactCalendarTitle(candidate)).slice(
+    0,
+    90,
+  );
+}
+
+export function cleanCalendarTitle(
+  prompt: string,
+  contact: ContactListItem | null,
+) {
+  const explicitTitle = explicitCalendarTitle(prompt);
+
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
+  let candidate = prompt.replace(/\s+/g, " ").trim();
+
+  candidate = candidate
+    .replace(/^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?/i, "")
+    .replace(
+      /^\s*(?:add|create|book|schedule|put|make|set\s+up|setup)\s+(?:the|an|a)?\s*/i,
+      "",
+    )
+    .trim();
+
+  for (let index = 0; index < 4; index += 1) {
+    const next = candidate
+      .replace(
+        /^\s*(?:(?:calendar\s+)?event|appointment|booking|calendar entry)(?:\s+(?:for|called|named|titled|about|with|at))?\s+(?:the|an|a)?\s*/i,
+        "",
+      )
+      .replace(/^\s*(?:for|called|named|titled|about)\s+(?:the|an|a)?\s*/i, "")
+      .trim();
+
+    if (next === candidate) {
+      break;
+    }
+
+    candidate = next;
+  }
+
+  candidate = stripCalendarTitleTiming(candidate)
+    .replace(/^\s*(?:the|an|a)\s+/i, "")
+    .replace(/\s*[-,;:]\s*$/g, "")
+    .trim();
+
+  if (candidate.length >= 4 && !isGenericCalendarTitle(candidate)) {
+    return sentenceCaseCalendarTitle(compactCalendarTitle(candidate)).slice(
+      0,
+      90,
+    );
+  }
+
+  return fallbackCalendarTitle(prompt, contact);
+}
+
+export function safeTimeZone(value: string | null | undefined) {
+  const timeZone = value?.trim() || "UTC";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
+export function zonedDateParts(date: Date, timeZone: string): CalendarLocalDateParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    weekday: "short",
+    year: "numeric",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  const weekday = CALENDAR_WEEKDAYS.get(
+    String(values.weekday ?? "").toLowerCase(),
+  );
+
+  return {
+    day: Number(values.day),
+    hour: Number(values.hour) % 24,
+    minute: Number(values.minute),
+    month: Number(values.month),
+    second: Number(values.second),
+    weekday: weekday ?? date.getUTCDay(),
+    year: Number(values.year),
+  };
+}
+
+function addDaysToLocalDate(
+  date: Pick<CalendarLocalDateParts, "day" | "month" | "year">,
+  days: number,
+) {
+  const utc = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
+
+  return {
+    day: utc.getUTCDate(),
+    month: utc.getUTCMonth() + 1,
+    year: utc.getUTCFullYear(),
+  };
+}
+
+function localDateOrdinal(
+  date: Pick<CalendarLocalDateParts, "day" | "month" | "year">,
+) {
+  return Date.UTC(date.year, date.month - 1, date.day);
+}
+
+function timeZoneOffsetMs(timeZone: string, date: Date) {
+  const parts = zonedDateParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedWallTimeToUtc({
+  day,
+  hour,
+  minute,
+  month,
+  timeZone,
+  year,
+}: {
+  day: number;
+  hour: number;
+  minute: number;
+  month: number;
+  timeZone: string;
+  year: number;
+}) {
+  const wallUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  let guess = wallUtc;
+
+  for (let index = 0; index < 3; index += 1) {
+    const offset = timeZoneOffsetMs(timeZone, new Date(guess));
+    const next = wallUtc - offset;
+
+    if (Math.abs(next - guess) < 1000) {
+      guess = next;
+      break;
+    }
+
+    guess = next;
+  }
+
+  return new Date(guess);
+}
+
+function nextWeekdayDateParts(
+  targetDay: number,
+  now: CalendarLocalDateParts,
+  forceNextWeek: boolean,
+) {
+  const offset = (targetDay + 7 - now.weekday) % 7 || (forceNextWeek ? 7 : 0);
+  const adjustedOffset = offset === 0 ? 0 : offset;
+
+  return addDaysToLocalDate(now, adjustedOffset);
+}
+
+function calendarDateFromPrompt(
+  prompt: string,
+  timeZone: string,
+  nowDate = new Date(),
+) {
+  const raw = prompt.toLowerCase();
+  const text = normalized(prompt);
+  const now = zonedDateParts(nowDate, timeZone);
+  const isoDate = raw.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+
+  if (isoDate) {
+    return {
+      day: Number(isoDate[3]),
+      label: `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`,
+      month: Number(isoDate[2]),
+      year: Number(isoDate[1]),
+    };
+  }
+
+  if (/\btomorrow\b/.test(text)) {
+    return {
+      ...addDaysToLocalDate(now, 1),
+      label: "tomorrow",
+    };
+  }
+
+  if (/\btoday\b/.test(text)) {
+    return {
+      day: now.day,
+      label: "today",
+      month: now.month,
+      year: now.year,
+    };
+  }
+
+  const monthNameDate = raw.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i,
+  );
+
+  if (monthNameDate) {
+    const month = CALENDAR_MONTHS.get(monthNameDate[1].toLowerCase());
+    const day = Number(monthNameDate[2]);
+    let year = monthNameDate[3] ? Number(monthNameDate[3]) : now.year;
+
+    if (
+      !monthNameDate[3] &&
+      localDateOrdinal({ day, month: month ?? now.month, year }) <
+        localDateOrdinal(now)
+    ) {
+      year += 1;
+    }
+
+    if (month) {
+      return {
+        day,
+        label: `${monthNameDate[1]} ${day}`,
+        month,
+        year,
+      };
+    }
+  }
+
+  const dayMonthDate = raw.match(
+    /\b(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:,?\s+(\d{4}))?\b/i,
+  );
+
+  if (dayMonthDate) {
+    const month = CALENDAR_MONTHS.get(dayMonthDate[2].toLowerCase());
+    const day = Number(dayMonthDate[1]);
+    let year = dayMonthDate[3] ? Number(dayMonthDate[3]) : now.year;
+
+    if (
+      !dayMonthDate[3] &&
+      localDateOrdinal({ day, month: month ?? now.month, year }) <
+        localDateOrdinal(now)
+    ) {
+      year += 1;
+    }
+
+    if (month) {
+      return {
+        day,
+        label: `${day} ${dayMonthDate[2]}`,
+        month,
+        year,
+      };
+    }
+  }
+
+  const weekday = raw.match(
+    /\b(?:(this|next)\s+)?(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/i,
+  );
+
+  if (weekday) {
+    const weekdayKey = weekday[2].toLowerCase();
+    const targetDay = CALENDAR_WEEKDAYS.get(weekdayKey);
+
+    if (targetDay !== undefined) {
+      return {
+        ...nextWeekdayDateParts(targetDay, now, weekday[1] === "next"),
+        label: `${weekday[1] ? `${weekday[1]} ` : ""}${weekday[2]}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function calendarDateRangeFromPrompt(
+  prompt: string,
+  {
+    now = new Date(),
+    timeZone = "UTC",
+  }: {
+    now?: Date;
+    timeZone?: string;
+  } = {},
+): ParsedCalendarDayRange | null {
+  const safeZone = safeTimeZone(timeZone);
+  const date = calendarDateFromPrompt(prompt, safeZone, now);
+  const todayDateKey = dateKeyInTimeZone(now, safeZone);
+
+  function rangeFromDateKeys(fromDateKey: string, toDateKey: string) {
+    const range = isoRangeForDateKeyRange(
+      { from: fromDateKey, to: toDateKey },
+      safeZone,
+    );
+    const labelFormat = new Intl.DateTimeFormat("en-US", {
+      day: "numeric",
+      month: "long",
+      timeZone: safeZone,
+      weekday: "long",
+      year: "numeric",
+    });
+    const fromLabel = labelFormat.format(new Date(range.from));
+    const lastDateKey = addDaysToDateKey(toDateKey, -1);
+    const lastDateRange = isoRangeForDateKeyRange(
+      { from: lastDateKey, to: toDateKey },
+      safeZone,
+    );
+    const dateLabel =
+      fromDateKey === lastDateKey
+        ? fromLabel
+        : `${fromLabel} through ${labelFormat.format(
+            new Date(lastDateRange.from),
+          )}`;
+
+    return {
+      dateLabel,
+      from: range.from,
+      timeZone: safeZone,
+      to: range.to,
+    };
+  }
+
+  if (date) {
+    const dateKey = `${date.year}-${String(date.month).padStart(
+      2,
+      "0",
+    )}-${String(date.day).padStart(2, "0")}`;
+
+    return rangeFromDateKeys(dateKey, addDaysToDateKey(dateKey, 1));
+  }
+
+  const text = normalized(prompt);
+  const thisWeekStart = startOfWeekDateKey(todayDateKey);
+  const nextWeekStart = addDaysToDateKey(thisWeekStart, 7);
+  const thisMonthStart = startOfMonthDateKey(todayDateKey);
+  const nextMonthStart = addMonthsToDateKey(todayDateKey, 1);
+
+  if (
+    /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+week\b/.test(
+      text,
+    ) ||
+    /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+week\b/.test(
+      text,
+    )
+  ) {
+    return rangeFromDateKeys(todayDateKey, nextWeekStart);
+  }
+
+  if (/\bnext\s+week\b/.test(text)) {
+    return rangeFromDateKeys(
+      nextWeekStart,
+      addDaysToDateKey(nextWeekStart, 7),
+    );
+  }
+
+  if (/\bthis\s+week\b/.test(text)) {
+    return rangeFromDateKeys(thisWeekStart, nextWeekStart);
+  }
+
+  if (
+    /\b(?:coming\s+week|week\s+ahead|next\s+seven\s+days)\b/.test(text)
+  ) {
+    return rangeFromDateKeys(todayDateKey, addDaysToDateKey(todayDateKey, 7));
+  }
+
+  const rollingRange = text.match(
+    /\bnext\s+(\d{1,2})\s+(day|days|week|weeks)\b/,
+  );
+
+  if (rollingRange) {
+    const amount = Math.max(1, Number(rollingRange[1]));
+    const days = rollingRange[2].startsWith("week")
+      ? Math.min(amount, 13) * 7
+      : Math.min(amount, 92);
+
+    return rangeFromDateKeys(
+      todayDateKey,
+      addDaysToDateKey(todayDateKey, days),
+    );
+  }
+
+  if (
+    /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+month\b/.test(
+      text,
+    ) ||
+    /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+month\b/.test(
+      text,
+    )
+  ) {
+    return rangeFromDateKeys(todayDateKey, nextMonthStart);
+  }
+
+  if (/\bnext\s+month\b/.test(text)) {
+    return rangeFromDateKeys(
+      nextMonthStart,
+      addMonthsToDateKey(nextMonthStart, 1),
+    );
+  }
+
+  if (/\bthis\s+month\b/.test(text)) {
+    return rangeFromDateKeys(thisMonthStart, nextMonthStart);
+  }
+
+  const namedMonth = prompt.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?\b/i,
+  );
+
+  if (namedMonth) {
+    const month = CALENDAR_MONTHS.get(namedMonth[1].toLowerCase());
+
+    if (month) {
+      const currentYear = Number(todayDateKey.slice(0, 4));
+      const currentMonth = Number(todayDateKey.slice(5, 7));
+      const year = namedMonth[2]
+        ? Number(namedMonth[2])
+        : month < currentMonth
+          ? currentYear + 1
+          : currentYear;
+      const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+
+      return rangeFromDateKeys(
+        monthStart,
+        addMonthsToDateKey(monthStart, 1),
+      );
+    }
+  }
+
+  return null;
+}
+
+export function calendarDateRangeFromPrompts(
+  prompt: string,
+  fallbackPrompt: string | null | undefined,
+  timeZone: string,
+  now = new Date(),
+) {
+  const fallback = fallbackPrompt?.trim();
+  const original = fallback
+    ? calendarDateRangeFromPrompt(fallback, { now, timeZone })
+    : null;
+
+  if (original) {
+    return original;
+  }
+
+  if (fallback === prompt.trim()) {
+    return null;
+  }
+
+  return calendarDateRangeFromPrompt(prompt, { now, timeZone });
+}
+
+function calendarTimeFromPrompt(prompt: string) {
+  const raw = prompt.toLowerCase();
+
+  if (/\b(noon|midday)\b/.test(raw)) {
+    return { assumedMeridiem: null, hour: 12, minute: 0 };
+  }
+
+  if (/\bmidnight\b/.test(raw)) {
+    return { assumedMeridiem: null, hour: 0, minute: 0 };
+  }
+
+  const meridiemTime = raw.match(
+    /\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)\b/,
+  );
+
+  if (meridiemTime) {
+    let hour = Number(meridiemTime[1]);
+    const minute = meridiemTime[2] ? Number(meridiemTime[2]) : 0;
+    const meridiem = meridiemTime[3].replace(/\./g, "").startsWith("p")
+      ? "pm"
+      : "am";
+
+    if (meridiem === "pm" && hour < 12) {
+      hour += 12;
+    }
+
+    if (meridiem === "am" && hour === 12) {
+      hour = 0;
+    }
+
+    return { assumedMeridiem: null, hour, minute };
+  }
+
+  const twentyFourHour = raw.match(/\b(?:at\s*)?([01]?\d|2[0-3]):(\d{2})\b/);
+
+  if (twentyFourHour) {
+    return {
+      assumedMeridiem: null,
+      hour: Number(twentyFourHour[1]),
+      minute: Number(twentyFourHour[2]),
+    };
+  }
+
+  const bareHour = raw.match(/\bat\s+(\d{1,2})\b/);
+
+  if (bareHour) {
+    const hour = Number(bareHour[1]);
+
+    if (hour >= 1 && hour <= 5) {
+      return { assumedMeridiem: "pm" as const, hour: hour + 12, minute: 0 };
+    }
+
+    if (hour >= 6 && hour <= 23) {
+      return { assumedMeridiem: "am" as const, hour, minute: 0 };
+    }
+  }
+
+  return null;
+}
+
+function calendarDurationMinutesFromPrompt(prompt: string) {
+  const raw = prompt.toLowerCase();
+
+  if (/\b(?:for\s+)?(?:an?|one)\s+hour\s+and\s+(?:a\s+)?half\b/.test(raw)) {
+    return 90;
+  }
+
+  if (/\b(?:for\s+)?half\s+(?:an?\s+)?hour\b/.test(raw)) {
+    return 30;
+  }
+
+  const numericDuration = raw.match(
+    /\b(?:for\s+)?(\d+(?:\.\d+)?)\s*(?:-\s*)?(hours?|hrs?|minutes?|mins?)\b/,
+  );
+
+  if (numericDuration) {
+    const amount = Number(numericDuration[1]);
+    const unit = numericDuration[2];
+
+    if (Number.isFinite(amount) && amount > 0) {
+      return Math.round(amount * (unit.startsWith("h") ? 60 : 1));
+    }
+  }
+
+  const wordDuration = raw.match(
+    /\b(?:for\s+)?(one|two|three|four|five|six|seven|eight)\s+(hours?|minutes?)\b/,
+  );
+
+  if (!wordDuration) {
+    return null;
+  }
+
+  const amount =
+    ["one", "two", "three", "four", "five", "six", "seven", "eight"].indexOf(
+      wordDuration[1],
+    ) + 1;
+
+  return amount * (wordDuration[2].startsWith("hour") ? 60 : 1);
+}
+
+export function calendarDurationLabel(durationMinutes: number) {
+  if (durationMinutes % 60 === 0) {
+    const hours = durationMinutes / 60;
+
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+
+  return `${durationMinutes} minutes`;
+}
+
+export function parseAssistantCalendarTime(
+  prompt: string,
+  {
+    defaultDurationMinutes = 60,
+    now = new Date(),
+    timeZone = "UTC",
+  }: {
+    defaultDurationMinutes?: number;
+    now?: Date;
+    timeZone?: string;
+  } = {},
+): ParsedCalendarSchedule | null {
+  const safeZone = safeTimeZone(timeZone);
+  const date = calendarDateFromPrompt(prompt, safeZone, now);
+  const time = calendarTimeFromPrompt(prompt);
+
+  if (!date || !time) {
+    return null;
+  }
+
+  const startsAt = zonedWallTimeToUtc({
+    day: date.day,
+    hour: time.hour,
+    minute: time.minute,
+    month: date.month,
+    timeZone: safeZone,
+    year: date.year,
+  });
+
+  if (Number.isNaN(startsAt.getTime())) {
+    return null;
+  }
+
+  const requestedDuration = calendarDurationMinutesFromPrompt(prompt);
+  const durationMinutes = Math.max(
+    5,
+    Math.min(720, requestedDuration ?? defaultDurationMinutes),
+  );
+  const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
+
+  return {
+    assumedMeridiem: time.assumedMeridiem,
+    dateLabel: date.label,
+    durationMinutes,
+    durationSource: requestedDuration === null ? "default" : "prompt",
+    endsAt: endsAt.toISOString(),
+    startsAt: startsAt.toISOString(),
+    timeZone: safeZone,
+  };
+}
+
+export function parseAssistantCalendarTimeFromPrompts(
+  prompt: string,
+  fallbackPrompt: string | null | undefined,
+  options: {
+    defaultDurationMinutes?: number;
+    now?: Date;
+    timeZone?: string;
+  } = {},
+) {
+  const primary = parseAssistantCalendarTime(prompt, options);
+
+  if (primary) {
+    return primary;
+  }
+
+  const fallback = fallbackPrompt?.trim();
+
+  if (!fallback || fallback === prompt.trim()) {
+    return null;
+  }
+
+  return parseAssistantCalendarTime(fallback, options);
+}
+
+export function calendarEventHrefFromParts(eventId: string, startsAt: string | null) {
+  const params = new URLSearchParams({
+    event: eventId,
+    view: "week",
+  });
+
+  if (startsAt) {
+    params.set("date", startsAt.slice(0, 10));
+  }
+
+  return `/calendar?${params.toString()}`;
+}
+
+export function calendarEventHref(event: CalendarEventItem) {
+  return calendarEventHrefFromParts(event.id, event.startsAt);
+}
+
+export function resolveCalendarContact(prompt: string, contacts: ContactListItem[]) {
+  const haystack = normalized(prompt);
+
+  return (
+    contacts.find((contact) =>
+      [contact.name, contact.company, contact.email, contact.phone].some(
+        (value) => {
+          const needle = normalized(value ?? "");
+
+          return needle.length >= 3 && haystack.includes(needle);
+        },
+      ),
+    ) ?? null
+  );
+}
+
+function assistantLinksFromMessage(message: AssistantRecentMessage) {
+  return [
+    ...(message.links ?? []).slice().reverse(),
+    ...(message.uiBlocks ?? []).flatMap((block) => {
+      if (block.type === "link_cards") {
+        return block.links.slice().reverse();
+      }
+
+      if (block.type === "summary_cards") {
+        return block.cards
+          .filter((card) => card.href)
+          .map((card) =>
+            rowLink(card.label, card.href as string, card.detail ?? card.value),
+          );
+      }
+
+      if (block.type === "timeline") {
+        return block.items
+          .filter((item) => item.href)
+          .map((item) => rowLink(item.label, item.href as string, item.detail));
+      }
+
+      return [];
+    }),
+  ];
+}
+
+function recentAssistantLinks(recentMessages: AssistantRecentMessage[]) {
+  return [...recentMessages]
+    .reverse()
+    .flatMap((message) => assistantLinksFromMessage(message));
+}
+
+function messageCreatedAtMs(message: AssistantRecentMessage) {
+  const createdAt = textValue(message.createdAt);
+
+  if (!createdAt) {
+    return null;
+  }
+
+  const timestamp = Date.parse(createdAt);
+
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function latestRecentMessageTimeMs(
+  recentMessages: readonly AssistantRecentMessage[],
+) {
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const timestamp = messageCreatedAtMs(recentMessages[index]);
+
+    if (timestamp !== null) {
+      return timestamp;
+    }
+  }
+
+  return null;
+}
+
+function isFreshImplicitCalendarContext(
+  message: AssistantRecentMessage,
+  referenceTimeMs: number,
+) {
+  const timestamp = messageCreatedAtMs(message);
+
+  if (timestamp === null) {
+    return false;
+  }
+
+  return (
+    timestamp <= referenceTimeMs + 60_000 &&
+    referenceTimeMs - timestamp <= CALENDAR_IMPLICIT_CONTEXT_WINDOW_MS
+  );
+}
+
+export function calendarConversationReferenceFromRecentMessages(
+  recentMessages: readonly AssistantRecentMessage[],
+  {
+    nowMs = Date.now(),
+    requireFresh = true,
+  }: {
+    nowMs?: number;
+    requireFresh?: boolean;
+  } = {},
+) {
+  const referenceTimeMs = latestRecentMessageTimeMs(recentMessages) ?? nowMs;
+
+  for (let index = recentMessages.length - 1; index >= 0; index -= 1) {
+    const message = recentMessages[index];
+
+    if (
+      requireFresh &&
+      !isFreshImplicitCalendarContext(message, referenceTimeMs)
+    ) {
+      continue;
+    }
+
+    for (const link of assistantLinksFromMessage(message)) {
+      const conversationId = calendarConversationIdFromHref(link.href);
+
+      if (conversationId) {
+        return {
+          conversationId,
+          createdAt: textValue(message.createdAt),
+          label: link.label,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+export function calendarEventIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "http://kyro.local");
+    const eventId = textValue(url.searchParams.get("event"));
+
+    return url.pathname === "/calendar" ? eventId : null;
+  } catch {
+    return null;
+  }
+}
+
+function calendarConversationIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "http://kyro.local");
+
+    if (url.pathname === "/inbox") {
+      return textValue(url.searchParams.get("conversationId"));
+    }
+
+    const match = url.pathname.match(/^\/inbox\/([^/]+)$/);
+
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function latestCalendarLink(recentMessages: AssistantRecentMessage[]) {
+  return recentAssistantLinks(recentMessages).find((link) =>
+    link.href.startsWith("/calendar"),
+  );
+}
+
+export function looksLikeCalendarFollowUpRequest(
+  prompt: string,
+  recentMessages: AssistantRecentMessage[],
+) {
+  return (
+    Boolean(latestCalendarLink(recentMessages)) && wantsCalendarFinalize(prompt)
+  );
+}
+
+function wantsCalendarDraftFinalize(
+  prompt: string,
+  recentMessages: AssistantRecentMessage[],
+) {
+  return looksLikeCalendarFollowUpRequest(prompt, recentMessages);
+}
+
+export function calendarLinkIntentFromPrompt(prompt: string) {
+  const text = normalized(prompt);
+  const hasLinkVerb = /\b(link|associate|attach|connect|assign|relate)\b/.test(
+    text,
+  );
+  const hasCurrentEntity =
+    /\b(this|that|current|active|selected|open)\s+(contact|customer|client|lead|conversation|inquiry|enquiry|thread|profile|inbox|message|email)\b/.test(
+      text,
+    );
+  const namesContactEntity =
+    /\b(to|for|with)\s+(the\s+)?(contact|customer|client|lead|profile)\s+[a-z0-9]/.test(
+      text,
+    ) ||
+    /\b(contact|customer|client|lead|profile)\s+(called|named)\s+[a-z0-9]/.test(
+      text,
+    );
+  const linksNamedTarget =
+    hasLinkVerb &&
+    /\b(to|with|for)\s+(?!(the\s+)?(this|that|current|active|selected|open|contact|customer|client|lead|conversation|inquiry|enquiry|thread|profile|inbox|message|email)\b)(the\s+)?[a-z0-9]/.test(
+      text,
+    );
+  const linksConversationEntity =
+    hasLinkVerb &&
+    /\b(conversation|inquiry|enquiry|thread|inbox|message|email)\b/.test(text);
+
+  return {
+    allowNamedContact: namesContactEntity || linksNamedTarget,
+    allowRecentConversation: hasCurrentEntity || linksConversationEntity,
+  };
+}
+
+export function explicitCalendarEventId(prompt: string) {
+  return (
+    prompt.match(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i,
+    )?.[0] ?? null
+  );
+}
+
+export function statusFromCalendarPrompt(prompt: string): CalendarEventStatus | null {
+  const text = normalized(prompt);
+
+  if (/\b(done|completed|complete|finished)\b/.test(text)) {
+    return "completed";
+  }
+
+  if (/\b(cancelled|canceled|cancel)\b/.test(text)) {
+    return "cancelled";
+  }
+
+  if (/\b(scheduled|booked|confirmed)\b/.test(text)) {
+    return "scheduled";
+  }
+
+  return null;
+}
+
+export function titleFromCalendarRenamePrompt(prompt: string) {
+  const match = prompt.match(
+    /\b(?:rename|retitle|call|title)\s+(?:the\s+)?(?:event|appointment|booking|it)?\s*(?:to|as)?\s+["']?([^"'\n.]+)["']?/i,
+  );
+  const value = match?.[1]?.replace(/\s+/g, " ").trim();
+
+  if (!value || value.length < 3) {
+    return null;
+  }
+
+  return value.slice(0, 90);
+}
+

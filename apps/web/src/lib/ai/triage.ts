@@ -15,7 +15,7 @@ import {
   normalizeContactPhoneForRegion,
   type PhoneRegion,
 } from "../crm/identity";
-import { calendarDateRangeFromPrompts } from "../assistant/commands";
+import { calendarDateRangeFromPrompts } from "../assistant/calendar-intent";
 import { getVoiceSettings } from "../assistant/voice-settings";
 import {
   buildLlmUsageEvents,

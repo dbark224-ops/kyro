@@ -3,18 +3,22 @@ import { describe, it } from "node:test";
 import { quoteLineItem, type QuoteTemplate } from "../documents/templates";
 import { outboundCallInstructionsFromPrompt } from "../voice/outbound-call-requests";
 import {
-  assistantSmsBodyFromPrompt,
-  assistantDate,
+  calendarConversationReferenceFromRecentMessages,
   calendarDateRangeFromPrompt,
   calendarDateRangeFromPrompts,
-  calendarConversationReferenceFromRecentMessages,
   calendarLinkIntentFromPrompt,
   calendarOperationFromPrompts,
   cleanCalendarTitle,
+  looksLikeCalendarFollowUpRequest,
+  parseAssistantCalendarTime,
+  parseAssistantCalendarTimeFromPrompts,
+} from "./calendar-intent";
+import {
+  assistantSmsBodyFromPrompt,
+  assistantDate,
   documentTemplateControlIntent,
   inquiryLookupFallbackAnswerForAssistant,
   inquiryRecordForAssistant,
-  looksLikeCalendarFollowUpRequest,
   looksLikeContextualInquiryReplyRequest,
   looksLikeWebSearchRequest,
   looksLikeImageFollowUpRequest,
@@ -25,8 +29,6 @@ import {
   looksLikeQuoteSendReadyListRequest,
   looksLikeQuoteSendRequest,
   looksLikeDirectWorkplaceSmsRequest,
-  parseAssistantCalendarTime,
-  parseAssistantCalendarTimeFromPrompts,
   recentInquiryConversationForPrompt,
   resolveAssistantCommand,
   selfCallRecipientForAssistant,

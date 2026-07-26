@@ -186,3 +186,18 @@ export function linksFromBlocks(blocks: AssistantUiBlock[]) {
     return [];
   });
 }
+
+/**
+ * A single row in a link card block.
+ *
+ * Lived in commands.ts alongside 66 of its own call sites, which is why it is
+ * here now: it is a presentation primitive, not command logic, and every module
+ * split out of commands.ts needs it.
+ */
+export function rowLink(
+  label: string,
+  href: string,
+  meta?: string,
+): AssistantLink {
+  return { href, label, meta };
+}
