@@ -463,6 +463,74 @@ drifted badly out of date. A pass over it found three groups.
 
 Everything else below remains genuinely unchecked.
 
+### Second triage pass, 2026-07-26 (the long tail, verified against code and the live DB)
+
+The `formatDate`/timezone item above was closed by commit `f023437`. The scan written for it
+found **eleven more** formatters a name-based search could never have found, so the real
+count was never 12 of 19.
+
+The rest of the long tail was then checked one by one. Results below; every entry was
+confirmed by reading the code or querying production, not by re-reading the audit.
+
+**Confirmed real, now tracked as work items:**
+
+- `[VERIFIED]` **Usage metering errors are discarded.** Three sites insert into
+  `usage_events`. `lib/ai/triage.ts:2655` checks the error and throws;
+  `lib/ai/customer-message-generation.ts:352` and `lib/ai/reply-draft-generation.ts:614`
+  ignore it. Billable work can vanish from the ledger customers are charged from.
+  (Broader pattern: 81 write statements repo-wide bind no error — the audit said 58.)
+- `[VERIFIED]` **No global uniqueness on assigned phone numbers.** The unique index is
+  `(workspace_id, normalized_phone)`; the global one applies only `WHERE workspace_id IS
+  NULL` (the unassigned pool). Inbound routing does `.limit(1).maybeSingle()`, so a number
+  assigned twice would silently route a customer's reply to the wrong workspace.
+- `[VERIFIED]` **`try`/`catch` swallows Next.js redirects at three sites** —
+  `inbox/actions.ts:1589`, `contacts/actions.ts:535`, `engine/actions.ts:136`. `redirect()`
+  signals by throwing; these catch it on the success path and report failure *after the
+  work has committed*. No `isRedirectError` guard exists anywhere in the repo.
+- `[VERIFIED]` **The public signup address routes are unmetered and unthrottled.**
+  `api/auth/create-account/places/{autocomplete,place}` call the paid Google Places API
+  with no auth (correct, they are pre-signup), no rate limit, and none of the
+  `recordGoogleApiUsage` metering their authenticated twins have. Anyone can run up the
+  Google bill, and it would not show in the usage dashboard.
+- `[VERIFIED]` **Two of nine job types mark failed syncs as completed.**
+  `inbound_email_sync` ignores `result.errors[]`; `calendar_sync` ignores
+  `providers[].error`. `calendar_notifications` gets this right and is the model to copy.
+  An expired Gmail token stops inbound mail while the queue reports green.
+- `[VERIFIED]` **`usage_rollups` is dead and the raw sweep runs on every page.**
+  Live DB: `usage_rollups` = **0 rows**, zero reads in the codebase; `usage_events` = 1,159
+  rows and growing per AI call. `usage-summary.ts:201` pages through the raw events, and
+  `app-frame` calls it 2–3× per authenticated render, to draw the usage pills.
+- `[VERIFIED]` **Hydration mismatch in the floating assistant widget** —
+  `floating-assistant-widget.tsx:51` seeds `useState` from `localStorage`, which throws on
+  the server and returns the real value on the client. Mounted on every authenticated page.
+- `[VERIFIED]` **`libphonenumber-js` does reach the `/settings` client bundle**, via
+  `workplace-contacts-editor.tsx` → `lib/crm/identity`.
+- `[VERIFIED]` **`tool-registry.ts` is hand-maintained documentation**, 16 entries in its
+  own taxonomy against 17 real `kyro_*` tools, with nothing connecting the two — yet
+  `developer/assistant-tools` renders it as the authority on permissions and approval gates.
+- `[VERIFIED]` **No `Suspense` in any page body.** Exactly one file in the app uses it
+  (`app-frame.tsx`). Every screen waits for its slowest query before painting. Real, but a
+  broad refactor rather than a defect.
+- `[VERIFIED]` **`messages` has no composite index for the ordered thread read.** Live DB
+  shows only `messages_pkey` and the `(workspace_id, contact_id)` partial index added for
+  the contact-activity RPC. `conversations` *is* correctly indexed on
+  `(workspace_id, last_message_at DESC) WHERE deleted_at IS NULL`. Harmless at 69 rows;
+  worth doing before real volume.
+- `[VERIFIED]` **The provider abstraction is nominal** — 36 files touch OpenAI, 2 import
+  `providers`. `current-architecture.md:1122` claiming providers are swappable is wrong.
+
+**Checked and found FALSE or already resolved — do not resurrect:**
+
+- "The contact profile panel exists twice with bidirectional drift." **Resolved.** There is
+  now one `app/components/contact-profile-panel.tsx`; the mobile reconciliation closed it.
+- "The public waitlist endpoint is un-hardened." **FALSE.** `api/waitlist/route.ts:191`
+  rate-limits at 10 requests/hour via the shared `consumeApiRateLimit`.
+- "`@vapi-ai/web` (310KB) is statically imported with no code splitting." **Misleading.**
+  It is imported only by `vapi-voice-console.tsx`, so it is already scoped to
+  `/voice-vapi` and does not load elsewhere.
+- "`packages/core` is 100% dead." **FALSE** since the shared value helpers moved there —
+  144 files import it.
+
 ### Structure and size
 
 - `[UNVERIFIED]` `lib/assistant/commands.ts` (8,778 lines) — the dispatch table itself is
