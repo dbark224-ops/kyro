@@ -1,4 +1,5 @@
 import { AppFrame } from "../../components/app-frame";
+import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 import {
   getQuoteDraftProfile,
 } from "../../../lib/crm/queries";
@@ -36,6 +37,7 @@ import {
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { textValue } from "@kyro/core";
+import { formatWorkspaceDateTime } from "../../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -59,17 +61,8 @@ const QUOTE_STATUS_OPTIONS = [
   { value: "archived", label: "Archived" },
 ] as const;
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatLabel(value: string | null) {
@@ -129,6 +122,7 @@ export default async function QuoteDraftPage({
 }: QuoteDraftPageProps) {
   const [{ quoteDraftId }, query] = await Promise.all([params, searchParams]);
   const { supabase, workspace } = await requireWorkspaceContext();
+  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
   const [profile, documentTemplateSettings] = await Promise.all([
     getQuoteDraftProfile(supabase, workspace.id, quoteDraftId),
     getDocumentTemplateSettings(supabase, workspace.id),
@@ -316,10 +310,10 @@ export default async function QuoteDraftPage({
           <div className="summary-fields">
             <span>{jobAddress || "No address"}</span>
             <span>{preferredTime || "No preferred time"}</span>
-            <span>Updated {formatDate(quoteDraft.updatedAt)}</span>
+            <span>Updated {formatDate(quoteDraft.updatedAt, timeZone)}</span>
             {lastGeneratedDocument ? (
               <span>
-                PDF generated {formatDate(textValue(lastGeneratedDocument.generatedAt))}
+                PDF generated {formatDate(textValue(lastGeneratedDocument.generatedAt), timeZone)}
               </span>
             ) : null}
           </div>
@@ -353,7 +347,7 @@ export default async function QuoteDraftPage({
               </span>
               <span>
                 Latest: {documentEventLabel(latestDocumentEvent)}{" "}
-                {formatDate(latestDocumentEvent.occurredAt)}
+                {formatDate(latestDocumentEvent.occurredAt, timeZone)}
               </span>
               <span>
                 {documentFreshness.changed
@@ -380,7 +374,7 @@ export default async function QuoteDraftPage({
                     <strong>{documentEventLabel(event)}</strong>
                     <span>{documentEventMeta(event)}</span>
                   </div>
-                  <span>{formatDate(event.occurredAt)}</span>
+                  <span>{formatDate(event.occurredAt, timeZone)}</span>
                 </div>
               ))}
             </div>
@@ -404,7 +398,7 @@ export default async function QuoteDraftPage({
                     <span>
                       {formatLabel(document.lifecycleStatus)} -{" "}
                       {document.documentVersion ?? "v1"} -{" "}
-                      {formatDate(document.updatedAt)}
+                      {formatDate(document.updatedAt, timeZone)}
                     </span>
                   </div>
                   <div className="template-card-actions">
@@ -495,16 +489,16 @@ export default async function QuoteDraftPage({
                 <span>{approvalLink.customerEmail}</span>
               ) : null}
               {approvalLink?.viewedAt ? (
-                <span>Viewed {formatDate(approvalLink.viewedAt)}</span>
+                <span>Viewed {formatDate(approvalLink.viewedAt, timeZone)}</span>
               ) : (
                 <span>Not viewed yet</span>
               )}
               {approvalLink?.approvedAt ? (
-                <span>Approved {formatDate(approvalLink.approvedAt)}</span>
+                <span>Approved {formatDate(approvalLink.approvedAt, timeZone)}</span>
               ) : null}
               {approvalLink?.changesRequestedAt ? (
                 <span>
-                  Changes requested {formatDate(approvalLink.changesRequestedAt)}
+                  Changes requested {formatDate(approvalLink.changesRequestedAt, timeZone)}
                 </span>
               ) : null}
               {approvalLink?.lastChangeRequest ? (
@@ -575,9 +569,7 @@ export default async function QuoteDraftPage({
                   <div className="message-meta">
                     <strong>{formatLabel(message.direction)}</strong>
                     <span>
-                      {formatDate(
-                        message.receivedAt ?? message.sentAt ?? message.createdAt,
-                      )}
+                      {formatDate(message.receivedAt ?? message.sentAt ?? message.createdAt, timeZone)}
                     </span>
                   </div>
                   {message.subject ? <h3>{message.subject}</h3> : null}
@@ -605,7 +597,7 @@ export default async function QuoteDraftPage({
                   <div>
                     <strong>{log.action}</strong>
                     <span>
-                      {log.actorType} - {log.entityType} - {formatDate(log.createdAt)}
+                      {log.actorType} - {log.entityType} - {formatDate(log.createdAt, timeZone)}
                     </span>
                   </div>
                 </div>

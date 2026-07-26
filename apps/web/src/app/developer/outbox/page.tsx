@@ -1,4 +1,5 @@
 import { AppFrame } from "../../components/app-frame";
+import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import Link from "next/link";
 import {
@@ -6,6 +7,7 @@ import {
   retryOutboxDeliveryAction,
 } from "./actions";
 import { objectRecord, textValue } from "@kyro/core";
+import { formatWorkspaceDateTime } from "../../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -100,17 +102,8 @@ function numberValue(value: unknown) {
   return 0;
 }
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatLabel(value: string | null) {
@@ -393,9 +386,10 @@ function OutboxOperationActions({
 }
 
 function OutboxRowCard({
+  timeZone,
   row,
   returnPath,
-}: Readonly<{ row: OutboxRow; returnPath: string }>) {
+}: Readonly<{ row: OutboxRow; returnPath: string; timeZone: string }>) {
   const providerLabel =
     [row.provider, row.service].filter(Boolean).join(" / ") || "Internal";
 
@@ -419,7 +413,7 @@ function OutboxRowCard({
         <div className="outbox-meta-line">
           <span>To {row.recipient ?? "No recipient"}</span>
           <span>{formatLabel(row.source)}</span>
-          <span>Queued {formatDate(row.queued_at)}</span>
+          <span>Queued {formatDate(row.queued_at, timeZone)}</span>
         </div>
       </div>
 
@@ -432,11 +426,11 @@ function OutboxRowCard({
         </div>
         <div>
           <span>Next retry</span>
-          <strong>{formatDate(row.next_attempt_at)}</strong>
+          <strong>{formatDate(row.next_attempt_at, timeZone)}</strong>
         </div>
         <div>
           <span>Last update</span>
-          <strong>{formatDate(row.updated_at)}</strong>
+          <strong>{formatDate(row.updated_at, timeZone)}</strong>
         </div>
         <OutboxOperationActions row={row} returnPath={returnPath} />
       </aside>
@@ -514,6 +508,7 @@ export default async function OutboxOperationsPage({
   const searchQuery = query?.q?.trim() ?? "";
   const source = query?.source?.trim() || "all";
   const { supabase, workspace } = await requireWorkspaceContext();
+  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
   let rowsQuery = supabase
     .from("outbound_messages")
     .select(
@@ -698,7 +693,7 @@ export default async function OutboxOperationsPage({
         <div className="outbox-operation-list">
           {rows.length > 0 ? (
             rows.map((row) => (
-              <OutboxRowCard key={row.id} row={row} returnPath={returnPath} />
+              <OutboxRowCard key={row.id} row={row} returnPath={returnPath} timeZone={timeZone} />
             ))
           ) : (
             <div className="empty-state">

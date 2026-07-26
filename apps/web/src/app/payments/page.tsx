@@ -1,4 +1,5 @@
 import { AppFrame } from "../components/app-frame";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { CreateInvoiceModal } from "./create-invoice-modal";
 import { PaymentLinkModal } from "./payment-link-modal";
@@ -6,6 +7,7 @@ import { getDocumentTemplateSettings } from "../../lib/documents/settings";
 import { quoteTemplateCatalog } from "../../lib/documents/templates";
 import { getPaymentsOverviewData } from "../../lib/payments/queries";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -17,17 +19,8 @@ function formatMoney(cents: number, currency: string) {
   }).format(cents / 100);
 }
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function statusLabel(status: string) {
@@ -49,6 +42,7 @@ function statusTone(status: string) {
 
 export default async function PaymentsPage() {
   const { supabase, workspace } = await requireWorkspaceContext();
+  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
   const paymentsSetupHref = "/settings?section=integrations&panel=stripe";
   const [data, documentTemplateSettings] = await Promise.all([
     getPaymentsOverviewData(supabase, workspace.id),
@@ -231,7 +225,7 @@ export default async function PaymentsPage() {
                       <strong>
                         {formatMoney(request.amountCents, request.currency)}
                       </strong>
-                      <span>{formatDate(request.createdAt)}</span>
+                      <span>{formatDate(request.createdAt, timeZone)}</span>
                     </div>
                     <span
                       className={`payments-status-pill ${statusTone(request.status)}`}

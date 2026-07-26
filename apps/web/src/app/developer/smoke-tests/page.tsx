@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 import { AppFrame } from "../../components/app-frame";
 import {
   type DeveloperHealthStatus,
@@ -6,6 +7,7 @@ import {
   smokeChecksFromSystemHealth,
 } from "../../../lib/developer/system-health";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
+import { formatWorkspaceDateTime } from "../../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -37,17 +39,13 @@ function overallStatus(statuses: DeveloperHealthStatus[]): DeveloperHealthStatus
   return "ok";
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 export default async function SmokeTestsPage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
   const health = await loadDeveloperSystemHealth({ supabase, user, workspace });
   const smokeChecks = smokeChecksFromSystemHealth(health);
   const status = overallStatus(smokeChecks.map((check) => check.status));
@@ -85,7 +83,7 @@ export default async function SmokeTestsPage() {
         <div className="detail-list developer-smoke-meta">
           <div>
             <span>Generated</span>
-            <strong>{formatDate(health.generatedAt)}</strong>
+            <strong>{formatDate(health.generatedAt, timeZone)}</strong>
           </div>
           <div>
             <span>Private file bucket</span>

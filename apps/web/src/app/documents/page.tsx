@@ -1,4 +1,5 @@
 import { AppFrame } from "../components/app-frame";
+import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { getQuoteDraftList } from "../../lib/crm/queries";
 import { getDocumentTemplateSettings } from "../../lib/documents/settings";
 import {
@@ -18,6 +19,7 @@ import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { fileGeneratedDocumentToDriveAction } from "./actions";
 import Link from "next/link";
 import { textValue } from "@kyro/core";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -54,17 +56,8 @@ const FILE_FILTERS = [
 
 const FILE_PAGE_SIZE = 10;
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function formatLabel(value: string | null) {
@@ -212,12 +205,15 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
     documentTemplateSettings,
     generatedDocuments,
     fileLibrary,
+    generalSettings,
   ] = await Promise.all([
     getQuoteDraftList(supabase, workspace.id),
     getDocumentTemplateSettings(supabase, workspace.id),
     getGeneratedDocumentsForWorkspace(supabase, workspace.id, 12),
     getWorkspaceFileLibrary(workspace.id, 80),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
+  const timeZone = generalSettings.timeZone;
   const activeFilter = isDocumentFilter(query?.filter) ? query.filter : "all";
   const activeFileFilter = isFileFilter(query?.fileFilter)
     ? query.fileFilter
@@ -363,7 +359,7 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
                   </div>
                   <span className="file-library-meta">
                     {file.sourceLabel} - {formatFileSize(file.sizeBytes)} -{" "}
-                    {formatDate(file.createdAt)}
+                    {formatDate(file.createdAt, timeZone)}
                   </span>
                   <div className="file-library-actions">
                     {canPreviewInline(file) ? (
@@ -503,7 +499,7 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
                           <span>{revisionLabel}</span>
                         )}
                       </div>
-                      <span>{formatDate(quoteDraft.updatedAt)}</span>
+                      <span>{formatDate(quoteDraft.updatedAt, timeZone)}</span>
                     </Link>
                   );
                 })
@@ -590,7 +586,7 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
                       <span>
                         {formatLabel(document.documentType)} -{" "}
                         {formatLabel(document.lifecycleStatus)} -{" "}
-                        {formatDate(document.updatedAt)}
+                        {formatDate(document.updatedAt, timeZone)}
                       </span>
                     </div>
                     <div className="template-card-actions">

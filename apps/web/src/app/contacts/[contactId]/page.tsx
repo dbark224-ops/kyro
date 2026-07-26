@@ -27,6 +27,7 @@ import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { formatWorkspaceDateTime } from "../../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -40,17 +41,8 @@ type ContactProfilePageProps = {
   }>;
 };
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function calendarEventHref(eventId: string, startsAt: string | null) {
@@ -110,6 +102,7 @@ export default async function ContactProfilePage({
 }: ContactProfilePageProps) {
   const [{ contactId }, query] = await Promise.all([params, searchParams]);
   const { supabase, workspace } = await requireWorkspaceContext();
+  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
   const [profile, generalSettings] = await Promise.all([
     getContactProfile(supabase, workspace.id, contactId),
     getWorkspaceGeneralSettings(supabase, workspace.id).catch(
@@ -423,7 +416,7 @@ export default async function ContactProfilePage({
               </div>
               <div>
                 <span>Updated</span>
-                <strong>{formatDate(profile.contact.updatedAt)}</strong>
+                <strong>{formatDate(profile.contact.updatedAt, timeZone)}</strong>
               </div>
             </div>
           </article>
@@ -452,7 +445,7 @@ export default async function ContactProfilePage({
                       <strong>{appointment.title}</strong>
                       <span>
                         {formatLabel(appointment.appointmentType)} -{" "}
-                        {formatDate(appointment.startsAt)} -{" "}
+                        {formatDate(appointment.startsAt, timeZone)} -{" "}
                         {appointment.location ?? "No address"}
                       </span>
                     </div>
@@ -567,7 +560,7 @@ export default async function ContactProfilePage({
                     <span>{conversation.status}</span>
                   </div>
                   <div className="data-meta">
-                    <span>{formatDate(conversation.lastMessageAt)}</span>
+                    <span>{formatDate(conversation.lastMessageAt, timeZone)}</span>
                   </div>
                 </Link>
               ))
@@ -594,7 +587,7 @@ export default async function ContactProfilePage({
                     <strong>{lead.title}</strong>
                     <span>
                       {lead.status} - {lead.serviceType ?? "No service type"} -{" "}
-                      {formatDate(lead.updatedAt)}
+                      {formatDate(lead.updatedAt, timeZone)}
                     </span>
                     {lead.nextStep ? (
                       <p className="body-preview">{lead.nextStep}</p>
@@ -648,7 +641,7 @@ export default async function ContactProfilePage({
                     {quoteDraft.conversationId ? (
                       <span>Linked inquiry</span>
                     ) : null}
-                    <span>{formatDate(quoteDraft.updatedAt)}</span>
+                    <span>{formatDate(quoteDraft.updatedAt, timeZone)}</span>
                   </div>
                 </Link>
               ))
@@ -683,11 +676,9 @@ export default async function ContactProfilePage({
                     <div className="message-meta">
                       <strong>{message.direction}</strong>
                       <span>
-                        {formatDate(
-                          message.receivedAt ??
+                        {formatDate(message.receivedAt ??
                             message.sentAt ??
-                            message.createdAt,
-                        )}
+                            message.createdAt, timeZone)}
                       </span>
                     </div>
                     {message.subject ? <h3>{message.subject}</h3> : null}
@@ -729,7 +720,7 @@ export default async function ContactProfilePage({
                     <div>
                       <strong>{action.type}</strong>
                       <span>
-                        {action.status} - {formatDate(action.createdAt)}
+                        {action.status} - {formatDate(action.createdAt, timeZone)}
                       </span>
                       {textValue(action.input.body) ? (
                         <p className="body-preview">
@@ -762,7 +753,7 @@ export default async function ContactProfilePage({
                       <strong>{log.action}</strong>
                       <span>
                         {log.actorType} - {log.entityType} -{" "}
-                        {formatDate(log.createdAt)}
+                        {formatDate(log.createdAt, timeZone)}
                       </span>
                     </div>
                   </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
 import { AppFrame } from "../../components/app-frame";
 import {
   type DeveloperHealthCheck,
@@ -7,6 +8,7 @@ import {
   loadDeveloperSystemHealth,
 } from "../../../lib/developer/system-health";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
+import { formatWorkspaceDateTime } from "../../../lib/time/format";
 
 export const dynamic = "force-dynamic";
 
@@ -26,17 +28,8 @@ function statusLabel(status: DeveloperHealthStatus) {
   return "Action needed";
 }
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+function formatDate(value: string | null, timeZone?: string | null) {
+  return formatWorkspaceDateTime({ timeZone, value });
 }
 
 function sectionStatus(section: DeveloperHealthSection): DeveloperHealthStatus {
@@ -90,6 +83,7 @@ function HealthCheckRow({ check }: Readonly<{ check: DeveloperHealthCheck }>) {
 
 export default async function SystemHealthPage() {
   const { supabase, user, workspace } = await requireWorkspaceContext();
+  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
   const health = await loadDeveloperSystemHealth({ supabase, user, workspace });
   const allChecks = [
     ...health.sections.flatMap((section) => section.checks),
@@ -185,7 +179,7 @@ export default async function SystemHealthPage() {
             <div className="detail-list">
               <div>
                 <span>Generated</span>
-                <strong>{formatDate(health.generatedAt)}</strong>
+                <strong>{formatDate(health.generatedAt, timeZone)}</strong>
               </div>
               <div>
                 <span>Private storage bucket</span>
@@ -215,7 +209,7 @@ export default async function SystemHealthPage() {
                         <span>{issue.context}</span>
                       </div>
                       <small>{issue.detail}</small>
-                      <time>{formatDate(issue.occurredAt)}</time>
+                      <time>{formatDate(issue.occurredAt, timeZone)}</time>
                     </>
                   );
 
