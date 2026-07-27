@@ -20,6 +20,8 @@ export type AssistantToolName =
   | "app_help"
   | "calendar_event"
   | "contact_lookup"
+  | "conversation_delete"
+  | "conversation_restore"
   | "document_template_create"
   | "document_template_update"
   | "email_sync"
@@ -113,6 +115,16 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Look up contacts, customers, clients, companies, suppliers, contractors, builders, or CRM profiles.",
     name: "contact_lookup",
+  },
+  {
+    description:
+      "Move a conversation to the Deleted mailbox, the same as pressing delete in the inbox. Use this when the user says to delete, remove, bin, archive, or get rid of a message or conversation -- including 'delete that one' straight after Kyro has listed or described it. It is a soft delete and can be undone.",
+    name: "conversation_delete",
+  },
+  {
+    description:
+      "Bring a deleted conversation back into the inbox. Use this when the user says to restore, undelete, undo that, or put a conversation back.",
+    name: "conversation_restore",
   },
   {
     description:

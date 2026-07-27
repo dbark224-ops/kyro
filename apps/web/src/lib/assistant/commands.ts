@@ -91,6 +91,10 @@ import {
   isConversationInLiveWorkQueue,
   recentWorkQueueConversationIds,
 } from "./conversation-links";
+import {
+  deleteConversationCommand,
+  restoreConversationCommand,
+} from "./conversation-mailbox-intent";
 import { searchAssistantHistory } from "./context-compaction";
 import { getAssistantKnowledge } from "./knowledge";
 import {
@@ -1340,6 +1344,22 @@ async function resolvePlannedAssistantCommand({
     case "settings_update":
       return updateAssistantEditableSettings({
         prompt: plannedPrompt,
+        supabase,
+        user,
+        workspace,
+      });
+    case "conversation_delete":
+      return deleteConversationCommand({
+        prompt: plannedPrompt,
+        recentMessages,
+        supabase,
+        user,
+        workspace,
+      });
+    case "conversation_restore":
+      return restoreConversationCommand({
+        prompt: plannedPrompt,
+        recentMessages,
         supabase,
         user,
         workspace,
