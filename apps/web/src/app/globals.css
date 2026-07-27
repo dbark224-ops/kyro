@@ -9440,17 +9440,16 @@ button.voice-card {
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row.junk-conversation-row {
     grid-template-columns:
+      minmax(0, 104px)
       minmax(0, 1fr)
-      minmax(0, 1.2fr)
+      minmax(0, 1.1fr)
       minmax(104px, auto);
     gap: 8px;
   }
 
-  /* Who it is from, what it is about, where it stands. The timestamp, the
-     channel tag and the preview are what a glance needs least. */
-  .inbox-workspace:has(.inbox-preview-transition-shell)
-    .conversation-row
-    .conversation-row-time,
+  /* When it came in, who from, what about, where it stands. The channel tag
+     and the preview are what a glance needs least, and dropping just those
+     two leaves room for the rest. */
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row
     .conversation-row-extra,
@@ -9462,31 +9461,40 @@ button.voice-card {
 
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row
-    .conversation-row-from {
+    .conversation-row-time {
     grid-column: 1;
   }
 
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row
-    .conversation-row-title {
+    .conversation-row-from {
     grid-column: 2;
   }
 
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row
-    .conversation-row-status {
+    .conversation-row-title {
     grid-column: 3;
+  }
+
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-status {
+    grid-column: 4;
     justify-self: end;
   }
 }
 
-/* Narrower still: the subject goes too. Who it is from and where it stands
-   both survive to the minimum pane width. */
-@container inbox-list (max-width: 430px) {
+/* Narrower still: the subject goes. When, who from, and where it stands all
+   survive to the minimum pane width. */
+@container inbox-list (max-width: 470px) {
   .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row,
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row.junk-conversation-row {
-    grid-template-columns: minmax(0, 1fr) minmax(104px, auto);
+    grid-template-columns:
+      minmax(0, 96px)
+      minmax(0, 1fr)
+      minmax(100px, auto);
   }
 
   .inbox-workspace:has(.inbox-preview-transition-shell)
@@ -9498,7 +9506,7 @@ button.voice-card {
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row
     .conversation-row-status {
-    grid-column: 2;
+    grid-column: 3;
   }
 }
 
