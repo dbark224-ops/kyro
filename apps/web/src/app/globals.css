@@ -8230,10 +8230,13 @@ button.voice-card {
   min-width: 0;
 }
 
+/* The search field takes the slack rather than the row leaving it empty.
+   Capped at 420px the three controls packed to the left and the rest of a
+   full-width panel sat unused, which read as something missing rather than
+   as a deliberately short toolbar. */
 .inbox-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 420px) minmax(160px, 220px) auto;
-  justify-content: start;
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 220px) auto;
   align-items: end;
   gap: 10px;
   margin: 0 0 16px;
@@ -8403,7 +8406,7 @@ button.voice-card {
 }
 
 .mailbox-search-toolbar {
-  grid-template-columns: minmax(260px, 420px) minmax(160px, 220px);
+  grid-template-columns: minmax(260px, 1fr) minmax(160px, 220px);
   align-items: end;
 }
 
