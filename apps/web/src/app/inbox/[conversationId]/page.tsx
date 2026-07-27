@@ -902,6 +902,9 @@ export default async function ConversationReviewPage({
               label="Address"
               name="address"
               placeholder="Job address"
+              verificationStatus={
+                review.inquiryFacts?.addressValidationStatus ?? null
+              }
             />
             <label className="fact-item fact-input">
               <strong>Preferred time</strong>
@@ -1130,8 +1133,7 @@ export default async function ConversationReviewPage({
                       name="channelType"
                       defaultValue={
                         communicationSettings.allowedChannels.find(
-                          (channel) =>
-                            channel === "email" || channel === "sms",
+                          (channel) => channel === "email" || channel === "sms",
                         ) ?? "email"
                       }
                     >

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   applyLifecycleSuggestionAction,
@@ -10,6 +11,7 @@ import {
   updateContactProfileAction,
 } from "../contacts/actions";
 import { AddressAutocompleteField } from "./address-autocomplete-field";
+import { AddressWithVerification } from "./address-verification-badge";
 import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
@@ -55,10 +57,12 @@ export function ContactProfilePanel({
 }: ContactProfilePanelProps) {
   const displayName = contactTitle(profile.contact);
   const currentRedirectTo =
-    redirectTo ?? `/contacts?contactId=${encodeURIComponent(profile.contact.id)}`;
+    redirectTo ??
+    `/contacts?contactId=${encodeURIComponent(profile.contact.id)}`;
   const contactHref =
     profileHref ??
-    ((contactId: string) => `/contacts?contactId=${encodeURIComponent(contactId)}`);
+    ((contactId: string) =>
+      `/contacts?contactId=${encodeURIComponent(contactId)}`);
   const mergeSuccessHref = successHref ?? contactHref;
   const pendingLifecycleSuggestions = lifecycleSuggestions(profile);
   const rootClassName = ["panel", "crm-profile-panel", className]
@@ -221,11 +225,7 @@ export function ContactProfilePanel({
             key={profile.contact.id}
           >
             <input name="contactId" type="hidden" value={profile.contact.id} />
-            <input
-              name="redirectTo"
-              type="hidden"
-              value={currentRedirectTo}
-            />
+            <input name="redirectTo" type="hidden" value={currentRedirectTo} />
             <input
               name="originalLifecycleStage"
               type="hidden"
@@ -293,6 +293,7 @@ export function ContactProfilePanel({
               defaultValue={profile.contact.address ?? ""}
               label="Address"
               name="address"
+              verificationStatus={profile.contact.addressValidationStatus}
             />
             <label className="full-row">
               Notes
@@ -318,7 +319,14 @@ export function ContactProfilePanel({
               ["Email", profile.contact.email],
               ["Phone", profile.contact.phone],
               ["Company", profile.contact.company],
-              ["Address", profile.contact.address],
+              [
+                "Address",
+                <AddressWithVerification
+                  address={profile.contact.address}
+                  key="address"
+                  status={profile.contact.addressValidationStatus}
+                />,
+              ],
               ["Type", formatContactType(profile.contact.contactType)],
               [
                 "Lifecycle",
@@ -405,12 +413,17 @@ export function ContactProfilePanel({
                     <div className="preview-message-meta">
                       <strong>{formatLabel(message.direction)}</strong>
                       <span>
-                        {formatDate(message.receivedAt ??
+                        {formatDate(
+                          message.receivedAt ??
                             message.sentAt ??
-                            message.createdAt, timeZone)}
+                            message.createdAt,
+                          timeZone,
+                        )}
                       </span>
                     </div>
-                    {message.subject ? <strong>{message.subject}</strong> : null}
+                    {message.subject ? (
+                      <strong>{message.subject}</strong>
+                    ) : null}
                     <p>{message.bodyText ?? "No message body."}</p>
                   </article>
                 );
@@ -495,7 +508,8 @@ export function ContactProfilePanel({
                 </div>
               </article>
             ))}
-            {profile.quoteDrafts.length === 0 && profile.actions.length === 0 ? (
+            {profile.quoteDrafts.length === 0 &&
+            profile.actions.length === 0 ? (
               <p className="empty-copy">No documents or actions linked yet.</p>
             ) : null}
           </div>
@@ -507,7 +521,7 @@ export function ContactProfilePanel({
 
 function ProfileFacts({
   facts,
-}: Readonly<{ facts: Array<[label: string, value: string | null]> }>) {
+}: Readonly<{ facts: Array<[label: string, value: ReactNode]> }>) {
   return (
     <div className="assistant-preview-facts">
       {facts.map(([label, value]) => (
@@ -662,7 +676,9 @@ function ProfileResolutionPanelBody({
                     .filter(Boolean)
                     .join(" - ") || "No contact details yet"}
                 </span>
-                <span>{formatResolutionMatchFields(candidate.matchFields)}</span>
+                <span>
+                  {formatResolutionMatchFields(candidate.matchFields)}
+                </span>
               </div>
               <div className="profile-resolution-actions">
                 <form action={mergeContactProfilesAction}>
@@ -841,4 +857,3 @@ function formatLabel(value: string | null) {
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
 }
-

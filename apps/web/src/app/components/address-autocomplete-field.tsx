@@ -5,6 +5,7 @@ import type {
   StructuredAddress,
 } from "../../lib/addresses/types";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { AddressVerificationBadge } from "./address-verification-badge";
 
 type AddressAutocompleteFieldProps = {
   className?: string;
@@ -15,6 +16,12 @@ type AddressAutocompleteFieldProps = {
   placeholder?: string;
   required?: boolean;
   value?: string;
+  /**
+   * The stored verification verdict for the saved address, shown beside the
+   * label. Dropped as soon as the field is edited, since the badge would then
+   * be describing an address that is no longer in the box.
+   */
+  verificationStatus?: string | null;
 };
 
 function hiddenValue(value: string | number | null | undefined) {
@@ -38,6 +45,7 @@ export function AddressAutocompleteField({
   placeholder = "Start typing an address...",
   required = false,
   value,
+  verificationStatus,
 }: AddressAutocompleteFieldProps) {
   const id = useId();
   const isControlled = value !== undefined;
@@ -48,6 +56,7 @@ export function AddressAutocompleteField({
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [shouldSearch, setShouldSearch] = useState(false);
   const sessionTokenRef = useRef(newSessionToken());
   const currentValue = isControlled ? value : localValue;
@@ -151,6 +160,9 @@ export function AddressAutocompleteField({
       setLocalValue(nextValue);
     }
 
+    // The badge describes the address that was saved. Once the box holds
+    // something else it would be vouching for text nobody has checked.
+    setIsDirty(nextValue.trim() !== (defaultValue ?? "").trim());
     onAddressChange?.(nextValue);
   }
 
@@ -209,7 +221,15 @@ export function AddressAutocompleteField({
         .join(" ")}
     >
       {label ? (
-        <span className="address-autocomplete-label">{label}</span>
+        <span className="address-autocomplete-label">
+          {label}
+          {verificationStatus && !isDirty ? (
+            <AddressVerificationBadge
+              address={defaultValue}
+              status={verificationStatus}
+            />
+          ) : null}
+        </span>
       ) : null}
       <span className="address-autocomplete-control">
         <input

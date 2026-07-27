@@ -1,4 +1,11 @@
 import { fetchAiProvider } from "../http/fetch-with-timeout";
+import type { AddressColumnUpdates } from "../addresses/types";
+import {
+  unverifiedAddressFields,
+  verifyAddressText,
+  type AddressVerificationCalls,
+} from "../addresses/verify";
+import { recordGoogleApiUsage } from "../usage/google";
 import { selectModelRoute } from "@kyro/ai";
 import { getInitialActionStatus } from "@kyro/api";
 import type { ModelRouteRequest } from "@kyro/contracts";
@@ -935,9 +942,11 @@ function buildReplyRepairPrompt(input: {
         "The replacement body must ask for every requiredMissingInfo item.",
         "If asking for several details, combine them naturally in one sentence where possible.",
         "Preserve the useful meaning of the original draft, but rewrite awkward wording if needed.",
-        ...replyWritingPromptRules(replyWriting, input.context.inboundChannelType, firstCustomerTurnFromCount(input.context.threadMessageCount)).map(
-          (rule) => `Writing style - ${rule}`,
-        ),
+        ...replyWritingPromptRules(
+          replyWriting,
+          input.context.inboundChannelType,
+          firstCustomerTurnFromCount(input.context.threadMessageCount),
+        ).map((rule) => `Writing style - ${rule}`),
       ],
       requiredMissingInfo: input.missingInfo,
       requiredMissingInfoPhrases: missingInfoGapPhrases(input.missingInfo),
@@ -1130,9 +1139,11 @@ async function ensureKnownBusinessFactReply(input: {
         "Do not ask for a job address, job description, preferred time, phone number, email address, confirmation, or serviceability.",
         "A short offer to help with anything else is acceptable.",
         "Keep the complete reply concise and natural.",
-        ...replyWritingPromptRules(replyWriting, input.context.inboundChannelType, firstCustomerTurnFromCount(input.context.threadMessageCount)).map(
-          (rule) => `Writing style - ${rule}`,
-        ),
+        ...replyWritingPromptRules(
+          replyWriting,
+          input.context.inboundChannelType,
+          firstCustomerTurnFromCount(input.context.threadMessageCount),
+        ).map((rule) => `Writing style - ${rule}`),
       ],
       authoritativeFacts: requestedFacts,
       customerMessage: input.context.latestMessage ?? "",
@@ -1452,9 +1463,11 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
             context.threadMessageCount,
           ),
         }),
-        ...replyWritingPromptRules(replyWriting, context.inboundChannelType, firstCustomerTurnFromCount(context.threadMessageCount)).map(
-          (rule) => `Writing style - ${rule}`,
-        ),
+        ...replyWritingPromptRules(
+          replyWriting,
+          context.inboundChannelType,
+          firstCustomerTurnFromCount(context.threadMessageCount),
+        ).map((rule) => `Writing style - ${rule}`),
       ],
       authoritativeInquiryFacts: context.inquiryFactsOverride ?? null,
       directKnownBusinessFactKeys: directFactKeys,
@@ -1945,9 +1958,11 @@ async function resolveToolAssistedBusinessMessage(input: {
         "If the answer is unavailable, set answerAvailable false and ask exactly one focused ownerQuestion that would unlock the reply.",
         "When asking the owner, keep the customer draft pending. The draft may politely acknowledge the message but must not pretend the missing answer is known.",
         "Do not turn this into a service-intake checklist and do not ask for unrelated job details.",
-        ...replyWritingPromptRules(replyWriting, input.context.inboundChannelType, firstCustomerTurnFromCount(input.context.threadMessageCount)).map(
-          (rule) => `Writing style - ${rule}`,
-        ),
+        ...replyWritingPromptRules(
+          replyWriting,
+          input.context.inboundChannelType,
+          firstCustomerTurnFromCount(input.context.threadMessageCount),
+        ).map((rule) => `Writing style - ${rule}`),
       ],
       informationNeed: input.decision.responsePolicy.informationNeed ?? null,
       initialOwnerQuestion: input.decision.responsePolicy.ownerQuestion ?? null,
@@ -2147,13 +2162,214 @@ function buildActionProposals(
   return proposals;
 }
 
+/**
+ * How long triage will wait on Google before giving up on an address.
+ *
+ * Verification is two chained HTTP calls, each with the 30s provider ceiling,
+ * so a bad day could add a minute to a turn that exists to answer a customer.
+ * The address is worth having but never worth stalling the reply for, so this
+ * caps the pair well under either call's own timeout.
+ */
+const ADDRESS_VERIFICATION_TIMEOUT_MS = 12_000;
+
+/**
+ * Verify an address the model pulled out of an inbound message.
+ *
+ * Triage is autonomous: there is no one to ask when the text is ambiguous, so
+ * anything short of a Google match is stored as the customer's own words with
+ * an `unverified` status. That status is what the CRM badge reads, which is the
+ * whole reason this runs -- an address nobody confirmed should look different
+ * from one Google stands behind.
+ *
+ * Returns null when there is nothing to store, and never rejects: a failed
+ * lookup must not take down a turn that has a reply to send.
+ */
+async function resolveInquiryFactsAddress({
+  address,
+  conversationId,
+  region,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  address: string | null;
+  conversationId: string | null;
+  region: PhoneRegion | null;
+  supabase: SupabaseClient;
+  userId: string | null;
+  workspaceId: string;
+}): Promise<AddressColumnUpdates | null> {
+  const text = textValue(address);
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    // A thread where the customer repeats the address would otherwise pay for
+    // the same lookup on every message.
+    if (conversationId) {
+      const { data: stored } = await supabase
+        .from("inquiry_facts")
+        .select(
+          "address,address_administrative_area,address_country_code,address_latitude,address_line1,address_line2,address_locality,address_longitude,address_place_id,address_postal_code,address_source,address_structured,address_validated_at,address_validation_status",
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("conversation_id", conversationId)
+        .maybeSingle();
+
+      if (
+        stored &&
+        textValue(stored.address) === text &&
+        textValue(stored.address_validation_status) !== "unverified"
+      ) {
+        return {
+          address: textValue(stored.address),
+          address_administrative_area: textValue(
+            stored.address_administrative_area,
+          ),
+          address_country_code: textValue(stored.address_country_code),
+          address_latitude: textValue(stored.address_latitude),
+          address_line1: textValue(stored.address_line1),
+          address_line2: textValue(stored.address_line2),
+          address_locality: textValue(stored.address_locality),
+          address_longitude: textValue(stored.address_longitude),
+          address_place_id: textValue(stored.address_place_id),
+          address_postal_code: textValue(stored.address_postal_code),
+          address_source: textValue(stored.address_source) ?? "triage",
+          address_structured: objectRecord(stored.address_structured),
+          address_validated_at: textValue(stored.address_validated_at),
+          address_validation_status: (textValue(
+            stored.address_validation_status,
+          ) ??
+            "unverified") as AddressColumnUpdates["address_validation_status"],
+        };
+      }
+    }
+
+    const verification = await Promise.race([
+      verifyAddressText({ address: text, region, source: "triage" }),
+      new Promise<null>((resolve) => {
+        setTimeout(
+          () => resolve(null),
+          ADDRESS_VERIFICATION_TIMEOUT_MS,
+        ).unref?.();
+      }),
+    ]);
+
+    if (!verification) {
+      console.error(
+        `Address verification timed out after ${ADDRESS_VERIFICATION_TIMEOUT_MS}ms; storing the address unverified.`,
+      );
+
+      return unverifiedAddressFields(text, "triage");
+    }
+
+    if (verification.updates.address_validation_status !== "validated") {
+      console.warn(
+        `Inquiry address stored as ${verification.updates.address_validation_status}${
+          verification.verificationNote
+            ? `: ${verification.verificationNote}`
+            : "."
+        }`,
+      );
+    }
+
+    void meterAddressVerification({
+      calls: verification.calls,
+      status: verification.updates.address_validation_status,
+      supabase,
+      userId,
+      workspaceId,
+    });
+
+    return verification.updates;
+  } catch (error) {
+    console.error(
+      error instanceof Error
+        ? `Unable to verify inquiry address: ${error.message}`
+        : "Unable to verify inquiry address.",
+    );
+
+    return unverifiedAddressFields(text, "triage");
+  }
+}
+
+/**
+ * Bill the lookups the same way the interactive address routes do, so an
+ * address Kyro verified on its own is not invisible on the usage bill.
+ *
+ * Charges only the endpoints that were actually reached. A workspace with no
+ * Google key, or an address too vague to look up, costs nothing and must not
+ * appear on the bill as though it did.
+ */
+function meterAddressVerification({
+  calls,
+  status,
+  supabase,
+  userId,
+  workspaceId,
+}: {
+  calls: AddressVerificationCalls;
+  status: string;
+  supabase: SupabaseClient;
+  userId: string | null;
+  workspaceId: string;
+}) {
+  const metadata = { sourceRoute: "ai.triage.inquiry_facts", status };
+  const billed: Array<Promise<unknown>> = [];
+
+  if (calls.autocomplete) {
+    billed.push(
+      recordGoogleApiUsage(supabase, {
+        kind: "places_autocomplete",
+        metadata,
+        userId,
+        workspaceId,
+      }),
+    );
+  }
+
+  if (calls.placeDetails) {
+    billed.push(
+      recordGoogleApiUsage(supabase, {
+        kind: "places_details",
+        metadata,
+        userId,
+        workspaceId,
+      }),
+    );
+  }
+
+  if (calls.validation) {
+    billed.push(
+      recordGoogleApiUsage(supabase, {
+        kind: "address_validation",
+        metadata,
+        userId,
+        workspaceId,
+      }),
+    );
+  }
+
+  return Promise.all(billed).catch((usageError) => {
+    console.error(
+      usageError instanceof Error
+        ? usageError.message
+        : "Unable to record Google address verification usage.",
+    );
+  });
+}
+
 async function patchContactFromExtractedInquiryFacts({
+  addressColumns,
   aiRunId,
   facts,
   supabase,
   triageContext,
   workspaceId,
 }: {
+  addressColumns: AddressColumnUpdates | null;
   aiRunId: string;
   facts: InquiryFacts;
   supabase: SupabaseClient;
@@ -2191,7 +2407,14 @@ async function patchContactFromExtractedInquiryFacts({
   const updates: Record<string, unknown> = {};
 
   if (!textValue(contact.address) && facts.address) {
-    updates.address = facts.address;
+    // Carry the structured columns across too. Writing `address` alone left the
+    // contact holding a bare line of text with a default `unverified` status,
+    // even when Google had just confirmed the very same address for the
+    // conversation it came from.
+    Object.assign(
+      updates,
+      addressColumns ?? unverifiedAddressFields(facts.address, "triage"),
+    );
   }
 
   if (!textValue(contact.email) && email) {
@@ -2492,6 +2715,18 @@ export async function runStubAiTriage(
   );
   let effectiveInquiryFacts = inquiryFacts;
   let verifiedAvailability: VerifiedInquiryAvailability | null = null;
+  // Started before the availability lookup so the two network waits overlap;
+  // awaited below, before the reply is repaired, so the draft quotes the same
+  // address that gets stored.
+  const addressColumnsPromise = resolveInquiryFactsAddress({
+    address: inquiryFacts.address,
+    conversationId: context.conversationId ?? null,
+    region:
+      triageContext.defaultPhoneRegion ?? generalSettings.defaultPhoneRegion,
+    supabase,
+    userId: user?.id ?? null,
+    workspaceId,
+  });
 
   if (
     shouldResolveAvailabilityForTriage({
@@ -2530,6 +2765,20 @@ export async function runStubAiTriage(
         );
       }
     }
+  }
+
+  const addressColumns = await addressColumnsPromise;
+  const resolvedAddress = addressColumns
+    ? textValue(addressColumns.address)
+    : null;
+
+  if (resolvedAddress && resolvedAddress !== effectiveInquiryFacts.address) {
+    // Google's formatting of an address it matched, so the reply, the proposed
+    // actions and the stored fact all say the same thing.
+    effectiveInquiryFacts = {
+      ...effectiveInquiryFacts,
+      address: resolvedAddress,
+    };
   }
 
   const repairedDraft = !serviceInquiryResponse
@@ -2663,6 +2912,7 @@ export async function runStubAiTriage(
   }
 
   await patchContactFromExtractedInquiryFacts({
+    addressColumns,
     aiRunId,
     facts: effectiveInquiryFacts,
     supabase,
@@ -2814,7 +3064,7 @@ export async function runStubAiTriage(
             lead_id: context.leadId ?? null,
             source_ai_run_id: aiRunId,
             job_type: effectiveInquiryFacts.jobType,
-            address: effectiveInquiryFacts.address,
+            ...(addressColumns ?? { address: effectiveInquiryFacts.address }),
             preferred_time: effectiveInquiryFacts.preferredTime,
             urgency: effectiveInquiryFacts.urgency,
             budget: effectiveInquiryFacts.budget,

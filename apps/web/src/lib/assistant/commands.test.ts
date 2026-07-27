@@ -102,6 +102,7 @@ function template(overrides: Partial<QuoteTemplate>): QuoteTemplate {
 function contact(overrides: Partial<ContactListItem>): ContactListItem {
   return {
     address: null,
+    addressValidationStatus: null,
     company: null,
     contactType: "customer",
     duplicateWarnings: [],

@@ -1,10 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AddressColumnUpdates } from "../addresses/types";
 import {
-  autocompleteAddresses,
-  getAddressPlaceDetails,
-  hasGoogleAddressLookupConfig,
-} from "../addresses/google";
-import type { AddressColumnUpdates, StructuredAddress } from "../addresses/types";
+  addressLikelyNeedsLocality,
+  verifyAddressText,
+} from "../addresses/verify";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { formatWorkspaceDateTimeWithYear } from "../time/format";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
@@ -115,94 +114,6 @@ function updateSummary(changedFields: string[]) {
   return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 }
 
-function manualAddressFields(address: string | null): AddressColumnUpdates {
-  if (!address) {
-    return {
-      address: null,
-      address_administrative_area: null,
-      address_country_code: null,
-      address_latitude: null,
-      address_line1: null,
-      address_line2: null,
-      address_locality: null,
-      address_longitude: null,
-      address_place_id: null,
-      address_postal_code: null,
-      address_source: "assistant",
-      address_structured: {},
-      address_validated_at: null,
-      address_validation_status: "unverified",
-    };
-  }
-
-  return {
-    address,
-    address_administrative_area: null,
-    address_country_code: null,
-    address_latitude: null,
-    address_line1: address,
-    address_line2: null,
-    address_locality: null,
-    address_longitude: null,
-    address_place_id: null,
-    address_postal_code: null,
-    address_source: "assistant",
-    address_structured: {
-      administrativeArea: null,
-      countryCode: null,
-      formattedAddress: address,
-      latitude: null,
-      line1: address,
-      line2: null,
-      locality: null,
-      longitude: null,
-      placeId: null,
-      postalCode: null,
-      provider: "assistant",
-      source: "assistant",
-      validationStatus: "unverified",
-    },
-    address_validated_at: null,
-    address_validation_status: "unverified",
-  };
-}
-
-function verifiedAddressFields(address: StructuredAddress): AddressColumnUpdates {
-  return {
-    address: address.formattedAddress ?? address.line1,
-    address_administrative_area: address.administrativeArea,
-    address_country_code: address.countryCode,
-    address_latitude:
-      address.latitude === null ? null : String(address.latitude),
-    address_line1: address.line1,
-    address_line2: address.line2,
-    address_locality: address.locality,
-    address_longitude:
-      address.longitude === null ? null : String(address.longitude),
-    address_place_id: address.placeId,
-    address_postal_code: address.postalCode,
-    address_source: address.source,
-    address_structured: address,
-    address_validated_at:
-      address.validationStatus === "validated" ? new Date().toISOString() : null,
-    address_validation_status: address.validationStatus,
-  };
-}
-
-function addressLikelyNeedsLocality(address: string) {
-  const normalized = address.replace(/\s+/g, " ").trim();
-
-  if (!normalized) {
-    return false;
-  }
-
-  const hasStreetNumber = /^\d+[a-zA-Z]?\s+\S+/.test(normalized);
-  const hasSeparator = /[,;]/.test(normalized);
-  const wordCount = normalized.split(" ").filter(Boolean).length;
-
-  return hasStreetNumber && !hasSeparator && wordCount <= 4;
-}
-
 async function resolveAddressForAssistantUpdate({
   address,
   region,
@@ -222,6 +133,10 @@ async function resolveAddressForAssistantUpdate({
       verificationNote?: string;
     }
 > {
+  // The assistant is the one caller with a person on the other end, so it can
+  // ask for the missing suburb instead of storing a street name that matches
+  // forty towns. Triage and the voice agent have no such option and store the
+  // text unverified -- see verifyAddressText.
   if (addressLikelyNeedsLocality(address)) {
     return {
       answer:
@@ -231,57 +146,18 @@ async function resolveAddressForAssistantUpdate({
     };
   }
 
-  if (!hasGoogleAddressLookupConfig()) {
-    return {
-      formattedAddress: address,
-      ok: true,
-      updates: manualAddressFields(address),
-      verificationNote: "Google address verification is not configured.",
-    };
-  }
+  const verification = await verifyAddressText({
+    address,
+    region: typeof region === "string" ? region : null,
+    source: "assistant",
+  });
 
-  try {
-    const suggestions = await autocompleteAddresses({
-      input: address,
-      region,
-    });
-    const [bestSuggestion] = suggestions;
-
-    if (!bestSuggestion) {
-      return {
-        formattedAddress: address,
-        ok: true,
-        updates: manualAddressFields(address),
-        verificationNote: "Google could not find a matching address.",
-      };
-    }
-
-    const structuredAddress = await getAddressPlaceDetails({
-      placeId: bestSuggestion.placeId,
-      validate: true,
-    });
-    const updates = verifiedAddressFields(structuredAddress);
-
-    return {
-      formattedAddress: updates.address,
-      ok: true,
-      updates,
-      verificationNote:
-        structuredAddress.validationStatus === "validated"
-          ? undefined
-          : "Google found the address, but it may need review.",
-    };
-  } catch (error) {
-    return {
-      formattedAddress: address,
-      ok: true,
-      updates: manualAddressFields(address),
-      verificationNote:
-        error instanceof Error
-          ? `Google address verification failed: ${error.message}`
-          : "Google address verification failed.",
-    };
-  }
+  return {
+    formattedAddress: verification.formattedAddress,
+    ok: true,
+    updates: verification.updates,
+    verificationNote: verification.verificationNote,
+  };
 }
 
 function appendNote(
@@ -390,7 +266,9 @@ async function lookupContacts({
     .select(CONTACT_SELECT)
     .eq("workspace_id", workspaceId)
     .is("merged_into_contact_id", null)
-    .or(`name.ilike.${pattern},company.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern}`)
+    .or(
+      `name.ilike.${pattern},company.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern}`,
+    )
     .order("updated_at", { ascending: false })
     .limit(6);
 
@@ -437,7 +315,15 @@ export async function updateContactFromAssistantTool({
       ? "replace"
       : "append";
 
-  if (!name && !email && !phone && !company && !address && !notes && !rawContactType) {
+  if (
+    !name &&
+    !email &&
+    !phone &&
+    !company &&
+    !address &&
+    !notes &&
+    !rawContactType
+  ) {
     return {
       answer:
         "I need at least one contact field to update: name, email, phone, address, company, contact type, or notes.",
@@ -468,7 +354,10 @@ export async function updateContactFromAssistantTool({
   }
 
   const before = matches[0];
-  const generalSettings = await getWorkspaceGeneralSettings(supabase, workspaceId);
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspaceId,
+  );
   const update: Record<string, unknown> = {};
   const changedFields: string[] = [];
   let verifiedAddress: string | null = null;

@@ -132,6 +132,7 @@ export type ContactListItem = {
   profileResolutionStatus: string;
   mergedIntoContactId: string | null;
   address: string | null;
+  addressValidationStatus: string | null;
   source: string | null;
   notes: string | null;
   duplicateWarnings: IdentityDuplicateWarning[];
@@ -597,6 +598,7 @@ export type ConversationReview = {
     sourceAiRunId: string | null;
     jobType: string | null;
     address: string | null;
+    addressValidationStatus: string | null;
     preferredTime: string | null;
     urgency: string;
     budget: string | null;
@@ -653,6 +655,7 @@ export type ContactProfile = {
     profileResolutionStatus: string;
     mergedIntoContactId: string | null;
     address: string | null;
+    addressValidationStatus: string | null;
     source: string | null;
     notes: string | null;
     updatedAt: string;
@@ -961,7 +964,8 @@ function duplicateWarningsForContact(
     : [];
   const phoneMatches = contactPhone
     ? duplicateContacts.filter(
-        (candidate) => normalizedPhoneForRow(candidate, region) === contactPhone,
+        (candidate) =>
+          normalizedPhoneForRow(candidate, region) === contactPhone,
       )
     : [];
 
@@ -1118,7 +1122,7 @@ export async function getContactList(
       supabase
         .from("contacts")
         .select(
-          "id,name,email,phone,company,normalized_email,normalized_phone,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,source,notes,updated_at",
+          "id,name,email,phone,company,normalized_email,normalized_phone,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,address_validation_status,source,notes,updated_at",
         )
         .eq("workspace_id", workspaceId)
         .is("merged_into_contact_id", null)
@@ -1169,7 +1173,8 @@ export async function getContactList(
 
   // The database has already done the counting and the max(); this only reads
   // the answers into the shape the rows below expect.
-  for (const activity of (messagesResult.data ?? []) as ContactMessageActivityRow[]) {
+  for (const activity of (messagesResult.data ??
+    []) as ContactMessageActivityRow[]) {
     const contactId = textValue(activity.contact_id);
 
     if (!contactId) {
@@ -1207,6 +1212,7 @@ export async function getContactList(
     ),
     mergedIntoContactId: textValue(contact.merged_into_contact_id),
     address: contact.address ? String(contact.address) : null,
+    addressValidationStatus: textValue(contact.address_validation_status),
     source: contact.source ? String(contact.source) : null,
     notes: contact.notes ? String(contact.notes) : null,
     duplicateWarnings:
@@ -2439,7 +2445,7 @@ export async function getContactProfile(
   const { data: contact, error } = await supabase
     .from("contacts")
     .select(
-      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,source,notes,updated_at",
+      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,address_validation_status,source,notes,updated_at",
     )
     .eq("workspace_id", workspaceId)
     .eq("id", contactId)
@@ -2777,6 +2783,7 @@ export async function getContactProfile(
       ),
       mergedIntoContactId: textValue(contact.merged_into_contact_id),
       address: contact.address ? String(contact.address) : null,
+      addressValidationStatus: textValue(contact.address_validation_status),
       source: contact.source ? String(contact.source) : null,
       notes: contact.notes ? String(contact.notes) : null,
       updatedAt: String(contact.updated_at),
@@ -3439,7 +3446,7 @@ export async function getConversationReview(
     supabase
       .from("inquiry_facts")
       .select(
-        "id,source_ai_run_id,job_type,address,preferred_time,urgency,budget,fit,missing_info,source,edited_by_user_id,metadata,created_at,updated_at",
+        "id,source_ai_run_id,job_type,address,address_validation_status,preferred_time,urgency,budget,fit,missing_info,source,edited_by_user_id,metadata,created_at,updated_at",
       )
       .eq("workspace_id", workspaceId)
       .eq("conversation_id", conversationId)
@@ -3875,6 +3882,9 @@ export async function getConversationReview(
           address: inquiryFacts.data.address
             ? String(inquiryFacts.data.address)
             : null,
+          addressValidationStatus: textValue(
+            inquiryFacts.data.address_validation_status,
+          ),
           preferredTime: inquiryFacts.data.preferred_time
             ? String(inquiryFacts.data.preferred_time)
             : null,

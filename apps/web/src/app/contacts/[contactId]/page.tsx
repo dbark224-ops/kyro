@@ -7,6 +7,7 @@ import {
 import { textValue } from "@kyro/core";
 import { AppFrame } from "../../components/app-frame";
 import { AddressAutocompleteField } from "../../components/address-autocomplete-field";
+import { AddressWithVerification } from "../../components/address-verification-badge";
 import {
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   formatDisplayMoney,
@@ -102,7 +103,10 @@ export default async function ContactProfilePage({
 }: ContactProfilePageProps) {
   const [{ contactId }, query] = await Promise.all([params, searchParams]);
   const { supabase, workspace } = await requireWorkspaceContext();
-  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
+  const { timeZone } = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
   const [profile, generalSettings] = await Promise.all([
     getContactProfile(supabase, workspace.id, contactId),
     getWorkspaceGeneralSettings(supabase, workspace.id).catch(
@@ -251,6 +255,7 @@ export default async function ContactProfilePage({
               defaultValue={profile.contact.address ?? ""}
               label="Address"
               name="address"
+              verificationStatus={profile.contact.addressValidationStatus}
             />
             <label className="full-row">
               Notes
@@ -394,7 +399,12 @@ export default async function ContactProfilePage({
               </div>
               <div>
                 <span>Address</span>
-                <strong>{profile.contact.address ?? "-"}</strong>
+                <strong>
+                  <AddressWithVerification
+                    address={profile.contact.address}
+                    status={profile.contact.addressValidationStatus}
+                  />
+                </strong>
               </div>
               <div>
                 <span>Lifecycle</span>
@@ -416,7 +426,9 @@ export default async function ContactProfilePage({
               </div>
               <div>
                 <span>Updated</span>
-                <strong>{formatDate(profile.contact.updatedAt, timeZone)}</strong>
+                <strong>
+                  {formatDate(profile.contact.updatedAt, timeZone)}
+                </strong>
               </div>
             </div>
           </article>
@@ -560,7 +572,9 @@ export default async function ContactProfilePage({
                     <span>{conversation.status}</span>
                   </div>
                   <div className="data-meta">
-                    <span>{formatDate(conversation.lastMessageAt, timeZone)}</span>
+                    <span>
+                      {formatDate(conversation.lastMessageAt, timeZone)}
+                    </span>
                   </div>
                 </Link>
               ))
@@ -676,9 +690,12 @@ export default async function ContactProfilePage({
                     <div className="message-meta">
                       <strong>{message.direction}</strong>
                       <span>
-                        {formatDate(message.receivedAt ??
+                        {formatDate(
+                          message.receivedAt ??
                             message.sentAt ??
-                            message.createdAt, timeZone)}
+                            message.createdAt,
+                          timeZone,
+                        )}
                       </span>
                     </div>
                     {message.subject ? <h3>{message.subject}</h3> : null}
@@ -720,7 +737,8 @@ export default async function ContactProfilePage({
                     <div>
                       <strong>{action.type}</strong>
                       <span>
-                        {action.status} - {formatDate(action.createdAt, timeZone)}
+                        {action.status} -{" "}
+                        {formatDate(action.createdAt, timeZone)}
                       </span>
                       {textValue(action.input.body) ? (
                         <p className="body-preview">

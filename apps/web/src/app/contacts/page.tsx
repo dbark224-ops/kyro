@@ -6,8 +6,10 @@ import {
   resolveProfileReviewAction,
   updateContactProfileAction,
 } from "./actions";
+import type { ReactNode } from "react";
 import { AppFrame } from "../components/app-frame";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
+import { AddressWithVerification } from "../components/address-verification-badge";
 import { AutoSubmitSelect } from "../components/auto-submit-select";
 import {
   CONTACT_TYPE_OPTIONS,
@@ -436,7 +438,9 @@ function ContactRow({
           </span>
         ) : null}
         <span>{contact.messageCount} messages</span>
-        <span>{formatDate(contact.lastMessageAt ?? contact.updatedAt, timeZone)}</span>
+        <span>
+          {formatDate(contact.lastMessageAt ?? contact.updatedAt, timeZone)}
+        </span>
         <span className="pill">
           {formatContactLifecycleStage(contact.lifecycleStage)}
         </span>
@@ -514,7 +518,7 @@ function LeadRow({
 
 function ProfileFacts({
   facts,
-}: Readonly<{ facts: Array<[label: string, value: string | null]> }>) {
+}: Readonly<{ facts: Array<[label: string, value: ReactNode]> }>) {
   return (
     <div className="assistant-preview-facts">
       {facts.map(([label, value]) => (
@@ -1013,6 +1017,7 @@ function ProfilePanel({
               defaultValue={profile.contact.address ?? ""}
               label="Address"
               name="address"
+              verificationStatus={profile.contact.addressValidationStatus}
             />
             <label className="full-row">
               Notes
@@ -1038,7 +1043,14 @@ function ProfilePanel({
               ["Email", profile.contact.email],
               ["Phone", profile.contact.phone],
               ["Company", profile.contact.company],
-              ["Address", profile.contact.address],
+              [
+                "Address",
+                <AddressWithVerification
+                  address={profile.contact.address}
+                  key="address"
+                  status={profile.contact.addressValidationStatus}
+                />,
+              ],
               ["Type", formatContactType(profile.contact.contactType)],
               [
                 "Lifecycle",
@@ -1241,14 +1253,16 @@ export default async function ContactsPage({
     Boolean(searchState.address);
   const hasSearch = Boolean(searchState.q) || hasAdvancedSearch;
   const selectedContactId = query?.contactId?.trim() ?? "";
-  const [contacts, leads, selectedProfile, generalSettings] = await Promise.all([
-    getContactList(supabase, workspace.id),
-    getLeadList(supabase, workspace.id),
-    selectedContactId
-      ? getContactProfile(supabase, workspace.id, selectedContactId)
-      : Promise.resolve(null),
-    getWorkspaceGeneralSettings(supabase, workspace.id),
-  ]);
+  const [contacts, leads, selectedProfile, generalSettings] = await Promise.all(
+    [
+      getContactList(supabase, workspace.id),
+      getLeadList(supabase, workspace.id),
+      selectedContactId
+        ? getContactProfile(supabase, workspace.id, selectedContactId)
+        : Promise.resolve(null),
+      getWorkspaceGeneralSettings(supabase, workspace.id),
+    ],
+  );
   const timeZone = generalSettings.timeZone;
   const withAddress = contacts.filter((contact) => contact.address).length;
   const totalMessages = contacts.reduce(
@@ -1320,7 +1334,10 @@ export default async function ContactsPage({
     pageStart,
     pageStart + CRM_PAGE_SIZE,
   );
-  const paginatedLeads = sortedLeads.slice(pageStart, pageStart + CRM_PAGE_SIZE);
+  const paginatedLeads = sortedLeads.slice(
+    pageStart,
+    pageStart + CRM_PAGE_SIZE,
+  );
   const selectedLeadContactIds = new Set(
     searchedLeads
       .filter((lead) => lead.contactId)
@@ -1476,7 +1493,7 @@ export default async function ContactsPage({
               sortedLeads.length > 0 ? (
                 paginatedLeads.map((lead) => (
                   <LeadRow
-          timeZone={timeZone}
+                    timeZone={timeZone}
                     activeFilter={activeFilter}
                     isSelected={Boolean(
                       selectedProfile &&
@@ -1495,7 +1512,7 @@ export default async function ContactsPage({
             ) : sortedContacts.length > 0 ? (
               paginatedContacts.map((contact) => (
                 <ContactRow
-          timeZone={timeZone}
+                  timeZone={timeZone}
                   activeFilter={activeFilter}
                   contact={contact}
                   isSelected={selectedProfile?.contact.id === contact.id}
@@ -1563,7 +1580,7 @@ export default async function ContactsPage({
 
         {selectedProfile ? (
           <ProfilePanel
-          timeZone={timeZone}
+            timeZone={timeZone}
             activeFilter={activeFilter}
             engineError={query?.engine_error}
             engineMessage={query?.engine_message}

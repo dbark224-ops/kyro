@@ -3555,10 +3555,64 @@ h2 {
 
 .address-autocomplete-label {
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 0.75rem;
   font-weight: 800;
   line-height: 1.25;
   text-transform: uppercase;
+}
+
+/* Whether anyone has actually confirmed an address.
+   Sized to sit inside a field label or a fact row without stretching either,
+   so it reads as an annotation on the address rather than a control. */
+.address-verification {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.address-verification-verified {
+  border-color: color-mix(in srgb, var(--cyan) 58%, var(--line));
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: color-mix(in srgb, var(--cyan) 42%, var(--text));
+}
+
+.address-verification-review {
+  border-color: color-mix(in srgb, var(--pink) 48%, var(--line));
+  background: color-mix(in srgb, var(--pink) 16%, transparent);
+  color: var(--text);
+}
+
+.address-verification-unverified {
+  border-color: color-mix(in srgb, var(--line) 82%, var(--cyan));
+  background: color-mix(in srgb, var(--surface) 84%, var(--cyan));
+  color: var(--muted);
+}
+
+/* The address and its badge share a row and wrap together, so a long address
+   in a narrow fact column does not push the badge off the edge. */
+.address-with-verification {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.address-with-verification > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .signup-place-autocomplete-field .address-autocomplete-control input {
