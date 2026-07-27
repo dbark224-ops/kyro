@@ -2,6 +2,7 @@ import {
   createWorkspaceBootstrapDefaults,
   type WorkspaceBootstrapInput,
 } from "@kyro/api";
+import { cache } from "react";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { usageMarkupRate } from "../usage/pricing";
 import {
@@ -111,7 +112,13 @@ export async function ensureUserProfile(supabase: SupabaseClient, user: User) {
   }
 }
 
-export async function getPrimaryWorkspace(
+/**
+ * The signed-in person's workspace.
+ *
+ * Memoised per request: several chrome loaders ask for it independently, and
+ * it is the same row every time within one render.
+ */
+export const getPrimaryWorkspace = cache(async function getPrimaryWorkspace(
   supabase: SupabaseClient,
 ): Promise<WorkspaceSummary | null> {
   const { data, error } = await supabase
@@ -125,7 +132,7 @@ export async function getPrimaryWorkspace(
   }
 
   return data?.[0] ?? null;
-}
+});
 
 export async function createWorkspaceBootstrap(
   supabase: SupabaseClient,

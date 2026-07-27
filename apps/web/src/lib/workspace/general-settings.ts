@@ -16,6 +16,7 @@ import {
 } from "../crm/identity";
 import { normalizeUsageMarkupRate, usageMarkupRate } from "../usage/pricing";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cache } from "react";
 import { objectRecord, textValue } from "@kyro/core";
 
 export const WORKSPACE_GENERAL_POLICY_TYPE = "workspace_general";
@@ -99,7 +100,8 @@ export const WORKPLACE_CONTACT_CHANNELS = [
   "app_notification",
 ] as const;
 
-export type WorkplaceContactChannel = (typeof WORKPLACE_CONTACT_CHANNELS)[number];
+export type WorkplaceContactChannel =
+  (typeof WORKPLACE_CONTACT_CHANNELS)[number];
 
 export type WorkplaceContactSettings = {
   activeDays: string;
@@ -121,55 +123,64 @@ export type WorkplaceContactSettings = {
 export const URGENT_ESCALATION_TRIGGER_DEFINITIONS = [
   {
     defaultEnabled: true,
-    description: "The customer explicitly says urgent, emergency, ASAP, or same-day critical.",
+    description:
+      "The customer explicitly says urgent, emergency, ASAP, or same-day critical.",
     key: "explicit_urgency",
     label: "Customer says it is urgent",
   },
   {
     defaultEnabled: true,
-    description: "Burst pipes, flooding, roof leaks, water through ceilings, or active damage.",
+    description:
+      "Burst pipes, flooding, roof leaks, water through ceilings, or active damage.",
     key: "active_property_damage",
     label: "Active property damage",
   },
   {
     defaultEnabled: true,
-    description: "Gas, electrical danger, fire risk, injury, unsafe structure, or similar safety risk.",
+    description:
+      "Gas, electrical danger, fire risk, injury, unsafe structure, or similar safety risk.",
     key: "safety_risk",
     label: "Safety risk",
   },
   {
     defaultEnabled: true,
-    description: "A previous or current customer says completed work is failing or causing damage.",
+    description:
+      "A previous or current customer says completed work is failing or causing damage.",
     key: "existing_job_serious_issue",
     label: "Existing job serious issue",
   },
   {
     defaultEnabled: true,
-    description: "Refund, complaint, legal, regulator, bad review, or highly unhappy customer language.",
+    description:
+      "Refund, complaint, legal, regulator, bad review, or highly unhappy customer language.",
     key: "complaint_or_reputation_risk",
     label: "Complaint or reputation risk",
   },
   {
     defaultEnabled: true,
-    description: "The same person tries multiple channels or contacts repeatedly within a short window.",
+    description:
+      "The same person tries multiple channels or contacts repeatedly within a short window.",
     key: "repeat_contact_short_window",
     label: "Repeat contact pressure",
   },
   {
     defaultEnabled: true,
-    description: "Urgent-looking inquiry outside the normal work/contact window.",
+    description:
+      "Urgent-looking inquiry outside the normal work/contact window.",
     key: "after_hours_emergency",
     label: "After-hours emergency inquiry",
   },
   {
     defaultEnabled: false,
-    description: "Commercial, renovation, insurance, emergency callout, or other likely high-value work.",
+    description:
+      "Commercial, renovation, insurance, emergency callout, or other likely high-value work.",
     key: "high_value_lead",
     label: "High-value lead",
   },
   {
     defaultEnabled: false,
-    description: "No hot water, no heating, no power, access issue, or vulnerable customer impact.",
+    description:
+      "No hot water, no heating, no power, access issue, or vulnerable customer impact.",
     key: "essential_service_outage",
     label: "Essential service outage",
   },
@@ -181,13 +192,15 @@ export const URGENT_ESCALATION_TRIGGER_DEFINITIONS = [
   },
   {
     defaultEnabled: false,
-    description: "A known customer calls and the call is missed or reaches voicemail overflow.",
+    description:
+      "A known customer calls and the call is missed or reaches voicemail overflow.",
     key: "missed_known_customer_call",
     label: "Missed call from known customer",
   },
   {
     defaultEnabled: false,
-    description: "The customer asks for the owner, boss, or tradie to call immediately.",
+    description:
+      "The customer asks for the owner, boss, or tradie to call immediately.",
     key: "asks_for_owner_now",
     label: "Customer asks for owner now",
   },
@@ -234,9 +247,13 @@ function defaultBusinessHoursSchedule(): BusinessHoursScheduleSettings {
   return {
     days: BUSINESS_HOUR_DAYS.map((day) => ({
       day: day.key,
-      enabled: ["monday", "tuesday", "wednesday", "thursday", "friday"].includes(
-        day.key,
-      ),
+      enabled: [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+      ].includes(day.key),
       endTime: "16:00",
       startTime: "07:00",
     })),
@@ -466,7 +483,10 @@ function normalizeBusinessHoursSchedule(
       return {
         day: day.key,
         enabled: booleanValue(input.enabled, fallbackDay?.enabled ?? false),
-        endTime: normalizeTimeValue(input.endTime, fallbackDay?.endTime ?? "16:00"),
+        endTime: normalizeTimeValue(
+          input.endTime,
+          fallbackDay?.endTime ?? "16:00",
+        ),
         startTime: normalizeTimeValue(
           input.startTime,
           fallbackDay?.startTime ?? "07:00",
@@ -483,14 +503,14 @@ function normalizeWorkplaceContactChannel(
 ): WorkplaceContactChannel {
   const channel = textValue(value);
 
-  return WORKPLACE_CONTACT_CHANNELS.includes(
-    channel as WorkplaceContactChannel,
-  )
+  return WORKPLACE_CONTACT_CHANNELS.includes(channel as WorkplaceContactChannel)
     ? (channel as WorkplaceContactChannel)
     : fallback;
 }
 
-function normalizeWorkplaceContacts(value: unknown): WorkplaceContactSettings[] {
+function normalizeWorkplaceContacts(
+  value: unknown,
+): WorkplaceContactSettings[] {
   const rows = Array.isArray(value) ? value : [];
 
   const contacts = rows
@@ -516,7 +536,11 @@ function normalizeWorkplaceContacts(value: unknown): WorkplaceContactSettings[] 
         receivesEscalations: booleanValue(record.receivesEscalations, true),
         role: cappedTextValue(record.role, "", 120),
         tradeSpecialty: cappedTextValue(record.tradeSpecialty, "", 160),
-        vehicleRegistration: cappedTextValue(record.vehicleRegistration, "", 80),
+        vehicleRegistration: cappedTextValue(
+          record.vehicleRegistration,
+          "",
+          80,
+        ),
         workingHours: cappedTextValue(record.workingHours, "", 300),
       };
     })
@@ -578,7 +602,9 @@ function normalizeEscalationHoursMode(
     : fallback;
 }
 
-function normalizeEscalationSteps(value: unknown): UrgentEscalationStepSettings[] {
+function normalizeEscalationSteps(
+  value: unknown,
+): UrgentEscalationStepSettings[] {
   const rows = Array.isArray(value) ? value : [];
 
   return rows
@@ -614,11 +640,7 @@ function normalizeUrgentEscalationSettings(
   );
 
   return {
-    customDays: cappedTextValue(
-      settings.customDays,
-      fallback.customDays,
-      300,
-    ),
+    customDays: cappedTextValue(settings.customDays, fallback.customDays, 300),
     customEndTime: cappedTextValue(
       settings.customEndTime,
       fallback.customEndTime,
@@ -630,7 +652,10 @@ function normalizeUrgentEscalationSettings(
       40,
     ),
     enabled: booleanValue(settings.enabled, fallback.enabled),
-    hoursMode: normalizeEscalationHoursMode(settings.hoursMode, fallback.hoursMode),
+    hoursMode: normalizeEscalationHoursMode(
+      settings.hoursMode,
+      fallback.hoursMode,
+    ),
     requireAcknowledgement: booleanValue(
       settings.requireAcknowledgement,
       fallback.requireAcknowledgement,
@@ -705,7 +730,8 @@ export function normalizeWorkspaceBusinessProfileSettings(
     emergencyJobsEnabled:
       typeof settings.emergencyJobsEnabled === "boolean"
         ? settings.emergencyJobsEnabled
-        : fallback.emergencyJobsEnabled ?? defaultSettings.emergencyJobsEnabled,
+        : (fallback.emergencyJobsEnabled ??
+          defaultSettings.emergencyJobsEnabled),
     emergencyRateNotes: cappedTextValue(
       settings.emergencyRateNotes,
       fallback.emergencyRateNotes ?? defaultSettings.emergencyRateNotes,
@@ -866,73 +892,84 @@ export function normalizeWorkspaceGeneralSettings(
   };
 }
 
-export async function getWorkspaceGeneralSettings(
-  supabase: SupabaseClient,
-  workspaceId: string,
-) {
-  const [generalPolicy, inboundPolicy, businessProfile] = await Promise.all([
-    supabase
-      .from("workspace_policies")
-      .select("settings")
-      .eq("workspace_id", workspaceId)
-      .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
-      .maybeSingle(),
-    supabase
-      .from("workspace_policies")
-      .select("settings")
-      .eq("workspace_id", workspaceId)
-      .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
-      .maybeSingle(),
-    supabase
-      .from("business_profiles")
-      .select(
-        "business_name,industry,description,service_area,tone_of_voice,default_reply_instructions",
-      )
-      .eq("workspace_id", workspaceId)
-      .maybeSingle(),
-  ]);
+/**
+ * Timezone, currency, business profile and escalation policy.
+ *
+ * Three `workspace_policies` reads, and nearly every screen needs at least the
+ * timezone to render a date. It is asked for from 65 places, several of them
+ * during the same render -- the contact profile page called it twice on its
+ * own -- so it is memoised per request. The underlying rows do not change
+ * inside a single page load.
+ */
+export const getWorkspaceGeneralSettings = cache(
+  async function getWorkspaceGeneralSettings(
+    supabase: SupabaseClient,
+    workspaceId: string,
+  ) {
+    const [generalPolicy, inboundPolicy, businessProfile] = await Promise.all([
+      supabase
+        .from("workspace_policies")
+        .select("settings")
+        .eq("workspace_id", workspaceId)
+        .eq("policy_type", WORKSPACE_GENERAL_POLICY_TYPE)
+        .maybeSingle(),
+      supabase
+        .from("workspace_policies")
+        .select("settings")
+        .eq("workspace_id", workspaceId)
+        .eq("policy_type", INBOUND_EMAIL_POLICY_TYPE)
+        .maybeSingle(),
+      supabase
+        .from("business_profiles")
+        .select(
+          "business_name,industry,description,service_area,tone_of_voice,default_reply_instructions",
+        )
+        .eq("workspace_id", workspaceId)
+        .maybeSingle(),
+    ]);
 
-  if (generalPolicy.error) {
-    throw new Error(
-      `Unable to load workspace defaults: ${generalPolicy.error.message}`,
+    if (generalPolicy.error) {
+      throw new Error(
+        `Unable to load workspace defaults: ${generalPolicy.error.message}`,
+      );
+    }
+
+    if (inboundPolicy.error) {
+      throw new Error(
+        `Unable to load workspace timezone fallback: ${inboundPolicy.error.message}`,
+      );
+    }
+
+    if (businessProfile.error) {
+      throw new Error(
+        `Unable to load business profile fallback: ${businessProfile.error.message}`,
+      );
+    }
+
+    const inboundSettings = normalizeInboundEmailSettings(
+      inboundPolicy.data?.settings,
     );
-  }
+    const profileFallback = businessProfile.data
+      ? {
+          brandStyle:
+            businessProfile.data.tone_of_voice ??
+            businessProfile.data.default_reply_instructions ??
+            "",
+          businessName: businessProfile.data.business_name ?? "",
+          industry: businessProfile.data.industry ?? "",
+          serviceArea:
+            businessProfile.data.service_area ??
+            businessProfile.data.description ??
+            "",
+        }
+      : undefined;
 
-  if (inboundPolicy.error) {
-    throw new Error(
-      `Unable to load workspace timezone fallback: ${inboundPolicy.error.message}`,
-    );
-  }
-
-  if (businessProfile.error) {
-    throw new Error(
-      `Unable to load business profile fallback: ${businessProfile.error.message}`,
-    );
-  }
-
-  const inboundSettings = normalizeInboundEmailSettings(
-    inboundPolicy.data?.settings,
-  );
-  const profileFallback = businessProfile.data
-    ? {
-        brandStyle:
-          businessProfile.data.tone_of_voice ??
-          businessProfile.data.default_reply_instructions ??
-          "",
-        businessName: businessProfile.data.business_name ?? "",
-        industry: businessProfile.data.industry ?? "",
-        serviceArea:
-          businessProfile.data.service_area ??
-          businessProfile.data.description ??
-          "",
-      }
-    : undefined;
-
-  return normalizeWorkspaceGeneralSettings(generalPolicy.data?.settings, {
-    businessProfile: profileFallback,
-    timeZone: inboundSettings.timeZone,
-  });
-}
+    return normalizeWorkspaceGeneralSettings(generalPolicy.data?.settings, {
+      businessProfile: profileFallback,
+      timeZone: inboundSettings.timeZone,
+    });
+  },
+);
 
 /**
  * The workspace's dialling region, for phone normalization and validation.
