@@ -8257,6 +8257,13 @@ button.voice-card {
   flex-direction: column;
   border-radius: var(--radius-panel);
   min-height: 0;
+  /*
+   * The rows care how wide this panel is, not how wide the window is. In split
+   * pane the panel is half the workspace, so a laptop can leave it far narrower
+   * than the viewport-keyed breakpoint would ever notice.
+   */
+  container-type: inline-size;
+  container-name: inbox-list;
 }
 
 .inbox-work-queue-panel .data-list {
@@ -9320,13 +9327,28 @@ button.voice-card {
   white-space: nowrap;
 }
 
+/*
+ * Split pane: six columns become five, and every one of them can now shrink.
+ *
+ * These used to be fixed widths (108px, 150px, 70px) with hard minimums on the
+ * rest, so the row could not be narrower than about 694px once the gaps and the
+ * 42px right padding were counted. The pane is half the workspace, so that
+ * needs roughly a 1660px window -- fine on a desktop, not on a laptop, where
+ * the row simply overflowed and pushed the status pill out of sight past the
+ * right edge. The stacked reflow that would have rescued it keys off the
+ * viewport, which was still comfortably wide.
+ *
+ * minmax(0, …) keeps the same proportions when there is room and lets them
+ * compress when there is not. The status column keeps a real minimum, because
+ * an ellipsised status pill is worse than a slightly narrower preview.
+ */
 .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row {
   grid-template-columns:
-    108px
-    150px
-    minmax(150px, 1fr)
-    70px
-    minmax(124px, 136px);
+    minmax(0, 108px)
+    minmax(0, 150px)
+    minmax(0, 1fr)
+    minmax(0, 70px)
+    minmax(112px, 136px);
   gap: 8px;
   align-items: center;
   min-height: 42px;
@@ -9397,6 +9419,67 @@ button.voice-card {
   .conversation-row-status {
   white-space: nowrap;
   text-align: center;
+}
+
+/*
+ * Below this the row stops being a table and becomes a card.
+ *
+ * Same treatment the viewport breakpoint applies on a phone, keyed to the
+ * panel instead. Five columns do not fit in a narrow split pane at any
+ * sensible width, and squeezing them all to ellipses reads worse than
+ * stacking. 720px is just above the row's natural minimum, so the reflow
+ * happens before anything is forced to truncate.
+ */
+@container inbox-list (max-width: 720px) {
+  .inbox-workspace .conversation-row,
+  .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row,
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row.junk-conversation-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px 8px;
+    min-height: 76px;
+    padding: 10px 12px;
+  }
+
+  .inbox-workspace .conversation-row .conversation-row-time {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .inbox-workspace .conversation-row .conversation-row-from {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .inbox-workspace .conversation-row .conversation-row-title,
+  .inbox-workspace .conversation-row .conversation-message-preview {
+    grid-column: 1 / -1;
+  }
+
+  .inbox-workspace .conversation-row .conversation-row-title,
+  .inbox-workspace .conversation-row .conversation-row-title strong,
+  .inbox-workspace .conversation-row .conversation-message-preview {
+    white-space: normal;
+  }
+
+  .inbox-workspace .conversation-row .conversation-row-extra {
+    grid-column: 1;
+    min-height: 0;
+    justify-self: start;
+    text-align: left;
+  }
+
+  /* The whole point: the pill gets its own place on the row instead of being
+     pushed past the right edge. */
+  .inbox-workspace .conversation-row .conversation-row-status,
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-status {
+    grid-column: 2;
+    justify-self: end;
+    max-width: 100%;
+    white-space: normal;
+  }
 }
 
 .pill {
