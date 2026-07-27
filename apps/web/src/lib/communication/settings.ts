@@ -309,6 +309,13 @@ export function replyWritingPromptRules(
   isFirstCustomerTurn?: boolean,
 ) {
   const rules = [
+    // The channel used to reach the model only as a choice of sign-off rule,
+    // so it was left to infer the medium from that one line. It wrote drafts
+    // caught between the two: an email-length body with no greeting, or a text
+    // that promised to "reply by email". Say which one it is composing.
+    isSmsLikeChannel(channelType)
+      ? "You are composing a text message. It will be delivered as SMS or WhatsApp, with no subject line and no formatting. Keep it to a few sentences, open without a formal salutation, and do not write anything that only makes sense on a page."
+      : "You are composing an email. It will be delivered with a subject line and the business's saved signature. A short greeting and complete sentences are expected, and you have room for a paragraph or two.",
     `Tone: ${settings.tone}`,
     `Wording style: ${settings.wordingStyle}`,
     `Message length: ${settings.messageLength}`,

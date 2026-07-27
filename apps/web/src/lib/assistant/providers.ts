@@ -185,7 +185,13 @@ function buildAssistantPrompt(input: AssistantModelInput) {
           // oversized body and arrive cut off, so the budget is stated rather
           // than enforced afterwards by slicing the string.
           `Aim to fit within about ${TEXT_ONLY_REPLY_BUDGET} characters. Longer answers are delivered as two or three separate texts, so if the answer genuinely needs the room, write it in complete sentences and let it run rather than trailing off.`,
-          "When quoting a drafted reply back to the user, give it in full if it fits and summarise it faithfully if it does not. Never stop mid-sentence.",
+          // Asking what a draft says is the moment of approval, and the length
+          // budget above must not win here. It did once: the paraphrase that
+          // came back differed from what was actually sent, and the wording it
+          // dropped was the line the owner would have rejected.
+          "When the user asks what a drafted reply says, quote it word for word. Do not paraphrase, tidy, shorten or improve it, even to fit the length budget above -- the user is deciding whether to send exactly this text, so any difference between what you show and what would go out defeats the point of asking. A quoted draft may use all three texts.",
+          "If a draft is genuinely too long even for three texts, say plainly that you are showing the opening and that the rest is in Kyro, rather than silently condensing it.",
+          "The length budget still applies to everything else you write around the quote: introduce it in a few words and stop.",
         ]
       : []),
   ];

@@ -20,6 +20,7 @@ import {
   usageEventTotals,
 } from "../usage/openai";
 import { openAiBalancedModel, openAiReasoningRequest } from "./openai-models";
+import { customerAnswerableMissingInfo } from "./triage";
 import {
   customerReplyConversationRules,
   firstCustomerTurnFromThread,
@@ -174,7 +175,12 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
     ];
   }
 
-  const missingInfo = context.inquiryFacts?.missingInfo ?? [];
+  // Filtered, not raw: some missingInfo entries are notes to the owner rather
+  // than detail the customer could supply, and this list is handed to the
+  // writer as things to ask for.
+  const missingInfo = customerAnswerableMissingInfo(
+    context.inquiryFacts?.missingInfo ?? [],
+  );
   const hasAddress =
     Boolean(context.contactAddress?.trim()) ||
     Boolean(context.inquiryFacts?.address?.trim());
@@ -273,14 +279,18 @@ export function buildReplyDraftPrompt(context: ReplyDraftContext) {
           ? [
               "This is a text message, not an email. There is no subject line -- put everything in the body.",
             ]
-          : ["Use a normal email subject beginning with Re: when appropriate."]),
+          : [
+              "Use a normal email subject beginning with Re: when appropriate.",
+            ]),
         ...customerReplyConversationRules({
           channel: context.channelType,
           isFirstCustomerTurn: firstCustomerTurnFromThread(context.thread),
         }),
-        ...replyWritingPromptRules(replyWriting, context.channelType, firstCustomerTurnFromThread(context.thread)).map(
-          (rule) => `Writing style - ${rule}`,
-        ),
+        ...replyWritingPromptRules(
+          replyWriting,
+          context.channelType,
+          firstCustomerTurnFromThread(context.thread),
+        ).map((rule) => `Writing style - ${rule}`),
         ...skippedEmailRules,
         ...requiredConversationReplyRules(promptContext),
       ],
@@ -634,7 +644,9 @@ export async function generateReplyDraft({
   // See customer-message-generation: the model has already been paid for, so
   // record the charge even if the ai_runs row failed, and never drop it silently.
   if (aiRunError) {
-    console.error(`Unable to record ai_run for reply draft: ${aiRunError.message}`);
+    console.error(
+      `Unable to record ai_run for reply draft: ${aiRunError.message}`,
+    );
   }
 
   const aiRunId = aiRun?.id ? String(aiRun.id) : null;

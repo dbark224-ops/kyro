@@ -702,6 +702,34 @@ function channelKind(context: StubAiTriageContext) {
     .toLowerCase();
 }
 
+/**
+ * The one `missingInfo` entry the customer cannot answer.
+ *
+ * `missingInfo` does double duty: most of it is genuinely missing customer
+ * detail -- job address, preferred time, a phone number -- and the reply
+ * writer is handed the list so it knows what to ask for. This entry is not
+ * that. It means "the owner should look at whether this lead is worth
+ * servicing", and handing it to the writer produced an email asking the
+ * customer to "confirm this is a serviceable inquiry".
+ *
+ * Kept in the list because the owner's inbox reads it, and filtered out of
+ * anything that writes to a customer -- see `customerAnswerableMissingInfo`.
+ */
+export const OWNER_REVIEW_MISSING_INFO =
+  "Confirm this is a serviceable inquiry";
+
+/**
+ * The subset of `missingInfo` a customer could actually supply.
+ *
+ * Anything reaching outbound prose goes through here. A blocklist rather than
+ * an allowlist because the customer-answerable entries are open-ended -- the
+ * model adds its own -- while the owner-facing ones are a closed set we
+ * define.
+ */
+export function customerAnswerableMissingInfo(missingInfo: string[]) {
+  return missingInfo.filter((entry) => entry !== OWNER_REVIEW_MISSING_INFO);
+}
+
 export function outboundReplyChannelForInquiryContext(
   context: StubAiTriageContext,
 ) {
@@ -735,10 +763,7 @@ function applyRequiredInquiryInfo(
   }
 
   if (facts.fit === "needs_review") {
-    missingInfo = withMissingInfo(
-      missingInfo,
-      "Confirm this is a serviceable inquiry",
-    );
+    missingInfo = withMissingInfo(missingInfo, OWNER_REVIEW_MISSING_INFO);
   }
 
   const hasEmail = hasEmailSignal(context, text);
@@ -842,7 +867,12 @@ function missingInfoPhrase(item: string) {
     case "job type":
       return "a quick description of the work";
     default:
-      return item.toLowerCase();
+      // Every known label has a customer-facing phrasing above. Anything else
+      // is a label nobody wrote for a customer to read -- an owner note, or
+      // something the model invented -- and echoing it lowercased is how
+      // "Confirm this is a serviceable inquiry" ended up in an email asking a
+      // customer to confirm they were a serviceable inquiry.
+      return null;
   }
 }
 
@@ -856,7 +886,9 @@ function missingInfoPhrase(item: string) {
  * one. Code decides *what has to be covered*; the model decides how to say it.
  */
 function missingInfoGapPhrases(items: string[]) {
-  return items.map(missingInfoPhrase);
+  return items
+    .map((item): string | null => missingInfoPhrase(item))
+    .filter((phrase): phrase is string => Boolean(phrase));
 }
 
 function replyMentionsMissingInfo(body: string, item: string) {
@@ -881,7 +913,7 @@ function replyMentionsMissingInfo(body: string, item: string) {
 }
 
 function missingInfoNotAskedFor(body: string, facts: InquiryFacts) {
-  return facts.missingInfo.filter(
+  return customerAnswerableMissingInfo(facts.missingInfo).filter(
     (item) => !replyMentionsMissingInfo(body, item),
   );
 }
@@ -900,7 +932,7 @@ export function replyDraftMissingInfoGaps(
 ): string[] {
   return replyDraft.body
     ? missingInfoNotAskedFor(replyDraft.body, facts)
-    : [...facts.missingInfo];
+    : customerAnswerableMissingInfo(facts.missingInfo);
 }
 
 function buildReplyRepairPrompt(input: {

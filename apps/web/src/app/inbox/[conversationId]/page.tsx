@@ -407,6 +407,24 @@ function ProposedActionCard({
           </>
         ) : null}
 
+        {/* A draft reads very differently as a text than as an email, and the
+            channel it was written for was recorded but never shown -- so there
+            was no way to tell from the card which one you were approving. */}
+        {action.type === "draft_reply" ? (
+          <div className="mini-facts-grid">
+            <span>
+              <strong>Sends as</strong>
+              {formatLabel(textValue(action.input.channelType)) || "Email"}
+            </span>
+            {textValue(action.input.subject) ? (
+              <span>
+                <strong>Subject</strong>
+                {textValue(action.input.subject)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
         {![
           "ask_missing_info",
           "book_site_visit",
