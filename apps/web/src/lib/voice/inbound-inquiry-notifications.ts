@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { generateOperatorAlert } from "../ai/customer-message-generation";
 import { getPublicAppUrl } from "../app-url";
 import {
@@ -260,6 +260,7 @@ export function inboundInquiryAlertRules() {
 
 async function writeInboundInquiryNotification(
   input: InquiryNotificationInput,
+  userId: string | null,
 ) {
   const kyroLink = buildInboundInquiryLink(input.conversationId);
 
@@ -286,7 +287,7 @@ async function writeInboundInquiryNotification(
       supabase: input.supabase,
       task: "Write the new-inquiry alert for the business owner.",
       taskType: "inbound_inquiry_notification",
-      userId: "system",
+      userId,
       workspaceId: input.workspaceId,
     });
 
@@ -360,26 +361,40 @@ async function saveInquiryBriefingToFieldThread(
   body: string,
 ) {
   if (!recipient.userId || !input.conversationId) {
+    // Nothing to attach the briefing to. Logged rather than returned quietly,
+    // because the alert still goes out and invites a reply that will not find
+    // any context to work from.
+    console.error("Skipped saving inbound inquiry assistant context", {
+      conversationId: input.conversationId ?? null,
+      reason: recipient.userId
+        ? "no conversation id"
+        : "no notification recipient user id",
+      workspaceId: input.workspaceId,
+    });
+
     return;
   }
 
-  const { data, error } = await input.supabase.auth.admin.getUserById(
-    recipient.userId,
-  );
-
-  if (error || !data.user) {
-    throw new Error(
-      `Unable to load notification recipient for assistant context: ${error?.message ?? "unknown error"}`,
-    );
-  }
-
+  /*
+   * The thread and the message only ever read `user.id`.
+   *
+   * This used to call supabase.auth.admin.getUserById to obtain a full User,
+   * which needs a service-role client -- and the notification path does not
+   * have one, so it failed with "This endpoint requires a valid Bearer token"
+   * on every inbound inquiry. The briefing was therefore never saved, and a
+   * reply to the alert had no conversation to resolve against.
+   *
+   * The id is already in hand, so the round trip bought nothing but a
+   * dependency on a client this path was never given.
+   */
+  const recipientUser = { id: recipient.userId } as User;
   const thread = await getOrCreateInternalMessagingThread(
     input.supabase,
     {
       id: input.workspaceId,
       name: recipient.workspaceName,
     },
-    data.user,
+    recipientUser,
     {
       displayName: recipient.name,
       senderPhone: recipient.phoneNumber,
@@ -418,7 +433,7 @@ async function saveInquiryBriefingToFieldThread(
         type: "approval_queue",
       },
     ],
-    user: data.user,
+    user: recipientUser,
     workspaceId: input.workspaceId,
   });
 }
@@ -527,7 +542,10 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
     textValue(input.conversationId) ??
     "unknown";
   let result: Awaited<ReturnType<typeof recordOutboundDirectSms>>;
-  const notificationBody = await writeInboundInquiryNotification(input);
+  const notificationBody = await writeInboundInquiryNotification(
+    input,
+    recipient.userId,
+  );
   const transport = twilioMessageTransportForWorkspace({
     recipientPhone: recipient.phoneNumber,
     workspaceId: input.workspaceId,

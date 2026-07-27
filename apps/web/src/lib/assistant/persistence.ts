@@ -1130,7 +1130,29 @@ async function refreshAssistantConversationLinks(
         originalLinks,
         refreshedLinksByHref,
       ),
-      links: linksFromBlocks(uiBlocks),
+      /*
+       * Refresh the links this message already has -- do not rebuild them from
+       * the UI blocks alone.
+       *
+       * toThreadMessage merges metadata.contextLinks with the block links,
+       * because on SMS and WhatsApp the blocks are deliberately stripped for
+       * display and contextLinks is the only record of which conversations the
+       * message was about. Recomputing from blocks here threw that away, so
+       * every texted turn came back with no links, and anything that resolves
+       * "that one" from recent messages -- replying to an inquiry briefing,
+       * deleting the conversation just discussed -- found nothing and asked the
+       * user which inquiry they meant.
+       */
+      links: dedupeAssistantLinks(
+        (message.links ?? []).map((link) => {
+          const conversationHref = conversationHrefFromHref(link.href);
+          const refreshedLink = conversationHref
+            ? refreshedLinksByHref.get(conversationHref)
+            : null;
+
+          return refreshedLink ? { ...link, ...refreshedLink } : link;
+        }),
+      ),
       uiBlocks,
     };
   });

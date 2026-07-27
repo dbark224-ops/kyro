@@ -209,7 +209,9 @@ export async function generateOperatorAlert(input: {
   supabase: SupabaseClient;
   task: string;
   taskType: string;
-  userId: string;
+  /** Null for system-initiated work. Never a sentinel -- the usage schema
+   * requires a real uuid, and "system" threw on every call. */
+  userId: string | null;
   workspaceId: string;
 }) {
   return generateCustomerMessage({ ...input, audience: "operator", channelType: "sms" });
@@ -225,7 +227,9 @@ export async function generateCustomerMessage(input: {
   supabase: SupabaseClient;
   task: string;
   taskType: string;
-  userId: string;
+  /** Null for system-initiated work. Never a sentinel -- the usage schema
+   * requires a real uuid, and "system" threw on every call. */
+  userId: string | null;
   workspaceId: string;
 }): Promise<CustomerMessageResult> {
   await assertWorkspaceAutomationAllowed(input.workspaceId);
