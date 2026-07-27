@@ -19482,27 +19482,44 @@ button:disabled {
 .dashboard-work-item {
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  gap: 4px;
 }
 
 .dashboard-work-item-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  /* The title block sits against the top of this row; the pill re-centres
+     itself below. Centring the whole row let the taller pill push the text
+     down, which is what left more space above the card's content than below
+     it. */
+  align-items: start;
   gap: 10px;
+}
+
+/* Keeps its own middle alignment against the title line it labels. */
+.dashboard-work-item-head .pill {
+  align-self: center;
+  padding: 3px 8px;
 }
 
 .dashboard-work-item-title {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 8px;
+  gap: 7px;
 }
 
+/* The timestamp is much smaller than the name beside it, so sharing a baseline
+   hung it four pixels low -- close to the top-left corner but visibly not in
+   it. Aligned to the top of the line instead, with a line height that puts it
+   level with the name's cap rather than its baseline. */
 .dashboard-work-item-title time {
   flex: 0 0 auto;
+  align-self: start;
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 760;
+  line-height: 1.45;
   white-space: nowrap;
 }
 
