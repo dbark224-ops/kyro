@@ -508,16 +508,49 @@ confirmed by reading the code or querying production, not by re-reading the audi
 - `[VERIFIED]` **`tool-registry.ts` is hand-maintained documentation**, 16 entries in its
   own taxonomy against 17 real `kyro_*` tools, with nothing connecting the two — yet
   `developer/assistant-tools` renders it as the authority on permissions and approval gates.
-- `[VERIFIED]` **No `Suspense` in any page body.** Exactly one file in the app uses it
-  (`app-frame.tsx`). Every screen waits for its slowest query before painting. Real, but a
-  broad refactor rather than a defect.
-- `[VERIFIED]` **`messages` has no composite index for the ordered thread read.** Live DB
-  shows only `messages_pkey` and the `(workspace_id, contact_id)` partial index added for
-  the contact-activity RPC. `conversations` *is* correctly indexed on
-  `(workspace_id, last_message_at DESC) WHERE deleted_at IS NULL`. Harmless at 69 rows;
-  worth doing before real volume.
+- `[CLOSED — the finding was wrong]` "No `Suspense` in any page body; every screen waits
+  for its slowest query before painting." The first clause is literally true and the
+  conclusion does not follow. The app has **27 `loading.tsx` files**, which is Next's own
+  way of wrapping a page in a Suspense boundary, so navigation already paints a skeleton
+  immediately. Searching for the keyword missed the mechanism that provides the behaviour.
+  What is left is narrow: each page is a single boundary, so it appears all at once, gated
+  by its slowest query. The queries inside are already parallel (`Promise.all`), so the
+  available gain is the gap between the slowest and second-slowest — and the one genuinely
+  slow per-render query, the usage sweep, was fixed separately. Splitting every page into
+  finer boundaries is a large restructure for an unmeasured gain. Closed deliberately:
+  reopen only if a specific page measures slow, and then fix that query rather than the
+  page structure.
+- `[FIXED]` **`messages` had no composite index for the ordered thread read.** Closed
+  2026-07-26. Every read filters on `workspace_id` plus `conversation_id` or `contact_id`
+  and orders by `created_at DESC`; both indexes now match that, and the narrower
+  contact-activity index they supersede was dropped.
 - `[VERIFIED]` **The provider abstraction is nominal** — 36 files touch OpenAI, 2 import
   `providers`. `current-architecture.md:1122` claiming providers are swappable is wrong.
+
+### Closing the long tail, 2026-07-26
+
+Everything above is now either fixed or explicitly closed. Three things worth recording
+because the first pass got them wrong:
+
+- **The unchecked-write count was 69, not 81, and a third of them were money.** The earlier
+  "81" was a regex artefact, and the "48 remaining are low-stakes" label was wrong.
+  Usage metering alone was silently dropping errors at **eleven** sites, not the three the
+  first pass reported — voice calls, inbound SMS, calendar reminders, realtime tools, Vapi
+  tools, template revision, prompt suggestions and pronunciation enrichment. The calendar
+  reminder path also had a write that claims a delivery *before* sending, so losing it
+  silently could text the same reminder to a customer twice.
+- **Two writes must NOT throw, and wrapping them uniformly would have caused bugs.**
+  Recording a placed Vapi call sits inside a `try` whose `catch` marks the call failed, so
+  throwing there would record a live, ringing call as a failure. The recording-cleanup
+  writes sit in a loop that has to keep going for the other calls. Both log instead. This
+  is why the sweep was done by reading each site rather than mechanically.
+- **Eight remaining scan hits are false positives** — checked ternary branches in
+  `bootstrap` and `voice/calls`, a `let` destructure in `dunning`, and `recordUsageEvents`'
+  own deliberate best-effort audit write. Left alone on purpose.
+
+`lib/supabase/write.ts` now holds both `writeOrThrow` and `logWriteError`, because "this
+write should not stop the work" and "no one will ever know it failed" are different
+decisions, and only the first was ever intended.
 
 **Checked and found FALSE or already resolved — do not resurrect:**
 
@@ -530,6 +563,15 @@ confirmed by reading the code or querying production, not by re-reading the audi
   `/voice-vapi` and does not load elsewhere.
 - "`packages/core` is 100% dead." **FALSE** since the shared value helpers moved there —
   144 files import it.
+
+---
+
+## The original audit list, superseded
+
+**Everything below is the raw output of the audit agent, kept only as a record of what was
+originally claimed. It is out of date and in several places wrong.** The triage passes
+above supersede it entirely: each item there was checked against the code or the live
+database and is marked fixed, closed, or false. Read the triage, not this.
 
 ### Structure and size
 
