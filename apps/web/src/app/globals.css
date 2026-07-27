@@ -8892,10 +8892,6 @@ button.voice-card {
 }
 
 .crm-row-main,
-.crm-row-meta {
-  min-width: 0;
-}
-
 .crm-row-main {
   display: grid;
   grid-template-columns: minmax(120px, 0.32fr) minmax(0, 1fr);
@@ -8903,11 +8899,13 @@ button.voice-card {
   align-items: center;
 }
 
+/* Was declared twice, a few lines apart, with the halves of one rule. */
 .crm-row-meta {
+  align-items: center;
   display: flex;
   gap: 10px;
-  align-items: center;
   justify-content: flex-end;
+  min-width: 0;
   text-align: right;
 }
 
