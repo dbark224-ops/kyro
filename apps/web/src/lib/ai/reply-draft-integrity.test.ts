@@ -88,6 +88,50 @@ describe("owner notes do not reach the customer", () => {
   });
 });
 
+describe("a truncated model response does not read as a database failure", () => {
+  const triage = readRepoFile("apps/web/src/lib/ai/triage.ts");
+
+  it("only blames the insert when the insert actually failed", () => {
+    // A long inquiry overran the output ceiling, the JSON arrived cut off,
+    // triage fell back to the stub, the stub wrote no reply body, nothing was
+    // proposed -- and the operator was told "Unable to create AI proposed
+    // action: unknown error". Every word of that pointed at the wrong layer.
+    assert.match(
+      triage,
+      /if \(actionError\) \{\s*throw new Error\(\s*`Unable to create AI proposed action: \$\{actionError\.message\}`/,
+    );
+    assert.doesNotMatch(triage, /actionError\?\.message \?\? "unknown error"/);
+  });
+
+  it("says so plainly when there was nothing to propose", () => {
+    assert.match(triage, /Triage proposed no actions for event/);
+    assert.match(triage, /truncated or unparsed model response/);
+  });
+
+  it("survives having proposed nothing", () => {
+    // Making it non-fatal moved the crash downstream: primaryAction would be
+    // undefined and the next line read .id off it.
+    assert.match(triage, /for \(const action of actions \?\? \[\]\)/);
+    assert.match(triage, /actions\?\.find\(/);
+    assert.match(triage, /if \(knownFactAutoReply && primaryAction\)/);
+  });
+
+  it("leaves the ceiling high enough for a long inquiry", () => {
+    // The reply body travels inside the JSON, so the ceiling has to cover the
+    // whole object. A ceiling is not a target -- output is billed on what is
+    // generated, so headroom is free on a short inquiry.
+    const cap = triage.match(
+      /OPENAI_TRIAGE_MAX_OUTPUT_TOKENS[\s\S]{0,140}?: (\d+);/,
+    );
+
+    assert.ok(cap, "the triage output ceiling should be findable");
+    assert.ok(
+      Number(cap[1]) >= 1200,
+      `700 truncated a real inquiry; found ${cap[1]}`,
+    );
+  });
+});
+
 describe("the writer is told which medium it is composing", () => {
   const settings = DEFAULT_REPLY_WRITING_SETTINGS;
 

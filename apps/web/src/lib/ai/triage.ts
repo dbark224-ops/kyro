@@ -1303,14 +1303,27 @@ function openAiTriageModel() {
   return process.env.OPENAI_TRIAGE_MODEL?.trim() || openAiLowCostModel();
 }
 
+/**
+ * Room for the whole JSON object, not just the reply inside it.
+ *
+ * This ceiling was 700, which a long inquiry could exceed: the response was
+ * cut off mid-object, `JSON.parse` failed at character 1793, and triage fell
+ * back to the stub -- which produces no reply body, so nothing was proposed
+ * and the caller reported "Unable to create AI proposed action: unknown
+ * error". A truncated model response should not read like a database failure.
+ *
+ * A ceiling is not a target: the model still writes what the reply needs, and
+ * output is billed on what it actually generates, so the headroom costs
+ * nothing on a short inquiry and saves a whole failed turn on a long one.
+ */
 function openAiTriageMaxOutputTokens() {
   const parsed = Number(process.env.OPENAI_TRIAGE_MAX_OUTPUT_TOKENS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 700;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1600;
 }
 
 function openAiReplyRepairMaxOutputTokens() {
   const parsed = Number(process.env.OPENAI_REPLY_REPAIR_MAX_OUTPUT_TOKENS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1200;
 }
 
 function describeOllamaError(error: unknown, timeoutMs: number) {
@@ -3169,13 +3182,27 @@ export async function runStubAiTriage(
     )
     .select("id,type,status");
 
-  if (actionError || !actions || actions.length === 0) {
+  if (actionError) {
     throw new Error(
-      `Unable to create AI proposed action: ${actionError?.message ?? "unknown error"}`,
+      `Unable to create AI proposed action: ${actionError.message}`,
     );
   }
 
-  for (const action of actions) {
+  // Having nothing to propose is a real outcome, not a database failure. A
+  // classification that needs no reply legitimately proposes nothing, and a
+  // model whose response arrived truncated leaves no draft body to propose.
+  // Both used to surface as "unknown error", which named the wrong layer and
+  // sent the last hour looking at the actions table.
+  //
+  // Loud rather than silent: the reason is already on the ai_run, and this
+  // says where to find it.
+  if (actionProposals.length === 0) {
+    console.warn(
+      `Triage proposed no actions for event ${String(event.id)} (run ${aiRunId}). Response mode ${responseMode}, provider ${triageDecision.providerUsed}. If a reply was expected, the draft body was empty -- check the ai_runs row for a truncated or unparsed model response.`,
+    );
+  }
+
+  for (const action of actions ?? []) {
     await insertAuditLog(supabase, {
       workspaceId,
       actorType: "ai",
@@ -3194,10 +3221,15 @@ export async function runStubAiTriage(
     });
   }
 
+  // Undefined when nothing was proposed. Everything below needs a real action
+  // to hang off -- a future step points at one, and the auto-reply executes
+  // one -- so each is guarded rather than left to fail on `.id` of undefined.
   const primaryAction =
-    actions.find((action) => String(action.type) === "draft_reply") ??
-    actions[0];
+    actions?.find((action) => String(action.type) === "draft_reply") ??
+    actions?.[0];
+
   if (
+    primaryAction &&
     triageDecision.responsePolicy.ownerQuestion &&
     triageContext.conversationId
   ) {
@@ -3216,7 +3248,7 @@ export async function runStubAiTriage(
   let autoReplyError: string | null = null;
   let autoReplySent = false;
 
-  if (knownFactAutoReply) {
+  if (knownFactAutoReply && primaryAction) {
     try {
       await executeAction(supabase, user, String(primaryAction.id));
       autoReplySent = true;
