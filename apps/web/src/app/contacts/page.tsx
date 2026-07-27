@@ -1273,10 +1273,7 @@ export default async function ContactsPage({
           so landing on the CRM showed a half-width list beside a "Select a
           contact" placeholder -- and because that placeholder's header also
           read "Profile", pressing Close looked like it had done nothing. */}
-      <section
-        className="crm-workspace"
-        data-profile-open={selectedProfile ? "true" : undefined}
-      >
+      <section className="crm-workspace">
         <section className="panel crm-list-panel">
           <div className="panel-heading">
             <div>

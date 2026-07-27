@@ -137,9 +137,28 @@ describe("the CRM stops showing lifecycle", () => {
     assert.match(page, /filter\.value === activeFilter \|\|/);
   });
 
-  it("only splits the workspace when a profile is open", () => {
+  it("only splits the workspace when the profile side exists", () => {
+    // Keyed on the shell being present rather than on a contact being
+    // selected. The shell appears the moment you click, before the server has
+    // re-rendered: keyed on selection, the loading card fell into a second grid
+    // row, squashing the list and sitting underneath it.
     const css = readRepoFile("apps/web/src/app/globals.css");
 
-    assert.match(css, /\.crm-workspace\[data-profile-open="true"\]/);
+    assert.match(css, /\.crm-workspace:has\(\.crm-profile-transition-shell\)/);
+    assert.doesNotMatch(css, /data-profile-open/);
+  });
+
+  it("centres the loading card whether or not the pane already had content", () => {
+    // The panel variant carries .assistant-inline-preview, whose
+    // grid-template-rows drops the card into a first row only as tall as
+    // itself -- so place-items: center centred it inside a 60px row at the top,
+    // and the first conversation you opened loaded higher than every one after.
+    const css = readRepoFile("apps/web/src/app/globals.css");
+
+    assert.match(
+      css,
+      /\.assistant-inline-preview\.inbox-preview-loading-panel \{\s*grid-template-rows: minmax\(0, 1fr\);/,
+    );
+    assert.doesNotMatch(css, /loading-panel \{\s*align-content: start;/);
   });
 });

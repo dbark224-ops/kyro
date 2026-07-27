@@ -8304,7 +8304,12 @@ button.voice-card {
   overflow: hidden;
 }
 
-.crm-workspace[data-profile-open="true"] {
+/* Two columns whenever the profile side exists at all -- including while it
+   is only showing a loading card. Keyed on the shell rather than on whether a
+   contact is selected, because the shell appears the instant you click and the
+   server has not re-rendered yet: with one column it landed in a second row,
+   squashing the list and putting the card underneath it. */
+.crm-workspace:has(.crm-profile-transition-shell) {
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
 }
 
@@ -8616,10 +8621,20 @@ button.voice-card {
   min-height: 0;
 }
 
-.inbox-preview-loading-panel,
-.crm-profile-loading-panel {
-  align-content: start;
-  padding-top: 22px;
+/* The first thing you opened loaded top-centre and everything after it loaded
+   dead centre. The difference was never which row you clicked -- it was
+   whether the pane already had content. With content the card is an overlay;
+   without it the card *is* the panel, and the panel variant carries
+   .assistant-inline-preview, whose `grid-template-rows: auto minmax(0, 1fr)`
+   drops the card into a first row only as tall as itself. `place-items:
+   center` then dutifully centred it inside that 60px row, at the top of a
+   280px panel.
+
+   One row that fills the height, so centring means what it looks like. The
+   compound selector is to outrank .assistant-inline-preview regardless of
+   which of the two is declared later. */
+.assistant-inline-preview.inbox-preview-loading-panel {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .inbox-preview-loading-overlay,
@@ -17184,7 +17199,7 @@ button:disabled {
   .assistant-workspace.has-activity,
   .assistant-workspace.has-preview,
   .crm-workspace,
-  .crm-workspace[data-profile-open="true"],
+  .crm-workspace:has(.crm-profile-transition-shell),
   .crm-toolbar,
   .crm-advanced-grid,
   .crm-lead-form-grid,
