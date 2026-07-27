@@ -42,9 +42,12 @@ function statusTone(status: string) {
 
 export default async function PaymentsPage() {
   const { supabase, workspace } = await requireWorkspaceContext();
-  const { timeZone } = await getWorkspaceGeneralSettings(supabase, workspace.id);
   const paymentsSetupHref = "/settings?section=integrations&panel=stripe";
-  const [data, documentTemplateSettings] = await Promise.all([
+  // The timezone was fetched on its own line first, so the page waited a full
+  // round trip before starting the two queries below -- neither of which needs
+  // it. Nothing here depends on anything else here.
+  const [{ timeZone }, data, documentTemplateSettings] = await Promise.all([
+    getWorkspaceGeneralSettings(supabase, workspace.id),
     getPaymentsOverviewData(supabase, workspace.id),
     getDocumentTemplateSettings(supabase, workspace.id),
   ]);

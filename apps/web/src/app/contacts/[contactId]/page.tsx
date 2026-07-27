@@ -4,7 +4,6 @@ import { AppFrame } from "../../components/app-frame";
 import { AddressAutocompleteField } from "../../components/address-autocomplete-field";
 import { AddressWithVerification } from "../../components/address-verification-badge";
 import {
-  DEFAULT_DISPLAY_CURRENCY_SETTINGS,
   formatDisplayMoney,
   type DisplayCurrencySettings,
 } from "../../../lib/billing/display-currency";
@@ -92,16 +91,16 @@ export default async function ContactProfilePage({
 }: ContactProfilePageProps) {
   const [{ contactId }, query] = await Promise.all([params, searchParams]);
   const { supabase, workspace } = await requireWorkspaceContext();
-  const { timeZone } = await getWorkspaceGeneralSettings(
-    supabase,
-    workspace.id,
-  );
+  // One settings read, alongside the profile rather than before it. This was
+  // two calls: the first awaited on its own line for the timezone, the second
+  // inside the batch for the currency. The second carried a fallback the first
+  // could never reach -- if settings fail, the uncaught call has already taken
+  // the page down.
   const [profile, generalSettings] = await Promise.all([
     getContactProfile(supabase, workspace.id, contactId),
-    getWorkspaceGeneralSettings(supabase, workspace.id).catch(
-      () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
-    ),
+    getWorkspaceGeneralSettings(supabase, workspace.id),
   ]);
+  const { timeZone } = generalSettings;
 
   if (!profile) {
     notFound();
