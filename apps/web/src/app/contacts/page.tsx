@@ -1,7 +1,4 @@
 import {
-  applyLifecycleSuggestionAction,
-  clearLifecycleManualOverrideAction,
-  dismissLifecycleSuggestionAction,
   mergeContactProfilesAction,
   resolveProfileReviewAction,
   updateContactProfileAction,
@@ -19,12 +16,6 @@ import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
 } from "../../lib/crm/contact-types";
-import {
-  CONTACT_LIFECYCLE_OPTIONS,
-  CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
-  formatContactLifecycleSource,
-  formatContactLifecycleStage,
-} from "../../lib/crm/lifecycle";
 import { profileResolutionNotice } from "../../lib/crm/profile-resolution-notice";
 import { InfoBubble } from "../settings/info-bubble";
 import {
@@ -60,16 +51,31 @@ type ContactsPageProps = {
   }>;
 };
 
+/**
+ * One pill per contact type, plus two that are not types at all.
+ *
+ * "opportunities" lists the `leads` table -- job enquiries with a value and a
+ * status -- which is a different thing from a contact whose type is "lead".
+ * They were both called "Leads", which is half of why the counts never added
+ * up: 28 opportunities and 24 clients across 25 people. It keeps its own pill
+ * under an honest name because /leads only redirects here, so this is the only
+ * place that list can be browsed.
+ *
+ * "profile_review" is a work queue, not a category. It follows the same
+ * hide-when-empty rule as the rest, so it only appears when there is something
+ * in it.
+ */
 const CRM_FILTERS = [
   { label: "All", value: "all" },
-  { label: "Leads", value: "leads" },
-  { label: "Profile review", value: "profile_review" },
+  { label: "Leads", value: "lead" },
   { label: "Clients", value: "client" },
   { label: "Suppliers", value: "supplier" },
   { label: "Contractors", value: "contractor" },
-  { label: "Builders", value: "builder" },
+  { label: "Staff", value: "staff" },
   { label: "Property managers", value: "property_manager" },
   { label: "Other", value: "other" },
+  { label: "Opportunities", value: "opportunities" },
+  { label: "Profile review", value: "profile_review" },
 ] as const;
 
 const CRM_SORT_OPTIONS = [
@@ -228,14 +234,6 @@ function profileResolutionLabel(contact: ContactListItem) {
   return duplicateWarningLabel(contact.duplicateWarnings);
 }
 
-function lifecycleSuggestions(profile: ContactProfile) {
-  return profile.actions.filter(
-    (action) =>
-      action.type === CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE &&
-      ["approved", "pending_approval", "requested"].includes(action.status),
-  );
-}
-
 function formatResolutionMatchFields(
   fields: ContactProfile["resolutionCandidates"][number]["matchFields"],
 ) {
@@ -268,8 +266,6 @@ function contactSearchText(contact: ContactListItem) {
     contact.source,
     contact.notes,
     contact.contactType,
-    contact.lifecycleStage,
-    contact.lifecycleSource,
   ]
     .filter(Boolean)
     .join(" ")
@@ -462,9 +458,6 @@ function ContactRow({
         </span>
         <span>
           {formatDate(contact.lastMessageAt ?? contact.updatedAt, timeZone)}
-        </span>
-        <span className="pill">
-          {formatContactLifecycleStage(contact.lifecycleStage)}
         </span>
         <span className="pill" title={contactType}>
           {contactType}
@@ -824,7 +817,6 @@ function ProfilePanel({
     search,
     sort,
   });
-  const pendingLifecycleSuggestions = lifecycleSuggestions(profile);
 
   return (
     <section className="panel crm-profile-panel">
@@ -860,38 +852,7 @@ function ProfilePanel({
           <span>
             <strong>{profile.counts.quoteDrafts}</strong> documents
           </span>
-          <span>
-            <strong>
-              {formatContactLifecycleStage(profile.contact.lifecycleStage)}
-            </strong>{" "}
-            lifecycle
-          </span>
         </section>
-
-        {profile.contact.lifecycleSource === "manual" ? (
-          <section className="assistant-preview-panel profile-warning-panel">
-            <div className="assistant-preview-row">
-              <div>
-                <strong>Manual lifecycle override</strong>
-                <span>
-                  Automated review will skip this profile until the override is
-                  cleared.
-                </span>
-              </div>
-              <form action={clearLifecycleManualOverrideAction}>
-                <input
-                  name="contactId"
-                  type="hidden"
-                  value={profile.contact.id}
-                />
-                <input name="redirectTo" type="hidden" value={redirectTo} />
-                <button className="secondary-button compact" type="submit">
-                  Allow automated review
-                </button>
-              </form>
-            </div>
-          </section>
-        ) : null}
 
         <ProfileResolutionPanel
           profile={profile}
@@ -906,67 +867,6 @@ function ProfilePanel({
           }
         />
 
-        {pendingLifecycleSuggestions.length > 0 ? (
-          <section className="assistant-preview-panel profile-warning-panel">
-            <h3>Lifecycle suggestion</h3>
-            <div className="assistant-preview-list compact">
-              {pendingLifecycleSuggestions.map((action) => (
-                <article className="assistant-preview-row" key={action.id}>
-                  <div>
-                    <strong>
-                      Move to{" "}
-                      {formatContactLifecycleStage(
-                        textValue(action.input.recommendedStage),
-                      )}
-                    </strong>
-                    <span>
-                      {textValue(action.input.reason) ??
-                        "Lifecycle review found stronger customer evidence."}
-                    </span>
-                  </div>
-                  <div className="action-row">
-                    <form action={applyLifecycleSuggestionAction}>
-                      <input name="actionId" type="hidden" value={action.id} />
-                      <input
-                        name="contactId"
-                        type="hidden"
-                        value={profile.contact.id}
-                      />
-                      <input
-                        name="redirectTo"
-                        type="hidden"
-                        value={redirectTo}
-                      />
-                      <button className="primary-button compact" type="submit">
-                        Apply
-                      </button>
-                    </form>
-                    <form action={dismissLifecycleSuggestionAction}>
-                      <input name="actionId" type="hidden" value={action.id} />
-                      <input
-                        name="contactId"
-                        type="hidden"
-                        value={profile.contact.id}
-                      />
-                      <input
-                        name="redirectTo"
-                        type="hidden"
-                        value={redirectTo}
-                      />
-                      <button
-                        className="secondary-button compact"
-                        type="submit"
-                      >
-                        Ignore
-                      </button>
-                    </form>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         <section className="assistant-preview-panel">
           <h3>Edit contact</h3>
           <form
@@ -976,11 +876,6 @@ function ProfilePanel({
           >
             <input name="contactId" type="hidden" value={profile.contact.id} />
             <input name="redirectTo" type="hidden" value={redirectTo} />
-            <input
-              name="originalLifecycleStage"
-              type="hidden"
-              value={profile.contact.lifecycleStage}
-            />
             <label>
               Name
               <input
@@ -996,19 +891,6 @@ function ProfilePanel({
                 defaultValue={profile.contact.contactType}
               >
                 {CONTACT_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Lifecycle
-              <select
-                name="lifecycleStage"
-                defaultValue={profile.contact.lifecycleStage}
-              >
-                {CONTACT_LIFECYCLE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -1078,15 +960,7 @@ function ProfilePanel({
                 />,
               ],
               ["Type", formatContactType(profile.contact.contactType)],
-              [
-                "Lifecycle",
-                formatContactLifecycleStage(profile.contact.lifecycleStage),
-              ],
-              [
-                "Lifecycle source",
-                formatContactLifecycleSource(profile.contact.lifecycleSource),
-              ],
-              ["Lifecycle reason", profile.contact.lifecycleReason],
+
               ["Updated", formatDate(profile.contact.updatedAt, timeZone)],
             ]}
           />
@@ -1244,21 +1118,6 @@ function ProfilePanel({
   );
 }
 
-function EmptyProfilePanel() {
-  return (
-    <section className="panel crm-profile-panel crm-placeholder">
-      <div>
-        <p className="eyebrow">Profile</p>
-        <h2>Select a contact</h2>
-        <p>
-          Choose a customer, supplier, contractor, builder, property manager, or
-          lead from the CRM list to view and edit their profile here.
-        </p>
-      </div>
-    </section>
-  );
-}
-
 export default async function ContactsPage({
   searchParams,
 }: ContactsPageProps) {
@@ -1321,7 +1180,7 @@ export default async function ContactsPage({
       filter.value,
       filter.value === "all"
         ? searchedContacts.length
-        : filter.value === "leads"
+        : filter.value === "opportunities"
           ? searchedLeads.length
           : filter.value === "profile_review"
             ? searchedContacts.filter(contactNeedsProfileReview).length
@@ -1333,7 +1192,7 @@ export default async function ContactsPage({
   const filteredContacts =
     activeFilter === "all"
       ? searchedContacts
-      : activeFilter === "leads"
+      : activeFilter === "opportunities"
         ? []
         : activeFilter === "profile_review"
           ? searchedContacts.filter(contactNeedsProfileReview)
@@ -1352,7 +1211,20 @@ export default async function ContactsPage({
     leadCountsByContact,
   );
   const totalItems =
-    activeFilter === "leads" ? sortedLeads.length : sortedContacts.length;
+    activeFilter === "opportunities"
+      ? sortedLeads.length
+      : sortedContacts.length;
+  // Only categories that have someone in them. Nine pills, five of them
+  // reading zero, made the bar noise rather than navigation. "All" always
+  // shows, and so does whatever is currently selected -- otherwise
+  // narrowing a search to nothing would remove the pill you are standing on
+  // and leave no way back.
+  const visibleFilters = CRM_FILTERS.filter(
+    (filter) =>
+      filter.value === "all" ||
+      filter.value === activeFilter ||
+      (filterCounts.get(filter.value) ?? 0) > 0,
+  );
   const totalPages = Math.max(1, Math.ceil(totalItems / CRM_PAGE_SIZE));
   const currentPage = Math.min(requestedPage, totalPages);
   const pageStart = (currentPage - 1) * CRM_PAGE_SIZE;
@@ -1397,7 +1269,14 @@ export default async function ContactsPage({
         </div>
       </header>
 
-      <section className="crm-workspace">
+      {/* Two columns only when a contact is open. This was always a split pane,
+          so landing on the CRM showed a half-width list beside a "Select a
+          contact" placeholder -- and because that placeholder's header also
+          read "Profile", pressing Close looked like it had done nothing. */}
+      <section
+        className="crm-workspace"
+        data-profile-open={selectedProfile ? "true" : undefined}
+      >
         <section className="panel crm-list-panel">
           <div className="panel-heading">
             <div>
@@ -1418,7 +1297,7 @@ export default async function ContactsPage({
           </div>
 
           <nav className="filter-bar" aria-label="CRM filters">
-            {CRM_FILTERS.map((filter) => (
+            {visibleFilters.map((filter) => (
               <SmartPrefetchLink
                 className={
                   activeFilter === filter.value
@@ -1515,7 +1394,7 @@ export default async function ContactsPage({
           </form>
 
           <div className="crm-list">
-            {activeFilter === "leads" ? (
+            {activeFilter === "opportunities" ? (
               sortedLeads.length > 0 ? (
                 paginatedLeads.map((lead) => (
                   <LeadRow
@@ -1554,7 +1433,8 @@ export default async function ContactsPage({
             )}
           </div>
 
-          {activeFilter !== "leads" && selectedLeadContactIds.size > 0 ? (
+          {activeFilter !== "opportunities" &&
+          selectedLeadContactIds.size > 0 ? (
             <div className="crm-list-note">
               <span className="pill">
                 {selectedLeadContactIds.size} contacts have leads
@@ -1619,9 +1499,7 @@ export default async function ContactsPage({
               search={searchState}
               sort={activeSort}
             />
-          ) : (
-            <EmptyProfilePanel />
-          )}
+          ) : null}
         </CrmProfileTransitionShell>
       </section>
     </AppFrame>

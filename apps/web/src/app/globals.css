@@ -8290,14 +8290,22 @@ button.voice-card {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* One column until a contact is open.
+   This was permanently two, so the CRM loaded as a half-width list beside a
+   placeholder panel, and closing a contact left that placeholder sitting in
+   the same space -- which read as the close button doing nothing. */
 .crm-workspace {
   display: grid;
-  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
   min-height: calc(100dvh - 256px);
   max-height: calc(100dvh - 256px);
   overflow: hidden;
+}
+
+.crm-workspace[data-profile-open="true"] {
+  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
 }
 
 .inbox-work-queue-panel,
@@ -17176,6 +17184,7 @@ button:disabled {
   .assistant-workspace.has-activity,
   .assistant-workspace.has-preview,
   .crm-workspace,
+  .crm-workspace[data-profile-open="true"],
   .crm-toolbar,
   .crm-advanced-grid,
   .crm-lead-form-grid,

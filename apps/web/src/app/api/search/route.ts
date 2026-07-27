@@ -199,7 +199,10 @@ function joinMeta(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).join(" - ");
 }
 
-function isMissingOptionalTable(error: SupabaseErrorLike | null, table: string) {
+function isMissingOptionalTable(
+  error: SupabaseErrorLike | null,
+  table: string,
+) {
   const message = error?.message?.toLowerCase() ?? "";
 
   return (
@@ -228,13 +231,17 @@ async function collectResults(
 
 function contactResult(row: Record<string, unknown>): SearchResult {
   const id = String(row.id);
-  const name = textValue(row.name) ?? textValue(row.company) ?? "Unnamed contact";
+  const name =
+    textValue(row.name) ?? textValue(row.company) ?? "Unnamed contact";
 
   return {
     description: compact(
       textValue(row.notes) ?? textValue(row.address),
-      joinMeta([textValue(row.email), textValue(row.phone), textValue(row.address)]) ||
-        "Contact profile",
+      joinMeta([
+        textValue(row.email),
+        textValue(row.phone),
+        textValue(row.address),
+      ]) || "Contact profile",
     ),
     href: `/contacts?contactId=${encodeURIComponent(id)}`,
     id: `contact:${id}`,
@@ -260,8 +267,8 @@ function leadResult(row: Record<string, unknown>): SearchResult {
       textValue(row.status) ?? "Lead",
     ),
     href: contactId
-      ? `/contacts?filter=leads&contactId=${encodeURIComponent(contactId)}`
-      : "/contacts?filter=leads",
+      ? `/contacts?filter=opportunities&contactId=${encodeURIComponent(contactId)}`
+      : "/contacts?filter=opportunities",
     id: `lead:${id}`,
     label: textValue(row.title) ?? "Untitled lead",
     meta: joinMeta([
@@ -289,7 +296,9 @@ function messageResult(row: Record<string, unknown>): SearchResult {
     label: subject ?? titleCase(direction, "Message"),
     meta: joinMeta(["Inbox", titleCase(direction, "Message")]),
     timestamp:
-      textValue(row.sent_at) ?? textValue(row.received_at) ?? textValue(row.created_at),
+      textValue(row.sent_at) ??
+      textValue(row.received_at) ??
+      textValue(row.created_at),
     type: "message",
   };
 }
@@ -300,7 +309,8 @@ function fileResult(row: Record<string, unknown>): SearchResult {
   const source = textValue(row.source);
 
   return {
-    description: joinMeta([contentType, titleCase(source, "File")]) || "Saved file",
+    description:
+      joinMeta([contentType, titleCase(source, "File")]) || "Saved file",
     href: `/api/files/${encodeURIComponent(id)}?disposition=inline`,
     id: `file:${id}`,
     label: textValue(row.filename) ?? "Untitled file",
@@ -326,7 +336,8 @@ function generatedDocumentResult(row: Record<string, unknown>): SearchResult {
         ? `/api/files/${encodeURIComponent(fileId)}?disposition=inline`
         : "/files",
     id: `document:${id}`,
-    label: textValue(row.title) ?? textValue(row.filename) ?? "Generated document",
+    label:
+      textValue(row.title) ?? textValue(row.filename) ?? "Generated document",
     meta: titleCase(textValue(row.document_type), "Document"),
     timestamp: textValue(row.updated_at) ?? textValue(row.created_at),
     type: "document",
@@ -337,7 +348,10 @@ function quoteDraftResult(row: Record<string, unknown>): SearchResult {
   const id = String(row.id);
 
   return {
-    description: compact(textValue(row.notes), titleCase(textValue(row.status), "Draft")),
+    description: compact(
+      textValue(row.notes),
+      titleCase(textValue(row.status), "Draft"),
+    ),
     href: `/files/${encodeURIComponent(id)}`,
     id: `quote:${id}`,
     label: textValue(row.title) ?? "Quote draft",
@@ -364,7 +378,9 @@ function voiceCallResult(row: Record<string, unknown>): SearchResult {
       textValue(row.customer_number),
     ]),
     timestamp:
-      textValue(row.started_at) ?? textValue(row.ended_at) ?? textValue(row.created_at),
+      textValue(row.started_at) ??
+      textValue(row.ended_at) ??
+      textValue(row.created_at),
     type: "voice",
   };
 }
@@ -419,7 +435,9 @@ function appointmentResult(row: Record<string, unknown>): SearchResult {
       textValue(row.location),
     ]),
     timestamp:
-      textValue(row.starts_at) ?? textValue(row.updated_at) ?? textValue(row.created_at),
+      textValue(row.starts_at) ??
+      textValue(row.updated_at) ??
+      textValue(row.created_at),
     type: "appointment",
   };
 }
@@ -507,7 +525,11 @@ function activityEventResult(row: Record<string, unknown>): SearchResult {
     href: `/activity?filter=events&q=${encodeURIComponent(textValue(row.type) ?? "")}`,
     id: `event:${id}`,
     label: titleCase(textValue(row.type), "Event"),
-    meta: joinMeta(["Event", textValue(row.source), titleCase(textValue(row.status), "")]),
+    meta: joinMeta([
+      "Event",
+      textValue(row.source),
+      titleCase(textValue(row.status), ""),
+    ]),
     timestamp: textValue(row.processed_at) ?? textValue(row.created_at),
     type: "activity",
   };
@@ -525,7 +547,11 @@ function auditLogResult(row: Record<string, unknown>): SearchResult {
     href: `/activity?filter=audit&q=${encodeURIComponent(action ?? "")}`,
     id: `audit:${id}`,
     label: titleCase(action, "Audit log"),
-    meta: joinMeta(["Audit", titleCase(textValue(row.entity_type), ""), textValue(row.actor_id)]),
+    meta: joinMeta([
+      "Audit",
+      titleCase(textValue(row.entity_type), ""),
+      textValue(row.actor_id),
+    ]),
     timestamp: textValue(row.created_at),
     type: "activity",
   };
@@ -535,7 +561,10 @@ function aiRunResult(row: Record<string, unknown>): SearchResult {
   const id = String(row.id);
 
   return {
-    description: compact(textValue(row.error), textValue(row.model) ?? "AI run"),
+    description: compact(
+      textValue(row.error),
+      textValue(row.model) ?? "AI run",
+    ),
     href: `/activity?filter=ai&q=${encodeURIComponent(textValue(row.task_type) ?? "")}`,
     id: `ai-run:${id}`,
     label: titleCase(textValue(row.task_type), "AI run"),
@@ -635,7 +664,12 @@ function searchQueries(
           "id,title,filename,document_type,lifecycle_status,file_id,quote_draft_id,created_at,updated_at",
         )
         .eq("workspace_id", workspaceId)
-        .or(ilikeAny(["title", "filename", "document_type", "lifecycle_status"], pattern))
+        .or(
+          ilikeAny(
+            ["title", "filename", "document_type", "lifecycle_status"],
+            pattern,
+          ),
+        )
         .order("updated_at", { ascending: false })
         .limit(RESULT_LIMIT_PER_GROUP),
       generatedDocumentResult,
@@ -758,7 +792,9 @@ function searchQueries(
         .from("assistant_messages")
         .select("id,thread_id,role,content,intent,provider,model,created_at")
         .eq("workspace_id", workspaceId)
-        .or(ilikeAny(["role", "content", "intent", "provider", "model"], pattern))
+        .or(
+          ilikeAny(["role", "content", "intent", "provider", "model"], pattern),
+        )
         .order("created_at", { ascending: false })
         .limit(RESULT_LIMIT_PER_GROUP),
       assistantMessageResult,
@@ -778,9 +814,16 @@ function searchQueries(
       "audit_logs",
       supabase
         .from("audit_logs")
-        .select("id,actor_type,actor_id,action,entity_type,entity_id,created_at")
+        .select(
+          "id,actor_type,actor_id,action,entity_type,entity_id,created_at",
+        )
         .eq("workspace_id", workspaceId)
-        .or(ilikeAny(["actor_type", "actor_id", "action", "entity_type"], pattern))
+        .or(
+          ilikeAny(
+            ["actor_type", "actor_id", "action", "entity_type"],
+            pattern,
+          ),
+        )
         .order("created_at", { ascending: false })
         .limit(RESULT_LIMIT_PER_GROUP),
       auditLogResult,
@@ -789,9 +832,16 @@ function searchQueries(
       "ai_runs",
       supabase
         .from("ai_runs")
-        .select("id,mode,task_type,provider,model,status,error,created_at,completed_at")
+        .select(
+          "id,mode,task_type,provider,model,status,error,created_at,completed_at",
+        )
         .eq("workspace_id", workspaceId)
-        .or(ilikeAny(["mode", "task_type", "provider", "model", "status", "error"], pattern))
+        .or(
+          ilikeAny(
+            ["mode", "task_type", "provider", "model", "status", "error"],
+            pattern,
+          ),
+        )
         .order("created_at", { ascending: false })
         .limit(RESULT_LIMIT_PER_GROUP),
       aiRunResult,

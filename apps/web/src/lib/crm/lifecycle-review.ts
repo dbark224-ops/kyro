@@ -1,13 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { insertAuditLog } from "../engine/event-action-audit";
-import {
-  CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
-  evaluateContactLifecycle,
-  normalizeContactLifecycleSource,
-  normalizeContactLifecycleStage,
-  type ContactLifecycleStage,
-} from "./lifecycle";
-import { objectRecord, textValue } from "@kyro/core";
+import { evaluateContactLifecycle } from "./lifecycle";
+import { normalizeContactType } from "./contact-types";
+import { textValue } from "@kyro/core";
 
 type LifecycleReviewOptions = {
   contactId?: string | null;
@@ -15,9 +10,8 @@ type LifecycleReviewOptions = {
 };
 
 type ContactRow = {
+  contact_type?: string | null;
   id: string;
-  lifecycle_stage?: string | null;
-  lifecycle_source?: string | null;
 };
 
 type LeadRow = {
@@ -54,9 +48,11 @@ type ExistingActionRow = {
 };
 
 export type ContactLifecycleReviewSummary = {
+  /** Contacts moved from lead to client. */
+  promoted: number;
   reviewed: number;
-  skippedManual: number;
-  suggested: number;
+  /** Contacts skipped because they are not leads. */
+  skippedNotLead: number;
   unchanged: number;
 };
 
@@ -76,27 +72,16 @@ function groupByContact<T extends { contact_id?: string | null }>(rows: T[]) {
   return grouped;
 }
 
-function activeLifecycleSuggestionFor(
-  actions: ExistingActionRow[],
-  recommendedStage: ContactLifecycleStage,
-) {
-  return actions.find((action) => {
-    const status = textValue(action.status);
-    const input = objectRecord(action.input);
-    return (
-      ["approved", "executing", "pending_approval", "requested"].includes(
-        status ?? "",
-      ) &&
-      textValue(action.type) === CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE &&
-      textValue(input.recommendedStage) === recommendedStage
-    );
-  });
-}
-
+/**
+ * Every action on the contact counts as evidence now.
+ *
+ * This used to strip out the review engine's own suggestion actions before
+ * evaluating, so it did not read its own proposals back as proof. It no longer
+ * creates any -- a promotion is applied directly -- so there is nothing to
+ * filter out.
+ */
 function lifecycleEvidenceActions(actions: ExistingActionRow[]) {
-  return actions.filter(
-    (action) => textValue(action.type) !== CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
-  );
+  return actions;
 }
 
 export async function runContactLifecycleReview(
@@ -107,7 +92,7 @@ export async function runContactLifecycleReview(
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
   let contactQuery = supabase
     .from("contacts")
-    .select("id,lifecycle_stage,lifecycle_source")
+    .select("id,contact_type")
     .eq("workspace_id", workspaceId)
     .is("merged_into_contact_id", null)
     .order("updated_at", { ascending: false })
@@ -129,7 +114,7 @@ export async function runContactLifecycleReview(
   const contactIds = contacts.map((contact) => String(contact.id));
 
   if (contactIds.length === 0) {
-    return { reviewed: 0, skippedManual: 0, suggested: 0, unchanged: 0 };
+    return { promoted: 0, reviewed: 0, skippedNotLead: 0, unchanged: 0 };
   }
 
   const [leads, messages, quoteDrafts, existingActions] = await Promise.all([
@@ -245,24 +230,35 @@ export async function runContactLifecycleReview(
   }
 
   const summary: ContactLifecycleReviewSummary = {
+    promoted: 0,
     reviewed: 0,
-    skippedManual: 0,
-    suggested: 0,
+    skippedNotLead: 0,
     unchanged: 0,
   };
-  const reviewedAt = new Date().toISOString();
 
   for (const contact of contacts) {
     const contactId = String(contact.id);
-    const currentStage = normalizeContactLifecycleStage(
-      contact.lifecycle_stage,
-    );
-    const lifecycleSource = normalizeContactLifecycleSource(
-      contact.lifecycle_source,
-    );
+    const currentType = normalizeContactType(contact.contact_type);
+
+    summary.reviewed += 1;
+
+    // Promotion only, and only out of "lead". Never demote a client, and never
+    // touch a supplier, contractor, staff member or property manager -- those
+    // are things a person decided, and the evidence this reads (a quote
+    // approved, a job booked, an invoice paid) says nothing about them.
+    //
+    // Being one-directional is also what lets this run unattended. The old
+    // suggestion flow deferred to a `lifecycle_source` column to know whether a
+    // human had set the value; contact type has no such column, and a rule that
+    // can only ever move lead to client does not need one.
+    if (currentType !== "lead") {
+      summary.skippedNotLead += 1;
+      continue;
+    }
+
     const review = evaluateContactLifecycle({
-      currentStage,
-      lifecycleSource,
+      currentStage: "lead",
+      lifecycleSource: "system",
       actions: lifecycleEvidenceActions(actionsByContact.get(contactId) ?? []),
       leads: leadsByContact.get(contactId) ?? [],
       messages: messagesByContact.get(contactId) ?? [],
@@ -270,91 +266,47 @@ export async function runContactLifecycleReview(
       quoteDrafts: quoteDraftsByContact.get(contactId) ?? [],
     });
 
-    summary.reviewed += 1;
+    if (!review.shouldSuggest || review.recommendedStage !== "client") {
+      summary.unchanged += 1;
+      continue;
+    }
 
-    const { error: reviewedError } = await supabase
+    // The contact_type guard makes this a no-op if anything changed the type
+    // between the read above and here, so a concurrent edit by the owner wins
+    // rather than being overwritten.
+    const { error: promoteError } = await supabase
       .from("contacts")
-      .update({ lifecycle_reviewed_at: reviewedAt })
+      .update({ contact_type: "client" })
       .eq("workspace_id", workspaceId)
-      .eq("id", contactId);
+      .eq("id", contactId)
+      .eq("contact_type", "lead");
 
-    if (reviewedError) {
+    if (promoteError) {
       throw new Error(
-        `Unable to mark lifecycle review time: ${reviewedError.message}`,
+        `Unable to promote contact to client: ${promoteError.message}`,
       );
     }
 
-    if (review.manualOverride) {
-      summary.skippedManual += 1;
-      continue;
-    }
-
-    if (!review.shouldSuggest) {
-      summary.unchanged += 1;
-      continue;
-    }
-
-    if (
-      activeLifecycleSuggestionFor(
-        actionsByContact.get(contactId) ?? [],
-        review.recommendedStage,
-      )
-    ) {
-      summary.unchanged += 1;
-      continue;
-    }
-
-    const actionInput = {
-      confidence: review.confidence,
-      currentStage,
-      evidence: review.evidence,
-      reason: review.reason,
-      recommendedStage: review.recommendedStage,
-      reviewedAt,
-    };
-    const { data: action, error: actionError } = await supabase
-      .from("actions")
-      .insert({
-        workspace_id: workspaceId,
-        type: CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
-        status: "pending_approval",
-        requested_by: "system",
-        approval_required: true,
-        target_type: "contact",
-        target_id: contactId,
-        input: actionInput,
-        result: {},
-        policy_snapshot: {
-          highConfidenceAutoApply: false,
-          mode: "suggestion_only",
-          source: "crm_lifecycle_review",
-          version: 1,
-        },
-      })
-      .select("id")
-      .single();
-
-    if (actionError || !action) {
-      throw new Error(
-        `Unable to create lifecycle suggestion: ${
-          actionError?.message ?? "unknown error"
-        }`,
-      );
-    }
-
+    // This audit entry is now the entire record of why the type changed. It
+    // used to be a suggestion the owner approved, so the reasoning was on
+    // screen in front of them; it happens unattended now, and this is the only
+    // place that says what convinced it.
     await insertAuditLog(supabase, {
       workspaceId,
       actorType: "system",
-      action: "contact.lifecycle_review_suggested",
+      action: "contact.promoted_to_client",
       entityType: "contact",
       entityId: contactId,
+      before: { contactType: "lead" },
       after: {
-        actionId: String(action.id),
-        ...actionInput,
+        confidence: review.confidence,
+        contactType: "client",
+        evidence: review.evidence,
+        reason: review.reason,
       },
     });
 
-    summary.suggested += 1;
+    summary.promoted += 1;
   }
 
   return summary;

@@ -1,9 +1,4 @@
-import {
-  applyLifecycleSuggestionAction,
-  dismissLifecycleSuggestionAction,
-  runContactLifecycleReviewAction,
-  updateContactProfileAction,
-} from "../actions";
+import { updateContactProfileAction } from "../actions";
 import { textValue } from "@kyro/core";
 import { AppFrame } from "../../components/app-frame";
 import { AddressAutocompleteField } from "../../components/address-autocomplete-field";
@@ -17,12 +12,6 @@ import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
 } from "../../../lib/crm/contact-types";
-import {
-  CONTACT_LIFECYCLE_OPTIONS,
-  CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
-  formatContactLifecycleSource,
-  formatContactLifecycleStage,
-} from "../../../lib/crm/lifecycle";
 import { getContactProfile } from "../../../lib/crm/queries";
 import { requireWorkspaceContext } from "../../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../../lib/workspace/general-settings";
@@ -119,11 +108,6 @@ export default async function ContactProfilePage({
   }
 
   const displayName = contactDisplayName(profile.contact);
-  const pendingLifecycleSuggestions = profile.actions.filter(
-    (action) =>
-      action.type === CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE &&
-      ["approved", "pending_approval", "requested"].includes(action.status),
-  );
 
   return (
     <AppFrame active="CRM">
@@ -140,20 +124,6 @@ export default async function ContactProfilePage({
           >
             Back to contacts
           </Link>
-          <form action={runContactLifecycleReviewAction}>
-            <input name="contactId" type="hidden" value={profile.contact.id} />
-            <input
-              name="redirectTo"
-              type="hidden"
-              value={`/contacts/${profile.contact.id}`}
-            />
-            <button
-              className="secondary-button compact contact-profile-action contact-profile-action-review"
-              type="submit"
-            >
-              Review lifecycle
-            </button>
-          </form>
         </div>
       </header>
 
@@ -173,9 +143,6 @@ export default async function ContactProfilePage({
             </div>
             <div className="action-row">
               <span className="pill">
-                {formatContactLifecycleStage(profile.contact.lifecycleStage)}
-              </span>
-              <span className="pill">
                 {formatContactType(profile.contact.contactType)}
               </span>
             </div>
@@ -187,11 +154,6 @@ export default async function ContactProfilePage({
               name="redirectTo"
               type="hidden"
               value={`/contacts/${profile.contact.id}`}
-            />
-            <input
-              name="originalLifecycleStage"
-              type="hidden"
-              value={profile.contact.lifecycleStage}
             />
             <label>
               Name
@@ -208,19 +170,6 @@ export default async function ContactProfilePage({
                 defaultValue={profile.contact.contactType}
               >
                 {CONTACT_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Lifecycle
-              <select
-                name="lifecycleStage"
-                defaultValue={profile.contact.lifecycleStage}
-              >
-                {CONTACT_LIFECYCLE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -272,84 +221,6 @@ export default async function ContactProfilePage({
         </article>
 
         <aside className="side-stack">
-          {pendingLifecycleSuggestions.length > 0 ? (
-            <article className="panel profile-warning-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Lifecycle</p>
-                  <h2>Suggested update</h2>
-                </div>
-                <span className="pill warning">Review</span>
-              </div>
-              <div className="engine-list">
-                {pendingLifecycleSuggestions.map((action) => (
-                  <div className="engine-row" key={action.id}>
-                    <div>
-                      <strong>
-                        Move to{" "}
-                        {formatContactLifecycleStage(
-                          textValue(action.input.recommendedStage),
-                        )}
-                      </strong>
-                      <span>
-                        {textValue(action.input.reason) ??
-                          "Lifecycle review found stronger customer evidence."}
-                      </span>
-                    </div>
-                    <div className="action-row">
-                      <form action={applyLifecycleSuggestionAction}>
-                        <input
-                          name="actionId"
-                          type="hidden"
-                          value={action.id}
-                        />
-                        <input
-                          name="contactId"
-                          type="hidden"
-                          value={profile.contact.id}
-                        />
-                        <input
-                          name="redirectTo"
-                          type="hidden"
-                          value={`/contacts/${profile.contact.id}`}
-                        />
-                        <button
-                          className="primary-button compact"
-                          type="submit"
-                        >
-                          Apply
-                        </button>
-                      </form>
-                      <form action={dismissLifecycleSuggestionAction}>
-                        <input
-                          name="actionId"
-                          type="hidden"
-                          value={action.id}
-                        />
-                        <input
-                          name="contactId"
-                          type="hidden"
-                          value={profile.contact.id}
-                        />
-                        <input
-                          name="redirectTo"
-                          type="hidden"
-                          value={`/contacts/${profile.contact.id}`}
-                        />
-                        <button
-                          className="secondary-button compact"
-                          type="submit"
-                        >
-                          Ignore
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </article>
-          ) : null}
-
           {profile.identityWarnings.length > 0 ? (
             <article className="panel profile-warning-panel">
               <div className="panel-heading">
@@ -405,24 +276,6 @@ export default async function ContactProfilePage({
                     status={profile.contact.addressValidationStatus}
                   />
                 </strong>
-              </div>
-              <div>
-                <span>Lifecycle</span>
-                <strong>
-                  {formatContactLifecycleStage(profile.contact.lifecycleStage)}
-                </strong>
-              </div>
-              <div>
-                <span>Lifecycle source</span>
-                <strong>
-                  {formatContactLifecycleSource(
-                    profile.contact.lifecycleSource,
-                  )}
-                </strong>
-              </div>
-              <div>
-                <span>Lifecycle reason</span>
-                <strong>{profile.contact.lifecycleReason ?? "-"}</strong>
               </div>
               <div>
                 <span>Updated</span>

@@ -3,9 +3,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import {
-  applyLifecycleSuggestionAction,
-  clearLifecycleManualOverrideAction,
-  dismissLifecycleSuggestionAction,
   mergeContactProfilesAction,
   resolveProfileReviewAction,
   updateContactProfileAction,
@@ -16,12 +13,6 @@ import {
   CONTACT_TYPE_OPTIONS,
   formatContactType,
 } from "../../lib/crm/contact-types";
-import {
-  CONTACT_LIFECYCLE_OPTIONS,
-  CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE,
-  formatContactLifecycleSource,
-  formatContactLifecycleStage,
-} from "../../lib/crm/lifecycle";
 import { profileResolutionNotice } from "../../lib/crm/profile-resolution-notice";
 import { InfoBubble } from "../settings/info-bubble";
 import type { ContactProfile } from "../../lib/crm/queries";
@@ -64,7 +55,6 @@ export function ContactProfilePanel({
     ((contactId: string) =>
       `/contacts?contactId=${encodeURIComponent(contactId)}`);
   const mergeSuccessHref = successHref ?? contactHref;
-  const pendingLifecycleSuggestions = lifecycleSuggestions(profile);
   const rootClassName = ["panel", "crm-profile-panel", className]
     .filter(Boolean)
     .join(" ");
@@ -113,109 +103,13 @@ export function ContactProfilePanel({
           <span>
             <strong>{profile.counts.appointments}</strong> events
           </span>
-          <span>
-            <strong>
-              {formatContactLifecycleStage(profile.contact.lifecycleStage)}
-            </strong>{" "}
-            lifecycle
-          </span>
         </section>
-
-        {profile.contact.lifecycleSource === "manual" ? (
-          <section className="assistant-preview-panel profile-warning-panel">
-            <div className="assistant-preview-row">
-              <div>
-                <strong>Manual lifecycle override</strong>
-                <span>
-                  Automated review will skip this profile until the override is
-                  cleared.
-                </span>
-              </div>
-              <form action={clearLifecycleManualOverrideAction}>
-                <input
-                  name="contactId"
-                  type="hidden"
-                  value={profile.contact.id}
-                />
-                <input
-                  name="redirectTo"
-                  type="hidden"
-                  value={currentRedirectTo}
-                />
-                <button className="secondary-button compact" type="submit">
-                  Allow automated review
-                </button>
-              </form>
-            </div>
-          </section>
-        ) : null}
 
         <ProfileResolutionPanel
           profile={profile}
           redirectTo={currentRedirectTo}
           successHref={mergeSuccessHref}
         />
-
-        {pendingLifecycleSuggestions.length > 0 ? (
-          <section className="assistant-preview-panel profile-warning-panel">
-            <h3>Lifecycle suggestion</h3>
-            <div className="assistant-preview-list compact">
-              {pendingLifecycleSuggestions.map((action) => (
-                <article className="assistant-preview-row" key={action.id}>
-                  <div>
-                    <strong>
-                      Move to{" "}
-                      {formatContactLifecycleStage(
-                        textValue(action.input.recommendedStage),
-                      )}
-                    </strong>
-                    <span>
-                      {textValue(action.input.reason) ??
-                        "Lifecycle review found stronger customer evidence."}
-                    </span>
-                  </div>
-                  <div className="action-row">
-                    <form action={applyLifecycleSuggestionAction}>
-                      <input name="actionId" type="hidden" value={action.id} />
-                      <input
-                        name="contactId"
-                        type="hidden"
-                        value={profile.contact.id}
-                      />
-                      <input
-                        name="redirectTo"
-                        type="hidden"
-                        value={currentRedirectTo}
-                      />
-                      <button className="primary-button compact" type="submit">
-                        Apply
-                      </button>
-                    </form>
-                    <form action={dismissLifecycleSuggestionAction}>
-                      <input name="actionId" type="hidden" value={action.id} />
-                      <input
-                        name="contactId"
-                        type="hidden"
-                        value={profile.contact.id}
-                      />
-                      <input
-                        name="redirectTo"
-                        type="hidden"
-                        value={currentRedirectTo}
-                      />
-                      <button
-                        className="secondary-button compact"
-                        type="submit"
-                      >
-                        Ignore
-                      </button>
-                    </form>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
 
         <section className="assistant-preview-panel">
           <h3>Edit contact</h3>
@@ -226,11 +120,6 @@ export function ContactProfilePanel({
           >
             <input name="contactId" type="hidden" value={profile.contact.id} />
             <input name="redirectTo" type="hidden" value={currentRedirectTo} />
-            <input
-              name="originalLifecycleStage"
-              type="hidden"
-              value={profile.contact.lifecycleStage}
-            />
             <label>
               Name
               <input
@@ -246,19 +135,6 @@ export function ContactProfilePanel({
                 defaultValue={profile.contact.contactType}
               >
                 {CONTACT_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Lifecycle
-              <select
-                name="lifecycleStage"
-                defaultValue={profile.contact.lifecycleStage}
-              >
-                {CONTACT_LIFECYCLE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -328,15 +204,7 @@ export function ContactProfilePanel({
                 />,
               ],
               ["Type", formatContactType(profile.contact.contactType)],
-              [
-                "Lifecycle",
-                formatContactLifecycleStage(profile.contact.lifecycleStage),
-              ],
-              [
-                "Lifecycle source",
-                formatContactLifecycleSource(profile.contact.lifecycleSource),
-              ],
-              ["Lifecycle reason", profile.contact.lifecycleReason],
+
               ["Updated", formatDate(profile.contact.updatedAt, timeZone)],
             ]}
           />
@@ -778,14 +646,6 @@ function ProfileResolutionReviewForm({
         Mark reviewed, keep separate
       </button>
     </form>
-  );
-}
-
-function lifecycleSuggestions(profile: ContactProfile) {
-  return profile.actions.filter(
-    (action) =>
-      action.type === CONTACT_LIFECYCLE_REVIEW_ACTION_TYPE &&
-      ["approved", "pending_approval", "requested"].includes(action.status),
   );
 }
 
