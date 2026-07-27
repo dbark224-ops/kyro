@@ -30,6 +30,7 @@ import { formatWorkspaceDateTime } from "../../lib/time/format";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
+import { RoutePreloader } from "../components/route-preloader";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { ManualLeadModal } from "./manual-lead-modal";
 import { textValue } from "@kyro/core";
@@ -1232,6 +1233,19 @@ export default async function ContactsPage({
     pageStart,
     pageStart + CRM_PAGE_SIZE,
   );
+  // Warmed on idle, after this page has painted, so clicking down the list is
+  // instant rather than only the row you happened to hover first. Four is
+  // enough to cover the top of the visible list without turning a page view
+  // into five page views.
+  const contactPreloadHrefs = paginatedContacts.slice(0, 4).map((contact) =>
+    crmHref({
+      contactId: contact.id,
+      filter: activeFilter,
+      page: currentPage,
+      search: searchState,
+      sort: activeSort,
+    }),
+  );
   const paginatedLeads = sortedLeads.slice(
     pageStart,
     pageStart + CRM_PAGE_SIZE,
@@ -1273,6 +1287,12 @@ export default async function ContactsPage({
           so landing on the CRM showed a half-width list beside a "Select a
           contact" placeholder -- and because that placeholder's header also
           read "Profile", pressing Close looked like it had done nothing. */}
+      <RoutePreloader
+        activeHref={selectedProfile ? undefined : "/contacts"}
+        limit={4}
+        routes={contactPreloadHrefs}
+      />
+
       <section className="crm-workspace">
         <section className="panel crm-list-panel">
           <div className="panel-heading">

@@ -10,8 +10,11 @@ import type {
   TouchEvent,
 } from "react";
 import { useEffect } from "react";
-
-const intentPrefetchedRoutes = new Set<string>();
+import {
+  forgetPrefetched,
+  hasPrefetched,
+  markPrefetched,
+} from "./background-prefetch";
 
 type ConnectionAwareNavigator = Navigator & {
   connection?: {
@@ -68,35 +71,31 @@ export function SmartPrefetchLink({
       !preload ||
       !isInternalHref(href) ||
       shouldSkipPrefetch() ||
-      intentPrefetchedRoutes.has(href)
+      hasPrefetched(href)
     ) {
       return;
     }
 
-    intentPrefetchedRoutes.add(href);
+    markPrefetched(href);
 
     try {
       router.prefetch(href);
     } catch {
-      intentPrefetchedRoutes.delete(href);
+      forgetPrefetched(href);
     }
   }, [href, preload, router]);
 
   const prefetchOnIntent = () => {
-    if (
-      !isInternalHref(href) ||
-      shouldSkipPrefetch() ||
-      intentPrefetchedRoutes.has(href)
-    ) {
+    if (!isInternalHref(href) || shouldSkipPrefetch() || hasPrefetched(href)) {
       return;
     }
 
-    intentPrefetchedRoutes.add(href);
+    markPrefetched(href);
 
     try {
       router.prefetch(href);
     } catch {
-      intentPrefetchedRoutes.delete(href);
+      forgetPrefetched(href);
     }
   };
 

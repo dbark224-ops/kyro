@@ -48,6 +48,7 @@ import { InboxMailboxTransition } from "./inbox-mailbox-transition";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
 import { ReplyComposerDisclosure } from "./reply-composer-disclosure";
+import { RoutePreloader } from "../components/route-preloader";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
 import { SkippedEmailCloseLink } from "./skipped-email-dialog-transition";
@@ -1604,6 +1605,21 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     pageStart,
     pageStart + INBOX_PAGE_SIZE,
   );
+  // Warmed on idle, once this screen has painted, so working down the list is
+  // instant instead of only the row you happened to hover. Four covers the top
+  // of the visible list without turning one page view into five.
+  const conversationPreloadHrefs = paginatedConversations
+    .slice(0, 4)
+    .map((conversation) =>
+      inboxHref({
+        conversationId: conversation.id,
+        filter: activeFilter,
+        mailbox: activeMailbox,
+        page: currentPage,
+        query: searchQuery,
+        sort: activeSort,
+      }),
+    );
   const filterCounts = new Map<string, number>(
     FILTERS.map((filter) => [
       filter.value,
@@ -1629,6 +1645,11 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
   return (
     <AppFrame active="Inbox">
+      <RoutePreloader
+        activeHref={selectedConversationId ? undefined : "/inbox"}
+        limit={4}
+        routes={conversationPreloadHrefs}
+      />
       <header className="topbar inbox-topbar page-topbar-tight">
         <div>
           <h1>Inbox</h1>

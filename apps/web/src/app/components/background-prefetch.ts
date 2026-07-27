@@ -12,6 +12,28 @@ type PrefetchLease = {
   owner: string;
 };
 
+/**
+ * Everything already warmed this session, shared by both prefetchers.
+ *
+ * The hover/focus path and the idle background path used to keep separate
+ * lists, so a row you hovered could be fetched a second time when the idle
+ * sweep reached it, and vice versa. One list means whichever gets there first
+ * wins and the other skips it.
+ */
+const prefetchedHrefs = new Set<string>();
+
+export function hasPrefetched(href: string) {
+  return prefetchedHrefs.has(href);
+}
+
+export function markPrefetched(href: string) {
+  prefetchedHrefs.add(href);
+}
+
+export function forgetPrefetched(href: string) {
+  prefetchedHrefs.delete(href);
+}
+
 const BACKGROUND_PREFETCH_LEASE_KEY = "kyro:background-prefetch-lease:v1";
 const BACKGROUND_PREFETCH_OWNER = `${Date.now()}-${Math.random()
   .toString(36)
@@ -38,10 +60,7 @@ function parseLease(value: string | null): PrefetchLease | null {
 }
 
 export function canRunBackgroundPrefetch() {
-  if (
-    typeof window === "undefined" ||
-    document.visibilityState !== "visible"
-  ) {
+  if (typeof window === "undefined" || document.visibilityState !== "visible") {
     return false;
   }
 
@@ -84,9 +103,8 @@ export function claimBackgroundPrefetchLease(ttlMs = 8_000) {
     );
 
     return (
-      parseLease(
-        window.localStorage.getItem(BACKGROUND_PREFETCH_LEASE_KEY),
-      )?.owner === BACKGROUND_PREFETCH_OWNER
+      parseLease(window.localStorage.getItem(BACKGROUND_PREFETCH_LEASE_KEY))
+        ?.owner === BACKGROUND_PREFETCH_OWNER
     );
   } catch {
     return true;
