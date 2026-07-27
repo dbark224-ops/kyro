@@ -14,6 +14,7 @@ import {
   getTwilioConfig,
   sendTwilioSmsMessage,
   telephonyUsageCost,
+  twilioMessageTransportForWorkspace,
   TWILIO_PROVIDER,
 } from "../integrations/twilio";
 import { resolveWorkspaceUsageMarkupRate } from "../usage/workspace-markup";
@@ -25,7 +26,7 @@ import {
   type WorkspaceGeneralSettings,
 } from "../workspace/general-settings";
 import { getVoiceSettings } from "../assistant/voice-settings";
-import { textValue } from "@kyro/core";
+import { objectRecord, textValue } from "@kyro/core";
 import { writeOrThrow } from "../supabase/write";
 
 type UrgentEscalationInput = {
@@ -515,8 +516,21 @@ function acknowledgementUrl(token: string) {
  * bathroom quote" is more use at a glance. Only the model can tell those apart,
  * so it writes the title and the body and decides which this is.
  */
+/**
+ * Replying is how you acknowledge this, so that is what it asks for.
+ *
+ * It used to lead with an acknowledgement link, which was the only thing that
+ * actually stopped the chain -- and nobody taps a link while driving to a job.
+ * A reply now settles the incident, so the link is a fallback for anyone who
+ * would rather open it, not the instruction.
+ */
 function escalationMessage(incident: EscalationIncidentRow) {
-  return `URGENT - ${incident.title}\n${incident.summary}\nAcknowledge: ${acknowledgementUrl(incident.acknowledgement_token)}`;
+  return [
+    `URGENT - ${incident.title}`,
+    incident.summary,
+    "Reply here and I'll stop escalating this.",
+    `Or open it: ${acknowledgementUrl(incident.acknowledgement_token)}`,
+  ].join("\n");
 }
 
 async function escalationAlertContext(
@@ -680,10 +694,18 @@ async function sendSmsStep(
     workspaceNumber?.phoneNumber ??
     getTwilioConfig()?.defaultFromNumber ??
     null;
+  // Same routing the inbound-inquiry alert uses. Without it this went out as a
+  // plain SMS from the workspace number, so on a workspace running through the
+  // WhatsApp sandbox the alerts arrived and the escalations did not -- one path
+  // had been taught about the sandbox and this one had not.
   const result = await sendTwilioSmsMessage({
     body: escalationMessage(incident),
     from,
     to: phone,
+    transport: twilioMessageTransportForWorkspace({
+      recipientPhone: phone,
+      workspaceId: incident.workspace_id,
+    }),
   });
   const usage = telephonyUsageCost({
     direction: "outbound",
@@ -864,7 +886,17 @@ async function processClaimedStep(
         ? await sendSmsStep(supabase, incident, contact)
         : step.channel === "phone"
           ? await sendPhoneStep(supabase, incident, contact)
-          : { messageId: null, requestId: null };
+          : // app_notification has no delivery yet. It used to fall through to
+            // a null result and then be recorded as "sent" -- a step that
+            // contacted nobody and reported success, which is worse than one
+            // that fails, because a failure hands on to the next step while
+            // this quietly ended the chain. Throwing puts it on the normal
+            // retry path and lets the escalation continue.
+            (() => {
+              throw new Error(
+                `Escalation channel "${step.channel}" has no delivery method, so nobody was contacted.`,
+              );
+            })();
 
   await writeOrThrow(
     supabase
@@ -947,6 +979,43 @@ export async function processDueUrgentEscalations(
   return results;
 }
 
+/**
+ * Stop the chain once a human is engaged.
+ *
+ * Shared by both ways in: the acknowledgement link, and simply replying to the
+ * message. Cancelling the pending steps is the whole point -- an acknowledged
+ * incident that keeps phoning people is worse than one that never escalated.
+ */
+async function settleAcknowledgedIncident(
+  supabase: SupabaseClient,
+  incident: { id: unknown; title: unknown; workspace_id: unknown },
+  input: { source: "reply" | "token"; userId?: string | null },
+) {
+  await writeOrThrow(
+    supabase
+      .from("urgent_escalation_steps")
+      .update({ status: "cancelled" })
+      .eq("incident_id", incident.id)
+      .eq("status", "pending"),
+    "Unable to cancel pending urgent escalation steps",
+  );
+  await insertAuditLog(supabase, {
+    workspaceId: String(incident.workspace_id),
+    actorType: input.userId ? "user" : "system",
+    actorId: input.userId ?? undefined,
+    action: "urgent_escalation.acknowledged",
+    entityType: "urgent_escalation_incident",
+    entityId: String(incident.id),
+    after: { source: input.source, title: incident.title },
+  });
+
+  return {
+    id: String(incident.id),
+    title: String(incident.title),
+    workspaceId: String(incident.workspace_id),
+  };
+}
+
 export async function acknowledgeUrgentEscalation(
   supabase: SupabaseClient,
   input: { token: string; userId?: string | null },
@@ -971,27 +1040,105 @@ export async function acknowledgeUrgentEscalation(
     return null;
   }
 
-  await writeOrThrow(
-    supabase
-      .from("urgent_escalation_steps")
-      .update({ status: "cancelled" })
-      .eq("incident_id", incident.id)
-      .eq("status", "pending"),
-    "Unable to cancel pending urgent escalation steps",
-  );
-  await insertAuditLog(supabase, {
-    workspaceId: String(incident.workspace_id),
-    actorType: input.userId ? "user" : "system",
-    actorId: input.userId ?? undefined,
-    action: "urgent_escalation.acknowledged",
-    entityType: "urgent_escalation_incident",
-    entityId: String(incident.id),
-    after: { title: incident.title },
+  return settleAcknowledgedIncident(supabase, incident, {
+    source: "token",
+    userId: input.userId,
   });
+}
 
-  return {
-    id: String(incident.id),
-    title: String(incident.title),
-    workspaceId: String(incident.workspace_id),
-  };
+/** Last ten digits, so +1 505 555 0177 and 5055550177 are the same person. */
+function samePhoneNumber(left: string | null | undefined, right: string) {
+  const leftDigits = (left ?? "").replace(/\D/g, "").slice(-10);
+  const rightDigits = right.replace(/\D/g, "").slice(-10);
+
+  return Boolean(
+    leftDigits && rightDigits && leftDigits.length >= 7 &&
+      leftDigits === rightDigits,
+  );
+}
+
+/**
+ * How long after being escalated a reply still counts as acknowledgement.
+ *
+ * Long enough to cover a phone left in a pocket, short enough that tomorrow's
+ * unrelated "morning" does not silently close last night's incident.
+ */
+const REPLY_ACKNOWLEDGEMENT_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Treat a reply from an escalated contact as acknowledgement.
+ *
+ * The escalation message used to carry a link, and tapping it was the only way
+ * to stop the chain. Replying -- the obvious thing to do, and how every other
+ * Kyro alert works -- did nothing, so the owner could answer in writing and
+ * still get phoned about it minutes later.
+ *
+ * Any reply counts. The point is that a human is now engaged, not that they
+ * have agreed to anything; requiring a particular word would be the same
+ * mistake as telling people to text back "SEND IT".
+ */
+export async function acknowledgeEscalationFromReply(
+  supabase: SupabaseClient,
+  input: { phoneNumber: string; userId?: string | null; workspaceId: string },
+) {
+  const since = new Date(
+    Date.now() - REPLY_ACKNOWLEDGEMENT_WINDOW_MS,
+  ).toISOString();
+  const { data, error } = await supabase
+    .from("urgent_escalation_steps")
+    .select("incident_id,contact_snapshot,sent_at")
+    .eq("workspace_id", input.workspaceId)
+    .eq("status", "sent")
+    .gte("sent_at", since)
+    .order("sent_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    throw new Error(
+      `Unable to look for an escalation to acknowledge: ${error.message}`,
+    );
+  }
+
+  // Phone formats vary between what was configured and what Twilio reports, so
+  // this compares digits rather than asking the database for an exact match.
+  const match = (data ?? []).find((step) =>
+    samePhoneNumber(
+      textValue(objectRecord(step.contact_snapshot).phone),
+      input.phoneNumber,
+    ),
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const { data: incident, error: incidentError } = await supabase
+    .from("urgent_escalation_incidents")
+    .update({
+      acknowledged_at: new Date().toISOString(),
+      acknowledged_by_user_id: input.userId ?? null,
+      status: "acknowledged",
+    })
+    .eq("id", match.incident_id)
+    .eq("workspace_id", input.workspaceId)
+    // Only an open incident. A second reply must not reopen or re-audit one
+    // that is already settled.
+    .eq("status", "open")
+    .select("id,workspace_id,title")
+    .maybeSingle();
+
+  if (incidentError) {
+    throw new Error(
+      `Unable to acknowledge escalation from reply: ${incidentError.message}`,
+    );
+  }
+
+  if (!incident) {
+    return null;
+  }
+
+  return settleAcknowledgedIncident(supabase, incident, {
+    source: "reply",
+    userId: input.userId,
+  });
 }

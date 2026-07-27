@@ -247,7 +247,11 @@ const INQUIRY_ALERT_CHARACTER_BUDGET = smsCharacterBudget(2);
 export function inboundInquiryAlertRules() {
   return [
     "This tells the business owner a new customer inquiry has arrived and what to do about it.",
-    "Open with the channel it came in on and who it is from.",
+    // An email whose signature carried a phone number got announced as "SMS
+    // from ...". context.contactPhone sits next to arrivedVia, and a phone
+    // number reads like a text message, so the channel has to be named as the
+    // one fact it is rather than left to inference.
+    "Open with the channel it came in on and who it is from. The channel is exactly context.arrivedVia -- never infer it from whether a phone number is present, and never call an email an SMS because the customer signed off with their number.",
     "Say what they want. Quote the customer only when their wording matters; otherwise summarise it in a few words.",
     "If context.kyroQuestionForOwner is set, that question is the point of the message -- ask it plainly and say a reply here will be used to finish the customer response.",
     "If context.preparedReplyDraft is set, say in your own words what that reply would tell the customer, so they know what they are approving without having to open the app. Convey the gist, not the wording -- the same judgement you use on the customer's message.",

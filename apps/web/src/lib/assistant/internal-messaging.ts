@@ -2,6 +2,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { textValueOrEmpty as textValue } from "@kyro/core";
 import { recordOutboundDirectSms } from "../communication/outbound";
 import { splitIntoSmsMessages } from "../communication/sms-length";
+import { acknowledgeEscalationFromReply } from "../escalation/urgent-escalation";
 
 /**
  * Two messages of room for an answer over SMS, and a hard stop at three.
@@ -204,6 +205,33 @@ export async function processInternalAssistantMessage(input: {
       workspaceId: workspace.id,
     });
 
+    /*
+     * Replying is acknowledgement.
+     *
+     * Before this, only the link in the escalation message stopped the chain,
+     * so answering it in writing -- the obvious response, and how every other
+     * Kyro alert works -- left the incident open and the later steps still
+     * fired. The owner got phoned about something they had already handled.
+     *
+     * Done before the assistant turn so the chain stops immediately, and
+     * separately from it so a failure here cannot swallow the reply itself.
+     */
+    const acknowledged = await acknowledgeEscalationFromReply(input.supabase, {
+      phoneNumber: barePhone(input.from),
+      userId: user.id,
+      workspaceId: workspace.id,
+    }).catch((acknowledgementError: unknown) => {
+      console.error("Unable to acknowledge escalation from reply", {
+        error:
+          acknowledgementError instanceof Error
+            ? acknowledgementError.message
+            : "unknown error",
+        workspaceId: workspace.id,
+      });
+
+      return null;
+    });
+
     const context = await getAssistantTurnContext({
       prompt: input.prompt,
       supabase: input.supabase,
@@ -211,9 +239,34 @@ export async function processInternalAssistantMessage(input: {
       user,
       workspaceId: workspace.id,
     });
+    // Tell the turn it happened, so the reply can say so. Stopping the chain
+    // silently would leave the owner unsure whether they still need to act.
+    const acknowledgementSnapshots = acknowledged
+      ? [
+          {
+            entities: [],
+            id: `escalation-acknowledged-${acknowledged.id}`,
+            messageCount: 0,
+            keyPoints: [
+              `This reply acknowledged the urgent escalation "${acknowledged.title}".`,
+              "The remaining escalation steps were cancelled, so nobody else will be contacted about it.",
+              "Say so plainly in the reply, then answer whatever else they asked.",
+            ],
+            periodEnd: new Date().toISOString(),
+            periodStart: new Date().toISOString(),
+            snapshotType: "manual",
+            summary: `Urgent escalation "${acknowledged.title}" is now acknowledged and its pending steps are cancelled.`,
+            title: "Urgent escalation acknowledged",
+          },
+        ]
+      : [];
+
     const result = await runAssistantTurn({
       actor,
-      contextSnapshots: context.contextSnapshots,
+      contextSnapshots: [
+        ...acknowledgementSnapshots,
+        ...context.contextSnapshots,
+      ],
       inputSource: input.transport,
       memories: context.memories,
       prompt: input.prompt,

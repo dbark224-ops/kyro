@@ -46,3 +46,19 @@ describe("the new-inquiry alert rules", () => {
     assert.match(rules, /Quote the customer only when their wording matters/i);
   });
 });
+
+describe("the channel is stated, not inferred", () => {
+  const rules = inboundInquiryAlertRules().join("\n");
+
+  it("names arrivedVia as the only source for the channel", () => {
+    // An email whose signature carried a phone number was announced as "SMS
+    // from Rachel Nunez". contactPhone sits next to arrivedVia in the facts,
+    // and a phone number reads like a text message.
+    assert.match(rules, /channel is exactly context\.arrivedVia/i);
+  });
+
+  it("rules out inferring it from a phone number", () => {
+    assert.match(rules, /never infer it from whether a phone number is present/i);
+    assert.match(rules, /never call an email an SMS/i);
+  });
+});
