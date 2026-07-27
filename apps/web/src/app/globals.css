@@ -19509,17 +19509,16 @@ button:disabled {
   gap: 7px;
 }
 
-/* The timestamp is much smaller than the name beside it, so sharing a baseline
-   hung it four pixels low -- close to the top-left corner but visibly not in
-   it. Aligned to the top of the line instead, with a line height that puts it
-   level with the name's cap rather than its baseline. */
+/* Same size and weight as the name it sits beside, so the shared baseline is
+   also a shared top edge and the two simply line up. Colour alone separates
+   them. The previous 0.68rem timestamp could not sit level with a 0.92rem name
+   on a common baseline -- smaller text hangs -- and propping it up with a
+   line-height was treating the symptom. */
 .dashboard-work-item-title time {
   flex: 0 0 auto;
-  align-self: start;
   color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 760;
-  line-height: 1.45;
+  font-size: 0.92rem;
+  font-weight: 700;
   white-space: nowrap;
 }
 
