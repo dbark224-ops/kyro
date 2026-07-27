@@ -9422,63 +9422,83 @@ button.voice-card {
 }
 
 /*
- * Below this the row stops being a table and becomes a card.
+ * A narrow pane drops columns rather than stacking them.
  *
- * Same treatment the viewport breakpoint applies on a phone, keyed to the
- * panel instead. Five columns do not fit in a narrow split pane at any
- * sensible width, and squeezing them all to ellipses reads worse than
- * stacking. 720px is just above the row's natural minimum, so the reflow
- * happens before anything is forced to truncate.
+ * The row keeps one compact line -- the list is meant to be scannable, and a
+ * split pane is short, so trading ten visible rows for five taller ones is a
+ * bad deal. What goes first is what a glance needs least: the channel tag and
+ * the message preview, then the timestamp.
+ *
+ * Every rule here carries the same `:has()` prefix as the split-pane block
+ * above. `:has(.class)` contributes its argument's specificity, so those
+ * selectors are (0,4,0); a plain `.inbox-workspace …` prefix loses to them and
+ * would move the columns while leaving the children assigned to grid lines
+ * that no longer exist.
  */
 @container inbox-list (max-width: 720px) {
-  .inbox-workspace .conversation-row,
   .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row,
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row.junk-conversation-row {
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 6px 8px;
-    min-height: 76px;
-    padding: 10px 12px;
+    grid-template-columns:
+      minmax(0, 1fr)
+      minmax(0, 1.2fr)
+      minmax(104px, auto);
+    gap: 8px;
   }
 
-  .inbox-workspace .conversation-row .conversation-row-time {
+  /* Who it is from, what it is about, where it stands. The timestamp, the
+     channel tag and the preview are what a glance needs least. */
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-time,
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-extra,
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-message-preview {
+    display: none;
+  }
+
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-from {
     grid-column: 1;
-    justify-self: start;
   }
 
-  .inbox-workspace .conversation-row .conversation-row-from {
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-title {
     grid-column: 2;
-    justify-self: start;
   }
 
-  .inbox-workspace .conversation-row .conversation-row-title,
-  .inbox-workspace .conversation-row .conversation-message-preview {
-    grid-column: 1 / -1;
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-status {
+    grid-column: 3;
+    justify-self: end;
+  }
+}
+
+/* Narrower still: the subject goes too. Who it is from and where it stands
+   both survive to the minimum pane width. */
+@container inbox-list (max-width: 430px) {
+  .inbox-workspace:has(.inbox-preview-transition-shell) .conversation-row,
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row.junk-conversation-row {
+    grid-template-columns: minmax(0, 1fr) minmax(104px, auto);
   }
 
-  .inbox-workspace .conversation-row .conversation-row-title,
-  .inbox-workspace .conversation-row .conversation-row-title strong,
-  .inbox-workspace .conversation-row .conversation-message-preview {
-    white-space: normal;
+  .inbox-workspace:has(.inbox-preview-transition-shell)
+    .conversation-row
+    .conversation-row-title {
+    display: none;
   }
 
-  .inbox-workspace .conversation-row .conversation-row-extra {
-    grid-column: 1;
-    min-height: 0;
-    justify-self: start;
-    text-align: left;
-  }
-
-  /* The whole point: the pill gets its own place on the row instead of being
-     pushed past the right edge. */
-  .inbox-workspace .conversation-row .conversation-row-status,
   .inbox-workspace:has(.inbox-preview-transition-shell)
     .conversation-row
     .conversation-row-status {
     grid-column: 2;
-    justify-self: end;
-    max-width: 100%;
-    white-space: normal;
   }
 }
 
