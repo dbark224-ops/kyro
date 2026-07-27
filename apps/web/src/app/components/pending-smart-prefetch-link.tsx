@@ -34,12 +34,15 @@ export function PendingSmartPrefetchLink({
   className,
   href,
   onClick,
+  preload,
   ...props
 }: Readonly<
   Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
     children: ReactNode;
     className?: string;
     href: string;
+    /** Forwarded: eagerly prefetch on mount rather than waiting for intent. */
+    preload?: boolean;
   }
 >) {
   const pathname = usePathname();
@@ -53,8 +56,8 @@ export function PendingSmartPrefetchLink({
   }, [pathname, searchParams]);
   const isPending = Boolean(
     pendingNavigation &&
-      pendingNavigation.fromHref === currentHref &&
-      pendingNavigation.toHref !== currentHref,
+    pendingNavigation.fromHref === currentHref &&
+    pendingNavigation.toHref !== currentHref,
   );
 
   useEffect(() => {
@@ -92,6 +95,7 @@ export function PendingSmartPrefetchLink({
       data-navigation-pending={isPending ? "true" : undefined}
       href={href}
       onClick={handleClick}
+      preload={preload}
     >
       {children}
     </SmartPrefetchLink>

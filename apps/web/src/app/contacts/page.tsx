@@ -10,6 +10,10 @@ import type { ReactNode } from "react";
 import { AppFrame } from "../components/app-frame";
 import { AddressAutocompleteField } from "../components/address-autocomplete-field";
 import { AddressWithVerification } from "../components/address-verification-badge";
+import {
+  CrmProfileLink,
+  CrmProfileTransitionShell,
+} from "./crm-profile-loading";
 import { AutoSubmitSelect } from "../components/auto-submit-select";
 import {
   CONTACT_TYPE_OPTIONS,
@@ -386,6 +390,7 @@ function ContactRow({
   timeZone,
   activeFilter,
   contact,
+  isFirst,
   isSelected,
   page,
   search,
@@ -394,6 +399,7 @@ function ContactRow({
   timeZone: string;
   activeFilter: CrmFilter;
   contact: ContactListItem;
+  isFirst: boolean;
   isSelected: boolean;
   page: number;
   search: CrmSearchState;
@@ -403,9 +409,11 @@ function ContactRow({
   // A native title rather than the InfoBubble used in the panel: the whole row
   // is a link, and a focusable tooltip inside it would swallow the click.
   const warningExplanation = profileResolutionNotice(contact)?.explanation;
+  const contactType = formatContactType(contact.contactType);
+  const title = contactTitle(contact);
 
   return (
-    <PendingSmartPrefetchLink
+    <CrmProfileLink
       className={[
         "crm-row",
         isSelected ? "active" : "",
@@ -413,6 +421,7 @@ function ContactRow({
       ]
         .filter(Boolean)
         .join(" ")}
+      contactId={contact.id}
       href={crmHref({
         contactId: contact.id,
         filter: activeFilter,
@@ -420,9 +429,14 @@ function ContactRow({
         search,
         sort,
       })}
+      label={title}
+      // Matches the inbox: the top row is the one most likely to be opened, so
+      // it is fetched on mount. The rest fetch on hover or focus.
+      preload={isFirst}
+      selected={isSelected}
     >
       <div className="crm-row-main">
-        <strong>{contactTitle(contact)}</strong>
+        <strong>{title}</strong>
         <span>
           {[contact.company, contact.email, contact.phone]
             .filter(Boolean)
@@ -431,22 +445,32 @@ function ContactRow({
             "No contact details yet"}
         </span>
       </div>
-      <div className="crm-row-meta">
-        {warningLabel ? (
-          <span className="pill warning" title={warningExplanation}>
-            {warningLabel}
-          </span>
-        ) : null}
-        <span>{contact.messageCount} messages</span>
+      {/* Fixed-width columns, and the flag cell is always present even when
+          empty. Laid out as a right-packed flex row, one contact with a long
+          type pill shifted every count and timestamp above and below it. */}
+      <div className="crm-row-meta crm-row-meta-contact">
+        <div className="crm-row-meta-flag">
+          {warningLabel ? (
+            <span className="pill warning" title={warningExplanation}>
+              {warningLabel}
+            </span>
+          ) : null}
+        </div>
+        <span>
+          {contact.messageCount}{" "}
+          {contact.messageCount === 1 ? "message" : "messages"}
+        </span>
         <span>
           {formatDate(contact.lastMessageAt ?? contact.updatedAt, timeZone)}
         </span>
         <span className="pill">
           {formatContactLifecycleStage(contact.lifecycleStage)}
         </span>
-        <span className="pill">{formatContactType(contact.contactType)}</span>
+        <span className="pill" title={contactType}>
+          {contactType}
+        </span>
       </div>
-    </PendingSmartPrefetchLink>
+    </CrmProfileLink>
   );
 }
 
@@ -502,10 +526,12 @@ function LeadRow({
         <strong>{lead.title}</strong>
         <span>{leadDetails || "No contact details yet"}</span>
       </div>
-      <div className="crm-row-meta">
-        {lead.followUpIsDue ? (
-          <span className="pill warning">Follow-up due</span>
-        ) : null}
+      <div className="crm-row-meta crm-row-meta-lead">
+        <div className="crm-row-meta-flag">
+          {lead.followUpIsDue ? (
+            <span className="pill warning">Follow-up due</span>
+          ) : null}
+        </div>
         <span>{formatLabel(lead.status)}</span>
         <span>{formatDate(lead.updatedAt, timeZone)}</span>
         <span className={lead.priority === "high" ? "pill warning" : "pill"}>
@@ -1510,11 +1536,12 @@ export default async function ContactsPage({
                 <p className="empty-copy">No leads match this view yet.</p>
               )
             ) : sortedContacts.length > 0 ? (
-              paginatedContacts.map((contact) => (
+              paginatedContacts.map((contact, contactIndex) => (
                 <ContactRow
                   timeZone={timeZone}
                   activeFilter={activeFilter}
                   contact={contact}
+                  isFirst={contactIndex === 0}
                   isSelected={selectedProfile?.contact.id === contact.id}
                   key={contact.id}
                   page={currentPage}
@@ -1578,20 +1605,24 @@ export default async function ContactsPage({
           ) : null}
         </section>
 
-        {selectedProfile ? (
-          <ProfilePanel
-            timeZone={timeZone}
-            activeFilter={activeFilter}
-            engineError={query?.engine_error}
-            engineMessage={query?.engine_message}
-            key={selectedProfile.contact.id}
-            profile={selectedProfile}
-            search={searchState}
-            sort={activeSort}
-          />
-        ) : (
-          <EmptyProfilePanel />
-        )}
+        <CrmProfileTransitionShell
+          selectedContactId={selectedProfile?.contact.id ?? null}
+        >
+          {selectedProfile ? (
+            <ProfilePanel
+              timeZone={timeZone}
+              activeFilter={activeFilter}
+              engineError={query?.engine_error}
+              engineMessage={query?.engine_message}
+              key={selectedProfile.contact.id}
+              profile={selectedProfile}
+              search={searchState}
+              sort={activeSort}
+            />
+          ) : (
+            <EmptyProfilePanel />
+          )}
+        </CrmProfileTransitionShell>
       </section>
     </AppFrame>
   );

@@ -8600,18 +8600,22 @@ button.voice-card {
 }
 
 .inbox-preview-loading-overlay,
-.inbox-preview-loading-panel {
+.crm-profile-loading-overlay,
+.inbox-preview-loading-panel,
+.crm-profile-loading-panel {
   display: grid;
   place-items: center;
   min-height: 0;
 }
 
-.inbox-preview-loading-panel {
+.inbox-preview-loading-panel,
+.crm-profile-loading-panel {
   align-content: start;
   padding-top: 22px;
 }
 
-.inbox-preview-loading-overlay {
+.inbox-preview-loading-overlay,
+.crm-profile-loading-overlay {
   position: absolute;
   z-index: 6;
   inset: 0;
@@ -8621,7 +8625,8 @@ button.voice-card {
   backdrop-filter: blur(12px);
 }
 
-.inbox-preview-loading-card {
+.inbox-preview-loading-card,
+.crm-profile-loading-card {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -8633,24 +8638,48 @@ button.voice-card {
   padding: 12px 14px;
 }
 
-.inbox-preview-loading-card div {
+.inbox-preview-loading-card div,
+.crm-profile-loading-card div {
   display: grid;
   gap: 2px;
 }
 
 .inbox-preview-loading-card strong,
-.inbox-preview-loading-card span {
+.inbox-preview-loading-card span,
+.crm-profile-loading-card strong,
+.crm-profile-loading-card span {
   line-height: 1.25;
 }
 
-.inbox-preview-loading-card strong {
+.inbox-preview-loading-card strong,
+.crm-profile-loading-card strong {
   color: var(--text);
   font-size: 0.86rem;
 }
 
-.inbox-preview-loading-card span {
+.inbox-preview-loading-card span,
+.crm-profile-loading-card span {
   color: var(--muted);
   font-size: 0.76rem;
+}
+
+/* The CRM profile is server rendered, so clicking a row used to shimmer the
+   row and then show nothing until the whole page came back. This is the
+   inbox's preview shell: the panel keeps its place in the grid and a loading
+   card covers it the moment a row is clicked. */
+.crm-profile-transition-shell {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  /* The panel inside is max-height: 100%, which needs a resolved height to
+     measure against now that the shell sits between it and the workspace grid.
+     Same as the inbox shell. */
+  height: 100%;
+}
+
+.crm-profile-transition-shell > .crm-profile-panel {
+  grid-area: 1 / 1;
 }
 
 .crm-list-panel,
@@ -8904,7 +8933,10 @@ button.voice-card {
   background: color-mix(in srgb, var(--background) 42%, var(--surface));
   color: inherit;
   overflow: hidden;
-  padding: 7px 12px 7px 18px;
+  /* The pills are the tallest thing in the row and so set its height. At 7px
+     they filled it edge to edge; 9px gives them room to sit in the row rather
+     than be it. */
+  padding: 9px 12px 9px 18px;
   text-decoration: none;
   transition:
     border-color 160ms ease,
@@ -8953,31 +8985,62 @@ button.voice-card {
   align-items: center;
 }
 
-/* Was declared twice, a few lines apart, with the halves of one rule. */
+/* Fixed columns, not a right-packed flex row.
+   As flex with justify-content: flex-end, every item's width was its content's
+   width, so one contact typed "Property manager" and the message counts and
+   timestamps of every row above and below it slid sideways -- a 92px swing
+   between the narrowest and widest row. The widths below are measured from the
+   longest real value each column can hold: "128 messages", "Dec 26, 10:30 AM",
+   "Client", and a type label truncated with its full text on hover. */
 .crm-row-meta {
   align-items: center;
-  display: flex;
+  display: grid;
   gap: 10px;
+  justify-content: end;
+  min-width: 0;
+}
+
+.crm-row-meta-contact {
+  grid-template-columns: minmax(0, auto) 84px 108px 56px 100px;
+}
+
+.crm-row-meta-lead {
+  grid-template-columns: minmax(0, auto) 84px 108px 56px;
+}
+
+/* Always rendered, even with nothing in it. When this cell only existed on the
+   rows that had a warning, those rows shifted every later column by one. */
+.crm-row-meta-flag {
+  display: flex;
   justify-content: flex-end;
   min-width: 0;
-  text-align: right;
 }
 
 .crm-row-main strong,
 .crm-row-main span,
-.crm-row-meta span {
+.crm-row-meta span:not(.pill) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .crm-row-main span,
-.crm-row-meta span {
+.crm-row-meta span:not(.pill) {
   color: var(--muted);
   font-size: 0.8125rem;
 }
 
+/* `.crm-row-meta span` outranks `.pill`, so until it excluded pills these were
+   drawn at the body size in muted grey -- 31.5px tall inside a 33.5px row,
+   which left about a pixel of clearance and read as sitting low. */
 .crm-row-meta .pill {
+  display: block;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-align: center;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
