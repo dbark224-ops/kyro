@@ -48,6 +48,7 @@ import { InboxMailboxTransition } from "./inbox-mailbox-transition";
 import { ManualReplyChannelFields } from "./manual-reply-channel-fields";
 import { ReplyGenerator } from "./reply-generator";
 import { ReplyComposerDisclosure } from "./reply-composer-disclosure";
+import { ListPager } from "../components/list-pager";
 import { RoutePreloader } from "../components/route-preloader";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { SkippedEmailMoreMenu } from "./skipped-email-more-menu";
@@ -1792,77 +1793,95 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             </nav>
           ) : null}
 
-          <form
-            action="/inbox"
-            className={
-              activeMailbox === "inbox"
-                ? "inbox-toolbar"
-                : "inbox-toolbar mailbox-search-toolbar"
-            }
-            method="get"
-          >
-            <input name="mailbox" type="hidden" value={activeMailbox} />
-            {activeMailbox === "inbox" && activeFilter !== "all" ? (
-              <input name="filter" type="hidden" value={activeFilter} />
-            ) : null}
-            {activeMailbox === "inbox" ? (
-              <label>
-                Search
-                <input
-                  defaultValue={searchQuery}
-                  name="q"
-                  placeholder="Customer, sender, subject..."
-                  type="search"
-                />
-              </label>
-            ) : (
-              <label className="mailbox-search-field">
-                <span className="sr-only">
-                  Search{" "}
-                  {activeMailbox === "junk" ? "junk" : "deleted messages"}
-                </span>
-                <span className="mailbox-search-input-wrap">
+          <div className="list-controls-row">
+            <form
+              action="/inbox"
+              className={
+                activeMailbox === "inbox"
+                  ? "inbox-toolbar"
+                  : "inbox-toolbar mailbox-search-toolbar"
+              }
+              method="get"
+            >
+              <input name="mailbox" type="hidden" value={activeMailbox} />
+              {activeMailbox === "inbox" && activeFilter !== "all" ? (
+                <input name="filter" type="hidden" value={activeFilter} />
+              ) : null}
+              {activeMailbox === "inbox" ? (
+                <label>
+                  Search
                   <input
                     defaultValue={searchQuery}
                     name="q"
-                    placeholder={
-                      activeMailbox === "junk"
-                        ? "Search sender, subject, or reason..."
-                        : "Search deleted messages..."
-                    }
+                    placeholder="Customer, sender, subject..."
                     type="search"
                   />
-                  <button
-                    aria-label={`Search ${
-                      activeMailbox === "junk" ? "junk" : "deleted messages"
-                    }`}
-                    className="mailbox-search-submit"
-                    title="Search"
-                    type="submit"
-                  >
-                    <SearchIcon />
-                  </button>
-                </span>
-              </label>
-            )}
+                </label>
+              ) : (
+                <label className="mailbox-search-field">
+                  <span className="sr-only">
+                    Search{" "}
+                    {activeMailbox === "junk" ? "junk" : "deleted messages"}
+                  </span>
+                  <span className="mailbox-search-input-wrap">
+                    <input
+                      defaultValue={searchQuery}
+                      name="q"
+                      placeholder={
+                        activeMailbox === "junk"
+                          ? "Search sender, subject, or reason..."
+                          : "Search deleted messages..."
+                      }
+                      type="search"
+                    />
+                    <button
+                      aria-label={`Search ${
+                        activeMailbox === "junk" ? "junk" : "deleted messages"
+                      }`}
+                      className="mailbox-search-submit"
+                      title="Search"
+                      type="submit"
+                    >
+                      <SearchIcon />
+                    </button>
+                  </span>
+                </label>
+              )}
+              {activeMailbox !== "junk" ? (
+                <label>
+                  Sort
+                  <select defaultValue={activeSort} name="sort">
+                    {SORT_OPTIONS.map((sort) => (
+                      <option key={sort.value} value={sort.value}>
+                        {sort.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {activeMailbox === "inbox" ? (
+                <button className="secondary-button compact" type="submit">
+                  Apply
+                </button>
+              ) : null}
+            </form>
             {activeMailbox !== "junk" ? (
-              <label>
-                Sort
-                <select defaultValue={activeSort} name="sort">
-                  {SORT_OPTIONS.map((sort) => (
-                    <option key={sort.value} value={sort.value}>
-                      {sort.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <ListPager
+                currentPage={currentPage}
+                hrefForPage={(page) =>
+                  inboxHref({
+                    filter: activeFilter,
+                    mailbox: activeMailbox,
+                    page,
+                    query: searchQuery,
+                    sort: activeSort,
+                  })
+                }
+                label="Inbox"
+                totalPages={totalPages}
+              />
             ) : null}
-            {activeMailbox === "inbox" ? (
-              <button className="secondary-button compact" type="submit">
-                Apply
-              </button>
-            ) : null}
-          </form>
+          </div>
 
           <div className="data-list">
             {activeMailbox === "junk" ? (
@@ -2037,48 +2056,6 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
               </p>
             )}
           </div>
-
-          {activeMailbox !== "junk" && totalPages > 1 ? (
-            <nav aria-label="Inbox pagination" className="pagination-bar">
-              <SmartPrefetchLink
-                aria-disabled={currentPage === 1}
-                className={
-                  currentPage === 1
-                    ? "secondary-button compact disabled"
-                    : "secondary-button compact"
-                }
-                href={inboxHref({
-                  filter: activeFilter,
-                  mailbox: activeMailbox,
-                  page: currentPage - 1,
-                  query: searchQuery,
-                  sort: activeSort,
-                })}
-              >
-                Previous
-              </SmartPrefetchLink>
-              <span className="pagination-label">
-                Page {currentPage} of {totalPages}
-              </span>
-              <SmartPrefetchLink
-                aria-disabled={currentPage === totalPages}
-                className={
-                  currentPage === totalPages
-                    ? "secondary-button compact disabled"
-                    : "secondary-button compact"
-                }
-                href={inboxHref({
-                  filter: activeFilter,
-                  mailbox: activeMailbox,
-                  page: currentPage + 1,
-                  query: searchQuery,
-                  sort: activeSort,
-                })}
-              >
-                Next
-              </SmartPrefetchLink>
-            </nav>
-          ) : null}
         </section>
 
         <InboxPreviewTransitionShell

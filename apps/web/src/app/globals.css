@@ -9948,6 +9948,79 @@ button:disabled {
   font-weight: 700;
 }
 
+/* Search and sort on the left, the pager hard right, on one line above the
+   list. The pager used to sit under the rows, which put "next page" in the
+   bottom-right corner -- the same corner the Ask Kyro button floats in, so on
+   a full page of results it was covered by it. */
+.list-controls-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin: 0 0 16px;
+}
+
+.list-controls-row > form {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.list-pager {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  /* Sits on the baseline of the controls beside it, which carry a label above
+     the input. */
+  padding-bottom: 3px;
+}
+
+.list-pager-step {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--background) 42%, var(--surface));
+  color: var(--text);
+  font-size: 1.05rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.list-pager-step:hover,
+.list-pager-step:focus-visible {
+  border-color: color-mix(in srgb, var(--cyan) 58%, var(--line));
+  color: var(--cyan);
+}
+
+.list-pager-step.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.list-pager-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  padding: 0 2px;
+}
+
+@media (max-width: 760px) {
+  /* Stacks under the controls rather than squeezing beside them. */
+  .list-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .list-pager {
+    justify-content: flex-end;
+    padding-bottom: 0;
+  }
+}
+
 .pagination-bar .disabled {
   pointer-events: none;
   opacity: 0.48;

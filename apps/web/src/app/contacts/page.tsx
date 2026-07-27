@@ -30,6 +30,7 @@ import { formatWorkspaceDateTime } from "../../lib/time/format";
 import { requireWorkspaceContext } from "../../lib/workspace/context";
 import { getWorkspaceGeneralSettings } from "../../lib/workspace/general-settings";
 import { PendingSmartPrefetchLink } from "../components/pending-smart-prefetch-link";
+import { ListPager } from "../components/list-pager";
 import { RoutePreloader } from "../components/route-preloader";
 import { SmartPrefetchLink } from "../components/smart-prefetch-link";
 import { ManualLeadModal } from "./manual-lead-modal";
@@ -1335,80 +1336,96 @@ export default async function ContactsPage({
             ))}
           </nav>
 
-          <form action="/contacts" className="crm-toolbar" method="get">
-            {activeFilter !== "all" ? (
-              <input name="filter" type="hidden" value={activeFilter} />
-            ) : null}
-            {selectedProfile ? (
-              <input
-                name="contactId"
-                type="hidden"
-                value={selectedProfile.contact.id}
+          <div className="list-controls-row">
+            <form action="/contacts" className="crm-toolbar" method="get">
+              {activeFilter !== "all" ? (
+                <input name="filter" type="hidden" value={activeFilter} />
+              ) : null}
+              {selectedProfile ? (
+                <input
+                  name="contactId"
+                  type="hidden"
+                  value={selectedProfile.contact.id}
+                />
+              ) : null}
+              <div className="crm-search-field">
+                <label htmlFor="crm-search-input">Search</label>
+                <input
+                  defaultValue={searchState.q}
+                  id="crm-search-input"
+                  name="q"
+                  placeholder="Name, company, job type..."
+                  type="search"
+                />
+              </div>
+              <AutoSubmitSelect
+                className="crm-sort-field"
+                defaultValue={activeSort}
+                id="crm-sort-select"
+                label="Sort"
+                name="sort"
+                options={CRM_SORT_OPTIONS}
               />
-            ) : null}
-            <div className="crm-search-field">
-              <label htmlFor="crm-search-input">Search</label>
-              <input
-                defaultValue={searchState.q}
-                id="crm-search-input"
-                name="q"
-                placeholder="Name, company, job type..."
-                type="search"
-              />
-            </div>
-            <AutoSubmitSelect
-              className="crm-sort-field"
-              defaultValue={activeSort}
-              id="crm-sort-select"
-              label="Sort"
-              name="sort"
-              options={CRM_SORT_OPTIONS}
-            />
-            {hasSearch ? (
-              <SmartPrefetchLink
-                className="secondary-button compact"
-                href={crmHref({
+              {hasSearch ? (
+                <SmartPrefetchLink
+                  className="secondary-button compact"
+                  href={crmHref({
+                    contactId: selectedProfile?.contact.id,
+                    filter: activeFilter,
+                    sort: activeSort,
+                  })}
+                >
+                  Clear
+                </SmartPrefetchLink>
+              ) : null}
+              <details className="crm-advanced-search" open={hasAdvancedSearch}>
+                <summary>Advanced search</summary>
+                <div className="crm-advanced-grid">
+                  <label>
+                    Email
+                    <input
+                      defaultValue={searchState.email}
+                      name="email"
+                      placeholder="name@example.com"
+                      type="search"
+                    />
+                  </label>
+                  <label>
+                    Phone
+                    <input
+                      defaultValue={searchState.phone}
+                      name="phone"
+                      placeholder="0400..."
+                      type="search"
+                    />
+                  </label>
+                  <label>
+                    Address
+                    <input
+                      defaultValue={searchState.address}
+                      name="address"
+                      placeholder="Street, suburb, site..."
+                      type="search"
+                    />
+                  </label>
+                </div>
+              </details>
+            </form>
+            <ListPager
+              currentPage={currentPage}
+              hrefForPage={(page) =>
+                crmHref({
                   contactId: selectedProfile?.contact.id,
                   filter: activeFilter,
+                  page,
+                  search: searchState,
                   sort: activeSort,
-                })}
-              >
-                Clear
-              </SmartPrefetchLink>
-            ) : null}
-            <details className="crm-advanced-search" open={hasAdvancedSearch}>
-              <summary>Advanced search</summary>
-              <div className="crm-advanced-grid">
-                <label>
-                  Email
-                  <input
-                    defaultValue={searchState.email}
-                    name="email"
-                    placeholder="name@example.com"
-                    type="search"
-                  />
-                </label>
-                <label>
-                  Phone
-                  <input
-                    defaultValue={searchState.phone}
-                    name="phone"
-                    placeholder="0400..."
-                    type="search"
-                  />
-                </label>
-                <label>
-                  Address
-                  <input
-                    defaultValue={searchState.address}
-                    name="address"
-                    placeholder="Street, suburb, site..."
-                    type="search"
-                  />
-                </label>
-              </div>
-            </details>
-          </form>
+                })
+              }
+              label="CRM"
+              totalPages={totalPages}
+            />
+          </div>
 
           <div className="crm-list">
             {activeFilter === "opportunities" ? (
@@ -1457,48 +1474,6 @@ export default async function ContactsPage({
                 {selectedLeadContactIds.size} contacts have leads
               </span>
             </div>
-          ) : null}
-
-          {totalPages > 1 ? (
-            <nav aria-label="CRM pagination" className="pagination-bar">
-              <SmartPrefetchLink
-                aria-disabled={currentPage === 1}
-                className={
-                  currentPage === 1
-                    ? "secondary-button compact disabled"
-                    : "secondary-button compact"
-                }
-                href={crmHref({
-                  contactId: selectedProfile?.contact.id,
-                  filter: activeFilter,
-                  page: currentPage - 1,
-                  search: searchState,
-                  sort: activeSort,
-                })}
-              >
-                Previous
-              </SmartPrefetchLink>
-              <span className="pagination-label">
-                Page {currentPage} of {totalPages}
-              </span>
-              <SmartPrefetchLink
-                aria-disabled={currentPage === totalPages}
-                className={
-                  currentPage === totalPages
-                    ? "secondary-button compact disabled"
-                    : "secondary-button compact"
-                }
-                href={crmHref({
-                  contactId: selectedProfile?.contact.id,
-                  filter: activeFilter,
-                  page: currentPage + 1,
-                  search: searchState,
-                  sort: activeSort,
-                })}
-              >
-                Next
-              </SmartPrefetchLink>
-            </nav>
           ) : null}
         </section>
 
