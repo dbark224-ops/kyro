@@ -778,6 +778,31 @@ async function escalationVapiPhoneNumberId(
   );
 }
 
+/**
+ * The in-app notification step.
+ *
+ * There is no message to push out here: the step row *is* the notification.
+ * `getNotificationSummary` selects escalation steps with channel
+ * "app_notification" and status "sent" whose incident is still open, and
+ * renders each one in the notification bell with a link that acknowledges it.
+ * Recording the step as sent is what publishes it.
+ *
+ * That is a real delivery, not a fake one -- which is why this is not the
+ * throwing branch. I previously mistook the null provider id for "nobody was
+ * contacted" and made this channel fail, which took the bell's escalation
+ * notifications with it. A provider id is absent because the app is the
+ * provider, not because nothing happened.
+ *
+ * The half that does not exist yet is mobile push. The Expo client in the
+ * kyro-mobile repo is where that belongs -- it needs to register a device
+ * token before this side has anywhere to send one. Until then this reaches
+ * the owner only while they have the web app open, which is why it sits at
+ * delay 0 alongside email, with SMS and a phone call escalating behind it.
+ */
+function sendAppNotificationStep() {
+  return { messageId: null, requestId: null };
+}
+
 async function sendPhoneStep(
   supabase: SupabaseClient,
   incident: EscalationIncidentRow,
@@ -886,17 +911,16 @@ async function processClaimedStep(
         ? await sendSmsStep(supabase, incident, contact)
         : step.channel === "phone"
           ? await sendPhoneStep(supabase, incident, contact)
-          : // app_notification has no delivery yet. It used to fall through to
-            // a null result and then be recorded as "sent" -- a step that
-            // contacted nobody and reported success, which is worse than one
-            // that fails, because a failure hands on to the next step while
-            // this quietly ended the chain. Throwing puts it on the normal
-            // retry path and lets the escalation continue.
-            (() => {
-              throw new Error(
-                `Escalation channel "${step.channel}" has no delivery method, so nobody was contacted.`,
-              );
-            })();
+          : step.channel === "app_notification"
+            ? sendAppNotificationStep()
+            : // Any channel with no delivery at all. Reporting "sent" for one of
+              // those is worse than failing, because a failure hands on to the
+              // next step while a false success quietly ends the chain.
+              (() => {
+                throw new Error(
+                  `Escalation channel "${step.channel}" has no delivery method, so nobody was contacted.`,
+                );
+              })();
 
   await writeOrThrow(
     supabase
@@ -1052,8 +1076,10 @@ function samePhoneNumber(left: string | null | undefined, right: string) {
   const rightDigits = right.replace(/\D/g, "").slice(-10);
 
   return Boolean(
-    leftDigits && rightDigits && leftDigits.length >= 7 &&
-      leftDigits === rightDigits,
+    leftDigits &&
+    rightDigits &&
+    leftDigits.length >= 7 &&
+    leftDigits === rightDigits,
   );
 }
 
