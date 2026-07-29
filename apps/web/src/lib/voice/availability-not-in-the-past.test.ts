@@ -27,8 +27,12 @@ const finder = booking.slice(
 );
 
 describe("availability never starts before now", () => {
-  it("floors the search at the current time", () => {
-    assert.match(finder, /Math\.max\(fromMs, Date\.now\(\)\)/);
+  it("floors the search at the current time or later", () => {
+    // The floor has since moved out by a notice window, which is strictly
+    // stronger. Asserting the exact expression made this fail on a change that
+    // improved the very thing it exists to protect, so it checks the shape:
+    // the search start is Date.now() raised to at least the caller's `from`.
+    assert.match(finder, /Math\.max\(fromMs, Date\.now\(\)[^)]*\)/);
   });
 
   it("searches from the floored time, not the caller's start", () => {

@@ -1267,7 +1267,10 @@ async function ensureKnownBusinessFactReply(input: {
 }
 
 function aiProviderMode() {
-  return process.env.AI_PROVIDER?.trim().toLowerCase() ?? "stub";
+  // Empty counts as unset. `?? "stub"` only catches undefined, so AI_PROVIDER=""
+  // returned "" -- a mode matching no branch, which fell through to the stub
+  // without ever naming itself.
+  return process.env.AI_PROVIDER?.trim().toLowerCase() || "stub";
 }
 
 function ollamaBaseUrl() {
@@ -2144,7 +2147,20 @@ async function resolveTriageDecision(context: StubAiTriageContext) {
     }
   }
 
-  return buildStubDecision(context);
+  // No provider that can write. Every inquiry taking this path gets classified
+  // by local rules and no drafted reply at all, so it must say so out loud.
+  //
+  // It used to pass no reason, leaving fallbackReason null on the one path
+  // where nothing had thrown to explain itself -- the two branches above both
+  // report their error and only this one stayed quiet. Until recently the
+  // resulting zero-proposal run crashed, and that crash was the only signal
+  // anyone got. With the crash fixed, silence here would mean Kyro quietly
+  // stops answering inquiries and nothing anywhere says why.
+  const reason = `No AI provider is configured for triage (AI_PROVIDER=${aiProviderMode()}), so no reply was drafted.`;
+
+  console.error(`Triage fell back to the stub: ${reason}`);
+
+  return buildStubDecision(context, reason);
 }
 
 function buildActionProposals(

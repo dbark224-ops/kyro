@@ -259,6 +259,16 @@ async function availableSlots(input: {
   return slots;
 }
 
+/**
+ * The soonest Kyro may offer, measured from now.
+ *
+ * An hour, so there is time to see the job, answer, and travel. It applies to
+ * what Kyro *offers unprompted*; the owner can still book anything they like by
+ * hand, and a customer asking for a specific earlier time is answered by the
+ * owner rather than refused by this.
+ */
+const MINIMUM_BOOKING_NOTICE_MS = 60 * 60_000;
+
 export async function findWorkspaceAvailableSlots(input: {
   durationMinutes?: number;
   from: string;
@@ -280,7 +290,11 @@ export async function findWorkspaceAvailableSlots(input: {
   // said -- which is how a customer reporting a flood at 1:11pm was offered a
   // visit at 7:00am, six hours earlier. Every caller wants slots it can still
   // offer, so the floor belongs here rather than in each of them.
-  const searchFromMs = Math.max(fromMs, Date.now());
+  //
+  // The hour on top is the travel-and-notice margin. Not in the past was not
+  // enough on its own: it left Kyro free to promise "we can be there at 3:15"
+  // at 2:55, which is a commitment nobody has agreed to and a van cannot keep.
+  const searchFromMs = Math.max(fromMs, Date.now() + MINIMUM_BOOKING_NOTICE_MS);
   const [calendarSettings, generalSettings] = await Promise.all([
     getCalendarSettings(input.supabase, input.workspaceId),
     getWorkspaceGeneralSettings(input.supabase, input.workspaceId),
@@ -652,7 +666,19 @@ export async function requestInboundVoiceBooking(
   }
 
   const title = bookingTitle(input.args, textValue(contact?.name));
-  const status = mode === "book_from_calendar" ? "scheduled" : "suggested";
+  // Same day is the exception to booking straight from the calendar.
+  //
+  // book_from_calendar exists so Kyro can commit to a time without waiting on
+  // anyone, and for next Tuesday that is fine. Today is different: the owner is
+  // already somewhere, may be under a floor or halfway across the city, and is
+  // the only one who knows whether another hour of the afternoon can be given
+  // away. So a same-day time is still offered, but as a draft the business
+  // confirms rather than a commitment Kyro made on their behalf.
+  const sameDay =
+    dateKeyInTimeZone(requestedStart, timeZone) ===
+    dateKeyInTimeZone(new Date().toISOString(), timeZone);
+  const status =
+    mode === "book_from_calendar" && !sameDay ? "scheduled" : "suggested";
   const eventLabel = `${title} at ${formatSlot(requestedStart, timeZone)}`;
   const appointmentId = await createCalendarEventRecord({
     input: {
@@ -712,7 +738,9 @@ export async function requestInboundVoiceBooking(
     answer:
       status === "scheduled"
         ? `Booked ${eventLabel}. Confirm that time with the caller.`
-        : `Created a draft appointment for ${eventLabel}. Tell the caller the business will confirm it.`,
+        : sameDay && mode === "book_from_calendar"
+          ? `Created a draft appointment for ${eventLabel}. Same-day times are not booked automatically -- tell the caller the business will confirm it shortly.`
+          : `Created a draft appointment for ${eventLabel}. Tell the caller the business will confirm it.`,
     appointmentId,
     endsAt: requestedEnd,
     mode,
