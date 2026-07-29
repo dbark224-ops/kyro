@@ -8,6 +8,7 @@ import {
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { recordOutboundDirectSms } from "../communication/outbound";
 import {
+  smartQuotesToPlain,
   smsCharacterBudget,
   splitIntoSmsMessages,
 } from "../communication/sms-length";
@@ -620,9 +621,24 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
   // brief, which is four segments, and a carrier that will not concatenate
   // them delivers the first one and drops the rest. The assistant's own texted
   // replies were split for exactly this reason; this path was missed.
+  // One curly apostrophe costs double. GSM-7 packs 153 characters per
+  // concatenated segment; a single character outside that alphabet drops the
+  // whole message to UCS-2 and 67. A live alert reading "we'll keep chasing"
+  // came to 365 characters and six segments where three would have done, and
+  // split at 64 characters instead of 120 -- so it also arrived broken
+  // mid-sentence. smartQuotesToPlain has existed for this since the length
+  // helpers were written and was never once called.
+  //
+  // Before the split, not after: the split measures the text it is given, so
+  // normalising afterwards would leave the segment count wrong anyway.
+  // WhatsApp keeps the nicer typography -- 4096 characters in one message, so
+  // the encoding buys nothing there.
   const parts =
     transport === "sms"
-      ? splitIntoSmsMessages(notificationBody, MAX_NOTIFICATION_SMS_PARTS)
+      ? splitIntoSmsMessages(
+          smartQuotesToPlain(notificationBody),
+          MAX_NOTIFICATION_SMS_PARTS,
+        )
       : [notificationBody.trim()].filter(Boolean);
 
   try {

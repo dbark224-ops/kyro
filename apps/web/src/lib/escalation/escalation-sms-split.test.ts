@@ -27,8 +27,11 @@ const step = source.slice(
 
 describe("the escalation text is split for plain SMS", () => {
   it("splits on the sms transport", () => {
+    // Deliberately not pinning the exact argument expression: the body is now
+    // de-curled on the way in, and an assertion that broke because of that was
+    // testing the spelling rather than the behaviour.
     assert.match(step, /transport === "sms"/);
-    assert.match(step, /splitIntoSmsMessages\(body, MAX_ESCALATION_SMS_PARTS\)/);
+    assert.match(step, /splitIntoSmsMessages\([\s\S]{0,60}MAX_ESCALATION_SMS_PARTS/);
   });
 
   it("leaves WhatsApp whole, where 4096 characters fit", () => {

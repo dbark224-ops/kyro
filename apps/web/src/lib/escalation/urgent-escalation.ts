@@ -6,7 +6,10 @@ import {
   assertSmsSendAllowed,
   recordSmsRecipientPreference,
 } from "../communication/sms-compliance";
-import { splitIntoSmsMessages } from "../communication/sms-length";
+import {
+  smartQuotesToPlain,
+  splitIntoSmsMessages,
+} from "../communication/sms-length";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { createVapiOutboundCall } from "../integrations/vapi";
@@ -747,9 +750,13 @@ async function sendSmsStep(
   // not concatenate delivers the first segment and drops the rest, which on
   // this path means the owner reads "URGENT -" and never learns what for. The
   // inquiry alert was split for exactly this reason; this one was missed.
+  // De-curled before splitting, same as the inquiry alert: one smart quote from
+  // the model drops the whole message from GSM-7 to UCS-2 and halves the room
+  // per segment, so it costs double and breaks in more places. The model writes
+  // these now, so curly punctuation arrives routinely.
   const parts =
     transport === "sms"
-      ? splitIntoSmsMessages(body, MAX_ESCALATION_SMS_PARTS)
+      ? splitIntoSmsMessages(smartQuotesToPlain(body), MAX_ESCALATION_SMS_PARTS)
       : [body.trim()].filter(Boolean);
   const markupRate = await resolveWorkspaceUsageMarkupRate(
     supabase,

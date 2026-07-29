@@ -3222,8 +3222,13 @@ export async function runStubAiTriage(
   }
 
   // Undefined when nothing was proposed. Everything below needs a real action
-  // to hang off -- a future step points at one, and the auto-reply executes
-  // one -- so each is guarded rather than left to fail on `.id` of undefined.
+  // to hang off -- a future step points at one, the auto-reply executes one,
+  // and the return value names one -- so every read of it is guarded.
+  //
+  // This comment used to claim that and only two of the four sites were. The
+  // audit log and the returned actionId both dereferenced it, so a triage that
+  // proposed nothing threw on `.id` of undefined after all its work had already
+  // been persisted.
   const primaryAction =
     actions?.find((action) => String(action.type) === "draft_reply") ??
     actions?.[0];
@@ -3319,8 +3324,8 @@ export async function runStubAiTriage(
       entityId: context.conversationId,
       after: {
         status: "reply_drafted",
-        actionId: String(primaryAction.id),
-        proposedActionCount: actions.length,
+        actionId: primaryAction ? String(primaryAction.id) : null,
+        proposedActionCount: actions?.length ?? 0,
       },
       metadata: {
         aiRunId,
@@ -3330,8 +3335,13 @@ export async function runStubAiTriage(
 
   return {
     aiRunId,
-    actionId: String(primaryAction.id),
-    actionIds: actions.map((action) => String(action.id)),
+    // Null when nothing was proposed. This read was unguarded and threw
+    // "Cannot read properties of undefined (reading 'id')" on every triage that
+    // produced no action -- which is exactly the path a truncated or stubbed
+    // model response takes, so the failure most likely to happen was also the
+    // one that crashed instead of reporting itself.
+    actionId: primaryAction ? String(primaryAction.id) : null,
+    actionIds: (actions ?? []).map((action) => String(action.id)),
     actualCost: usageTotals.costSnapshot,
     customerCharge: usageTotals.customerChargeSnapshot,
     autoReplyError,
