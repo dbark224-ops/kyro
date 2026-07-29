@@ -30,6 +30,16 @@ import { objectRecord, textValue } from "@kyro/core";
 import { writeOrThrow } from "../supabase/write";
 
 type UrgentEscalationInput = {
+  /**
+   * Set only when `title` and `summary` are a person's own words.
+   *
+   * They used to win simply by being present, and every caller passes them --
+   * they feed trigger detection and stand in when the model cannot be reached.
+   * So a guard meant for "a human already said what this is" was tripped by
+   * code-built strings on every single escalation, and the alert writer never
+   * ran once. Presence is not authorship; this says so out loud.
+   */
+  alertAuthoredByPerson?: boolean;
   content: string;
   contactId?: string | null;
   conversationId?: string | null;
@@ -41,6 +51,7 @@ type UrgentEscalationInput = {
   sourceId?: string | null;
   sourceKey: string;
   sourceType: "email" | "sms" | "voice_call" | "manual" | "system";
+  /** Context and last-resort text, not the alert itself. See the flag above. */
   summary?: string | null;
   title?: string | null;
   vipCustomer?: boolean;
@@ -559,18 +570,29 @@ async function escalationAlertContext(
     : null;
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A uuid or nothing -- anything else fails the insert it is written into. */
+function escalationAlertUserId(input: UrgentEscalationInput) {
+  const candidate = textValue(input.metadata?.userId);
+
+  return candidate && UUID_PATTERN.test(candidate) ? candidate : null;
+}
+
 async function writeEscalationAlert(
   supabase: SupabaseClient,
   workspaceId: string,
   context: { input: UrgentEscalationInput; triggerKeys: string[] },
 ) {
   const { input, triggerKeys } = context;
-  // An explicit title or summary from the caller wins -- nothing overrides a
-  // human who already said what this is.
   const explicitTitle = textValue(input.title);
   const explicitSummary = textValue(input.summary);
 
-  if (explicitTitle && explicitSummary) {
+  // Nothing overrides a human who already said what this is -- but they have
+  // to say they are one. This used to trigger on presence alone, and since all
+  // three callers build these strings in code, the model below was unreachable.
+  if (input.alertAuthoredByPerson && explicitTitle && explicitSummary) {
     return { summary: explicitSummary, title: explicitTitle };
   }
 
@@ -597,14 +619,20 @@ async function writeEscalationAlert(
       supabase,
       task: "Write the urgent escalation alert for the business owner.",
       taskType: "urgent_escalation_alert",
-      userId: input.metadata?.userId ? String(input.metadata.userId) : "system",
+      // Null, never a sentinel. usage_events.user_id and ai_runs.user_id are
+      // uuid columns, so "system" failed both inserts -- the alert would still
+      // have been written, and its cost would have vanished. An escalation is
+      // raised by a background sync with no user attached, and no caller sets
+      // metadata.userId today; null is the honest answer rather than a string
+      // the schema cannot hold.
+      userId: escalationAlertUserId(input),
       workspaceId,
     });
 
-    return {
-      summary: explicitSummary ?? written.body,
-      title: explicitTitle ?? written.subject,
-    };
+    // The model's words win here. Falling back to explicitSummary at this
+    // point would spend the call and then throw the result away -- the caller's
+    // strings are the safety net below, not a preference.
+    return { summary: written.body, title: written.subject };
   } catch (error) {
     // An urgent escalation must never be lost because the model was
     // unavailable. This last resort is labelled facts rather than written
