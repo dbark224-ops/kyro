@@ -5,6 +5,7 @@ import {
   customerAnswerableMissingInfo,
   replyDraftMissingInfoGaps,
 } from "./triage";
+import { buildReplyDraftPrompt } from "./reply-draft-generation";
 import { replyWritingPromptRules } from "../communication/settings";
 import { DEFAULT_REPLY_WRITING_SETTINGS } from "../communication/settings";
 import { readRepoFile } from "../testing/repo-files";
@@ -71,6 +72,64 @@ describe("owner notes do not reach the customer", () => {
     );
 
     assert.deepEqual(gaps, ["Job address"]);
+  });
+
+  it("keeps the label out of the prompt the writer actually receives", () => {
+    // The one that matters, and the one the tests above missed. Filtering the
+    // rules was not enough: buildReplyDraftPrompt serialises the whole context
+    // into the prompt, so the raw inquiryFacts still carried the label. The
+    // model read it there and asked a woman with water coming through her
+    // ceiling to "confirm that this is a serviceable plumbing inquiry".
+    //
+    // Testing customerAnswerableMissingInfo in isolation passed throughout.
+    // Only asserting on the payload catches this.
+    const prompt = buildReplyDraftPrompt({
+      channelType: "email",
+      contactName: "Priya Raghunathan",
+      inquiryFacts: {
+        address: "18 Marchmont",
+        missingInfo: [OWNER_REVIEW_MISSING_INFO, "Job address"],
+        preferredTime: null,
+        responseMode: "service_inquiry",
+      },
+      prompt: null,
+      source: "conversation",
+    });
+
+    // Guard the guard: this assertion is only worth anything because the
+    // label contains the word it is looking for. If OWNER_REVIEW_MISSING_INFO
+    // is ever reworded, the check below must be reworded with it.
+    assert.match(OWNER_REVIEW_MISSING_INFO, /serviceable/i);
+    assert.doesNotMatch(prompt, /serviceable/i);
+    // The genuine gap still has to survive, or the writer stops asking for it.
+    assert.match(prompt, /Job address/);
+  });
+
+  it("leaves a facts blob with no owner note untouched", () => {
+    const prompt = buildReplyDraftPrompt({
+      channelType: "email",
+      inquiryFacts: {
+        address: null,
+        missingInfo: ["Job address", "Preferred time"],
+        preferredTime: null,
+        responseMode: "service_inquiry",
+      },
+      prompt: null,
+      source: "conversation",
+    });
+
+    assert.match(prompt, /Job address/);
+    assert.match(prompt, /Preferred time/);
+  });
+
+  it("survives an inquiry with no facts at all", () => {
+    assert.doesNotThrow(() =>
+      buildReplyDraftPrompt({
+        channelType: "email",
+        prompt: null,
+        source: "conversation",
+      }),
+    );
   });
 
   it("does not echo an unrecognised label into customer wording", () => {

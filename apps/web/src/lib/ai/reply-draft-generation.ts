@@ -230,8 +230,23 @@ function requiredConversationReplyRules(context: ReplyDraftContext) {
 
 export function buildReplyDraftPrompt(context: ReplyDraftContext) {
   const replyWriting = context.replyWriting ?? DEFAULT_REPLY_WRITING_SETTINGS;
+  // The whole context is serialised into the prompt below, so filtering the
+  // rules alone was not enough: the raw inquiryFacts still carried "Confirm
+  // this is a serviceable inquiry", and the model read it there and asked the
+  // customer to confirm she was a serviceable plumbing inquiry. An owner-only
+  // note has to be absent from what the writer sees, not merely unmentioned.
   const promptContext: ReplyDraftContext = {
     ...context,
+    ...(context.inquiryFacts
+      ? {
+          inquiryFacts: {
+            ...context.inquiryFacts,
+            missingInfo: customerAnswerableMissingInfo(
+              context.inquiryFacts.missingInfo ?? [],
+            ),
+          },
+        }
+      : {}),
     replyWriting,
   };
   const skippedEmailRules =

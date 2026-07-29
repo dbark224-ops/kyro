@@ -274,6 +274,13 @@ export async function findWorkspaceAvailableSlots(input: {
     throw new Error("A valid calendar availability window is required.");
   }
 
+  // You cannot book the past, and a slot that has already gone is not
+  // availability. A range meaning "today" starts at midnight, so the first
+  // free slot inside it was the start of the working day whatever the clock
+  // said -- which is how a customer reporting a flood at 1:11pm was offered a
+  // visit at 7:00am, six hours earlier. Every caller wants slots it can still
+  // offer, so the floor belongs here rather than in each of them.
+  const searchFromMs = Math.max(fromMs, Date.now());
   const [calendarSettings, generalSettings] = await Promise.all([
     getCalendarSettings(input.supabase, input.workspaceId),
     getWorkspaceGeneralSettings(input.supabase, input.workspaceId),
@@ -288,9 +295,18 @@ export async function findWorkspaceAvailableSlots(input: {
     ),
   );
   const timeZone = safeTimeZone(generalSettings.timeZone);
+
+  // The whole window is behind us. No slots rather than stale ones: the caller
+  // then asks the customer what suits instead of proposing a time that has
+  // been and gone.
+  if (searchFromMs >= toMs) {
+    return { durationMinutes, slots: [], timeZone };
+  }
+
+  const searchFrom = new Date(searchFromMs).toISOString();
   const busy = await loadBusyCalendarEvents({
     from: new Date(
-      fromMs - calendarSettings.bufferMinutesBefore * 60_000,
+      searchFromMs - calendarSettings.bufferMinutesBefore * 60_000,
     ).toISOString(),
     supabase: input.supabase,
     to: new Date(
@@ -302,7 +318,7 @@ export async function findWorkspaceAvailableSlots(input: {
     busy,
     calendarSettings,
     durationMinutes,
-    from: input.from,
+    from: searchFrom,
     generalSettings,
     limit: input.limit,
     to: input.to,
