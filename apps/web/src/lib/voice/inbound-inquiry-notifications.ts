@@ -7,7 +7,10 @@ import {
 } from "../assistant/persistence";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { recordOutboundDirectSms } from "../communication/outbound";
-import { smsCharacterBudget } from "../communication/sms-length";
+import {
+  smsCharacterBudget,
+  splitIntoSmsMessages,
+} from "../communication/sms-length";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import {
   getActiveWorkspaceSmsNumber,
@@ -233,6 +236,14 @@ export function buildInboundInquiryNotificationBody(
 const INQUIRY_ALERT_CHARACTER_BUDGET = smsCharacterBudget(2);
 
 /**
+ * Three texts before the split gives up, matching the assistant.
+ *
+ * The brief asks for two. Past three the owner is being texted an essay and
+ * the detail belongs behind the link the alert already carries.
+ */
+const MAX_NOTIFICATION_SMS_PARTS = 3;
+
+/**
  * What the new-inquiry alert has to achieve, for the model to write from.
  *
  * Two of these earned their wording the hard way. The alert used to announce
@@ -425,8 +436,7 @@ async function saveInquiryBriefingToFieldThread(
       {
         items: [
           {
-            detail:
-              textValue(input.ownerQuestion) ?? "Prepared response ready",
+            detail: textValue(input.ownerQuestion) ?? "Prepared response ready",
             href: `/inbox?conversationId=${encodeURIComponent(input.conversationId)}`,
             id: input.conversationId,
             label: contactName,
@@ -555,9 +565,21 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
     workspaceId: input.workspaceId,
   });
 
+  // WhatsApp takes 4096 characters in one message, so it is left whole. Plain
+  // SMS is not: this alert has run to 582 characters against a 306-character
+  // brief, which is four segments, and a carrier that will not concatenate
+  // them delivers the first one and drops the rest. The assistant's own texted
+  // replies were split for exactly this reason; this path was missed.
+  const parts =
+    transport === "sms"
+      ? splitIntoSmsMessages(notificationBody, MAX_NOTIFICATION_SMS_PARTS)
+      : [notificationBody.trim()].filter(Boolean);
+
   try {
+    // The first part goes first and carries the reply-event wiring, so replying
+    // to the alert still lands on the right conversation.
     result = await recordOutboundDirectSms(input.supabase, {
-      body: notificationBody,
+      body: parts[0] ?? notificationBody,
       consentNote: "Primary workplace contact for inbound Kyro inquiries.",
       idempotencyKey: `inbound_inquiry_notification.${input.workspaceId}.${channel}.${sourceId}`,
       metadata: {
@@ -587,6 +609,31 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
       workplaceContactId: recipient.contactId,
       workspaceId: input.workspaceId,
     });
+
+    for (const [index, part] of parts.slice(1).entries()) {
+      await recordOutboundDirectSms(input.supabase, {
+        body: part,
+        consentNote: "Primary workplace contact for inbound Kyro inquiries.",
+        // Part index keeps each message distinct, so a retry still dedupes.
+        idempotencyKey: `inbound_inquiry_notification.${input.workspaceId}.${channel}.${sourceId}.${index + 2}`,
+        metadata: {
+          conversationId: input.conversationId ?? null,
+          inquiryChannel: channel,
+          messagePart: index + 2,
+          messageParts: parts.length,
+          notificationType: "inbound_inquiry",
+          sourceId,
+          transport,
+        },
+        recipientName: recipient.name,
+        recipientPhone: recipient.phoneNumber,
+        source: "inbound_inquiry_notification",
+        transport,
+        userId: recipient.userId,
+        workplaceContactId: recipient.contactId,
+        workspaceId: input.workspaceId,
+      });
+    }
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown notification error";
