@@ -34,6 +34,15 @@ type InquiryNotificationInput = {
   contactName?: string | null;
   contactPhone?: string | null;
   conversationId?: string | null;
+  /**
+   * Whether an urgent escalation is also running for this inquiry.
+   *
+   * The two alerts used to know nothing about each other: an urgent email
+   * raised an incident and sent this ordinary alert eleven seconds later,
+   * saying nothing about it. The owner answered, and was escalated at
+   * anyway two minutes later.
+   */
+  escalationStarted?: boolean;
   eventLabel?: string | null;
   missingInfo?: string[];
   outcome?: InquiryNotificationOutcome;
@@ -258,6 +267,11 @@ const MAX_NOTIFICATION_SMS_PARTS = 3;
 export function inboundInquiryAlertRules() {
   return [
     "This tells the business owner a new customer inquiry has arrived and what to do about it.",
+    // Two alerts about one inquiry, neither mentioning the other, is how the
+    // owner ends up answering this one and being chased anyway. Replying to
+    // this message does stop the escalation -- so say that, or he has no
+    // reason to believe answering here was enough.
+    "When context.escalationStarted is true, say plainly that this one is being treated as urgent and that you will keep chasing until someone responds, and that a reply to this message stops that. When it is false, do not mention escalation at all.",
     // An email whose signature carried a phone number got announced as "SMS
     // from ...". context.contactPhone sits next to arrivedVia, and a phone
     // number reads like a text message, so the channel has to be named as the
@@ -289,6 +303,7 @@ async function writeInboundInquiryNotification(
         kyroLink,
         kyroQuestionForOwner: textValue(input.ownerQuestion),
         modelRecommendation: textValue(input.recommendedAction),
+        escalationStarted: Boolean(input.escalationStarted),
         outcome: input.outcome ?? "captured",
         preferredTime: textValue(input.preferredTime),
         preparedReplyAvailable: Boolean(input.preparedReplyAvailable),

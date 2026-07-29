@@ -1102,6 +1102,15 @@ const REPLY_ACKNOWLEDGEMENT_WINDOW_MS = 6 * 60 * 60 * 1000;
  * Any reply counts. The point is that a human is now engaged, not that they
  * have agreed to anything; requiring a particular word would be the same
  * mistake as telling people to text back "SEND IT".
+ *
+ * It matches on the incident being open and addressed to this person, not on
+ * an escalation message having already gone out. Those are different moments,
+ * and the gap between them is where this went wrong: an urgent inquiry raised
+ * an incident and sent the ordinary new-inquiry alert eleven seconds later.
+ * The owner answered that alert twice within three minutes -- and because no
+ * escalation step had been sent yet, there was nothing for the reply to
+ * attach to, so the escalation texted him anyway two minutes after he had
+ * already dealt with it.
  */
 export async function acknowledgeEscalationFromReply(
   supabase: SupabaseClient,
@@ -1111,13 +1120,13 @@ export async function acknowledgeEscalationFromReply(
     Date.now() - REPLY_ACKNOWLEDGEMENT_WINDOW_MS,
   ).toISOString();
   const { data, error } = await supabase
-    .from("urgent_escalation_steps")
-    .select("incident_id,contact_snapshot,sent_at")
+    .from("urgent_escalation_incidents")
+    .select("id,created_at,urgent_escalation_steps(contact_snapshot)")
     .eq("workspace_id", input.workspaceId)
-    .eq("status", "sent")
-    .gte("sent_at", since)
-    .order("sent_at", { ascending: false })
-    .limit(50);
+    .eq("status", "open")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(20);
 
   if (error) {
     throw new Error(
@@ -1127,12 +1136,18 @@ export async function acknowledgeEscalationFromReply(
 
   // Phone formats vary between what was configured and what Twilio reports, so
   // this compares digits rather than asking the database for an exact match.
-  const match = (data ?? []).find((step) =>
-    samePhoneNumber(
-      textValue(objectRecord(step.contact_snapshot).phone),
-      input.phoneNumber,
-    ),
-  );
+  const match = (data ?? []).find((incident) => {
+    const steps = Array.isArray(incident.urgent_escalation_steps)
+      ? incident.urgent_escalation_steps
+      : [];
+
+    return steps.some((step) =>
+      samePhoneNumber(
+        textValue(objectRecord(step.contact_snapshot).phone),
+        input.phoneNumber,
+      ),
+    );
+  });
 
   if (!match) {
     return null;
@@ -1145,7 +1160,7 @@ export async function acknowledgeEscalationFromReply(
       acknowledged_by_user_id: input.userId ?? null,
       status: "acknowledged",
     })
-    .eq("id", match.incident_id)
+    .eq("id", match.id)
     .eq("workspace_id", input.workspaceId)
     // Only an open incident. A second reply must not reopen or re-audit one
     // that is already settled.

@@ -2813,30 +2813,38 @@ async function promoteEmailMessage({
     threadSummary: thread.summary,
   });
 
-  await createUrgentEscalationIncident(supabase, workspaceId, {
-    contactId,
-    content: [message.subject, message.bodyText].filter(Boolean).join("\n"),
-    conversationId,
-    existingCustomer: threadMatchStrategy !== "new_conversation",
-    leadId,
-    metadata: {
-      accountEmail: message.accountEmail,
-      externalMessageId: message.externalMessageId,
-      provider: message.provider,
+  // Kept, because the ordinary new-inquiry alert that follows needs to know
+  // whether this is also being escalated -- otherwise the owner gets two
+  // unrelated-looking messages about the same thing and no idea the second
+  // one is going to keep coming.
+  const escalation = await createUrgentEscalationIncident(
+    supabase,
+    workspaceId,
+    {
+      contactId,
+      content: [message.subject, message.bodyText].filter(Boolean).join("\n"),
+      conversationId,
+      existingCustomer: threadMatchStrategy !== "new_conversation",
+      leadId,
+      metadata: {
+        accountEmail: message.accountEmail,
+        externalMessageId: message.externalMessageId,
+        provider: message.provider,
+      },
+      occurredAt: message.receivedAt,
+      priority:
+        /\b(urgent|emergency|asap|immediately|burst|flood|gas leak)\b/i.test(
+          `${message.subject}\n${message.bodyText}`,
+        )
+          ? "urgent"
+          : "normal",
+      sourceId: String(savedMessage.id),
+      sourceKey: `email:${message.provider}:${message.externalMessageId}`,
+      sourceType: "email",
+      summary: `${providerLabel(message.provider)} email from ${contactLabel}: ${classification.summary}`,
+      title: leadProfile?.title ? String(leadProfile.title) : leadTitle,
     },
-    occurredAt: message.receivedAt,
-    priority:
-      /\b(urgent|emergency|asap|immediately|burst|flood|gas leak)\b/i.test(
-        `${message.subject}\n${message.bodyText}`,
-      )
-        ? "urgent"
-        : "normal",
-    sourceId: String(savedMessage.id),
-    sourceKey: `email:${message.provider}:${message.externalMessageId}`,
-    sourceType: "email",
-    summary: `${providerLabel(message.provider)} email from ${contactLabel}: ${classification.summary}`,
-    title: leadProfile?.title ? String(leadProfile.title) : leadTitle,
-  }).catch((escalationError) => {
+  ).catch((escalationError) => {
     console.error("Unable to evaluate inbound email escalation", {
       error:
         escalationError instanceof Error
@@ -2856,6 +2864,7 @@ async function promoteEmailMessage({
     contactPhone: contactProfile?.phone ? String(contactProfile.phone) : null,
     conversationId,
     duplicate: false,
+    escalationStarted: escalation?.created === true,
     inquiryFacts: triageResult.inquiryFacts,
     leadId,
     messageId: String(savedMessage.id),
@@ -3295,6 +3304,7 @@ async function processMessage({
         contactNameFromMessage(message) ?? message.fromEmail ?? "email sender",
       contactPhone: promoted.contactPhone,
       conversationId: promoted.conversationId,
+      escalationStarted: promoted.escalationStarted,
       missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
       ownerQuestion: promoted.ownerQuestion,
       preferredTime: promoted.inquiryFacts?.preferredTime ?? null,
