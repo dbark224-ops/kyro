@@ -6,6 +6,7 @@ import {
   assertSmsSendAllowed,
   recordSmsRecipientPreference,
 } from "../communication/sms-compliance";
+import { splitIntoSmsMessages } from "../communication/sms-length";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { createVapiOutboundCall } from "../integrations/vapi";
@@ -535,6 +536,16 @@ function acknowledgementUrl(token: string) {
  * A reply now settles the incident, so the link is a fallback for anyone who
  * would rather open it, not the instruction.
  */
+/**
+ * Three texts before the split gives up, matching the inquiry alert.
+ *
+ * The alert body is prompted to stay under 300 characters and the header,
+ * acknowledge line and link add roughly 150 more, so two is the usual answer
+ * and the third is headroom. splitIntoSmsMessages never truncates -- the last
+ * part absorbs any remainder -- so this bounds the count, not the content.
+ */
+const MAX_ESCALATION_SMS_PARTS = 3;
+
 function escalationMessage(incident: EscalationIncidentRow) {
   return [
     `URGENT - ${incident.title}`,
@@ -726,55 +737,108 @@ async function sendSmsStep(
   // plain SMS from the workspace number, so on a workspace running through the
   // WhatsApp sandbox the alerts arrived and the escalations did not -- one path
   // had been taught about the sandbox and this one had not.
-  const result = await sendTwilioSmsMessage({
-    body: escalationMessage(incident),
-    from,
-    to: phone,
-    transport: twilioMessageTransportForWorkspace({
-      recipientPhone: phone,
-      workspaceId: incident.workspace_id,
-    }),
+  const transport = twilioMessageTransportForWorkspace({
+    recipientPhone: phone,
+    workspaceId: incident.workspace_id,
   });
-  const usage = telephonyUsageCost({
-    direction: "outbound",
-    kind: "sms",
-    markupRate: await resolveWorkspaceUsageMarkupRate(
-      supabase,
-      incident.workspace_id,
-      "TWILIO_MARKUP_RATE",
-    ),
-    providerPrice: result.price,
-    providerCurrency: result.priceUnit,
-  });
+  const body = escalationMessage(incident);
+  // WhatsApp takes 4096 characters in one message, so it goes whole. Plain SMS
+  // does not, and this is the message that matters most: a carrier that will
+  // not concatenate delivers the first segment and drops the rest, which on
+  // this path means the owner reads "URGENT -" and never learns what for. The
+  // inquiry alert was split for exactly this reason; this one was missed.
+  const parts =
+    transport === "sms"
+      ? splitIntoSmsMessages(body, MAX_ESCALATION_SMS_PARTS)
+      : [body.trim()].filter(Boolean);
+  const markupRate = await resolveWorkspaceUsageMarkupRate(
+    supabase,
+    incident.workspace_id,
+    "TWILIO_MARKUP_RATE",
+  );
+  let first: Awaited<ReturnType<typeof sendTwilioSmsMessage>> | null = null;
 
-  // Billable, so a dropped insert is lost revenue -- the same silent path as
-  // the AI and outbound usage writes. Reported rather than thrown: the SMS has
-  // already gone out and failing here would not un-send it.
-  const { error: usageError } = await supabase.from("usage_events").insert({
-    cost_snapshot: String(usage.cost),
-    currency: usage.currency,
-    customer_charge_snapshot: String(usage.customerCharge),
-    markup_snapshot: String(usage.markup),
-    metadata: { incidentId: incident.id, source: "urgent_escalation" },
-    provider: TWILIO_PROVIDER,
-    provider_usage_id: result.messageId,
-    quantity: "1",
-    service: "sms",
-    source_id: incident.id,
-    source_type: "urgent_escalation_incident",
-    unit: "message",
-    unit_cost_snapshot: String(usage.cost),
-    usage_type: "outbound_sms",
-    workspace_id: incident.workspace_id,
-  });
+  for (const [index, part] of parts.entries()) {
+    let result: Awaited<ReturnType<typeof sendTwilioSmsMessage>>;
 
-  if (usageError) {
-    console.error(
-      `Unable to record urgent escalation SMS usage for incident ${incident.id}: ${usageError.message}`,
-    );
+    try {
+      result = await sendTwilioSmsMessage({
+        body: part,
+        from,
+        to: phone,
+        transport,
+      });
+    } catch (sendError) {
+      // Only the first part failing means nothing reached the owner, so that
+      // is the one worth throwing on: the step retries with backoff and
+      // re-sends from the top. Throwing on a later part would re-send the
+      // whole alert on retry and text the urgent header twice, which is worse
+      // than a missing tail the owner can read behind the link.
+      if (index === 0) {
+        throw sendError;
+      }
+
+      console.error(
+        `Urgent escalation SMS part ${index + 1} of ${parts.length} failed for incident ${incident.id}: ${
+          sendError instanceof Error ? sendError.message : "unknown error"
+        }`,
+      );
+      break;
+    }
+
+    first ??= result;
+
+    const usage = telephonyUsageCost({
+      direction: "outbound",
+      kind: "sms",
+      markupRate,
+      providerPrice: result.price,
+      providerCurrency: result.priceUnit,
+    });
+
+    // Billable, so a dropped insert is lost revenue -- the same silent path as
+    // the AI and outbound usage writes. Reported rather than thrown: the SMS
+    // has already gone out and failing here would not un-send it. One row per
+    // part, because the carrier bills each one.
+    const { error: usageError } = await supabase.from("usage_events").insert({
+      cost_snapshot: String(usage.cost),
+      currency: usage.currency,
+      customer_charge_snapshot: String(usage.customerCharge),
+      markup_snapshot: String(usage.markup),
+      metadata: {
+        incidentId: incident.id,
+        ...(parts.length > 1
+          ? { messagePart: index + 1, messageParts: parts.length }
+          : {}),
+        source: "urgent_escalation",
+      },
+      provider: TWILIO_PROVIDER,
+      provider_usage_id: result.messageId,
+      quantity: "1",
+      service: "sms",
+      source_id: incident.id,
+      source_type: "urgent_escalation_incident",
+      unit: "message",
+      unit_cost_snapshot: String(usage.cost),
+      usage_type: "outbound_sms",
+      workspace_id: incident.workspace_id,
+    });
+
+    if (usageError) {
+      console.error(
+        `Unable to record urgent escalation SMS usage for incident ${incident.id}: ${usageError.message}`,
+      );
+    }
   }
 
-  return { messageId: result.messageId, requestId: result.providerRequestId };
+  if (!first) {
+    throw new Error("Urgent escalation SMS produced no message to send.");
+  }
+
+  // The step row holds one provider id, and the first part is the right one to
+  // keep: it is what the owner replies to, and replies acknowledge by phone
+  // number and open incident rather than by message id.
+  return { messageId: first.messageId, requestId: first.providerRequestId };
 }
 
 async function escalationVapiPhoneNumberId(
