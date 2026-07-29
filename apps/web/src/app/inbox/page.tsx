@@ -34,6 +34,7 @@ import {
   sendDraftReplyAction,
   updateDraftReplyAction,
 } from "./actions";
+import { ConversationRowShell } from "./conversation-row-shell";
 import { ConversationWorkflowPanel } from "./conversation-workflow-panel";
 import { ConversationHistory } from "./conversation-history";
 import { ConversationMessageThread } from "./conversation-message-thread";
@@ -1286,32 +1287,6 @@ function InboxSplitPreview({
   );
 }
 
-function ConversationDeleteButton({
-  conversationId,
-  redirectTo,
-}: {
-  conversationId: string;
-  redirectTo: string;
-}) {
-  return (
-    <form
-      action={deleteConversationAction}
-      className="conversation-delete-form"
-    >
-      <input name="conversationId" type="hidden" value={conversationId} />
-      <input name="redirectTo" type="hidden" value={redirectTo} />
-      <button
-        aria-label="Move conversation to Deleted"
-        className="conversation-delete-button"
-        title="Move to Deleted"
-        type="submit"
-      >
-        <TrashIcon />
-      </button>
-    </form>
-  );
-}
-
 function DeletedConversationSplitPreview({
   closeHref,
   profile,
@@ -2030,13 +2005,13 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
                 );
 
                 return activeMailbox === "inbox" ? (
-                  <div className="conversation-row-shell" key={conversation.id}>
+                  <ConversationRowShell
+                    conversationId={conversation.id}
+                    key={conversation.id}
+                    redirectTo={deleteRedirectHref}
+                  >
                     {link}
-                    <ConversationDeleteButton
-                      conversationId={conversation.id}
-                      redirectTo={deleteRedirectHref}
-                    />
-                  </div>
+                  </ConversationRowShell>
                 ) : (
                   <div
                     className="conversation-row-shell deleted"

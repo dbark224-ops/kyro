@@ -8470,16 +8470,42 @@ button.voice-card {
   min-width: 0;
 }
 
-.conversation-delete-form {
+.conversation-row-form {
+  display: block;
+  min-width: 0;
+}
+
+/* The row goes the moment you press delete, rather than sitting there for the
+   three seconds the action and its redirect take -- long enough to press it
+   again, and long enough to doubt it registered. Driven by the form's pending
+   state, so a failed delete puts the row back instead of losing it. */
+.conversation-row-shell[data-removing="true"] {
+  overflow: hidden;
+  animation: conversation-row-remove 130ms ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes conversation-row-remove {
+  to {
+    max-height: 0;
+    margin-bottom: 0;
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-row-shell[data-removing="true"] {
+    animation: none;
+    display: none;
+  }
+}
+
+.conversation-delete-button {
   position: absolute;
   top: 50%;
   right: 8px;
   z-index: 2;
-  display: block;
-  transform: translateY(-50%);
-}
-
-.conversation-delete-button {
   display: inline-grid;
   place-items: center;
   width: 24px;
@@ -8493,7 +8519,13 @@ button.voice-card {
   font-size: 1.25rem;
   line-height: 1;
   cursor: pointer;
+  transform: translateY(-50%);
   transition: color 140ms ease;
+}
+
+.conversation-delete-button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .conversation-delete-button svg,
