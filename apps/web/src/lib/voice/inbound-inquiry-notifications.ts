@@ -66,12 +66,25 @@ type InquiryNotificationInput = {
   workspaceId: string;
 };
 
+/**
+ * Shorten to a whole word.
+ *
+ * This feeds the last-resort alert, and it cut wherever the character count
+ * happened to land: an owner was told about "a slowly worsening damp patc...".
+ * Losing the rest of a sentence is what a summary is for. Losing the rest of a
+ * word just looks broken, and it was the tell that no model had written it.
+ */
 function compactText(value: string, maxLength: number) {
   const clean = value.replace(/\s+/g, " ").trim();
 
-  return clean.length <= maxLength
-    ? clean
-    : `${clean.slice(0, maxLength - 1).trim()}...`;
+  if (clean.length <= maxLength) {
+    return clean;
+  }
+
+  const cut = clean.slice(0, maxLength - 3);
+  const lastSpace = cut.lastIndexOf(" ");
+
+  return `${(lastSpace > maxLength / 2 ? cut.slice(0, lastSpace) : cut).trim()}...`;
 }
 
 function samePhoneNumber(left: string | null, right: string) {
@@ -264,9 +277,18 @@ const MAX_NOTIFICATION_SMS_PARTS = 3;
  * Exported so the rules can be asserted directly rather than inferred from a
  * model's output.
  */
-export function inboundInquiryAlertRules() {
+export function inboundInquiryAlertRules(footerLength = 0) {
+  // The link footer is added after the model writes, so it spends part of the
+  // segment budget the model is being held to. Telling the model the full 306
+  // would reliably produce a three-segment text.
+  const bodyBudget = Math.max(
+    120,
+    INQUIRY_ALERT_CHARACTER_BUDGET - footerLength,
+  );
+
   return [
     "This tells the business owner a new customer inquiry has arrived and what to do about it.",
+    "A link to open the inquiry in Kyro is appended after you finish, so do not write a URL yourself and do not refer to a link, button or anything below your text.",
     // Two alerts about one inquiry, neither mentioning the other, is how the
     // owner ends up answering this one and being chased anyway. Replying to
     // this message does stop the escalation -- so say that, or he has no
@@ -282,8 +304,8 @@ export function inboundInquiryAlertRules() {
     "If context.preparedReplyDraft is set, say in your own words what that reply would tell the customer, so they know what they are approving without having to open the app. Convey the gist, not the wording -- the same judgement you use on the customer's message.",
     "When a reply is drafted, invite them to confirm however they like. Do not instruct them to send a specific phrase; any clear yes will do, and they can also just tell you what to change.",
     "If Kyro already answered, say so and do not ask them to act.",
-    "End with the Kyro link. Include the phone number only when the owner would plausibly call rather than open the app.",
-    `Keep it under ${INQUIRY_ALERT_CHARACTER_BUDGET} characters. It is a text message read on a phone between jobs.`,
+    "Include the customer's phone number only when the owner would plausibly call rather than open the app.",
+    `Keep it under ${bodyBudget} characters. It is a text message read on a phone between jobs.`,
   ];
 }
 
@@ -292,6 +314,7 @@ async function writeInboundInquiryNotification(
   userId: string | null,
 ) {
   const kyroLink = buildInboundInquiryLink(input.conversationId);
+  const linkFooter = `\nOpen in Kyro: ${kyroLink}`;
 
   try {
     const written = await generateOperatorAlert({
@@ -300,7 +323,6 @@ async function writeInboundInquiryNotification(
         contactName: textValue(input.contactName),
         contactPhone: textValue(input.contactPhone),
         inquirySummary: input.summary,
-        kyroLink,
         kyroQuestionForOwner: textValue(input.ownerQuestion),
         modelRecommendation: textValue(input.recommendedAction),
         escalationStarted: Boolean(input.escalationStarted),
@@ -312,8 +334,18 @@ async function writeInboundInquiryNotification(
         scheduledFor: textValue(input.eventLabel),
         stillNeededFromCustomer: [...new Set(input.missingInfo ?? [])],
       },
-      mustInclude: [kyroLink],
-      purposeRules: inboundInquiryAlertRules(),
+      // Deliberately not mustInclude. Requiring the model to reproduce this
+      // link verbatim means reproducing a 92-character URL ending in a UUID,
+      // and one wrong character fails the check. Two failed attempts throw the
+      // whole generation away and the alert silently falls back to the code
+      // template -- which is what happened, and why an alert arrived reading
+      // "a slowly worsening damp patc...", cut mid-word at 190 characters.
+      //
+      // The link is appended below instead. Writing a bare URL on its own line
+      // is not the module writing prose; the sentence that matters is still
+      // entirely the model's.
+      mustInclude: [],
+      purposeRules: inboundInquiryAlertRules(linkFooter.length),
       supabase: input.supabase,
       task: "Write the new-inquiry alert for the business owner.",
       taskType: "inbound_inquiry_notification",
@@ -321,7 +353,10 @@ async function writeInboundInquiryNotification(
       workspaceId: input.workspaceId,
     });
 
-    return written.body;
+    // The link is a footer, added after the model has written. Telling it
+    // the link will be there stops it inventing its own or writing "click
+    // the link below" about something it cannot see.
+    return `${written.body.trim()}${linkFooter}`;
   } catch (error) {
     // Losing the alert is worse than sending a plain one, so this falls back
     // to labelled facts rather than dropping the notification.

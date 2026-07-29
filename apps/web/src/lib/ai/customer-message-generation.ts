@@ -174,6 +174,142 @@ async function runCustomerMessage(input: {
   };
 }
 
+type CustomerMessageAttempt = Awaited<ReturnType<typeof runCustomerMessage>>;
+
+/**
+ * Bill every call the provider actually served, not just the one we used.
+ *
+ * Two ways spend used to vanish. A corrective pass that fixed a missing literal
+ * left the first attempt's tokens unrecorded, because only the final attempt
+ * was metered. And a corrective pass that failed threw before any metering ran
+ * at all, so a workspace could burn two calls and see nothing on its bill --
+ * which is also why the failure was invisible when looking for it in
+ * usage_events.
+ *
+ * Each attempt keeps its own provider usage id so the rows stay reconcilable
+ * against OpenAI's own record; the ai_run row carries the summed totals.
+ */
+async function recordAttemptUsage(input: {
+  attempts: CustomerMessageAttempt[];
+  channelType: string;
+  failureReason?: string;
+  model: string;
+  startedAt: number;
+  supabase: SupabaseClient;
+  taskType: string;
+  userId: string | null;
+  workspaceId: string;
+}) {
+  const attempts = input.attempts.filter(Boolean);
+
+  if (attempts.length === 0) {
+    return;
+  }
+
+  const failed = Boolean(input.failureReason);
+  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
+    input.supabase,
+    input.workspaceId,
+    "OPENAI_LLM_MARKUP_RATE",
+  );
+  const usageEvents = attempts.flatMap((attempt, index) =>
+    buildLlmUsageEvents({
+      context: {
+        metadata: {
+          attempt: index + 1,
+          ...(failed ? { outcome: "failed" } : {}),
+          source: input.taskType,
+        },
+        providerUsageId: attempt.usage.providerUsageId,
+        usageMarkupRate,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+      },
+      model: input.model,
+      provider: "openai",
+      service: "llm",
+      usage: attempt.usage,
+    }),
+  );
+  const usageTotals = usageEventTotals(usageEvents);
+  const tokens = attempts.reduce(
+    (running, attempt) => ({
+      cachedInputTokens:
+        running.cachedInputTokens + attempt.usage.cachedInputTokens,
+      inputTokens: running.inputTokens + attempt.usage.inputTokens,
+      outputTokens: running.outputTokens + attempt.usage.outputTokens,
+      reasoningTokens: running.reasoningTokens + attempt.usage.reasoningTokens,
+      totalTokens: running.totalTokens + attempt.usage.totalTokens,
+    }),
+    {
+      cachedInputTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 0,
+    },
+  );
+  const last = attempts[attempts.length - 1];
+  const { data: aiRun, error: aiRunError } = await input.supabase
+    .from("ai_runs")
+    .insert({
+      actual_cost: String(usageTotals.costSnapshot),
+      completed_at: new Date().toISOString(),
+      ...(failed ? { error: input.failureReason } : {}),
+      estimated_cost: String(usageTotals.costSnapshot),
+      input_refs: {
+        attempts: attempts.length,
+        channelType: input.channelType,
+        source: input.taskType,
+      },
+      latency_ms: Date.now() - input.startedAt,
+      mode: "copilot",
+      model: input.model,
+      // Keep the rejected draft. Without it the only record of a failed
+      // generation is a cost with nothing to show for it.
+      output: failed
+        ? { rejectedBody: last.body, rejectedSubject: last.subject }
+        : { body: last.body, subject: last.subject },
+      provider: "openai",
+      risk_level: "medium",
+      status: failed ? "failed" : "completed",
+      task_type: input.taskType,
+      tool_calls: [],
+      usage: {
+        ...tokens,
+        customerCharge: usageTotals.customerChargeSnapshot,
+      },
+      user_id: input.userId,
+      workspace_id: input.workspaceId,
+    })
+    .select("id")
+    .single();
+
+  // The model has already run and been charged for by this point, so a failure
+  // to record the charge must not discard the message -- but it must not pass
+  // silently either. recordUsageEvents writes the payload to the audit log so
+  // the charge stays reconstructable.
+  if (aiRunError) {
+    console.error(
+      `Unable to record ai_run for ${input.taskType}: ${aiRunError.message}`,
+    );
+  }
+
+  const aiRunId = aiRun?.id ? String(aiRun.id) : null;
+
+  await recordUsageEvents(input.supabase, {
+    context: `customer_message:${input.taskType}`,
+    events: usageEvents.map((event) => ({
+      ...event,
+      ...(aiRunId
+        ? { aiRunId, sourceId: aiRunId, sourceType: "ai_run" as const }
+        : {}),
+    })),
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+  });
+}
+
 /**
  * How the message should read, which differs by who is reading it.
  *
@@ -278,6 +414,11 @@ export async function generateCustomerMessage(input: {
       writingRules,
     }),
   });
+  // Every attempt costs tokens whether or not its output is used. Usage is
+  // recorded further down, past a throw that a failed corrective pass can
+  // reach -- so a generation that gave up billed the workspace nothing and
+  // showed nothing, and the spend was invisible.
+  const attempts = [attempt];
   let missing = missingLiterals(attempt.body, mustInclude);
 
   if (missing.length > 0) {
@@ -301,10 +442,33 @@ export async function generateCustomerMessage(input: {
         writingRules,
       }),
     });
+    attempts.push(attempt);
     missing = missingLiterals(attempt.body, mustInclude);
   }
 
   if (missing.length > 0) {
+    const failureReason = `missing required literals: ${missing.join(", ")}`;
+
+    // Metering must not swallow the real failure. The operator needs the
+    // "could not write this" error below, not a usage-write error on top of it.
+    await recordAttemptUsage({
+      attempts,
+      channelType: input.channelType,
+      failureReason,
+      model,
+      startedAt,
+      supabase: input.supabase,
+      taskType: input.taskType,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+    }).catch((usageError: unknown) => {
+      console.error(
+        `Unable to record usage for a failed ${input.taskType}: ${
+          usageError instanceof Error ? usageError.message : String(usageError)
+        }`,
+      );
+    });
+
     throw new Error(
       `Kyro could not write this message with the required details (${missing.join(
         ", ",
@@ -312,78 +476,13 @@ export async function generateCustomerMessage(input: {
     );
   }
 
-  const usageMarkupRate = await resolveWorkspaceUsageMarkupRate(
-    input.supabase,
-    input.workspaceId,
-    "OPENAI_LLM_MARKUP_RATE",
-  );
-  const usageEvents = buildLlmUsageEvents({
-    context: {
-      metadata: { source: input.taskType },
-      providerUsageId: attempt.usage.providerUsageId,
-      usageMarkupRate,
-      userId: input.userId,
-      workspaceId: input.workspaceId,
-    },
+  await recordAttemptUsage({
+    attempts,
+    channelType: input.channelType,
     model,
-    provider: "openai",
-    service: "llm",
-    usage: attempt.usage,
-  });
-  const usageTotals = usageEventTotals(usageEvents);
-  const { data: aiRun, error: aiRunError } = await input.supabase
-    .from("ai_runs")
-    .insert({
-      actual_cost: String(usageTotals.costSnapshot),
-      completed_at: new Date().toISOString(),
-      estimated_cost: String(usageTotals.costSnapshot),
-      input_refs: {
-        channelType: input.channelType,
-        source: input.taskType,
-      },
-      latency_ms: Date.now() - startedAt,
-      mode: "copilot",
-      model,
-      output: { body: attempt.body, subject: attempt.subject },
-      provider: "openai",
-      risk_level: "medium",
-      status: "completed",
-      task_type: input.taskType,
-      tool_calls: [],
-      usage: {
-        cachedInputTokens: attempt.usage.cachedInputTokens,
-        customerCharge: usageTotals.customerChargeSnapshot,
-        inputTokens: attempt.usage.inputTokens,
-        outputTokens: attempt.usage.outputTokens,
-        reasoningTokens: attempt.usage.reasoningTokens,
-        totalTokens: attempt.usage.totalTokens,
-      },
-      user_id: input.userId,
-      workspace_id: input.workspaceId,
-    })
-    .select("id")
-    .single();
-
-  // The model has already run and been charged for by this point, so a failure
-  // to record the charge must not discard the message -- but it must not pass
-  // silently either. recordUsageEvents writes the payload to the audit log so
-  // the charge stays reconstructable.
-  if (aiRunError) {
-    console.error(
-      `Unable to record ai_run for ${input.taskType}: ${aiRunError.message}`,
-    );
-  }
-
-  const aiRunId = aiRun?.id ? String(aiRun.id) : null;
-
-  await recordUsageEvents(input.supabase, {
-    context: `customer_message:${input.taskType}`,
-    events: usageEvents.map((event) => ({
-      ...event,
-      ...(aiRunId
-        ? { aiRunId, sourceId: aiRunId, sourceType: "ai_run" as const }
-        : {}),
-    })),
+    startedAt,
+    supabase: input.supabase,
+    taskType: input.taskType,
     userId: input.userId,
     workspaceId: input.workspaceId,
   });
