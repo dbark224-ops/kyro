@@ -5850,6 +5850,11 @@ async function contactCommand({
             name: profile.contact.name,
             phone: profile.contact.phone,
             quoteDrafts: profile.counts.quoteDrafts,
+            // Named rather than bare, so nothing downstream mistakes the
+            // partner's number for the customer's own.
+            secondaryPhone: profile.contact.secondaryPhone,
+            secondaryPhoneLabel: profile.contact.secondaryPhoneLabel,
+            secondaryPhoneName: profile.contact.secondaryPhoneName,
             recentLeads: recordsContext(
               profile.leads.map((lead) => ({
                 nextStep: lead.nextStep,

@@ -192,6 +192,33 @@ export default async function ContactProfilePage({
               />
             </label>
             <label>
+              Other number
+              <input
+                name="secondaryPhone"
+                placeholder="Partner, assistant, on-site contact"
+                type="tel"
+                defaultValue={profile.contact.secondaryPhone ?? ""}
+              />
+            </label>
+            <label>
+              Their name
+              <input
+                name="secondaryPhoneName"
+                placeholder="Sam"
+                type="text"
+                defaultValue={profile.contact.secondaryPhoneName ?? ""}
+              />
+            </label>
+            <label>
+              Their role
+              <input
+                name="secondaryPhoneLabel"
+                placeholder="Partner"
+                type="text"
+                defaultValue={profile.contact.secondaryPhoneLabel ?? ""}
+              />
+            </label>
+            <label>
               Company
               <input
                 name="company"

@@ -44,7 +44,7 @@ type ContactUpdateResult =
     };
 
 const CONTACT_SELECT =
-  "id,name,email,phone,company,contact_type,address,notes,normalized_email,normalized_phone,normalized_company,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at";
+  "id,name,email,phone,secondary_phone,secondary_phone_name,secondary_phone_label,company,contact_type,address,notes,normalized_email,normalized_phone,normalized_company,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at";
 
 function nullableText(value: string | null) {
   return value ? value : null;
@@ -95,6 +95,9 @@ function changedFieldLabel(field: string) {
     name: "name",
     notes: "notes",
     phone: "phone number",
+    secondary_phone: "other number",
+    secondary_phone_label: "who that number belongs to",
+    secondary_phone_name: "name on the other number",
   };
 
   return labels[field] ?? field.replace(/_/g, " ");
@@ -301,6 +304,31 @@ export async function updateContactFromAssistantTool({
     "newPhone",
     "new_phone",
   ]);
+  // Customers hand over someone else's number constantly -- "my partner Sam is
+  // home today, they're on ...". Without this it is read once and lost, or
+  // worse, overwrites the customer's own number.
+  const secondaryPhone = fieldValue(args, [
+    "secondaryPhone",
+    "secondary_phone",
+    "otherPhone",
+    "other_phone",
+    "alternatePhone",
+    "alternate_phone",
+  ]);
+  const secondaryPhoneName = fieldValue(args, [
+    "secondaryPhoneName",
+    "secondary_phone_name",
+    "otherPhoneName",
+    "other_phone_name",
+  ]);
+  const secondaryPhoneLabel = fieldValue(args, [
+    "secondaryPhoneLabel",
+    "secondary_phone_label",
+    "secondaryPhoneRole",
+    "secondary_phone_role",
+    "otherPhoneLabel",
+    "other_phone_label",
+  ]);
   const company = fieldValue(args, ["company", "newCompany", "new_company"]);
   const address = fieldValue(args, ["address", "newAddress", "new_address"]);
   const notes = fieldValue(args, ["notes", "note"]);
@@ -319,6 +347,9 @@ export async function updateContactFromAssistantTool({
     !name &&
     !email &&
     !phone &&
+    !secondaryPhone &&
+    !secondaryPhoneName &&
+    !secondaryPhoneLabel &&
     !company &&
     !address &&
     !notes &&
@@ -326,7 +357,7 @@ export async function updateContactFromAssistantTool({
   ) {
     return {
       answer:
-        "I need at least one contact field to update: name, email, phone, address, company, contact type, or notes.",
+        "I need at least one contact field to update: name, email, phone, another number, address, company, contact type, or notes.",
       ok: false,
       reason: "no_update_fields",
     };
@@ -383,6 +414,28 @@ export async function updateContactFromAssistantTool({
       generalSettings.defaultPhoneRegion,
     );
     changedFields.push("phone");
+  }
+
+  if (secondaryPhone) {
+    update.secondary_phone = nullableText(secondaryPhone);
+    // Not indexed and never matched against an inbound caller: the partner's
+    // number is not the contact's identity, and treating it as one would merge
+    // two people's profiles.
+    update.normalized_secondary_phone = normalizeContactPhoneForRegion(
+      secondaryPhone,
+      generalSettings.defaultPhoneRegion,
+    );
+    changedFields.push("secondary_phone");
+  }
+
+  if (secondaryPhoneName) {
+    update.secondary_phone_name = nullableText(secondaryPhoneName);
+    changedFields.push("secondary_phone_name");
+  }
+
+  if (secondaryPhoneLabel) {
+    update.secondary_phone_label = nullableText(secondaryPhoneLabel);
+    changedFields.push("secondary_phone_label");
   }
 
   if (company) {

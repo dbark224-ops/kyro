@@ -303,6 +303,9 @@ export async function updateContactProfileAction(formData: FormData) {
   const rawEmail = formString(formData, "email");
   const email = normalizeContactEmail(rawEmail);
   const phone = formString(formData, "phone");
+  const secondaryPhone = formString(formData, "secondaryPhone");
+  const secondaryPhoneName = formString(formData, "secondaryPhoneName");
+  const secondaryPhoneLabel = formString(formData, "secondaryPhoneLabel");
   const company = formString(formData, "company");
   const normalizedCompany = normalizeCompanyName(company);
   const address = formString(formData, "address");
@@ -327,9 +330,15 @@ export async function updateContactProfileAction(formData: FormData) {
     phone,
     generalSettings.defaultPhoneRegion,
   );
+  const normalizedSecondaryPhone = normalizeContactPhoneForRegion(
+    secondaryPhone,
+    generalSettings.defaultPhoneRegion,
+  );
   const { data: before, error: beforeError } = await supabase
     .from("contacts")
-    .select("id,name,email,phone,company,contact_type,address,notes")
+    .select(
+      "id,name,email,phone,secondary_phone,secondary_phone_name,secondary_phone_label,company,contact_type,address,notes",
+    )
     .eq("workspace_id", workspace.id)
     .eq("id", contactId)
     .maybeSingle();
@@ -362,8 +371,20 @@ export async function updateContactProfileAction(formData: FormData) {
     name: nullableText(name),
     notes: nullableText(notes),
     phone: nullableText(phone),
+    // Clearing the number clears who it belonged to, so a profile can never
+    // carry "Sam, partner" beside an empty field.
+    secondary_phone: nullableText(secondaryPhone),
+    secondary_phone_name: secondaryPhone
+      ? nullableText(secondaryPhoneName)
+      : null,
+    secondary_phone_label: secondaryPhone
+      ? nullableText(secondaryPhoneLabel)
+      : null,
     normalized_email: email,
     normalized_phone: normalizedPhone,
+    normalized_secondary_phone: secondaryPhone
+      ? normalizedSecondaryPhone
+      : null,
     normalized_company: normalizedCompany,
   };
 
@@ -372,7 +393,9 @@ export async function updateContactProfileAction(formData: FormData) {
     .update(update)
     .eq("workspace_id", workspace.id)
     .eq("id", contactId)
-    .select("id,name,email,phone,company,contact_type,address,notes")
+    .select(
+      "id,name,email,phone,secondary_phone,secondary_phone_name,secondary_phone_label,company,contact_type,address,notes",
+    )
     .single();
 
   if (updateError || !after) {

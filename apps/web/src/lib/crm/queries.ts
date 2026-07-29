@@ -644,6 +644,16 @@ export type ContactProfile = {
     name: string | null;
     email: string | null;
     phone: string | null;
+    /**
+     * A second reachable number, such as a partner or an assistant.
+     *
+     * Never an identity: it is not matched against inbound callers and never
+     * becomes the default recipient. The name and label say whose it is, so
+     * nobody texts it blind.
+     */
+    secondaryPhone: string | null;
+    secondaryPhoneName: string | null;
+    secondaryPhoneLabel: string | null;
     company: string | null;
     contactType: string;
     lifecycleStage: string;
@@ -2445,7 +2455,7 @@ export async function getContactProfile(
   const { data: contact, error } = await supabase
     .from("contacts")
     .select(
-      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,address_validation_status,source,notes,updated_at",
+      "id,name,email,phone,secondary_phone,secondary_phone_name,secondary_phone_label,company,normalized_email,normalized_phone,normalized_company,contact_type,lifecycle_stage,lifecycle_source,lifecycle_reason,lifecycle_reviewed_at,profile_resolution_status,profile_resolution_reason,profile_conflict_contact_ids,merged_into_contact_id,address,address_validation_status,source,notes,updated_at",
     )
     .eq("workspace_id", workspaceId)
     .eq("id", contactId)
@@ -2764,6 +2774,9 @@ export async function getContactProfile(
       name: contact.name ? String(contact.name) : null,
       email: contact.email ? String(contact.email) : null,
       phone: contact.phone ? String(contact.phone) : null,
+      secondaryPhone: textValue(contact.secondary_phone),
+      secondaryPhoneName: textValue(contact.secondary_phone_name),
+      secondaryPhoneLabel: textValue(contact.secondary_phone_label),
       company: contact.company ? String(contact.company) : null,
       contactType: contact.contact_type
         ? String(contact.contact_type)
