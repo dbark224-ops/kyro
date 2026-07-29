@@ -1289,9 +1289,7 @@ async function resolvePlannedAssistantCommand({
     case "calendar_event":
       if (
         toolSelection.calendarOperation === "read" &&
-        looksLikeInquiryAvailabilityOfferRequest(
-          `${prompt}\n${plannedPrompt}`,
-        )
+        looksLikeInquiryAvailabilityOfferRequest(`${prompt}\n${plannedPrompt}`)
       ) {
         return replyToRecentInquiryCommand({
           actor,
@@ -1388,6 +1386,18 @@ async function resolvePlannedAssistantCommand({
     case "inquiry_reply":
       return replyToRecentInquiryCommand({
         actor,
+        // Whether the calendar gets checked has to follow what was asked, not
+        // which tool the router picked. "Reply saying we're happy to review,
+        // and offer them an afternoon time tomorrow that we have free in the
+        // calendar" is an inquiry_reply, so it never reached the calendar_event
+        // branch that resolves a slot -- and with no verified slot the writer
+        // was left to invent one. It offered "an afternoon opening tomorrow"
+        // that nobody had checked.
+        availabilityPrompt: looksLikeInquiryAvailabilityOfferRequest(
+          `${prompt}\n${plannedPrompt}`,
+        )
+          ? plannedPrompt
+          : null,
         currentTime,
         inputSource,
         prompt: plannedPrompt,
@@ -3480,19 +3490,18 @@ async function calendarCommand({
         } ${requestedRangeIsOneDay ? "on" : "from"} ${
           requestedDay.dateLabel
         }: ${top
-          .map(
-            (event) =>
-              requestedRangeIsOneDay
-                ? `${event.title} at ${new Intl.DateTimeFormat("en-US", {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    timeZone,
-                    timeZoneName: "short",
-                  }).format(new Date(event.startsAt ?? requestedDay.from))}`
-                : `${event.title} on ${assistantDate(
-                    event.startsAt ?? requestedDay.from,
-                    timeZone,
-                  )}`,
+          .map((event) =>
+            requestedRangeIsOneDay
+              ? `${event.title} at ${new Intl.DateTimeFormat("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZone,
+                  timeZoneName: "short",
+                }).format(new Date(event.startsAt ?? requestedDay.from))}`
+              : `${event.title} on ${assistantDate(
+                  event.startsAt ?? requestedDay.from,
+                  timeZone,
+                )}`,
           )
           .join(", ")}${
           activeEvents.length > top.length
@@ -4042,15 +4051,11 @@ async function upsertInquiryCommitmentCalendarEvent({
   );
   let schedule =
     scheduleOverride ??
-    parseAssistantCalendarTimeFromPrompts(
-      prompt,
-      conversation.latestBody,
-      {
-        defaultDurationMinutes,
-        now,
-        timeZone,
-      },
-    );
+    parseAssistantCalendarTimeFromPrompts(prompt, conversation.latestBody, {
+      defaultDurationMinutes,
+      now,
+      timeZone,
+    });
 
   if (!schedule && existingEvent?.starts_at) {
     const existingDate = dateKeyInTimeZone(existingEvent.starts_at, timeZone);
@@ -4436,14 +4441,12 @@ async function replyToRecentInquiryCommand({
     };
   }
 
-  let verifiedAvailability:
-    | {
-        endsAt: string;
-        label: string;
-        startsAt: string;
-        timeZone: string;
-      }
-    | null = null;
+  let verifiedAvailability: {
+    endsAt: string;
+    label: string;
+    startsAt: string;
+    timeZone: string;
+  } | null = null;
 
   if (availabilityPrompt) {
     const voiceSettings = await getVoiceSettings(supabase, workspace.id);
