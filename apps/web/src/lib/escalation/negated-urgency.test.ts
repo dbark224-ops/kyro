@@ -1,0 +1,142 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { detectUrgentEscalationTriggers } from "./urgent-escalation";
+
+/**
+ * "Not urgent" was reading as urgent.
+ *
+ * Found by running three mock inquiries and reading what came out: all three
+ * escalated on explicit_urgency, including one whose subject line was "Rough
+ * quote for an ensuite renovation, no rush" and one that said "Not urgent, I
+ * just can't raise the order until I have those answers."
+ *
+ * `\burgent\b` matches the word inside its own negation. The classifier
+ * summarised the first as "No urgent deadline", and that was enough to text the
+ * owner, text them again at fifteen minutes, and ring them at the hour -- about
+ * a bathroom quote somebody had gone out of their way to say was not urgent.
+ *
+ * The guard is deliberately narrow. A missed emergency is far worse than an
+ * extra alert, so it only suppresses a keyword directly preceded by a negation
+ * in the same clause. Everything in the second block below must keep escalating.
+ */
+function triggers(content: string, options = { afterHours: false }) {
+  return detectUrgentEscalationTriggers(
+    { content, sourceKey: "test", sourceType: "email" },
+    options,
+  );
+}
+
+describe("denying a thing is not reporting it", () => {
+  it("does not escalate the inquiry that started this", () => {
+    // The classifier's own words for a customer who said "No rush at all".
+    const found = triggers(
+      "Bea Ferreira is seeking a rough quote for a small ensuite renovation. No urgent deadline; she is available for a site visit within the next couple of weeks.",
+    );
+
+    assert.deepEqual(found, []);
+  });
+
+  it("does not escalate a customer who says it is not urgent", () => {
+    const found = triggers(
+      "Not urgent, I just can't raise the order until I have those answers.",
+    );
+
+    assert.deepEqual(found, []);
+  });
+
+  it("handles the ordinary ways people phrase it", () => {
+    for (const phrase of [
+      "this is not urgent",
+      "nothing urgent here",
+      "no emergency, just a quote",
+      "it isn't urgent",
+      "not particularly urgent",
+      "not that urgent",
+      "there is no flooding",
+      "no gas leak, just a smell of damp",
+      "we have no complaint about the work",
+    ]) {
+      assert.deepEqual(triggers(phrase), [], phrase);
+    }
+  });
+});
+
+describe("everything that should still wake someone up", () => {
+  it("escalates plain urgency", () => {
+    for (const phrase of [
+      "this is urgent",
+      "we need someone urgently -- it is an emergency",
+      "please come asap",
+      "I need someone immediately",
+    ]) {
+      assert.ok(
+        triggers(phrase).includes("explicit_urgency"),
+        `should escalate: ${phrase}`,
+      );
+    }
+  });
+
+  it("does not let a negation reach across a comma", () => {
+    // The dangerous false negative. "no water" and "urgent" are two separate
+    // statements, and the second is the one that matters.
+    assert.ok(
+      triggers("no water, urgent please").includes("explicit_urgency"),
+    );
+    assert.ok(
+      triggers("no access to the rear. Flooding in the kitchen").includes(
+        "active_property_damage",
+      ),
+    );
+  });
+
+  it("keeps a negation from suppressing a later sentence", () => {
+    assert.ok(
+      triggers(
+        "The quote is not urgent. But there is a gas leak in the laundry.",
+      ).includes("safety_risk"),
+    );
+  });
+
+  it("still escalates real damage and danger", () => {
+    assert.ok(triggers("the kitchen is flooding").includes("active_property_damage"));
+    assert.ok(triggers("I can smell gas").includes("safety_risk"));
+    assert.ok(
+      triggers("the light fitting was sparking").includes("safety_risk"),
+    );
+  });
+
+  it("still escalates a complaint", () => {
+    assert.ok(
+      triggers("this is unacceptable and I want a refund").includes(
+        "complaint_or_reputation_risk",
+      ),
+    );
+  });
+
+  it("keeps the structured priority flag independent of wording", () => {
+    // An explicit priority is a decision, not a phrase, and no amount of
+    // hedging in the text should talk it down.
+    const found = detectUrgentEscalationTriggers(
+      {
+        content: "Not urgent at all.",
+        priority: "urgent",
+        sourceKey: "test",
+        sourceType: "email",
+      },
+      { afterHours: false },
+    );
+
+    assert.ok(found.includes("explicit_urgency"));
+  });
+
+  it("still treats an absence of utilities as an after-hours emergency", () => {
+    // "no hot water" is the absence being reported, not a denial of anything.
+    // The keyword list matches it whole, so the negation check never sees a
+    // bare "water" preceded by "no".
+    const found = triggers("no hot water since this morning", {
+      afterHours: true,
+    });
+
+    assert.ok(found.includes("after_hours_emergency"), found.join(","));
+  });
+});

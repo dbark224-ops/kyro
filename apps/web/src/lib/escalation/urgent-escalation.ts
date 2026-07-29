@@ -190,6 +190,54 @@ function escalationHoursApply(settings: WorkspaceGeneralSettings, date: Date) {
   return true;
 }
 
+/**
+ * A negation immediately in front of a trigger word, and nothing looser.
+ *
+ * Deliberately tight. Suppressing a real emergency is far worse than sending
+ * one alert too many, so this only fires when the negator is the word directly
+ * before the keyword, optionally through one intensifier. "no water, urgent"
+ * keeps its urgency because the comma is not crossed; "I don't think it's
+ * urgent" keeps it too, because that is four words away and the reading is
+ * genuinely ambiguous.
+ */
+const IMMEDIATE_NEGATION =
+  /\b(?:no|not|non|never|nothing|isn'?t|aren'?t|wasn'?t|won'?t|don'?t|doesn'?t|didn'?t|can'?t|cannot|hardly|barely)\s+(?:particularly\s+|especially\s+|that\s+|too\s+|very\s+|really\s+|super\s+|so\s+|an?\s+)?$/;
+
+/**
+ * Whether the text mentions any of these words other than to deny them.
+ *
+ * A customer writing "no rush, not urgent" was escalated: `\burgent\b` matches
+ * the word inside its own negation, so the classifier summarising an inquiry as
+ * "No urgent deadline" was enough to text the owner, text them again fifteen
+ * minutes later, and ring them at the hour. Saying a thing is not happening is
+ * not a report that it is happening.
+ *
+ * The pattern must be global; each match is checked against what precedes it.
+ */
+function mentionsUnnegated(content: string, pattern: RegExp) {
+  for (const match of content.matchAll(pattern)) {
+    const before = content.slice(0, match.index);
+    // Only within the same clause. A negation on the other side of a comma or
+    // a full stop is about something else.
+    const clause = before.slice(
+      Math.max(
+        before.lastIndexOf(","),
+        before.lastIndexOf("."),
+        before.lastIndexOf("!"),
+        before.lastIndexOf("?"),
+        before.lastIndexOf(";"),
+        before.lastIndexOf("\n"),
+      ) + 1,
+    );
+
+    if (!IMMEDIATE_NEGATION.test(clause)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function detectUrgentEscalationTriggers(
   input: UrgentEscalationInput,
   options: { afterHours: boolean },
@@ -204,24 +252,27 @@ export function detectUrgentEscalationTriggers(
 
   if (
     input.priority === "urgent" ||
-    /\b(urgent|emergency|asap|immediately|right now|same[- ]day critical)\b/.test(
+    mentionsUnnegated(
       content,
+      /\b(urgent|emergency|asap|immediately|right now|same[- ]day critical)\b/g,
     )
   ) {
     triggers.add("explicit_urgency");
   }
 
   if (
-    /\b(burst pipe|flood|flooding|water (?:is )?(?:pouring|gushing)|roof leak|ceiling leak|active leak|property damage)\b/.test(
+    mentionsUnnegated(
       content,
+      /\b(burst pipe|flood|flooding|water (?:is )?(?:pouring|gushing)|roof leak|ceiling leak|active leak|property damage)\b/g,
     )
   ) {
     triggers.add("active_property_damage");
   }
 
   if (
-    /\b(gas leak|smell gas|electric shock|electrical danger|sparking|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/.test(
+    mentionsUnnegated(
       content,
+      /\b(gas leak|smell gas|electric shock|electrical danger|sparking|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
     )
   ) {
     triggers.add("safety_risk");
@@ -229,16 +280,18 @@ export function detectUrgentEscalationTriggers(
 
   if (
     input.existingCustomer &&
-    /\b(your work|previous job|last repair|failed again|came back|warranty|causing damage|made it worse)\b/.test(
+    mentionsUnnegated(
       content,
+      /\b(your work|previous job|last repair|failed again|came back|warranty|causing damage|made it worse)\b/g,
     )
   ) {
     triggers.add("existing_job_serious_issue");
   }
 
   if (
-    /\b(complaint|refund|lawyer|legal action|regulator|ombudsman|bad review|report you|unacceptable|furious)\b/.test(
+    mentionsUnnegated(
       content,
+      /\b(complaint|refund|lawyer|legal action|regulator|ombudsman|bad review|report you|unacceptable|furious)\b/g,
     )
   ) {
     triggers.add("complaint_or_reputation_risk");
@@ -250,8 +303,12 @@ export function detectUrgentEscalationTriggers(
 
   if (
     options.afterHours &&
-    /\b(urgent|emergency|asap|burst|flood|leak|no power|no heating|no hot water|locked out)\b/.test(
+    mentionsUnnegated(
       content,
+      // "no power", "no heating" and "no hot water" are themselves the absence
+      // of something, so they are matched before the negation check sees them
+      // and are not treated as negated mentions of power or water.
+      /\b(urgent|emergency|asap|burst|flood|leak|no power|no heating|no hot water|locked out)\b/g,
     )
   ) {
     triggers.add("after_hours_emergency");
