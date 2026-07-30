@@ -122,6 +122,48 @@ describe("a trigger must come from the customer, not from Kyro", () => {
     }
   });
 
+  it("recognises a big job described rather than labelled", () => {
+    // Fired once in 47 incidents. It wanted the literal phrase "commercial
+    // property" and missed every description of scale -- six of nine plainly
+    // valuable leads. The only pattern tonight whose misses cost money rather
+    // than goodwill: missing a forty-unit property manager is a lost year.
+    for (const content of [
+      "I manage 40 rental units and need a contractor for all of them",
+      "quote for the plumbing on a new build, 12 apartments",
+      "we're a property management company looking for a regular contractor",
+      "annual maintenance contract for our three sites",
+      "fit-out for a new restaurant kitchen",
+      "full refurbishment of the pub, six bathrooms",
+      "we look after 8 properties across the city",
+      "We need a quote for a commercial project at our office block",
+    ]) {
+      const found = detectUrgentEscalationTriggers(
+        { content, sourceKey: "test", sourceType: "email" },
+        { afterHours: false },
+      );
+
+      assert.ok(found.includes("high_value_lead"), content);
+    }
+  });
+
+  it("does not call an ordinary house a high-value lead", () => {
+    // A count needs three or more, because "we have two bathrooms" is a house.
+    for (const content of [
+      "can you replace the tap in my kitchen",
+      "our bathroom needs retiling",
+      "we have two bathrooms and both taps drip",
+      "the shower in our second bathroom is blocked",
+      "could you come out to our house",
+    ]) {
+      const found = detectUrgentEscalationTriggers(
+        { content, sourceKey: "test", sourceType: "email" },
+        { afterHours: false },
+      );
+
+      assert.ok(!found.includes("high_value_lead"), content);
+    }
+  });
+
   it("keeps reading the voice call note, which is all a call has", () => {
     const found = detectUrgentEscalationTriggers(
       {

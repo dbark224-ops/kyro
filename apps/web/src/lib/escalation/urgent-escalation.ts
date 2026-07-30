@@ -330,8 +330,25 @@ export function detectUrgentEscalationTriggers(
     triggers.add("after_hours_emergency");
   }
 
+  // The big jobs, in the words people use to describe them.
+  //
+  // This had fired once in 47 incidents. Measured against nine plainly
+  // valuable leads, six missed -- "I manage 40 rental units and need a
+  // contractor for all of them", "quote for the plumbing on a new build, 12
+  // apartments", "we're a property management company looking for a regular
+  // contractor", "annual maintenance contract for our three sites",
+  // "fit-out for a new restaurant kitchen", "full refurbishment of the pub".
+  // It wanted the literal phrase "commercial property" and missed every
+  // description of scale.
+  //
+  // Seventh pattern tonight covering one wording and missing the rest of
+  // English, and the only one that costs money rather than goodwill: a sole
+  // trader who misses a forty-unit property manager has lost their best lead
+  // of the year.
+  //
+  // A count needs three or more. "we have two bathrooms" is a house.
   if (
-    /\b(commercial (?:job|project|property|site)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel)|full (?:home|house) (?:renovation|remodel)|emergency callout|large project)\b/.test(
+    /\b(commercial (?:job|project|property|premises|site|contract|work|client)|industrial (?:job|project|property|premises|site|unit)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel|refurbishment)|full (?:home|house) (?:renovation|remodel|refurbishment)|emergency callout|large project|new[- ]?build|development site|fit[- ]?out|(?:maintenance|service) contract|regular (?:contractor|maintenance)|property (?:management|manager|portfolio)|letting agent|(?:\d{2,}|[3-9]) (?:rental )?(?:units?|properties|flats?|apartments?|sites?|premises)|refurbishment of)\b/.test(
       content,
     )
   ) {

@@ -330,6 +330,29 @@ Perpetua Danforth`,
     kind: "sms",
   },
 
+  portfolio_lead: {
+    bodyText: `Hello,
+
+I look after 40 rental units across Albuquerque for Kestrelmoor Property and
+we're between contractors. I'd like to talk about a regular maintenance
+contract covering plumbing call-outs across the portfolio.
+
+Our office is at 1500 Indian School Rd NE. My number is 505 555 0187.
+
+Best,
+Ferdinand Oseiwe
+Kestrelmoor Property Management`,
+    description:
+      "The best lead a sole trader can get, described rather than labelled. high_value_lead had fired once in 47 incidents and missed six of nine leads like this.",
+    expect: {
+      escalates: true,
+      escalationTriggers: ["high_value_lead"],
+    },
+    fromName: "Ferdinand Oseiwe",
+    kind: "email",
+    subject: "Maintenance contract across 40 rental units",
+  },
+
   bare_yes: {
     bodyText: `Hi, could you quote for replacing the mixer tap in the main
 bathroom? It drips even when closed.
