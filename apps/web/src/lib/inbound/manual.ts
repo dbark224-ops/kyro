@@ -1,5 +1,6 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { AddressColumnUpdates } from "../addresses/types";
+import { addressWorthLearning } from "../addresses/replace";
 import { runStubAiTriage } from "../ai/triage";
 import { hasRepeatContactPressure } from "../crm/repeat-contact";
 import { normalizeContactType } from "../crm/contact-types";
@@ -53,6 +54,7 @@ type ContactCandidate = {
   normalizedCompany: string | null;
   contactType: string | null;
   address: string | null;
+  addressValidationStatus: string | null;
 };
 
 type ContactMatchResult = {
@@ -77,6 +79,7 @@ function toContactCandidate(contact: {
   normalized_company?: unknown;
   contact_type: unknown;
   address: unknown;
+  address_validation_status?: unknown;
 }): ContactCandidate {
   return {
     id: String(contact.id),
@@ -95,6 +98,9 @@ function toContactCandidate(contact: {
       : null,
     contactType: contact.contact_type ? String(contact.contact_type) : null,
     address: contact.address ? String(contact.address) : null,
+    addressValidationStatus: contact.address_validation_status
+      ? String(contact.address_validation_status)
+      : null,
   };
 }
 
@@ -135,7 +141,7 @@ async function profileConflictNote(
   const { data, error } = await supabase
     .from("contacts")
     .select(
-      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,address",
+      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,address,address_validation_status",
     )
     .eq("workspace_id", workspaceId)
     .in("id", contactIds);
@@ -185,7 +191,7 @@ async function loadContactCandidatesByIdentity(
   const { data, error } = await supabase
     .from("contacts")
     .select(
-      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,address",
+      "id,name,email,phone,company,normalized_email,normalized_phone,normalized_company,contact_type,address,address_validation_status",
     )
     .eq("workspace_id", workspaceId)
     .or(filters.join(","))
@@ -294,7 +300,7 @@ async function patchMissingContactFields(
     }
   }
 
-  if (!contact.address && address) {
+  if (addressWorthLearning(contact, address)) {
     Object.assign(updates, addressFields ?? { address });
   }
 

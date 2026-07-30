@@ -1,5 +1,6 @@
 import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type { AddressColumnUpdates } from "../addresses/types";
+import { addressWorthLearning } from "../addresses/replace";
 import {
   unverifiedAddressFields,
   verifyAddressText,
@@ -2521,7 +2522,7 @@ async function patchContactFromExtractedInquiryFacts({
 
   const { data: contact, error } = await supabase
     .from("contacts")
-    .select("id,email,phone,address")
+    .select("id,email,phone,address,address_validation_status")
     .eq("workspace_id", workspaceId)
     .eq("id", triageContext.contactId)
     .maybeSingle();
@@ -2545,7 +2546,18 @@ async function patchContactFromExtractedInquiryFacts({
   const phone = inferPhone(text, defaultPhoneRegion);
   const updates: Record<string, unknown> = {};
 
-  if (!textValue(contact.address) && facts.address) {
+  // The same rule lives in inbound/manual.ts, which is how the two drifted:
+  // the fix for a corrected address went in there first and had no effect,
+  // because an email inquiry updates the contact from here instead.
+  if (
+    addressWorthLearning(
+      {
+        address: textValue(contact.address),
+        addressValidationStatus: textValue(contact.address_validation_status),
+      },
+      facts.address,
+    )
+  ) {
     // Carry the structured columns across too. Writing `address` alone left the
     // contact holding a bare line of text with a default `unverified` status,
     // even when Google had just confirmed the very same address for the
