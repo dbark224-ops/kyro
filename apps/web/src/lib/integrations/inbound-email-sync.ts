@@ -4,6 +4,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { openAiReasoningRequest } from "../ai/openai-models";
 import { runStubAiTriage } from "../ai/triage";
+import { hasRepeatContactPressure } from "../crm/repeat-contact";
 import { buildEmailLeadTitle, formatServiceType } from "../crm/display";
 import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
 import { normalizeContactEmail } from "../crm/identity";
@@ -2830,6 +2831,10 @@ async function promoteEmailMessage({
         accountEmail: message.accountEmail,
         externalMessageId: message.externalMessageId,
         provider: message.provider,
+        repeatContact: await hasRepeatContactPressure(supabase, {
+          contactId,
+          workspaceId,
+        }),
       },
       occurredAt: message.receivedAt,
       priority:

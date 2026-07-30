@@ -1,6 +1,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { AddressColumnUpdates } from "../addresses/types";
 import { runStubAiTriage } from "../ai/triage";
+import { hasRepeatContactPressure } from "../crm/repeat-contact";
 import { normalizeContactType } from "../crm/contact-types";
 import {
   isDialablePhoneNumber,
@@ -847,6 +848,12 @@ export async function ingestManualInbound(
     metadata: {
       channelType: input.channel?.type ?? "manual_inbound",
       eventId: String(event.id),
+      // Counted across channels, which is the point of the trigger: someone who
+      // emailed, heard nothing, and has now texted.
+      repeatContact: await hasRepeatContactPressure(supabase, {
+        contactId,
+        workspaceId,
+      }),
       source,
     },
     priority: hasProfileConflict ? "high" : "normal",
