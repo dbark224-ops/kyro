@@ -38,10 +38,13 @@ describe("a code-built summary no longer suppresses the alert writer", () => {
       writer.indexOf("if (input.alertAuthoredByPerson"),
     );
 
-    assert.match(
-      shortCircuit.slice(0, 200),
-      /return \{ summary: explicitSummary, title: explicitTitle \}/,
-    );
+    // The fields, not the formatting. This previously pinned the exact object
+    // literal and broke when an authorship marker was added alongside them --
+    // a change that strengthened the very thing the test guards.
+    const returned = shortCircuit.slice(0, 260);
+
+    assert.match(returned, /summary: explicitSummary/);
+    assert.match(returned, /title: explicitTitle/);
   });
 
   it("declares the flag on the input type", () => {
@@ -68,10 +71,9 @@ describe("a code-built summary no longer suppresses the alert writer", () => {
 
 describe("the model's words are used, not paid for and dropped", () => {
   it("returns the generated body on the success path", () => {
-    assert.match(
-      writer,
-      /return \{ summary: written\.body, title: written\.subject \}/,
-    );
+    // Fields, not formatting -- see the note on the authorship test above.
+    assert.match(writer, /summary: written\.body/);
+    assert.match(writer, /title: written\.subject/);
   });
 
   it("no longer prefers the caller's string over what it just generated", () => {

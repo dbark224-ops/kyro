@@ -357,7 +357,10 @@ async function writeInboundInquiryNotification(
     // The link is a footer, added after the model has written. Telling it
     // the link will be there stops it inventing its own or writing "click
     // the link below" about something it cannot see.
-    return `${written.body.trim()}${linkFooter}`;
+    return {
+      body: `${written.body.trim()}${linkFooter}`,
+      generatedBy: "model" as const,
+    };
   } catch (error) {
     // Losing the alert is worse than sending a plain one, so this falls back
     // to labelled facts rather than dropping the notification.
@@ -366,7 +369,15 @@ async function writeInboundInquiryNotification(
       workspaceId: input.workspaceId,
     });
 
-    return buildInboundInquiryNotificationBody(input);
+    return {
+      body: buildInboundInquiryNotificationBody(input),
+      // Stored on the outbound message. A fallback alert is indistinguishable
+      // from a written one once it has been sent, which is how the truncated
+      // "damp patc..." went out looking like something Kyro had composed.
+      generatedBy: "fallback" as const,
+      generationError:
+        error instanceof Error ? error.message : "unknown_error",
+    };
   }
 }
 
@@ -607,10 +618,11 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
     textValue(input.conversationId) ??
     "unknown";
   let result: Awaited<ReturnType<typeof recordOutboundDirectSms>>;
-  const notificationBody = await writeInboundInquiryNotification(
+  const written = await writeInboundInquiryNotification(
     input,
     recipient.userId,
   );
+  const notificationBody = written.body;
   const transport = twilioMessageTransportForWorkspace({
     recipientPhone: recipient.phoneNumber,
     workspaceId: input.workspaceId,
@@ -650,7 +662,15 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
       idempotencyKey: `inbound_inquiry_notification.${input.workspaceId}.${channel}.${sourceId}`,
       metadata: {
         conversationId: input.conversationId ?? null,
+        // Whether Kyro wrote this or the code template did. Once sent the two
+        // are indistinguishable, which is how a truncated fallback went out
+        // reading like something the assistant had composed.
+        generatedBy: written.generatedBy,
+        ...("generationError" in written
+          ? { generationError: written.generationError }
+          : {}),
         inquiryChannel: channel,
+        messageParts: parts.length,
         notificationType: "inbound_inquiry",
         outcome: input.outcome ?? "captured",
         providerCallId: input.providerCallId ?? null,

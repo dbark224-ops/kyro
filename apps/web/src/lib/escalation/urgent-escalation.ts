@@ -472,6 +472,13 @@ export async function createUrgentEscalationIncident(
     .from("urgent_escalation_incidents")
     .insert({
       metadata: {
+        // Who wrote the words the owner is about to read. Without it, telling a
+        // model-written alert from the code fallback meant lining up ai_runs
+        // timestamps by hand.
+        alertGeneratedBy: written.generatedBy,
+        ...("generationError" in written
+          ? { alertGenerationError: written.generationError }
+          : {}),
         contactId: input.contactId ?? null,
         conversationId: input.conversationId ?? null,
         leadId: input.leadId ?? null,
@@ -664,7 +671,11 @@ async function writeEscalationAlert(
   // to say they are one. This used to trigger on presence alone, and since all
   // three callers build these strings in code, the model below was unreachable.
   if (input.alertAuthoredByPerson && explicitTitle && explicitSummary) {
-    return { summary: explicitSummary, title: explicitTitle };
+    return {
+      generatedBy: "person" as const,
+      summary: explicitSummary,
+      title: explicitTitle,
+    };
   }
 
   try {
@@ -703,7 +714,11 @@ async function writeEscalationAlert(
     // The model's words win here. Falling back to explicitSummary at this
     // point would spend the call and then throw the result away -- the caller's
     // strings are the safety net below, not a preference.
-    return { summary: written.body, title: written.subject };
+    return {
+      generatedBy: "model" as const,
+      summary: written.body,
+      title: written.subject,
+    };
   } catch (error) {
     // An urgent escalation must never be lost because the model was
     // unavailable. This last resort is labelled facts rather than written
@@ -714,6 +729,13 @@ async function writeEscalationAlert(
     });
 
     return {
+      // Recorded on the incident, because "was this actually written by Kyro"
+      // could previously only be answered by cross-referencing ai_runs
+      // timestamps by hand -- which is how the alert writer went its entire
+      // life without running and nobody noticed.
+      generatedBy: "fallback" as const,
+      generationError:
+        error instanceof Error ? error.message : "unknown_error",
       summary: explicitSummary ?? input.content,
       title: explicitTitle ?? "Urgent customer inquiry",
     };
@@ -1168,7 +1190,12 @@ export async function processDueUrgentEscalations(
  */
 async function settleAcknowledgedIncident(
   supabase: SupabaseClient,
-  incident: { id: unknown; title: unknown; workspace_id: unknown },
+  incident: {
+    id: unknown;
+    metadata?: unknown;
+    title: unknown;
+    workspace_id: unknown;
+  },
   input: { source: "reply" | "token"; userId?: string | null },
 ) {
   await writeOrThrow(
@@ -1178,6 +1205,27 @@ async function settleAcknowledgedIncident(
       .eq("incident_id", incident.id)
       .eq("status", "pending"),
     "Unable to cancel pending urgent escalation steps",
+  );
+  // On the incident as well as in the audit log.
+  //
+  // The audit log has carried this since the reply path was built, and it was
+  // still impossible to answer "does replying actually work" without knowing to
+  // join audit_logs on entity_id -- so the question got answered with a guess
+  // instead. The row someone actually looks at should say how it was settled.
+  const acknowledgedAt = new Date().toISOString();
+
+  await writeOrThrow(
+    supabase
+      .from("urgent_escalation_incidents")
+      .update({
+        metadata: {
+          ...objectRecord(incident.metadata),
+          acknowledgedAt,
+          acknowledgedVia: input.source,
+        },
+      })
+      .eq("id", incident.id),
+    "Unable to record how the escalation was acknowledged",
   );
   await insertAuditLog(supabase, {
     workspaceId: String(incident.workspace_id),
@@ -1209,7 +1257,7 @@ export async function acknowledgeUrgentEscalation(
     })
     .eq("acknowledgement_token", input.token)
     .eq("status", "open")
-    .select("id,workspace_id,title")
+    .select("id,workspace_id,title,metadata")
     .maybeSingle();
 
   if (error) {
@@ -1321,7 +1369,7 @@ export async function acknowledgeEscalationFromReply(
     // Only an open incident. A second reply must not reopen or re-audit one
     // that is already settled.
     .eq("status", "open")
-    .select("id,workspace_id,title")
+    .select("id,workspace_id,title,metadata")
     .maybeSingle();
 
   if (incidentError) {
