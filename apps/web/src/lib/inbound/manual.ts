@@ -199,6 +199,56 @@ async function loadContactCandidatesByIdentity(
   return (data ?? []).map(toContactCandidate);
 }
 
+/**
+ * A better name than the one a contact currently has, or null.
+ *
+ * A contact named after its own phone number has no name yet. Inbound SMS
+ * names a new contact `existingContact?.name ?? input.from`, so every texter
+ * starts life called "+1505...". That is a placeholder, but the check here
+ * only ever filled a blank, so the placeholder counted as a real name and beat
+ * every later chance to learn one.
+ *
+ * Measured: a customer texted "Hi, it's Thaddeus Brightwater" with his email in
+ * the same sentence. The email was extracted and stored; the name was not. He
+ * then emailed, the message correctly attached to that same contact, the ingest
+ * supplied the name outright -- and the card still read "+15055550137".
+ *
+ * Narrow on purpose. Only a name identical to the contact's own number counts
+ * as absent, so a name the owner typed is never overwritten, and the candidate
+ * has to be something other than that number or nothing is gained.
+ */
+export function nameWorthLearning(
+  contact: Pick<ContactCandidate, "name" | "phone" | "normalizedPhone">,
+  candidateName: string,
+) {
+  const candidate = candidateName.trim();
+
+  if (!candidate) {
+    return null;
+  }
+
+  // Compared as digits, not as strings. "+1 505 555 0137" and "+15055550137"
+  // are the same number wearing different punctuation, and an early version of
+  // this happily replaced one with the other -- still not a name. Its own test
+  // caught that.
+  const digits = (value: string | null | undefined) =>
+    value ? value.replace(/\D/g, "") : "";
+  const ownNumbers = new Set(
+    [digits(contact.phone), digits(contact.normalizedPhone)].filter(Boolean),
+  );
+  const isOwnNumber = (value: string | null) => {
+    const asDigits = digits(value);
+
+    return Boolean(asDigits) && ownNumbers.has(asDigits);
+  };
+
+  if (contact.name && !isOwnNumber(contact.name)) {
+    return null;
+  }
+
+  return isOwnNumber(candidate) ? null : candidate;
+}
+
 async function patchMissingContactFields(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -219,8 +269,10 @@ async function patchMissingContactFields(
   const addressFields = input.addressFields;
   const contactType = normalizeContactType(input.contactType);
 
-  if (!contact.name && input.contactName.trim()) {
-    updates.name = input.contactName.trim();
+  const learnedName = nameWorthLearning(contact, input.contactName);
+
+  if (learnedName) {
+    updates.name = learnedName;
   }
 
   if (!contact.email && email) {
