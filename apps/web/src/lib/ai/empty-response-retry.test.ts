@@ -93,3 +93,43 @@ describe("every attempt is kept and billed", () => {
     assert.match(source, /Your previous draft left out these required strings/);
   });
 });
+
+/**
+ * A blank subject was throwing away a perfectly good alert.
+ *
+ * The retry above exists because these alerts sometimes came back unusable.
+ * Reading the recorded attempts showed what "unusable" actually meant: the
+ * body was complete and sensible every time, and only the subject was empty.
+ *
+ * Measured over twelve hours of runs -- inbound_inquiry_notification failed 5
+ * of 10 times on prompts above 2000 input tokens and 0 of 46 below it. Not
+ * truncation: reasoningTokens was 0 and output ran to ~120 tokens against a
+ * 700 cap. A longer prompt simply makes the model likelier to skip a field it
+ * has no reason to fill.
+ *
+ * These alerts go to the owner by SMS or WhatsApp, which have no subject line,
+ * and the alert builder never reads one -- it returns body, footer and
+ * provenance. So the requirement was for a field that is neither produced nor
+ * used, and the cost was the template arriving instead of a written alert,
+ * most often on the long threads where the alert matters most.
+ */
+describe("a subject is only required where one is delivered", () => {
+  it("does not require one on a channel that has no subject line", () => {
+    assert.match(source, /function subjectIsRequired\(channelType: string\)/);
+    assert.match(source, /sms\|whatsapp\|text\|voice\|call/);
+  });
+
+  it("rejects a blank body on every channel", () => {
+    // The body is the message. Losing it is always a failure.
+    assert.match(
+      source,
+      /if \(!body \|\| \(input\.subjectRequired && !subject\)\)/,
+    );
+  });
+
+  it("decides from the channel, not per attempt", () => {
+    // Computed once and passed to all three calls, so the retry and the
+    // corrective pass cannot apply a different rule from the first attempt.
+    assert.match(source, /const subjectRequired = subjectIsRequired\(/);
+  });
+});

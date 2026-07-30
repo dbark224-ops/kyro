@@ -112,10 +112,34 @@ function buildPrompt(input: {
   );
 }
 
+/**
+ * Whether a missing subject makes a message unusable on this channel.
+ *
+ * An SMS or WhatsApp has no subject line, and the operator alert builder never
+ * reads one -- it returns body, footer and provenance. But a blank subject
+ * rejected the whole response, so a perfectly good alert was thrown away and
+ * replaced with the code template.
+ *
+ * Measured across twelve hours of runs: inbound_inquiry_notification failed 5
+ * times out of 10 on prompts over 2000 input tokens, and 0 times out of 46
+ * below it. Not truncation -- reasoningTokens was 0 and output was ~120 against
+ * a 700 cap. The rejected payloads carried a complete, sensible body and an
+ * empty subject every time. Longer prompts simply make the model likelier to
+ * skip a field it has been given no reason to fill.
+ *
+ * So the alerts most worth reading -- long threads, complicated jobs -- were
+ * the ones most likely to arrive as a template. Which is the fault #45 set out
+ * to remove.
+ */
+function subjectIsRequired(channelType: string) {
+  return !/\b(sms|whatsapp|text|voice|call)\b/i.test(channelType);
+}
+
 async function runCustomerMessage(input: {
   apiKey: string;
   model: string;
   prompt: string;
+  subjectRequired: boolean;
 }) {
   const response = await fetchAiProvider(
     "https://api.openai.com/v1/responses",
@@ -199,7 +223,7 @@ async function runCustomerMessage(input: {
   const body = textValue(parsed.body) ?? "";
   const subject = textValue(parsed.subject) ?? "";
 
-  if (!body || !subject) {
+  if (!body || (input.subjectRequired && !subject)) {
     return failed(EMPTY_MESSAGE_ERROR, body, subject);
   }
 
@@ -457,7 +481,13 @@ export async function generateCustomerMessage(input: {
   // served and billed by the provider, and a discarded attempt that records
   // nothing is both an unbilled cost and an undiagnosable failure -- which is
   // why "why did this fall back twice in a row" had no answer.
-  let attempt = await runCustomerMessage({ apiKey, model, prompt });
+  const subjectRequired = subjectIsRequired(input.channelType);
+  let attempt = await runCustomerMessage({
+    apiKey,
+    model,
+    prompt,
+    subjectRequired,
+  });
   const attempts = [attempt];
 
   if (attempt.failure) {
@@ -465,7 +495,7 @@ export async function generateCustomerMessage(input: {
       `Unusable ${input.taskType} from the model (${attempt.failure}), asking once more.`,
     );
 
-    attempt = await runCustomerMessage({ apiKey, model, prompt });
+    attempt = await runCustomerMessage({ apiKey, model, prompt, subjectRequired });
     attempts.push(attempt);
   }
 
@@ -501,6 +531,7 @@ export async function generateCustomerMessage(input: {
     attempt = await runCustomerMessage({
       apiKey,
       model,
+      subjectRequired,
       prompt: buildPrompt({
         contextFacts,
         correction: [
