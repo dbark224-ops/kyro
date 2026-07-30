@@ -108,6 +108,57 @@ describe("the date range survives the wording people actually use", () => {
 });
 
 /**
+ * "A week today" was resolving to today.
+ *
+ * The today and tomorrow checks match their keyword wherever it sits, so an
+ * offset in front of it was read straight past: "a week today", "a week
+ * tomorrow", "two weeks today" and "a fortnight tomorrow" all came back as
+ * plain today or tomorrow. A customer asking for a week today would have been
+ * offered a slot the same afternoon.
+ *
+ * Third instance of one shape tonight -- a qualifier in front of a keyword,
+ * and a pattern that only reads the keyword. "Not urgent" escalated, "away
+ * Thursday" was offered Thursday, and now this.
+ */
+describe("an offset in front of today or tomorrow", () => {
+  // Thursday 30 July 2026, 12:40 in Denver.
+  const clock = new Date("2026-07-30T18:40:00.000Z");
+
+  const resolved = (prompt: string) => {
+    const range = calendarDateRangeFromPrompts(
+      prompt,
+      "",
+      "America/Denver",
+      clock,
+    );
+
+    return range
+      ? new Date(range.from).toLocaleDateString("en-CA", {
+          timeZone: "America/Denver",
+        })
+      : null;
+  };
+
+  it("counts the weeks", () => {
+    assert.equal(resolved("a week today"), "2026-08-06");
+    assert.equal(resolved("a week tomorrow"), "2026-08-07");
+    assert.equal(resolved("two weeks today"), "2026-08-13");
+    assert.equal(resolved("3 weeks today"), "2026-08-20");
+  });
+
+  it("counts a fortnight as two of them", () => {
+    assert.equal(resolved("a fortnight today"), "2026-08-13");
+    assert.equal(resolved("a fortnight tomorrow"), "2026-08-14");
+  });
+
+  it("leaves a bare today or tomorrow alone", () => {
+    assert.equal(resolved("today"), "2026-07-30");
+    assert.equal(resolved("tomorrow"), "2026-07-31");
+    assert.equal(resolved("can you come tomorrow morning"), "2026-07-31");
+  });
+});
+
+/**
  * The guard against offering a ruled-out day only understood the formal
  * spelling of a refusal.
  *

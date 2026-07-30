@@ -645,6 +645,41 @@ function calendarDateFromPrompt(
     };
   }
 
+  // "a week today" is next Thursday, not this one.
+  //
+  // Both checks below match their keyword wherever it sits, so every one of
+  // "a week today", "a week tomorrow", "two weeks today" and "a fortnight
+  // tomorrow" resolved to plain today or tomorrow -- the offset in front of
+  // the word was read straight past. A customer asking for a week today was
+  // offered a slot the same afternoon.
+  //
+  // Same shape as "not urgent" reading as urgent and "away Thursday" reading
+  // as a request for Thursday: a qualifier sitting in front of a keyword, and
+  // a pattern that only looks at the keyword.
+  const offsetWeeks = text.match(
+    /\b(?:(a|an|one|two|three|four|five|six|\d{1,2})\s+)?(weeks?|fortnights?)\s+(today|tomorrow)\b/,
+  );
+
+  if (offsetWeeks) {
+    const named = offsetWeeks[1] ?? "a";
+    const count =
+      named === "a" || named === "an"
+        ? 1
+        : (CLOCK_WORDS.get(named) ?? Number(named));
+
+    if (Number.isFinite(count) && count >= 1 && count <= 52) {
+      const weeks = offsetWeeks[2].startsWith("fortnight") ? count * 2 : count;
+
+      return {
+        ...addDaysToLocalDate(
+          now,
+          weeks * 7 + (offsetWeeks[3] === "tomorrow" ? 1 : 0),
+        ),
+        label: offsetWeeks[0],
+      };
+    }
+  }
+
   if (/\btomorrow\b/.test(text)) {
     return {
       ...addDaysToLocalDate(now, 1),
