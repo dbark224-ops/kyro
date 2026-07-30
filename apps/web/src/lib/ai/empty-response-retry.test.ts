@@ -127,6 +127,14 @@ describe("a subject is only required where one is delivered", () => {
     );
   });
 
+  it("reads a channel name however it is punctuated", () => {
+    // A word boundary does not fire around an underscore, so the first version
+    // read "twilio_sms", "voice_call" and "sms_whatsapp" as needing a subject
+    // -- quietly restoring the fault through a different door. No caller passes
+    // those today; all three are real channel names used elsewhere here.
+    assert.match(source, /replace\(\/\[\^a-z\]\+\/g, " "\)/);
+  });
+
   it("decides from the channel, not per attempt", () => {
     // Computed once and passed to all three calls, so the retry and the
     // corrective pass cannot apply a different rule from the first attempt.

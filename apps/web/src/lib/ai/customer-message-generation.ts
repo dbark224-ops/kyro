@@ -132,7 +132,14 @@ function buildPrompt(input: {
  * to remove.
  */
 function subjectIsRequired(channelType: string) {
-  return !/\b(sms|whatsapp|text|voice|call)\b/i.test(channelType);
+  // Split on punctuation first. A word boundary does not fire around an
+  // underscore, so "twilio_sms", "voice_call" and "sms_whatsapp" all read as
+  // needing a subject -- which would quietly bring back the fault above
+  // through a different door. No caller passes those today; every one of them
+  // is a real channel name used elsewhere in this codebase.
+  const words = channelType.toLowerCase().replace(/[^a-z]+/g, " ");
+
+  return !/\b(sms|whatsapp|text|voice|call)\b/.test(words);
 }
 
 async function runCustomerMessage(input: {
