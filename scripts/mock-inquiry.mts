@@ -279,7 +279,12 @@ Perpetua Danforth`,
     //
     // createsLead:false is the real assertion: a customer withdrawing must not
     // raise a second job for the work they just cancelled. It does not.
-    expect: { createsLead: false, promotes: true },
+    //
+    // escalates:false is asserted again now, and this time it holds. It failed
+    // the first time because repeat-contact pressure counted the second message
+    // without reading it, so a cancellation opened "Urgent: I'll keep chasing
+    // until you reply". That is fixed, and this is the guard on it.
+    expect: { createsLead: false, escalates: false, promotes: true },
     followUp: `Actually, we've decided not to go ahead for now -- my
 brother-in-law is going to do it. Please cancel the enquiry, no need to quote.
 

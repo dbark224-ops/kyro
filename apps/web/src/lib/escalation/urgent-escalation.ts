@@ -387,7 +387,58 @@ export function detectUrgentEscalationTriggers(
     triggers.add("asks_for_owner_now");
   }
 
+  // A customer withdrawing is releasing the owner, not chasing them.
+  //
+  // repeat_contact_short_window counts inbound messages since the last
+  // outbound and never reads them. Two messages with no answer is real
+  // pressure -- but a customer whose second message is "actually, we've
+  // decided not to go ahead, please cancel the enquiry" is the opposite of
+  // pressure, and the alert opened "Urgent: I'll keep chasing until you reply."
+  // Somebody asleep gets woken for a cancellation.
+  //
+  // Suppressed only when repeat contact is the ONLY reason to escalate. If the
+  // message also reports a burst pipe or a gas smell, those triggers stand on
+  // their own and the ladder still fires. That bound matters more than the
+  // vocabulary below, because a wrong call here means an alert that never
+  // arrives -- so the wording stays narrow and deliberately misses withdrawals
+  // rather than risk catching somebody who is genuinely chasing.
+  if (
+    triggers.size === 1 &&
+    triggers.has("repeat_contact_short_window") &&
+    readsAsWithdrawal(content)
+  ) {
+    triggers.delete("repeat_contact_short_window");
+  }
+
   return [...triggers];
+}
+
+/**
+ * Whether a message is calling the work off.
+ *
+ * The vocabulary triage already had for this -- "not interested", "wrong
+ * number", "not needed", "cancel", "do not contact" -- catches 2 of 10 natural
+ * withdrawals. Sixth pattern tonight covering one phrasing and missing the
+ * rest of English.
+ *
+ * "cancel" stays a bare verb on purpose. Matching "cancelled" as well would
+ * catch "I need this cancelled appointment rebooked urgently", which is a
+ * customer chasing hard, and suppress exactly the alert they need.
+ */
+export function readsAsWithdrawal(text: string) {
+  const raw = text.toLowerCase();
+
+  return [
+    /\b(?:not interested|wrong number|not needed|do not contact|don'?t contact)\b/,
+    /\bno longer\s+(?:need|require|want)\w*\b/,
+    /\bcancel\b/,
+    /\b(?:decided|going)\s+not\s+to\s+(?:go\s+ahead|proceed|bother)\b/,
+    /\bnot\s+going\s+(?:to\s+)?(?:go\s+ahead|proceed|bother)\b/,
+    /\b(?:leave|leaving)\s+it\s+(?:for\s+now|there|thanks)\b/,
+    /\bsorted\s+it\s+(?:ourselves|myself|out)\b/,
+    /\bgone\s+with\s+(?:someone|somebody|another)\b/,
+    /\bdisregard\b/,
+  ].some((pattern) => pattern.test(raw));
 }
 
 async function ownerFallbackContact(
