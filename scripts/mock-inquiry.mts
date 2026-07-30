@@ -233,6 +233,20 @@ Marguerite Ollenshaw`,
     subject: "Ensuite extractor fan humming but not turning",
   },
 
+  coverage_question: {
+    body:
+      "Hi, do you cover Albuquerque? Need a new outdoor tap fitted at " +
+      "1120 Lomas Blvd NE. Thanks, Caspian",
+    description:
+      "Asks outright whether the area is covered. The service area is Las Cruces, 225 miles away -- this is the one path where Kyro is actually shown it, so the answer must not be a cheerful yes.",
+    // The counterpart to the fit problem: when a customer asks, the fact is
+    // surfaced. When they simply send a job, it is not, and the job comes back
+    // likely_fit regardless of distance.
+    expect: { promotes: true },
+    from: "+15055550122",
+    kind: "sms",
+  },
+
   week_today: {
     bodyText: `Morning, we'd like a quote to re-seal the shower tray in the
 main bathroom -- the grout has gone black along one edge.

@@ -27,6 +27,61 @@ const publicFacts = {
   workingHours: "Monday to Friday, 7:00 AM to 4:00 PM",
 };
 
+/**
+ * Kyro told a customer the business covered a city 225 miles outside its area.
+ *
+ * "Hi, do you cover Albuquerque?" came back as "yes, we cover Albuquerque"
+ * for a business whose service area is Las Cruces. Measured live, not
+ * hypothesised.
+ *
+ * Cause: serviceArea only matched the abstract phrasing -- "what areas do you
+ * cover?" -- and not the way people actually ask, which is about their own
+ * town. With no service area in the prompt, the model filled the gap.
+ *
+ * Same failure as `can't` versus `cannot`: a pattern covering one phrasing and
+ * missing the ones people write. A prompt rule now also forbids answering the
+ * question at all when the fact is absent, because some phrasings are
+ * deliberately blocked from auto-answering and suppressing the fact has to
+ * suppress the claim too.
+ */
+describe("asking whether a place is covered", () => {
+  const surfaces = (message: string) =>
+    directKnownBusinessFactKeys(message).includes("serviceArea");
+
+  it("recognises the question asked about a named place", () => {
+    for (const message of [
+      "do you cover Albuquerque?",
+      "Hi, do you cover Albuquerque? Need a new outdoor tap fitted",
+      "does your business service Santa Fe",
+      "do you travel to Belen?",
+      "are you in my area",
+      "what areas do you cover?",
+    ]) {
+      assert.equal(surfaces(message), true, message);
+    }
+  });
+
+  it("does not fire on an ordinary job request", () => {
+    for (const message of [
+      "the shower tray needs re-sealing, can you quote",
+      "do you do bathroom refits",
+      "are you able to fit a new tap",
+      "do you cover the cost of parts",
+    ]) {
+      assert.equal(surfaces(message), false, message);
+    }
+  });
+
+  it("still yields to the booking block, which the prompt rule now backs up", () => {
+    // "come out" is in KNOWN_FACT_AUTO_REPLY_BLOCKED_PATTERN, so these
+    // deliberately surface nothing -- they are closer to a booking request
+    // than a factual question. The rule against claiming coverage without the
+    // fact is what stops the model answering anyway.
+    assert.equal(surfaces("do you come out to Rio Rancho"), false);
+    assert.equal(surfaces("can someone come out to Corrales"), false);
+  });
+});
+
 describe("known business fact auto replies", () => {
   it("recognizes a plain-language request for the business phone number", () => {
     assert.deepEqual(

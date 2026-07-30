@@ -307,6 +307,19 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
     patterns: [
       /\b(?:what|which|where)\b.{0,30}\b(?:areas?|suburbs?|cities|towns|locations?)\b.{0,30}\b(?:service|cover|work in|travel to)\b/i,
       /\b(?:service|coverage)\s+area\b/i,
+      // Asked about a specific place rather than in the abstract, which is how
+      // almost everyone asks. Only the two patterns above existed, so "do you
+      // cover Albuquerque?" surfaced nothing -- and with no service area in
+      // front of it the model answered "yes, we cover Albuquerque" for a
+      // business whose area is Las Cruces, 225 miles away. A false statement
+      // about the business, made to a customer, in the one path that exists to
+      // prevent exactly that.
+      //
+      // Same failure as `can't` versus `cannot`: a pattern that matched one
+      // phrasing and missed the ones people write.
+      /\bdo(?:es)?\s+(?:you|your business|the business|they)\b.{0,20}\b(?:cover|service|serve|work in|come out to|travel to|get (?:out |over )?to|operate in)\b/i,
+      /\b(?:are|do)\s+you\b.{0,20}\b(?:in|near|around|local to)\b.{0,20}\b(?:my|the|this)\b.{0,12}\b(?:area|region|part|town|city|suburb)\b/i,
+      /\b(?:can|could|would)\s+(?:you|someone|anyone)\b.{0,24}\b(?:come out to|travel to|get (?:out |over )?to|reach)\b/i,
     ],
   },
   {
@@ -1531,6 +1544,14 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
       rules: [
         "Return JSON only.",
         "Do not invent an address, price, date, or customer detail.",
+        // A customer texted "do you cover Albuquerque?" and Kyro replied "yes,
+        // we cover Albuquerque" for a business whose service area is Las
+        // Cruces, 225 miles away. The service area was not in publicBusinessFacts
+        // for that message, and nothing here forbade answering anyway -- so it
+        // guessed, and told a customer something untrue about their business.
+        // Suppressing a fact has to also suppress the claim, or the model
+        // simply fills the gap.
+        "Never confirm or deny that the business covers, serves, travels to, or comes out to any particular place unless serviceArea is present in publicBusinessFacts. Without it, say the business will confirm whether that location is covered -- do not guess from the customer's address, the business address, or anything else in the thread.",
         "Classify the latest customer message before applying any trade-inquiry workflow. Do not assume every inbox message is a request to start a job.",
         "Set responsePolicy.mode to known_business_fact only for a straightforward question that can be answered completely and confidently from publicBusinessFacts.",
         "If directKnownBusinessFactKeys is non-empty, responsePolicy.mode must be known_business_fact, responsePolicy.factKeys must contain those exact keys, and replyDraft must answer only that request using the saved values.",
