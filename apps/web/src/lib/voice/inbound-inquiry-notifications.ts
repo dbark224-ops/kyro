@@ -10,6 +10,7 @@ import { recordOutboundDirectSms } from "../communication/outbound";
 import {
   smartQuotesToPlain,
   smsCharacterBudget,
+  smsSegmentCount,
   splitIntoSmsMessages,
 } from "../communication/sms-length";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
@@ -67,6 +68,14 @@ type InquiryNotificationInput = {
    * same way it summarises the customer's message -- gist, not transcript.
    */
   preparedReplyBody?: string | null;
+  /**
+   * Leave the "Open in Kyro" line off, because the caller appends it itself.
+   *
+   * The footer has to be attached after the split, not inside the body, or the
+   * splitter breaks at the space after the label and the owner gets one text
+   * ending "Open in Kyro:" and another that is nothing but a URL.
+   */
+  omitLink?: boolean;
   providerCallId?: string | null;
   recommendedAction?: string | null;
   sourceId?: string | null;
@@ -197,6 +206,7 @@ export function buildInboundInquiryNotificationBody(
     | "eventLabel"
     | "missingInfo"
     | "offeredTime"
+    | "omitLink"
     | "outcome"
     | "ownerQuestion"
     | "preferredTime"
@@ -223,7 +233,9 @@ export function buildInboundInquiryNotificationBody(
       `I need from you: ${ownerQuestion}`,
       "Reply here with the answer and I'll finish the customer response.",
       textValue(input.contactPhone) ? `Call: ${input.contactPhone}` : null,
-      `Open in Kyro: ${buildInboundInquiryLink(input.conversationId)}`,
+      input.omitLink
+        ? null
+        : `Open in Kyro: ${buildInboundInquiryLink(input.conversationId)}`,
     ]
       .filter((line): line is string => Boolean(line))
       .join("\n");
@@ -253,7 +265,9 @@ export function buildInboundInquiryNotificationBody(
       : null,
     input.preparedReplyAvailable ? "A reply is drafted and ready." : null,
     contactPhone ? `Call: ${contactPhone}` : null,
-    `Open in Kyro: ${buildInboundInquiryLink(input.conversationId)}`,
+    input.omitLink
+      ? null
+      : `Open in Kyro: ${buildInboundInquiryLink(input.conversationId)}`,
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
@@ -330,6 +344,35 @@ export function inboundInquiryAlertRules(footerLength = 0) {
   ];
 }
 
+/**
+ * Attach the link to the last part, or give it a part of its own with a label.
+ *
+ * The footer never goes through the splitter. Concatenated before the split it
+ * broke at the space after "Open in Kyro:", so the owner received one text
+ * ending in a dangling label and another containing nothing but a URL -- which
+ * reads as spam and is exactly the shape carrier filtering looks for.
+ *
+ * A URL cannot be broken across two texts either: there is no whitespace inside
+ * it, so a splitter given the whole thing has nowhere safe to cut.
+ */
+function withLinkFooter(parts: string[], footer: string) {
+  if (parts.length === 0) {
+    return [footer.trim()].filter(Boolean);
+  }
+
+  const last = parts[parts.length - 1];
+  const combined = `${last}${footer}`;
+
+  // One segment's worth of room is the test. If the link fits on the end of the
+  // final part it belongs there; if not it gets its own message, still carrying
+  // the label so it never arrives as an unexplained link.
+  if (smsSegmentCount(combined) <= smsSegmentCount(last) + 1) {
+    return [...parts.slice(0, -1), combined];
+  }
+
+  return [...parts, footer.trim()];
+}
+
 async function writeInboundInquiryNotification(
   input: InquiryNotificationInput,
   userId: string | null,
@@ -380,8 +423,14 @@ async function writeInboundInquiryNotification(
     // The link is a footer, added after the model has written. Telling it
     // the link will be there stops it inventing its own or writing "click
     // the link below" about something it cannot see.
+    // Returned apart from the body so the splitter can keep the label and the
+    // URL together. Concatenated here, the split landed at the space after
+    // "Open in Kyro:" and the owner received one text ending in a dangling
+    // label and another containing nothing but a bare link -- which reads as
+    // spam and is what carrier filtering looks for.
     return {
-      body: `${written.body.trim()}${linkFooter}`,
+      body: written.body.trim(),
+      footer: linkFooter,
       generatedBy: "model" as const,
     };
   } catch (error) {
@@ -393,7 +442,13 @@ async function writeInboundInquiryNotification(
     });
 
     return {
-      body: buildInboundInquiryNotificationBody(input),
+      // Without its own link line, so the footer is attached the same way on
+      // both paths and cannot end up duplicated or orphaned on one of them.
+      body: buildInboundInquiryNotificationBody({
+        ...input,
+        omitLink: true,
+      }),
+      footer: linkFooter,
       // Stored on the outbound message. A fallback alert is indistinguishable
       // from a written one once it has been sent, which is how the truncated
       // "damp patc..." went out looking like something Kyro had composed.
@@ -668,13 +723,15 @@ export async function notifyInboundInquiry(input: InquiryNotificationInput) {
   // normalising afterwards would leave the segment count wrong anyway.
   // WhatsApp keeps the nicer typography -- 4096 characters in one message, so
   // the encoding buys nothing there.
-  const parts =
+  const parts = withLinkFooter(
     transport === "sms"
       ? splitIntoSmsMessages(
           smartQuotesToPlain(notificationBody),
           MAX_NOTIFICATION_SMS_PARTS,
         )
-      : [notificationBody.trim()].filter(Boolean);
+      : [notificationBody.trim()].filter(Boolean),
+    written.footer,
+  );
 
   try {
     // The first part goes first and carries the reply-event wiring, so replying

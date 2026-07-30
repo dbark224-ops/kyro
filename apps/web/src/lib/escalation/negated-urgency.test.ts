@@ -105,6 +105,29 @@ describe("everything that should still wake someone up", () => {
     );
   });
 
+  it("catches gas however it is worded", () => {
+    // "Gas smell in the laundry" reached production and matched nothing in the
+    // safety list, which had only "gas leak" and "smell gas". It escalated on
+    // the word "urgent" alone; a calmer customer would not have been.
+    for (const phrase of [
+      "gas smell in the laundry",
+      "there is a gas leak",
+      "I can smell gas",
+      "smells of gas near the meter",
+      "strong gas odour outside",
+      "gas odor in the kitchen",
+    ]) {
+      assert.ok(
+        triggers(phrase).includes("safety_risk"),
+        `should be a safety risk: ${phrase}`,
+      );
+    }
+  });
+
+  it("does not fire on gas that is merely mentioned as ruled out", () => {
+    assert.deepEqual(triggers("no gas smell, just a damp patch"), []);
+  });
+
   it("still escalates a complaint", () => {
     assert.ok(
       triggers("this is unacceptable and I want a refund").includes(

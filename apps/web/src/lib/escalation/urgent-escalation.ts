@@ -272,7 +272,13 @@ export function detectUrgentEscalationTriggers(
   if (
     mentionsUnnegated(
       content,
-      /\b(gas leak|smell gas|electric shock|electrical danger|sparking|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
+      // Gas is spelled out at length because it is the highest-consequence
+      // trigger in the list and the original only matched "gas leak" and
+      // "smell gas". A live SMS reading "Gas smell in the laundry near the hot
+      // water unit" missed safety_risk entirely -- it escalated only because
+      // the sender happened to also write "urgent". Somebody who is calm about
+      // it would not have.
+      /\b(gas leak|gas smell|gas odou?r|gas escape|smell(?:s|ing)?\s+(?:of\s+)?gas|electric shock|electrical danger|sparking|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
     )
   ) {
     triggers.add("safety_risk");

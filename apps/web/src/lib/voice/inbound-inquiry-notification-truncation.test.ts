@@ -112,8 +112,17 @@ describe("the Kyro link is appended, not demanded of the model", () => {
   });
 
   it("appends the link after the model has written", () => {
+    // It is no longer concatenated onto the body: doing that let the splitter
+    // break at the space after "Open in Kyro:" and send the URL as its own
+    // bare text. The footer is carried separately and attached past the split.
     assert.match(notifications, /const linkFooter = `\\nOpen in Kyro: \$\{kyroLink\}`/);
-    assert.match(notifications, /\$\{written\.body\.trim\(\)\}\$\{linkFooter\}/);
+    assert.match(notifications, /footer: linkFooter,/);
+    assert.match(notifications, /withLinkFooter\(/);
+  });
+
+  it("never leaves a part that is only a link", () => {
+    assert.match(notifications, /function withLinkFooter\(/);
+    assert.match(notifications, /return \[\.\.\.parts\.slice\(0, -1\), combined\]/);
   });
 
   it("keeps the link out of the facts the model writes from", () => {
