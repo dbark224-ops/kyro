@@ -56,6 +56,15 @@ type Expectation = {
    */
   preferredTimeExcludes?: string[];
   /**
+   * Every one of these must appear somewhere in the drafted reply.
+   *
+   * For the case where saying nothing is the failure. A customer whose only
+   * availability fell outside working hours used to be told the visit would be
+   * arranged, and waited for one that could never come -- the hours were in
+   * the prompt the whole time and went unmentioned.
+   */
+  draftMentions?: string[];
+  /**
    * No monetary figure may appear in the draft to the customer.
    *
    * For a scenario where the customer asks a price and names none themselves,
@@ -532,10 +541,15 @@ Regards,
 Sunniva Bergqvist`,
     description:
       "Asks for a time the business does not work -- hours are 07:00-16:00. No slot can match, so Kyro must offer none and say so rather than invent one or go quiet.",
-    // The branch that finds nothing inside the customer's window has never run
-    // against the real model. The failure to watch for is a confident 6pm
-    // appointment the owner would never turn up to.
-    expect: { promotes: true },
+    // Two failures to watch for, opposite in kind. A confident 6pm appointment
+    // the owner would never turn up to -- and saying nothing, which is what it
+    // used to do: "we'll use the information provided to arrange the next
+    // step", leaving her waiting for a visit that could never come.
+    // Asserts that the hours are named, not how. The first version also
+    // required the word "outside", which one run used and the next did not --
+    // pinning a sample of stochastic prose rather than the behaviour, which is
+    // a habit worth not repeating.
+    expect: { draftMentions: ["working hours", "4:00 PM"], promotes: true },
     fromName: "Sunniva Bergqvist",
     kind: "email",
     subject: "Dripping kitchen mixer tap, evenings only",
@@ -989,6 +1003,31 @@ async function run(input: {
           "quoted no price of its own",
           figures === null,
           figures ? figures.join(", ") : "no figures",
+        ),
+      );
+    }
+  }
+
+  if (scenario.expect.draftMentions) {
+    const draft = await admin
+      .from("actions")
+      .select("input")
+      .eq("workspace_id", workspaceId)
+      .eq("type", "draft_reply")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const body = String(
+      (draft.data?.input as Record<string, unknown> | null)?.body ?? "",
+    );
+
+    for (const phrase of scenario.expect.draftMentions) {
+      checks.push(
+        check(
+          `draft mentions "${phrase}"`,
+          body.toLowerCase().includes(phrase.toLowerCase()),
+          body.slice(0, 60),
         ),
       );
     }

@@ -1598,6 +1598,13 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         // Suppressing a fact has to also suppress the claim, or the model
         // simply fills the gap.
         "Never confirm or deny that the business covers, serves, travels to, or comes out to any particular place unless serviceArea is present in publicBusinessFacts. Without it, say the business will confirm whether that location is covered -- do not guess from the customer's address, the business address, or anything else in the thread.",
+        // Measured: a customer who wrote "I don't get home from work until
+        // late, so it would need to be after 6pm any weekday" got "we've noted
+        // that you're available after 6:00 PM on weekdays, and we'll use the
+        // information provided to arrange the next step". Working hours are
+        // 07:00-16:00, so no such visit can ever be offered, and she waits.
+        // The hours were in publicBusinessFacts the whole time and unused.
+        "If the only times the customer says they are available fall entirely outside publicBusinessFacts.workingHours, say what the working hours are and ask whether anything inside them could work, or whether someone else could give access. Do not imply the visit will be arranged as asked.",
         "Classify the latest customer message before applying any trade-inquiry workflow. Do not assume every inbox message is a request to start a job.",
         "Set responsePolicy.mode to known_business_fact only for a straightforward question that can be answered completely and confidently from publicBusinessFacts.",
         "If directKnownBusinessFactKeys is non-empty, responsePolicy.mode must be known_business_fact, responsePolicy.factKeys must contain those exact keys, and replyDraft must answer only that request using the saved values.",
