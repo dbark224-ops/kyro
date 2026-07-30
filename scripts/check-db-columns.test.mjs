@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   findViolations,
+  findWriteViolations,
+  parseObjectKeys,
   parseSelect,
   splitTopLevel,
 } from "./check-db-columns.mjs";
@@ -129,5 +131,77 @@ describe("findViolations", () => {
     `;
 
     assert.equal(findViolations(source, tables).length, 2);
+  });
+});
+
+/**
+ * The columns a query WRITES were never checked, only the ones it reads.
+ *
+ * Found the hard way. `metadata: {...}` was added to the leads insert; leads
+ * has no metadata column; every inbound enquiry would have failed at lead
+ * creation. typecheck passed, lint passed, and this script passed, because it
+ * had nothing to say about insert(). Only a live run against the database
+ * caught it.
+ *
+ * A bad select breaks one screen. A bad insert breaks a whole ingest path.
+ */
+describe("findWriteViolations", () => {
+  it("catches the insert that started this", () => {
+    const source = `supabase.from("contacts").insert({ name: n, metadata: { a: 1 } })`;
+    const violations = findWriteViolations(source, tables);
+
+    assert.deepEqual(
+      violations.map((violation) => violation.column),
+      ["metadata"],
+    );
+  });
+
+  it("checks update and upsert too", () => {
+    for (const method of ["update", "upsert"]) {
+      const source = `supabase.from("contacts").${method}({ name: n, nickname: x })`;
+
+      assert.deepEqual(
+        findWriteViolations(source, tables).map((v) => v.column),
+        ["nickname"],
+        method,
+      );
+    }
+  });
+
+  it("reads a row inside an array", () => {
+    const source = `supabase.from("contacts").insert([{ name: n, nickname: x }])`;
+
+    assert.deepEqual(
+      findWriteViolations(source, tables).map((v) => v.column),
+      ["nickname"],
+    );
+  });
+
+  it("passes a write that only uses real columns", () => {
+    const source = `supabase.from("contacts").insert({ name: n, email: e, workspace_id: w })`;
+
+    assert.deepEqual(findWriteViolations(source, tables), []);
+  });
+});
+
+describe("parseObjectKeys", () => {
+  it("does not mistake a ternary colon for a key", () => {
+    // `completed_at: done ? now : null` yielded "now" and "null" as columns
+    // before member-start tracking, and the first run reported 19 of them --
+    // every one a false positive.
+    assert.deepEqual(parseObjectKeys(`{ a: done ? now : null }`, 0), ["a"]);
+  });
+
+  it("ignores keys of nested objects", () => {
+    assert.deepEqual(parseObjectKeys(`{ a: { inner: 1 }, b: 2 }`, 0), ["a", "b"]);
+  });
+
+  it("returns null rather than a partial list", () => {
+    // A spread, a template literal or a quoted key hides members this cannot
+    // see. Reporting the ones it can read as if they were the whole object
+    // would turn an unknown into a false pass on the rest.
+    assert.equal(parseObjectKeys(`{ ...base, a: 1 }`, 0), null);
+    assert.equal(parseObjectKeys("{ a: `x${y}` }", 0), null);
+    assert.equal(parseObjectKeys(`{ "a": 1 }`, 0), null);
   });
 });

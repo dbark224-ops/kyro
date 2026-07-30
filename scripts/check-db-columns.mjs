@@ -92,6 +92,139 @@ export function parseSelect(select) {
   return { columns, embeds, hasStar };
 }
 
+/**
+ * The top-level keys of an object literal starting at `open`, or null.
+ *
+ * Returns null rather than guessing whenever the text is not a plain literal
+ * -- a spread, a computed key, a template literal, anything unparsed. Same
+ * bargain as parseSelect above: a false pass costs nothing here, a false
+ * failure blocks a deploy.
+ *
+ * Written index-based because a regex cannot balance braces, and the whole
+ * point is to find the keys of an object that may contain nested ones.
+ */
+export function parseObjectKeys(source, open) {
+  if (source[open] !== "{") {
+    return null;
+  }
+
+  const keys = [];
+  let depth = 0;
+  let index = open;
+  // A key only ever appears at the start of a member -- right after the
+  // opening brace or a comma. Without this, the colon in a ternary reads as a
+  // key: `completed_at: done ? now : null` yielded "now" and "null" as
+  // columns, and the first version of this reported 19 of them.
+  let atMemberStart = false;
+
+  while (index < source.length) {
+    const char = source[index];
+
+    // Skip over anything that can contain a brace without meaning one.
+    if (char === '"' || char === "'") {
+      const end = skipQuoted(source, index);
+      if (end === null) return null;
+      index = end;
+      continue;
+    }
+
+    if (char === "`") {
+      // Template literals can nest ${...} arbitrarily. Not worth modelling.
+      return null;
+    }
+
+    if (char === "/" && (source[index + 1] === "/" || source[index + 1] === "*")) {
+      const end = skipComment(source, index);
+      if (end === null) return null;
+      index = end;
+      continue;
+    }
+
+    if (char === "{" || char === "[" || char === "(") {
+      depth += 1;
+      index += 1;
+      atMemberStart = depth === 1;
+      continue;
+    }
+
+    if (char === "}" || char === "]" || char === ")") {
+      depth -= 1;
+      index += 1;
+      if (depth === 0) return keys;
+      atMemberStart = false;
+      continue;
+    }
+
+    if (char === "," && depth === 1) {
+      index += 1;
+      atMemberStart = true;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+
+    if (depth === 1 && atMemberStart) {
+      if (source.startsWith("...", index)) {
+        // A spread hides keys we cannot see. Check nothing rather than half.
+        return null;
+      }
+
+      const key = /^([a-z_$][a-z0-9_$]*)\s*:/i.exec(source.slice(index));
+
+      if (key) {
+        keys.push(key[1]);
+        index += key[0].length;
+        atMemberStart = false;
+        continue;
+      }
+
+      // A quoted key, a computed one, or shorthand. Not modelled -- and a
+      // member we cannot read may be any column at all, so stop rather than
+      // report a partial list as if it were complete.
+      return null;
+    }
+
+    atMemberStart = false;
+    index += 1;
+  }
+
+  return null;
+}
+
+function skipQuoted(source, start) {
+  const quote = source[start];
+
+  for (let index = start + 1; index < source.length; index += 1) {
+    if (source[index] === "\\") {
+      index += 1;
+      continue;
+    }
+
+    if (source[index] === quote) {
+      return index + 1;
+    }
+
+    if (source[index] === "\n") {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function skipComment(source, start) {
+  if (source[start + 1] === "/") {
+    const end = source.indexOf("\n", start);
+    return end === -1 ? source.length : end;
+  }
+
+  const end = source.indexOf("*/", start);
+  return end === -1 ? null : end + 2;
+}
+
 function walk(dir, acc = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -152,6 +285,70 @@ export function findViolations(source, tables) {
 
     for (const embed of embeds) {
       check(embed.table, embed.select, line);
+    }
+  }
+
+  violations.push(...findWriteViolations(source, tables));
+
+  return violations;
+}
+
+const FROM_WRITE =
+  /\.from\(\s*["'`]([a-z0-9_]+)["'`]\s*\)([\s\S]{0,400}?)\.(insert|update|upsert)\(\s*/g;
+
+/**
+ * The same check for the columns a query WRITES.
+ *
+ * Only selects were validated, so a column that does not exist could be
+ * written but not read. That is the more dangerous half: a bad select breaks
+ * one screen, a bad insert breaks a whole ingest path.
+ *
+ * Found the hard way. `metadata: {...}` was added to the leads insert; leads
+ * has no metadata column; every inbound enquiry would have failed at lead
+ * creation. typecheck passed, lint passed, and this script passed, because it
+ * had nothing to say about insert(). Only a live run against the database
+ * caught it.
+ */
+export function findWriteViolations(source, tables) {
+  const violations = [];
+  let match;
+
+  FROM_WRITE.lastIndex = 0;
+
+  while ((match = FROM_WRITE.exec(source))) {
+    const [, table, between, method] = match;
+
+    if (between.includes(".from(")) {
+      continue;
+    }
+
+    const known = tables[table];
+
+    if (!known) {
+      continue;
+    }
+
+    // insert() also takes an array of rows; step past the bracket if present.
+    let cursor = match.index + match[0].length;
+
+    if (source[cursor] === "[") {
+      cursor += 1;
+      while (/\s/.test(source[cursor] ?? "")) cursor += 1;
+    }
+
+    // A variable rather than a literal -- nothing to read here.
+    const keys = parseObjectKeys(source, cursor);
+
+    if (!keys) {
+      continue;
+    }
+
+    const line = source.slice(0, match.index).split("\n").length;
+
+    for (const key of keys) {
+      if (!known.includes(key)) {
+        violations.push({ column: key, line, method, table });
+      }
     }
   }
 
