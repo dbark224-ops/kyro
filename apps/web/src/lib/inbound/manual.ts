@@ -259,6 +259,38 @@ export function nameWorthLearning(
   return isOwnNumber(candidate) ? null : candidate;
 }
 
+/** The most recent lead this contact raised in the last half hour, if any. */
+const DUPLICATE_LEAD_WINDOW_MS = 30 * 60 * 1000;
+
+async function findRecentLeadForContact(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  contactId: string,
+) {
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id,title,created_at")
+    .eq("workspace_id", workspaceId)
+    .eq("contact_id", contactId)
+    .gte("created_at", new Date(Date.now() - DUPLICATE_LEAD_WINDOW_MS).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    // Never fatal. Losing the annotation costs the owner a hint; failing the
+    // ingest over it would cost them the enquiry.
+    console.warn("Duplicate-lead lookup failed", {
+      code: error.code,
+      workspaceId,
+    });
+
+    return null;
+  }
+
+  return data ? { id: String(data.id), title: String(data.title) } : null;
+}
+
 async function patchMissingContactFields(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -756,6 +788,27 @@ export async function ingestManualInbound(
     ? `${input.serviceType.trim()} enquiry from ${input.contactName}`
     : `New enquiry from ${input.contactName}`;
 
+  // One customer reaching out twice at once is two jobs for one problem.
+  //
+  // Measured: the same person texted and filled in the web form seconds apart
+  // about the same broken immersion heater. The contact deduplicated correctly
+  // to one -- identity across channels works -- but two leads were raised, and
+  // the owner sees two jobs. The risk is quoting twice, or sending somebody to
+  // a job already done.
+  //
+  // A threaded reply raises no second job, and a repeated webhook delivery
+  // raises none either; both were checked. The gap is only same-contact,
+  // near-simultaneous, DIFFERENT channels, where there is no thread and no
+  // shared message id to key on.
+  //
+  // This only annotates. Merging two leads automatically would be worse than
+  // showing two, because sometimes they genuinely are two jobs -- so the owner
+  // decides, and the flag is what lets them.
+  const recentLead = await findRecentLeadForContact(
+    supabase,
+    workspaceId,
+    contactId,
+  );
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .insert({
@@ -767,9 +820,15 @@ export async function ingestManualInbound(
       status: "new",
       priority: hasProfileConflict ? "high" : "normal",
       service_type: nullableText(input.serviceType),
+      // Carried in next_step rather than a metadata column, because leads has
+      // no metadata column. The first version of this added one and broke lead
+      // creation outright -- and lint:db passed, because it validates select()
+      // against the schema snapshot and not insert(). The live run caught it.
       next_step: hasProfileConflict
         ? "Resolve contact profile match before replying"
-        : "Review AI proposed reply",
+        : recentLead
+          ? `Possible duplicate of "${recentLead.title}" raised minutes ago -- check before quoting`
+          : "Review AI proposed reply",
     })
     .select("id,title")
     .single();
