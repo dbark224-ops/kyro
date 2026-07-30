@@ -358,10 +358,31 @@ export function detectUrgentEscalationTriggers(
     triggers.add("missed_known_customer_call");
   }
 
+  // Asking for the owner, in the ways people ask.
+  //
+  // The original matched "speak to the owner" and "owner to call" and little
+  // else. Measured against ten natural phrasings, five missed: "speak WITH the
+  // owner", "can the owner RING me", "get the owner to PHONE me", "put me
+  // through to the manager", and "whoever runs the business". Same shape as
+  // `can't` versus `cannot` -- one phrasing covered, the rest of English not.
+  //
+  // Kept away from "the owner of the property will be there", which is about a
+  // third party and not a request, by requiring the owner word to sit against
+  // a verb of asking or calling.
   if (
-    /\b(speak to|talk to|call from) (?:the )?(?:owner|boss|manager|tradie)|owner (?:to )?call|boss (?:to )?call\b/.test(
+    /\b(?:speak|talk)\s+(?:to|with)\s+(?:the\s+)?(?:owner|boss|manager|tradie|person in charge|whoever\s+(?:runs|owns))\b/.test(
       content,
-    )
+    ) ||
+    /\b(?:owner|boss|manager|tradie)\s+(?:to\s+)?(?:call|ring|phone|contact)\b/.test(
+      content,
+    ) ||
+    /\b(?:call|ring|phone)\s+from\s+(?:the\s+)?(?:owner|boss|manager)\b/.test(
+      content,
+    ) ||
+    /\bput\s+me\s+through\s+to\s+(?:the\s+)?(?:owner|boss|manager|tradie)\b/.test(
+      content,
+    ) ||
+    /\b(?:speak|talk)\s+(?:to|with)\s+whoever\b/.test(content)
   ) {
     triggers.add("asks_for_owner_now");
   }

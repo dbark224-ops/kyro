@@ -81,6 +81,47 @@ describe("a trigger must come from the customer, not from Kyro", () => {
     assert.ok(found.includes("after_hours_emergency"));
   });
 
+  it("hears a request for the owner however it is phrased", () => {
+    // Found by auditing which triggers had ever fired: asks_for_owner_now had
+    // never fired in 47 incidents. Measured against ten natural phrasings,
+    // five missed -- "speak WITH the owner", "can the owner RING me", "get the
+    // owner to PHONE me", "put me through to the manager", "whoever runs the
+    // business". Fourth instance of one phrasing covered and the rest of
+    // English not.
+    for (const content of [
+      "Can I speak to the owner please",
+      "Could I speak with the owner",
+      "can the owner ring me",
+      "get the owner to phone me",
+      "put me through to the manager",
+      "I need to speak to whoever runs the business",
+      "expecting a call from the owner",
+    ]) {
+      const found = detectUrgentEscalationTriggers(
+        { content, sourceKey: "test", sourceType: "email" },
+        { afterHours: false },
+      );
+
+      assert.ok(found.includes("asks_for_owner_now"), content);
+    }
+  });
+
+  it("does not hear one where a third party is merely mentioned", () => {
+    for (const content of [
+      "can I speak to someone about a quote",
+      "the owner of the property will be there",
+      "the manager of the shop next door recommended you",
+      "we own the property outright",
+    ]) {
+      const found = detectUrgentEscalationTriggers(
+        { content, sourceKey: "test", sourceType: "email" },
+        { afterHours: false },
+      );
+
+      assert.ok(!found.includes("asks_for_owner_now"), content);
+    }
+  });
+
   it("keeps reading the voice call note, which is all a call has", () => {
     const found = detectUrgentEscalationTriggers(
       {

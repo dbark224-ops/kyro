@@ -243,6 +243,20 @@ Marguerite Ollenshaw`,
     subject: "Ensuite extractor fan humming but not turning",
   },
 
+  asks_for_owner: {
+    body:
+      "Could I speak with the owner please? It's about the bathroom job at " +
+      "615 Girard Blvd NE and I'd rather not go through anyone else.",
+    description:
+      "Asks for the owner in a phrasing the pattern used to miss. The trigger had never fired in 47 incidents, and five of ten natural phrasings did not match it.",
+    expect: {
+      escalates: true,
+      escalationTriggers: ["asks_for_owner_now"],
+    },
+    from: "+15055550117",
+    kind: "sms",
+  },
+
   price_question: {
     bodyText: `Hello, how much do you charge to replace a 250L electric hot
 water cylinder? Ours is 14 years old and we're budgeting for it.
