@@ -82,6 +82,70 @@ describe("asking whether a place is covered", () => {
   });
 });
 
+/**
+ * The same sweep that went nine-for-nine on the escalation triggers, applied
+ * to the questions customers ask about the business itself.
+ *
+ * Measured before: 9 of 24 natural phrasings recognised. "what's your address"
+ * -- the commonest form there is -- needed the literal word "business" in
+ * front of "address". "when are you open" needed "hours" as a noun. The phone
+ * pattern knew "call", "phone", "reach" and "contact" but not "ring".
+ *
+ * Lower stakes than an escalation, and worth saying why: triage.ts passes the
+ * whole publicBusinessFacts object into every prompt regardless, so a miss
+ * never hid the fact from the model. It only meant the message was not routed
+ * through the grounded known-business-fact mode, where the answer is held to
+ * the saved value exactly. Crisper answers rather than correct ones.
+ *
+ * The controls matter more than usual here, because this decides whether a
+ * message is treated as a question about the business instead of a job.
+ */
+describe("questions about the business, however they are asked", () => {
+  const recognises = (message: string, key: string) =>
+    directKnownBusinessFactKeys(message).includes(key as never);
+
+  it("recognises all of these", () => {
+    const cases: Array<[string, string]> = [
+      ["can I have your number", "publicPhoneNumber"],
+      ["what number can I call you on", "publicPhoneNumber"],
+      ["is there a phone number for you", "publicPhoneNumber"],
+      ["how do I ring you", "publicPhoneNumber"],
+      ["can I email you instead", "publicEmail"],
+      ["what email should I use", "publicEmail"],
+      ["is there an email I can send photos to", "publicEmail"],
+      ["what's your address", "businessAddress"],
+      ["where's your shop", "businessAddress"],
+      ["whereabouts are you based", "businessAddress"],
+      ["what hours do you work", "workingHours"],
+      ["when are you open", "workingHours"],
+      ["are you open on Saturdays", "workingHours"],
+      ["when's a good time to ring", "contactHours"],
+    ];
+
+    for (const [message, key] of cases) {
+      assert.ok(recognises(message, key), `${key}: ${message}`);
+    }
+  });
+
+  it("does not treat ordinary job talk as a question about the business", () => {
+    // "I'll send you my address later" and "the address is 615 Girard Blvd NE"
+    // are the ones to watch: an address in the message is the customer's, not
+    // a request for the firm's.
+    for (const message of [
+      "the shower tray needs re-sealing, can you quote",
+      "do you do bathroom refits",
+      "are you able to fit a new tap",
+      "I'll send you my address later",
+      "the address is 615 Girard Blvd NE",
+      "we need a new radiator in the back bedroom",
+      "can you come Friday at 3pm",
+      "do you cover the cost of parts",
+    ]) {
+      assert.deepEqual(directKnownBusinessFactKeys(message), [], message);
+    }
+  });
+});
+
 describe("known business fact auto replies", () => {
   it("recognizes a plain-language request for the business phone number", () => {
     assert.deepEqual(

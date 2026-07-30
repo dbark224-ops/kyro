@@ -300,7 +300,13 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       /\b(?:give|send|provide|share|have|what(?:'s| is))\b.{0,40}\b(?:phone|telephone|contact)\s*(?:number)?\b/i,
       /\b(?:phone|telephone|contact)\s+number\b.{0,40}\b(?:call|reach|contact)\b/i,
       /\bnumber\s+(?:to|i can)\s+call\b/i,
-      /\bhow (?:can|do) i (?:call|phone|reach|contact) (?:you|the business|your team)\b/i,
+      /\bhow (?:can|do) i (?:call|phone|reach|contact|ring) (?:you|the business|your team)\b/i,
+      // Swept with the escalation triggers, same fault and same fix. "can I
+      // have your number", "what number can I call you on", "is there a phone
+      // number for you" and "how do I ring you" all missed.
+      /\b(?:can|could) i (?:have|get)\b.{0,20}\bnumber\b/i,
+      /\bwhat number\b.{0,20}\b(?:call|reach|ring)\b/i,
+      /\bis there an?\b.{0,20}\bnumber\b/i,
     ],
   },
   {
@@ -308,6 +314,10 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
     patterns: [
       /\b(?:give|send|provide|share|have|what(?:'s| is))\b.{0,40}\b(?:email|e-mail)(?:\s+address)?\b/i,
       /\bhow (?:can|do) i email (?:you|the business|your team)\b/i,
+      /\b(?:can|could|should) i email\b/i,
+      /\bwhat email\b/i,
+      /\bis there an? (?:email|e-mail)\b/i,
+      /\b(?:email|e-mail)(?:\s+address)? (?:i|to) (?:can |should )?(?:use|send)\b/i,
     ],
   },
   {
@@ -315,6 +325,12 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
     patterns: [
       /\b(?:what(?:'s| is)|give|send|provide|share)\b.{0,40}\b(?:business|office|shop|store)\s+address\b/i,
       /\bwhere (?:are you|is (?:the business|your office|your shop|your store)) located\b/i,
+      // "what's your address" -- the commonest form of all -- needed the word
+      // "business" in front of "address" and so never matched.
+      /\bwhat(?:'s| is) your address\b/i,
+      /\bwhere(?:'s| is) your (?:shop|store|office|yard|unit|workshop|premises)\b/i,
+      /\bwhereabouts are you\b/i,
+      /\bwhere are you based\b/i,
     ],
   },
   {
@@ -342,6 +358,10 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
     patterns: [
       /\b(?:what(?:'s| are)|give|send|provide|share)\b.{0,30}\b(?:business|working|opening|open)\s+hours\b/i,
       /\bwhat time (?:do you|does the business) (?:open|close)\b/i,
+      /\bwhat (?:hours|time)s? do you (?:work|open|start|finish)\b/i,
+      /\bwhat are your hours\b/i,
+      /\bwhen are you open\b/i,
+      /\bare you open\b/i,
     ],
   },
   {
@@ -349,6 +369,7 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
     patterns: [
       /\b(?:what(?:'s| are)|give|send|provide|share)\b.{0,30}\bcontact\s+hours\b/i,
       /\bwhen (?:can|should) i (?:call|contact|reach) (?:you|the business|your team)\b/i,
+      /\bgood time to (?:call|ring|reach|contact)\b/i,
     ],
   },
 ];
