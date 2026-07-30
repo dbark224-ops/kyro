@@ -25,6 +25,53 @@ import { rowLink } from "./ui-blocks";
  * It is the most heavily tested block in the file, which is why it moved first:
  * the existing suite proves the move changed nothing.
  */
+/**
+ * Words that mean "not that day".
+ *
+ * A customer wrote "I'm away Thursday and Friday this week so don't come
+ * then". Triage recorded it as her preferred time, this parser matched the
+ * first weekday it saw, and Kyro drafted a reply offering Thursday 7am -- the
+ * exact day she had ruled out. The alert even said so: "She's unavailable
+ * Thu/Fri, but the draft offers Thu 7am."
+ *
+ * Naming a day is not asking for it. Same lesson as "not urgent" reading as
+ * urgent, and the consequence here is worse: an appointment a customer already
+ * said they cannot make.
+ */
+const WEEKDAY_EXCLUSION =
+  /\b(?:not|no|never|avoid|avoiding|except|excluding|unavailable|away|busy|unless|apart from|other than|can'?t(?:\s+(?:do|make|make it))?|cannot(?:\s+(?:do|make))?|don'?t(?:\s+(?:come|bother))?|do not(?:\s+come)?)\b[^.,;!?]{0,24}$/i;
+
+/**
+ * Whether the day at this position is being ruled out rather than requested.
+ *
+ * Only looks backwards, and only within the clause: "I can't do Wednesday but
+ * Thursday is fine" must still resolve Thursday, so "but" ends the clause along
+ * with the usual punctuation. Deliberately conservative -- failing to resolve a
+ * day means Kyro asks the customer instead of guessing, which is a far cheaper
+ * mistake than booking a day they told you to avoid.
+ */
+/** A date phrase that matches, and is not being ruled out where it sits. */
+function matchesUnexcluded(text: string, pattern: RegExp) {
+  const match = pattern.exec(text);
+
+  return Boolean(match) && !weekdayIsExcluded(text, match?.index ?? 0);
+}
+
+function weekdayIsExcluded(text: string, index: number) {
+  const before = text.slice(0, index);
+  const clauseStart = Math.max(
+    before.lastIndexOf(","),
+    before.lastIndexOf("."),
+    before.lastIndexOf(";"),
+    before.lastIndexOf("!"),
+    before.lastIndexOf("?"),
+    before.lastIndexOf("\n"),
+    before.toLowerCase().lastIndexOf(" but "),
+  );
+
+  return WEEKDAY_EXCLUSION.test(before.slice(clauseStart + 1));
+}
+
 const CALENDAR_WEEKDAYS = new Map([
   ["sun", 0],
   ["sunday", 0],
@@ -625,13 +672,20 @@ function calendarDateFromPrompt(
     }
   }
 
-  const weekday = raw.match(
-    /\b(?:(this|next)\s+)?(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/i,
+  // Every weekday in the text, not just the first. "I can't do Wednesday but
+  // Thursday is fine" has to skip past the excluded day and land on the one
+  // actually being offered -- rejecting the first match and giving up would
+  // turn a usable answer into a shrug.
+  const weekdays = raw.matchAll(
+    /\b(?:(this|next)\s+)?(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/gi,
   );
 
-  if (weekday) {
-    const weekdayKey = weekday[2].toLowerCase();
-    const targetDay = CALENDAR_WEEKDAYS.get(weekdayKey);
+  for (const weekday of weekdays) {
+    if (weekdayIsExcluded(raw, weekday.index ?? 0)) {
+      continue;
+    }
+
+    const targetDay = CALENDAR_WEEKDAYS.get(weekday[2].toLowerCase());
 
     if (targetDay !== undefined) {
       return {
@@ -707,24 +761,30 @@ export function calendarDateRangeFromPrompt(
   const nextMonthStart = addMonthsToDateKey(todayDateKey, 1);
 
   if (
-    /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+week\b/.test(
+    matchesUnexcluded(
       text,
+      /\b(rest|remainder|remaining)\s+(?:of\s+)?(?:this|the)\s+week\b/,
     ) ||
-    /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+week\b/.test(
+    matchesUnexcluded(
       text,
+      /\b(?:through|until)\s+(?:the\s+)?end\s+of\s+(?:this|the)\s+week\b/,
     )
   ) {
     return rangeFromDateKeys(todayDateKey, nextWeekStart);
   }
 
-  if (/\bnext\s+week\b/.test(text)) {
+  if (matchesUnexcluded(text, /\bnext\s+week\b/)) {
     return rangeFromDateKeys(
       nextWeekStart,
       addDaysToDateKey(nextWeekStart, 7),
     );
   }
 
-  if (/\bthis\s+week\b/.test(text)) {
+  // "Unavailable Thursday and Friday this week" resolved through this branch,
+  // not the weekday one -- a whole-week window that of course contained the two
+  // days she had ruled out. Guarding only the weekday match would have left the
+  // wider phrase doing the same damage.
+  if (matchesUnexcluded(text, /\bthis\s+week\b/)) {
     return rangeFromDateKeys(thisWeekStart, nextWeekStart);
   }
 
@@ -818,7 +878,45 @@ export function calendarDateRangeFromPrompts(
     return null;
   }
 
+  // The customer named days and ruled them out. Do not let a summary of their
+  // message put those days back.
+  //
+  // The two arguments are not equals: `fallback` is what the customer actually
+  // wrote, `prompt` is a model's extraction of it. A reply saying "I'm away
+  // Thursday and Friday this week so don't come then" correctly resolves to
+  // nothing above -- and then triage's preferredTime, which the model had
+  // reduced to the bare word "Thursday", resolved here and Kyro drafted an
+  // offer for Thursday 7am. The negation was destroyed upstream, so the only
+  // place left holding the truth is the customer's own words.
+  //
+  // Distinguishing "said nothing about dates" from "named a date and refused
+  // it" is the whole point: the first should still fall through.
+  if (fallback && mentionsExcludedDate(fallback)) {
+    return null;
+  }
+
   return calendarDateRangeFromPrompt(prompt, { now, timeZone });
+}
+
+/**
+ * Whether the text names a day or week only to rule it out.
+ *
+ * True when a date phrase is present and every one of them is excluded. A
+ * message offering one day and refusing another resolves normally above, so it
+ * never reaches here.
+ */
+export function mentionsExcludedDate(text: string) {
+  const raw = normalized(text);
+  const phrases = [
+    ...raw.matchAll(
+      /\b(?:(?:this|next)\s+)?(?:sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|today|tomorrow|(?:this|next)\s+week)\b/gi,
+    ),
+  ];
+
+  return (
+    phrases.length > 0 &&
+    phrases.every((phrase) => weekdayIsExcluded(raw, phrase.index ?? 0))
+  );
 }
 
 function calendarTimeFromPrompt(prompt: string) {

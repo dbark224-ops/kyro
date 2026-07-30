@@ -1521,6 +1521,11 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "Set responsePolicy.mode to service_inquiry only when the customer is actually requesting or progressing specific trade work, a quote, an appointment, an active job, or a concrete attendance request. A question about the business is not automatically a service inquiry.",
         "For service_inquiry, apply the required job-information rules below. Those rules never apply to known_business_fact or simple_business_message.",
         "jobType must describe the trade work being requested, not the lead title or contact name.",
+        // "I'm away Thursday and Friday" was recorded as a preferred time, the
+        // date parser took the first weekday it saw, and the draft offered
+        // Thursday. When a customer only says when they cannot be there, the
+        // honest value is null.
+        "preferredTime is when the customer says they CAN be there. If they only say when they cannot -- away Thursday, not weekends, no mornings -- leave preferredTime null and put the constraint in your summary instead. Never record an unavailability as a preferred time.",
         "Never use placeholder jobType values like 'New inquiry from John', 'Quote request from Sarah', or 'Manual inbound enquiry'.",
         "For example, 'renovating my bathroom' plus 'quote' should become 'Bathroom Renovation Quote'.",
         "If authoritativeInquiryFacts is present, echo it exactly in inquiryFacts and do not reinterpret it.",
