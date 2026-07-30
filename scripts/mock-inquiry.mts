@@ -35,8 +35,15 @@ type Expectation = {
   /** Escalation is expected, and on these trigger keys if given. */
   escalates?: boolean;
   escalationTriggers?: string[];
-  /** The inquiry should reach the work queue rather than be observed. */
+  /**
+   * The message should be brought into Kyro as a conversation, not merely
+   * observed. This is about the inbox, NOT about the work queue -- a customer
+   * cancelling belongs in the inbox and does not belong in the queue, and
+   * conflating the two produced a failing check against correct behaviour.
+   */
   promotes?: boolean;
+  /** Whether a lead -- an actual job -- should come out of it. */
+  createsLead?: boolean;
   /** Address verdict, when the scenario carries an address. */
   addressStatus?: "verified" | "needs_review" | "unverified";
   /**
@@ -241,6 +248,67 @@ Marguerite Ollenshaw`,
     fromName: "Marguerite Ollenshaw",
     kind: "email",
     subject: "Ensuite extractor fan humming but not turning",
+  },
+
+  withdraws: {
+    bodyText: `Hi, we'd like the downstairs cloakroom retiled -- about 4 square
+metres, floor and half-height walls.
+
+615 Girard Blvd NE, Albuquerque, NM 87106. Phone 505 555 0164.
+
+Thanks,
+Perpetua Danforth`,
+    description:
+      "Customer asks for a job, then withdraws it in a reply on the same thread. The withdrawal belongs in the inbox, but must not raise a second job for work that was just cancelled.",
+    // Sent as a threaded reply rather than a fresh email on purpose: a real
+    // cancellation arrives in the thread, and a standalone one is a different
+    // question. Sent standalone it reads as a new inquiry and raises a second
+    // job, which is reasonable; threaded it correctly raises none.
+    //
+    // Three wrong expectations were written here before this one, all of them
+    // mine and none of them the code's:
+    //
+    //   promotes:false     -- promotion means "brought into the inbox", not
+    //                         "added to the work queue". The cancellation
+    //                         belongs in the inbox.
+    //   escalates:false    -- trips the repeat-contact artifact accepts_time
+    //                         documents, since the draft is never sent here.
+    //   createsLead:true   -- `since` is reset before the follow-up, so every
+    //                         check after it measures the FOLLOW-UP alone. The
+    //                         opener's job predates the window.
+    //
+    // createsLead:false is the real assertion: a customer withdrawing must not
+    // raise a second job for the work they just cancelled. It does not.
+    expect: { createsLead: false, promotes: true },
+    followUp: `Actually, we've decided not to go ahead for now -- my
+brother-in-law is going to do it. Please cancel the enquiry, no need to quote.
+
+Sorry for wasting your time.
+
+Perpetua`,
+    fromName: "Perpetua Danforth",
+    kind: "email",
+    subject: "Retiling the downstairs cloakroom",
+  },
+
+  stated_budget: {
+    bodyText: `Hi, we want the downstairs cloakroom retiled -- about 4 square
+metres, floor and half-height walls.
+
+Our budget is around $2,000 and we can't really stretch past $2,500.
+
+615 Girard Blvd NE, Albuquerque, NM 87106. Phone 505 555 0164.
+
+Thanks,
+Perpetua Danforth`,
+    description:
+      "Customer states a budget and a ceiling. It must be captured as theirs, and Kyro must not turn it into a quote of its own.",
+    // Deliberately not quotesNoPrice: repeating a figure the customer gave is
+    // legitimate, which is exactly why that check is opt-in.
+    expect: { promotes: true },
+    fromName: "Perpetua Danforth",
+    kind: "email",
+    subject: "Retiling the downstairs cloakroom",
   },
 
   asks_for_owner: {
@@ -821,6 +889,24 @@ async function run(input: {
         ),
       );
     }
+  }
+
+  if (scenario.expect.createsLead !== undefined) {
+    const leads = await admin
+      .from("leads")
+      .select("id,title")
+      .eq("workspace_id", workspaceId)
+      .gte("created_at", since)
+      .limit(3);
+    const created = (leads.data ?? []).length > 0;
+
+    checks.push(
+      check(
+        scenario.expect.createsLead ? "created a job" : "created no job",
+        created === scenario.expect.createsLead,
+        created ? String(leads.data?.[0]?.title) : "no lead",
+      ),
+    );
   }
 
   if (scenario.expect.preferredTimeExcludes) {
