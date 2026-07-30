@@ -233,6 +233,31 @@ Marguerite Ollenshaw`,
     subject: "Ensuite extractor fan humming but not turning",
   },
 
+  corrected_address: {
+    bodyText: `Hi, we've got a toilet that won't stop running -- the cistern
+refills every few minutes.
+
+Address is 1120 Lomas Blvd NE, Albuquerque, NM 87102. Number is
+505 555 0139.
+
+Thanks,
+Emeka Nwachukwu`,
+    description:
+      "Customer corrects their address in a reply. The first one is stored and verified before the correction arrives, so the stale value is the one that has to lose.",
+    // Getting this wrong sends a van to the wrong house. The follow-up names
+    // the old address only to withdraw it, which is the same shape as naming a
+    // day to rule it out.
+    expect: { promotes: true },
+    followUp: `Sorry -- I gave you the wrong address. That's our old place.
+We're at 3820 Rio Grande Blvd NW, Albuquerque, NM 87107 now. Please don't
+send anyone to the Lomas address.
+
+Emeka`,
+    fromName: "Emeka Nwachukwu",
+    kind: "email",
+    subject: "Toilet cistern keeps refilling",
+  },
+
   unreachable_time: {
     bodyText: `Hello, our kitchen mixer tap has started dripping steadily and
 the washer looks worn.
