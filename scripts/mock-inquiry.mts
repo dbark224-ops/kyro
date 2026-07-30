@@ -210,6 +210,71 @@ Aurelia`,
     subject: "Shower mixer replaced in March",
   },
 
+  two_addresses: {
+    bodyText: `Hi, we've just bought a rental at 1500 Indian School Rd NE,
+Albuquerque, NM 87102 and the bathroom needs doing before tenants move in.
+
+Send any paperwork to my home address though, that's 4900 Alameda Blvd NE,
+Albuquerque, NM 87113. I don't check post at the rental.
+
+Number is 505 555 0176.
+
+Ines Wetherby`,
+    description:
+      "Two addresses, one the job site and one for post. The stored job address must be the rental, not the postal one.",
+    expect: { promotes: true },
+    fromName: "Ines Wetherby",
+    kind: "email",
+    subject: "Bathroom refit at a rental before tenants move in",
+  },
+
+  rambling: {
+    bodyText: `Hello there,
+
+Sorry in advance, this is going to be long. So we bought this place in
+2019 and honestly the plumbing has been a saga from day one. The previous
+owners clearly did a lot of it themselves and none of it to any standard
+I can see.
+
+Starting at the top. The upstairs bathroom has a bath that drains so
+slowly you can watch it. We've had drain cleaner down it, we've had a
+plumber snake it, no change. Somebody suggested the fall on the waste is
+wrong which sounds plausible to me but I'm not a plumber.
+
+The basin in the same room drips from the tap even when it's off tight,
+and the cold side has almost no pressure compared to the hot, which seems
+backwards to me.
+
+Downstairs, the kitchen sink gurgles when the washing machine drains,
+which I'm told means the venting is not right. The outside tap drips
+constantly and I've turned it off at the isolator for now.
+
+The laundry has a floor waste that smells in summer. Not always. Mostly
+when it's hot and we haven't run water for a few days.
+
+And then the hot water. It's a 315L electric, it was here when we moved
+in, and it takes about four minutes for hot to arrive at the kitchen
+which is the furthest point. I don't know if that's normal for the
+distance or if something is wrong.
+
+What I'd like is somebody to come and look at all of it and tell me what
+is actually worth fixing and in what order, rather than me guessing. I'm
+not expecting it all done at once, I'd rather do it properly over a year
+than badly in a week.
+
+We're at 3820 Rio Grande Blvd NW, Albuquerque, NM 87107. Best number is
+505 555 0158. Any weekday works, mornings are easier.
+
+Thanks for reading all that,
+Constance Aldebrand`,
+    description:
+      "A long rambling inquiry with many separate faults. Earlier a long inquiry overran the output ceiling, produced truncated JSON and reported a database error.",
+    expect: { escalates: false, promotes: true },
+    fromName: "Constance Aldebrand",
+    kind: "email",
+    subject: "Several plumbing problems, would like advice on priorities",
+  },
+
   partial_address: {
     body:
       "Hi its Tom at 88 Silver Ave SW. Gas smell in the laundry near the hot " +

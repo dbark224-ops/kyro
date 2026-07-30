@@ -126,12 +126,19 @@ describe("nothing about trigger detection changed", () => {
     );
   });
 
-  it("still feeds the caller's title and summary into detection", () => {
+  it("detects from the customer's words alone", () => {
+    // This once asserted the opposite -- that the caller's title and summary
+    // were still fed to detection, guarding against the authorship refactor
+    // dropping them. They are now deliberately excluded: both are Kyro's own
+    // prose, and matching keywords against them let the classifier's paraphrase
+    // escalate words the customer never wrote. See paraphrased-triggers.test.ts.
     const detector = source.slice(
       source.indexOf("function detectUrgentEscalationTriggers"),
+      source.indexOf("const triggers = new Set"),
     );
 
-    assert.match(detector.slice(0, 600), /input\.summary/);
-    assert.match(detector.slice(0, 600), /input\.title/);
+    assert.doesNotMatch(detector, /input\.summary/);
+    assert.doesNotMatch(detector, /input\.title/);
+    assert.match(detector, /const content = input\.content\.toLowerCase\(\)/);
   });
 });
