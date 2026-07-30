@@ -142,6 +142,67 @@ describe("the hour a customer asked for", () => {
   });
 });
 
+/**
+ * A regression in the first version of this, found by probing it rather than
+ * by any test failing.
+ *
+ * One window cannot express two options. "Tuesday morning or Thursday
+ * afternoon, either works" took a ceiling of noon from "morning" AND a floor
+ * of noon from "afternoon", leaving something only a slot starting at exactly
+ * 12:00 could satisfy. "mornings or after 4pm" was worse -- floor 16:00 with
+ * ceiling 12:00, which nothing can ever match.
+ *
+ * Both fail safe, because no slot matches and Kyro offers no time and asks.
+ * But that turns a customer who gave two perfectly good options into one it
+ * cannot answer, which is its own kind of wrong.
+ */
+describe("a customer offering alternatives", () => {
+  it("gets no window rather than an unsatisfiable one", () => {
+    for (const text of [
+      "Tuesday morning or Thursday afternoon, either works",
+      "mornings or after 4pm",
+      "any afternoon, or Saturday morning",
+      "either Friday afternoon or Monday morning",
+    ]) {
+      assert.equal(preferredTimeOfDayWindow(text), null, text);
+    }
+  });
+
+  it("never returns a window nothing can satisfy", () => {
+    // Belt and braces: whatever the wording, a floor at or past the ceiling
+    // describes no time at all and is not worth acting on.
+    for (const text of [
+      "mornings but not before 3pm",
+      "after 5pm and before 9am",
+    ]) {
+      const window = preferredTimeOfDayWindow(text);
+
+      if (window?.earliestMinutes != null && window.latestMinutes != null) {
+        assert.ok(
+          window.earliestMinutes < window.latestMinutes,
+          `${text} produced an impossible window`,
+        );
+      }
+    }
+  });
+
+  it("still reads a single constraint", () => {
+    // The guard must not swallow the ordinary case it was built for.
+    assert.equal(
+      preferredTimeOfDayWindow("Friday afternoon")?.earliestMinutes,
+      MINUTES(12),
+    );
+    assert.equal(
+      preferredTimeOfDayWindow("after 2pm")?.earliestMinutes,
+      MINUTES(14),
+    );
+    assert.equal(
+      preferredTimeOfDayWindow("mornings only")?.latestMinutes,
+      MINUTES(12),
+    );
+  });
+});
+
 describe("saying nothing about the hour", () => {
   it("is not a constraint", () => {
     // Most inquiries land here and must keep behaving exactly as before.

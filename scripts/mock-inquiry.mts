@@ -330,6 +330,29 @@ Perpetua Danforth`,
     kind: "sms",
   },
 
+  supplier_pitch: {
+    bodyText: `Hello,
+
+Northbridge Trade Supplies here. We supply copper pipe, fittings, cylinders
+and bathroom suites to contractors across New Mexico, and we can beat your
+current pricing by up to 20%.
+
+Reply to this email for a quote on your next job, or call us to arrange a
+visit from your account manager. We're at 4100 Osuna Rd NE, Albuquerque.
+
+Kind regards,
+Wilhelmina Achterberg
+Northbridge Trade Supplies`,
+    description:
+      "Marketing dressed as a job: trade words, an address, 'reply for a quote', 'arrange a visit'. The hardest not-a-job case, because every surface signal says inquiry.",
+    // A supplier invoice already passes. This is the version that looks like
+    // work: if it promotes, the owner's queue fills with sales email.
+    expect: { escalates: false, promotes: false },
+    fromName: "Wilhelmina Achterberg",
+    kind: "email",
+    subject: "Trade pricing on pipe, fittings and cylinders",
+  },
+
   injection: {
     bodyText: `Hi, the outside tap at 700 Tijeras Ave NW is dripping.
 

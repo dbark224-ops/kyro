@@ -1161,13 +1161,37 @@ export function preferredTimeOfDayWindow(
     return null;
   }
 
+  // Alternatives cannot be expressed as one window, so none is derived.
+  //
+  // A regression in the first version of this, caught by probing it rather
+  // than by any test failing. "Tuesday morning or Thursday afternoon, either
+  // works" took a ceiling of noon from "morning" AND a floor of noon from
+  // "afternoon", leaving something only a slot starting at exactly 12:00 could
+  // satisfy. "mornings or after 4pm" was worse: floor 16:00 with ceiling
+  // 12:00, which nothing can ever match.
+  //
+  // Both fail safe -- no slot matches, so Kyro offers no time and asks -- but
+  // that turns a customer who gave two perfectly good options into one it
+  // cannot answer. No constraint restores the earlier behaviour of offering
+  // the first free slot, which at least lands inside one of them.
+  if (/\b(?:or|either)\b/.test(raw)) {
+    return null;
+  }
+
   let earliestMinutes: number | null = null;
   let latestMinutes: number | null = null;
 
   // An explicit bound wins over a vague one: "afternoon, after 2" is 14:00,
   // not 12:00, so the named clock time is read first and only falls back.
+  //
+  // The lookbehind stops a bound word firing inside its own negation. Without
+  // it "not after 10am" took a floor of 10:00 from the word "after" as well as
+  // the ceiling of 10:00 it means, and "no earlier than 11am" did the same in
+  // reverse -- each collapsing to a window only one instant satisfied. Their
+  // tests passed throughout, because each asserted the bound it cared about
+  // and never looked at the other one.
   const after = raw.match(
-    /\b(?:after|from|any\s*time\s*after|no\s*earlier\s*than|not\s*before|onwards?\s*from|starting\s*(?:at|from))\s+([^.,;!?]{0,18})/,
+    /(?<!\b(?:not|no)\s)\b(?:after|from|any\s*time\s*after|no\s*earlier\s*than|not\s*before|onwards?\s*from|starting\s*(?:at|from))\s+([^.,;!?]{0,18})/,
   );
   // "until" is deliberately absent. It points both ways: "available until
   // four" is a ceiling, but "I'm at work until four" is a floor, and reading
@@ -1175,7 +1199,7 @@ export function preferredTimeOfDayWindow(
   // work -- the same fault this function exists to fix, wearing a hat. When a
   // phrase can mean either, no bound is better than the wrong one.
   const before = raw.match(
-    /\b(?:before|by|no\s*later\s*than|not\s*after|earlier\s*than)\s+([^.,;!?]{0,18})/,
+    /(?<!\b(?:not|no)\s)\b(?:before|by|no\s*later\s*than|not\s*after|earlier\s*than)\s+([^.,;!?]{0,18})/,
   );
 
   if (after) {
@@ -1239,9 +1263,23 @@ export function preferredTimeOfDayWindow(
     latestMinutes = 12 * 60;
   }
 
-  return earliestMinutes === null && latestMinutes === null
-    ? null
-    : { earliestMinutes, latestMinutes };
+  if (earliestMinutes === null && latestMinutes === null) {
+    return null;
+  }
+
+  // A floor at or past the ceiling describes no time at all. The guards above
+  // cover how that arises in practice, but a window nothing can satisfy is
+  // never worth acting on however it was reached -- and this is what exposed
+  // both of them.
+  if (
+    earliestMinutes !== null &&
+    latestMinutes !== null &&
+    earliestMinutes >= latestMinutes
+  ) {
+    return null;
+  }
+
+  return { earliestMinutes, latestMinutes };
 }
 
 /** Whether a slot's local start time sits inside the customer's window. */
