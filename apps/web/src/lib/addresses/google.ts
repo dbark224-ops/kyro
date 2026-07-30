@@ -339,9 +339,26 @@ function normalizeValidationResult(
     return null;
   }
 
+  // hasInferredComponents is deliberately not here.
+  //
+  // Google sets it whenever it ADDS anything the sender did not type, and it
+  // adds something to almost every address: the country, and a ZIP+4 extension.
+  // Measured against its own headquarters -- "1600 Amphitheatre Parkway,
+  // Mountain View, CA 94043" comes back PREMISE granularity, addressComplete,
+  // nothing unconfirmed and nothing replaced, and hasInferredComponents true,
+  // purely for appending "USA" and "-1351".
+  //
+  // So it flagged everything. Of 102 stored addresses exactly 1 was validated;
+  // 60 read "Check". A badge that fires on every address tells the owner
+  // nothing and trains them to ignore the one that matters, which is worse
+  // than not showing it -- the opposite failure to a switch that never fires.
+  //
+  // The other three flags each describe something genuinely wrong: a component
+  // Google could not confirm, one it had to change, or an address missing a
+  // part. "1120 Lomas Blvd NE, Albuquerque, NM 87102" has unconfirmed
+  // components and still reads needs_review, which is correct.
   const needsReview =
     verdict.hasUnconfirmedComponents ||
-    verdict.hasInferredComponents ||
     verdict.hasReplacedComponents ||
     !verdict.addressComplete;
 
