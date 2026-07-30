@@ -169,16 +169,43 @@ export function shouldResolveAvailabilityForTriage(input: {
   );
 }
 
+/**
+ * A verified slot fills the timing gap. It does not become the customer's ask.
+ *
+ * preferredTime used to be overwritten with availability.label here, which made
+ * one field mean two different things at different points in its life -- "what
+ * the customer asked for" until the calendar was consulted, "what Kyro decided
+ * to offer" afterwards -- and the second destroyed the first.
+ *
+ * That fed back on itself. The overwritten value is persisted to
+ * inquiry_facts.preferred_time, handed back to triage as inquiryFactsOverride
+ * when the owner regenerates, and parsed by calendarDateRangeFromPrompts as the
+ * requested window: "Aug 3, 2026, 7:00 AM" resolves to a range covering only
+ * 3 August. Kyro's answer became its next question and the window collapsed to
+ * a single day, so an urgent leak was offered a slot five days out while the
+ * next two working days sat empty.
+ *
+ * It also made every screen wrong -- the assistant console labels this field
+ * "Preferred" -- and it erased the evidence of what was actually asked for.
+ *
+ * The slot lives in verifiedAvailability, which is structured and already
+ * carried alongside these facts. Only the gap is closed here.
+ */
 export function inquiryFactsWithVerifiedAvailability(
   facts: InquiryFacts,
   availability: VerifiedInquiryAvailability,
 ): InquiryFacts {
+  // A slot without a start is not a slot. Closing the timing gap on one would
+  // tell the owner the question is answered when nothing was actually found.
+  if (!availability.startsAt) {
+    return facts;
+  }
+
   return {
     ...facts,
     missingInfo: facts.missingInfo.filter(
       (item) => !isPreferredTimeMissingInfo(item),
     ),
-    preferredTime: availability.label,
   };
 }
 
@@ -3367,6 +3394,10 @@ export async function runStubAiTriage(
     replyDraft: triageDecision.replyDraft,
     responseMode,
     summary: triageDecision.summary,
+    // The slot Kyro checked and is proposing, kept separate from what the
+    // customer asked for. Callers that tell the owner about the inquiry need
+    // the offer; overwriting preferredTime with it is what caused the drift.
+    verifiedAvailability,
   };
 }
 

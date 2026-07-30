@@ -137,7 +137,13 @@ describe("inbound inquiry requirements", () => {
     );
   });
 
-  it("replaces the preferred-time requirement with a verified calendar slot", () => {
+  // This assertion used to require the opposite -- that preferredTime be
+  // replaced by the slot label -- and so encoded the defect rather than
+  // guarding against it. That overwrite made one field mean "what the customer
+  // asked for" before a calendar lookup and "what Kyro offered" after, and the
+  // stored answer was later re-parsed as the next request, walking an urgent
+  // job's appointment five days out.
+  it("closes the preferred-time gap without rewriting what was asked", () => {
     const facts = inquiryFactsWithVerifiedAvailability(
       {
         address: null,
@@ -156,7 +162,7 @@ describe("inbound inquiry requirements", () => {
       },
     );
 
-    assert.equal(facts.preferredTime, "Monday, July 27 at 10:00 AM MDT");
+    assert.equal(facts.preferredTime, "next week");
     assert.deepEqual(facts.missingInfo, ["Job address", "Email address"]);
   });
 

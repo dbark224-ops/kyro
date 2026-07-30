@@ -46,6 +46,15 @@ type InquiryNotificationInput = {
   escalationStarted?: boolean;
   eventLabel?: string | null;
   missingInfo?: string[];
+  /**
+   * The slot Kyro checked the calendar for and is proposing.
+   *
+   * Separate from preferredTime, which is the customer's own words. They used
+   * to be the same field: the verified slot was written over the request, so
+   * the owner could not see what had actually been asked for, and the answer
+   * was later re-read as the question.
+   */
+  offeredTime?: string | null;
   outcome?: InquiryNotificationOutcome;
   ownerQuestion?: string | null;
   preferredTime?: string | null;
@@ -187,6 +196,7 @@ export function buildInboundInquiryNotificationBody(
     | "conversationId"
     | "eventLabel"
     | "missingInfo"
+    | "offeredTime"
     | "outcome"
     | "ownerQuestion"
     | "preferredTime"
@@ -202,6 +212,7 @@ export function buildInboundInquiryNotificationBody(
     .map((item) => textValue(item))
     .filter((item): item is string => Boolean(item));
   const preferredTime = textValue(input.preferredTime);
+  const offeredTime = textValue(input.offeredTime);
   const eventLabel = textValue(input.eventLabel);
   const modelRecommendation = textValue(input.recommendedAction);
   const ownerQuestion = textValue(input.ownerQuestion);
@@ -230,7 +241,13 @@ export function buildInboundInquiryNotificationBody(
     `Summary: ${compactText(input.summary, 190)}`,
     modelRecommendation ? `Recommended: ${modelRecommendation}` : null,
     outcome === "booked" && eventLabel ? `Booked: ${eventLabel}` : null,
-    preferredTime ? `Preferred time: ${preferredTime}` : null,
+    // Both, when they differ. Which is the customer's and which is ours has to
+    // survive into the fallback too, or the last-resort alert reintroduces the
+    // confusion the fields were split up to remove.
+    offeredTime ? `We can do: ${offeredTime}` : null,
+    preferredTime && preferredTime !== offeredTime
+      ? `They asked for: ${preferredTime}`
+      : null,
     missingInfo.length > 0
       ? `Still needed: ${humanList(missingInfo.map(notificationFactLabel))}`
       : null,
@@ -301,6 +318,9 @@ export function inboundInquiryAlertRules(footerLength = 0) {
     // one fact it is rather than left to inference.
     "Open with the channel it came in on and who it is from. The channel is exactly context.arrivedVia -- never infer it from whether a phone number is present, and never call an email an SMS because the customer signed off with their number.",
     "Say what they want. Quote the customer only when their wording matters; otherwise summarise it in a few words.",
+    // These were one field until they drifted apart in the worst way, so the
+    // distinction is spelled out rather than left to the names.
+    "context.preferredTimeCustomerAsked is the customer's own words about timing. context.offeredTimeKyroChecked is a slot Kyro verified against the calendar. Never present the offered slot as something the customer requested. When both exist and differ, it is worth saying so in a few words -- the owner may want to push back on the gap.",
     "If context.kyroQuestionForOwner is set, that question is the point of the message -- ask it plainly and say a reply here will be used to finish the customer response.",
     "If context.preparedReplyDraft is set, say in your own words what that reply would tell the customer, so they know what they are approving without having to open the app. Convey the gist, not the wording -- the same judgement you use on the customer's message.",
     "When a reply is drafted, invite them to confirm however they like. Do not instruct them to send a specific phrase; any clear yes will do, and they can also just tell you what to change.",
@@ -328,7 +348,10 @@ async function writeInboundInquiryNotification(
         modelRecommendation: textValue(input.recommendedAction),
         escalationStarted: Boolean(input.escalationStarted),
         outcome: input.outcome ?? "captured",
-        preferredTime: textValue(input.preferredTime),
+        // Both, and clearly labelled. The owner is better served by "they
+        // asked for Saturday, we can do Thursday 9am" than by either alone.
+        offeredTimeKyroChecked: textValue(input.offeredTime),
+        preferredTimeCustomerAsked: textValue(input.preferredTime),
         preparedReplyAvailable: Boolean(input.preparedReplyAvailable),
         preparedReplyDraft: textValue(input.preparedReplyBody),
         replyAlreadySent: Boolean(input.autoReplySent),

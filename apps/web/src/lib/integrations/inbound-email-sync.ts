@@ -2868,6 +2868,10 @@ async function promoteEmailMessage({
     inquiryFacts: triageResult.inquiryFacts,
     leadId,
     messageId: String(savedMessage.id),
+    // The slot Kyro verified, carried separately from the customer's own words
+    // about timing. It used to reach the alert by overwriting preferredTime,
+    // which lost the request and fed the answer back in as the next question.
+    offeredTime: triageResult.verifiedAvailability?.label ?? null,
     replyDraft: triageResult.replyDraft,
     ownerQuestion: triageResult.ownerQuestion,
     responseMode: triageResult.responseMode,
@@ -3306,6 +3310,7 @@ async function processMessage({
       conversationId: promoted.conversationId,
       escalationStarted: promoted.escalationStarted,
       missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
+      offeredTime: promoted.offeredTime,
       ownerQuestion: promoted.ownerQuestion,
       preferredTime: promoted.inquiryFacts?.preferredTime ?? null,
       preparedReplyAvailable:
