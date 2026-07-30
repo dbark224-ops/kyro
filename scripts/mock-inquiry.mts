@@ -330,6 +330,36 @@ Perpetua Danforth`,
     kind: "sms",
   },
 
+  bare_yes: {
+    bodyText: `Hi, could you quote for replacing the mixer tap in the main
+bathroom? It drips even when closed.
+
+2200 Central Ave SE, Albuquerque, NM 87106. 505 555 0173.
+
+Thanks,
+Rosalind Ketteridge`,
+    description:
+      "Follow-up is one word. Kyro has to work out what is being agreed to from the thread, and must not treat 'yes' as a new job.",
+    // The thinnest possible reply. accepts_time says "that time works, go
+    // ahead and book it"; this says nothing at all on its own.
+    expect: { createsLead: false, promotes: true },
+    followUp: "yes please",
+    fromName: "Rosalind Ketteridge",
+    kind: "email",
+    subject: "Quote to replace a dripping mixer tap",
+  },
+
+  other_timezone: {
+    body:
+      "Hi, I own the rental at 615 Girard Blvd NE but I'm in New York. Could " +
+      "someone go Thursday at 2pm your time? I'll get the tenant to let them in.",
+    description:
+      "Customer states a time in the business's timezone from another one. Any drift shows up as a two-hour error in what is offered back.",
+    expect: { promotes: true },
+    from: "+15055550214",
+    kind: "sms",
+  },
+
   supplier_pitch: {
     bodyText: `Hello,
 
