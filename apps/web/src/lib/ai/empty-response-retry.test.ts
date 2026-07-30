@@ -3,76 +3,93 @@ import { describe, it } from "node:test";
 import { readRepoFile } from "../testing/repo-files";
 
 /**
- * One blank response should not put a template in front of the owner.
+ * A blank response should be retried, recorded, and explainable.
  *
- * Caught in a live run, and only because generatedBy had just been recorded on
- * the outbound message. Two near-identical French inquiries minutes apart: the
- * first came back generatedBy=model, the second generatedBy=fallback with
- * generationError "OpenAI returned a customer message without a subject or
- * body". Same input, different luck.
+ * Three faults, found one after another as each fix exposed the next.
  *
- * A missing required literal already got a corrective pass. A blank body or
- * subject got none -- it threw on the first attempt and the caller fell
- * straight through to buildInboundInquiryNotificationBody. So the cheapest and
- * most transient failure was the one with no recovery.
+ * A missing required literal always got a corrective pass; a blank body or
+ * subject got none, so one flaky empty response dropped the whole alert to the
+ * code template. Two near-identical inquiries minutes apart came back
+ * generatedBy=model and generatedBy=fallback.
  *
- * Deliberately narrow: only the empty case retries. A provider outage, a
- * refusal or a timeout should surface rather than be asked twice.
+ * Then the retry turned out to cover only one of the two ways the provider
+ * returns nothing usable -- a live run hit "OpenAI returned an empty customer
+ * message", which was a different throw, and went straight to the template.
+ *
+ * Then a scenario fell back after two consecutive blanks, and there was
+ * nothing to diagnose it with: runCustomerMessage threw before returning its
+ * usage, so a blank attempt was neither billed to the workspace nor recorded.
+ * "Why did this fail twice" had no answer anywhere in the data.
+ *
+ * An attempt now carries its own failure reason and its usage, so any unusable
+ * response is retried once, every attempt is billed, and the reason survives.
  */
 const source = readRepoFile(
   "apps/web/src/lib/ai/customer-message-generation.ts",
 );
 
-describe("an empty model response is asked once more", () => {
-  it("retries on the empty case", () => {
-    assert.match(source, /if \(!isEmptyMessageError\(error\)\) \{\s*throw error;/);
-    assert.match(source, /return runCustomerMessage\(\{ apiKey, model, prompt \}\);/);
+describe("an unusable response is reported rather than thrown", () => {
+  it("returns usage even when the content is unusable", () => {
+    // Measured before the content is inspected: OpenAI served the call and
+    // will bill for it whatever came back.
+    assert.match(source, /const failed = \(failure: string/);
+    assert.match(source, /return failed\(NO_OUTPUT_ERROR\)/);
+    assert.match(source, /return failed\(EMPTY_MESSAGE_ERROR, body, subject\)/);
   });
 
-  it("does not retry anything else", () => {
-    // The guard rethrows first, so only the empty case reaches the second call.
-    const retry = source.slice(
-      source.indexOf("let attempt = await runCustomerMessage"),
-      source.indexOf("const attempts = [attempt]"),
+  it("no longer throws on either empty case", () => {
+    const runner = source.slice(
+      source.indexOf("async function runCustomerMessage"),
+      source.indexOf("type CustomerMessageAttempt"),
     );
 
-    assert.match(retry, /throw error;/);
-    assert.doesNotMatch(retry, /catch \(\) =>/);
+    assert.doesNotMatch(runner, /throw new Error\(NO_OUTPUT_ERROR\)/);
+    assert.doesNotMatch(runner, /throw new Error\(EMPTY_MESSAGE_ERROR\)/);
   });
 
-  it("shares one constant per throw between the throw and the check", () => {
-    // Matching on a message is fragile; matching on two copies of a message is
-    // worse, and this is the kind of string that gets reworded.
-    assert.match(source, /const EMPTY_MESSAGE_ERROR =/);
-    assert.match(source, /const NO_OUTPUT_ERROR =/);
-    assert.match(source, /throw new Error\(EMPTY_MESSAGE_ERROR\);/);
-    assert.match(source, /throw new Error\(NO_OUTPUT_ERROR\);/);
+  it("catches malformed JSON instead of letting it throw", () => {
+    // Previously unguarded, so a truncated response was indistinguishable from
+    // a provider outage.
+    assert.match(source, /parsed = JSON\.parse\(outputText\)/);
+    assert.match(source, /was not valid JSON/);
   });
 
-  it("covers both ways the provider returns nothing usable", () => {
-    // The retry originally caught only the parsed-but-blank case. A live run
-    // hit the other one -- no output text at all -- and went straight to the
-    // template. Two doors, one of them left open.
-    assert.match(
-      source,
-      /error\.message === EMPTY_MESSAGE_ERROR \|\| error\.message === NO_OUTPUT_ERROR/,
-    );
+  it("still surfaces a genuine provider failure", () => {
+    // A non-ok response has no usage to report and should keep throwing.
+    assert.match(source, /throw new Error\(providerErrorMessage\(payload\)\)/);
+  });
+});
+
+describe("every attempt is kept and billed", () => {
+  const generate = source.slice(
+    source.indexOf("export async function generateCustomerMessage"),
+  );
+
+  it("retries once on any unusable response", () => {
+    assert.match(generate, /if \(attempt\.failure\) \{/);
+    assert.match(generate, /asking once more/);
+    assert.match(generate, /attempts\.push\(attempt\);/);
   });
 
-  it("says so in the logs when it happens", () => {
-    // Otherwise a model that has started returning blanks looks like a model
-    // that is simply slow.
-    assert.match(source, /Empty \$\{input\.taskType\} from the model, asking once more/);
+  it("no longer matches on the wording of an error", () => {
+    // The retry used to decide from a message string which failures were worth
+    // asking again about, which is fragile for something so easily reworded.
+    assert.doesNotMatch(source, /function isEmptyMessageError/);
   });
 
-  it("builds the prompt once and reuses it", () => {
-    // The retry must ask the same question; rebuilding risks it drifting.
-    assert.match(source, /const prompt = buildPrompt\(\{/);
-    assert.match(source, /runCustomerMessage\(\{ apiKey, model, prompt \}\)/);
+  it("records the spend before giving up", () => {
+    const meterAt = generate.indexOf("await recordAttemptUsage({");
+    const throwAt = generate.indexOf("throw new Error(failureReason)");
+
+    assert.ok(meterAt > 0 && throwAt > 0);
+    assert.ok(meterAt < throwAt, "usage must be recorded before the throw");
+  });
+
+  it("does not let a metering error replace the real failure", () => {
+    assert.match(generate, /\.catch\(\(usageError: unknown\) => \{/);
   });
 
   it("still keeps the corrective pass for a missing literal", () => {
     assert.match(source, /Your previous draft left out these required strings/);
-    assert.match(source, /attempts\.push\(attempt\);/);
   });
 });

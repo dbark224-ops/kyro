@@ -51,20 +51,11 @@ const EMPTY_MESSAGE_ERROR =
   "OpenAI returned a customer message without a subject or body.";
 const NO_OUTPUT_ERROR = "OpenAI returned an empty customer message.";
 
-/**
- * Both ways the provider can come back with nothing usable.
- *
- * The retry originally covered only the parsed-but-blank case. The other --
- * no output text at all -- went straight to the fallback, and a live run hit
- * exactly that: "OpenAI returned an empty customer message" and a code
- * template in front of the owner. Two doors, one of them left open.
- */
-function isEmptyMessageError(error: unknown) {
-  return (
-    error instanceof Error &&
-    (error.message === EMPTY_MESSAGE_ERROR || error.message === NO_OUTPUT_ERROR)
-  );
-}
+// There were once two of these thrown as errors and a helper to tell them
+// apart, which meant the retry had to guess from a message string which
+// failures were worth asking again about. An attempt now carries its own
+// reason, so any unusable response is retried once and every one of them is
+// recorded -- no matching on prose.
 
 function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
@@ -171,30 +162,48 @@ async function runCustomerMessage(input: {
   }
 
   const outputText = responseOutputText(payload);
+  // Measured before anything can go wrong with the content. OpenAI served this
+  // call and will bill for it whatever came back, so the usage has to survive
+  // an unusable response -- these paths used to throw, which meant a blank
+  // attempt was neither charged for nor explainable afterwards.
+  const usage = {
+    ...openAiUsageFromResponse(payload, {
+      prompt: input.prompt,
+      text: outputText ?? "",
+    }),
+    providerUsageId: openAiProviderUsageId(payload) ?? null,
+  };
+  const failed = (failure: string, body = "", subject = "") => ({
+    body,
+    failure,
+    subject,
+    usage,
+  });
 
   if (!outputText) {
-    throw new Error(NO_OUTPUT_ERROR);
+    return failed(NO_OUTPUT_ERROR);
   }
 
-  const parsed = JSON.parse(outputText) as Record<string, unknown>;
-  const body = textValue(parsed.body);
-  const subject = textValue(parsed.subject);
+  let parsed: Record<string, unknown>;
+
+  try {
+    parsed = JSON.parse(outputText) as Record<string, unknown>;
+  } catch {
+    // Previously an unguarded throw, so a truncated or malformed response was
+    // indistinguishable from a provider outage.
+    return failed(
+      `OpenAI returned a customer message that was not valid JSON (${outputText.length} characters).`,
+    );
+  }
+
+  const body = textValue(parsed.body) ?? "";
+  const subject = textValue(parsed.subject) ?? "";
 
   if (!body || !subject) {
-    throw new Error(EMPTY_MESSAGE_ERROR);
+    return failed(EMPTY_MESSAGE_ERROR, body, subject);
   }
 
-  return {
-    body,
-    subject,
-    usage: {
-      ...openAiUsageFromResponse(payload, {
-        prompt: input.prompt,
-        text: outputText,
-      }),
-      providerUsageId: openAiProviderUsageId(payload) ?? null,
-    },
-  };
+  return { body, failure: null as string | null, subject, usage };
 }
 
 type CustomerMessageAttempt = Awaited<ReturnType<typeof runCustomerMessage>>;
@@ -437,35 +446,52 @@ export async function generateCustomerMessage(input: {
     task: input.task,
     writingRules,
   });
-  // An empty response is worth one more ask.
+  // An unusable response is worth one more ask.
   //
-  // runCustomerMessage throws when the model returns valid JSON with a blank
-  // body or subject. That got no retry, while a merely missing literal got a
-  // corrective pass -- so a single flaky blank dropped the whole alert to the
-  // code template. Caught in a live run: two identical inquiries minutes
-  // apart, one written, one "OpenAI returned a customer message without a
-  // subject or body" and a template in front of the owner.
+  // A missing required literal always got a corrective pass; a blank body or
+  // subject got none, so a single flaky empty response dropped the whole alert
+  // to the code template. Caught live: two near-identical inquiries minutes
+  // apart, one written and one a template.
   //
-  // Only for the empty case. A provider outage or a refusal should surface,
-  // not be asked twice.
-  let attempt = await runCustomerMessage({ apiKey, model, prompt }).catch(
-    (error: unknown) => {
-      if (!isEmptyMessageError(error)) {
-        throw error;
-      }
-
-      console.warn(
-        `Empty ${input.taskType} from the model, asking once more.`,
-      );
-
-      return runCustomerMessage({ apiKey, model, prompt });
-    },
-  );
-  // Every attempt costs tokens whether or not its output is used. Usage is
-  // recorded further down, past a throw that a failed corrective pass can
-  // reach -- so a generation that gave up billed the workspace nothing and
-  // showed nothing, and the spend was invisible.
+  // Each attempt is kept whether it worked or not. Every one of them was
+  // served and billed by the provider, and a discarded attempt that records
+  // nothing is both an unbilled cost and an undiagnosable failure -- which is
+  // why "why did this fall back twice in a row" had no answer.
+  let attempt = await runCustomerMessage({ apiKey, model, prompt });
   const attempts = [attempt];
+
+  if (attempt.failure) {
+    console.warn(
+      `Unusable ${input.taskType} from the model (${attempt.failure}), asking once more.`,
+    );
+
+    attempt = await runCustomerMessage({ apiKey, model, prompt });
+    attempts.push(attempt);
+  }
+
+  if (attempt.failure) {
+    const failureReason = attempt.failure;
+
+    await recordAttemptUsage({
+      attempts,
+      channelType: input.channelType,
+      failureReason,
+      model,
+      startedAt,
+      supabase: input.supabase,
+      taskType: input.taskType,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+    }).catch((usageError: unknown) => {
+      console.error(
+        `Unable to record usage for a failed ${input.taskType}: ${
+          usageError instanceof Error ? usageError.message : String(usageError)
+        }`,
+      );
+    });
+
+    throw new Error(failureReason);
+  }
   let missing = missingLiterals(attempt.body, mustInclude);
 
   if (missing.length > 0) {
