@@ -25,6 +25,8 @@ import {
 import {
   calendarDateRangeFromPrompts,
   namesRuledOutDay,
+  preferredTimeOfDayWindow,
+  slotMatchesTimeOfDay,
 } from "../assistant/calendar-intent";
 import { getVoiceSettings } from "../assistant/voice-settings";
 import {
@@ -2859,15 +2861,31 @@ export async function runStubAiTriage(
     );
 
     if (calendarRange) {
+      // The date parser answers "which day", never "which part of the day".
+      // A customer who wrote that he was at work until four and asked for
+      // Friday after two was offered Friday 7:00 AM: "Friday afternoon, any
+      // time after two" resolves to midnight-to-midnight, and this took the
+      // first slot in it. The day was honoured and the hour thrown away, which
+      // is the same failure as offering a day someone ruled out.
+      const timeOfDay =
+        preferredTimeOfDayWindow(triageContext.latestMessage) ??
+        preferredTimeOfDayWindow(inquiryFacts.preferredTime);
       const availability = await findWorkspaceAvailableSlots({
         from: calendarRange.from,
-        limit: 1,
+        // One slot is enough only when any slot will do. With a time of day to
+        // honour, the first few may all fall outside it.
+        limit: timeOfDay ? 24 : 1,
         supabase,
         to: calendarRange.to,
         workspaceId,
       });
-      const firstAvailableSlot = availability.slots[0];
+      const firstAvailableSlot = availability.slots.find((slot) =>
+        slotMatchesTimeOfDay(slot.startsAt, availability.timeZone, timeOfDay),
+      );
 
+      // Nothing inside the window means Kyro offers no time at all and asks
+      // instead. Silence is recoverable; proposing the hour they already said
+      // they cannot do is the thing that loses the job.
       if (firstAvailableSlot) {
         verifiedAvailability = {
           endsAt: firstAvailableSlot.endsAt,

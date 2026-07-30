@@ -1044,6 +1044,152 @@ export function namesRuledOutDay(customerText: string, candidate: string) {
   return false;
 }
 
+const CLOCK_WORDS = new Map([
+  ["one", 1],
+  ["two", 2],
+  ["three", 3],
+  ["four", 4],
+  ["five", 5],
+  ["six", 6],
+  ["seven", 7],
+  ["eight", 8],
+  ["nine", 9],
+  ["ten", 10],
+  ["eleven", 11],
+  ["twelve", 12],
+]);
+
+/**
+ * Minutes from local midnight for an hour that may not say am or pm.
+ *
+ * Nobody asks a plumber to come after two in the morning, so a bare 1-6 is
+ * afternoon and a bare 7-12 is morning. Guessing wrong here is cheap in one
+ * direction only, and this is the direction people mean.
+ */
+function clockMinutes(hour: number, minute: number, meridiem: string | null) {
+  const lower = meridiem?.replace(/\./g, "").toLowerCase() ?? null;
+  const pm = lower === "pm" ? true : lower === "am" ? false : hour >= 1 && hour <= 6;
+  const hour24 = hour === 12 ? (pm ? 12 : 0) : pm ? hour + 12 : hour;
+
+  return hour24 * 60 + minute;
+}
+
+/** Minutes from local midnight, or null when the text names no clock time. */
+function namedClockMinutes(text: string) {
+  const digits = text.match(
+    /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/,
+  );
+
+  if (digits) {
+    return clockMinutes(
+      Number(digits[1]),
+      Number(digits[2] ?? 0),
+      digits[3] ?? null,
+    );
+  }
+
+  const word = text.match(
+    /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b\s*(a\.?m\.?|p\.?m\.?)?/,
+  );
+
+  return word
+    ? clockMinutes(CLOCK_WORDS.get(word[1])!, 0, word[2] ?? null)
+    : null;
+}
+
+export type PreferredTimeOfDay = {
+  /** A slot must start at or after this many minutes past local midnight. */
+  earliestMinutes: number | null;
+  /** A slot must start at or before this many minutes past local midnight. */
+  latestMinutes: number | null;
+};
+
+/**
+ * The part of a customer's timing request that is not a date.
+ *
+ * The date range parser resolves "Friday afternoon, any time after two" to
+ * midnight-to-midnight on Friday, and triage then took the first free slot in
+ * that window -- so a customer who wrote that he was at work until four, and
+ * asked for after two, was offered Friday 7:00 AM. The day was honoured and
+ * the time thrown away. Same family as being offered a day you ruled out: Kyro
+ * proposing the one thing the customer already said would not work.
+ *
+ * Returns null when the text names no time of day, which must keep behaving
+ * exactly as before -- most inquiries say nothing about the hour.
+ */
+export function preferredTimeOfDayWindow(
+  text: string | null | undefined,
+): PreferredTimeOfDay | null {
+  const raw = (text ?? "").toLowerCase();
+
+  if (!raw.trim()) {
+    return null;
+  }
+
+  let earliestMinutes: number | null = null;
+  let latestMinutes: number | null = null;
+
+  // An explicit bound wins over a vague one: "afternoon, after 2" is 14:00,
+  // not 12:00, so the named clock time is read first and only falls back.
+  const after = raw.match(
+    /\b(?:after|from|any\s*time\s*after|no\s*earlier\s*than|not\s*before|onwards?\s*from|starting\s*(?:at|from))\s+([^.,;!?]{0,18})/,
+  );
+  // "until" is deliberately absent. It points both ways: "available until
+  // four" is a ceiling, but "I'm at work until four" is a floor, and reading
+  // the second as the first would offer this customer only the hours he is at
+  // work -- the same fault this function exists to fix, wearing a hat. When a
+  // phrase can mean either, no bound is better than the wrong one.
+  const before = raw.match(
+    /\b(?:before|by|no\s*later\s*than|not\s*after|earlier\s*than)\s+([^.,;!?]{0,18})/,
+  );
+
+  if (after) {
+    earliestMinutes = namedClockMinutes(after[1]);
+  }
+
+  if (before) {
+    latestMinutes = namedClockMinutes(before[1]);
+  }
+
+  if (earliestMinutes === null && /\bafternoons?\b/.test(raw)) {
+    earliestMinutes = 12 * 60;
+  }
+
+  if (earliestMinutes === null && /\b(evenings?|after\s*work)\b/.test(raw)) {
+    earliestMinutes = 17 * 60;
+  }
+
+  // Mornings already tend to come first out of the calendar, so this looks
+  // redundant -- until the morning is fully booked and the earliest free slot
+  // is three in the afternoon.
+  if (latestMinutes === null && /\bmornings?\b/.test(raw)) {
+    latestMinutes = 12 * 60;
+  }
+
+  return earliestMinutes === null && latestMinutes === null
+    ? null
+    : { earliestMinutes, latestMinutes };
+}
+
+/** Whether a slot's local start time sits inside the customer's window. */
+export function slotMatchesTimeOfDay(
+  startsAt: string,
+  timeZone: string,
+  window: PreferredTimeOfDay | null,
+) {
+  if (!window) {
+    return true;
+  }
+
+  const parts = zonedDateParts(new Date(startsAt), timeZone);
+  const minutes = parts.hour * 60 + parts.minute;
+
+  return (
+    (window.earliestMinutes === null || minutes >= window.earliestMinutes) &&
+    (window.latestMinutes === null || minutes <= window.latestMinutes)
+  );
+}
+
 function calendarTimeFromPrompt(prompt: string) {
   const raw = prompt.toLowerCase();
 

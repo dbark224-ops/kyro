@@ -189,6 +189,47 @@ Rowan`,
     subject: "Quote for a leaking kitchen mixer tap",
   },
 
+  declines_time: {
+    bodyText: `Morning, could you look at a radiator that isn't heating up?
+It's the one in the back bedroom, the rest of the house is fine.
+
+We're at 2200 Central Ave SE, Albuquerque, NM 87106. Phone 505 555 0164.
+Mornings are usually best for us.
+
+Thanks,
+Tobias Cranmere`,
+    description:
+      "Customer turns down the offered time and names a different one. The counter-offer path is untested -- acceptance is covered, refusal is not.",
+    // The second message contradicts a fact already stored, which is the case
+    // where an extraction most easily keeps the stale answer. Thursday is named
+    // only to rule it out, so it must not become the new preferred time either.
+    expect: { preferredTimeExcludes: ["thu"], promotes: true },
+    followUp: `Sorry, that time is no good -- I'm at work until four. And I
+can't do Thursday at all. Could we do Friday afternoon instead, any time
+after two?
+
+Tobias`,
+    fromName: "Tobias Cranmere",
+    kind: "email",
+    subject: "Radiator not heating in the back bedroom",
+  },
+
+  bogus_address: {
+    bodyText: `Hello, the shower in the main bathroom has stopped draining
+properly. Water sits in the tray for about ten minutes.
+
+The address is 4471 Wenderholm Parade, Kirribally, NM 87999.
+
+Regards,
+Delphine Oyelaran`,
+    description:
+      "An address that does not exist. Must store as unverified rather than snap to the nearest real street, and the draft must not state it back as confirmed.",
+    expect: { addressStatus: "unverified", promotes: true },
+    fromName: "Delphine Oyelaran",
+    kind: "email",
+    subject: "Shower not draining",
+  },
+
   returning_complaint: {
     // A genuine inquiry, so it is promoted and leaves a contact and a message
     // behind. An opener that is merely a statement gets observed rather than
@@ -296,6 +337,31 @@ Constance Aldebrand`,
       escalationTriggers: ["safety_risk"],
     },
     from: "+15055550188",
+    kind: "sms",
+  },
+
+  terse_sms: {
+    body: "how much to fix a tap",
+    description:
+      "Nine words, no name, no address, no fault detail. Kyro has almost nothing to work with and must ask rather than invent a job.",
+    // The interesting failure is not a crash, it is confident fabrication --
+    // inventing an address, a time, or a price from a message this thin.
+    expect: { promotes: true },
+    from: "+15055550171",
+    kind: "sms",
+  },
+
+  accented_sms: {
+    body:
+      "Bonjour, c'est Amélie Rouxèl à 1500 Indian School Rd NE. Le chauffe-eau "
+      + "ne marche plus du tout et il y a de l'eau par terre — pouvez-vous venir "
+      + "aujourd'hui? C'est assez urgent. Merci!",
+    description:
+      "Non-GSM characters and a language switch. The em dash and accents drop an SMS to 67 characters a part, so the splitter and the reply must both survive it.",
+    // Urgency and water on the floor are stated in French. If the triggers only
+    // ever see English this escalates on nothing, which is the point of asking.
+    expect: { escalates: true, promotes: true },
+    from: "+15055550193",
     kind: "sms",
   },
 };
