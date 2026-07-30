@@ -43,6 +43,17 @@ export type CustomerMessageResult = {
   subject: string;
 };
 
+/**
+ * Shared so the throw and the retry check cannot drift apart. Matching on a
+ * message is fragile; matching on two copies of a message is worse.
+ */
+const EMPTY_MESSAGE_ERROR =
+  "OpenAI returned a customer message without a subject or body.";
+
+function isEmptyMessageError(error: unknown) {
+  return error instanceof Error && error.message === EMPTY_MESSAGE_ERROR;
+}
+
 function envValue(key: string) {
   return process.env[key]?.trim() ?? "";
 }
@@ -158,7 +169,7 @@ async function runCustomerMessage(input: {
   const subject = textValue(parsed.subject);
 
   if (!body || !subject) {
-    throw new Error("OpenAI returned a customer message without a subject or body.");
+    throw new Error(EMPTY_MESSAGE_ERROR);
   }
 
   return {
@@ -330,6 +341,10 @@ function audienceWritingRules(input: {
 
   return [
     "You are writing to the business owner, not to their customer. No greeting, no sign-off, no pleasantries.",
+    // A customer wrote in French and the whole alert came back in French. The
+    // alert exists so the owner can act in seconds; one they cannot read is
+    // worse than none, because it still interrupts them.
+    "Write in the language the business itself uses, which is the language of context.businessProfile. Match the customer's language only inside a direct quotation -- if they wrote in another language, quote their words as they wrote them and put your own translation or summary around it, so the owner can read the alert and still see exactly what was said.",
     "Lead with what they need to know or do. They are reading this on a phone, probably while working.",
     "Quote the customer's own words when the exact wording carries the meaning -- anger, a specific instruction, an unusual request, anything they would want to see for themselves. Put the quote in quotation marks.",
     "Summarise instead when the wording does not matter and the facts do, for example a routine request for a quote.",
@@ -402,18 +417,38 @@ export async function generateCustomerMessage(input: {
   const model = customerMessageModel();
   const startedAt = Date.now();
 
-  let attempt = await runCustomerMessage({
-    apiKey,
-    model,
-    prompt: buildPrompt({
-      contextFacts,
-      currentTimeLine,
-      mustInclude,
-      purposeRules: input.purposeRules,
-      task: input.task,
-      writingRules,
-    }),
+  const prompt = buildPrompt({
+    contextFacts,
+    currentTimeLine,
+    mustInclude,
+    purposeRules: input.purposeRules,
+    task: input.task,
+    writingRules,
   });
+  // An empty response is worth one more ask.
+  //
+  // runCustomerMessage throws when the model returns valid JSON with a blank
+  // body or subject. That got no retry, while a merely missing literal got a
+  // corrective pass -- so a single flaky blank dropped the whole alert to the
+  // code template. Caught in a live run: two identical inquiries minutes
+  // apart, one written, one "OpenAI returned a customer message without a
+  // subject or body" and a template in front of the owner.
+  //
+  // Only for the empty case. A provider outage or a refusal should surface,
+  // not be asked twice.
+  let attempt = await runCustomerMessage({ apiKey, model, prompt }).catch(
+    (error: unknown) => {
+      if (!isEmptyMessageError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        `Empty ${input.taskType} from the model, asking once more.`,
+      );
+
+      return runCustomerMessage({ apiKey, model, prompt });
+    },
+  );
   // Every attempt costs tokens whether or not its output is used. Usage is
   // recorded further down, past a throw that a failed corrective pass can
   // reach -- so a generation that gave up billed the workspace nothing and
