@@ -74,6 +74,42 @@ describe("the hour a customer asked for", () => {
     });
   });
 
+  it("reads a time asked for outright", () => {
+    // The commonest phrasing of all, and the one my first pass at this missed:
+    // no after/before to anchor on, so it produced no window and the customer
+    // was still offered the first slot of the day.
+    assert.equal(
+      preferredTimeOfDayWindow("Friday at 10am")?.earliestMinutes,
+      MINUTES(10),
+    );
+    assert.equal(
+      preferredTimeOfDayWindow("could you come Friday at 3pm")?.earliestMinutes,
+      MINUTES(15),
+    );
+    assert.equal(
+      preferredTimeOfDayWindow("2:30pm Tuesday suits")?.earliestMinutes,
+      MINUTES(14, 30),
+    );
+    assert.equal(
+      preferredTimeOfDayWindow("about 11 o'clock")?.earliestMinutes,
+      MINUTES(11),
+    );
+  });
+
+  it("does not mistake the other numbers in a message for a time", () => {
+    // These messages are full of bare numbers. A meridiem or o'clock is
+    // required precisely so none of these reads as a request for an hour.
+    for (const text of [
+      "615 Girard Blvd NE, Albuquerque, NM 87106",
+      "my number is 505 555 0121",
+      "250L electric, about 14 years old",
+      "Friday at 10",
+      "the 3 bedroom at 88 Silver Ave",
+    ]) {
+      assert.equal(preferredTimeOfDayWindow(text), null, text);
+    }
+  });
+
   it("refuses to read an ambiguous bound in either direction", () => {
     // "I'm at work until four" is the sentence this customer actually wrote.
     // Reading "until" as a ceiling would have offered him only the hours he

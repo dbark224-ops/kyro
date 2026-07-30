@@ -1151,6 +1151,44 @@ export function preferredTimeOfDayWindow(
     latestMinutes = namedClockMinutes(before[1]);
   }
 
+  // A time asked for outright, with no after/before around it: "Friday at
+  // 10am", "come at 3pm". The commonest phrasing there is, and it produced no
+  // window at all until this was added -- so a customer who asked for 3pm was
+  // still offered the first slot of the day.
+  //
+  // Read as a floor rather than an exact match, so a busy 10am offers 11am
+  // instead of nothing, and never offers 9am. Earlier than asked is the one
+  // direction that is never an answer to the question.
+  //
+  // A meridiem or o'clock is required. "at 10" could be either end of the day,
+  // and bare numbers are everywhere in these messages -- house numbers, phone
+  // numbers, tank sizes, ages of boilers. Refusing to guess costs the old
+  // behaviour; guessing wrong costs the appointment.
+  // "until" suppresses this too, for the same reason it is not read as a
+  // ceiling: "up until 4pm" would otherwise be picked up here as a floor of
+  // 4pm, which is the opposite of what it says. The ambiguity has to be
+  // refused in both places or it just moves.
+  const ambiguouslyBounded = /\b(?:up\s*)?(?:un)?til\b/.test(raw);
+
+  if (earliestMinutes === null && latestMinutes === null && !ambiguouslyBounded) {
+    const exact =
+      raw.match(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])/) ??
+      raw.match(/\b(\d{1,2})(?::(\d{2}))?\s*(o'?clock)\b/);
+
+    if (exact) {
+      const hour = Number(exact[1]);
+      const minute = Number(exact[2] ?? 0);
+
+      if (hour <= 23 && minute <= 59) {
+        earliestMinutes = clockMinutes(
+          hour,
+          minute,
+          exact[3].startsWith("o") ? null : exact[3],
+        );
+      }
+    }
+  }
+
   if (earliestMinutes === null && /\bafternoons?\b/.test(raw)) {
     earliestMinutes = 12 * 60;
   }

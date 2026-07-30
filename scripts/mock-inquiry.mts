@@ -214,6 +214,25 @@ Tobias`,
     subject: "Radiator not heating in the back bedroom",
   },
 
+  exact_time: {
+    bodyText: `Hi, the extractor fan in the ensuite has stopped working -- it
+hums but the blades don't turn.
+
+We're at 3820 Rio Grande Blvd NW, Albuquerque, NM 87107, and my number is
+505 555 0182.
+
+Could someone come Friday at 3pm? I'm working from home that afternoon.
+
+Thanks,
+Marguerite Ollenshaw`,
+    description:
+      "Asks for one specific hour, with no after/before to anchor on. The commonest phrasing there is, and it produced no time window at all until the exact-time reader was added.",
+    expect: { promotes: true },
+    fromName: "Marguerite Ollenshaw",
+    kind: "email",
+    subject: "Ensuite extractor fan humming but not turning",
+  },
+
   bogus_address: {
     bodyText: `Hello, the shower in the main bathroom has stopped draining
 properly. Water sits in the tray for about ten minutes.
