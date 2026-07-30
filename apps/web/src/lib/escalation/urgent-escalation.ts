@@ -264,7 +264,15 @@ export function detectUrgentEscalationTriggers(
     input.priority === "urgent" ||
     mentionsUnnegated(
       content,
-      /\b(urgent|emergency|asap|immediately|right now|same[- ]day critical)\b/g,
+      // The most-fired trigger in the system caught 3 of 11 ways of saying it.
+      // The stand-out: it matched "asap" and not "as soon as possible", which
+      // is the same words. Also missed "this can't wait", "straight away",
+      // "right away" (it had "right now"), "please hurry", "we're desperate"
+      // and "we need this sorted today".
+      //
+      // Everything here still passes through mentionsUnnegated, so "no rush",
+      // "not urgent" and "no hurry" stay quiet -- verified, not assumed.
+      /\b(urgent|emergency|asap|as soon as possible|immediately|right now|right away|straight away|can'?t wait|cannot wait|desperate|hurry|same[- ]day critical|(?:sorted|fixed|done|out|come|someone) today|how (?:quickly|soon|fast))\b/g,
     )
   ) {
     triggers.add("explicit_urgency");
@@ -338,7 +346,11 @@ export function detectUrgentEscalationTriggers(
       // "no power", "no heating" and "no hot water" are themselves the absence
       // of something, so they are matched before the negation check sees them
       // and are not treated as negated mentions of power or water.
-      /\b(urgent|emergency|asap|burst|flood|leak|no power|no heating|no hot water|locked out)\b/g,
+      // Swept alongside the rest: 2 of 6 fired. It knew "no hot water" and not
+      // "no water at all", knew "no heating" and not "the heating has packed
+      // up", and had nothing for an overflowing toilet. Out of hours those are
+      // exactly the calls that cannot wait until morning.
+      /\b(urgent|emergency|asap|as soon as possible|burst|flood|leak|overflowing|no power|no electricity|no heating|no hot water|no water|(?:heating|boiler|water heater) (?:has )?(?:packed up|broken|failed|died|stopped)|locked out)\b/g,
     )
   ) {
     triggers.add("after_hours_emergency");

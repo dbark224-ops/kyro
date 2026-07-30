@@ -26,6 +26,72 @@ function triggers(content: string, options = { afterHours: false }) {
   );
 }
 
+/**
+ * The most-fired trigger in the system caught 3 of 11 ways of saying it.
+ *
+ * Swept after the same fault turned up in seven other patterns. The stand-out
+ * was that it matched "asap" and not "as soon as possible" -- the same words,
+ * spelled out, which is how most people write it. Also missing: "this can't
+ * wait", "straight away", "right away" (it had "right now"), "please hurry",
+ * "we're desperate" and "we need this sorted today".
+ *
+ * after_hours_emergency fired on 2 of 6 in the same sweep: it knew "no hot
+ * water" but not "no water at all", "no heating" but not "the heating has
+ * packed up", and had nothing for an overflowing toilet.
+ *
+ * Widening these is only safe because the negation guard below holds, so the
+ * two are tested together.
+ */
+describe("urgency, in the words people use", () => {
+  it("hears all of these", () => {
+    for (const content of [
+      "please come as soon as possible",
+      "this can't wait",
+      "we're desperate, please help",
+      "can someone come straight away",
+      "I need someone right away",
+      "please hurry",
+      "we need this sorted today",
+      "how quickly can someone get here",
+    ]) {
+      assert.ok(triggers(content).includes("explicit_urgency"), content);
+    }
+  });
+
+  it("hears an out-of-hours emergency the same way", () => {
+    for (const content of [
+      "the heating has packed up",
+      "we've got no water at all",
+      "the toilet is overflowing",
+      "there's no electricity in half the house",
+    ]) {
+      assert.ok(
+        triggers(content, { afterHours: true }).includes(
+          "after_hours_emergency",
+        ),
+        content,
+      );
+    }
+  });
+
+  it("still says nothing when the customer is relaxed", () => {
+    // The counterweight to all that widening, tested out of hours where the
+    // bar is lowest. "no hurry" leans on the negation guard below.
+    for (const content of [
+      "no rush at all",
+      "whenever suits you",
+      "sometime next month",
+      "not urgent, just a quote",
+      "no hurry, we're away anyway",
+      "can you quote to replace a kitchen tap",
+      "we're thinking about a new bathroom next year",
+      "the outside tap drips a bit",
+    ]) {
+      assert.deepEqual(triggers(content, { afterHours: true }), [], content);
+    }
+  });
+});
+
 describe("denying a thing is not reporting it", () => {
   it("does not escalate the inquiry that started this", () => {
     // The classifier's own words for a customer who said "No rush at all".
