@@ -75,6 +75,49 @@ describe("everything that is still a genuine request", () => {
   });
 });
 
+describe("a month recalled is not a month requested", () => {
+  /**
+   * A customer complaining about a failed repair wrote "the mixer you fitted in
+   * March has failed again". March 2026 had gone, so it resolved to March 2027,
+   * and the alert offered "We can do: Mar 1, 2027, 7:00 AM" -- eight months out.
+   *
+   * Describing the job that went wrong is exactly the message where the date
+   * matters most, and exactly the one that names a past month.
+   */
+  it("does not resolve the phrase that caused this", () => {
+    assert.equal(resolves("the mixer you fitted in March has failed"), null);
+  });
+
+  it("handles the ordinary ways people date past work", () => {
+    for (const phrase of [
+      "you replaced it back in March",
+      "the job was in March",
+      "nothing since March",
+      "your team came in March",
+      "it was installed in November",
+      "quoted in April and never followed up",
+    ]) {
+      assert.equal(resolves(phrase), null, phrase);
+    }
+  });
+
+  it("still resolves a month genuinely being asked for", () => {
+    for (const phrase of [
+      "can you come in March",
+      "we would like it done in March",
+      "book us in for March",
+      "March suits us",
+      "any time in March please",
+    ]) {
+      assert.ok(resolves(phrase), phrase);
+    }
+  });
+
+  it("does not let a past clause reach across punctuation", () => {
+    assert.ok(resolves("you came last year. Can you do March?"));
+  });
+});
+
 describe("triage is told not to file it as a preference", () => {
   it("says an unavailability is not a preferred time", () => {
     const triage = readRepoFile("apps/web/src/lib/ai/triage.ts");

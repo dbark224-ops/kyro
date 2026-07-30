@@ -49,9 +49,21 @@ export type CustomerMessageResult = {
  */
 const EMPTY_MESSAGE_ERROR =
   "OpenAI returned a customer message without a subject or body.";
+const NO_OUTPUT_ERROR = "OpenAI returned an empty customer message.";
 
+/**
+ * Both ways the provider can come back with nothing usable.
+ *
+ * The retry originally covered only the parsed-but-blank case. The other --
+ * no output text at all -- went straight to the fallback, and a live run hit
+ * exactly that: "OpenAI returned an empty customer message" and a code
+ * template in front of the owner. Two doors, one of them left open.
+ */
 function isEmptyMessageError(error: unknown) {
-  return error instanceof Error && error.message === EMPTY_MESSAGE_ERROR;
+  return (
+    error instanceof Error &&
+    (error.message === EMPTY_MESSAGE_ERROR || error.message === NO_OUTPUT_ERROR)
+  );
 }
 
 function envValue(key: string) {
@@ -161,7 +173,7 @@ async function runCustomerMessage(input: {
   const outputText = responseOutputText(payload);
 
   if (!outputText) {
-    throw new Error("OpenAI returned an empty customer message.");
+    throw new Error(NO_OUTPUT_ERROR);
   }
 
   const parsed = JSON.parse(outputText) as Record<string, unknown>;

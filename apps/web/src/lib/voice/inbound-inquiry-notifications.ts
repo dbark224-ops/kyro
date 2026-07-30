@@ -1,5 +1,6 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { generateOperatorAlert } from "../ai/customer-message-generation";
+import { customerAnswerableMissingInfo } from "../ai/triage";
 import { getPublicAppUrl } from "../app-url";
 import {
   appendRealtimeAssistantMessage,
@@ -218,9 +219,15 @@ export function buildInboundInquiryNotificationBody(
   const caller = textValue(input.contactName) ?? "A new contact";
   const channel = input.channel ?? "phone";
   const outcome = input.outcome ?? "captured";
-  const missingInfo = [...new Set(input.missingInfo ?? [])]
-    .map((item) => textValue(item))
-    .filter((item): item is string => Boolean(item));
+  // "Still needed" reads as things needed *from the customer*, and
+  // notificationFactLabel phrases them that way. An owner-only entry listed
+  // among them told the owner that "confirm this is a serviceable inquiry" was
+  // outstanding from a customer who had just reported a failed repair.
+  const missingInfo = customerAnswerableMissingInfo(
+    [...new Set(input.missingInfo ?? [])]
+      .map((item) => textValue(item))
+      .filter((item): item is string => Boolean(item)),
+  );
   const preferredTime = textValue(input.preferredTime);
   const offeredTime = textValue(input.offeredTime);
   const eventLabel = textValue(input.eventLabel);

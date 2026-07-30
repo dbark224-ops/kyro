@@ -4,7 +4,10 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import { openAiReasoningRequest } from "../ai/openai-models";
 import { runStubAiTriage } from "../ai/triage";
-import { hasRepeatContactPressure } from "../crm/repeat-contact";
+import {
+  hasPriorContactHistory,
+  hasRepeatContactPressure,
+} from "../crm/repeat-contact";
 import { buildEmailLeadTitle, formatServiceType } from "../crm/display";
 import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
 import { normalizeContactEmail } from "../crm/identity";
@@ -2825,7 +2828,18 @@ async function promoteEmailMessage({
       contactId,
       content: [message.subject, message.bodyText].filter(Boolean).join("\n"),
       conversationId,
-      existingCustomer: threadMatchStrategy !== "new_conversation",
+      // Prior history, not thread continuity. A customer whose job failed in
+      // March and who emails afresh in July starts a new thread and would
+      // otherwise read as a brand new lead, so existing_job_serious_issue --
+      // the trigger for precisely that complaint -- could never fire for the
+      // normal way it gets reported.
+      existingCustomer:
+        threadMatchStrategy !== "new_conversation" ||
+        (await hasPriorContactHistory(supabase, {
+          before: message.receivedAt,
+          contactId,
+          workspaceId,
+        })),
       leadId,
       metadata: {
         accountEmail: message.accountEmail,

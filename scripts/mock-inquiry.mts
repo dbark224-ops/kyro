@@ -45,7 +45,21 @@ type Scenario = {
   description: string;
   expect: Expectation;
 } & (
-  | { kind: "email"; bodyText: string; fromName: string; subject: string }
+  | {
+      kind: "email";
+      bodyText: string;
+      /**
+       * A second message into the same thread, sent after the first settles.
+       *
+       * Checks are evaluated against what the follow-up produced, not the
+       * opener. A customer replying is the commonest real interaction and it
+       * behaves quite differently from a first contact -- the thread already
+       * exists, facts are already stored, and a reply can contradict them.
+       */
+      followUp?: string;
+      fromName: string;
+      subject: string;
+    }
   | { kind: "sms"; body: string; from: string }
 );
 
@@ -141,6 +155,59 @@ Marcus`,
     fromName: "Marcus Oyelaran",
     kind: "email",
     subject: "Dripping tap - small job",
+  },
+
+  accepts_time: {
+    bodyText: `Hi, I need a quote to replace a leaking mixer tap in the
+kitchen. Nothing urgent. We're at 700 Tijeras Ave NW, Albuquerque, NM
+87102, and my number is 505 555 0121. Any weekday morning suits.
+
+Rowan Ashcombe`,
+    description:
+      "Customer accepts a proposed time in a reply. Closes the booking loop -- inquiry_future_steps and the confirmation path have never been exercised.",
+    // Escalation is deliberately not asserted. The harness never sends the
+    // draft -- the workspace is propose_for_approval and delivery is off -- so
+    // from the data's point of view this customer has written twice and had no
+    // answer, which is repeat contact pressure and correctly flagged. In
+    // production approving the reply writes an outbound message and resets it.
+    expect: { promotes: true },
+    followUp: `That time works for us, go ahead and book it in please.
+Someone will be home all morning.
+
+Rowan`,
+    fromName: "Rowan Ashcombe",
+    kind: "email",
+    subject: "Quote for a leaking kitchen mixer tap",
+  },
+
+  returning_complaint: {
+    // A genuine inquiry, so it is promoted and leaves a contact and a message
+    // behind. An opener that is merely a statement gets observed rather than
+    // promoted, and then the follow-up has no history to find -- which is what
+    // the first draft of this scenario got wrong.
+    bodyText: `Morning, could I book someone to replace the shower mixer in
+the main bathroom? It is dripping constantly.
+
+700 Kirtland Dr SE, Albuquerque, NM 87108. My number is 505 555 0134.
+
+Aurelia Bankole`,
+    description:
+      "An existing customer complaining about previous work. existing_job_serious_issue needs existingCustomer, so it only reaches the detector on a reply into a known thread.",
+    expect: {
+      escalates: true,
+      escalationTriggers: ["existing_job_serious_issue"],
+    },
+    followUp: `The mixer you fitted in March has failed again and it is
+leaking behind the wall. Your work, your warranty as far as I'm concerned.
+This has now caused damage to the plasterboard.
+
+I want somebody out to look at it and I want to know who is paying for
+the making good.
+
+Aurelia`,
+    fromName: "Aurelia Bankole",
+    kind: "email",
+    subject: "Shower mixer replaced in March",
   },
 
   partial_address: {
@@ -291,7 +358,10 @@ async function run(input: {
   since: string;
   workspaceId: string;
 }) {
-  const { admin, scenario, since, workspaceId } = input;
+  const { admin, scenario, workspaceId } = input;
+  // Moves to just before the follow-up when a scenario has one, so the checks
+  // grade the reply rather than the opener.
+  let since = input.since;
   const checks: Check[] = [];
 
   if (scenario.kind === "sms") {
@@ -312,20 +382,44 @@ async function run(input: {
     const { ingestMockInboundEmail } = await import(
       "../apps/web/src/lib/integrations/inbound-email-sync.ts"
     );
-    const result = await ingestMockInboundEmail({
-      input: {
-        bodyText: scenario.bodyText,
-        connectionId: CONNECTION_ID,
-        fromEmail: `${scenario.fromName.toLowerCase().replace(/[^a-z]+/g, ".")}.${Date.now().toString(36)}@${CUSTOMER_DOMAIN}`,
-        fromName: scenario.fromName,
-        subject: scenario.subject,
-      },
-      supabase: admin,
-      user: input.owner,
-      workspaceId,
-    });
+    const fromEmail = `${scenario.fromName.toLowerCase().replace(/[^a-z]+/g, ".")}.${Date.now().toString(36)}@${CUSTOMER_DOMAIN}`;
+    const threadId = `thread-${Date.now().toString(36)}`;
+    const send = (bodyText: string, subject: string) =>
+      ingestMockInboundEmail({
+        input: {
+          bodyText,
+          connectionId: CONNECTION_ID,
+          externalThreadId: threadId,
+          fromEmail,
+          fromName: scenario.fromName,
+          subject,
+        },
+        supabase: admin,
+        user: input.owner,
+        workspaceId,
+      });
+
+    let result = await send(scenario.bodyText, scenario.subject);
 
     checks.push(check("no ingest errors", result.errors.length === 0));
+
+    if (scenario.followUp) {
+      const opener = result.promotedConversations[0]?.conversationId;
+
+      // Everything below is judged on the follow-up, so the window moves with
+      // it. Without this the opener's alert would be graded instead.
+      since = new Date().toISOString();
+      result = await send(scenario.followUp, `Re: ${scenario.subject}`);
+
+      checks.push(
+        check(
+          "reply continued the same conversation",
+          result.promotedConversations[0]?.conversationId === opener,
+          `opener=${opener?.slice(0, 8)} reply=${result.promotedConversations[0]?.conversationId?.slice(0, 8)}`,
+        ),
+      );
+      checks.push(check("no ingest errors on reply", result.errors.length === 0));
+    }
 
     if (scenario.expect.promotes !== undefined) {
       const promoted = result.promotedMessages > 0;

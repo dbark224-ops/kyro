@@ -50,6 +50,41 @@ const WEEKDAY_EXCLUSION =
  * day means Kyro asks the customer instead of guessing, which is a far cheaper
  * mistake than booking a day they told you to avoid.
  */
+/**
+ * Words that put a date in the past rather than asking for it.
+ *
+ * Kept to markers that are unambiguous about tense. "in March" alone is not
+ * enough -- "can you come in March" is a genuine request -- so it takes either
+ * an explicit backward marker or a past-tense verb of the kind people use when
+ * describing work already done.
+ */
+const RETROSPECTIVE =
+  // "done" is deliberately absent: "we would like it done in March" is a
+  // request, and including it suppressed exactly that. The window is twelve
+  // characters so "fitted in March" is caught while "was hoping for March"
+  // survives -- past-tense verbs are only retrospective when they sit right
+  // against the date.
+  /\b(?:back\s+in|last|since|earlier|previously|originally|already|was|were|did|came|visited|fitted|installed|replaced|repaired|serviced|quoted|attended|finished|completed)\b[^.,;!?]{0,12}$/i;
+
+/** Whether the date at this position is being recalled rather than requested. */
+function dateIsRetrospective(text: string, index: number) {
+  // Not normalized(text): the index came from a match against the raw string,
+  // and normalising first shifts every position after the first collapsed
+  // space. That made "you came last year. Can you do March?" read the wrong
+  // window and suppress a genuine request.
+  const before = text.slice(0, index);
+  const clauseStart = Math.max(
+    before.lastIndexOf(","),
+    before.lastIndexOf("."),
+    before.lastIndexOf(";"),
+    before.lastIndexOf("!"),
+    before.lastIndexOf("?"),
+    before.lastIndexOf("\n"),
+  );
+
+  return RETROSPECTIVE.test(before.slice(clauseStart + 1));
+}
+
 /** A date phrase that matches, and is not being ruled out where it sits. */
 function matchesUnexcluded(text: string, pattern: RegExp) {
   const match = pattern.exec(text);
@@ -835,6 +870,17 @@ export function calendarDateRangeFromPrompt(
   const namedMonth = prompt.match(
     /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?\b/i,
   );
+
+  // A month named about the past is not a month being asked for.
+  //
+  // "The mixer you fitted in March has failed again" resolved to March 2027 --
+  // the next March, since this one has gone -- and Kyro offered the customer an
+  // appointment eight months out. Retrospective mentions are how people
+  // describe the job that went wrong, which is exactly the message where
+  // getting the date right matters.
+  if (namedMonth && dateIsRetrospective(prompt, namedMonth.index ?? 0)) {
+    return null;
+  }
 
   if (namedMonth) {
     const month = CALENDAR_MONTHS.get(namedMonth[1].toLowerCase());

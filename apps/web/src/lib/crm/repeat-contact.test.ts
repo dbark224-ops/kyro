@@ -32,6 +32,16 @@ describe("repeat contact is actually detected", () => {
     assert.match(helper, /\.gte\("created_at", since\)/);
   });
 
+  it("only counts messages the business has not answered", () => {
+    // Caught by the harness on the scenario where a customer accepts a
+    // proposed time: the reply escalated as repeat contact pressure because
+    // any two inbound messages in the window counted, conversation included.
+    // Pressure means going unanswered.
+    assert.match(helper, /\.eq\("direction", "outbound"\)/);
+    assert.match(helper, /const unansweredSince = lastOutbound\?\.created_at/);
+    assert.match(helper, /\.gt\("created_at", unansweredSince\)/);
+  });
+
   it("needs a second message, not just this one", () => {
     // The triggering message is saved before escalation is evaluated, so one
     // inbound message is the first contact counting itself.

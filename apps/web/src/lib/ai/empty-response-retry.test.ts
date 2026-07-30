@@ -40,14 +40,22 @@ describe("an empty model response is asked once more", () => {
     assert.doesNotMatch(retry, /catch \(\) =>/);
   });
 
-  it("shares one constant between the throw and the check", () => {
+  it("shares one constant per throw between the throw and the check", () => {
     // Matching on a message is fragile; matching on two copies of a message is
     // worse, and this is the kind of string that gets reworded.
     assert.match(source, /const EMPTY_MESSAGE_ERROR =/);
+    assert.match(source, /const NO_OUTPUT_ERROR =/);
     assert.match(source, /throw new Error\(EMPTY_MESSAGE_ERROR\);/);
+    assert.match(source, /throw new Error\(NO_OUTPUT_ERROR\);/);
+  });
+
+  it("covers both ways the provider returns nothing usable", () => {
+    // The retry originally caught only the parsed-but-blank case. A live run
+    // hit the other one -- no output text at all -- and went straight to the
+    // template. Two doors, one of them left open.
     assert.match(
       source,
-      /error instanceof Error && error\.message === EMPTY_MESSAGE_ERROR/,
+      /error\.message === EMPTY_MESSAGE_ERROR \|\| error\.message === NO_OUTPUT_ERROR/,
     );
   });
 
