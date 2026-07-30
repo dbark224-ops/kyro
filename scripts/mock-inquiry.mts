@@ -233,6 +233,24 @@ Marguerite Ollenshaw`,
     subject: "Ensuite extractor fan humming but not turning",
   },
 
+  week_today: {
+    bodyText: `Morning, we'd like a quote to re-seal the shower tray in the
+main bathroom -- the grout has gone black along one edge.
+
+We're at 1120 Lomas Blvd NE, Albuquerque, NM 87102. Phone 505 555 0158.
+
+Would a week today suit? No rush before then.
+
+Thanks,
+Ottoline Farquharson`,
+    description:
+      "Asks for a week today. The offset in front of the keyword was read straight past, so this resolved to today and could be offered a slot the same afternoon.",
+    expect: { promotes: true },
+    fromName: "Ottoline Farquharson",
+    kind: "email",
+    subject: "Quote to re-seal the shower tray",
+  },
+
   corrected_address: {
     bodyText: `Hi, we've got a toilet that won't stop running -- the cistern
 refills every few minutes.
