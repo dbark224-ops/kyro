@@ -22,7 +22,10 @@ import {
   normalizeContactPhoneForRegion,
   type PhoneRegion,
 } from "../crm/identity";
-import { calendarDateRangeFromPrompts } from "../assistant/calendar-intent";
+import {
+  calendarDateRangeFromPrompts,
+  namesRuledOutDay,
+} from "../assistant/calendar-intent";
 import { getVoiceSettings } from "../assistant/voice-settings";
 import {
   buildLlmUsageEvents,
@@ -777,6 +780,25 @@ function applyRequiredInquiryInfo(
   const channel = channelKind(context);
   let missingInfo = [...facts.missingInfo];
 
+  // A day the customer ruled out is not a day they asked for.
+  //
+  // "I'm away Thursday and Friday this week so don't come then" came back from
+  // the extractor as preferredTime "Thursday", and kept doing so after the
+  // schema was told in as many words never to record an unavailability as a
+  // preferred time. The same run also listed "Preferred time" as missing
+  // information, so the model was asserting both at once.
+  //
+  // Downstream this was patched where it did the most damage -- the calendar
+  // window refuses a summary that names only excluded days -- but the stored
+  // fact stayed wrong, and it is shown to the owner as "Preferred" and handed
+  // to the quote writer as "Preferred time: Thursday". Dropping it here, before
+  // the gap check below, restores the honest answer: Kyro does not know when
+  // she can be there, so it asks.
+  const preferredTime =
+    facts.preferredTime && namesRuledOutDay(text, facts.preferredTime)
+      ? null
+      : facts.preferredTime;
+
   if (!facts.jobType) {
     missingInfo = withMissingInfo(missingInfo, "Job type");
   }
@@ -785,7 +807,7 @@ function applyRequiredInquiryInfo(
     missingInfo = withMissingInfo(missingInfo, "Job address");
   }
 
-  if (!facts.preferredTime) {
+  if (!preferredTime) {
     missingInfo = withMissingInfo(missingInfo, "Preferred time");
   }
 
@@ -822,6 +844,7 @@ function applyRequiredInquiryInfo(
   return {
     ...facts,
     missingInfo,
+    preferredTime,
   };
 }
 

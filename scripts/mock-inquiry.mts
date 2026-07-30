@@ -39,6 +39,15 @@ type Expectation = {
   promotes?: boolean;
   /** Address verdict, when the scenario carries an address. */
   addressStatus?: "verified" | "needs_review" | "unverified";
+  /**
+   * Words the stored preferred time must not contain.
+   *
+   * For a customer who names a day only to rule it out. The extractor recorded
+   * "Thursday" as the preferred time for someone who wrote that she was away
+   * Thursday, and went on doing it after the schema was told not to -- so this
+   * has to be checked against the real model rather than in a unit test.
+   */
+  preferredTimeExcludes?: string[];
 };
 
 type Scenario = {
@@ -138,7 +147,7 @@ I'm away Thursday and Friday this week so don't come then.
 Priya`,
     description:
       "Names days only to rule them out. Kyro must not offer Thursday -- it did, until three separate guards were added.",
-    expect: { promotes: true },
+    expect: { preferredTimeExcludes: ["thu", "fri"], promotes: true },
     fromName: "Priya Raghunathan",
     kind: "email",
     subject: "Quote for replacing the hot water system",
@@ -574,6 +583,29 @@ async function run(input: {
         "no internal qualification language",
         !/serviceable/i.test(body),
         body.slice(0, 48),
+      ),
+    );
+  }
+
+  if (scenario.expect.preferredTimeExcludes) {
+    const facts = await admin
+      .from("inquiry_facts")
+      .select("preferred_time")
+      .eq("workspace_id", workspaceId)
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const stored = facts.data?.preferred_time ?? null;
+    const offending = scenario.expect.preferredTimeExcludes.filter((word) =>
+      new RegExp(`\\b${word}`, "i").test(stored ?? ""),
+    );
+
+    checks.push(
+      check(
+        "preferred time is not a day they ruled out",
+        offending.length === 0,
+        `stored=${stored ?? "null"}`,
       ),
     );
   }

@@ -38,8 +38,16 @@ import { rowLink } from "./ui-blocks";
  * urgent, and the consequence here is worse: an appointment a customer already
  * said they cannot make.
  */
+/*
+ * Contractions are spelled to survive normalized(), which replaces every
+ * non-alphanumeric character with a space -- so by the time this runs, "can't"
+ * is "can t" and `can'?t` cannot match it. The guard refused "I cannot do
+ * Thursday" and offered Thursday for "I can't do Thursday", which is the more
+ * natural way to write it. Every caller normalises first, so the apostrophe
+ * form is kept only for any future caller that does not.
+ */
 const WEEKDAY_EXCLUSION =
-  /\b(?:not|no|never|avoid|avoiding|except|excluding|unavailable|away|busy|unless|apart from|other than|can'?t(?:\s+(?:do|make|make it))?|cannot(?:\s+(?:do|make))?|don'?t(?:\s+(?:come|bother))?|do not(?:\s+come)?)\b[^.,;!?]{0,24}$/i;
+  /\b(?:not|no|never|avoid|avoiding|except|excluding|unavailable|away|busy|unless|apart from|other than|can(?:'|\s)?t(?:\s+(?:do|make|make it))?|cannot(?:\s+(?:do|make))?|don(?:'|\s)?t(?:\s+(?:come|bother))?|do not(?:\s+come)?|won(?:'|\s)?t(?:\s+be(?:\s+(?:in|around|here))?)?)\b[^.,;!?]{0,24}$/i;
 
 /**
  * Whether the day at this position is being ruled out rather than requested.
@@ -953,16 +961,87 @@ export function calendarDateRangeFromPrompts(
  */
 export function mentionsExcludedDate(text: string) {
   const raw = normalized(text);
-  const phrases = [
-    ...raw.matchAll(
-      /\b(?:(?:this|next)\s+)?(?:sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|today|tomorrow|(?:this|next)\s+week)\b/gi,
-    ),
-  ];
+  const phrases = [...raw.matchAll(weekdayPhrasePattern())];
 
   return (
     phrases.length > 0 &&
     phrases.every((phrase) => weekdayIsExcluded(raw, phrase.index ?? 0))
   );
+}
+
+const WEEKDAY_PHRASE_SOURCE =
+  "\\b(?:(?:this|next)\\s+)?(?:sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|today|tomorrow|(?:this|next)\\s+week)\\b";
+
+/** Fresh each call: a global regex carries lastIndex between uses. */
+function weekdayPhrasePattern() {
+  return new RegExp(WEEKDAY_PHRASE_SOURCE, "gi");
+}
+
+/** The weekday a phrase names, or null for today/tomorrow/this week. */
+function weekdayIndexFromPhrase(phrase: string) {
+  const word = phrase
+    .toLowerCase()
+    .replace(/^(?:this|next)\s+/, "")
+    .trim();
+
+  return CALENDAR_WEEKDAYS.get(word) ?? null;
+}
+
+/**
+ * Whether a day named in `candidate` is one the customer ruled out.
+ *
+ * Narrower than mentionsExcludedDate, which asks whether a message named dates
+ * only to refuse them. This asks about one specific day, so it still catches
+ * "I'm free Monday but away Thursday" when the extraction came back as
+ * "Thursday" -- there, not every named day is excluded, so the broader check
+ * says nothing.
+ *
+ * Matched by weekday number rather than by the word, because the two texts are
+ * written by different authors: the customer's "Thurs" and a model's "Thursday"
+ * are the same day. A day is only treated as ruled out when every mention of it
+ * in the customer's message is excluded -- someone who writes "not Thursday
+ * this week, but Thursday after is fine" has offered it.
+ */
+export function namesRuledOutDay(customerText: string, candidate: string) {
+  const wanted = new Set<number>();
+
+  for (const phrase of normalized(candidate).matchAll(weekdayPhrasePattern())) {
+    const day = weekdayIndexFromPhrase(phrase[0]);
+
+    if (day !== null) {
+      wanted.add(day);
+    }
+  }
+
+  if (wanted.size === 0) {
+    return false;
+  }
+
+  const raw = normalized(customerText);
+  const mentions = new Map<number, boolean[]>();
+
+  for (const phrase of raw.matchAll(weekdayPhrasePattern())) {
+    const day = weekdayIndexFromPhrase(phrase[0]);
+
+    if (day === null) {
+      continue;
+    }
+
+    mentions.set(day, [
+      ...(mentions.get(day) ?? []),
+      weekdayIsExcluded(raw, phrase.index ?? 0),
+    ]);
+  }
+
+  for (const day of wanted) {
+    const occurrences = mentions.get(day) ?? [];
+
+    if (occurrences.length > 0 && occurrences.every(Boolean)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function calendarTimeFromPrompt(prompt: string) {

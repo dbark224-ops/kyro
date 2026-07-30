@@ -106,3 +106,60 @@ describe("the date range survives the wording people actually use", () => {
     assert.ok(range.to);
   });
 });
+
+/**
+ * The guard against offering a ruled-out day only understood the formal
+ * spelling of a refusal.
+ *
+ * normalized() replaces every non-alphanumeric character with a space, so
+ * "can't" reaches the pattern as "can t" and `can'?t` never matched it. The
+ * result was that "I cannot do Thursday" was refused and "I can't do Thursday"
+ * was offered Thursday -- the contraction being the more likely of the two to
+ * be written by an actual person.
+ *
+ * The first argument is the model's extraction, the second what the customer
+ * wrote. Both these arguments say Thursday; only the second knows why.
+ */
+describe("a refusal is understood however it is spelled", () => {
+  const clock = new Date("2026-07-27T23:54:00.000Z");
+
+  const offered = (said: string) =>
+    Boolean(
+      calendarDateRangeFromPrompts("Thursday", said, "America/Denver", clock),
+    );
+
+  it("refuses the contracted forms", () => {
+    for (const said of [
+      "I can't do Thursday",
+      "Don't come Thursday",
+      "Won't be in Thursday",
+      "I can t do Thursday",
+    ]) {
+      assert.equal(offered(said), false, said);
+    }
+  });
+
+  it("still refuses the spellings that already worked", () => {
+    for (const said of [
+      "I cannot do Thursday",
+      "Do not come Thursday",
+      "I'm away Thursday",
+      "Not Thursday",
+    ]) {
+      assert.equal(offered(said), false, said);
+    }
+  });
+
+  it("does not start refusing a genuine request", () => {
+    // "I can take Thursday off" is the one that worried me: it contains "can"
+    // followed by a word beginning with t. The word boundary is what saves it.
+    for (const said of [
+      "Thursday suits me",
+      "Can you come Thursday?",
+      "Thursday morning please",
+      "I can take Thursday off",
+    ]) {
+      assert.equal(offered(said), true, said);
+    }
+  });
+});
