@@ -233,6 +233,28 @@ Marguerite Ollenshaw`,
     subject: "Ensuite extractor fan humming but not turning",
   },
 
+  unreachable_time: {
+    bodyText: `Hello, our kitchen mixer tap has started dripping steadily and
+the washer looks worn.
+
+We're at 700 Tijeras Ave NW, Albuquerque, NM 87102, phone 505 555 0147.
+
+I don't get home from work until late, so it would need to be after 6pm any
+weekday.
+
+Regards,
+Sunniva Bergqvist`,
+    description:
+      "Asks for a time the business does not work -- hours are 07:00-16:00. No slot can match, so Kyro must offer none and say so rather than invent one or go quiet.",
+    // The branch that finds nothing inside the customer's window has never run
+    // against the real model. The failure to watch for is a confident 6pm
+    // appointment the owner would never turn up to.
+    expect: { promotes: true },
+    fromName: "Sunniva Bergqvist",
+    kind: "email",
+    subject: "Dripping kitchen mixer tap, evenings only",
+  },
+
   bogus_address: {
     bodyText: `Hello, the shower in the main bathroom has stopped draining
 properly. Water sits in the tray for about ten minutes.
