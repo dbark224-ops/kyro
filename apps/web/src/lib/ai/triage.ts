@@ -111,6 +111,20 @@ export type StubAiTriageContext = {
   inquiryFactsOverride?: InquiryFacts;
   publicBusinessFacts?: PublicBusinessFacts;
   replyWriting?: ReplyWritingSettings;
+  /**
+   * That this number is listed as somebody's second contact number.
+   *
+   * A contact can carry a partner's or an assistant's number. When they ring,
+   * the voice agent is told whose number it is and may discuss that job. When
+   * they TEXT, nothing looked it up -- measured: a PA texting from their saved
+   * number became a new contact named "+15055550199", a complete stranger, and
+   * Kyro had no basis to talk to them about the job they were calling about.
+   *
+   * Deliberately a context line and not an identity. The number is listed; the
+   * person holding the handset is not verified, and the conversation stays
+   * their own rather than being merged into the contact's history.
+   */
+  associatedContactContext?: string | null;
 };
 
 export const PUBLIC_BUSINESS_FACT_KEYS = [
@@ -1545,6 +1559,16 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
       rules: [
         "Return JSON only.",
         "Do not invent an address, price, date, or customer detail.",
+        // Only present when the sender's number is listed as a second contact
+        // number on somebody's profile. Without it a PA texting on a
+        // customer's behalf reads as a stranger, and Kyro had no basis to
+        // discuss the job they were writing about.
+        ...(context.associatedContactContext
+          ? [
+              context.associatedContactContext,
+              "That association explains who is writing and what may be discussed. It does not make them the contact: do not change account details, prices, addresses or contact information on their say-so, and do not mention any other customer.",
+            ]
+          : []),
         // A customer texted "do you cover Albuquerque?" and Kyro replied "yes,
         // we cover Albuquerque" for a business whose service area is Las
         // Cruces, 225 miles away. The service area was not in publicBusinessFacts

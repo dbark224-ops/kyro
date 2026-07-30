@@ -1,6 +1,10 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { AddressColumnUpdates } from "../addresses/types";
 import { addressWorthLearning } from "../addresses/replace";
+import {
+  associatedContactContextLine,
+  findContactByAssociatedPhone,
+} from "../crm/associated-contact";
 import { runStubAiTriage } from "../ai/triage";
 import { hasRepeatContactPressure } from "../crm/repeat-contact";
 import { normalizeContactType } from "../crm/contact-types";
@@ -878,9 +882,23 @@ export async function ingestManualInbound(
     },
   });
 
+  // Only when the sender is not a contact in their own right. A primary match
+  // is the stronger signal and must not be second-guessed by a secondary one --
+  // the same guard the voice path uses.
+  const associatedContact =
+    contactResolution.match.status === "attached"
+      ? null
+      : await findContactByAssociatedPhone(
+          supabase,
+          workspaceId,
+          nullableText(input.phone),
+        ).catch(() => null);
   const aiResult = await runStubAiTriage(supabase, user, workspaceId, {
     source,
     sourceEventId: String(event.id),
+    associatedContactContext: associatedContact
+      ? associatedContactContextLine(associatedContact)
+      : null,
     contactId,
     leadId: String(lead.id),
     conversationId: String(conversation.id),
