@@ -164,6 +164,66 @@ describe("a trigger must come from the customer, not from Kyro", () => {
     }
   });
 
+  it("hears an emergency described in ordinary words", () => {
+    // A sweep of the four remaining triggers found active_property_damage
+    // firing on 2 of 8, safety_risk on 2 of 7, complaint on 4 of 8 and
+    // existing_job_serious_issue on 2 of 6.
+    //
+    // The worst was word order: "burst pipe" matched and "a pipe has burst
+    // under the sink" did not, which is how most people say the most classic
+    // emergency there is. Nobody writes "I have an electric shock hazard";
+    // they write "I got a shock off the shower switch".
+    const cases: Array<[string, string, boolean]> = [
+      ["a pipe has burst under the sink", "active_property_damage", false],
+      ["water is coming through the light fitting", "active_property_damage", false],
+      ["the ceiling has come down in the hall", "active_property_damage", false],
+      ["I got a shock off the shower switch", "safety_risk", false],
+      ["sparks came out of the socket", "safety_risk", false],
+      ["there's a burning smell from the fuse box", "safety_risk", false],
+      ["my solicitor will be in touch", "complaint_or_reputation_risk", false],
+      ["I'll be leaving a review about this", "complaint_or_reputation_risk", false],
+      ["the work you did last month has failed", "existing_job_serious_issue", true],
+      ["it's still not right after your visit", "existing_job_serious_issue", true],
+    ];
+
+    for (const [content, trigger, existingCustomer] of cases) {
+      const found = detectUrgentEscalationTriggers(
+        { content, existingCustomer, sourceKey: "test", sourceType: "email" },
+        { afterHours: false },
+      );
+
+      assert.ok(found.includes(trigger as never), `${trigger}: ${content}`);
+    }
+  });
+
+  it("does not escalate an ordinary job after all that widening", () => {
+    // The counterweight. Every pattern above got broader, and none of these
+    // may start waking somebody up.
+    for (const content of [
+      "can you quote to replace a kitchen tap",
+      "the outside tap drips a bit",
+      "our bathroom needs retiling",
+      "I'd like a price for a new radiator",
+      "the shower pressure is a little low",
+      "could you service the boiler please",
+      "we're thinking about a new bathroom next year",
+    ]) {
+      assert.deepEqual(
+        detectUrgentEscalationTriggers(
+          {
+            content,
+            existingCustomer: true,
+            sourceKey: "test",
+            sourceType: "email",
+          },
+          { afterHours: false },
+        ),
+        [],
+        content,
+      );
+    }
+  });
+
   it("keeps reading the voice call note, which is all a call has", () => {
     const found = detectUrgentEscalationTriggers(
       {

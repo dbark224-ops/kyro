@@ -273,7 +273,10 @@ export function detectUrgentEscalationTriggers(
   if (
     mentionsUnnegated(
       content,
-      /\b(burst pipe|flood|flooding|water (?:is )?(?:pouring|gushing)|roof leak|ceiling leak|active leak|property damage)\b/g,
+      // Word order was fixed: "burst pipe" matched and "a pipe has burst under
+      // the sink" did not, which is how most people say the most classic
+      // emergency there is. 2 of 8 real descriptions fired before this.
+      /\b(burst pipe|(?:pipe|main|cylinder|tank)s?\s+(?:has |have )?burst|burst (?:main|cylinder|tank)|flood|flooding|water (?:is )?(?:pouring|gushing)|water (?:is )?(?:coming|running|leaking)\s+(?:through|down|into)|ceiling (?:has )?(?:come down|collapsed|fallen)|water everywhere|water damage|soaked through|(?:carpet|floor|ceiling)s?\s+(?:is|are)\s+soaked|roof leak|ceiling leak|active leak|property damage)\b/g,
     )
   ) {
     triggers.add("active_property_damage");
@@ -288,7 +291,13 @@ export function detectUrgentEscalationTriggers(
       // water unit" missed safety_risk entirely -- it escalated only because
       // the sender happened to also write "urgent". Somebody who is calm about
       // it would not have.
-      /\b(gas leak|gas smell|gas odou?r|gas escape|smell(?:s|ing)?\s+(?:of\s+)?gas|electric shock|electrical danger|sparking|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
+      // Same sweep as the others, and the worst results of any of them: 2 of 7.
+      // "I got a shock off the shower switch" wanted the phrase "electric
+      // shock". "sparks came out of the socket" wanted "sparking". "a burning
+      // smell from the fuse box" matched neither "fire" nor "smoke". Each of
+      // those is somebody describing a real electrical danger in the only way
+      // they would think to describe it.
+      /\b(gas leak|gas smell|gas odou?r|gas escape|smell(?:s|ing)?\s+(?:of\s+)?gas|electric shock|electrical danger|(?:got|had|getting)\s+(?:an?\s+)?shock|shock off|shocked me|spark(?:s|ed|ing)|burning smell|smell(?:s|ing)?\s+(?:of\s+)?burning|smell(?:s|ing)?\s+hot|overheating|exposed wire|bare wire|wire hanging|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
     )
   ) {
     triggers.add("safety_risk");
@@ -298,7 +307,10 @@ export function detectUrgentEscalationTriggers(
     input.existingCustomer &&
     mentionsUnnegated(
       content,
-      /\b(your work|previous job|last repair|failed again|came back|warranty|causing damage|made it worse)\b/g,
+      // 2 of 6 fired. "the work you did last month has failed", "your repair
+      // has come back" and "it's still not right after your visit" are how a
+      // returning customer actually opens, and none of them matched.
+      /\b(your work|your repair|(?:work|job|repair|fix) you did|you (?:fixed|repaired|installed|fitted)|previous job|last repair|failed again|has failed|came back|come back|warranty|causing damage|made it worse|still not right|not been fixed|(?:since|after) your visit)\b/g,
     )
   ) {
     triggers.add("existing_job_serious_issue");
@@ -307,7 +319,9 @@ export function detectUrgentEscalationTriggers(
   if (
     mentionsUnnegated(
       content,
-      /\b(complaint|refund|lawyer|legal action|regulator|ombudsman|bad review|report you|unacceptable|furious)\b/g,
+      // 4 of 8. A solicitor, a review and "extremely unhappy" are the three
+      // most common ways this arrives and none of them matched.
+      /\b(complaint|complain|refund|lawyer|solicitor|attorney|legal action|regulator|ombudsman|trading standards|bad review|leav(?:e|ing) (?:a|an)[^.]{0,12}review|write (?:a|an)[^.]{0,12}review|report you|unacceptable|furious|(?:extremely|very|deeply|thoroughly) (?:unhappy|dissatisfied|disappointed)|never been treated|disgrace(?:ful)?|appalling|shoddy)\b/g,
     )
   ) {
     triggers.add("complaint_or_reputation_risk");
