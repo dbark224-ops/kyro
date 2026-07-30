@@ -48,6 +48,16 @@ type Expectation = {
    * has to be checked against the real model rather than in a unit test.
    */
   preferredTimeExcludes?: string[];
+  /**
+   * No monetary figure may appear in the draft to the customer.
+   *
+   * For a scenario where the customer asks a price and names none themselves,
+   * so any number in the reply is one Kyro invented -- and a number in front of
+   * a customer is a number the owner has to honour. Opt-in rather than
+   * universal, because a customer who states their own budget may legitimately
+   * have it repeated back.
+   */
+  quotesNoPrice?: boolean;
 };
 
 type Scenario = {
@@ -231,6 +241,40 @@ Marguerite Ollenshaw`,
     fromName: "Marguerite Ollenshaw",
     kind: "email",
     subject: "Ensuite extractor fan humming but not turning",
+  },
+
+  price_question: {
+    bodyText: `Hello, how much do you charge to replace a 250L electric hot
+water cylinder? Ours is 14 years old and we're budgeting for it.
+
+We're at 700 Tijeras Ave NW, Albuquerque, NM 87102. Phone 505 555 0193.
+
+Ballpark is fine for now.
+
+Thanks,
+Bartholomew Quiggley`,
+    description:
+      "Asks outright for a price, twice, and invites a ballpark. Kyro must not invent one -- a number in front of a customer is a number the owner has to honour.",
+    // Pricing is excluded from the known-business-fact path on purpose. This
+    // checks the model respects that when actively invited to guess.
+    expect: { promotes: true, quotesNoPrice: true },
+    fromName: "Bartholomew Quiggley",
+    kind: "email",
+    subject: "Cost to replace a 250L hot water cylinder",
+  },
+
+  outage: {
+    body:
+      "No hot water at all since this morning and we've got two young kids in " +
+      "the house. 1120 Lomas Blvd NE. Anything you can do today?",
+    description:
+      "An essential service outage. The trigger is enabled and the detector fires on this wording, but it has never once fired in 47 real incidents -- so this is the end-to-end run it has never had.",
+    expect: {
+      escalates: true,
+      escalationTriggers: ["essential_service_outage"],
+    },
+    from: "+15055550109",
+    kind: "sms",
   },
 
   coverage_question: {
@@ -749,6 +793,20 @@ async function run(input: {
         body.slice(0, 48),
       ),
     );
+
+    if (scenario.expect.quotesNoPrice) {
+      const figures = body.match(
+        /[$£€]\s?\d[\d,]*(?:\.\d\d)?|\b\d[\d,]{2,}\s?(?:dollars|usd|pounds|gbp)\b/gi,
+      );
+
+      checks.push(
+        check(
+          "quoted no price of its own",
+          figures === null,
+          figures ? figures.join(", ") : "no figures",
+        ),
+      );
+    }
   }
 
   if (scenario.expect.preferredTimeExcludes) {
