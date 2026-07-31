@@ -194,3 +194,35 @@ describe("markdown does not survive a messaging channel", () => {
     assert.equal(markdownToMessageText(text), text);
   });
 });
+
+describe("characters that quietly halve the room", () => {
+  // After the curly quotes and the markdown were dealt with, 24 of 812 sent
+  // messages were still UCS-2. Emoji was the obvious suspect and caused none
+  // of them: 22 were a single "m2" in an inquiry alert about retiling a floor,
+  // written with a superscript. A trade measures things.
+  it("keeps a square-metre measurement in GSM-7", () => {
+    const alert = "SMS from Perpetua Danforth: quote for retiling a 4m\u00B2 floor";
+
+    assert.equal(isGsmSevenBit(alert), false);
+    assert.equal(smartQuotesToPlain(alert), "SMS from Perpetua Danforth: quote for retiling a 4m2 floor");
+    assert.ok(isGsmSevenBit(smartQuotesToPlain(alert)));
+  });
+
+  it("handles the other superscripts the same way", () => {
+    assert.equal(smartQuotesToPlain("1m\u00B9 2m\u00B2 3m\u00B3"), "1m1 2m2 3m3");
+  });
+
+  it("replaces a non-breaking space, which is invisible and costs the same", () => {
+    const withNbsp = "9am\u00A0Tuesday";
+
+    assert.equal(isGsmSevenBit(withNbsp), false);
+    assert.equal(smartQuotesToPlain(withNbsp), "9am Tuesday");
+    assert.ok(isGsmSevenBit(smartQuotesToPlain(withNbsp)));
+  });
+
+  it("still leaves ordinary prose alone", () => {
+    const text = "Tuesday at 9 works. I'll confirm the deposit once I've checked.";
+
+    assert.equal(smartQuotesToPlain(text), text);
+  });
+});

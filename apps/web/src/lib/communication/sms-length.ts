@@ -111,13 +111,29 @@ export function markdownToMessageText(text: string, boldMarker = "") {
   );
 }
 
-/** Curly quotes and dashes force UCS-2 and less than half the room. */
+/**
+ * Swap characters that force UCS-2 for their GSM-7 equivalents.
+ *
+ * Curly quotes and dashes are what models produce, and one anywhere costs more
+ * than half the room. Superscripts are what this trade produces: after the
+ * quotes and markdown were dealt with, 24 of 812 sent messages were still
+ * UCS-2, and 22 of those were a single "m²" in an inquiry alert about retiling
+ * a floor. Emoji, which was the obvious suspect, caused none of them.
+ *
+ * Every substitution here means the same thing to a reader -- "4m2" is how the
+ * measurement gets typed anyway -- so nothing is lost for the room gained.
+ */
 export function smartQuotesToPlain(text: string) {
   return text
     .replace(/[‘’‛]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, "-")
-    .replace(/…/g, "...");
+    .replace(/…/g, "...")
+    .replace(/¹/g, "1")
+    .replace(/²/g, "2")
+    .replace(/³/g, "3")
+    // Invisible, and it costs exactly as much as a visible character would.
+    .replace(/\u00a0/g, " ");
 }
 
 /**
