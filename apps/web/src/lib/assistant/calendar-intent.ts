@@ -754,6 +754,74 @@ function calendarDateFromPrompt(
   // Thursday is fine" has to skip past the excluded day and land on the one
   // actually being offered -- rejecting the first match and giving up would
   // turn a usable answer into a shrug.
+  // "The first Monday of next month" was falling through to the plain weekday
+  // match below, which answers "the next Monday". Asked on 30 July that gave 3
+  // August and looked right; asked on 5 August it gave 10 August when the
+  // answer was 7 September, and on 15 September it gave 21 September for 5
+  // October. Right once in three, by coincidence, and confidently wrong twice
+  // -- a date the customer never asked for, offered as though they had.
+  //
+  // Recurring visits are described this way ("first Monday of the month" for a
+  // maintenance round), so it earns its place rather than being refused.
+  const ordinalWeekday = raw.match(
+    /\b(first|second|third|fourth|last)\s+(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\s+(?:of|in)\s+(next|this)\s+month\b/i,
+  );
+
+  if (ordinalWeekday) {
+    const targetDay = CALENDAR_WEEKDAYS.get(ordinalWeekday[2].toLowerCase());
+
+    if (targetDay !== undefined) {
+      const monthOffset = ordinalWeekday[3].toLowerCase() === "next" ? 1 : 0;
+      const year = now.year + Math.floor((now.month - 1 + monthOffset) / 12);
+      const month = ((now.month - 1 + monthOffset) % 12) + 1;
+      const ordinal = ordinalWeekday[1].toLowerCase();
+      // Every other reader here only ever moves forward -- a plain weekday
+      // resolves to the next one, never the last one. This is the first that
+      // can land behind today, because "the first Monday of this month" asked
+      // on the twenty-fifth is a date three weeks gone. Somebody who says that
+      // has misspoken or means next month, and guessing which would book a
+      // date they did not ask for, so it gives up and lets Kyro ask.
+      const notInThePast = (parts: { day: number; month: number; year: number }) =>
+        parts.year > now.year ||
+        (parts.year === now.year && parts.month > now.month) ||
+        (parts.year === now.year &&
+          parts.month === now.month &&
+          parts.day >= now.day)
+          ? parts
+          : null;
+
+      if (ordinal === "last") {
+        // Walk back from the last day of the month to the weekday asked for.
+        const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+        const lastWeekday = new Date(Date.UTC(year, month - 1, lastDay)).getUTCDay();
+        const resolved = notInThePast({
+          day: lastDay - ((lastWeekday - targetDay + 7) % 7),
+          month,
+          year,
+        });
+
+        return resolved ? { ...resolved, label: ordinalWeekday[0] } : null;
+      }
+
+      const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+      const index = ["first", "second", "third", "fourth"].indexOf(ordinal);
+      const day =
+        1 + ((targetDay - firstWeekday + 7) % 7) + index * 7;
+      const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+      // "Fifth Tuesday" of a month that has four is not a date. Falling through
+      // to the plain weekday match would answer a different question, so this
+      // gives up and lets Kyro ask.
+      if (day <= daysInMonth) {
+        const resolved = notInThePast({ day, month, year });
+
+        return resolved ? { ...resolved, label: ordinalWeekday[0] } : null;
+      }
+
+      return null;
+    }
+  }
+
   const weekdays = raw.matchAll(
     /\b(?:(this|next)\s+)?(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/gi,
   );

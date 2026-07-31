@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  parseAssistantCalendarTime,
   preferredTimeOfDayWindow,
   slotMatchesTimeOfDay,
 } from "./calendar-intent";
@@ -303,5 +304,56 @@ describe("the times of day people name without naming a clock", () => {
 
   it("still lets an explicit time beat a vague one", () => {
     assert.equal(window("afternoon, after 2pm")?.earliestMinutes, 14 * 60);
+  });
+});
+
+/**
+ * "The first Monday of next month" fell through to the plain weekday reader,
+ * which answers "the next Monday". Asked on 30 July that gave 3 August and
+ * looked correct; asked on 5 August it gave 10 August when the answer was 7
+ * September, and on 15 September it gave 21 September for 5 October. Right
+ * once in three by coincidence, and confidently wrong twice -- a date the
+ * customer never asked for, offered as though they had.
+ *
+ * Recurring maintenance rounds get described exactly this way, so it is read
+ * properly rather than refused.
+ */
+describe("the first Monday of next month", () => {
+  const TZ = "America/Denver";
+  const on = (iso: string, prompt: string) =>
+    parseAssistantCalendarTime(prompt, {
+      now: new Date(iso),
+      timeZone: TZ,
+    } as never);
+
+  it("answers the month asked about, not the next weekday", () => {
+    assert.equal(
+      on("2026-08-05T18:00:00Z", "book it for the first Monday of next month at 9am")
+        ?.startsAt.slice(0, 10),
+      "2026-09-07",
+    );
+    assert.equal(
+      on("2026-09-15T18:00:00Z", "book it for the first Monday of next month at 9am")
+        ?.startsAt.slice(0, 10),
+      "2026-10-05",
+    );
+  });
+
+  it("counts from the end for the last one", () => {
+    assert.equal(
+      on("2026-08-05T18:00:00Z", "book it for the last Friday of next month at 9am")
+        ?.startsAt.slice(0, 10),
+      "2026-09-25",
+    );
+  });
+
+  it("gives up rather than answer a different question", () => {
+    // A fifth Tuesday that does not exist, and a date already gone. Falling
+    // through to the plain weekday reader would answer something else
+    // entirely, and this is the only reader here that can land behind today.
+    assert.equal(
+      on("2026-09-25T18:00:00Z", "book it for the first Monday of this month at 9am"),
+      null,
+    );
   });
 });
