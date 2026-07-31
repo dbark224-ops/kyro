@@ -249,14 +249,34 @@ export function nameWorthLearning(
   const isOwnNumber = (value: string | null) => {
     const asDigits = digits(value);
 
-    return Boolean(asDigits) && ownNumbers.has(asDigits);
+    if (!asDigits) {
+      return false;
+    }
+
+    // An exact digit match was not enough. The stored number carries a country
+    // code and what people type usually does not, so "5055550137" against a
+    // stored "+15055550137" is ten digits against eleven and read as a name.
+    // The test that was meant to cover this compared two formats of the same
+    // eleven digits and passed throughout.
+    return [...ownNumbers].some(
+      (own) => own === asDigits || own.endsWith(asDigits) || asDigits.endsWith(own),
+    );
   };
+
+  // A name is not a number and not an address. Whatever the extractor hands
+  // over, seven digits in a row is somebody's phone and an @ is their email,
+  // and either one written into the name field is worse than leaving it as it
+  // was -- it looks deliberate on the contact card.
+  const looksLikeContactDetails = (value: string) =>
+    value.includes("@") || /\d{7,}/.test(value.replace(/\D/g, ""));
 
   if (contact.name && !isOwnNumber(contact.name)) {
     return null;
   }
 
-  return isOwnNumber(candidate) ? null : candidate;
+  return isOwnNumber(candidate) || looksLikeContactDetails(candidate)
+    ? null
+    : candidate;
 }
 
 /** The most recent lead this contact raised in the last half hour, if any. */

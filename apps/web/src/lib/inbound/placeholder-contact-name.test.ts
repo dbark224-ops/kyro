@@ -81,3 +81,63 @@ describe("what must not be touched", () => {
     assert.equal(nameWorthLearning({ ...walkIn, name: "Sunniva" }, "S. B."), null);
   });
 });
+
+/**
+ * Re-measured on candidates these tests did not invent: seven of fourteen.
+ *
+ * The comment above this function says digits are compared rather than strings,
+ * precisely so a number cannot be stored as a name. It compared them exactly,
+ * and the stored number carries a country code while what people type usually
+ * does not -- so "5055550137" against a stored "+15055550137" is ten digits
+ * against eleven, no match, and the contact gets "named" after their own phone
+ * number anyway. The existing test compared two formats of the same eleven
+ * digits and passed throughout.
+ */
+describe("what may be written into a contact's name", () => {
+  const unnamed = {
+    name: "+15055550137",
+    normalizedPhone: "+15055550137",
+    phone: "+1 505 555 0137",
+  };
+
+  it("learns a name that is actually a name", () => {
+    for (const candidate of [
+      "Sarah Whitlock",
+      "sarah",
+      "Sarah-Jane O'Connor",
+      "Jose Maria Nunez",
+      "O'Brien",
+    ]) {
+      assert.equal(nameWorthLearning(unnamed, candidate), candidate, candidate);
+    }
+  });
+
+  it("refuses their own number however it is written", () => {
+    for (const candidate of [
+      "+15055550137",
+      "+1 505 555 0137",
+      "5055550137",
+      "(505) 555-0137",
+    ]) {
+      assert.equal(nameWorthLearning(unnamed, candidate), null, candidate);
+    }
+  });
+
+  it("refuses contact details belonging to anybody", () => {
+    // A number that is not theirs is still not a name, and neither is an
+    // email. Either one in the name field looks deliberate on the contact card.
+    for (const candidate of ["+15055550199", "505-555-0199", "sarah@example.com"]) {
+      assert.equal(nameWorthLearning(unnamed, candidate), null, candidate);
+    }
+  });
+
+  it("never renames a contact who already has a real name", () => {
+    assert.equal(
+      nameWorthLearning(
+        { name: "Sarah Whitlock", normalizedPhone: "+15055550137", phone: "+15055550137" },
+        "Bob",
+      ),
+      null,
+    );
+  });
+});
