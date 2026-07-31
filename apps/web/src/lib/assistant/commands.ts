@@ -3803,6 +3803,25 @@ export function looksLikeActionExecutionRequest(prompt: string) {
 
   const text = normalized(prompt);
 
+  // Being told not to send is not an instruction to send.
+  //
+  // "Don't send those yet" fired this, and this path approves and executes
+  // every pending draft reply -- so the one sentence whose whole purpose is to
+  // stop a send was the sentence that performed it. The worst kind of miss in
+  // the router: an explicit refusal carried out as a command.
+  if (
+    /\b(?:do\s?n\s?t|do not|does\s?n\s?t|never|hold off|holding off|not yet|wait|hang on|hold fire|before you send|let me (?:check|review|look|see))\b/.test(
+      text,
+    ) ||
+    // Asking whether it already happened. "Did you send the approved replies"
+    // gets past the guard below because it contains "send", so the question
+    // word has to be read on its own. Anchored to the start, as in the SMS
+    // router: a question opens with it, a command does not.
+    /^(?:did|has|have|had|was|were|is|are|why|when|who|whose)\b/.test(text)
+  ) {
+    return false;
+  }
+
   if (
     /\b(what|which|show|list|review|open|pull up|find|check)\b/.test(text) &&
     !/\b(send|approve|execute|action|handle|deal with|take care of|sort)\b/.test(
@@ -3822,7 +3841,11 @@ export function looksLikeActionExecutionRequest(prompt: string) {
   }
 
   const directExecutionTarget =
-    /\b(action|handle|execute|approve|send|deal with|take care of|sort)\s+(?:the\s+)?(?:(?:it|that|this|them|these|those|both|everything|ones?)\b|(?:all|both)?\s*(?:the\s+)?(?:pending\s+)?(?:replies|drafts?|leads?|inquiries|messages|approvals?|work queue|queue)\b)/.test(
+    // "Approved" was not an allowed adjective, only "pending" -- so "send the
+    // approved replies", the plainest way to ask for this, missed the router
+    // whose command is named executeApprovedWorkQueueReplies. "Handle the
+    // approved items" missed on the noun as well.
+    /\b(action|handle|execute|approve|send|deal with|take care of|sort)\s+(?:the\s+)?(?:(?:it|that|this|them|these|those|both|everything|ones?)\b|(?:all|both)?\s*(?:the\s+)?(?:(?:pending|approved|outstanding|waiting|queued|draft)\s+)?(?:replies|drafts?|leads?|inquiries|messages|approvals?|items?|actions?|work queue|queue)\b)/.test(
       text,
     );
   const directReplyTarget =

@@ -8,6 +8,7 @@ import {
   calendarDateRangeFromPrompts,
   calendarLinkIntentFromPrompt,
   calendarOperationFromPrompts,
+  looksLikeActionExecutionRequest,
   looksLikeCalendarRequest,
   cleanCalendarTitle,
   looksLikeCalendarFollowUpRequest,
@@ -1358,6 +1359,71 @@ describe("recognising a message about the diary without the planner", () => {
       "my kitchen is flooding",
     ]) {
       assert.equal(looksLikeCalendarRequest(prompt), false, prompt);
+    }
+  });
+});
+
+/**
+ * The router that approves and sends every pending draft reply, measured on
+ * six real instructions and ten sentences that are not.
+ *
+ * Three of the six missed, including "send the approved replies" -- the
+ * plainest way to ask -- because "approved" was not an allowed adjective in
+ * the target pattern. Only "pending" was, in the router whose command is
+ * called executeApprovedWorkQueueReplies.
+ *
+ * The one that mattered ran the other way. "Don't send those yet" FIRED, and
+ * this path calls approveAction and then executeAction on every pending item.
+ * The one sentence whose entire purpose is to stop a send was the sentence
+ * that performed it -- an explicit refusal carried out as a command, on the
+ * highest-consequence router in the assistant.
+ */
+describe("sending the approved replies, and being told not to", () => {
+  it("acts on a real instruction", () => {
+    for (const prompt of [
+      "send the approved replies",
+      "go ahead and send them",
+      "action the work queue",
+      "handle the approved items",
+      "send them all out please",
+      "deal with the approved replies now",
+      "approve and send the pending drafts",
+      "sort the outstanding replies",
+      "take care of the pending replies",
+      "send all the queued messages",
+      "do it",
+    ]) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), true, prompt);
+    }
+  });
+
+  it("never sends when told not to", () => {
+    // The half worth keeping. Every one of these either refuses the send or
+    // asks about it, and every one of them would have been a message to a
+    // customer.
+    for (const prompt of [
+      "don't send those yet",
+      "hold off on the approved replies",
+      "wait before you send anything",
+      "not yet please",
+      "let me check them before you send",
+      "I'll review the approved replies first",
+    ]) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
+    }
+  });
+
+  it("does not treat a question as an instruction", () => {
+    for (const prompt of [
+      "did you send the approved replies",
+      "have the approved replies gone out",
+      "was that reply sent to the customer",
+      "why were those replies approved",
+      "what's in the work queue",
+      "show me the approved replies",
+      "how many are waiting to be sent",
+    ]) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
     }
   });
 });
