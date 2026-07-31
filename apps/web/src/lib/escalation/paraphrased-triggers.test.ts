@@ -224,6 +224,58 @@ describe("a trigger must come from the customer, not from Kyro", () => {
     }
   });
 
+  it("escalates a known customer's missed call, and only that", () => {
+    // The twelfth trigger, and the only one never exercised end to end -- no
+    // known customer in this workspace has had a missed call, so it has never
+    // had the chance. Verified here at detector level instead, since building
+    // a Vapi payload by hand is more likely to test the payload than the code.
+    //
+    // Three conditions must all hold, and each is checked by its absence:
+    // voice call, known customer, and a missed or voicemail outcome.
+    const fires = (over: Record<string, unknown>) =>
+      detectUrgentEscalationTriggers(
+        {
+          content: "Missed call, no voicemail left.",
+          sourceKey: "test",
+          sourceType: "voice_call",
+          ...over,
+        },
+        { afterHours: false },
+      ).includes("missed_known_customer_call");
+
+    assert.equal(
+      fires({ existingCustomer: true, metadata: { missedOrVoicemail: true } }),
+      true,
+    );
+    assert.equal(
+      fires({ existingCustomer: true, metadata: { missedOrVoicemail: false } }),
+      false,
+      "an answered call is not a missed one",
+    );
+    assert.equal(
+      fires({ existingCustomer: false, metadata: { missedOrVoicemail: true } }),
+      false,
+      "a stranger's missed call is not this trigger",
+    );
+    assert.equal(fires({ existingCustomer: true }), false, "no outcome given");
+
+    const bySms = detectUrgentEscalationTriggers(
+      {
+        content: "Missed call",
+        existingCustomer: true,
+        metadata: { missedOrVoicemail: true },
+        sourceKey: "test",
+        sourceType: "sms",
+      },
+      { afterHours: false },
+    );
+
+    assert.ok(
+      !bySms.includes("missed_known_customer_call"),
+      "a text is never a missed call",
+    );
+  });
+
   it("keeps reading the voice call note, which is all a call has", () => {
     const found = detectUrgentEscalationTriggers(
       {
