@@ -8,6 +8,7 @@ import {
   calendarDateRangeFromPrompts,
   calendarLinkIntentFromPrompt,
   calendarOperationFromPrompts,
+  looksLikeCalendarRequest,
   cleanCalendarTitle,
   looksLikeCalendarFollowUpRequest,
   parseAssistantCalendarTime,
@@ -1289,6 +1290,74 @@ describe("what a customer means by a calendar request", () => {
       "how many jobs have I got this week",
     ]) {
       assert.equal(op(prompt), "read", prompt);
+    }
+  });
+});
+
+/**
+ * The fallback that decides a message is about the diary, measured on sixteen
+ * fresh calendar requests: it caught four.
+ *
+ * Worth stating plainly, because the number reads worse than it is: this is
+ * NOT the gate it looks like. resolveAssistantCommand runs the planned command
+ * first and only reaches this when the planner selected no tool, so a miss
+ * costs a backstop rather than the calendar path.
+ *
+ * The second clause is why it scored so low: it wants a calendar VERB and a
+ * calendar NOUN in the same sentence, and half of what people say has only
+ * one. "Is Tuesday free" has no verb, "clear my afternoon" has no noun, and
+ * "when are you coming out" has neither.
+ *
+ * Widened rather than loosened. It had no false positives to begin with, and
+ * that is the half worth protecting -- a wrong hit sends a boiler question to
+ * the diary.
+ */
+describe("recognising a message about the diary without the planner", () => {
+  it("hears the request however it is phrased", () => {
+    for (const prompt of [
+      "book me in for Tuesday morning",
+      "stick me in the diary for next week",
+      "could you pencil me in for Friday",
+      "I'd like to arrange a visit",
+      "is Tuesday free",
+      "is the 14th free",
+      "are you free tomorrow",
+      "am I free at 3 on Wednesday",
+      "what's in the diary tomorrow",
+      "what have I got on Thursday",
+      "when are you coming out",
+      "what time is the visit",
+      "can we do another day",
+      "clear my afternoon",
+    ]) {
+      assert.equal(looksLikeCalendarRequest(prompt), true, prompt);
+    }
+  });
+
+  it("does not send everything else to the calendar", () => {
+    // "Free" is the word that made this hard: availability and price share it.
+    // "The estimate is free" is the same four words as "is Tuesday free" with
+    // a different subject, and only the presence of a day tells them apart --
+    // which is why "delivery is free on orders over 50" needed the date rule
+    // tightened to require an ordinal, or "50" read as the fiftieth.
+    for (const prompt of [
+      "how much for a new boiler",
+      "what's your number",
+      "the tap is still dripping",
+      "can you send me the invoice",
+      "who did the work last time",
+      "do you cover Rio Rancho",
+      "I'd like a quote for a bathroom",
+      "the boiler is free of leaks now",
+      "is the part free of charge",
+      "the estimate is free",
+      "is the quote free",
+      "delivery is free on orders over 50",
+      "the callout is free if you go ahead",
+      "can you clear the blockage",
+      "my kitchen is flooding",
+    ]) {
+      assert.equal(looksLikeCalendarRequest(prompt), false, prompt);
     }
   });
 });

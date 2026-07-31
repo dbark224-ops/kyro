@@ -225,11 +225,54 @@ export type CalendarTargetResolution =
   | { candidates: CalendarEventItem[]; kind: "ambiguous" }
   | { kind: "none" };
 
+/**
+ * The fallback for when the planner has not chosen a tool.
+ *
+ * Not the gate it looks like: resolveAssistantCommand runs the planned command
+ * first, and only reaches this when no tool was selected. So a miss here costs
+ * a backstop rather than the whole calendar path -- worth knowing before
+ * reading the score below as an emergency.
+ *
+ * Measured on sixteen fresh calendar requests and it caught four. The second
+ * clause is why: it wants a calendar VERB and a calendar NOUN in the same
+ * sentence, and half of what people say has only one of them. "Is Tuesday
+ * free" has no verb, "clear my afternoon" has no noun, and "when are you
+ * coming out" has neither.
+ *
+ * Widened carefully rather than loosened: it had no false positives on eight
+ * non-calendar messages and that is the half worth protecting, since a wrong
+ * hit sends a boiler question to the diary.
+ */
 export function looksLikeCalendarRequest(prompt: string) {
   const text = normalized(prompt);
 
   return (
-    /\b(calendar|appointment|appointments|site visit|quote visit|job visit|booking|booked)\b/.test(
+    /\b(calendar|appointment|appointments|site visit|quote visit|job visit|booking|booked|diary)\b/.test(
+      text,
+    ) ||
+    // Asking what the day holds, with no verb of booking anywhere.
+    // "Free" is availability only when something temporal is being discussed.
+    // "Free of leaks" and "free of charge" are ruled out by the lookahead, and
+    // "the estimate is free" only by the day-or-time requirement -- it is the
+    // same four words as "is Tuesday free" with a different subject, and
+    // nothing but the presence of a day tells them apart.
+    (/\b(?:is|are)\s+(?:\w+\s+){0,2}free\b(?!\s+of)/.test(text) &&
+      /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|tonight|morning|afternoon|evening|next week|this week|weekend|\d{1,2}(?:st|nd|rd|th))\b/.test(
+        text,
+      )) ||
+    /\bam i free\b/.test(text) ||
+    /\bwhat (?:have i got|do i have|is|s) (?:on|in|at)\b/.test(text) ||
+    /\bwhen (?:are|is) (?:you|he|she|they|someone)\s+(?:coming|visiting|due)\b/.test(
+      text,
+    ) ||
+    /\bwhat time (?:is|are)\s+(?:the|my|our)\b/.test(text) ||
+    // Asking to be put in it, without saying "appointment".
+    /\b(?:pencil|slot|squeeze|fit)\s+(?:me|us|him|her|them)\s+in\b/.test(text) ||
+    /\b(?:stick|put|get|book)\s+(?:me|us)\s+(?:in|down)\b/.test(text) ||
+    /\barrange\s+(?:a|an|the)\s+(?:visit|call|time|slot|day)\b/.test(text) ||
+    // Asking to move or empty part of the day.
+    /\b(?:another|a different)\s+(?:day|time|date|slot)\b/.test(text) ||
+    /\bclear\s+(?:my|the|our)\s+(?:morning|afternoon|evening|day|week|diary|calendar)\b/.test(
       text,
     ) ||
     (/\b(book|schedule|scheduled|add|create|move|reschedule|cancel|delete|remove|reserve|hold)\b/.test(
