@@ -496,7 +496,12 @@ export function telephonyUsageCost(input: {
         : input.kind === "voice_call"
           ? numberValue(process.env.TWILIO_VOICE_UNIT_COST_USD)
           : numberValue(process.env.TWILIO_NUMBER_MONTHLY_COST_USD);
-  const providerCost = Math.max(0, input.providerPrice ?? envCost ?? 0);
+  // Twilio reports a message price as a negative number, being money leaving
+  // the account, while Vapi reports a positive cost. Clamping at zero turned
+  // the Twilio convention into "free", so each caller had to remember to strip
+  // the sign and two of the six did not. Normalising here means no caller can
+  // record a real charge as nothing by forgetting.
+  const providerCost = Math.abs(input.providerPrice ?? envCost ?? 0);
   const markup = input.markupRate ?? usageMarkupRate("TWILIO_MARKUP_RATE");
   const customerCharge = applyUsageMarkup(providerCost, markup);
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import {
   sendTwilioSmsMessage,
+  telephonyUsageCost,
   twilioMessageTransportForWorkspace,
   twilioSmsDeliveryState,
 } from "./twilio";
@@ -16,6 +17,18 @@ const originalEnvironment = {
   whatsappRecipient: process.env.TWILIO_WHATSAPP_SANDBOX_TEST_RECIPIENT,
   whatsappWorkspace: process.env.TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID,
 };
+
+// The pricing tests below set these, and a leaked unit cost would quietly
+// change what a later test measures.
+const PRICING_KEYS = [
+  "TWILIO_MARKUP_RATE",
+  "TWILIO_SMS_INBOUND_UNIT_COST_USD",
+  "TWILIO_SMS_OUTBOUND_UNIT_COST_USD",
+  "TWILIO_VOICE_UNIT_COST_USD",
+] as const;
+const originalPricing = new Map(
+  PRICING_KEYS.map((key) => [key, process.env[key]] as const),
+);
 
 beforeEach(() => {
   delete process.env.TWILIO_WHATSAPP_SANDBOX_NUMBER;
@@ -37,6 +50,14 @@ afterEach(() => {
     TWILIO_WHATSAPP_SANDBOX_WORKSPACE_ID:
       originalEnvironment.whatsappWorkspace,
   })) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  for (const [key, value] of originalPricing) {
     if (value === undefined) {
       delete process.env[key];
     } else {
@@ -248,4 +269,80 @@ test("classifies clean delivery statuses without hiding failures", () => {
   assert.equal(twilioSmsDeliveryState({ status: "sent" }).succeeded, true);
   assert.equal(twilioSmsDeliveryState({ status: "queued" }).succeeded, false);
   assert.equal(twilioSmsDeliveryState({ status: "undelivered" }).failed, true);
+});
+
+/**
+ * Every Twilio usage event in production recorded a cost of exactly zero:
+ * 120 outbound SMS, 87 inbound, and the one Vapi voice call. Not a rounding
+ * problem -- literally no cost was ever recorded for sending a message.
+ *
+ * Twilio does not price a message when you send it. The create-message
+ * response carries `price: null` and Twilio fills it in asynchronously once
+ * the message reaches a final state, which is long after this code has
+ * written its usage row. Proof is in the same data: the one thing Twilio
+ * prices synchronously, a phone number purchase, recorded its $6.00 correctly.
+ *
+ * So for messages the environment fallback is not a fallback. It is the only
+ * price this code will ever see, and with the variables unset the cost is
+ * zero -- indistinguishable in the usage report from Gmail and the WhatsApp
+ * sandbox, which really are free.
+ *
+ * These pin the fallback so it cannot be tidied away as dead configuration.
+ */
+test("a message with no provider price falls back to configured cost", () => {
+  process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD = "0.0079";
+  process.env.TWILIO_MARKUP_RATE = "0";
+
+  const usage = telephonyUsageCost({
+    direction: "outbound",
+    kind: "sms",
+    // What Twilio actually returns at send time.
+    providerPrice: null,
+  });
+
+  assert.equal(usage.cost, 0.0079);
+});
+
+test("a provider price, when there is one, wins over the configured cost", () => {
+  process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD = "0.0079";
+  process.env.TWILIO_MARKUP_RATE = "0";
+
+  const usage = telephonyUsageCost({
+    direction: "outbound",
+    kind: "sms",
+    providerPrice: 0.0092,
+  });
+
+  assert.equal(usage.cost, 0.0092);
+});
+
+test("unconfigured and unpriced records zero, which is the live behaviour", () => {
+  delete process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD;
+  delete process.env.TWILIO_SMS_INBOUND_UNIT_COST_USD;
+  delete process.env.TWILIO_VOICE_UNIT_COST_USD;
+
+  for (const input of [
+    { direction: "outbound", kind: "sms" },
+    { direction: "inbound", kind: "sms" },
+    { direction: "outbound", kind: "voice_call" },
+  ] as const) {
+    assert.equal(
+      telephonyUsageCost({ ...input, providerPrice: null }).cost,
+      0,
+      `${input.direction} ${input.kind}`,
+    );
+  }
+});
+
+test("a credit from Twilio is never recorded as a negative cost", () => {
+  process.env.TWILIO_MARKUP_RATE = "0";
+
+  assert.equal(
+    telephonyUsageCost({
+      direction: "outbound",
+      kind: "sms",
+      providerPrice: -0.0079,
+    }).cost,
+    0.0079,
+  );
 });
