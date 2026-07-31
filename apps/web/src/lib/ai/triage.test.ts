@@ -631,3 +631,45 @@ describe("asking for the number the way people actually ask", () => {
     }
   });
 });
+
+/**
+ * "Best number" is how a customer hands over THEIR number, not how they ask
+ * for ours.
+ *
+ * Added as a phone-request pattern earlier the same night because it reads
+ * like a request in isolation. Replaying the widened patterns over every
+ * message ever received found all three real uses of it were the customer
+ * giving their own -- "Best number for me is 505 555 0143", "Best number is
+ * 505 555 0142, that's my mobile" -- each inside a substantial inquiry that
+ * would have been answered with the business phone number instead of handled.
+ *
+ * The check that found it is the same one that should follow any widening:
+ * replay the new patterns over real traffic and read what they now catch.
+ */
+describe("giving a number is not asking for one", () => {
+  it("ignores a customer leaving their own number", () => {
+    for (const message of [
+      "Best number for me is 505 555 0143 during the day",
+      "Best number is 505 555 0142, that's my mobile",
+      "We're at 615 Girard Blvd NE. Best number is 505 555 0166. No rush.",
+      "my best number is 505 555 0100",
+    ]) {
+      assert.deepEqual(directKnownBusinessFactKeys(message), [], message);
+    }
+  });
+
+  it("still hears somebody asking for the business's number", () => {
+    for (const message of [
+      "what's the best number to reach you",
+      "what is your best number",
+      "best number to call you on?",
+      "can yall give me a phone number to call?",
+      "what's your number?",
+    ]) {
+      assert.ok(
+        directKnownBusinessFactKeys(message).includes("publicPhoneNumber"),
+        message,
+      );
+    }
+  });
+});

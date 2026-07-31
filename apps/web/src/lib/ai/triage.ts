@@ -319,7 +319,18 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       // Re-measured against phrasings these patterns were NOT written from,
       // which is the only honest version of this test. Ten of twenty missed,
       // the same shape as every other keyword rule here.
-      /\bbest number\b/i,
+      // "Best number" is how customers hand over THEIR number, not how they
+      // ask for ours. All three uses of it in real inbound mail are the
+      // customer giving it -- "Best number for me is 505 555 0143", "Best
+      // number is 505 555 0142, that's my mobile" -- and each was a
+      // substantial inquiry that would have been answered with the business
+      // phone number instead of being handled.
+      //
+      // Caught by replaying tonight's widened patterns over every message ever
+      // received, rather than by any test. The phrase reads like a request in
+      // isolation, which is exactly why it was added.
+      /\b(?:what(?:'s| is)|which is)\s+(?:the\s+|your\s+)?best number\b/i,
+      /\bbest number\s+(?:to\s+)?(?:call|reach|ring|contact|get)\s+(?:you|the business|your team)\b/i,
       /\bnumber to (?:get hold of|reach|contact)\b/i,
       /\b(?:do|have)\s+you\s+(?:have|got)\s+a\s+(?:mobile|cell)\b/i,
       /\bwho (?:do|should) i (?:ring|call|phone)\b/i,
