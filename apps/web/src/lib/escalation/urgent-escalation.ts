@@ -545,13 +545,34 @@ export function readsAsWithdrawal(text: string) {
   return [
     /\b(?:not interested|wrong number|not needed|do not contact|don'?t contact)\b/,
     /\bno longer\s+(?:need|require|want)\w*\b/,
-    /\bcancel\b/,
+    // "Cancel" needs an object. Written bare it also caught "can I cancel
+    // Tuesday and come Wednesday instead?", which is a customer rearranging a
+    // visit, not leaving -- and reading that as withdrawal is what silences
+    // the escalation for somebody still waiting. An appointment is
+    // deliberately not in this list for the same reason.
+    /\bcancel\s+(?:my|our|the)\s+(?:enquiry|inquiry|request|quote|job|order)\b/,
     /\b(?:decided|going)\s+not\s+to\s+(?:go\s+ahead|proceed|bother)\b/,
     /\bnot\s+going\s+(?:to\s+)?(?:go\s+ahead|proceed|bother)\b/,
     /\b(?:leave|leaving)\s+it\s+(?:for\s+now|there|thanks)\b/,
     /\bsorted\s+it\s+(?:ourselves|myself|out)\b/,
     /\bgone\s+with\s+(?:someone|somebody|another)\b/,
     /\bdisregard\b/,
+    // Both of these are withdrawals when the sentence ends there and something
+    // else entirely when it carries on. "I never mind waiting but this is
+    // three weeks now" is a complaint, and "we've had it done before by you"
+    // is a returning customer. Anchoring to the end of the message keeps the
+    // withdrawal and drops the passing mention. It costs the rarer phrasings
+    // like "never mind then", which is the right way to be wrong here: a
+    // withdrawal read as ordinary contact is one surplus alert, while ordinary
+    // contact read as a withdrawal leaves somebody waiting in silence.
+    /\bnever\s*mind\b\s*[.!,]?\s*$/,
+    /\b(?:got|had)\s+it\s+(?:fixed|done|sorted)(?:\s+already)?\s*[.!,]?\s*$/,
+    /\bfound\s+(?:someone|somebody)\s+else\b/,
+    /\bchanged\s+(?:our|my)\s+mind\b/,
+    /\bforget\s+it\b/,
+    /\b(?:no\s+need|don'?t\s+need\s+it)\s+any\s*more\b/,
+    /\bhold\s+off\b/,
+    /\btake\s+(?:us|me)\s+off\s+the\s+job\b/,
   ].some((pattern) => pattern.test(raw));
 }
 

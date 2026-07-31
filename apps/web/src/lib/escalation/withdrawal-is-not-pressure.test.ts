@@ -98,3 +98,63 @@ describe("what must still wake the owner", () => {
     assert.equal(readsAsWithdrawal("my cancelled appointment needs rebooking"), false);
   });
 });
+
+/**
+ * Measured the same way as every keyword rule this codebase has got wrong, and
+ * this one was mine, written earlier the same night.
+ *
+ * Twenty natural ways of calling a job off: nine were read, and those nine were
+ * exactly the nine phrasings the patterns had been written from. "Actually
+ * never mind", "we've found someone else", "changed our mind", "we got it
+ * fixed already" and seven others read as ordinary contact.
+ *
+ * The false positive mattered more than the misses. A bare \bcancel\b caught
+ * "can I cancel Tuesday and come Wednesday instead?", which is a customer
+ * rearranging a visit. This function suppresses escalation, so reading an
+ * engaged customer as a withdrawal is what leaves somebody waiting in silence
+ * -- the opposite asymmetry to the triggers themselves, and the reason the
+ * additions here are anchored rather than generous.
+ */
+describe("calling a job off, in the words people use", () => {
+  it("reads a withdrawal however it is phrased", () => {
+    for (const body of [
+      "Not interested, thanks",
+      "we no longer need the work doing",
+      "please cancel my enquiry",
+      "we've decided not to go ahead",
+      "not going to bother in the end",
+      "we'll leave it for now, thanks",
+      "we sorted it ourselves in the end",
+      "we've gone with someone else",
+      "disregard my last message",
+      "actually never mind",
+      "we've found someone else",
+      "we got it fixed already",
+      "no need anymore, thank you",
+      "changed our mind, sorry",
+      "we'll hold off for now",
+      "please take us off the job",
+      "forget it, thanks anyway",
+      "we've had it done",
+    ]) {
+      assert.equal(readsAsWithdrawal(body), true, body);
+    }
+  });
+
+  it("does not silence a customer who is still waiting", () => {
+    for (const body of [
+      // Rearranging a visit is not leaving.
+      "can I cancel Tuesday and come Wednesday instead?",
+      "can I cancel my appointment for Tuesday and rebook?",
+      // The phrase appears, the meaning does not.
+      "the leak sorted itself out but the tap still drips",
+      "we need it done, no longer able to wait",
+      "sorry, ignore that -- the address is 12 not 21",
+      "I never mind waiting but this is three weeks now",
+      "when can you come? we've had it done before by you",
+      "we had it done last year and it has failed again",
+    ]) {
+      assert.equal(readsAsWithdrawal(body), false, body);
+    }
+  });
+});
