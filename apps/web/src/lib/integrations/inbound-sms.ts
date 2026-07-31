@@ -8,6 +8,7 @@ import {
   recordSmsRecipientPreference,
   smsConsentCommand,
 } from "../communication/sms-compliance";
+import { smsSegmentCount } from "../communication/sms-length";
 import {
   normalizeContactPhoneForRegion,
   type PhoneRegion,
@@ -197,6 +198,7 @@ async function recordInboundSmsUsage(
   supabase: ServiceSupabase,
   input: {
     eventId: string | null;
+    body: string;
     from: string;
     messageSid: string;
     to: string;
@@ -212,6 +214,14 @@ async function recordInboundSmsUsage(
       "TWILIO_MARKUP_RATE",
     ),
   });
+  // Twilio charges the receiving side per segment too, and the outbound path
+  // was the only half of that fixed. A long message a customer sends costs
+  // just as many segments as one Kyro sends. Twilio supplies no price on an
+  // inbound webhook at all, so the configured rate is always what is used.
+  const segments = Math.max(1, smsSegmentCount(input.body ?? ""));
+  const billedUnits = usage.source === "configured" ? segments : 1;
+  const totalCost = usage.cost * billedUnits;
+  const totalCharge = usage.customerCharge * billedUnits;
 
   await logWriteError(
     supabase.from("usage_events").insert({
@@ -223,13 +233,13 @@ async function recordInboundSmsUsage(
       service: "sms",
       model: null,
       usage_type: "inbound_sms",
-      quantity: "1",
-      unit: "message",
+      quantity: String(segments),
+      unit: "segment",
       unit_cost_snapshot: String(usage.cost),
       markup_snapshot: String(usage.markup),
       currency: usage.currency,
-      cost_snapshot: String(usage.cost),
-      customer_charge_snapshot: String(usage.customerCharge),
+      cost_snapshot: String(totalCost),
+      customer_charge_snapshot: String(totalCharge),
       provider_usage_id: input.messageSid,
       metadata: {
         billingTask: "sms_delivery",
@@ -402,6 +412,7 @@ export async function processInboundSmsPayload(
 
     await recordInboundSmsUsage(supabase, {
       eventId,
+      body: input.body,
       from: input.from,
       messageSid: input.messageSid,
       to: input.to,
@@ -454,6 +465,7 @@ export async function processInboundSmsPayload(
 
     await recordInboundSmsUsage(supabase, {
       eventId: null,
+      body: input.body,
       from: input.from,
       messageSid: input.messageSid,
       to: input.to,
@@ -528,6 +540,7 @@ export async function processInboundSmsPayload(
 
     await recordInboundSmsUsage(supabase, {
       eventId: followUp.eventId,
+      body: input.body,
       from: input.from,
       messageSid: input.messageSid,
       to: input.to,
@@ -578,6 +591,7 @@ export async function processInboundSmsPayload(
 
   await recordInboundSmsUsage(supabase, {
     eventId: result.eventId,
+    body: input.body,
     from: input.from,
     messageSid: input.messageSid,
     to: input.to,
