@@ -239,6 +239,15 @@ type ProposedActionInput = {
 
 type TriageDecision = {
   inquiryFacts: InquiryFacts;
+  /**
+   * The name the sender gave for themselves, or null.
+   *
+   * Deliberately NOT part of InquiryFacts. Those are the facts of the job, are
+   * written to inquiry_facts, and are shown in the CRM's editable facts panel;
+   * a name would appear there as a job detail, which it is not. This is about
+   * the contact record instead, and only the ingest reads it.
+   */
+  customerName: string | null;
   futureStepDecision: FutureStepDecision;
   summary: string;
   replyDraft: {
@@ -1512,6 +1521,31 @@ function normalizeFit(value: unknown): InquiryFacts["fit"] {
   return value === "likely_fit" || value === "not_fit" ? value : "needs_review";
 }
 
+/**
+ * The name the sender gave for themselves, from the model's extraction.
+ *
+ * Kept out of normalizeLocalFacts on purpose: this is not a fact about the
+ * job, it is about the contact record, and InquiryFacts is written to
+ * inquiry_facts and shown in the CRM's editable facts panel.
+ *
+ * A name that is only a phone number is discarded here rather than downstream,
+ * since some senders "introduce" themselves with the number they are texting
+ * from and that is what the contact already has.
+ */
+function extractedCustomerName(value: unknown) {
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const name = textValue(raw.customerName);
+
+  if (!name || /^[+\d][\d\s()+-]*$/.test(name)) {
+    return null;
+  }
+
+  return name;
+}
+
 function normalizeLocalFacts(
   value: unknown,
   fallback: InquiryFacts,
@@ -1566,6 +1600,7 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         inquiryFacts: {
           jobType: "string|null",
           address: "string|null",
+          customerName: "string|null",
           preferredTime: "string|null",
           urgency: "low|normal|urgent",
           budget: "string|null",
@@ -1580,6 +1615,13 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
       rules: [
         "Return JSON only.",
         "Do not invent an address, price, date, or customer detail.",
+        // 8 of 213 contacts have no name at all, including the customer owed a
+        // $450 refund, because an email with no display name and an SMS both
+        // arrive with nothing to use. The name is usually right there in the
+        // message. The failure to avoid is taking the name of somebody being
+        // discussed -- "I'm asking on behalf of Priya Raghunathan" is Priya's
+        // name, not the sender's.
+        "customerName is the name the sender gives for THEMSELVES -- an opening like \"Hi, it's Marcus\", or a sign-off. Use null when they do not name themselves. Never use the name of a third party they mention, discuss, or are writing on behalf of, and never a business name unless they are clearly the business.",
         // Only present when the sender's number is listed as a second contact
         // number on somebody's profile. Without it a PA texting on a
         // customer's behalf reads as a stranger, and Kyro had no basis to
@@ -1707,6 +1749,8 @@ function buildStubDecision(
   );
 
   return {
+    // No model ran, so there is no extracted name.
+    customerName: null,
     fallbackReason,
     futureStepDecision: context.futureStep
       ? classifyFutureStepFallback(context.latestMessage ?? "")
@@ -1809,6 +1853,7 @@ async function runOllamaTriage(
         );
 
     return {
+      customerName: extractedCustomerName(parsed.inquiryFacts),
       futureStepDecision: normalizeFutureStepDecision(
         parsed.futureStepDecision,
       ),
@@ -1878,6 +1923,11 @@ async function runOpenAiTriage(
                   properties: {
                     address: { type: ["string", "null"] },
                     budget: { type: ["string", "null"] },
+                    // The name the customer gives for themselves, so a contact
+                    // is not left as "+1505..." or blank. Strict schema: this
+                    // must appear in `required` below as well as here, or every
+                    // triage call fails.
+                    customerName: { type: ["string", "null"] },
                     fit: {
                       enum: ["likely_fit", "needs_review", "not_fit"],
                       type: "string",
@@ -1896,6 +1946,7 @@ async function runOpenAiTriage(
                   required: [
                     "jobType",
                     "address",
+                    "customerName",
                     "preferredTime",
                     "urgency",
                     "budget",
@@ -2019,6 +2070,7 @@ async function runOpenAiTriage(
       );
 
   return {
+    customerName: extractedCustomerName(parsed.inquiryFacts),
     ...responseUsage(payload, prompt, content),
     futureStepDecision: normalizeFutureStepDecision(parsed.futureStepDecision),
     inquiryFacts: facts,
@@ -3520,6 +3572,9 @@ export async function runStubAiTriage(
     customerCharge: usageTotals.customerChargeSnapshot,
     autoReplyError,
     autoReplySent,
+    // For the contact record, not the job. Kept off inquiryFacts deliberately
+    // -- see the comment on TriageDecision.customerName.
+    customerName: triageDecision.customerName,
     inquiryFacts: effectiveInquiryFacts,
     ownerQuestion: triageDecision.responsePolicy.ownerQuestion,
     replyDraft: triageDecision.replyDraft,

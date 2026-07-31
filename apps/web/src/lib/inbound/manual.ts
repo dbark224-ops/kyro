@@ -974,6 +974,49 @@ export async function ingestManualInbound(
     } from ${input.contactName}: ${input.message.slice(0, 180)}`,
   });
 
+  // A contact whose name is blank, or is just the number they texted from,
+  // gets the name they gave in the message itself.
+  //
+  // 8 of 213 contacts had no name at all, including the customer owed a $450
+  // refund -- an inbound email with no display name has nothing to use, and an
+  // SMS never does. nameWorthLearning decides whether the candidate is an
+  // improvement; it refuses to overwrite a name a human typed.
+  if (aiResult?.customerName) {
+    const { data: current } = await supabase
+      .from("contacts")
+      .select("name,phone,normalized_phone")
+      .eq("workspace_id", workspaceId)
+      .eq("id", contactId)
+      .maybeSingle();
+    const learned = nameWorthLearning(
+      {
+        name: current?.name ? String(current.name) : null,
+        normalizedPhone: current?.normalized_phone
+          ? String(current.normalized_phone)
+          : null,
+        phone: current?.phone ? String(current.phone) : null,
+      },
+      aiResult.customerName,
+    );
+
+    if (learned) {
+      const { error: nameError } = await supabase
+        .from("contacts")
+        .update({ name: learned })
+        .eq("workspace_id", workspaceId)
+        .eq("id", contactId);
+
+      if (nameError) {
+        // Not fatal. Losing the name costs a tidier contact list; failing the
+        // ingest over it would cost the enquiry.
+        console.warn("Unable to store extracted contact name", {
+          code: nameError.code,
+          workspaceId,
+        });
+      }
+    }
+  }
+
   await createUrgentEscalationIncident(supabase, workspaceId, {
     contactId,
     content: input.message,

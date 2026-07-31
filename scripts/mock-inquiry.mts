@@ -263,7 +263,7 @@ Marguerite Ollenshaw`,
     bodyText: `Hi, we'd like the downstairs cloakroom retiled -- about 4 square
 metres, floor and half-height walls.
 
-615 Girard Blvd NE, Albuquerque, NM 87106. Phone 505 555 0164.
+615 Girard Blvd NE, Albuquerque, NM 87106. Phone 505 555 0251.
 
 Thanks,
 Perpetua Danforth`,
@@ -311,7 +311,7 @@ metres, floor and half-height walls.
 
 Our budget is around $2,000 and we can't really stretch past $2,500.
 
-615 Girard Blvd NE, Albuquerque, NM 87106. Phone 505 555 0164.
+615 Girard Blvd NE, Albuquerque, NM 87106. Phone 505 555 0252.
 
 Thanks,
 Perpetua Danforth`,
@@ -489,7 +489,7 @@ Bartholomew Quiggley`,
     bodyText: `Morning, we'd like a quote to re-seal the shower tray in the
 main bathroom -- the grout has gone black along one edge.
 
-We're at 1120 Lomas Blvd NE, Albuquerque, NM 87102. Phone 505 555 0158.
+We're at 1120 Lomas Blvd NE, Albuquerque, NM 87102. Phone 505 555 0253.
 
 Would a week today suit? No rush before then.
 
@@ -702,7 +702,7 @@ Constance Aldebrand`,
     // Urgency and water on the floor are stated in French. If the triggers only
     // ever see English this escalates on nothing, which is the point of asking.
     expect: { escalates: true, promotes: true },
-    from: "+15055550193",
+    from: "+15055550254",
     kind: "sms",
   },
 };
