@@ -260,8 +260,17 @@ export function withoutQuotedReply(text: string) {
       continue;
     }
 
-    if (/^(?:from|sent|to|cc|subject|date|reply-to):\s/i.test(trimmed)) {
-      continue;
+    // A quoted header block, where a client gives no divider. "From:" is the
+    // one header a customer does not write about themselves, so it marks the
+    // block; the rest follow it and go with the cut.
+    //
+    // Dropping those others on sight was wrong and briefly shipped. Plenty of
+    // people write a tidy, structured message -- Name, Address, Date, Subject,
+    // Phone -- and an emergency stated on the "Subject:" line vanished with it,
+    // escalating on nothing. Suppressing a real emergency is the worst outcome
+    // available here, so only the block marker cuts.
+    if (/^from:\s/i.test(trimmed)) {
+      break;
     }
 
     if (trimmed.startsWith(">")) {

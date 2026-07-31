@@ -359,3 +359,51 @@ describe("a trigger must come from what the customer just wrote", () => {
     assert.equal(withoutQuotedReply(plain), plain);
   });
 });
+
+/**
+ * A regression I shipped and caught the same night, recorded because the fix
+ * is only obvious once you know what went wrong.
+ *
+ * Stripping quoted replies also dropped any line beginning From:, Sent:, To:,
+ * Cc:, Subject:, Date: or Reply-To:, on the reasoning that those are the
+ * headers of a quoted block. Plenty of people write a tidy, structured message
+ * instead -- Name, Address, Date, Subject, Phone -- and an emergency stated on
+ * the "Subject:" line went with the strip. That message escalated on nothing.
+ *
+ * Only "From:" marks the block now, being the one header nobody writes about
+ * themselves, and everything below it goes with the cut. Suppressing a real
+ * emergency is the worst outcome available here, so the narrower rule wins.
+ */
+describe("a structured message is not a quoted thread", () => {
+  const fires = (content: string) =>
+    detectUrgentEscalationTriggers(
+      { content, sourceKey: "test", sourceType: "email" },
+      { afterHours: true },
+    );
+
+  it("reads an emergency written on a Subject: line", () => {
+    const found = fires(
+      "Name: Sarah Whitlock\nAddress: 100 Vista Del Monte\nDate: today\nSubject: burst pipe, water pouring through the ceiling\nPhone: 505-555-0143",
+    );
+
+    assert.ok(found.includes("active_property_damage"), "the emergency was dropped");
+  });
+
+  it("reads one even when every line looks like a header", () => {
+    assert.ok(
+      fires("Subject: URGENT gas smell\nTo: the plumber\nDate: right now").includes(
+        "safety_risk",
+      ),
+    );
+  });
+
+  it("still cuts a quoted block that gives no divider", () => {
+    // Outlook does this: the reply, then bare headers, then the old message.
+    assert.deepEqual(
+      fires(
+        "That works, thank you.\n\nFrom: Kyro <hello@k.com>\nSent: Tuesday\nSubject: Re: URGENT\n\nburst pipe water pouring through the ceiling\n",
+      ),
+      [],
+    );
+  });
+});
