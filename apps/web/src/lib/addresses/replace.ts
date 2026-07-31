@@ -65,9 +65,17 @@ export function addressWorthLearning(
  * distinction that matters.
  */
 function sameAddressText(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/[.,;\s]+$/, "");
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      // Separators inside the address count as much as the one on the end.
+      // Trailing punctuation was stripped and internal was not, so "1500
+      // Indian School Rd NE, Albuquerque, NM" and the same line without its
+      // commas still read as a correction -- which is exactly the fault this
+      // function was written to stop, surviving in the middle of the string.
+      .replace(/[.,;]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }

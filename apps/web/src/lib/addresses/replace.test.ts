@@ -64,3 +64,44 @@ describe("whether a new address replaces the one on a contact", () => {
     );
   });
 });
+
+/**
+ * The separator in the middle counts as much as the one on the end.
+ *
+ * The first version of this stripped trailing punctuation and left internal
+ * punctuation alone, so "1500 Indian School Rd NE, Albuquerque, NM" and the
+ * same line written without its commas still read as a correction -- the exact
+ * fault the function exists to prevent, surviving in the middle of the string.
+ * Found by re-testing a fix from earlier the same night rather than trusting
+ * that it was finished.
+ */
+describe("punctuation inside the address is not a correction either", () => {
+  const A = "1500 Indian School Rd NE, Albuquerque NM";
+
+  it("ignores how the parts are separated", () => {
+    for (const stored of [
+      "1500 Indian School Rd NE, Albuquerque, NM",
+      "1500 Indian School Rd NE. Albuquerque. NM",
+      "1500 Indian School Rd NE; Albuquerque; NM",
+      "1500  Indian School Rd NE   Albuquerque NM",
+      "1500 indian school rd ne albuquerque nm",
+    ]) {
+      assert.equal(
+        addressWorthLearning(contact(stored), A),
+        false,
+        stored,
+      );
+    }
+  });
+
+  it("still hears a real change of address", () => {
+    // The counterweight: normalising must not swallow a genuine correction.
+    for (const candidate of [
+      "1502 Indian School Rd NE, Albuquerque NM",
+      "1500 Indian School Rd SE, Albuquerque NM",
+      "88 Silver Ave SW, Albuquerque NM",
+    ]) {
+      assert.equal(addressWorthLearning(contact(A), candidate), true, candidate);
+    }
+  });
+});
