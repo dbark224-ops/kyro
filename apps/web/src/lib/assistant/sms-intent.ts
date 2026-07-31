@@ -8,8 +8,34 @@ import { normalized } from "./prompt-text";
  * recipient and sends stayed behind.
  */
 
+/**
+ * Talking about a text is not asking for one to be sent.
+ *
+ * "Text" is both the verb and the noun, so every clause naming a text and a
+ * team member satisfied all four conditions below. Eight of ten ordinary
+ * sentences routed here, including "did the team member text back yet", "no
+ * text from any team member today" and "don't text the team member yet".
+ *
+ * Nothing was sent -- no body can be extracted from any of them, so the
+ * command asks what the message should say. But this runs BEFORE the planner,
+ * so the owner's actual question never reaches the model: they ask whether
+ * somebody replied and are asked what they would like to send.
+ */
+// The interrogatives are anchored to the start on purpose. A first attempt
+// matched them anywhere and broke a real instruction -- "can you send the
+// workplace contact an sms, i want to test if that functionality IS working"
+// -- because "is" turns up in plenty of sentences that are still commands.
+// A question about a text opens with the question word; a command does not.
+const NOT_A_SEND_INSTRUCTION =
+  /\b(?:text|sms|message)s?\s+(?:from|back)\b|\btexted\b|^(?:did|does|has|have|had|why|when|who|whose|was|were|should|is|are)\b|\b(?:no|not|never|do\s?n\s?t|did\s?n\s?t|ca\s?n\s?t|wo\s?n\s?t)\s+(?:text|send|sms)\b/;
+
 export function looksLikeDirectWorkplaceSmsRequest(prompt: string) {
   const text = normalized(prompt);
+
+  if (NOT_A_SEND_INSTRUCTION.test(text)) {
+    return false;
+  }
+
   const hasSendInstruction = /\b(send|text)\b/.test(text);
   const hasSmsChannel = /\b(sms|text|text message)\b/.test(text);
   const hasContactTarget =
