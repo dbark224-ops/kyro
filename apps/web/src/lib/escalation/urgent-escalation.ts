@@ -214,6 +214,68 @@ const IMMEDIATE_NEGATION =
  *
  * The pattern must be global; each match is checked against what precedes it.
  */
+/**
+ * The thread a customer's reply quotes back is not something they just said.
+ *
+ * Reply to Kyro's email with "Thanks, Tuesday at 9 works fine" and the client
+ * quotes the whole thread underneath -- including the original "burst pipe,
+ * water pouring through the ceiling" and Kyro's own answer repeating it. Every
+ * trigger read that as the message. Measured: those five words escalated on
+ * explicit_urgency, active_property_damage and after_hours_emergency, waking
+ * the owner at midnight over a job already booked. Written alone they escalate
+ * on nothing.
+ *
+ * It is the same fault as escalating on Kyro's paraphrase, arriving by another
+ * route: the trigger fires on words the customer did not just write. Left
+ * alone, every reply in a thread re-escalates the original emergency for as
+ * long as the thread lives.
+ *
+ * Removes structurally quoted material only -- `>` lines, the attribution line,
+ * and forwarded-header blocks -- and never prose, so a reply written underneath
+ * the quote survives. If stripping would leave nothing to judge, the original
+ * is used instead: an unnecessary alert is a poor outcome, and a missed
+ * emergency is a much worse one.
+ */
+export function withoutQuotedReply(text: string) {
+  const kept: string[] = [];
+
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    // Outlook's rule of underscores, and the forwarded-message banner, both
+    // mean everything below is the older mail. These clients put the reply
+    // above the divider, so nothing the customer just wrote lives past it --
+    // and unlike an attribution line, the quoted body below carries no `>`
+    // once the HTML has been flattened to text.
+    if (
+      /^_{10,}$/.test(trimmed) ||
+      /^-{2,}\s*(?:Original Message|Forwarded message)\s*-{2,}$/i.test(trimmed)
+    ) {
+      break;
+    }
+
+    // "On <date>, <person> wrote:", which clients wrap across two lines. Only
+    // the attribution goes: a reply written underneath it must still be read.
+    if (/^on\b.{0,200}\bwrote:$/i.test(trimmed) || /^wrote:$/i.test(trimmed)) {
+      continue;
+    }
+
+    if (/^(?:from|sent|to|cc|subject|date|reply-to):\s/i.test(trimmed)) {
+      continue;
+    }
+
+    if (trimmed.startsWith(">")) {
+      continue;
+    }
+
+    kept.push(line);
+  }
+
+  const stripped = kept.join("\n");
+
+  return stripped.trim().length >= 12 ? stripped : text;
+}
+
 function mentionsUnnegated(content: string, pattern: RegExp) {
   for (const match of content.matchAll(pattern)) {
     const before = content.slice(0, match.index);
@@ -257,7 +319,7 @@ export function detectUrgentEscalationTriggers(
   // other two removes invented vocabulary without losing anything the customer
   // actually said. This replaces a narrower guard that excluded titles for
   // voice calls only, which was the same fault seen from one angle.
-  const content = input.content.toLowerCase();
+  const content = withoutQuotedReply(input.content).toLowerCase();
   const triggers = new Set<UrgentEscalationTriggerKey>();
 
   if (

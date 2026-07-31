@@ -139,6 +139,12 @@ describe("nothing about trigger detection changed", () => {
 
     assert.doesNotMatch(detector, /input\.summary/);
     assert.doesNotMatch(detector, /input\.title/);
-    assert.match(detector, /const content = input\.content\.toLowerCase\(\)/);
+    // input.content is the only field read. It is now narrowed further, to the
+    // part the customer just wrote rather than the thread quoted beneath it --
+    // the same principle applied twice. See paraphrased-triggers.test.ts.
+    assert.match(
+      detector,
+      /const content = withoutQuotedReply\(input\.content\)\.toLowerCase\(\)/,
+    );
   });
 });

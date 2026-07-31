@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { detectUrgentEscalationTriggers } from "./urgent-escalation";
+import {
+  detectUrgentEscalationTriggers,
+  withoutQuotedReply,
+} from "./urgent-escalation";
 
 /**
  * Kyro's own paraphrase was deciding whether the owner got woken up.
@@ -287,5 +290,72 @@ describe("a trigger must come from the customer, not from Kyro", () => {
     );
 
     assert.ok(found.includes("safety_risk"));
+  });
+});
+
+/**
+ * The same fault as escalating on Kyro's paraphrase, arriving by another route.
+ *
+ * Reply to Kyro's email with "Thanks, Tuesday at 9 works fine" and the client
+ * quotes the whole thread underneath, original emergency and all. Measured
+ * before the fix: those words escalated on explicit_urgency,
+ * active_property_damage and after_hours_emergency, waking the owner at
+ * midnight over a job already booked. Written alone they escalate on nothing.
+ *
+ * Untouched in production so far only because 1 of 387 inbound messages is a
+ * reply into a thread -- almost everything is still first contact. It gets
+ * worse with use, and every reply re-escalates for as long as the thread lives.
+ */
+describe("a trigger must come from what the customer just wrote", () => {
+  const fires = (content: string) =>
+    detectUrgentEscalationTriggers(
+      { content, sourceKey: "test", sourceType: "email" },
+      { afterHours: true },
+    );
+
+  it("does not escalate an emergency the customer is only quoting", () => {
+    for (const [client, body] of [
+      [
+        "gmail",
+        "Thanks, Tuesday at 9 works fine. See you then.\n\nOn Tue, 28 Jul 2026 at 18:04, Kyro <hello@k.com> wrote:\n> burst pipe -- water pouring through the ceiling, urgent\n",
+      ],
+      [
+        "outlook",
+        "That works for us, thank you.\n\n________________________________\nFrom: Kyro <hello@k.com>\nSent: Tuesday, 28 July 2026 18:04\nSubject: Re: URGENT burst pipe\n\nThanks for getting in touch about the burst pipe - water pouring through the ceiling.\n",
+      ],
+      [
+        "forwarded",
+        "Can you look at this one please.\n\n---------- Forwarded message ---------\nFrom: Sarah <s@e.com>\n\nURGENT burst pipe water pouring through the ceiling\n",
+      ],
+    ] as const) {
+      assert.deepEqual(fires(body), [], `${client} quoted history escalated`);
+    }
+  });
+
+  it("still escalates the emergency the customer is actually reporting", () => {
+    // The counterweight. Suppressing a real emergency is far worse than an
+    // extra alert, so each of these must keep firing.
+    for (const [name, body] of [
+      [
+        "new emergency, old thread quoted",
+        "URGENT - burst pipe, water pouring through the ceiling, please help\n\nOn Mon, 27 Jul 2026, Kyro wrote:\n> Thanks for your enquiry about a new tap.\n",
+      ],
+      [
+        "written underneath the quote",
+        "On Tue, 28 Jul 2026 at 18:04, Kyro wrote:\n> Can I confirm Tuesday at 9am?\n\nActually no -- there is now water pouring through the ceiling, it is an emergency.\n",
+      ],
+      [
+        "nothing but the quote, so it is all we have",
+        "> burst pipe water pouring through the ceiling urgent",
+      ],
+    ] as const) {
+      assert.ok(fires(body).includes("active_property_damage"), name);
+    }
+  });
+
+  it("leaves a message with no thread in it exactly as it was", () => {
+    const plain = "Hi, the kitchen tap drips. No rush at all.";
+
+    assert.equal(withoutQuotedReply(plain), plain);
   });
 });
