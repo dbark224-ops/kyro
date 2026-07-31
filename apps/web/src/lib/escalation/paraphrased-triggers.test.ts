@@ -549,3 +549,78 @@ describe("a returning customer with a complaint, not a returning customer", () =
     assert.ok(!isIssue("the boiler you fitted has failed", false));
   });
 });
+
+/**
+ * A third re-measurement, on phrasings taken from neither the code nor the
+ * earlier tests. The triggers caught 14 of 21.
+ *
+ * The misses were not exotic. Two were grammar rather than vocabulary --
+ * "speakING to the boss" where only "speak to" was covered, and "the ceiling
+ * IS bulging" where only "has" was allowed after the noun. Two were trade
+ * slang: "water's pissing out", "got a belt off the cooker switch". One was
+ * "whoever's in charge", which the existing "person in charge" alternative
+ * looked like it already handled. One was a count with an adjective in the
+ * way: "5 office buildings" where "5 units" matched.
+ *
+ * Kept deliberately narrow on the count: allowing any word between the number
+ * and the noun would make "our 3 bedroom house" a high-value lead, so only
+ * building words take an adjective.
+ */
+describe("the words a third set of customers used", () => {
+  const fires = (content: string) =>
+    detectUrgentEscalationTriggers(
+      { content, sourceKey: "test", sourceType: "email" },
+      { afterHours: false },
+    );
+
+  it("hears all of them", () => {
+    const cases: Array<[string, string]> = [
+      ["water's pissing out from under the boiler", "active_property_damage"],
+      ["the ceiling is bulging and dripping", "active_property_damage"],
+      ["theres water coming down the walls", "active_property_damage"],
+      ["my kitchen is flooding", "active_property_damage"],
+      ["got a belt off the cooker switch", "safety_risk"],
+      ["the fuse box is making a buzzing noise and smells hot", "safety_risk"],
+      ["there's smoke coming from the boiler", "safety_risk"],
+      ["I need someone out today please", "explicit_urgency"],
+      ["this can't wait till next week", "explicit_urgency"],
+      ["I'm going to have to report this to trading standards", "complaint_or_reputation_risk"],
+      ["I'll be putting this on Google reviews", "complaint_or_reputation_risk"],
+      ["is there any chance of speaking to the boss", "asks_for_owner_now"],
+      ["could you get the guv'nor to call me", "asks_for_owner_now"],
+      ["I'd rather deal with whoever's in charge", "asks_for_owner_now"],
+      ["we've got 22 flats needing a gas safety check", "high_value_lead"],
+      ["looking for someone to maintain 5 office buildings", "high_value_lead"],
+      ["it's for a hotel refurb, 30 ensuites", "high_value_lead"],
+      ["we're a letting agent with a portfolio to cover", "high_value_lead"],
+    ];
+
+    for (const [content, trigger] of cases) {
+      assert.ok(fires(content).includes(trigger as never), `${trigger}: ${content}`);
+    }
+  });
+
+  it("and still wakes nobody for an ordinary job", () => {
+    // The counterweight, widened each time the triggers are. "3 bedroom house"
+    // is the one that would break first if the count rule were loosened.
+    for (const content of [
+      "our 3 bedroom house needs a new boiler",
+      "the ceiling in the spare room could do with painting",
+      "we have 2 bathrooms",
+      "the owner of the property will be there to let you in",
+      "I got a quote from someone else last year",
+      "we own the property outright",
+      "could you service the boiler please",
+      "the shower pressure is a little low",
+    ]) {
+      assert.deepEqual(
+        detectUrgentEscalationTriggers(
+          { content, existingCustomer: true, sourceKey: "test", sourceType: "email" },
+          { afterHours: false },
+        ),
+        [],
+        content,
+      );
+    }
+  });
+});

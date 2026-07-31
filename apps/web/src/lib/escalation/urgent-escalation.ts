@@ -368,7 +368,7 @@ export function detectUrgentEscalationTriggers(
       // customer telling you why they want the work, not an emergency. Only
       // plainly historical markers are excluded: "flooded last night" is an
       // emergency and must keep firing, so "last" alone cannot disqualify.
-      /\b(burst pipe|(?:pipe|main|cylinder|tank)s?\s+(?:has |have )?burst|burst (?:main|cylinder|tank)|flood(?:s|ed|ing)?\b(?!\s+(?:last\s+(?:winter|summer|spring|autumn|fall|year|month)|back in|in \d{4}|\d+\s+(?:years?|months?)\s+ago))|water (?:is )?(?:pouring|gushing)|water (?:is )?(?:coming|running|leaking)\s+(?:through|down|into)|ceiling (?:has )?(?:come down|collapsed|fallen)|water everywhere|water damage|soak(?:ed|ing) (?:through|into)|(?:carpet|floor|ceiling)s?\s+(?:is|are)\s+soaked|roof leak|ceiling leak|active leak|property damage)\b/g,
+      /\b(burst pipe|(?:pipe|main|cylinder|tank)s?\s+(?:has |have )?burst|burst (?:main|cylinder|tank)|flood(?:s|ed|ing)?\b(?!\s+(?:last\s+(?:winter|summer|spring|autumn|fall|year|month)|back in|in \d{4}|\d+\s+(?:years?|months?)\s+ago))|water(?:'s)?\s+(?:is\s+)?(?:pouring|gushing|pissing|spurting|streaming)|(?:pouring|gushing|pissing)\s+out|water (?:is )?(?:coming|running|leaking)\s+(?:through|down|into)|ceilings?\s+(?:has |have |is |are )?(?:come down|collapsed|fallen|bulg(?:ed|ing)|sagg(?:ed|ing))|(?:bulging|sagging) ceiling|water everywhere|water damage|soak(?:ed|ing) (?:through|into)|(?:carpet|floor|ceiling)s?\s+(?:is|are)\s+soaked|roof leak|ceiling leak|active leak|property damage)\b/g,
     )
   ) {
     triggers.add("active_property_damage");
@@ -389,7 +389,7 @@ export function detectUrgentEscalationTriggers(
       // smell from the fuse box" matched neither "fire" nor "smoke". Each of
       // those is somebody describing a real electrical danger in the only way
       // they would think to describe it.
-      /\b(gas leak|gas smell|gas odou?r|gas escape|smell(?:s|ing)?\s+(?:of\s+)?gas|electric shock|electrical danger|(?:got|had|getting)\s+(?:an?\s+)?shock|shock off|shocked me|spark(?:s|ed|ing)|burning smell|smell(?:s|ing)?\s+(?:of\s+)?burning|smell(?:s|ing)?\s+hot|overheating|exposed wire|bare wire|wire hanging|wire(?:s)? (?:is|are) exposed|wiring (?:is )?exposed|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
+      /\b(gas leak|gas smell|gas odou?r|gas escape|smell(?:s|ing)?\s+(?:of\s+)?gas|electric shock|electrical danger|(?:got|had|getting)\s+(?:an?\s+)?(?:shock|belt|jolt|zap)|(?:shock|belt|jolt)\s+off|shocked me|spark(?:s|ed|ing)|burning smell|smell(?:s|ing)?\s+(?:of\s+)?burning|smell(?:s|ing)?\s+hot|overheating|exposed wire|bare wire|wire hanging|wire(?:s)? (?:is|are) exposed|wiring (?:is )?exposed|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
     )
   ) {
     triggers.add("safety_risk");
@@ -480,7 +480,7 @@ export function detectUrgentEscalationTriggers(
   //
   // A count needs three or more. "we have two bathrooms" is a house.
   if (
-    /\b(commercial (?:job|project|property|premises|site|contract|work|client)|industrial (?:job|project|property|premises|site|unit)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel|refurbishment)|full (?:home|house) (?:renovation|remodel|refurbishment)|emergency callout|large project|new[- ]?build|development site|fit[- ]?out|(?:maintenance|service) contract|regular (?:contractor|maintenance)|property (?:management|manager|portfolio)|letting agent|(?:\d{2,}|[3-9]) (?:rental )?(?:units?|properties|flats?|apartments?|sites?|premises)|refurbishment of|block of (?:\d+|\w+) (?:flats?|apartments?|units?)|(?:care|nursing|residential) home|(?:hotel|restaurant|cafe|pub|salon|surgery|practice|school|nursery|warehouse|office block)s?\b.{0,30}\b(?:contractor|quote|maintenance|refurb|fit[- ]?out|work|job)|(?:we|i) (?:run|own|manage|operate) (?:\d+|two|three|four|five|six|several|multiple) )\b/.test(
+    /\b(commercial (?:job|project|property|premises|site|contract|work|client)|industrial (?:job|project|property|premises|site|unit)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel|refurbishment)|full (?:home|house) (?:renovation|remodel|refurbishment)|emergency callout|large project|new[- ]?build|development site|fit[- ]?out|(?:maintenance|service) contract|regular (?:contractor|maintenance)|property (?:management|manager|portfolio)|letting agent|(?:\d{2,}|[3-9]) (?:rental )?(?:units?|properties|flats?|apartments?|sites?|premises)|(?:\d{2,}|[3-9])\s+(?:\w+\s+)?(?:buildings?|offices?)|refurbishment of|block of (?:\d+|\w+) (?:flats?|apartments?|units?)|(?:care|nursing|residential) home|(?:hotel|restaurant|cafe|pub|salon|surgery|practice|school|nursery|warehouse|office block)s?\b.{0,30}\b(?:contractor|quote|maintenance|refurb|fit[- ]?out|work|job)|(?:we|i) (?:run|own|manage|operate) (?:\d+|two|three|four|five|six|several|multiple) )\b/.test(
       content,
     )
   ) {
@@ -519,10 +519,15 @@ export function detectUrgentEscalationTriggers(
   // third party and not a request, by requiring the owner word to sit against
   // a verb of asking or calling.
   if (
-    /\b(?:speak|talk)\s+(?:to|with)\s+(?:the\s+)?(?:owner|boss|manager|tradie|person in charge|whoever\s+(?:runs|owns))\b/.test(
+    // A third re-measurement, on phrasings neither comment was written from,
+    // and three more missed. Two were grammar rather than vocabulary --
+    // "speakING to the boss" where only "speak to" was covered -- and one was
+    // "whoever's in charge", which the "person in charge" alternative looked
+    // like it already handled and did not.
+    /\b(?:speak|speaking|talk|talking)\s+(?:to|with)\s+(?:the\s+)?(?:owner|boss|gaffer|guv'?nor|manager|tradie|person in charge|whoever(?:'s| is)?\s+in\s+charge|whoever\s+(?:runs|owns))\b/.test(
       content,
     ) ||
-    /\b(?:owner|boss|manager|tradie)\s+(?:to\s+)?(?:call|ring|phone|contact)\b/.test(
+    /\b(?:owner|boss|gaffer|guv'?nor|manager|tradie)\s+(?:to\s+)?(?:call|ring|phone|contact)\b/.test(
       content,
     ) ||
     /\b(?:call|ring|phone)\s+from\s+(?:the\s+)?(?:owner|boss|manager)\b/.test(
@@ -531,7 +536,7 @@ export function detectUrgentEscalationTriggers(
     /\bput\s+me\s+through\s+to\s+(?:the\s+)?(?:owner|boss|manager|tradie)\b/.test(
       content,
     ) ||
-    /\b(?:speak|talk)\s+(?:to|with)\s+whoever\b/.test(content) ||
+    /\b(?:speak|speaking|talk|talking)\s+(?:to|with)\s+whoever\b/.test(content) ||
     // Re-measured on phrasings the comment above was not written from, and
     // three more missed: "is the boss about?", "could the gaffer give me a
     // bell", "I'd rather deal with the person in charge". A trade customer
@@ -542,7 +547,7 @@ export function detectUrgentEscalationTriggers(
     /\b(?:owner|boss|gaffer|guv'?nor|manager)\s+(?:to\s+)?give me a (?:bell|call|ring)\b/.test(
       content,
     ) ||
-    /\bdeal\s+with\s+(?:the\s+)?(?:owner|boss|gaffer|manager|person in charge)\b/.test(
+    /\bdeal\s+with\s+(?:the\s+)?(?:owner|boss|gaffer|guv'?nor|manager|person in charge|whoever(?:'s| is)?\s+in\s+charge)\b/.test(
       content,
     )
   ) {
