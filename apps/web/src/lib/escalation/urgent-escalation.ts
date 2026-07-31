@@ -343,7 +343,10 @@ export function detectUrgentEscalationTriggers(
       //
       // Everything here still passes through mentionsUnnegated, so "no rush",
       // "not urgent" and "no hurry" stay quiet -- verified, not assumed.
-      /\b(urgent|emergency|asap|as soon as possible|immediately|right now|right away|straight away|can'?t wait|cannot wait|desperate|hurry|same[- ]day critical|(?:sorted|fixed|done|out|come|someone) today|how (?:quickly|soon|fast))\b/g,
+      // Re-measured against phrasings this comment was NOT written from, which
+      // is the only honest version of the test. "Please treat this as a
+      // priority" still missed.
+      /\b(urgent|emergency|asap|as soon as possible|immediately|right now|right away|straight away|can'?t wait|cannot wait|desperate|hurry|same[- ]day critical|(?:sorted|fixed|done|out|come|someone) today|how (?:quickly|soon|fast)|(?:as a|top|high|utmost) priority|treat (?:this|it) as)\b/g,
     )
   ) {
     triggers.add("explicit_urgency");
@@ -355,7 +358,16 @@ export function detectUrgentEscalationTriggers(
       // Word order was fixed: "burst pipe" matched and "a pipe has burst under
       // the sink" did not, which is how most people say the most classic
       // emergency there is. 2 of 8 real descriptions fired before this.
-      /\b(burst pipe|(?:pipe|main|cylinder|tank)s?\s+(?:has |have )?burst|burst (?:main|cylinder|tank)|flood|flooding|water (?:is )?(?:pouring|gushing)|water (?:is )?(?:coming|running|leaking)\s+(?:through|down|into)|ceiling (?:has )?(?:come down|collapsed|fallen)|water everywhere|water damage|soaked through|(?:carpet|floor|ceiling)s?\s+(?:is|are)\s+soaked|roof leak|ceiling leak|active leak|property damage)\b/g,
+      // Re-measured on fresh phrasings and "the kitchen is flooded" did not
+      // fire, which is about as plain as an emergency gets. `flood` and
+      // `flooding` were both listed and neither matches "flooded", because the
+      // trailing \b will not sit inside the word. "Soaking through" missed for
+      // the same reason next to "soaked through".
+      // "The flood last winter ruined the carpet, we replaced it since" is a
+      // customer telling you why they want the work, not an emergency. Only
+      // plainly historical markers are excluded: "flooded last night" is an
+      // emergency and must keep firing, so "last" alone cannot disqualify.
+      /\b(burst pipe|(?:pipe|main|cylinder|tank)s?\s+(?:has |have )?burst|burst (?:main|cylinder|tank)|flood(?:s|ed|ing)?\b(?!\s+(?:last\s+(?:winter|summer|spring|autumn|fall|year|month)|back in|in \d{4}|\d+\s+(?:years?|months?)\s+ago))|water (?:is )?(?:pouring|gushing)|water (?:is )?(?:coming|running|leaking)\s+(?:through|down|into)|ceiling (?:has )?(?:come down|collapsed|fallen)|water everywhere|water damage|soak(?:ed|ing) (?:through|into)|(?:carpet|floor|ceiling)s?\s+(?:is|are)\s+soaked|roof leak|ceiling leak|active leak|property damage)\b/g,
     )
   ) {
     triggers.add("active_property_damage");
@@ -376,7 +388,7 @@ export function detectUrgentEscalationTriggers(
       // smell from the fuse box" matched neither "fire" nor "smoke". Each of
       // those is somebody describing a real electrical danger in the only way
       // they would think to describe it.
-      /\b(gas leak|gas smell|gas odou?r|gas escape|smell(?:s|ing)?\s+(?:of\s+)?gas|electric shock|electrical danger|(?:got|had|getting)\s+(?:an?\s+)?shock|shock off|shocked me|spark(?:s|ed|ing)|burning smell|smell(?:s|ing)?\s+(?:of\s+)?burning|smell(?:s|ing)?\s+hot|overheating|exposed wire|bare wire|wire hanging|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
+      /\b(gas leak|gas smell|gas odou?r|gas escape|smell(?:s|ing)?\s+(?:of\s+)?gas|electric shock|electrical danger|(?:got|had|getting)\s+(?:an?\s+)?shock|shock off|shocked me|spark(?:s|ed|ing)|burning smell|smell(?:s|ing)?\s+(?:of\s+)?burning|smell(?:s|ing)?\s+hot|overheating|exposed wire|bare wire|wire hanging|wire(?:s)? (?:is|are) exposed|wiring (?:is )?exposed|fire|smoke|injur(?:y|ed)|unsafe|collapse|live wire|carbon monoxide)\b/g,
     )
   ) {
     triggers.add("safety_risk");
@@ -389,7 +401,7 @@ export function detectUrgentEscalationTriggers(
       // 2 of 6 fired. "the work you did last month has failed", "your repair
       // has come back" and "it's still not right after your visit" are how a
       // returning customer actually opens, and none of them matched.
-      /\b(your work|your repair|(?:work|job|repair|fix) you did|you (?:fixed|repaired|installed|fitted)|previous job|last repair|failed again|has failed|came back|come back|warranty|causing damage|made it worse|still not right|not been fixed|(?:since|after) your visit)\b/g,
+      /\b(your work|your repair|(?:work|job|repair|fix) you did|you (?:fixed|repaired|installed|fitted)|previous job|last repair|failed again|has failed|came back|come back|warranty|causing damage|made it worse|(?:it|this)(?:'s| is) (?:got )?worse|worse (?:now|again)|still not right|not been fixed|you were (?:here|out)|(?:since|after) your visit)\b/g,
     )
   ) {
     triggers.add("existing_job_serious_issue");
@@ -400,7 +412,7 @@ export function detectUrgentEscalationTriggers(
       content,
       // 4 of 8. A solicitor, a review and "extremely unhappy" are the three
       // most common ways this arrives and none of them matched.
-      /\b(complaint|complain|refund|lawyer|solicitor|attorney|legal action|regulator|ombudsman|trading standards|bad review|leav(?:e|ing) (?:a|an)[^.]{0,12}review|write (?:a|an)[^.]{0,12}review|report you|unacceptable|furious|(?:extremely|very|deeply|thoroughly) (?:unhappy|dissatisfied|disappointed)|never been treated|disgrace(?:ful)?|appalling|shoddy)\b/g,
+      /\b(complaint|complain|refund|lawyer|solicitor|attorney|legal action|regulator|ombudsman|trading standards|bad review|leav(?:e|ing) (?:a|an)[^.]{0,12}review|write (?:a|an)[^.]{0,12}review|report you|(?:on|to) (?:google|trustpilot|checkatrade|yelp|facebook)|unacceptable|furious|(?:extremely|very|deeply|thoroughly) (?:unhappy|dissatisfied|disappointed)|never been treated|disgrace(?:ful)?|appalling|shoddy)\b/g,
     )
   ) {
     triggers.add("complaint_or_reputation_risk");
@@ -445,7 +457,7 @@ export function detectUrgentEscalationTriggers(
   //
   // A count needs three or more. "we have two bathrooms" is a house.
   if (
-    /\b(commercial (?:job|project|property|premises|site|contract|work|client)|industrial (?:job|project|property|premises|site|unit)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel|refurbishment)|full (?:home|house) (?:renovation|remodel|refurbishment)|emergency callout|large project|new[- ]?build|development site|fit[- ]?out|(?:maintenance|service) contract|regular (?:contractor|maintenance)|property (?:management|manager|portfolio)|letting agent|(?:\d{2,}|[3-9]) (?:rental )?(?:units?|properties|flats?|apartments?|sites?|premises)|refurbishment of)\b/.test(
+    /\b(commercial (?:job|project|property|premises|site|contract|work|client)|industrial (?:job|project|property|premises|site|unit)|insurance (?:claim|job|repair|work)|whole[- ]house (?:renovation|remodel|refurbishment)|full (?:home|house) (?:renovation|remodel|refurbishment)|emergency callout|large project|new[- ]?build|development site|fit[- ]?out|(?:maintenance|service) contract|regular (?:contractor|maintenance)|property (?:management|manager|portfolio)|letting agent|(?:\d{2,}|[3-9]) (?:rental )?(?:units?|properties|flats?|apartments?|sites?|premises)|refurbishment of|block of (?:\d+|\w+) (?:flats?|apartments?|units?)|(?:care|nursing|residential) home|(?:hotel|restaurant|cafe|pub|salon|surgery|practice|school|nursery|warehouse|office block)s?\b.{0,30}\b(?:contractor|quote|maintenance|refurb|fit[- ]?out|work|job)|(?:we|i) (?:run|own|manage|operate) (?:\d+|two|three|four|five|six|several|multiple) )\b/.test(
       content,
     )
   ) {
@@ -496,7 +508,20 @@ export function detectUrgentEscalationTriggers(
     /\bput\s+me\s+through\s+to\s+(?:the\s+)?(?:owner|boss|manager|tradie)\b/.test(
       content,
     ) ||
-    /\b(?:speak|talk)\s+(?:to|with)\s+whoever\b/.test(content)
+    /\b(?:speak|talk)\s+(?:to|with)\s+whoever\b/.test(content) ||
+    // Re-measured on phrasings the comment above was not written from, and
+    // three more missed: "is the boss about?", "could the gaffer give me a
+    // bell", "I'd rather deal with the person in charge". A trade customer
+    // does not say "owner".
+    /\b(?:is|are)\s+(?:the\s+)?(?:owner|boss|gaffer|guv'?nor|manager)\s+(?:about|around|there|in|available)\b/.test(
+      content,
+    ) ||
+    /\b(?:owner|boss|gaffer|guv'?nor|manager)\s+(?:to\s+)?give me a (?:bell|call|ring)\b/.test(
+      content,
+    ) ||
+    /\bdeal\s+with\s+(?:the\s+)?(?:owner|boss|gaffer|manager|person in charge)\b/.test(
+      content,
+    )
   ) {
     triggers.add("asks_for_owner_now");
   }

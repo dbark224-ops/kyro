@@ -407,3 +407,86 @@ describe("a structured message is not a quoted thread", () => {
     );
   });
 });
+
+/**
+ * The triggers re-measured against phrasings these tests were NOT written from.
+ *
+ * Everything above scored well on its own examples. On twenty-one fresh ones
+ * the same code scored 10. "The kitchen is flooded" did not escalate, which is
+ * about as plain as an emergency gets -- `flood` and `flooding` were both
+ * listed and neither matches "flooded", because the trailing word boundary
+ * will not sit inside the word. "Is the boss about?" and "could the gaffer
+ * give me a bell" missed because a trade customer does not say "owner".
+ *
+ * Measuring a rule against the examples it was written from proves nothing.
+ * That applies to the fixes as much as to the faults, which is what this file
+ * exists to demonstrate.
+ */
+describe("the triggers, measured on words these tests did not invent", () => {
+  const fire = (content: string, existingCustomer = false) =>
+    detectUrgentEscalationTriggers(
+      { content, existingCustomer, sourceKey: "test", sourceType: "email" },
+      { afterHours: false },
+    );
+
+  it("hears each trigger in an unfamiliar phrasing", () => {
+    for (const [key, message, existing] of [
+      ["explicit_urgency", "please treat this as a priority", false],
+      ["active_property_damage", "the kitchen is flooded", false],
+      ["active_property_damage", "it's soaking through into the flat below", false],
+      ["safety_risk", "the wire is exposed where the kids play", false],
+      ["asks_for_owner_now", "is the boss about?", false],
+      ["asks_for_owner_now", "could the gaffer give me a bell", false],
+      ["asks_for_owner_now", "I'd rather deal with the person in charge", false],
+      ["high_value_lead", "looking for a contractor for our care home", false],
+      ["high_value_lead", "we run four salons and need one firm for all of them", false],
+      ["complaint_or_reputation_risk", "this is going on Google unless someone calls me", false],
+      ["existing_job_serious_issue", "you were here Tuesday and it's worse now", true],
+    ] as const) {
+      assert.ok(fire(message, existing).includes(key), `${key}: ${message}`);
+    }
+  });
+
+  it("tells a flood happening now from one that happened years ago", () => {
+    // The dangerous half of this fix. Excluding "flood ... last" would have
+    // silenced "the kitchen flooded last night", so only plainly historical
+    // markers disqualify.
+    for (const now of [
+      "the kitchen is flooded",
+      "the kitchen flooded last night",
+      "the bathroom flooded this morning",
+      "the utility room flooded yesterday",
+      "it's flooding right now",
+    ]) {
+      assert.ok(fire(now).includes("active_property_damage"), now);
+    }
+
+    for (const past of [
+      "the flood last winter ruined the carpet, we replaced it since",
+      "we had a flood last year and want to prevent it happening again",
+      "there was a flood back in 2019",
+      "we had a flood 3 years ago",
+    ]) {
+      assert.ok(!fire(past).includes("active_property_damage"), past);
+    }
+  });
+
+  it("keeps every one of these out of the owner's evening", () => {
+    for (const ordinary of [
+      "can you quote to replace a kitchen tap",
+      "the outside tap drips a bit",
+      "our bathroom needs retiling",
+      "I'd like a price for a new radiator",
+      "the shower pressure is a little low",
+      "could you service the boiler please",
+      "we're thinking about a new bathroom next year",
+      "no rush at all on this one",
+      "we have two bathrooms and both taps drip",
+      "the owner of the property will be there",
+      "we own the flat above the shop",
+      "I run a bit late on Fridays",
+    ]) {
+      assert.deepEqual(fire(ordinary, true), [], ordinary);
+    }
+  });
+});
