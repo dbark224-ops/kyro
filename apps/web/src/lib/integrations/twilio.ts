@@ -483,19 +483,34 @@ export async function findOrCreateTwilioSmsChannel(
 
 export function telephonyUsageCost(input: {
   direction: "inbound" | "outbound";
-  kind: "sms" | "number_rental" | "voice_call";
+  /**
+   * WhatsApp is deliberately its own kind rather than a flavour of SMS.
+   *
+   * It is not billed the same way: Twilio charges SMS per segment and WhatsApp
+   * per message, and the sandbox is free outright. Pricing it as SMS was
+   * harmless only while every rate was unset and everything recorded zero --
+   * the moment real SMS rates were configured, 60 free sandbox messages would
+   * have started recording a charge, on the one channel this workspace
+   * actually uses.
+   */
+  kind: "sms" | "whatsapp" | "number_rental" | "voice_call";
   markupRate?: number | null;
   providerPrice?: number | null;
   providerCurrency?: string | null;
 }) {
   const envCost =
-    input.kind === "sms" && input.direction === "outbound"
-      ? numberValue(process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD)
-      : input.kind === "sms" && input.direction === "inbound"
-        ? numberValue(process.env.TWILIO_SMS_INBOUND_UNIT_COST_USD)
-        : input.kind === "voice_call"
-          ? numberValue(process.env.TWILIO_VOICE_UNIT_COST_USD)
-          : numberValue(process.env.TWILIO_NUMBER_MONTHLY_COST_USD);
+    input.kind === "whatsapp"
+      ? // Unset means free, which is the truth for the sandbox. A production
+        // WhatsApp sender is billed per conversation rather than per message,
+        // so whatever goes here will be an approximation either way.
+        numberValue(process.env.TWILIO_WHATSAPP_UNIT_COST_USD)
+      : input.kind === "sms" && input.direction === "outbound"
+        ? numberValue(process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD)
+        : input.kind === "sms" && input.direction === "inbound"
+          ? numberValue(process.env.TWILIO_SMS_INBOUND_UNIT_COST_USD)
+          : input.kind === "voice_call"
+            ? numberValue(process.env.TWILIO_VOICE_UNIT_COST_USD)
+            : numberValue(process.env.TWILIO_NUMBER_MONTHLY_COST_USD);
   // Twilio reports a message price as a negative number, being money leaving
   // the account, while Vapi reports a positive cost. Clamping at zero turned
   // the Twilio convention into "free", so each caller had to remember to strip

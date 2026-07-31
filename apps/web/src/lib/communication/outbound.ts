@@ -2047,11 +2047,16 @@ async function deliverOutboundQueueItem(
     }
 
     if (!dryRun) {
+      // A message sent over the sandbox bridge is a WhatsApp message wearing
+      // an SMS channel type. It is billed per message, not per segment, and
+      // the sandbox is free -- so pricing it as SMS would have charged this
+      // workspace's own routing at long-code rates.
+      const sentOverWhatsApp = twilioSmsResult?.transport === "whatsapp";
       const telephonyCost =
         channelType === "sms"
           ? telephonyUsageCost({
               direction: "outbound",
-              kind: "sms",
+              kind: sentOverWhatsApp ? "whatsapp" : "sms",
               markupRate: await resolveWorkspaceUsageMarkupRate(
                 supabase,
                 activeRow.workspace_id,
@@ -2075,7 +2080,9 @@ async function deliverOutboundQueueItem(
       // own price already covers the whole message however many segments it
       // took, so multiplying that would count them twice.
       const segments =
-        channelType === "sms" ? Math.max(1, smsSegmentCount(body ?? "")) : 1;
+        channelType === "sms" && !sentOverWhatsApp
+          ? Math.max(1, smsSegmentCount(body ?? ""))
+          : 1;
       const billedUnits = telephonyCost?.source === "configured" ? segments : 1;
       const usageCost = (telephonyCost?.cost ?? 0) * billedUnits;
       const usageMarkup = telephonyCost?.markup ?? 0;
@@ -2098,12 +2105,11 @@ async function deliverOutboundQueueItem(
         service: usageService,
         model: null,
         usage_type: usageType,
-        quantity: String(channelType === "sms" ? segments : 1),
-        unit: channelType === "sms" ? "segment" : "message",
+        quantity: String(segments),
+        unit:
+          channelType === "sms" && !sentOverWhatsApp ? "segment" : "message",
         // Per unit, matching how the voice path records a minute.
-        unit_cost_snapshot: String(
-          usageCost / (channelType === "sms" ? segments : 1),
-        ),
+        unit_cost_snapshot: String(usageCost / segments),
         markup_snapshot: String(usageMarkup),
         currency: usageCurrency,
         cost_snapshot: String(usageCost),

@@ -168,7 +168,9 @@ async function recordInboundUsage(
 ) {
   const usage = telephonyUsageCost({
     direction: "inbound",
-    kind: "sms",
+    // Not SMS. The sandbox is free and production WhatsApp is billed per
+    // message, so the per-segment SMS rate does not apply to either.
+    kind: "whatsapp",
     markupRate: await resolveWorkspaceUsageMarkupRate(
       supabase,
       input.workspace.id,

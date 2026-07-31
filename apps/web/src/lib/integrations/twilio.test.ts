@@ -25,6 +25,7 @@ const PRICING_KEYS = [
   "TWILIO_SMS_INBOUND_UNIT_COST_USD",
   "TWILIO_SMS_OUTBOUND_UNIT_COST_USD",
   "TWILIO_VOICE_UNIT_COST_USD",
+  "TWILIO_WHATSAPP_UNIT_COST_USD",
 ] as const;
 const originalPricing = new Map(
   PRICING_KEYS.map((key) => [key, process.env[key]] as const),
@@ -374,4 +375,52 @@ test("reports whether the price came from Twilio or from configuration", () => {
     telephonyUsageCost({ direction: "outbound", kind: "sms", providerPrice: null }).source,
     "none",
   );
+});
+
+/**
+ * WhatsApp is not a flavour of SMS, and pricing it as one was harmless only
+ * while every rate was unset and everything recorded zero.
+ *
+ * The moment real SMS rates were configured, the 60 sandbox messages in this
+ * workspace would have started recording a long-code charge each -- on the one
+ * channel it actually routes through. Twilio bills SMS per segment and
+ * WhatsApp per message, and the sandbox is free outright.
+ */
+test("a WhatsApp message is not charged at SMS rates", () => {
+  process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD = "0.0125";
+  process.env.TWILIO_SMS_INBOUND_UNIT_COST_USD = "0.0127";
+  process.env.TWILIO_MARKUP_RATE = "0";
+  delete process.env.TWILIO_WHATSAPP_UNIT_COST_USD;
+
+  for (const direction of ["inbound", "outbound"] as const) {
+    const usage = telephonyUsageCost({
+      direction,
+      kind: "whatsapp",
+      providerPrice: null,
+    });
+
+    assert.equal(usage.cost, 0, `${direction} WhatsApp was charged`);
+    // "none" also keeps the caller from multiplying it by a segment count.
+    assert.equal(usage.source, "none");
+  }
+
+  // SMS in the same process is still priced, so this is not a blanket zero.
+  assert.equal(
+    telephonyUsageCost({ direction: "outbound", kind: "sms", providerPrice: null }).cost,
+    0.0125,
+  );
+});
+
+test("a WhatsApp rate applies once one is configured", () => {
+  process.env.TWILIO_WHATSAPP_UNIT_COST_USD = "0.005";
+  process.env.TWILIO_MARKUP_RATE = "0";
+
+  const usage = telephonyUsageCost({
+    direction: "outbound",
+    kind: "whatsapp",
+    providerPrice: null,
+  });
+
+  assert.equal(usage.cost, 0.005);
+  assert.equal(usage.source, "configured");
 });
