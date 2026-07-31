@@ -346,3 +346,32 @@ test("a credit from Twilio is never recorded as a negative cost", () => {
     0.0079,
   );
 });
+
+/**
+ * Which price it is matters as much as what it is.
+ *
+ * Twilio's own price covers a whole message however many segments it took. A
+ * configured rate is per segment. Multiplying the first by the segment count
+ * double-counts a long message; not multiplying the second undercounts it. The
+ * caller cannot tell them apart from the number alone, so this says so.
+ */
+test("reports whether the price came from Twilio or from configuration", () => {
+  process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD = "0.0125";
+  process.env.TWILIO_MARKUP_RATE = "0";
+
+  assert.equal(
+    telephonyUsageCost({ direction: "outbound", kind: "sms", providerPrice: null }).source,
+    "configured",
+  );
+  assert.equal(
+    telephonyUsageCost({ direction: "outbound", kind: "sms", providerPrice: -0.0092 }).source,
+    "provider",
+  );
+
+  delete process.env.TWILIO_SMS_OUTBOUND_UNIT_COST_USD;
+
+  assert.equal(
+    telephonyUsageCost({ direction: "outbound", kind: "sms", providerPrice: null }).source,
+    "none",
+  );
+});

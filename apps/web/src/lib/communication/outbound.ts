@@ -22,6 +22,7 @@ import {
   type TwilioMessageTransport,
 } from "../integrations/twilio";
 import { isDialablePhoneNumber } from "../crm/identity";
+import { smsSegmentCount } from "./sms-length";
 import { createServiceSupabaseClient } from "../supabase/service";
 import { writeOrThrow } from "../supabase/write";
 import { getWorkspacePhoneRegion } from "../workspace/general-settings";
@@ -2066,9 +2067,20 @@ async function deliverOutboundQueueItem(
         channelType === "sms" ? "outbound_sms" : "outbound_email";
       const usageService =
         channelType === "sms" ? "sms" : (externalService ?? "email");
-      const usageCost = telephonyCost?.cost ?? 0;
+      // Twilio bills a segment, not a message. 816 sent messages came to 1,210
+      // segments -- an SMS recorded as one message understated what it cost by
+      // about a third across real traffic, on top of the rate being unset.
+      //
+      // Multiplied only for a configured rate, which is per segment. Twilio's
+      // own price already covers the whole message however many segments it
+      // took, so multiplying that would count them twice.
+      const segments =
+        channelType === "sms" ? Math.max(1, smsSegmentCount(body ?? "")) : 1;
+      const billedUnits = telephonyCost?.source === "configured" ? segments : 1;
+      const usageCost = (telephonyCost?.cost ?? 0) * billedUnits;
       const usageMarkup = telephonyCost?.markup ?? 0;
-      const usageCustomerCharge = telephonyCost?.customerCharge ?? 0;
+      const usageCustomerCharge =
+        (telephonyCost?.customerCharge ?? 0) * billedUnits;
       const usageCurrency = telephonyCost?.currency ?? "USD";
 
       // SMS and voice delivery is billable, so this is the same silent
@@ -2086,9 +2098,12 @@ async function deliverOutboundQueueItem(
         service: usageService,
         model: null,
         usage_type: usageType,
-        quantity: "1",
-        unit: "message",
-        unit_cost_snapshot: String(usageCost),
+        quantity: String(channelType === "sms" ? segments : 1),
+        unit: channelType === "sms" ? "segment" : "message",
+        // Per unit, matching how the voice path records a minute.
+        unit_cost_snapshot: String(
+          usageCost / (channelType === "sms" ? segments : 1),
+        ),
         markup_snapshot: String(usageMarkup),
         currency: usageCurrency,
         cost_snapshot: String(usageCost),

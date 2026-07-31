@@ -510,6 +510,16 @@ export function telephonyUsageCost(input: {
     currency: input.providerCurrency ?? "USD",
     customerCharge,
     markup,
+    // Which price this is, because the two are not the same shape. Twilio's
+    // own price covers the whole message however many segments it took, while
+    // a configured rate is per segment and has to be multiplied by them.
+    // Getting that backwards double-counts a long message or undercounts it.
+    source:
+      input.providerPrice !== null && input.providerPrice !== undefined
+        ? ("provider" as const)
+        : envCost !== null
+          ? ("configured" as const)
+          : ("none" as const),
   };
 }
 
