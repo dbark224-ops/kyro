@@ -407,8 +407,25 @@ export function looksLikeQuoteSendRequest(prompt: string) {
     return false;
   }
 
+  // No refusal guard here, deliberately, and it is worth writing down why
+  // because it looks like the gap the other routers had.
+  //
+  // "Don't send the quote yet" routing here is CORRECT. This path prepares a
+  // quote and creates a pending_approval action; it does not email anybody. So
+  // "draft it but do not send" produces exactly what was asked -- a draft
+  // waiting for the owner. An existing test says so outright, and adding a
+  // refusal guard here broke it.
+  //
+  // The reply-execution router is the opposite case and does need one: it
+  // calls approveAction and executeAction, so a refusal there really did send.
+  // Same-looking sentence, opposite correct answer, because the commands
+  // behind them differ.
+
   return (
-    /\b(send|sending|email|mail|forward|deliver)\b/.test(text) ||
+    // "Get the quote sent" is an instruction in the past participle. Safe to
+    // read as one because the question guard above runs first and has already
+    // taken "was the quote sent" and "has the quote been sent" out.
+    /\b(send|sending|sent|email|mail|forward|deliver)\b/.test(text) ||
     /\b(prepare|draft|write|create)\b.*\b(email|reply|message)\b/.test(text) ||
     /\b(attach|attachment|attached)\b.*\b(email|reply|message|quote|document|pdf)\b/.test(
       text,
