@@ -47,7 +47,7 @@ import { rowLink } from "./ui-blocks";
  * form is kept only for any future caller that does not.
  */
 const WEEKDAY_EXCLUSION =
-  /\b(?:not|no|never|avoid|avoiding|except|excluding|unavailable|away|busy|unless|apart from|other than|can(?:'|\s)?t(?:\s+(?:do|make|make it))?|cannot(?:\s+(?:do|make))?|don(?:'|\s)?t(?:\s+(?:come|bother))?|do not(?:\s+come)?|won(?:'|\s)?t(?:\s+be(?:\s+(?:in|around|here))?)?)\b[^.,;!?]{0,24}$/i;
+  /\b(?:not|no|never|avoid|avoiding|except|excluding|unavailable|away|busy|unless|apart from|other than|on holiday|on leave|on annual leave|working|at work|out of town|out of the country|can(?:'|\s)?t(?:\s+(?:do|make|make it))?|cannot(?:\s+(?:do|make))?|don(?:'|\s)?t(?:\s+(?:come|bother))?|do not(?:\s+come)?|won(?:'|\s)?t(?:\s+be(?:\s+(?:in|around|here))?)?)\b[^.,;!?]{0,24}$/i;
 
 /**
  * Whether the day at this position is being ruled out rather than requested.
@@ -97,11 +97,34 @@ function dateIsRetrospective(text: string, index: number) {
 function matchesUnexcluded(text: string, pattern: RegExp) {
   const match = pattern.exec(text);
 
-  return Boolean(match) && !weekdayIsExcluded(text, match?.index ?? 0);
+  return Boolean(match) && !weekdayIsExcluded(text, match?.index ?? 0, match?.[0].length ?? 0);
 }
 
-function weekdayIsExcluded(text: string, index: number) {
+/**
+ * What comes after the day can rule it out as surely as what comes before.
+ *
+ * Measured on twelve fresh ways of saying "not that day" and only five were
+ * heard, because this looked backwards only. English puts the refusal after
+ * the noun at least as often: "Wednesday doesn't work", "Friday is out",
+ * "Tuesday's no good for me". Nothing sits in front of the day in any of them.
+ */
+// Written to survive normalized(), which turns every apostrophe into a space:
+// "Tuesday's no good" arrives here as "tuesday s no good", so the possessive is
+// a separate token rather than punctuation.
+const WEEKDAY_EXCLUSION_AFTER =
+  /^(?:\s+(?:s|is|was|are|would\s+be))?\s*(?:no\s+good|not\s+good|out\b|no\s+use|useless|impossible)|^\s*(?:does\s?n\s?t|do\s?n\s?t|wo\s?n\s?t|can\s?not|ca\s?n\s?t)\s+(?:work|suit|be\s+good|do)\b|^\s*(?:i\s?m|we\s?re)\s+(?:away|out|busy|working|not\s+(?:around|here|in))\b|^[^.,;!?]{0,24}\bso\s+not\b/i;
+
+// "Any day but Friday" is the one place "but" is the refusal rather than the
+// start of a fresh clause, so it is answered before the clause split below.
+const WEEKDAY_ONLY_EXCEPTION =
+  /\b(?:any(?:thing|\s*day|\s*time)?|everything|every\s*day)\s+but\s*$/i;
+
+function weekdayIsExcluded(text: string, index: number, length = 0) {
   const before = text.slice(0, index);
+
+  if (WEEKDAY_ONLY_EXCEPTION.test(before)) {
+    return true;
+  }
   const clauseStart = Math.max(
     before.lastIndexOf(","),
     before.lastIndexOf("."),
@@ -112,7 +135,11 @@ function weekdayIsExcluded(text: string, index: number) {
     before.toLowerCase().lastIndexOf(" but "),
   );
 
-  return WEEKDAY_EXCLUSION.test(before.slice(clauseStart + 1));
+  if (WEEKDAY_EXCLUSION.test(before.slice(clauseStart + 1))) {
+    return true;
+  }
+
+  return WEEKDAY_EXCLUSION_AFTER.test(text.slice(index + length));
 }
 
 const CALENDAR_WEEKDAYS = new Map([
@@ -827,7 +854,7 @@ function calendarDateFromPrompt(
   );
 
   for (const weekday of weekdays) {
-    if (weekdayIsExcluded(raw, weekday.index ?? 0)) {
+    if (weekdayIsExcluded(raw, weekday.index ?? 0, weekday[0].length)) {
       continue;
     }
 
@@ -1068,7 +1095,7 @@ export function mentionsExcludedDate(text: string) {
 
   return (
     phrases.length > 0 &&
-    phrases.every((phrase) => weekdayIsExcluded(raw, phrase.index ?? 0))
+    phrases.every((phrase) => weekdayIsExcluded(raw, phrase.index ?? 0, phrase[0].length))
   );
 }
 
@@ -1132,7 +1159,7 @@ export function namesRuledOutDay(customerText: string, candidate: string) {
 
     mentions.set(day, [
       ...(mentions.get(day) ?? []),
-      weekdayIsExcluded(raw, phrase.index ?? 0),
+      weekdayIsExcluded(raw, phrase.index ?? 0, phrase[0].length),
     ]);
   }
 
