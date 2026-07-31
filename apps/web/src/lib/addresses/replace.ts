@@ -48,5 +48,26 @@ export function addressWorthLearning(
     return false;
   }
 
-  return candidateAddress.trim() !== contact.address.trim();
+  return sameAddressText(candidateAddress) !== sameAddressText(contact.address);
+}
+
+/**
+ * The same address wearing different punctuation is not a new address.
+ *
+ * Compared with a plain trim, "3820 rio grande blvd nw", "3820 Rio Grande Blvd
+ * NW." and a stray double space each counted as a correction. Replacing an
+ * address is not free: it writes the contact, records a change in the audit
+ * trail that never happened, and sends the address back to Google to be
+ * validated again. Four of ten cases measured did this.
+ *
+ * Only case, spacing and trailing punctuation are normalised. Nothing inside
+ * the address is touched, so "Apt 3" and "Apt 4" stay different, which is the
+ * distinction that matters.
+ */
+function sameAddressText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.,;\s]+$/, "");
 }
