@@ -91,6 +91,53 @@ export function smartQuotesToPlain(text: string) {
     .replace(/…/g, "...");
 }
 
+/**
+ * Move a break back to a character boundary.
+ *
+ * The UCS-2 concatenated limit is 67, an odd number, and every emoji is two
+ * UTF-16 code units. So a run of emoji with nowhere to break falls through to a
+ * raw slice at 67 and cuts one in half: the first message ends with a lone
+ * surrogate and the second starts with its other half, and both arrive as a
+ * replacement character. Three of five emoji samples did this.
+ *
+ * Snapping to a grapheme keeps flags, skin tones and family sequences whole
+ * too, which the surrogate check alone would still tear apart. Where
+ * Intl.Segmenter is missing the surrogate pair is still repaired, since that is
+ * the case that produces invalid text rather than merely ugly text.
+ */
+function snapToCharacterBoundary(text: string, index: number) {
+  if (index <= 0 || index >= text.length) {
+    return index;
+  }
+
+  const segmenter =
+    typeof Intl !== "undefined" && "Segmenter" in Intl
+      ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+      : null;
+
+  if (segmenter) {
+    let boundary = 0;
+
+    for (const { index: start } of segmenter.segment(text)) {
+      if (start >= index) {
+        break;
+      }
+
+      boundary = start;
+    }
+
+    // Never return 0 -- a break at the start makes no progress and would spin.
+    return boundary > 0 ? boundary : index;
+  }
+
+  const high = text.charCodeAt(index - 1);
+  const low = text.charCodeAt(index);
+
+  return high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff
+    ? index - 1
+    : index;
+}
+
 function breakPoint(text: string, limit: number) {
   const window = text.slice(0, limit);
 
@@ -109,7 +156,7 @@ function breakPoint(text: string, limit: number) {
     }
   }
 
-  return limit;
+  return snapToCharacterBoundary(text, limit);
 }
 
 /**

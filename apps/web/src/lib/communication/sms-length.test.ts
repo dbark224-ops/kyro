@@ -99,3 +99,54 @@ describe("splitting", () => {
     assert.deepEqual(splitIntoSmsMessages("   "), []);
   });
 });
+
+/**
+ * Only SMS can show this. The test workspace routes through the WhatsApp
+ * sandbox, which takes 4096 characters and never splits, so nothing about
+ * splitting is exercised by using the product normally.
+ */
+describe("splitting never cuts a character in half", () => {
+  const loneSurrogate =
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  it("keeps emoji whole where there is nowhere to break", () => {
+    // The UCS-2 concatenated limit is 67, an odd number, and an emoji is two
+    // UTF-16 code units. A run with no whitespace used to be sliced at 67 and
+    // arrive as a replacement character at the end of one message and the
+    // start of the next. Three of these five did exactly that.
+    for (const [name, text] of [
+      ["a run of emoji", "\u{1F600}".repeat(60)],
+      ["emoji after a sentence", `${"Thanks so much! ".repeat(4)}${"\u{1F600}".repeat(40)}`],
+      ["emoji joined to a word", `Booked${"\u{1F44D}".repeat(50)}`],
+      ["a family sequence", "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}".repeat(20)],
+      ["a flag", "\u{1F1EC}\u{1F1E7}".repeat(45)],
+    ] as const) {
+      for (const part of splitIntoSmsMessages(text, 2)) {
+        assert.ok(!loneSurrogate.test(part), `${name} was cut in half`);
+        assert.ok(part.length > 0, `${name} produced an empty message`);
+      }
+    }
+  });
+
+  it("still sends the whole message when it splits one", () => {
+    // A clean split costs the same as a truncated one, so nothing may be lost.
+    const text = "\u{1F600}".repeat(60);
+    const joined = splitIntoSmsMessages(text, 2).join("");
+
+    assert.equal(joined, text);
+  });
+
+  it("does not lose a character from ordinary prose", () => {
+    const text = "We can come out on Tuesday morning. ".repeat(12).trim();
+    const parts = splitIntoSmsMessages(text, 2);
+
+    assert.equal(parts.join(" ").replace(/\s+/g, " "), text.replace(/\s+/g, " "));
+  });
+
+  it("breaks a word only when the word leaves no choice", () => {
+    const parts = splitIntoSmsMessages("a".repeat(400), 2);
+
+    assert.equal(parts.length, 2);
+    assert.equal(parts.join(""), "a".repeat(400));
+  });
+});
