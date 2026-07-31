@@ -82,6 +82,35 @@ export function smsCharacterBudget(segments: number) {
   return SMS_LIMITS.gsm.concatenated * segments;
 }
 
+/**
+ * Markdown does not render on a messaging channel, so it arrives as itself.
+ *
+ * Kyro's replies to the owner were written as if for a screen: 21 of the 807
+ * messages ever sent went out with `**bold**` in them, which the owner reads as
+ * literal asterisks, and 236 characters were spent on markup nobody sees.
+ *
+ * WhatsApp does have bold, but it wants a single asterisk, so `**x**` is just
+ * as broken there as on SMS. Passing "*" converts to it; passing nothing
+ * removes the markup, which is the only correct answer for SMS.
+ *
+ * Deliberately conservative. Only the constructs that actually turned up are
+ * handled, plus links, which would otherwise hide the URL. A lone asterisk is
+ * left alone: guessing at italics risks mangling a message that simply
+ * contains an asterisk.
+ */
+export function markdownToMessageText(text: string, boldMarker = "") {
+  return (
+    text
+      // Headings carry no weight here; the line is just a line.
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/\*\*([^*]+)\*\*/g, `${boldMarker}$1${boldMarker}`)
+      .replace(/__([^_]+)__/g, `${boldMarker}$1${boldMarker}`)
+      // The URL is the useful half, and it has to survive.
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 $2")
+      .replace(/`([^`]+)`/g, "$1")
+  );
+}
+
 /** Curly quotes and dashes force UCS-2 and less than half the room. */
 export function smartQuotesToPlain(text: string) {
   return text

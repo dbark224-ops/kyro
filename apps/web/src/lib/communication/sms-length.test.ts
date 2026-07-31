@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   isGsmSevenBit,
+  markdownToMessageText,
   smsCharacterBudget,
   smsCharacterCount,
   smsSegmentCount,
@@ -148,5 +149,48 @@ describe("splitting never cuts a character in half", () => {
 
     assert.equal(parts.length, 2);
     assert.equal(parts.join(""), "a".repeat(400));
+  });
+});
+
+describe("markdown does not survive a messaging channel", () => {
+  // 21 of the 807 messages ever sent carried **bold** to the owner, who reads
+  // it as literal asterisks. WhatsApp does have bold but wants one asterisk,
+  // so the same text was equally broken on both channels.
+  it("removes markup that SMS cannot render", () => {
+    assert.equal(
+      markdownToMessageText("You have **1 event** on **Sunday, July 19**:"),
+      "You have 1 event on Sunday, July 19:",
+    );
+  });
+
+  it("converts to the one asterisk WhatsApp actually renders", () => {
+    assert.equal(
+      markdownToMessageText("You have **6 inquiries** waiting", "*"),
+      "You have *6 inquiries* waiting",
+    );
+  });
+
+  it("keeps the URL, which is the half that matters", () => {
+    assert.equal(
+      markdownToMessageText("Open [the inbox](https://kyroassistant.com/inbox)"),
+      "Open the inbox https://kyroassistant.com/inbox",
+    );
+  });
+
+  it("drops heading marks and code ticks", () => {
+    assert.equal(markdownToMessageText("## Today\nRun `npm test`"), "Today\nRun npm test");
+  });
+
+  it("leaves a lone asterisk alone rather than guessing", () => {
+    // Guessing at italics would mangle a message that merely contains one.
+    const text = "The 5 * 4 job and the *starred* note";
+
+    assert.equal(markdownToMessageText(text), text);
+  });
+
+  it("leaves ordinary prose untouched", () => {
+    const text = "Tuesday morning works. I'll confirm the deposit once I've checked.";
+
+    assert.equal(markdownToMessageText(text), text);
   });
 });

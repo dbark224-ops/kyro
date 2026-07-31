@@ -2,6 +2,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { textValueOrEmpty as textValue } from "@kyro/core";
 import { recordOutboundDirectSms } from "../communication/outbound";
 import {
+  markdownToMessageText,
   smartQuotesToPlain,
   splitIntoSmsMessages,
 } from "../communication/sms-length";
@@ -300,13 +301,18 @@ export async function processInternalAssistantMessage(input: {
     // messages as written, two and two once normalised. The escalation and
     // inquiry-alert paths already did this; only this one did not. WhatsApp is
     // UTF-8 and pays nothing for them, so it keeps the nicer punctuation.
+    // Markdown does not render on either channel. WhatsApp has bold but wants
+    // one asterisk, so the model's `**bold**` arrived as literal asterisks on
+    // both -- 21 messages so far.
+    const content =
+      input.transport === "sms"
+        ? markdownToMessageText(smartQuotesToPlain(result.content))
+        : markdownToMessageText(result.content, "*");
+
     const parts =
       input.transport === "sms"
-        ? splitIntoSmsMessages(
-            smartQuotesToPlain(result.content),
-            MAX_ASSISTANT_SMS_PARTS,
-          )
-        : [result.content.trim()].filter(Boolean);
+        ? splitIntoSmsMessages(content, MAX_ASSISTANT_SMS_PARTS)
+        : [content.trim()].filter(Boolean);
 
     for (const [index, body] of parts.entries()) {
       await recordOutboundDirectSms(input.supabase, {
