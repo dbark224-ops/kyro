@@ -379,7 +379,9 @@ async function sendCalendarSmsDelivery(
   );
   const telephonyCost = telephonyUsageCost({
     direction: "outbound",
-    kind: "sms",
+    // A reminder that went over the sandbox bridge is a WhatsApp message, and
+    // is billed per message rather than per segment.
+    kind: result.transport === "whatsapp" ? "whatsapp" : "sms",
     markupRate: usageMarkupRate,
     providerCurrency: result.priceUnit,
     providerPrice: result.price ? Math.abs(result.price) : null,
@@ -391,7 +393,10 @@ async function sendCalendarSmsDelivery(
   // Twilio bills the segments, not the message. A daily digest listing several
   // jobs runs to more than one, so recording a flat 1 undercounted exactly the
   // reminders that cost the most.
-  const segments = Math.max(1, smsSegmentCount(input.body));
+  const segments =
+    result.transport === "whatsapp"
+      ? 1
+      : Math.max(1, smsSegmentCount(input.body));
   const billedUnits = telephonyCost.source === "configured" ? segments : 1;
 
   const { error: usageError } = await supabase.from("usage_events").insert({
@@ -416,7 +421,7 @@ async function sendCalendarSmsDelivery(
     service: "sms",
     source_id: input.deliveryId,
     source_type: "calendar_notification",
-    unit: "segment",
+    unit: result.transport === "whatsapp" ? "message" : "segment",
     unit_cost_snapshot: String(telephonyCost.cost),
     usage_type: "outbound_sms",
     user_id: input.userId,

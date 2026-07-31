@@ -1145,9 +1145,14 @@ async function sendSmsStep(
 
     first ??= result;
 
+    // Escalation is the path that most often runs over the sandbox bridge, so
+    // pricing it as SMS charged the workspace's own alert routing at long-code
+    // rates and counted segments Twilio never billed. The transport is right
+    // here and was simply not being asked.
+    const overWhatsApp = transport !== "sms";
     const usage = telephonyUsageCost({
       direction: "outbound",
-      kind: "sms",
+      kind: overWhatsApp ? "whatsapp" : "sms",
       markupRate,
       providerPrice: result.price,
       providerCurrency: result.priceUnit,
@@ -1157,7 +1162,7 @@ async function sendSmsStep(
     // segment, and the last absorbs the remainder, so it can be several. The
     // carrier bills the segments either way, and recording one per part
     // undercounted the tail of every long alert.
-    const segments = Math.max(1, smsSegmentCount(part));
+    const segments = overWhatsApp ? 1 : Math.max(1, smsSegmentCount(part));
     const billedUnits = usage.source === "configured" ? segments : 1;
 
     // Billable, so a dropped insert is lost revenue -- the same silent path as
@@ -1182,7 +1187,7 @@ async function sendSmsStep(
       service: "sms",
       source_id: incident.id,
       source_type: "urgent_escalation_incident",
-      unit: "segment",
+      unit: overWhatsApp ? "message" : "segment",
       unit_cost_snapshot: String(usage.cost),
       usage_type: "outbound_sms",
       workspace_id: incident.workspace_id,
