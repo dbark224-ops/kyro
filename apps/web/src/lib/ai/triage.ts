@@ -316,6 +316,13 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       /\b(?:can|could) i (?:have|get)\b.{0,20}\bnumber\b/i,
       /\bwhat number\b.{0,20}\b(?:call|reach|ring)\b/i,
       /\bis there an?\b.{0,20}\bnumber\b/i,
+      // Re-measured against phrasings these patterns were NOT written from,
+      // which is the only honest version of this test. Ten of twenty missed,
+      // the same shape as every other keyword rule here.
+      /\bbest number\b/i,
+      /\bnumber to (?:get hold of|reach|contact)\b/i,
+      /\b(?:do|have)\s+you\s+(?:have|got)\s+a\s+(?:mobile|cell)\b/i,
+      /\bwho (?:do|should) i (?:ring|call|phone)\b/i,
     ],
   },
   {
@@ -327,6 +334,7 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       /\bwhat email\b/i,
       /\bis there an? (?:email|e-mail)\b/i,
       /\b(?:email|e-mail)(?:\s+address)? (?:i|to) (?:can |should )?(?:use|send)\b/i,
+      /\bwhere (?:do|should|can) i send\b/i,
     ],
   },
   {
@@ -340,6 +348,9 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       /\bwhere(?:'s| is) your (?:shop|store|office|yard|unit|workshop|premises)\b/i,
       /\bwhereabouts are you\b/i,
       /\bwhere are you based\b/i,
+      // "you" is load-bearing. A customer writing "I've got a shop that needs
+      // rewiring" is describing their own premises, not asking about yours.
+      /\b(?:do|have)\s+you\s+(?:have|got)\s+an?\s+(?:shop|store|showroom|premises|yard|workshop|unit)\b/i,
     ],
   },
   {
@@ -360,6 +371,8 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       /\bdo(?:es)?\s+(?:you|your business|the business|they)\b.{0,20}\b(?:cover|service|serve|work in|come out to|travel to|get (?:out |over )?to|operate in)\b/i,
       /\b(?:are|do)\s+you\b.{0,20}\b(?:in|near|around|local to)\b.{0,20}\b(?:my|the|this)\b.{0,12}\b(?:area|region|part|town|city|suburb)\b/i,
       /\b(?:can|could|would)\s+(?:you|someone|anyone)\b.{0,24}\b(?:come out to|travel to|get (?:out |over )?to|reach)\b/i,
+      /\b(?:in|within|inside)\s+your\s+(?:patch|area|range|radius|zone|region)\b/i,
+      /\bhow far\b.{0,20}\b(?:do|will|can)\s+you\b.{0,12}\b(?:travel|go|come|drive)\b/i,
     ],
   },
   {
@@ -371,6 +384,7 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       /\bwhat are your hours\b/i,
       /\bwhen are you open\b/i,
       /\bare you open\b/i,
+      /\bdo you (?:work|open)\b.{0,15}\b(?:weekends?|saturdays?|sundays?|evenings?|mornings?|bank holidays?)\b/i,
     ],
   },
   {
@@ -378,7 +392,8 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
     patterns: [
       /\b(?:what(?:'s| are)|give|send|provide|share)\b.{0,30}\bcontact\s+hours\b/i,
       /\bwhen (?:can|should) i (?:call|contact|reach) (?:you|the business|your team)\b/i,
-      /\bgood time to (?:call|ring|reach|contact)\b/i,
+      /\b(?:good|best) time to (?:call|ring|reach|contact|phone)\b/i,
+      /\bwhat time (?:can|should) i (?:call|ring|reach|contact|phone)\b/i,
     ],
   },
 ];

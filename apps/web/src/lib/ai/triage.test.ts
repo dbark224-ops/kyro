@@ -525,3 +525,59 @@ describe("latest inbound message loading", () => {
     assert.equal(body, "Landscaping enquiry body");
   });
 });
+
+/**
+ * Re-measured after #81 widened these, using phrasings they were NOT written
+ * from. That distinction is the whole test: measuring a pattern against its own
+ * examples proves nothing, and #81 scored 24 of 24 on its own set while scoring
+ * 10 of 20 here.
+ *
+ * One apparent miss turned out to be correct and is recorded below, because it
+ * would otherwise be "fixed" by the next person who measures this.
+ */
+describe("a question about the business, asked the way people ask it", () => {
+  it("recognises phrasings the patterns were not written from", () => {
+    for (const [key, message] of [
+      ["publicPhoneNumber", "whats the best number to get hold of you on"],
+      ["publicPhoneNumber", "do you have a mobile I can text"],
+      ["publicPhoneNumber", "who do I ring about this"],
+      ["publicEmail", "where should I send the photos"],
+      ["businessAddress", "have you got a shop I can come to"],
+      ["serviceArea", "are we in your patch"],
+      ["serviceArea", "how far do you travel"],
+      ["workingHours", "do you work weekends"],
+      ["contactHours", "when's the best time to call you"],
+      ["contactHours", "what time can I reach someone"],
+    ] as const) {
+      assert.ok(
+        directKnownBusinessFactKeys(message).includes(key),
+        `${key}: ${message}`,
+      );
+    }
+  });
+
+  it("does not answer from stored facts when the customer is describing their own job", () => {
+    // "you" is load-bearing in several of these patterns. Somebody writing
+    // about their own shop, their own mobile or their own working week is not
+    // asking anything about the business.
+    for (const message of [
+      "I've got a shop that needs rewiring",
+      "we have a workshop out the back that floods",
+      "my mobile is 505-555-0143 if you need it",
+      "I'll send the photos over later",
+      "the shop next door had you in last week",
+      "I work weekends so mornings are hard",
+      "best time for me is after four",
+      "how far is the leak from the meter",
+    ]) {
+      assert.deepEqual(directKnownBusinessFactKeys(message), [], message);
+    }
+  });
+
+  it("still withholds an auto-answer when a visit is being asked for", () => {
+    // "do you come out to Rio Rancho" looks like a coverage question and is
+    // deliberately blocked: "come out" means they want somebody there, which
+    // is not a fact to be recited. Measured as a miss at first -- it is not.
+    assert.deepEqual(directKnownBusinessFactKeys("do you come out to Rio Rancho"), []);
+  });
+});
