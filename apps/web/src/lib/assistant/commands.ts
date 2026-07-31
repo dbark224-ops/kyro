@@ -3817,7 +3817,19 @@ export function looksLikeActionExecutionRequest(prompt: string) {
     // gets past the guard below because it contains "send", so the question
     // word has to be read on its own. Anchored to the start, as in the SMS
     // router: a question opens with it, a command does not.
-    /^(?:did|has|have|had|was|were|is|are|why|when|who|whose)\b/.test(text)
+    /^(?:did|has|have|had|was|were|is|are|why|when|who|whose)\b/.test(text) ||
+    // The owner saying THEY will do it.
+    //
+    // Found by replaying this router over 291 real prompts: "No worries I will
+    // sort it out" would have executed and sent every pending reply, because
+    // "sort it" is an execution target and nothing read who was doing the
+    // sorting. The owner stands down and Kyro sends the lot.
+    /\b(?:i|we)(?:'|\s)?(?:ll|m going to)\s+(?:just\s+)?(?:sort|handle|deal|do|take care|action|reply|answer|send)\b/.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:will|can|shall)\s+(?:just\s+)?(?:sort|handle|deal|do|take care|action|reply|answer|send)\b/.test(
+      text,
+    )
   ) {
     return false;
   }

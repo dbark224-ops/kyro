@@ -1496,3 +1496,43 @@ describe("replying to a customer, and being asked to wait", () => {
     }
   });
 });
+
+/**
+ * "No worries I will sort it out" would have sent every pending reply.
+ *
+ * Found by replaying this router over 291 real owner prompts rather than over
+ * phrasings I invented. "Sort it" is an execution target and nothing read who
+ * was doing the sorting, so the owner standing down to handle it themselves
+ * was read as instructing Kyro to handle it -- and this path approves and
+ * executes every pending draft reply to customers.
+ *
+ * The counterweight sweep that found it is worth repeating after any widening:
+ * replay the changed router over the real corpus and read every prompt it now
+ * catches. Four of the 291 fire, and all four are genuine.
+ */
+describe("the owner saying they will do it themselves", () => {
+  it("never executes on the owner's behalf", () => {
+    for (const prompt of [
+      "No worries I will sort it out",
+      "I'll sort it out",
+      "I'll handle it",
+      "we'll deal with those",
+      "I can take care of it",
+      "I'm going to reply myself",
+    ]) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), false, prompt);
+    }
+  });
+
+  it("still acts on the real instructions from the same corpus", () => {
+    // These four are every prompt out of 291 that fires, verbatim.
+    for (const prompt of [
+      "Send it.",
+      "Yeah send it",
+      "can you action both of those",
+      "can you action both please",
+    ]) {
+      assert.equal(looksLikeActionExecutionRequest(prompt), true, prompt);
+    }
+  });
+});
