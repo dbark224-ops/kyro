@@ -396,13 +396,35 @@ export function detectUrgentEscalationTriggers(
 
   if (
     input.existingCustomer &&
-    mentionsUnnegated(
+    // A returning customer is not the same thing as a returning customer with
+    // a complaint, and only the second one is urgent. The owner's own words:
+    // escalate a previous customer indicating an issue with their work, and
+    // recognise a previous customer bringing more business without escalating
+    // beyond normal.
+    //
+    // Matching any mention of past work could not tell those apart. "You
+    // fitted our boiler and we're after a radiator now" -- a customer offering
+    // more money -- escalated as a serious issue, because "you fitted" was
+    // enough on its own.
+    //
+    // So a phrase that already states a fault fires alone, and a phrase that
+    // merely refers to earlier work has to arrive with something wrong.
+    (mentionsUnnegated(
       content,
-      // 2 of 6 fired. "the work you did last month has failed", "your repair
-      // has come back" and "it's still not right after your visit" are how a
-      // returning customer actually opens, and none of them matched.
-      /\b(your work|your repair|(?:work|job|repair|fix) you did|you (?:fixed|repaired|installed|fitted)|previous job|last repair|failed again|has failed|came back|come back|warranty|causing damage|made it worse|(?:it|this)(?:'s| is) (?:got )?worse|worse (?:now|again)|still not right|not been fixed|you were (?:here|out)|(?:since|after) your visit)\b/g,
-    )
+      // Each of these says a fault by itself.
+      /\b(failed again|has failed|came back|come back|causing damage|made it worse|(?:it|this)(?:'s| is) (?:got )?worse|worse (?:now|again)|still not right|not been fixed)\b/g,
+    ) ||
+      (mentionsUnnegated(
+        content,
+        // These only place the job in the past.
+        // A trade does more verbs than "fix" and "install". "The drain you
+        // cleared is blocked again" missed on the verb alone.
+        /\b(your work|your repair|(?:work|job|repair|fix) you did|you (?:fixed|repaired|installed|fitted|cleared|unblocked|serviced|replaced|plumbed|wired|tiled|sealed|rewired)|previous job|last repair|warranty|you were (?:here|out)|(?:since|after) your visit)\b/g,
+      ) &&
+        mentionsUnnegated(
+          content,
+          /\b(fail(?:s|ed|ing)?|not right|not been fixed|broke(?:n)?|packed up|playing up|leak(?:s|ed|ing)?|drip(?:s|ped|ping)?|blocked|worse|damag(?:e|ed|ing)|fault|faulty|problem|issue|stopped|not working|does\s?n[o']?t work|wo\s?n[o']?t work|is back)\b/g,
+        )))
   ) {
     triggers.add("existing_job_serious_issue");
   }

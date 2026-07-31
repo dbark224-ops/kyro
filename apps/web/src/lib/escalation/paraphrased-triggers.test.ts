@@ -490,3 +490,62 @@ describe("the triggers, measured on words these tests did not invent", () => {
     }
   });
 });
+
+/**
+ * The owner's decision, 2026-07-30, replacing the VIP trigger he declined:
+ * escalate a previous customer indicating an issue with their work, and
+ * recognise a previous customer bringing more business without escalating
+ * beyond normal.
+ *
+ * Matching any mention of past work could not tell those apart. "You fitted
+ * our boiler and we're after a radiator now" -- a customer offering more money
+ * -- escalated as a serious issue, because "you fitted" was enough on its own.
+ * A phrase that states a fault now fires alone; a phrase that merely places
+ * the job in the past has to arrive with something wrong.
+ */
+describe("a returning customer with a complaint, not a returning customer", () => {
+  const isIssue = (content: string, existingCustomer = true) =>
+    detectUrgentEscalationTriggers(
+      { content, existingCustomer, sourceKey: "test", sourceType: "email" },
+      { afterHours: false },
+    ).includes("existing_job_serious_issue");
+
+  it("escalates work that has gone wrong", () => {
+    for (const message of [
+      "the boiler you fitted last year has packed up again",
+      "the leak you fixed is back",
+      "you were here Tuesday and it's worse now",
+      "the work you did in March has failed",
+      "it's still not right after your visit",
+      "your repair has come back",
+      "the work you did is causing damage",
+      "the tap you fitted is dripping again",
+      "the drain you cleared is blocked again",
+      "the shower you installed has stopped working",
+      "the unit you serviced is faulty",
+      "your work has made it worse",
+    ]) {
+      assert.ok(isIssue(message), message);
+    }
+  });
+
+  it("does not escalate a returning customer offering more work", () => {
+    for (const message of [
+      "you did our bathroom last year, could you quote for the kitchen",
+      "we'd like you back to do the ensuite",
+      "hi again, we've got another job if you're free",
+      "you fitted our boiler and we're after a radiator now",
+      "great job last time -- can you look at the garage?",
+      "you were here in March for the shower, now we want the loo done",
+      "the work you did was great, can you price the utility room",
+      "since your visit we've decided to do the whole upstairs",
+      "you cleared our drain last year, can you do a full survey now",
+    ]) {
+      assert.ok(!isIssue(message), message);
+    }
+  });
+
+  it("stays gated on their actually being a customer", () => {
+    assert.ok(!isIssue("the boiler you fitted has failed", false));
+  });
+});
