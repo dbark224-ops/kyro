@@ -58,10 +58,40 @@ type InboundSmsProcessingOptions = {
   schedule?: (task: () => Promise<void>) => void;
 };
 
+/**
+ * A photo with no words is still a customer getting in touch.
+ *
+ * Sending a picture of the problem and nothing else is one of the most ordinary
+ * things a customer of a trade business does. Twilio delivers that as a webhook
+ * with media and an empty Body, and an empty Body was treated as nothing to
+ * process: the route answered 200, and no lead, no alert, no inbox entry and no
+ * reply followed. The customer believes they have reported a leak and the owner
+ * never learns it happened -- the silent failure the conduct document calls the
+ * hardest one to see.
+ *
+ * Kyro cannot read the picture yet. It can refuse to pretend the message never
+ * arrived, which is what this does: describe what came in, honestly, so the
+ * inquiry is raised and somebody can ask what it shows.
+ */
+export function mediaOnlyBody(params: Record<string, string>) {
+  const count = Number.parseInt(textValue(params.NumMedia) ?? "", 10);
+
+  if (!Number.isFinite(count) || count < 1) {
+    return null;
+  }
+
+  const photos = (textValue(params.MediaContentType0) ?? "").startsWith("image/");
+  const noun = photos ? "photo" : "attachment";
+
+  return count === 1
+    ? `[Sent one ${noun} and no message.]`
+    : `[Sent ${count} ${noun}s and no message.]`;
+}
+
 export function normalizeInboundSmsPayload(params: Record<string, string>) {
   const from = textValue(params.From);
   const to = textValue(params.To);
-  const body = textValue(params.Body);
+  const body = textValue(params.Body) ?? mediaOnlyBody(params);
 
   if (!from || !to || !body) {
     return null;

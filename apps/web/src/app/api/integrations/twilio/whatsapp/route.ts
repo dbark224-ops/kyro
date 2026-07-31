@@ -13,6 +13,7 @@ import {
   TWILIO_PROVIDER,
   TWILIO_WHATSAPP_SANDBOX_WEBHOOK_PATH,
 } from "../../../../../lib/integrations/twilio";
+import { mediaOnlyBody } from "../../../../../lib/integrations/inbound-sms";
 import { createServiceSupabaseClient } from "../../../../../lib/supabase/service";
 import { resolveWorkspaceUsageMarkupRate } from "../../../../../lib/usage/workspace-markup";
 import { textValue } from "@kyro/core";
@@ -269,7 +270,8 @@ export async function POST(request: Request) {
 
   const from = textValue(params.From);
   const to = textValue(params.To);
-  const body = textValue(params.Body);
+  // Same as the SMS route: a photo with no words was dropped without trace.
+  const body = textValue(params.Body) ?? mediaOnlyBody(params);
   const messageSid = textValue(params.MessageSid) ?? crypto.randomUUID();
 
   if (!from || !to || !body) {
