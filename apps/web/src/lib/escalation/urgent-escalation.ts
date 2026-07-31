@@ -8,6 +8,7 @@ import {
 } from "../communication/sms-compliance";
 import {
   smartQuotesToPlain,
+  smsSegmentCount,
   splitIntoSmsMessages,
 } from "../communication/sms-length";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
@@ -1152,14 +1153,21 @@ async function sendSmsStep(
       providerCurrency: result.priceUnit,
     });
 
+    // A part is not a segment. Splitting sizes every part but the last to one
+    // segment, and the last absorbs the remainder, so it can be several. The
+    // carrier bills the segments either way, and recording one per part
+    // undercounted the tail of every long alert.
+    const segments = Math.max(1, smsSegmentCount(part));
+    const billedUnits = usage.source === "configured" ? segments : 1;
+
     // Billable, so a dropped insert is lost revenue -- the same silent path as
     // the AI and outbound usage writes. Reported rather than thrown: the SMS
     // has already gone out and failing here would not un-send it. One row per
     // part, because the carrier bills each one.
     const { error: usageError } = await supabase.from("usage_events").insert({
-      cost_snapshot: String(usage.cost),
+      cost_snapshot: String(usage.cost * billedUnits),
       currency: usage.currency,
-      customer_charge_snapshot: String(usage.customerCharge),
+      customer_charge_snapshot: String(usage.customerCharge * billedUnits),
       markup_snapshot: String(usage.markup),
       metadata: {
         incidentId: incident.id,
@@ -1170,11 +1178,11 @@ async function sendSmsStep(
       },
       provider: TWILIO_PROVIDER,
       provider_usage_id: result.messageId,
-      quantity: "1",
+      quantity: String(segments),
       service: "sms",
       source_id: incident.id,
       source_type: "urgent_escalation_incident",
-      unit: "message",
+      unit: "segment",
       unit_cost_snapshot: String(usage.cost),
       usage_type: "outbound_sms",
       workspace_id: incident.workspace_id,

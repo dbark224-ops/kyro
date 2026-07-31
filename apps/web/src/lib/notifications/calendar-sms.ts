@@ -4,6 +4,7 @@ import {
   assertSmsSendAllowed,
   recordSmsRecipientPreference,
 } from "../communication/sms-compliance";
+import { smsSegmentCount } from "../communication/sms-length";
 import { normalizeContactPhoneForRegion } from "../crm/identity";
 import {
   findOrCreateTwilioSmsChannel,
@@ -387,10 +388,16 @@ async function sendCalendarSmsDelivery(
   // Billable, so a dropped insert is lost revenue -- the same silent path as
   // the AI, outbound and escalation usage writes. Reported rather than thrown:
   // the SMS has already gone out and failing here would not un-send it.
+  // Twilio bills the segments, not the message. A daily digest listing several
+  // jobs runs to more than one, so recording a flat 1 undercounted exactly the
+  // reminders that cost the most.
+  const segments = Math.max(1, smsSegmentCount(input.body));
+  const billedUnits = telephonyCost.source === "configured" ? segments : 1;
+
   const { error: usageError } = await supabase.from("usage_events").insert({
-    cost_snapshot: String(telephonyCost.cost),
+    cost_snapshot: String(telephonyCost.cost * billedUnits),
     currency: telephonyCost.currency,
-    customer_charge_snapshot: String(telephonyCost.customerCharge),
+    customer_charge_snapshot: String(telephonyCost.customerCharge * billedUnits),
     markup_snapshot: String(telephonyCost.markup),
     metadata: {
       billingTask: "sms_delivery",
@@ -405,11 +412,11 @@ async function sendCalendarSmsDelivery(
     model: null,
     provider: TWILIO_PROVIDER,
     provider_usage_id: result.messageId || result.providerRequestId,
-    quantity: "1",
+    quantity: String(segments),
     service: "sms",
     source_id: input.deliveryId,
     source_type: "calendar_notification",
-    unit: "message",
+    unit: "segment",
     unit_cost_snapshot: String(telephonyCost.cost),
     usage_type: "outbound_sms",
     user_id: input.userId,
