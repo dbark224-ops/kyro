@@ -692,6 +692,19 @@ Constance Aldebrand`,
     kind: "sms",
   },
 
+  photo_only_sms: {
+    // What mediaOnlyBody() now produces for an MMS with media and no text.
+    // Before that, the webhook answered 200 and the message vanished: no lead,
+    // no alert, no inbox entry, no reply. Sending a picture of the problem and
+    // nothing else is one of the most ordinary things a trade customer does.
+    body: "[Sent one photo and no message.]",
+    description:
+      "A photo with no words. Kyro cannot see the picture, so the reply has to ask what it shows rather than pretend to know -- and it must not guess at a fault or a price.",
+    expect: { escalates: false, promotes: true, quotesNoPrice: true },
+    from: "+15055550301",
+    kind: "sms",
+  },
+
   accented_sms: {
     body:
       "Bonjour, c'est Amélie Rouxèl à 1500 Indian School Rd NE. Le chauffe-eau "
