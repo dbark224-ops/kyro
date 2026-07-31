@@ -249,7 +249,12 @@ function wantsCalendarCreate(prompt: string) {
 
   return (
     !wantsCalendarDelete(prompt) &&
-    (/\b(add|create|book|schedule|put|reserve|hold)\b/.test(text) ||
+    // "Stick me in the diary" and "I'd like to arrange a visit" both fell
+    // through to read, which reads the calendar at somebody asking to be put
+    // in it.
+    (/\b(add|create|book|schedule|put|reserve|hold|arrange|stick|pencil|slot|fit)\b/.test(
+      text,
+    ) ||
       /\b(block\s+(?:out|off)|protect)\b.*\b(?:time|hours?|morning|afternoon|day|calendar)\b/.test(
         text,
       ) ||
@@ -270,7 +275,36 @@ function wantsCalendarFinalize(prompt: string) {
 }
 
 function wantsCalendarDelete(prompt: string) {
-  return /\b(cancel|delete|remove|clear)\b/.test(normalized(prompt));
+  const text = normalized(prompt);
+
+  // Four words, measured against how customers actually call a visit off:
+  // "call off Thursday's visit", "scrap the Tuesday booking" and "we won't
+  // need you on Friday after all" all fell through to read. Reading the
+  // calendar instead of clearing it is the safe way to be wrong, but it still
+  // leaves the slot blocked and the owner driving out.
+  return (
+    /\b(cancel|delete|remove|clear|scrap|drop)\b/.test(text) ||
+    /\bcall(?:ing)?\s+(?:it\s+)?off\b/.test(text) ||
+    /\b(?:wo\s?n\s?t|do\s?n\s?t|no longer)\s+(?:be\s+)?need(?:ing)?\b/.test(text) ||
+    /\bnot\s+going\s+ahead\b/.test(text)
+  );
+}
+
+/**
+ * A verb of moving, aimed at something already in the diary.
+ *
+ * Both halves are required. "Put me down for the 14th" is a booking and must
+ * stay one; "put the appointment back an hour" is not.
+ */
+function repositionsExistingEvent(prompt: string) {
+  const text = normalized(prompt);
+
+  return (
+    /\b(?:put|push|move|shift|bring|knock|pull)\b/.test(text) &&
+    /\b(?:back|forward|forwards|earlier|later|another day|another time|a different (?:day|time))\b/.test(
+      text,
+    )
+  );
 }
 
 function wantsCalendarUpdate(prompt: string) {
@@ -279,9 +313,12 @@ function wantsCalendarUpdate(prompt: string) {
   return (
     !wantsCalendarDelete(prompt) &&
     !wantsCalendarFinalize(prompt) &&
-    /\b(edit|update|move|reschedule|change|rename|retitle|complete|completed|done|mark)\b/.test(
+    (/\b(edit|update|move|reschedule|change|rename|retitle|complete|completed|done|mark|shift|swap|postpone|rearrange)\b/.test(
       text,
-    )
+    ) ||
+      // "Something's come up, can we do another day" names no verb of moving
+      // at all -- the whole request is in "another day".
+      /\b(?:another|a different)\s+(?:day|time|date|slot)\b/.test(text))
   );
 }
 
@@ -299,6 +336,17 @@ export function calendarOperationFromPrompts(
 
   if (wantsCalendarDraftFinalize(operationPrompt, recentMessages)) {
     return "finalize" as const;
+  }
+
+  // Moving something that already exists is an update even when it is phrased
+  // with a create word, and create is tested first.
+  //
+  // "Put the appointment back an hour" routed to create, because "put" is a
+  // create word -- so a customer asking to move a visit would have got a
+  // second visit alongside the first. The only miss in this router that
+  // changes the calendar wrongly rather than merely reading it.
+  if (repositionsExistingEvent(operationPrompt)) {
+    return "update" as const;
   }
 
   if (wantsCalendarCreate(operationPrompt)) {

@@ -1220,3 +1220,75 @@ describe("assistant LLM-first command routing", () => {
     assert.equal(command.intent, "work_queue");
   });
 });
+
+/**
+ * Measured on seventeen fresh ways of asking for each calendar operation, and
+ * eight routed correctly.
+ *
+ * Six of the misses fell through to "read", which is the safe way to be wrong
+ * -- Kyro looks at the calendar instead of changing it. One did not: "put the
+ * appointment back an hour" routed to CREATE, because "put" is a create word
+ * and create is tested before update. A customer asking to move a visit would
+ * have been given a second visit alongside the first.
+ *
+ * That is the whole reason the reposition check runs first: moving something
+ * that already exists is an update however it is phrased.
+ */
+describe("what a customer means by a calendar request", () => {
+  const op = (prompt: string) =>
+    calendarOperationFromPrompts(prompt, prompt, [], null);
+
+  it("moves an existing appointment rather than making a second one", () => {
+    for (const prompt of [
+      "put the appointment back an hour",
+      "can you move my appointment to Thursday",
+      "I need to push Tuesday back a week",
+      "can we shift the visit to the afternoon",
+      "change my booking to Friday please",
+      "something's come up, can we do another day",
+      "bring it forward if you can",
+    ]) {
+      assert.equal(op(prompt), "update", prompt);
+    }
+  });
+
+  it("hears a visit being called off", () => {
+    for (const prompt of [
+      "cancel my appointment please",
+      "I need to call off Thursday's visit",
+      "scrap the Tuesday booking",
+      "we won't need you on Friday after all",
+      "it's not going ahead I'm afraid",
+    ]) {
+      assert.equal(op(prompt), "delete", prompt);
+    }
+  });
+
+  it("still books when booking is what was asked for", () => {
+    // "Book another day next month as well" is the counterweight to the
+    // "another day" rule added for rescheduling: it is a second booking, not
+    // a move, and must not become an update.
+    for (const prompt of [
+      "book me in for Tuesday morning",
+      "can you put me down for the 14th",
+      "stick me in the diary for next week",
+      "I'd like to arrange a visit",
+      "could you pencil me in for Friday",
+      "book another day next month as well",
+    ]) {
+      assert.equal(op(prompt), "create", prompt);
+    }
+  });
+
+  it("only reads when nothing is being changed", () => {
+    for (const prompt of [
+      "what have I got on Thursday",
+      "what's in the diary tomorrow",
+      "read me my appointments",
+      "is Tuesday free",
+      "how many jobs have I got this week",
+    ]) {
+      assert.equal(op(prompt), "read", prompt);
+    }
+  });
+});
