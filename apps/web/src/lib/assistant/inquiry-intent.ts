@@ -86,7 +86,29 @@ export function looksLikeContextualInquiryReplyRequest(
       text,
     );
 
-  if (asksForAdvice || /\b(draft|prepare|suggest)\b/.test(text)) {
+  // "Yes, but not yet" is not yes.
+  //
+  // Outright refusals were already handled -- "don't reply", "hold off",
+  // "wait before you reply" all fall through. What nothing read was a reply
+  // asked for CONDITIONALLY: "reply to him but let me see it first", "reply
+  // later, not now", "reply once I've checked it". Three of nine measured, and
+  // this command approves and executes, so each one sent the message to the
+  // customer before the owner had seen it.
+  //
+  // The phrasing matters because it is what an owner says while they are still
+  // learning to trust the thing -- exactly the person most harmed by it.
+  const deferredToOwner =
+    /\blet me (?:see|check|look|review|approve|have a look)\b/.test(text) ||
+    /\bnot now\b/.test(text) ||
+    /\b(?:but|once|after|when|until)\b[^.!?]{0,40}\b(?:i|we)\b[^.!?]{0,24}\b(?:see|seen|check|checked|look|looked|approve|approved|review|reviewed|confirm|confirmed|say so)\b/.test(
+      text,
+    );
+
+  if (
+    asksForAdvice ||
+    deferredToOwner ||
+    /\b(draft|prepare|suggest)\b/.test(text)
+  ) {
     return false;
   }
 

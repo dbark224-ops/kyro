@@ -1427,3 +1427,73 @@ describe("sending the approved replies, and being told not to", () => {
     }
   });
 });
+
+/**
+ * "Yes, but not yet" is not yes.
+ *
+ * The last of the three paths in the assistant that send without approval --
+ * this one calls approveAction and then executeAction on a draft reply, so
+ * whatever it decides goes to the customer.
+ *
+ * Outright refusals were already handled: "don't reply", "hold off", "wait
+ * before you reply" and "did you reply" all fall through correctly. What
+ * nothing read was a reply asked for CONDITIONALLY. Three of nine measured
+ * sent the message:
+ *
+ *   "reply to him but let me see it first"
+ *   "can you reply to him later, not now"
+ *   "can you reply to him once I've checked it"
+ *
+ * That phrasing is what an owner says while they are still learning to trust
+ * the thing, which makes it the worst possible sentence to get wrong.
+ */
+describe("replying to a customer, and being asked to wait", () => {
+  const recentMessages: AssistantRecentMessage[] = [
+    {
+      content: "New email inquiry from Mikel.",
+      createdAt: new Date().toISOString(),
+      intent: "work_queue",
+      links: [{ href: "/inbox?conversationId=conversation-1", label: "Mikel" }],
+      role: "assistant",
+    },
+  ];
+  const call = (prompt: string) =>
+    looksLikeContextualInquiryReplyRequest(prompt, recentMessages);
+
+  it("still sends when plainly told to", () => {
+    for (const prompt of [
+      "Can you reply for me, tell him we can come around 10am Tuesday",
+      "please reply and say we'll be there Thursday",
+      "reply for me",
+      "can you respond to him saying yes",
+      "tell him we can do it next week",
+    ]) {
+      assert.equal(call(prompt), true, prompt);
+    }
+  });
+
+  it("never sends when the owner wants to see it first", () => {
+    for (const prompt of [
+      "reply to him but let me see it first",
+      "can you reply to him later, not now",
+      "can you reply to him once I've checked it",
+      "reply to him after I've reviewed it",
+    ]) {
+      assert.equal(call(prompt), false, prompt);
+    }
+  });
+
+  it("keeps refusing the outright refusals it already refused", () => {
+    for (const prompt of [
+      "don't reply to him yet",
+      "please don't respond to that one",
+      "never reply to him without asking me",
+      "hold off, don't email him back",
+      "wait before you reply",
+      "did you reply to him",
+      "what should I reply to him",
+    ]) {
+      assert.equal(call(prompt), false, prompt);
+    }
+  });
+});
