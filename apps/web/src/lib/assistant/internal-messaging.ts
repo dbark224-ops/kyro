@@ -1,7 +1,10 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { textValueOrEmpty as textValue } from "@kyro/core";
 import { recordOutboundDirectSms } from "../communication/outbound";
-import { splitIntoSmsMessages } from "../communication/sms-length";
+import {
+  smartQuotesToPlain,
+  splitIntoSmsMessages,
+} from "../communication/sms-length";
 import { acknowledgeEscalationFromReply } from "../escalation/urgent-escalation";
 
 /**
@@ -291,9 +294,18 @@ export async function processInternalAssistantMessage(input: {
     // owner cut off -- asking "what is your drafted reply" and getting half of
     // it. Splitting on a sentence boundary costs exactly the same to send as
     // being truncated by the carrier, and arrives whole.
+    // Models write curly quotes and em-dashes by habit, and a single one drops
+    // the whole message from GSM-7 to UCS-2 -- from 153 characters a segment to
+    // 67. Measured on one ordinary reply about a draft: five segments and three
+    // messages as written, two and two once normalised. The escalation and
+    // inquiry-alert paths already did this; only this one did not. WhatsApp is
+    // UTF-8 and pays nothing for them, so it keeps the nicer punctuation.
     const parts =
       input.transport === "sms"
-        ? splitIntoSmsMessages(result.content, MAX_ASSISTANT_SMS_PARTS)
+        ? splitIntoSmsMessages(
+            smartQuotesToPlain(result.content),
+            MAX_ASSISTANT_SMS_PARTS,
+          )
         : [result.content.trim()].filter(Boolean);
 
     for (const [index, body] of parts.entries()) {
