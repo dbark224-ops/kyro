@@ -581,3 +581,53 @@ describe("a question about the business, asked the way people ask it", () => {
     assert.deepEqual(directKnownBusinessFactKeys("do you come out to Rio Rancho"), []);
   });
 });
+
+/**
+ * Measured a third time, on words neither earlier pass was written from.
+ * Seventeen of twenty, and the miss that mattered was the plainest form the
+ * question takes: "what's your number?".
+ *
+ * Every pattern wanted the word "phone" sitting next to "number", and nobody
+ * says "what is your phone number" when "what's your number" will do.
+ */
+describe("asking for the number the way people actually ask", () => {
+  it("recognises the short forms", () => {
+    for (const [message, key] of [
+      ["what's your number?", "publicPhoneNumber"],
+      ["what is your number", "publicPhoneNumber"],
+      ["is there a landline I can ring", "publicPhoneNumber"],
+      ["have you got a mobile I can try", "publicPhoneNumber"],
+      ["can I get a contact number for you", "publicPhoneNumber"],
+      ["whereabouts are you based", "businessAddress"],
+      ["is Corrales within your patch", "serviceArea"],
+      ["how far out do you travel", "serviceArea"],
+      ["do you work weekends", "workingHours"],
+      ["when's the best time to call you", "contactHours"],
+    ] as Array<[string, string]>) {
+      assert.ok(
+        directKnownBusinessFactKeys(message).includes(key as never),
+        `${key}: ${message}`,
+      );
+    }
+  });
+
+  it("still refuses anything that is not a plain fact question", () => {
+    // The blocked pattern is the guard that stops a known-fact auto-reply
+    // answering a price, a booking or a complaint. Widening the fact patterns
+    // must never reach past it.
+    //
+    // "Do you come out to Rio Rancho" is blocked by design and stays that way:
+    // "come out" reads as a booking. The cost is that a coverage question goes
+    // unanswered rather than answered wrongly, which is the right direction.
+    for (const message of [
+      "how much does a new boiler cost",
+      "can I book Tuesday",
+      "what's your best price",
+      "I need someone urgently",
+      "my boiler is broken and I want a refund",
+      "do you come out to Rio Rancho",
+    ]) {
+      assert.deepEqual(directKnownBusinessFactKeys(message), [], message);
+    }
+  });
+});

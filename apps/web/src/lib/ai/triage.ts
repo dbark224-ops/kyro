@@ -323,6 +323,14 @@ const DIRECT_KNOWN_FACT_PATTERNS: Array<{
       /\bnumber to (?:get hold of|reach|contact)\b/i,
       /\b(?:do|have)\s+you\s+(?:have|got)\s+a\s+(?:mobile|cell)\b/i,
       /\bwho (?:do|should) i (?:ring|call|phone)\b/i,
+      // A third measurement, on words neither of the passes above was written
+      // from. "What's your number?" -- the plainest form the question takes --
+      // missed, because every pattern here wanted the word "phone" next to
+      // "number", and nobody says "what's your phone number" when "what's your
+      // number" will do.
+      /\bwhat(?:'s| is)\s+your\s+(?:best\s+)?number\b/i,
+      /\b(?:is there|have you got|do you have|got)\s+an?\s+(?:landline|mobile|cell)\b/i,
+      /\b(?:landline|mobile|cell)\s+(?:number\s+)?(?:i|we)\s+can\b/i,
     ],
   },
   {
