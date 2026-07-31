@@ -357,3 +357,79 @@ describe("the first Monday of next month", () => {
     );
   });
 });
+
+/**
+ * "Late afternoon" was reading as "afternoon", so a customer who asked for
+ * late afternoon could be offered half past twelve, and "early morning" read
+ * as "morning" and could be offered half eleven.
+ *
+ * Both produced a window and both matched a slot, so nothing looked broken.
+ * They were rule 2 of the conduct document all the same: proposing the one
+ * thing the customer had not asked for, while appearing to honour them.
+ *
+ * Found by re-measuring a reader fixed earlier the same night instead of
+ * trusting the earlier score.
+ */
+describe("a qualified part of the day means what it says", () => {
+  const TZ = "America/Denver";
+  const at = (hour: number, minute = 0) =>
+    new Date(Date.UTC(2026, 7, 3, hour + 6, minute)).toISOString();
+
+  it("keeps the qualifier rather than falling back to the half-day", () => {
+    const cases: Array<[string, number, number, boolean]> = [
+      // phrase, hour, minute, should this slot be offered
+      ["late afternoon", 12, 30, false],
+      ["late afternoon", 13, 0, false],
+      ["late afternoon", 16, 0, true],
+      // "Early morning" and "first thing" keep the plain morning ceiling on
+      // purpose -- see the reader. An early preference is a preference, and
+      // pinning it tight would match nothing at all on a fully booked morning,
+      // which costs more than an earlier-than-ideal slot the customer can
+      // still accept or decline.
+      ["early morning", 8, 0, true],
+      ["first thing", 8, 0, true],
+      ["mid morning", 10, 0, true],
+      ["mid morning", 8, 0, false],
+      // Lunch is a window, not a boundary.
+      ["over lunch", 12, 30, true],
+      ["over lunch", 9, 0, false],
+      ["over lunch", 16, 0, false],
+      ["end of the day", 17, 0, true],
+      ["end of the day", 10, 0, false],
+      // Said constantly by customers with children, and a real constraint.
+      ["after the school run", 15, 30, true],
+      ["after the school run", 11, 0, false],
+    ];
+
+    for (const [phrase, hour, minute, want] of cases) {
+      assert.equal(
+        slotMatchesTimeOfDay(
+          at(hour, minute),
+          TZ,
+          preferredTimeOfDayWindow(phrase),
+        ),
+        want,
+        `${phrase} at ${hour}:${String(minute).padStart(2, "0")}`,
+      );
+    }
+  });
+
+  it("leaves the plain half-day readers alone", () => {
+    // The counterweight: adding the qualified phrases must not narrow the
+    // general ones, which were already right.
+    for (const [phrase, hour, want] of [
+      ["morning", 9, true],
+      ["morning", 15, false],
+      ["afternoon", 13, true],
+      ["afternoon", 9, false],
+      ["evening", 18, true],
+      ["evening", 10, false],
+    ] as Array<[string, number, boolean]>) {
+      assert.equal(
+        slotMatchesTimeOfDay(at(hour), TZ, preferredTimeOfDayWindow(phrase)),
+        want,
+        `${phrase} at ${hour}`,
+      );
+    }
+  });
+});

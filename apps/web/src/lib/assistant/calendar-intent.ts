@@ -1325,6 +1325,57 @@ export function preferredTimeOfDayWindow(
     }
   }
 
+  // A qualified part of the day, read before the plain one.
+  //
+  // "Late afternoon" took the plain afternoon floor of noon, so a customer who
+  // asked for late afternoon could be offered half past twelve, and "early
+  // morning" took the plain morning ceiling of noon and could be offered half
+  // eleven. Both are rule 2 of the conduct document -- proposing the thing they
+  // did not ask for -- and both looked like they worked, because a window was
+  // produced and a slot did match it.
+  //
+  // These run first and the plain readers below are already guarded on null,
+  // so the more specific phrase wins without needing to unpick the general one.
+  // "Early morning" and "first thing" are deliberately absent, and fall
+  // through to the plain morning reader's ceiling of noon.
+  //
+  // The two directions are not symmetric. Offering 11:45 to someone who said
+  // "first thing" is disappointing but they can still be there; offering 12:30
+  // to someone who said "late afternoon" means they are at work and the visit
+  // is wasted. An early preference is a preference, and pinning it to 09:30
+  // would mean a fully booked morning matched nothing at all and Kyro offered
+  // no time -- which the existing reader had already weighed up and rejected.
+  // Narrow the side where being wrong costs the appointment.
+  const PART_OF_DAY: Array<[RegExp, number | null, number | null]> = [
+    [/\bmid[-\s]?morning\b/, 9 * 60, null],
+    [/\blate\s+morning\b/, 10 * 60 + 30, null],
+    // Lunch is a window, not a boundary: "over lunch" is neither before nor
+    // after it.
+    [/\b(?:lunch\s*time|over\s+lunch|around\s+lunch|at\s+lunch)\b/, 11 * 60 + 30, 13 * 60 + 30],
+    [/\bearly\s+afternoon\b/, 12 * 60, 14 * 60 + 30],
+    [/\bmid[-\s]?afternoon\b/, 13 * 60 + 30, 15 * 60 + 30],
+    [/\blate\s+afternoon\b/, 15 * 60, null],
+    [/\b(?:end\s+of\s+(?:the\s+)?day|tea\s*time|home\s*time|knocking\s*off)\b/, 16 * 60, null],
+    // Trade customers say this constantly and it is a real constraint.
+    [/\bafter\s+(?:the\s+)?school\s*run\b/, 15 * 60, null],
+  ];
+
+  for (const [pattern, earliest, latest] of PART_OF_DAY) {
+    if (!pattern.test(raw)) {
+      continue;
+    }
+
+    if (earliestMinutes === null && earliest !== null) {
+      earliestMinutes = earliest;
+    }
+
+    if (latestMinutes === null && latest !== null) {
+      latestMinutes = latest;
+    }
+
+    break;
+  }
+
   if (earliestMinutes === null && /\bafternoons?\b/.test(raw)) {
     earliestMinutes = 12 * 60;
   }
