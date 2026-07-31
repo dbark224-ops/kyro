@@ -255,3 +255,53 @@ describe("matching a slot against the window", () => {
     assert.equal(slotMatchesTimeOfDay(AFTERNOON, "Europe/London", window), true);
   });
 });
+
+/**
+ * Re-measured on phrasings this file did not invent, the audit that found
+ * roughly half missing in three other rules the same night. This one got six
+ * of ten.
+ *
+ * "Any time after lunch" produced no window at all, which meant a customer who
+ * said it could still be offered eight in the morning -- the exact fault this
+ * file exists to prevent. Midday simply has names before it has numbers, and
+ * "lunch" was not one of them, so both "before lunch" and "after lunch" reached
+ * the bound reader and came back empty.
+ */
+describe("the times of day people name without naming a clock", () => {
+  const window = (text: string) => preferredTimeOfDayWindow(text);
+
+  it("reads midday when it is called lunch", () => {
+    assert.deepEqual(window("before lunch if you can")?.latestMinutes, 12 * 60);
+    assert.deepEqual(window("any time after lunch")?.earliestMinutes, 12 * 60);
+    assert.deepEqual(window("after midday please")?.earliestMinutes, 12 * 60);
+  });
+
+  it("reads the morning when it is asked for by feel", () => {
+    for (const text of [
+      "mornings suit us best",
+      "first thing would be ideal",
+      "early as possible",
+      "the earliest slot you have",
+    ]) {
+      assert.equal(window(text)?.latestMinutes, 12 * 60, text);
+    }
+  });
+
+  it("keeps refusing what it cannot safely read", () => {
+    // These were hard-won and must survive the widening. "At work until four"
+    // is a floor wearing a ceiling's clothes, and two options cannot be one
+    // window.
+    for (const text of [
+      "I'm at work until four",
+      "up until 4pm",
+      "mornings or after 4pm",
+      "Tuesday morning or Thursday afternoon, either works",
+    ]) {
+      assert.equal(window(text), null, text);
+    }
+  });
+
+  it("still lets an explicit time beat a vague one", () => {
+    assert.equal(window("afternoon, after 2pm")?.earliestMinutes, 14 * 60);
+  });
+});

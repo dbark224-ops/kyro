@@ -1127,8 +1127,17 @@ function namedClockMinutes(text: string) {
     /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b\s*(a\.?m\.?|p\.?m\.?)?/,
   );
 
-  return word
-    ? clockMinutes(CLOCK_WORDS.get(word[1])!, 0, word[2] ?? null)
+  if (word) {
+    return clockMinutes(CLOCK_WORDS.get(word[1])!, 0, word[2] ?? null);
+  }
+
+  // Midday has names before it has numbers. "Before lunch" and "any time after
+  // lunch" both reached this function and both came back empty, so neither
+  // produced a window and the customer who said "after lunch" could still be
+  // offered eight in the morning -- the exact fault this file exists to
+  // prevent, wearing a different hat.
+  return /\b(?:lunch(?:time)?|midday|noon|dinner\s*time)\b/.test(text)
+    ? 12 * 60
     : null;
 }
 
@@ -1259,7 +1268,15 @@ export function preferredTimeOfDayWindow(
   // Mornings already tend to come first out of the calendar, so this looks
   // redundant -- until the morning is fully booked and the earliest free slot
   // is three in the afternoon.
-  if (latestMinutes === null && /\bmornings?\b/.test(raw)) {
+  if (
+    latestMinutes === null &&
+    // "First thing" and "as early as possible" are how people ask for the
+    // morning without saying the word. Measured on ten fresh phrasings, this
+    // reader got six.
+    /\b(mornings?|first thing|as early as|early as possible|earliest (?:you|possible|slot))\b/.test(
+      raw,
+    )
+  ) {
     latestMinutes = 12 * 60;
   }
 
