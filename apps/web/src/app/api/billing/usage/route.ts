@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getBillableUsageSummary } from "../../../../lib/billing/usage-summary";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { getPrimaryWorkspace } from "../../../../lib/workspace/bootstrap";
+import { getWorkspaceGeneralSettings } from "../../../../lib/workspace/general-settings";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,11 +27,19 @@ export async function GET(request: NextRequest) {
   const search = request.nextUrl.searchParams;
 
   try {
+    // A weekly or monthly window has to be the workspace's week or month, not
+    // UTC's, or the answer changes for several hours either side of midnight.
+    const generalSettings = await getWorkspaceGeneralSettings(
+      supabase,
+      workspace.id,
+    ).catch(() => null);
+
     const summary = await getBillableUsageSummary(supabase, workspace.id, {
       anchor: search.get("anchor"),
       end: search.get("end"),
       period: search.get("period"),
       start: search.get("start"),
+      timeZone: generalSettings?.timeZone ?? null,
       userId: search.get("userId"),
     });
 

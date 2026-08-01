@@ -307,21 +307,29 @@ const loadWorkspaceChromeData = cache(async function loadWorkspaceChromeData() {
       return null;
     }
 
+    // Settings first, and on its own, because the usage windows depend on the
+    // workspace time zone. Asked for in parallel, the zone was not known yet
+    // and both totals silently fell back to UTC -- which is how the sidebar
+    // came to read "this month $0.00" at ten at night on the 31st.
+    const settings = await getWorkspaceGeneralSettings(
+      supabase,
+      workspace.id,
+    ).catch(() => DEFAULT_DISPLAY_CURRENCY_SETTINGS);
+    const usageTimeZone = "timeZone" in settings ? settings.timeZone : null;
+
     const [
-      settings,
       weeklyUsageSummary,
       monthlyUsageSummary,
       billingPolicy,
       notificationSummary,
     ] = await Promise.all([
-      getWorkspaceGeneralSettings(supabase, workspace.id).catch(
-        () => DEFAULT_DISPLAY_CURRENCY_SETTINGS,
-      ),
       getBillableUsageTotals(supabase, workspace.id, {
         period: "weekly",
+        timeZone: usageTimeZone,
       }).catch(() => null),
       getBillableUsageTotals(supabase, workspace.id, {
         period: "monthly",
+        timeZone: usageTimeZone,
       }).catch(() => null),
       loadKyroBillingPolicySettings(supabase, workspace.id).catch(() => null),
       getNotificationSummary(supabase, workspace.id).catch(

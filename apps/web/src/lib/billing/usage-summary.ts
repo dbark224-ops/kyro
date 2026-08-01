@@ -1,5 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { textValue } from "@kyro/core";
+import {
+  addDaysToDateKey,
+  addMonthsToDateKey,
+  dateKeyInTimeZone,
+  isoFromDateKeyAndMinutes,
+  safeTimeZone,
+  startOfMonthDateKey,
+  startOfWeekDateKey,
+} from "../timezone";
 
 const PAGE_SIZE = 1000;
 const MAX_USAGE_ROWS = 100_000;
@@ -11,6 +20,8 @@ export type BillingPeriodInput = {
   end?: string | null;
   period?: string | null;
   start?: string | null;
+  /** The workspace's zone. Omitted means UTC, the previous behaviour. */
+  timeZone?: string | null;
   userId?: string | null;
 };
 
@@ -102,25 +113,34 @@ export function resolveBillingPeriod(input: BillingPeriodInput = {}) {
 
   const anchor = parseDateParam(input.anchor) ?? new Date();
 
-  if (kind === "weekly") {
-    const start = startOfUtcWeek(anchor);
-    const end = new Date(start);
-    end.setUTCDate(start.getUTCDate() + 7);
-
-    return {
-      kind,
-      start: start.toISOString(),
-      end: end.toISOString(),
-    };
-  }
-
-  const start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 1));
+  // "This month" has to mean the owner's month, not UTC's.
+  //
+  // Found by looking at the live dashboard: it read "this week $18.45, this
+  // month $0.00" at ten at night on the 31st. Both figures were correct for
+  // the windows asked for -- UTC had already turned over to the 1st, so the
+  // month was a few hours old and empty while the week still reached back
+  // over the whole of July. The owner had spent $30.38 that month.
+  //
+  // For a business six hours behind UTC that is an evening every month spent
+  // being told they have spent nothing, and the same on Sunday evenings for
+  // the week. Anchored to the workspace day instead, via the date-key helpers
+  // that already handle the offset and the DST changeovers. No timeZone means
+  // UTC, which is what every caller got before.
+  const timeZone = safeTimeZone(input.timeZone);
+  const anchorDateKey = dateKeyInTimeZone(anchor, timeZone);
+  const startKey =
+    kind === "weekly"
+      ? startOfWeekDateKey(anchorDateKey)
+      : startOfMonthDateKey(anchorDateKey);
+  const endKey =
+    kind === "weekly"
+      ? addDaysToDateKey(startKey, 7)
+      : addMonthsToDateKey(anchorDateKey, 1);
 
   return {
     kind,
-    start: start.toISOString(),
-    end: end.toISOString(),
+    start: isoFromDateKeyAndMinutes(startKey, 0, timeZone),
+    end: isoFromDateKeyAndMinutes(endKey, 0, timeZone),
   };
 }
 
@@ -377,15 +397,6 @@ function finalizeTotals(totalsByCurrency: Map<string, MutableTotals>) {
 
 function customerChargeForSort(user: BillableUserSummary) {
   return sum(user.totals.map((total) => total.customerCharge));
-}
-
-function startOfUtcWeek(value: Date) {
-  const start = new Date(
-    Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
-  );
-  const day = start.getUTCDay() || 7;
-  start.setUTCDate(start.getUTCDate() - day + 1);
-  return start;
 }
 
 function parseDateParam(value: string | null | undefined) {
