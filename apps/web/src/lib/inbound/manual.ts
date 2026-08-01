@@ -18,6 +18,11 @@ import {
 import { insertAuditLog } from "../engine/event-action-audit";
 import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
+import {
+  decideSameJob,
+  sameJobNote,
+  SAME_JOB_WINDOW_MS,
+} from "./same-job";
 
 export type ManualInboundInput = {
   submissionKey?: string;
@@ -280,7 +285,6 @@ export function nameWorthLearning(
 }
 
 /** The most recent lead this contact raised in the last half hour, if any. */
-const DUPLICATE_LEAD_WINDOW_MS = 30 * 60 * 1000;
 
 async function findRecentLeadForContact(
   supabase: SupabaseClient,
@@ -289,18 +293,19 @@ async function findRecentLeadForContact(
 ) {
   const { data, error } = await supabase
     .from("leads")
-    .select("id,title,created_at")
+    .select("id,title,created_at,status,service_type")
     .eq("workspace_id", workspaceId)
     .eq("contact_id", contactId)
-    .gte("created_at", new Date(Date.now() - DUPLICATE_LEAD_WINDOW_MS).toISOString())
+    .gte("created_at", new Date(Date.now() - SAME_JOB_WINDOW_MS).toISOString())
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error) {
-    // Never fatal. Losing the annotation costs the owner a hint; failing the
-    // ingest over it would cost them the enquiry.
-    console.warn("Duplicate-lead lookup failed", {
+    // Never fatal, and it fails towards raising a separate job. Losing this
+    // lookup costs the owner a tidy inbox; failing the ingest over it would
+    // cost them the enquiry.
+    console.warn("Open-job lookup failed", {
       code: error.code,
       workspaceId,
     });
@@ -308,7 +313,115 @@ async function findRecentLeadForContact(
     return null;
   }
 
-  return data ? { id: String(data.id), title: String(data.title) } : null;
+  return data
+    ? {
+        createdAt: String(data.created_at),
+        id: String(data.id),
+        serviceType: data.service_type ? String(data.service_type) : null,
+        status: data.status ? String(data.status) : null,
+        title: String(data.title),
+      }
+    : null;
+}
+
+/** How the second thread reads to the owner: "by SMS", "by email". */
+function sourceChannelLabel(source: string) {
+  const text = source.toLowerCase();
+
+  if (text.includes("sms") || text.includes("twilio")) {
+    return "SMS";
+  }
+
+  if (text.includes("whatsapp")) {
+    return "WhatsApp";
+  }
+
+  if (text.includes("mail")) {
+    return "email";
+  }
+
+  if (text.includes("voice") || text.includes("call") || text.includes("vapi")) {
+    return "phone";
+  }
+
+  return "another channel";
+}
+
+async function raiseNewJob(
+  supabase: SupabaseClient,
+  input: {
+    contactId: string;
+    hasProfileConflict: boolean;
+    leadTitle: string;
+    message: string;
+    recentLead: { title: string } | null;
+    serviceType: string | null;
+    source: string;
+    workspaceId: string;
+  },
+) {
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({
+      workspace_id: input.workspaceId,
+      contact_id: input.contactId,
+      source: input.source,
+      title: input.leadTitle,
+      description: input.message,
+      status: "new",
+      priority: input.hasProfileConflict ? "high" : "normal",
+      service_type: input.serviceType,
+      // Carried in next_step rather than a metadata column, because leads has
+      // no metadata column. The first version of this added one and broke lead
+      // creation outright -- and lint:db passed, because it validates select()
+      // against the schema snapshot and not insert(). The live run caught it.
+      next_step: input.hasProfileConflict
+        ? "Resolve contact profile match before replying"
+        : input.recentLead
+          ? `Raised separately from "${input.recentLead.title}" -- different work, or the same person could not be confirmed`
+          : "Review AI proposed reply",
+    })
+    .select("id,title")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to create lead: ${error?.message ?? "unknown error"}`,
+    );
+  }
+
+  return data;
+}
+
+/**
+ * Join a second thread onto the job already open.
+ *
+ * The note is the point of this: the owner opens one job and can see it came
+ * in twice. Failing to write the note must not lose the enquiry, so a failed
+ * update is reported and the attachment stands.
+ */
+async function attachToOpenJob(
+  supabase: SupabaseClient,
+  input: { channelLabel: string; leadId: string; workspaceId: string },
+) {
+  const { data, error } = await supabase
+    .from("leads")
+    .update({ next_step: sameJobNote(input.channelLabel) })
+    .eq("workspace_id", input.workspaceId)
+    .eq("id", input.leadId)
+    .select("id,title")
+    .single();
+
+  if (error || !data) {
+    console.warn("Could not annotate the job a second thread joined", {
+      code: error?.code,
+      leadId: input.leadId,
+    });
+
+    return { id: input.leadId, title: "" };
+  }
+
+  return data;
 }
 
 async function patchMissingContactFields(
@@ -829,47 +942,47 @@ export async function ingestManualInbound(
     workspaceId,
     contactId,
   );
-  const { data: lead, error: leadError } = await supabase
-    .from("leads")
-    .insert({
-      workspace_id: workspaceId,
-      contact_id: contactId,
-      source,
-      title: leadTitle,
-      description: input.message,
-      status: "new",
-      priority: hasProfileConflict ? "high" : "normal",
-      service_type: nullableText(input.serviceType),
-      // Carried in next_step rather than a metadata column, because leads has
-      // no metadata column. The first version of this added one and broke lead
-      // creation outright -- and lint:db passed, because it validates select()
-      // against the schema snapshot and not insert(). The live run caught it.
-      next_step: hasProfileConflict
-        ? "Resolve contact profile match before replying"
-        : recentLead
-          ? `Possible duplicate of "${recentLead.title}" raised minutes ago -- check before quoting`
-          : "Review AI proposed reply",
-    })
-    .select("id,title")
-    .single();
+  // A customer who emails and then texts about the same problem has one job.
+  // Raising a second one and labelling it "possible duplicate" left the owner
+  // to sort it out; the decision is that Kyro should join them where it can
+  // tell they belong together, and leave them apart where it cannot.
+  const sameJob = decideSameJob({
+    hasProfileConflict,
+    incomingServiceType: nullableText(input.serviceType),
+    openLead: recentLead,
+  });
 
-  if (leadError || !lead) {
-    throw new Error(
-      `Unable to create lead: ${leadError?.message ?? "unknown error"}`,
-    );
-  }
+  const lead = sameJob.attach
+    ? await attachToOpenJob(supabase, {
+        channelLabel: sourceChannelLabel(source),
+        leadId: sameJob.leadId,
+        workspaceId,
+      })
+    : await raiseNewJob(supabase, {
+        contactId,
+        hasProfileConflict,
+        leadTitle,
+        message: input.message,
+        recentLead,
+        serviceType: nullableText(input.serviceType),
+        source,
+        workspaceId,
+      });
 
   await insertAuditLog(supabase, {
     workspaceId,
     actorType: "user",
     actorId: user.id,
-    action: "lead.created",
+    // Says which of the two happened, because "created" on a job that already
+    // existed would misread the history later.
+    action: sameJob.attach ? "lead.thread_attached" : "lead.created",
     entityType: "lead",
     entityId: String(lead.id),
     after: {
       title: lead.title,
       source,
       profileMatch: contactResolution.match,
+      sameJobReason: sameJob.reason,
     },
   });
 

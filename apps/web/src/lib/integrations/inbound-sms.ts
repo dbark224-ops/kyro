@@ -583,7 +583,16 @@ export async function processInboundSmsPayload(
         to: input.to,
       },
       phone: input.from,
-      serviceType: "SMS",
+      // "SMS" is how the message arrived, not what the work is. Every one of
+      // the 97 SMS leads in this workspace carried it as their trade, while
+      // email leads carried Plumbing, Tiling, Bathroom Renovation and the
+      // rest, because email leaves the field for triage to fill in.
+      //
+      // It made a report on what work comes in useless for the SMS half, and
+      // it blocked joining a text to the job the same customer had just
+      // emailed about: one said Plumbing, the other said SMS, so they read as
+      // different kinds of work. Left unset, the same way email does.
+      serviceType: undefined,
       source: "twilio_sms",
       submissionKey: input.messageSid,
     },
