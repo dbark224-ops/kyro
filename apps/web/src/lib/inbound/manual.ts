@@ -1156,6 +1156,10 @@ export async function ingestManualInbound(
     conversationId: String(conversation.id),
     existingCustomer: contactResolution.match.status === "attached",
     leadId: String(lead.id),
+    // The model's reading of the same message, from the triage call that has
+    // already run. Every signal is checked against input.message before it can
+    // raise anything, so an unsupported one costs nothing.
+    modelSignals: aiResult?.escalationSignals ?? null,
     metadata: {
       channelType: input.channel?.type ?? "manual_inbound",
       eventId: String(event.id),

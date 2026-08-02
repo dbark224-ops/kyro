@@ -1,4 +1,5 @@
 import { fetchAiProvider } from "../http/fetch-with-timeout";
+import type { EscalationModelSignal } from "../escalation/model-signals";
 import type { AddressColumnUpdates } from "../addresses/types";
 import { addressWorthLearning } from "../addresses/replace";
 import {
@@ -248,6 +249,14 @@ type TriageDecision = {
    * the contact record instead, and only the ingest reads it.
    */
   customerName: string | null;
+  /**
+   * What the model saw in the customer's message that might be worth
+   * interrupting the owner for, each with the customer's own words as
+   * evidence. The escalation detector checks those words against the real
+   * message and discards anything it cannot find, so this is a second opinion
+   * rather than a verdict.
+   */
+  escalationSignals: EscalationModelSignal[];
   futureStepDecision: FutureStepDecision;
   summary: string;
   replyDraft: {
@@ -1580,6 +1589,28 @@ function extractedCustomerName(value: unknown) {
   return name;
 }
 
+/**
+ * The model's escalation signals, taken only as far as their shape.
+ *
+ * Whether any of them are true is decided later, by checking the quote against
+ * the customer's real message. This only ensures a malformed answer cannot
+ * throw on the way there -- an inquiry must not be lost because the model
+ * returned something odd in a field that is advisory.
+ */
+function parsedEscalationSignals(value: unknown): EscalationModelSignal[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    const record = objectRecord(entry);
+    const trigger = textValue(record.trigger);
+    const evidence = textValue(record.evidence);
+
+    return trigger && evidence ? [{ evidence, trigger }] : [];
+  });
+}
+
 function normalizeLocalFacts(
   value: unknown,
   fallback: InquiryFacts,
@@ -1645,9 +1676,15 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
           subject: "string|null",
           body: "string|null",
         },
+        escalationSignals: [
+          { trigger: "string", evidence: "string" },
+        ],
       },
       rules: [
         "Return JSON only.",
+        "escalationSignals is what would make a reasonable owner want to be interrupted this evening, read from the customer's message alone. Return an empty array for an ordinary enquiry, which most are.",
+        "Every escalationSignals entry must quote the customer word for word in evidence -- a span copied from their message, several words long. Do not summarise, tidy, translate or explain it. An entry whose quote is not found in their message is discarded, so a paraphrase is the same as saying nothing.",
+        "Never raise a signal from the subject line you are writing, the summary you are writing, or anything the business said earlier in the thread. Only the words this customer typed.",
         "Do not invent an address, price, date, or customer detail.",
         // 8 of 213 contacts have no name at all, including the customer owed a
         // $450 refund, because an email with no display name and an SMS both
@@ -1785,6 +1822,7 @@ function buildStubDecision(
   return {
     // No model ran, so there is no extracted name.
     customerName: null,
+    escalationSignals: [],
     fallbackReason,
     futureStepDecision: context.futureStep
       ? classifyFutureStepFallback(context.latestMessage ?? "")
@@ -1888,6 +1926,7 @@ async function runOllamaTriage(
 
     return {
       customerName: extractedCustomerName(parsed.inquiryFacts),
+    escalationSignals: parsedEscalationSignals(parsed.escalationSignals),
       futureStepDecision: normalizeFutureStepDecision(
         parsed.futureStepDecision,
       ),
@@ -2049,6 +2088,37 @@ async function runOpenAiTriage(
                   type: "object",
                 },
                 summary: { type: "string" },
+                // A second reading of the customer's message, for escalation.
+                //
+                // Nine keyword readers here were each measured on phrasings
+                // their author had not chosen and each scored about half. The
+                // keywords stay as the floor; this is the model saying what it
+                // sees in the same words, and it is only believed when the
+                // quote is found in what the customer actually wrote.
+                escalationSignals: {
+                  items: {
+                    additionalProperties: false,
+                    properties: {
+                      evidence: { type: "string" },
+                      trigger: {
+                        enum: [
+                          "active_property_damage",
+                          "asks_for_owner_now",
+                          "complaint_or_reputation_risk",
+                          "existing_job_serious_issue",
+                          "explicit_urgency",
+                          "high_value_lead",
+                          "safety_risk",
+                          "service_outage",
+                        ],
+                        type: "string",
+                      },
+                    },
+                    required: ["trigger", "evidence"],
+                    type: "object",
+                  },
+                  type: "array",
+                },
               },
               required: [
                 "summary",
@@ -2056,6 +2126,7 @@ async function runOpenAiTriage(
                 "replyDraft",
                 "futureStepDecision",
                 "responsePolicy",
+                "escalationSignals",
               ],
               type: "object",
             },
@@ -2105,6 +2176,7 @@ async function runOpenAiTriage(
 
   return {
     customerName: extractedCustomerName(parsed.inquiryFacts),
+      escalationSignals: parsedEscalationSignals(parsed.escalationSignals),
     ...responseUsage(payload, prompt, content),
     futureStepDecision: normalizeFutureStepDecision(parsed.futureStepDecision),
     inquiryFacts: facts,
@@ -3609,6 +3681,9 @@ export async function runStubAiTriage(
     // For the contact record, not the job. Kept off inquiryFacts deliberately
     // -- see the comment on TriageDecision.customerName.
     customerName: triageDecision.customerName,
+    // Passed to escalation, which checks each quote against the customer's own
+    // message before it may raise anything.
+    escalationSignals: triageDecision.escalationSignals,
     inquiryFacts: effectiveInquiryFacts,
     ownerQuestion: triageDecision.responsePolicy.ownerQuestion,
     replyDraft: triageDecision.replyDraft,

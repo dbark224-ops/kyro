@@ -1,4 +1,8 @@
 import { fetchWithTimeout } from "../http/fetch-with-timeout";
+import {
+  acceptModelSignals,
+  type EscalationModelSignal,
+} from "./model-signals";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateOperatorAlert } from "../ai/customer-message-generation";
 import { getPublicAppUrl } from "../app-url";
@@ -49,6 +53,12 @@ type UrgentEscalationInput = {
   contactId?: string | null;
   conversationId?: string | null;
   existingCustomer?: boolean;
+  /**
+   * The model's reading of the same message, from the triage call that already
+   * runs over every inquiry. Each signal has to quote the customer, and the
+   * quote is checked against `content`; unsupported ones are discarded.
+   */
+  modelSignals?: readonly EscalationModelSignal[] | null;
   leadId?: string | null;
   metadata?: Record<string, unknown>;
   occurredAt?: string;
@@ -575,6 +585,30 @@ export function detectUrgentEscalationTriggers(
     readsAsWithdrawal(content)
   ) {
     triggers.delete("repeat_contact_short_window");
+  }
+
+  // The model's reading of the same message, added to the keywords rather than
+  // replacing them.
+  //
+  // Nine readers in this codebase were each measured on phrasings their author
+  // had not chosen and each scored about half, after every one had been fixed
+  // once and while passing its own tests. The keywords stay -- they are exact,
+  // free, and they do not have bad days -- but they are the floor now, not the
+  // whole of it.
+  //
+  // Union, because the errors are not symmetric: a missed emergency is somebody
+  // standing in a flooded kitchen who never reaches the owner, and an extra
+  // alert is an interrupted evening. Only signals whose quote was found in the
+  // customer's own words get this far, so the model cannot escalate on its own
+  // paraphrase the way Kyro's summary once did.
+  //
+  // Applied after the withdrawal suppression on purpose. That guard exists to
+  // stop somebody being woken for a cancellation, and a model opinion should
+  // not be able to undo it by finding "pressure" in a message that is calling
+  // the job off.
+  for (const trigger of acceptModelSignals(input.modelSignals, input.content)
+    .accepted) {
+    triggers.add(trigger);
   }
 
   return [...triggers];
