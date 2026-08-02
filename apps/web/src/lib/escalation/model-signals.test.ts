@@ -71,7 +71,7 @@ describe("a model may add a trigger, but only by quoting the customer", () => {
     // The clock, the contact history and the call metadata are exact in code.
     for (const trigger of [
       "after_hours_emergency",
-      "repeat_contact_pressure",
+      "repeat_contact_short_window",
       "missed_known_customer_call",
       "vip_customer",
       "not_a_real_trigger",

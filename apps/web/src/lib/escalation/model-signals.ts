@@ -72,7 +72,7 @@ export function evidenceIsFromCustomer(
  * The triggers a model opinion may raise.
  *
  * Only the ones that read the message itself. `after_hours_emergency` and
- * `repeat_contact_pressure` are decided from the clock and the history, where
+ * `repeat_contact_short_window` are decided from the clock and the history, where
  * code is exact and a model would only add noise. `missed_known_customer_call`
  * and `vip_customer` come from call metadata and the CRM, not from words.
  */
@@ -84,7 +84,7 @@ const MODEL_READABLE: ReadonlySet<string> = new Set<UrgentEscalationTriggerKey>(
   "explicit_urgency",
   "high_value_lead",
   "safety_risk",
-  "service_outage",
+  "essential_service_outage",
 ] as UrgentEscalationTriggerKey[]);
 
 export type AcceptedSignals = {

@@ -2828,6 +2828,11 @@ async function promoteEmailMessage({
       contactId,
       content: [message.subject, message.bodyText].filter(Boolean).join("\n"),
       conversationId,
+      // The model's reading of the same message. Wired here as well as on the
+      // manual path, because email is the main inbound channel and leaving it
+      // out meant the signals reached nothing that arrives by email -- which
+      // is most of it.
+      modelSignals: triageResult?.escalationSignals ?? null,
       // Prior history, not thread continuity. A customer whose job failed in
       // March and who emails afresh in July starts a new thread and would
       // otherwise read as a brand new lead, so existing_job_serious_issue --

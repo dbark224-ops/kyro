@@ -1682,7 +1682,15 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
       },
       rules: [
         "Return JSON only.",
-        "escalationSignals is what would make a reasonable owner want to be interrupted this evening, read from the customer's message alone. Return an empty array for an ordinary enquiry, which most are.",
+        // The first version of this rule ended "return an empty array for an
+        // ordinary enquiry, which most are" -- and the model duly returned []
+        // for a fusebox that had banged and left half a house without power.
+        // Telling it most messages are ordinary biased it towards silence on
+        // the one decision where silence is the expensive error. Same mistake
+        // the keyword patterns kept making, made again in prose.
+        "escalationSignals is anything in the customer's message that a sole trader would want to know about tonight rather than tomorrow morning: water or sewage escaping, a smell of gas, anything burning, smoking or sparking, no power, no heat or no water, a structure moving or sagging, a vulnerable person left without something essential, an injury, or work you did that has failed. Judge it as a tradesperson would, not as a call centre would.",
+        "Getting this wrong is not symmetrical. A signal that turns out to be nothing costs the owner a glance at their phone. A missed one is somebody standing in a flooded kitchen who never reaches them. When a message could reasonably be read either way, raise the signal.",
+        "A quiet, polite message can still be an emergency. People understate, apologise for bothering you, and bury the serious part in the middle. Read what has actually happened, not how calmly it is written.",
         "Every escalationSignals entry must quote the customer word for word in evidence -- a span copied from their message, several words long. Do not summarise, tidy, translate or explain it. An entry whose quote is not found in their message is discarded, so a paraphrase is the same as saying nothing.",
         "Never raise a signal from the subject line you are writing, the summary you are writing, or anything the business said earlier in the thread. Only the words this customer typed.",
         "Do not invent an address, price, date, or customer detail.",
@@ -2109,7 +2117,7 @@ async function runOpenAiTriage(
                           "explicit_urgency",
                           "high_value_lead",
                           "safety_risk",
-                          "service_outage",
+                          "essential_service_outage",
                         ],
                         type: "string",
                       },
@@ -3340,6 +3348,11 @@ export async function runStubAiTriage(
     summary: triageDecision.summary,
     threadMessageCount: triageContext.threadMessageCount ?? null,
     proposedActionTypes: actionProposals.map((proposal) => proposal.type),
+    // What the model claimed was worth interrupting the owner for, recorded
+    // whether or not the escalation detector went on to believe the quote.
+    // Without this there is no way to tell a model that says nothing from one
+    // whose evidence keeps being rejected, and those need opposite fixes.
+    escalationSignals: triageDecision.escalationSignals,
   };
 
   const { error: completeError } = await supabase
