@@ -12,6 +12,7 @@ import { buildEmailLeadTitle, formatServiceType } from "../crm/display";
 import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
 import { normalizeContactEmail } from "../crm/identity";
 import { insertAuditLog } from "../engine/event-action-audit";
+import { classifyEmergency } from "../escalation/emergency-classifier";
 import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
 import { notifyInboundInquiry } from "../voice/inbound-inquiry-notifications";
 import {
@@ -2828,11 +2829,19 @@ async function promoteEmailMessage({
       contactId,
       content: [message.subject, message.bodyText].filter(Boolean).join("\n"),
       conversationId,
-      // The model's reading of the same message. Wired here as well as on the
-      // manual path, because email is the main inbound channel and leaving it
-      // out meant the signals reached nothing that arrives by email -- which
-      // is most of it.
-      modelSignals: triageResult?.escalationSignals ?? null,
+      // Two readings of the same message, and the keywords are a third.
+      //
+      // The field on the triage schema returned an empty array for every
+      // emergency it was measured against, so the dedicated call does the
+      // actual work; the field is kept because it costs nothing and may start
+      // answering. Both go through the same quote check before either can
+      // raise anything.
+      modelSignals: [
+        ...(triageResult?.escalationSignals ?? []),
+        ...(await classifyEmergency(
+          [message.subject, message.bodyText].filter(Boolean).join("\n"),
+        )),
+      ],
       // Prior history, not thread continuity. A customer whose job failed in
       // March and who emails afresh in July starts a new thread and would
       // otherwise read as a brand new lead, so existing_job_serious_issue --

@@ -18,6 +18,7 @@ import {
 import { insertAuditLog } from "../engine/event-action-audit";
 import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
 import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
+import { classifyEmergency } from "../escalation/emergency-classifier";
 import {
   decideSameJob,
   sameJobNote,
@@ -1156,10 +1157,14 @@ export async function ingestManualInbound(
     conversationId: String(conversation.id),
     existingCustomer: contactResolution.match.status === "attached",
     leadId: String(lead.id),
-    // The model's reading of the same message, from the triage call that has
-    // already run. Every signal is checked against input.message before it can
-    // raise anything, so an unsupported one costs nothing.
-    modelSignals: aiResult?.escalationSignals ?? null,
+    // Two readings of the same message, and the keywords are a third. The
+    // dedicated call does the work; the triage field is kept because it costs
+    // nothing. Both are checked against input.message before either can raise
+    // anything, so an unsupported one costs nothing either.
+    modelSignals: [
+      ...(aiResult?.escalationSignals ?? []),
+      ...(await classifyEmergency(input.message)),
+    ],
     metadata: {
       channelType: input.channel?.type ?? "manual_inbound",
       eventId: String(event.id),
