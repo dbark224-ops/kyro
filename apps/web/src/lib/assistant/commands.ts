@@ -5913,29 +5913,33 @@ async function contactCommand({
     ],
     title: "Contact summary",
     uiBlocks: [
-      ...summaryCardsBlock("Contact snapshot", [
-        {
-          detail: "Linked messages",
-          href: `/contacts/${contact.id}`,
-          label: "Messages",
-          tone: "cyan",
-          value: String(profile?.counts.messages ?? contact.messageCount),
-        },
-        {
-          detail: "Open or historical leads",
-          href: `/contacts/${contact.id}`,
-          label: "Leads",
-          tone: "purple",
-          value: String(profile?.counts.leads ?? 0),
-        },
-        {
-          detail: "Documents linked to this profile",
-          href: `/contacts/${contact.id}`,
-          label: "Quotes",
-          tone: "pink",
-          value: String(profile?.counts.quoteDrafts ?? 0),
-        },
+      // The card first, because the card is what was asked for.
+      //
+      // This used to open with a "Contact snapshot" of three counts --
+      // Messages, Leads, Quotes -- and the card arrived underneath them. The
+      // three looked clickable and appeared to do nothing, which is worse than
+      // being plainly static: every one carried the same href, /contacts/{id},
+      // which opens the contact panel. Clicking any of them re-opened the panel
+      // that was already on screen showing the same contact, so the click fired
+      // and nothing changed.
+      //
+      // Making them work would mean three separate destinations that do not
+      // exist -- filtered views of that contact's messages, leads and quotes.
+      // The counts they showed are on the card anyway, so they are gone rather
+      // than built: asked for a contact card, the first thing on screen is now
+      // the contact card.
+      //
+      // Putting the links here also stops the engine appending them at the end,
+      // which it does only when the command supplies no link_cards of its own.
+      ...linkCardsBlock("Contact", [
+        rowLink(
+          contact.name ?? contact.company ?? "Open contact",
+          `/contacts/${contact.id}`,
+          contact.email ?? contact.phone ?? undefined,
+        ),
       ]),
+      // Kept, because it is the one thing the card does not carry: what the
+      // customer actually sent, and when.
       ...timelineBlock("Recent contact timeline", contactTimeline),
     ],
   };
