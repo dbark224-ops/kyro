@@ -1163,7 +1163,11 @@ export async function ingestManualInbound(
     // anything, so an unsupported one costs nothing either.
     modelSignals: [
       ...(aiResult?.escalationSignals ?? []),
-      ...(await classifyEmergency(input.message)),
+      ...(await classifyEmergency(input.message, {
+        supabase,
+        userId: user.id,
+        workspaceId,
+      })),
     ],
     metadata: {
       channelType: input.channel?.type ?? "manual_inbound",

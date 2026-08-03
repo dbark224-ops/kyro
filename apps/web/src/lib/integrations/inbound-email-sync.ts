@@ -2840,6 +2840,7 @@ async function promoteEmailMessage({
         ...(triageResult?.escalationSignals ?? []),
         ...(await classifyEmergency(
           [message.subject, message.bodyText].filter(Boolean).join("\n"),
+          { supabase, userId: user.id, workspaceId },
         )),
       ],
       // Prior history, not thread continuity. A customer whose job failed in

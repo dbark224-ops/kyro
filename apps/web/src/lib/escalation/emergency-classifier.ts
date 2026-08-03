@@ -1,4 +1,11 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAiProvider } from "../http/fetch-with-timeout";
+import {
+  buildLlmUsageEvents,
+  openAiUsageFromResponse,
+  recordUsageEvents,
+} from "../usage/openai";
+import { usageMarkupRate } from "../usage/pricing";
 import { objectRecord, textValue } from "@kyro/core";
 import type { EscalationModelSignal } from "./model-signals";
 
@@ -62,6 +69,11 @@ function openAiModel() {
  */
 export async function classifyEmergency(
   customerMessage: string,
+  meter?: {
+    supabase: SupabaseClient;
+    userId?: string | null;
+    workspaceId: string;
+  },
 ): Promise<EscalationModelSignal[]> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   const message = customerMessage.trim();
@@ -89,6 +101,33 @@ export async function classifyEmergency(
     }
 
     const payload = objectRecord(await response.json());
+
+    // Meter it. This call happens on every inquiry, so leaving it unrecorded
+    // would recreate the exact fault fixed for Twilio tonight -- a real,
+    // recurring cost the owner cannot see. Its own failures are swallowed: a
+    // usage row is worth less than the enquiry it is attached to.
+    if (meter) {
+      try {
+        await recordUsageEvents(meter.supabase, {
+          context: "escalation:emergency_classifier",
+          events: buildLlmUsageEvents({
+            context: {
+              metadata: { source: "emergency_classifier" },
+              usageMarkupRate: usageMarkupRate("OPENAI_LLM_MARKUP_RATE"),
+              userId: meter.userId ?? null,
+              workspaceId: meter.workspaceId,
+            },
+            model: openAiModel(),
+            usage: openAiUsageFromResponse(payload),
+          }),
+          userId: meter.userId ?? null,
+          workspaceId: meter.workspaceId,
+        });
+      } catch {
+        // Never let metering cost an escalation.
+      }
+    }
+
     const text = (Array.isArray(payload.output) ? payload.output : [])
       .flatMap((item) => {
         const content = objectRecord(item).content;
