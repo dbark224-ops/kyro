@@ -36,6 +36,52 @@ export const DEFAULT_DISPLAY_CURRENCY_SETTINGS: DisplayCurrencySettings = {
   exchangeRateUpdatedAt: null,
 };
 
+/**
+ * The money a workspace's country actually uses.
+ *
+ * Kyro is single-country per workspace -- the same assumption the dialling
+ * region is built on -- so the country is enough to know the currency, and a
+ * business should never have to go and find a setting to stop being quoted in
+ * somebody else's money.
+ *
+ * This exists because "AUD" was hardcoded in five places while the workspace
+ * setting said USD. On a New Mexico workspace the dashboard read A$0, and the
+ * default currency on quote and invoice templates was Australian dollars --
+ * which is a number in front of a customer, and the owner's to walk back.
+ *
+ * Anywhere not listed keeps USD, which is what the setting defaulted to
+ * before and is the safer thing to show than a guess.
+ */
+const CURRENCY_BY_REGION: Record<string, DisplayCurrency> = {
+  AU: "AUD",
+  CA: "CAD",
+  GB: "GBP",
+  IE: "EUR",
+  NZ: "NZD",
+  US: "USD",
+  // The euro countries Kyro is most likely to meet first.
+  AT: "EUR",
+  BE: "EUR",
+  DE: "EUR",
+  ES: "EUR",
+  FI: "EUR",
+  FR: "EUR",
+  IT: "EUR",
+  NL: "EUR",
+  PT: "EUR",
+};
+
+export function displayCurrencyForRegion(
+  region: string | null | undefined,
+): DisplayCurrency {
+  const key = (region ?? "").trim().toUpperCase();
+
+  return (
+    CURRENCY_BY_REGION[key] ??
+    DEFAULT_DISPLAY_CURRENCY_SETTINGS.displayCurrency
+  );
+}
+
 // Placeholder v1 rates are USD-based and only used for display. Stored billing
 // ledger amounts remain in their original currency, currently USD.
 const PLACEHOLDER_USD_RATES: Record<DisplayCurrency, number> = {

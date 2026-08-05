@@ -3,6 +3,7 @@ import {
   normalizeQuoteLineItems,
   type QuoteLineItem,
 } from "./templates";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { objectRecord, textValue } from "@kyro/core";
 
 export const DOCUMENT_TEMPLATE_POLICY_TYPE = "document_templates";
@@ -260,5 +261,26 @@ export async function getDocumentTemplateSettings(
     );
   }
 
-  return normalizeDocumentTemplateSettings(data?.settings);
+  const settings = normalizeDocumentTemplateSettings(data?.settings);
+  const storedCurrency = objectRecord(data?.settings).currency;
+
+  if (DOCUMENT_CURRENCIES.includes(storedCurrency as DocumentCurrency)) {
+    return settings;
+  }
+
+  // Nobody has chosen one, so use the workspace's rather than the constant.
+  //
+  // That constant is "AUD", which is the currency printed on a quote or an
+  // invoice -- a number in front of a customer, and the owner's to walk back.
+  // A New Mexico workspace whose display currency says USD should never send
+  // a quote in Australian dollars because a default was written for a
+  // different country.
+  const general = await getWorkspaceGeneralSettings(supabase, workspaceId).catch(
+    () => null,
+  );
+  const workspaceCurrency = general?.displayCurrency;
+
+  return DOCUMENT_CURRENCIES.includes(workspaceCurrency as DocumentCurrency)
+    ? { ...settings, currency: workspaceCurrency as DocumentCurrency }
+    : settings;
 }

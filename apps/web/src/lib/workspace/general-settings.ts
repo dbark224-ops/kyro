@@ -1,5 +1,6 @@
 import {
   DEFAULT_DISPLAY_CURRENCY_SETTINGS,
+  displayCurrencyForRegion,
   normalizeDisplayCurrency,
   normalizeDisplayCurrencyProvider,
   type DisplayCurrency,
@@ -854,9 +855,19 @@ export function normalizeWorkspaceGeneralSettings(
   fallback: WorkspaceGeneralSettingsFallback = {},
 ): WorkspaceGeneralSettings {
   const settings = objectRecord(value);
+  // The workspace's country decides the money when nobody has chosen. Kyro is
+  // single-country per workspace -- the same assumption the dialling region is
+  // built on -- so a business in Albuquerque should never have to go and find
+  // a setting to stop being quoted in Australian dollars.
+  //
+  // Read before the currency because the currency falls back to it.
+  const resolvedPhoneRegion = normalizePhoneRegion(
+    textValue(settings.defaultPhoneRegion),
+    fallback.defaultPhoneRegion ??
+      DEFAULT_WORKSPACE_GENERAL_SETTINGS.defaultPhoneRegion,
+  );
   const fallbackDisplayCurrency =
-    fallback.displayCurrency ??
-    DEFAULT_WORKSPACE_GENERAL_SETTINGS.displayCurrency;
+    fallback.displayCurrency ?? displayCurrencyForRegion(resolvedPhoneRegion);
 
   return {
     businessProfile: normalizeWorkspaceBusinessProfileSettings(
@@ -875,11 +886,7 @@ export function normalizeWorkspaceGeneralSettings(
       textValue(settings.exchangeRateUpdatedAt) ??
       fallback.exchangeRateUpdatedAt ??
       DEFAULT_WORKSPACE_GENERAL_SETTINGS.exchangeRateUpdatedAt,
-    defaultPhoneRegion: normalizePhoneRegion(
-      textValue(settings.defaultPhoneRegion),
-      fallback.defaultPhoneRegion ??
-        DEFAULT_WORKSPACE_GENERAL_SETTINGS.defaultPhoneRegion,
-    ),
+    defaultPhoneRegion: resolvedPhoneRegion,
     timeZone: normalizeTimeZone(
       settings.timeZone,
       fallback.timeZone ?? DEFAULT_WORKSPACE_GENERAL_SETTINGS.timeZone,

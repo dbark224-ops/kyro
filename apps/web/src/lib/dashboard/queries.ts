@@ -15,6 +15,7 @@ import {
 import { isoRangeForDateKeyRange, todayDateKey } from "../timezone";
 import { getPaymentsOverviewData } from "../payments/queries";
 import type { WorkspaceSummary } from "../workspace/bootstrap";
+import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type DashboardCommandCenterData = {
@@ -200,6 +201,12 @@ export async function getDashboardCommandCenterData(
   workspace: WorkspaceSummary,
   timeZone: string,
 ): Promise<DashboardCommandCenterData> {
+  // Cached per request, so this costs nothing beyond the load the page has
+  // already done for the time zone.
+  const generalSettings = await getWorkspaceGeneralSettings(
+    supabase,
+    workspace.id,
+  );
   const currentYear = Number(todayDateKey(timeZone).slice(0, 4));
   const calendarRange = isoRangeForDateKeyRange(
     {
@@ -308,7 +315,11 @@ export async function getDashboardCommandCenterData(
       updatedAt: document.updatedAt,
     })),
     payments: {
-      currency: paymentsOverview?.stats.currency ?? "AUD",
+      // The workspace's own currency, not Australia's. With no payments set
+      // up paymentsOverview is null, and this fell through to a hardcoded
+      // "AUD" -- so a New Mexico workspace whose setting said USD read "A$0"
+      // on its dashboard.
+      currency: paymentsOverview?.stats.currency ?? generalSettings.displayCurrency,
       outstandingAmountCents:
         paymentsOverview?.stats.outstandingAmountCents ?? 0,
       outstandingCount: paymentsOverview?.stats.outstandingCount ?? 0,
