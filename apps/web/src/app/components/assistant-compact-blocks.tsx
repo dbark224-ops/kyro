@@ -7,6 +7,26 @@ import type {
   AssistantThreadMessage,
   AssistantUiBlock,
 } from "../../lib/assistant/types";
+import { formatWorkspaceDateTime } from "../../lib/time/format";
+
+/**
+ * A timeline entry's time, in the owner's zone.
+ *
+ * The full Assistant console has always run this through
+ * formatWorkspaceDateTime. This compact copy rendered item.at straight out,
+ * so the dashboard showed "2026-08-03T00:36:28.15+00:00" to the owner --
+ * a raw database timestamp, in UTC, on the front page.
+ *
+ * Falls back to the raw value rather than an empty cell: an ugly time still
+ * tells you when something happened, and a blank one does not.
+ */
+function timelineTime(value: string | null | undefined, timeZone?: string | null) {
+  if (!value) {
+    return undefined;
+  }
+
+  return formatWorkspaceDateTime({ timeZone, value }) || value;
+}
 
 function toneClass(tone?: string) {
   return tone ? ` tone-${tone}` : "";
@@ -107,7 +127,12 @@ function blockFallbackText(block: AssistantUiBlock) {
   return null;
 }
 
-function renderBlock(block: AssistantUiBlock, maxItems: number, key: string) {
+function renderBlock(
+  block: AssistantUiBlock,
+  maxItems: number,
+  key: string,
+  timeZone?: string | null,
+) {
   if (block.type === "link_cards") {
     return (
       <CompactBlock key={key}>
@@ -159,7 +184,7 @@ function renderBlock(block: AssistantUiBlock, maxItems: number, key: string) {
               <CompactRowBody
                 label={item.label}
                 meta={item.detail}
-                value={item.at}
+                value={timelineTime(item.at, timeZone)}
               />
             </CompactRow>
           ))}
@@ -238,9 +263,11 @@ function renderBlock(block: AssistantUiBlock, maxItems: number, key: string) {
 export function AssistantCompactBlocks({
   maxItems = 3,
   message,
+  timeZone,
 }: Readonly<{
   maxItems?: number;
   message: AssistantThreadMessage;
+  timeZone?: string | null;
 }>) {
   const blocks = message.uiBlocks?.length
     ? message.uiBlocks
@@ -255,7 +282,7 @@ export function AssistantCompactBlocks({
   return (
     <div className="assistant-compact-blocks">
       {blocks.map((block, index) =>
-        renderBlock(block, maxItems, `${block.type}-${index}`),
+        renderBlock(block, maxItems, `${block.type}-${index}`, timeZone),
       )}
     </div>
   );

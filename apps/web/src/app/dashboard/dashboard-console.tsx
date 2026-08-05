@@ -748,8 +748,10 @@ function matchesActivityFilter(
 
 function MiniAssistantWidget({
   initialState,
+  timeZone,
 }: Readonly<{
   initialState: AssistantThreadState;
+  timeZone: string;
 }>) {
   const [assistantState, sendAction, pending] = useActionState(
     sendAssistantMessageAction,
@@ -830,7 +832,11 @@ function MiniAssistantWidget({
           >
             <span>{message.role === "user" ? "You" : "Kyro"}</span>
             <p>{message.content}</p>
-            <AssistantCompactBlocks maxItems={2} message={message} />
+            <AssistantCompactBlocks
+              maxItems={2}
+              message={message}
+              timeZone={timeZone}
+            />
           </article>
         ))}
         {pending ? (
@@ -991,7 +997,11 @@ function renderWidget({
 
   if (key === "assistant") {
     return (
-      <MiniAssistantWidget initialState={initialAssistantState} key={key} />
+      <MiniAssistantWidget
+        initialState={initialAssistantState}
+        key={key}
+        timeZone={timeZone}
+      />
     );
   }
 

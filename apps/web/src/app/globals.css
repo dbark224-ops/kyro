@@ -19106,10 +19106,38 @@ button:disabled {
   display: grid;
   grid-template-rows: auto auto minmax(0, 2.16fr) minmax(0, 0.82fr);
   gap: 10px;
+  /* Pulled up so the page title sits level with the floating top bar, which
+     is fixed and overlays this column. Only safe while there is room beside
+     it -- see the breakpoint below. */
   margin-top: -52px;
   min-height: calc(100vh - 64px);
   height: calc(100vh - 64px);
   align-content: stretch;
+}
+
+/*
+ * Below this width the title and the search bar collide.
+ *
+ * The top chrome is position: fixed and floats over this column, and the
+ * dashboard is pulled up 52px to sit level with it. That reads well while
+ * there is horizontal room and fails once there is not: measured on the live
+ * page, the gap between the title and the search box is 51px at 1280, 6px at
+ * 1180, and at 1040 the two overlap by 61px -- the title disappears behind
+ * the search bar. Reported from a normally-sized browser window, not an
+ * extreme one.
+ *
+ * So below 1280 the dashboard stops being pulled up and the title sits under
+ * the bar instead of behind it. The pinned height loses the same 52px it
+ * stops borrowing: removing the negative margin alone made the page 26px
+ * taller than the viewport and put a scrollbar on a layout designed to fit
+ * the fold exactly.
+ */
+@media (max-width: 1279px) {
+  .dashboard-command-centre {
+    margin-top: 0;
+    min-height: calc(100vh - 116px);
+    height: calc(100vh - 116px);
+  }
 }
 
 .dashboard-command-header {
