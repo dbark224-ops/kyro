@@ -49,9 +49,17 @@ const INSTRUCTIONS = [
   "Getting it wrong is not symmetrical. A false alarm costs them a glance at their phone. A miss is somebody standing in a flooded kitchen who never reaches them. When it could reasonably be read either way, say yes.",
   "A quiet, polite message can still be an emergency. People understate, apologise for bothering you, and bury the serious part in the middle. Read what has happened, not how calmly it is written.",
   "Judge it as a tradesperson would, not as a call centre would.",
-  `Reply with JSON only: {"urgent": boolean, "trigger": one of ${CLASSIFIER_TRIGGERS.join("|")}, "quote": the customer's own words showing it, copied exactly, several words long}`,
+  `Reply with JSON only: {"urgent": boolean, "trigger": one of ${CLASSIFIER_TRIGGERS.join("|")}, "quote": the customer's own words showing it, copied exactly, several words long, "trade": the kind of work}`,
   "The quote must be a span copied from their message. Do not summarise, tidy or translate it -- a quote that is not found in their message is discarded.",
-  'When it is an ordinary enquiry, reply {"urgent": false, "trigger": "explicit_urgency", "quote": ""}.',
+  'When it is an ordinary enquiry, reply {"urgent": false, "trigger": "explicit_urgency", "quote": ""} and still fill in the trade.',
+  // The trade rides along here rather than costing a second call. Text
+  // enquiries had no kind of work at all: inbound SMS wrote the literal string
+  // "SMS" into that field, so all 97 were filed under the channel they arrived
+  // on, and removing that left them empty. Email has always had this, from its
+  // own classifier -- which is why email leads read Plumbing and Tiling while
+  // every text read SMS.
+  'The trade is a short noun phrase for the work itself, in title case, as a tradesperson would write it on a job sheet: "Plumbing - Tap Repair", "Bathroom Renovation", "Hot Water System Replacement", "Electrical - Fault Finding". Never the channel it arrived on, never the customer\'s name, never a whole sentence.',
+  'Use null for the trade when the message is not about a job at all -- a supplier pitch, a wrong number, or somebody replying "thanks".',
 ].join("\n");
 
 function openAiModel() {
@@ -74,12 +82,12 @@ export async function classifyEmergency(
     userId?: string | null;
     workspaceId: string;
   },
-): Promise<EscalationModelSignal[]> {
+): Promise<ClassifiedMessage> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   const message = customerMessage.trim();
 
   if (!apiKey || !message) {
-    return [];
+    return EMPTY;
   }
 
   try {
@@ -97,7 +105,7 @@ export async function classifyEmergency(
     });
 
     if (!response.ok) {
-      return [];
+      return EMPTY;
     }
 
     const payload = objectRecord(await response.json());
@@ -140,16 +148,48 @@ export async function classifyEmergency(
   } catch {
     // Timeout, network, a provider having a bad day. The inquiry carries on
     // and the keywords still stand; this only ever adds.
-    return [];
+    return EMPTY;
   }
 }
 
+export type ClassifiedMessage = {
+  signals: EscalationModelSignal[];
+  /** The kind of work, or null when the message is not about a job. */
+  trade: string | null;
+};
+
+const EMPTY: ClassifiedMessage = { signals: [], trade: null };
+
+/**
+ * A trade long enough to be a trade and short enough not to be a sentence.
+ *
+ * Guards against the two ways this field has already been wrong: the channel
+ * written in as "SMS", and a model answering with a whole description of the
+ * job. Anything unreasonable is dropped rather than stored, because a blank
+ * field is honest and a wrong one is not.
+ */
+function usableTrade(value: string | null) {
+  const trade = (value ?? "").trim();
+
+  if (!trade || trade.length > 60 || trade.split(/\s+/).length > 7) {
+    return null;
+  }
+
+  // The exact fault being fixed. A model told to name the work should never
+  // answer with how the message arrived.
+  if (/^(sms|text|whatsapp|email|phone|call|voice|manual)$/i.test(trade)) {
+    return null;
+  }
+
+  return trade;
+}
+
 /** Split out so the parsing is testable without a provider. */
-export function signalsFromReply(text: string): EscalationModelSignal[] {
+export function signalsFromReply(text: string): ClassifiedMessage {
   const cleaned = text.replace(/```json|```/g, "").trim();
 
   if (!cleaned) {
-    return [];
+    return EMPTY;
   }
 
   let parsed: unknown;
@@ -159,21 +199,20 @@ export function signalsFromReply(text: string): EscalationModelSignal[] {
   } catch {
     // A model that answers in prose has still not told us anything we may act
     // on, since the evidence check needs an exact quote.
-    return [];
+    return EMPTY;
   }
 
   const record = objectRecord(parsed);
-
-  if (record.urgent !== true) {
-    return [];
-  }
-
+  const trade = usableTrade(textValue(record.trade));
   const quote = textValue(record.quote);
   const trigger = textValue(record.trigger);
 
-  if (!quote || !trigger) {
-    return [];
+  if (record.urgent !== true || !quote || !trigger) {
+    // Not urgent, or urgent without usable evidence. The trade still stands --
+    // most enquiries are ordinary, and those are exactly the ones whose kind
+    // of work was going unrecorded.
+    return { signals: [], trade };
   }
 
-  return [{ evidence: quote, trigger }];
+  return { signals: [{ evidence: quote, trigger }], trade };
 }

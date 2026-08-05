@@ -1151,6 +1151,57 @@ export async function ingestManualInbound(
     }
   }
 
+  // What kind of work this is, from what the customer wrote.
+  //
+  // Email has always done this: it classifies the message and stores a real
+  // trade, which is why email leads read Plumbing, Tiling, Bathroom
+  // Renovation. This path never did. Inbound SMS passed the literal string
+  // "SMS", so all 97 text enquiries were filed under the channel they arrived
+  // on rather than the job -- and removing that left them null, which is
+  // tidier and no more useful.
+  //
+  // Triage already works it out and the answer was being thrown away: the lead
+  // is created before triage runs, so jobType was computed moments later and
+  // never written back. No extra call, no extra cost.
+  //
+  // Only ever fills a blank. A trade the owner or the caller set is left
+  // alone, and a job that has been attached to an existing one keeps the trade
+  // that job already had.
+  // One call, two answers: whether this needs the owner tonight, and what kind
+  // of work it is. Both come from reading the same message, so asking twice
+  // would be paying twice.
+  const classified = await classifyEmergency(input.message, {
+    supabase,
+    userId: user.id,
+    workspaceId,
+  });
+
+  // Triage was the obvious source and turned out to be the wrong one: it only
+  // extracts trade facts when it decides a message is starting a service job,
+  // and for these it returned jobType null with mode simple_business_message.
+  // The classifier that already runs on every inquiry answers it instead.
+  const learnedJobType =
+    nullableText(classified.trade) ??
+    nullableText(aiResult?.inquiryFacts?.jobType);
+
+  if (learnedJobType && !sameJob.attach && !nullableText(input.serviceType)) {
+    const { error: serviceTypeError } = await supabase
+      .from("leads")
+      .update({ service_type: learnedJobType })
+      .eq("workspace_id", workspaceId)
+      .eq("id", lead.id)
+      .is("service_type", null);
+
+    if (serviceTypeError) {
+      // Not fatal, for the same reason as the name above: losing this costs a
+      // less useful report, not the enquiry.
+      console.warn("Unable to store the classified job type", {
+        code: serviceTypeError.code,
+        workspaceId,
+      });
+    }
+  }
+
   await createUrgentEscalationIncident(supabase, workspaceId, {
     contactId,
     content: input.message,
@@ -1161,14 +1212,7 @@ export async function ingestManualInbound(
     // dedicated call does the work; the triage field is kept because it costs
     // nothing. Both are checked against input.message before either can raise
     // anything, so an unsupported one costs nothing either.
-    modelSignals: [
-      ...(aiResult?.escalationSignals ?? []),
-      ...(await classifyEmergency(input.message, {
-        supabase,
-        userId: user.id,
-        workspaceId,
-      })),
-    ],
+    modelSignals: [...(aiResult?.escalationSignals ?? []), ...classified.signals],
     metadata: {
       channelType: input.channel?.type ?? "manual_inbound",
       eventId: String(event.id),

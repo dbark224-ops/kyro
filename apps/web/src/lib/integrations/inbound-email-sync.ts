@@ -2838,10 +2838,12 @@ async function promoteEmailMessage({
       // raise anything.
       modelSignals: [
         ...(triageResult?.escalationSignals ?? []),
-        ...(await classifyEmergency(
-          [message.subject, message.bodyText].filter(Boolean).join("\n"),
-          { supabase, userId: user.id, workspaceId },
-        )),
+        ...(
+          await classifyEmergency(
+            [message.subject, message.bodyText].filter(Boolean).join("\n"),
+            { supabase, userId: user.id, workspaceId },
+          )
+        ).signals,
       ],
       // Prior history, not thread continuity. A customer whose job failed in
       // March and who emails afresh in July starts a new thread and would
