@@ -156,16 +156,35 @@ export function convertDisplayMoney(
   };
 }
 
+/**
+ * Money as money, without pretending a real cost is nothing.
+ *
+ * This used to give six decimal places to anything under a pound or dollar,
+ * so a week's usage read "$0.098239" on the dashboard. The worry behind that
+ * was sound -- rounding a genuine charge to $0.00 is the same fault as
+ * recording Twilio's messages as free -- but ten cents does not need six
+ * decimals to be honest.
+ *
+ * So: two decimals, the way money is written. Only an amount too small to
+ * survive rounding is treated differently, and it says "less than a cent"
+ * rather than inventing digits nobody reads.
+ */
 export function formatCurrencyAmount(value: number, currency: string) {
-  const maximumFractionDigits =
-    Math.abs(value) > 0 && Math.abs(value) < 1 ? 6 : 2;
+  const money = (amount: number, maximumFractionDigits = 2) =>
+    new Intl.NumberFormat("en", {
+      currency,
+      maximumFractionDigits,
+      minimumFractionDigits: 2,
+      style: "currency",
+    }).format(amount);
 
-  return new Intl.NumberFormat("en", {
-    currency,
-    maximumFractionDigits,
-    minimumFractionDigits: 2,
-    style: "currency",
-  }).format(value);
+  // Not zero, but rounds to it. Showing $0.00 for a real charge is the thing
+  // worth avoiding; six decimals was an over-correction.
+  if (value !== 0 && Math.abs(value) < 0.005) {
+    return `${value < 0 ? "-" : "<"}${money(0.01)}`;
+  }
+
+  return money(value);
 }
 
 export function formatDisplayMoney(
