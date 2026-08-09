@@ -1694,8 +1694,8 @@ function buildOllamaPrompt(context: StubAiTriageContext) {
         "Every escalationSignals entry must quote the customer word for word in evidence -- a span copied from their message, several words long. Do not summarise, tidy, translate or explain it. An entry whose quote is not found in their message is discarded, so a paraphrase is the same as saying nothing.",
         "Never raise a signal from the subject line you are writing, the summary you are writing, or anything the business said earlier in the thread. Only the words this customer typed.",
         "Do not invent an address, price, date, or customer detail.",
-        // 8 of 213 contacts have no name at all, including the customer owed a
-        // $450 refund, because an email with no display name and an SMS both
+        // 8 of 213 contacts had no name at all when this was measured
+        // (2026-07-30), because an email with no display name and an SMS both
         // arrive with nothing to use. The name is usually right there in the
         // message. The failure to avoid is taking the name of somebody being
         // discussed -- "I'm asking on behalf of Priya Raghunathan" is Priya's

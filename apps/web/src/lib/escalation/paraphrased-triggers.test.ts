@@ -302,9 +302,10 @@ describe("a trigger must come from the customer, not from Kyro", () => {
  * active_property_damage and after_hours_emergency, waking the owner at
  * midnight over a job already booked. Written alone they escalate on nothing.
  *
- * Untouched in production so far only because 1 of 387 inbound messages is a
- * reply into a thread -- almost everything is still first contact. It gets
- * worse with use, and every reply re-escalates for as long as the thread lives.
+ * Untouched in production so far only because replies into a thread were rare
+ * -- 1 of 387 inbound messages when measured (2026-07-30), almost everything
+ * still first contact. That ratio moves towards replies as a workspace ages,
+ * and every reply re-escalates for as long as the thread lives.
  */
 describe("a trigger must come from what the customer just wrote", () => {
   const fires = (content: string) =>
