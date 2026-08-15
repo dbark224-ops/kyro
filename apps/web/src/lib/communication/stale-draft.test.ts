@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { staleDraftSummary, staleDraftWarnings } from "./stale-draft";
+import {
+  discardStaleDraftReplies,
+  STALE_DRAFT_MAX_AGE_DAYS,
+  staleDraftSummary,
+  staleDraftWarnings,
+} from "./stale-draft";
 
 const NOW = new Date("2026-08-05T12:00:00.000Z");
 const daysAgo = (days: number) =>
@@ -116,5 +121,88 @@ describe("it cannot take the approve button down with it", () => {
         "",
       /Tuesday/,
     );
+  });
+});
+
+describe("discarding drafts nobody ever approved", () => {
+  // A fake client that records exactly what was asked of the database, so the
+  // narrowness of the sweep is tested rather than assumed.
+  const fakeSupabase = (rows: Array<{ id: string; workspace_id: string }>) => {
+    const selectFilters: Record<string, unknown> = {};
+    const deleteFilters: Record<string, unknown> = {};
+    let deleted = false;
+
+    const selectChain: Record<string, unknown> = {
+      eq: (column: string, value: unknown) => {
+        selectFilters[column] = value;
+        return selectChain;
+      },
+      limit: () => selectChain,
+      lt: (column: string, value: unknown) => {
+        selectFilters[`lt:${column}`] = value;
+        return selectChain;
+      },
+      order: () => selectChain,
+      then: (resolve: (value: unknown) => unknown) =>
+        resolve({ data: rows, error: null }),
+    };
+    const deleteChain: Record<string, unknown> = {
+      eq: (column: string, value: unknown) => {
+        deleteFilters[column] = value;
+        return deleteChain;
+      },
+      in: (column: string, value: unknown) => {
+        deleteFilters[column] = value;
+        return deleteChain;
+      },
+      then: (resolve: (value: unknown) => unknown) => resolve({ error: null }),
+    };
+
+    return {
+      client: {
+        from: () => ({
+          delete: () => {
+            deleted = true;
+            return deleteChain;
+          },
+          select: () => selectChain,
+        }),
+      },
+      deleteFilters,
+      selectFilters,
+      wasDeleted: () => deleted,
+    };
+  };
+
+  it("only ever asks for pending draft replies past the cutoff", () => {
+    const fake = fakeSupabase([]);
+
+    return discardStaleDraftReplies(fake.client as never, {
+      now: new Date("2026-08-05T00:00:00.000Z"),
+      olderThanDays: 183,
+    }).then((result) => {
+      assert.equal(fake.selectFilters.type, "draft_reply");
+      assert.equal(fake.selectFilters.status, "pending_approval");
+      assert.equal(fake.selectFilters["lt:created_at"], "2026-02-03T00:00:00.000Z");
+      assert.equal(result.discarded, 0);
+      // Nothing matched, so nothing was deleted.
+      assert.equal(fake.wasDeleted(), false);
+    });
+  });
+
+  it("restates the conditions on the delete, not just the ids", () => {
+    // A draft approved between the read and the write must survive.
+    const fake = fakeSupabase([{ id: "a", workspace_id: "w" }]);
+
+    return discardStaleDraftReplies(fake.client as never, {}).then((result) => {
+      assert.equal(result.discarded, 1);
+      assert.deepEqual(fake.deleteFilters.id, ["a"]);
+      assert.equal(fake.deleteFilters.type, "draft_reply");
+      assert.equal(fake.deleteFilters.status, "pending_approval");
+    });
+  });
+
+  it("defaults to six months", () => {
+    assert.equal(STALE_DRAFT_MAX_AGE_DAYS, 183);
   });
 });
