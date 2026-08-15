@@ -22049,3 +22049,22 @@ button:disabled {
     padding: 5px;
   }
 }
+
+/*
+ * A drafted reply that has outlived what it says.
+ *
+ * Sits directly above the approve button, because that is the moment the
+ * owner decides. Amber rather than red: this is "check this still holds",
+ * not "something is broken" -- 61 of the 393 pending drafts carry a dated
+ * phrase, and most of those are probably still fine to send.
+ */
+.inbox-draft-stale-notice {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(217, 148, 42, 0.35);
+  background: rgba(217, 148, 42, 0.1);
+  color: var(--amber-strong, #b8791f);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}

@@ -64,6 +64,10 @@ import {
 import { MessageAttachmentList } from "../components/message-attachments";
 import type { ReactNode } from "react";
 import { textValue } from "@kyro/core";
+import {
+  staleDraftSummary,
+  staleDraftWarnings,
+} from "../../lib/communication/stale-draft";
 
 type CommunicationSettings = Awaited<
   ReturnType<typeof getCommunicationSettings>
@@ -775,6 +779,12 @@ function InboxDraftReplyAction({
   const draftBody = textValue(action.input.body) ?? "";
   const draftAttachmentId =
     textValue(action.input.attachmentQuoteDraftId) ?? "";
+  // A draft is a snapshot of what was true when it was written, and the send
+  // path uses the body verbatim. Warn only -- the approval gate exists so a
+  // person decides, and this gives them what they need to decide.
+  const staleNotice = canEdit
+    ? staleDraftSummary(staleDraftWarnings(draftBody, action.createdAt))
+    : null;
 
   return (
     <div className="draft-reply-inline-card unified-reply-draft">
@@ -791,6 +801,11 @@ function InboxDraftReplyAction({
             <span className="inbox-draft-reply-meta">
               {formatLabel(action.status)} - {formatDate(action.createdAt)}
             </span>
+            {staleNotice ? (
+              <p className="inbox-draft-stale-notice" role="status">
+                {staleNotice}
+              </p>
+            ) : null}
             <div className="inbox-draft-reply-title-row">
               <strong>Generated reply</strong>
               <span className="pill">
