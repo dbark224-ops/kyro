@@ -162,3 +162,31 @@ describe("the CRM stops showing lifecycle", () => {
     assert.doesNotMatch(css, /loading-panel \{\s*align-content: start;/);
   });
 });
+
+describe("every inbound path agrees what a stranger is", () => {
+  /**
+   * Found by querying production: of the 354 contacts created since the
+   * migration that gave contact_type its meaning, 316 arrived as clients --
+   * every one of them from inbound email, while SMS and phone correctly
+   * created leads.
+   *
+   * inbound-email-sync.ts had contact_type: "client" written in directly,
+   * bypassing this normalizer. That is a claim that somebody has done
+   * business with you, made about a stranger who has just sent a first
+   * email, and it breaks the lead filter, the promotion engine, and any
+   * report that splits the two.
+   *
+   * The same shape as the serviceType: "SMS" fault in the SMS path -- one
+   * ingest path setting a field differently from the others.
+   */
+  it("treats a contact with nothing known about them as a lead", () => {
+    for (const value of [null, undefined, "", "   "]) {
+      assert.equal(normalizeContactType(value), "lead", JSON.stringify(value));
+    }
+  });
+
+  it("still accepts a type somebody actually chose", () => {
+    assert.equal(normalizeContactType("client"), "client");
+    assert.equal(normalizeContactType("supplier"), "supplier");
+  });
+});

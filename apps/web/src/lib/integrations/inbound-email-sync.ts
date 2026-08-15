@@ -11,6 +11,7 @@ import {
 import { buildEmailLeadTitle, formatServiceType } from "../crm/display";
 import { completeOpenCustomerFollowUpReminders } from "../crm/follow-up-reminders";
 import { normalizeContactEmail } from "../crm/identity";
+import { normalizeContactType } from "../crm/contact-types";
 import { insertAuditLog } from "../engine/event-action-audit";
 import { classifyEmergency } from "../escalation/emergency-classifier";
 import { createUrgentEscalationIncident } from "../escalation/urgent-escalation";
@@ -2164,7 +2165,16 @@ async function findOrCreateEmailContact({
       name,
       email,
       normalized_email: email,
-      contact_type: "client",
+      // A stranger who emails is a lead, not a client. This said "client",
+      // which is the one ingest path that disagreed with the other two and
+      // with the migration that gave the field its meaning: lead first,
+      // promoted to client only on evidence -- an approved quote, a booked
+      // job, a paid invoice. 316 of the 354 contacts created since that
+      // migration came in as clients on first contact.
+      //
+      // Through the normalizer rather than a literal, so the default lives in
+      // one place. Nothing here knows the type, so it resolves to lead.
+      contact_type: normalizeContactType(null),
       source: `${message.provider}_email_inbound`,
       tags: ["email_inbound", message.provider],
     })
