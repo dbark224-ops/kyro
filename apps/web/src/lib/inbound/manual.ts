@@ -21,6 +21,7 @@ import { getWorkspaceGeneralSettings } from "../workspace/general-settings";
 import { classifyEmergency } from "../escalation/emergency-classifier";
 import {
   decideSameJob,
+  mergeTradeLabels,
   sameJobNote,
   SAME_JOB_WINDOW_MS,
 } from "./same-job";
@@ -949,7 +950,6 @@ export async function ingestManualInbound(
   // tell they belong together, and leave them apart where it cannot.
   const sameJob = decideSameJob({
     hasProfileConflict,
-    incomingServiceType: nullableText(input.serviceType),
     openLead: recentLead,
   });
 
@@ -1184,21 +1184,41 @@ export async function ingestManualInbound(
     nullableText(classified.trade) ??
     nullableText(aiResult?.inquiryFacts?.jobType);
 
-  if (learnedJobType && !sameJob.attach && !nullableText(input.serviceType)) {
-    const { error: serviceTypeError } = await supabase
-      .from("leads")
-      .update({ service_type: learnedJobType })
-      .eq("workspace_id", workspaceId)
-      .eq("id", lead.id)
-      .is("service_type", null);
+  if (learnedJobType && !nullableText(input.serviceType)) {
+    // Two paths, because a new job and a job being joined want opposite things.
+    //
+    // A new job takes the trade only if it has none, so nothing already known
+    // gets overwritten by a guess. A job being joined accumulates instead: the
+    // owner's decision is that one customer asking about two trades is one
+    // visit carrying both labels, so a text about a socket that lands on this
+    // afternoon's plumbing job makes it "Plumbing + Electrical" rather than a
+    // second job the owner has to reconcile.
+    const merged = sameJob.attach
+      ? mergeTradeLabels(recentLead?.serviceType, learnedJobType)
+      : learnedJobType;
+    const unchanged =
+      sameJob.attach && merged === nullableText(recentLead?.serviceType);
 
-    if (serviceTypeError) {
-      // Not fatal, for the same reason as the name above: losing this costs a
-      // less useful report, not the enquiry.
-      console.warn("Unable to store the classified job type", {
-        code: serviceTypeError.code,
-        workspaceId,
-      });
+    if (merged && !unchanged) {
+      const update = supabase
+        .from("leads")
+        .update({ service_type: merged })
+        .eq("workspace_id", workspaceId)
+        .eq("id", lead.id);
+      // Only the new-job path insists the column is still empty; the joined
+      // path is deliberately adding to what is already there.
+      const { error: serviceTypeError } = await (sameJob.attach
+        ? update
+        : update.is("service_type", null));
+
+      if (serviceTypeError) {
+        // Not fatal, for the same reason as the name above: losing this costs a
+        // less useful report, not the enquiry.
+        console.warn("Unable to store the classified job type", {
+          code: serviceTypeError.code,
+          workspaceId,
+        });
+      }
     }
   }
 

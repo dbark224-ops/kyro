@@ -9,10 +9,21 @@
  * within half an hour of each other.
  *
  * The owner's decision was that this should be one job where Kyro can identify
- * it. "Where it can identify it" is doing the work in that sentence, so the
- * rules here are deliberately narrow, and the asymmetry runs one way: two
- * entries for one job is untidy, while two jobs collapsed into one loses the
- * owner work they were going to be paid for. When unsure, this declines.
+ * it, and that one contact inside the window is one job even when the two
+ * messages ask for different trades. A sole trader who does plumbing and
+ * electrical does not want a customer split across two jobs on the same
+ * afternoon; they want one visit, labelled with both. So the kind of work no
+ * longer decides anything here -- it is accumulated onto the job instead, by
+ * mergeTradeLabels below.
+ *
+ * That reverses an earlier rule, and measuring it is why. service_type is free
+ * text an LLM writes fresh for each enquiry: production holds "Plumbing",
+ * "Plumbing Repair", "Plumbing - Tap Repair" and "Plumbing Inspection And
+ * Repairs" as four separate values. Comparing those as strings does not tell a
+ * drain from a socket -- it tells one plumbing job from the same plumbing job
+ * described a second time, and splits it.
+ *
+ * Time carries the decision now, and it still declines when unsure.
  */
 
 /** Statuses that mean the job is finished, one way or the other. */
@@ -46,15 +57,117 @@ export type OpenLead = {
 export type SameJobInput = {
   /** True when contact resolution was not confident this is the same person. */
   hasProfileConflict?: boolean;
-  incomingServiceType?: string | null;
   now?: Date;
   openLead: OpenLead | null;
 };
 
-function normalizedService(value: string | null | undefined) {
-  const text = (value ?? "").trim().toLowerCase();
+/** Trade labels are joined with this, so a job can carry more than one. */
+export const TRADE_SEPARATOR = " + ";
 
-  return text ? text : null;
+/** Past this many trades the label stops being readable on a job card. */
+const MAX_TRADE_LABELS = 4;
+
+/** And past this many characters it stops fitting one. */
+const MAX_TRADE_LABEL_LENGTH = 120;
+
+/**
+ * Comparable form of a trade label: case, punctuation and spacing removed.
+ *
+ * "Plumbing - Tap Repair" and "plumbing tap repair" are the same trade written
+ * by the model twice, and the only thing separating them is formatting.
+ */
+function comparableTrade(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Whether two labels name the same work, allowing for one being more specific.
+ *
+ * Containment has to respect word boundaries or "Tiling" would swallow
+ * "Retiling", which is a different job.
+ */
+function namesTheSameTrade(left: string, right: string) {
+  const a = comparableTrade(left);
+  const b = comparableTrade(right);
+
+  if (!a || !b) {
+    return false;
+  }
+
+  if (a === b) {
+    return true;
+  }
+
+  const contains = (haystack: string, needle: string) =>
+    haystack.startsWith(`${needle} `) ||
+    haystack.endsWith(` ${needle}`) ||
+    haystack.includes(` ${needle} `);
+
+  return contains(a, b) || contains(b, a);
+}
+
+function splitTradeLabels(value: string | null | undefined) {
+  return (value ?? "")
+    .split(/\s*\+\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Add a trade to a job that may already name one.
+ *
+ * The owner's decision: one customer contacting twice about different work is
+ * one job carrying both trades, not two jobs. A firm that does plumbing and
+ * electrical wants "Plumbing + Electrical" on one visit.
+ *
+ * The awkward part is that these labels are free text from a model, so the
+ * same trade arrives spelled four ways. Where one label already covers the
+ * other this keeps the more specific of the two rather than listing both --
+ * "Plumbing" then "Plumbing - Tap Repair" is one job, described better the
+ * second time, and "Plumbing + Plumbing - Tap Repair" would read as two.
+ *
+ * Returns the existing label unchanged when the result would be too long or
+ * too crowded to read, because a job card that says everything says nothing.
+ */
+export function mergeTradeLabels(
+  existing: string | null | undefined,
+  incoming: string | null | undefined,
+) {
+  const addition = (incoming ?? "").trim();
+  const parts = splitTradeLabels(existing);
+  const current = parts.length ? parts.join(TRADE_SEPARATOR) : null;
+
+  if (!addition) {
+    return current;
+  }
+
+  if (!parts.length) {
+    return addition;
+  }
+
+  let absorbed = false;
+  const merged = parts.map((part) => {
+    if (!namesTheSameTrade(part, addition)) {
+      return part;
+    }
+
+    absorbed = true;
+
+    // Whichever names the work in more detail is the one worth keeping.
+    return addition.length > part.length ? addition : part;
+  });
+
+  if (!absorbed) {
+    if (merged.length >= MAX_TRADE_LABELS) {
+      return current;
+    }
+
+    merged.push(addition);
+  }
+
+  const label = merged.join(TRADE_SEPARATOR);
+
+  return label.length > MAX_TRADE_LABEL_LENGTH ? current : label;
 }
 
 export type SameJobDecision =
@@ -92,20 +205,14 @@ export function decideSameJob(input: SameJobInput): SameJobDecision {
     return { attach: false, reason: "the earlier job is outside the window" };
   }
 
-  const existingService = normalizedService(openLead.serviceType);
-  const incomingService = normalizedService(input.incomingServiceType);
-
-  // Two named trades that disagree are two jobs -- a blocked drain and a dead
-  // socket on the same afternoon are not one visit. An unnamed one on either
-  // side is not evidence of anything, so it does not block the match.
-  if (existingService && incomingService && existingService !== incomingService) {
-    return { attach: false, reason: "a different kind of work" };
-  }
-
+  // The kind of work deliberately does not appear here. Two trades from one
+  // customer within a few hours is one visit with two tasks on it, and the
+  // labels are merged onto the job by mergeTradeLabels rather than used to
+  // split it.
   return {
     attach: true,
     leadId: openLead.id,
-    reason: "same contact, same kind of work, within hours",
+    reason: "same contact, within hours",
   };
 }
 
