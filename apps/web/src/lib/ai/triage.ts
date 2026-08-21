@@ -1,6 +1,9 @@
 import { fetchAiProvider } from "../http/fetch-with-timeout";
 import type { EscalationModelSignal } from "../escalation/model-signals";
-import type { AddressColumnUpdates } from "../addresses/types";
+import type {
+  AddressColumnUpdates,
+  StructuredAddress,
+} from "../addresses/types";
 import { addressWorthLearning } from "../addresses/replace";
 import {
   unverifiedAddressFields,
@@ -2531,6 +2534,78 @@ function buildActionProposals(
 const ADDRESS_VERIFICATION_TIMEOUT_MS = 12_000;
 
 /**
+ * How long a resolved address may be reused.
+ *
+ * Google's terms let a place id be stored indefinitely but limit how long the
+ * content behind it -- the formatted address, the components, the coordinates
+ * -- may be cached. Thirty days is the conservative reading, and it costs
+ * almost nothing here: an address repeats within days, by the customer
+ * chasing or the landlord booking the next property, not months later.
+ *
+ * Measured from `updated_at` rather than `address_validated_at`, which is null
+ * on every needs_review row -- filtering on it would have quietly excluded 111
+ * of the 270 resolved addresses in production from ever being reused.
+ */
+const ADDRESS_CACHE_MAX_AGE_DAYS = 30;
+
+function addressCacheCutoff() {
+  return new Date(
+    Date.now() - ADDRESS_CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+}
+
+/**
+ * A place this workspace has already paid Google to describe.
+ *
+ * Keyed on the place id rather than the text, so it survives the customer
+ * writing "1120 Lomas Blvd NE" one week and "1120 Lomas Boulevard Northeast"
+ * the next -- Google resolves both to one id, and this recognises them as one
+ * place. Autocomplete has already been bought by the time this runs; what it
+ * saves is place details and address validation, at $17 per thousand each
+ * against autocomplete's $2.83.
+ *
+ * Returns null on anything unexpected. A miss costs two API calls; a wrong hit
+ * would put one customer's address on another's job.
+ */
+async function findResolvedPlaceForWorkspace({
+  placeId,
+  supabase,
+  workspaceId,
+}: {
+  placeId: string;
+  supabase: SupabaseClient;
+  workspaceId: string;
+}): Promise<StructuredAddress | null> {
+  const { data, error } = await supabase
+    .from("inquiry_facts")
+    .select("address_structured,address_validated_at,address_validation_status")
+    .eq("workspace_id", workspaceId)
+    .eq("address_place_id", placeId)
+    .neq("address_validation_status", "unverified")
+    .gt("updated_at", addressCacheCutoff())
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const structured = objectRecord(data.address_structured);
+
+  // Written by an older path, or before the structured columns existed.
+  // Falling through costs the two calls and is always correct.
+  if (
+    textValue(structured.placeId) !== placeId ||
+    structured.provider !== "google"
+  ) {
+    return null;
+  }
+
+  return structured as unknown as StructuredAddress;
+}
+
+/**
  * Verify an address the model pulled out of an inbound message.
  *
  * Triage is autonomous: there is no one to ask when the text is ambiguous, so
@@ -2544,14 +2619,12 @@ const ADDRESS_VERIFICATION_TIMEOUT_MS = 12_000;
  */
 async function resolveInquiryFactsAddress({
   address,
-  conversationId,
   region,
   supabase,
   userId,
   workspaceId,
 }: {
   address: string | null;
-  conversationId: string | null;
   region: PhoneRegion | null;
   supabase: SupabaseClient;
   userId: string | null;
@@ -2564,23 +2637,43 @@ async function resolveInquiryFactsAddress({
   }
 
   try {
-    // A thread where the customer repeats the address would otherwise pay for
-    // the same lookup on every message.
-    if (conversationId) {
+    // An address this workspace has already resolved, matched on the text as
+    // written.
+    //
+    // This was scoped to the conversation, where it could never hit: every
+    // inbound message that does not thread gets its own conversation, and
+    // inquiry_facts holds exactly one row per conversation -- 475 rows across
+    // 475 conversations, written by the same triage run that would have read
+    // one. It also compared the model's raw extraction against `address`,
+    // which stores Google's formatted version, so the two rarely matched even
+    // in principle. Measured over production: 863 Maps calls resolved 31
+    // distinct strings covering 13 real places, one of them 59 times.
+    //
+    // Widened to the workspace, because a recurring address is the normal case
+    // -- a repeat customer, a landlord's second property, or somebody texting
+    // three times because nobody answered.
+    //
+    // Worth being honest about what this one catches: `address` holds Google's
+    // formatting and `text` is the model's extraction, so it only fires when
+    // the two happen to agree -- most often when the customer quotes back the
+    // tidied address Kyro sent them. It saves the whole lookup when it does.
+    // The place id cache below is the one that carries the saving, because it
+    // compares ids rather than prose.
+    {
       const { data: stored } = await supabase
         .from("inquiry_facts")
         .select(
           "address,address_administrative_area,address_country_code,address_latitude,address_line1,address_line2,address_locality,address_longitude,address_place_id,address_postal_code,address_source,address_structured,address_validated_at,address_validation_status",
         )
         .eq("workspace_id", workspaceId)
-        .eq("conversation_id", conversationId)
+        .eq("address", text)
+        .neq("address_validation_status", "unverified")
+        .gt("updated_at", addressCacheCutoff())
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
-      if (
-        stored &&
-        textValue(stored.address) === text &&
-        textValue(stored.address_validation_status) !== "unverified"
-      ) {
+      if (stored) {
         return {
           address: textValue(stored.address),
           address_administrative_area: textValue(
@@ -2606,7 +2699,13 @@ async function resolveInquiryFactsAddress({
     }
 
     const verification = await Promise.race([
-      verifyAddressText({ address: text, region, source: "triage" }),
+      verifyAddressText({
+        address: text,
+        findResolvedPlace: (placeId) =>
+          findResolvedPlaceForWorkspace({ placeId, supabase, workspaceId }),
+        region,
+        source: "triage",
+      }),
       new Promise<null>((resolve) => {
         setTimeout(
           () => resolve(null),
@@ -3089,7 +3188,6 @@ export async function runStubAiTriage(
   // address that gets stored.
   const addressColumnsPromise = resolveInquiryFactsAddress({
     address: inquiryFacts.address,
-    conversationId: context.conversationId ?? null,
     region:
       triageContext.defaultPhoneRegion ?? generalSettings.defaultPhoneRegion,
     supabase,

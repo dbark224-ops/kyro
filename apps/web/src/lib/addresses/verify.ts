@@ -160,18 +160,34 @@ export function verifiedAddressFields(
 /**
  * Ask Google what this text is.
  *
- * Two calls: autocomplete to turn the text into a place, then place details
- * with validation to get the structured parts and a verdict. Anything that
- * goes wrong -- no key configured, no match, a timeout -- returns the original
- * text marked unverified rather than throwing, because every caller is in the
- * middle of handling a customer.
+ * Three calls, not two: autocomplete turns the text into a place, then place
+ * details and address validation run against that place id -- details for the
+ * structured parts, validation for the verdict that separates "Google knows
+ * this place" from "this is a real address you can send a van to". Anything
+ * that goes wrong -- no key configured, no match, a timeout -- returns the
+ * original text marked unverified rather than throwing, because every caller
+ * is in the middle of handling a customer.
+ *
+ * Autocomplete costs $2.83 per thousand; the other two are $17 each. So the
+ * place id is the seam worth caching on, and `findResolvedPlace` is where a
+ * caller hands back a place it has already paid to resolve. Keying on the
+ * place id rather than the text is what makes that exact: "1120 Lomas Blvd
+ * NE" and "1120 Lomas Boulevard Northeast" are one place to Google and two
+ * strings to us.
  */
 export async function verifyAddressText({
   address,
+  findResolvedPlace,
   region,
   source,
 }: {
   address: string;
+  /**
+   * Optional lookup for a place this caller has resolved before. Returning a
+   * stored StructuredAddress skips place details and validation, and the
+   * saving is reported honestly in `calls` so nothing unbilled reaches usage.
+   */
+  findResolvedPlace?: (placeId: string) => Promise<StructuredAddress | null>;
   region: string | null;
   source: AddressVerificationSource;
 }): Promise<AddressVerification> {
@@ -213,6 +229,28 @@ export async function verifyAddressText({
         needsLocality: false,
         updates: unverifiedAddressFields(address, source),
         verificationNote: "Google could not find a matching address.",
+      };
+    }
+
+    // A place this workspace has already paid to resolve. Google's terms allow
+    // a place id to be stored indefinitely but limit how long the content
+    // behind it may be cached, so the caller applies the age limit -- this only
+    // asks, and treats any failure as a miss.
+    const cached = findResolvedPlace
+      ? await findResolvedPlace(bestSuggestion.placeId).catch(() => null)
+      : null;
+
+    if (cached) {
+      return {
+        // Autocomplete was still bought; the two $17 calls were not.
+        calls: { autocomplete: true, placeDetails: false, validation: false },
+        formattedAddress: verifiedAddressFields(cached, address).address,
+        needsLocality: false,
+        updates: verifiedAddressFields(cached, address),
+        verificationNote:
+          cached.validationStatus === "validated"
+            ? undefined
+            : "Google found a close match but could not confirm it, so this is worth checking.",
       };
     }
 

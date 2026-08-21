@@ -248,3 +248,178 @@ describe("the badge is shown where an address is", () => {
     assert.doesNotMatch(status, /from "\.\/verify"/);
   });
 });
+
+/**
+ * The place id is the seam that stops us buying the same address twice.
+ *
+ * Production had paid for 863 Maps calls to resolve 31 distinct strings
+ * covering 13 real places -- one address 59 times over. The cache that should
+ * have stopped it was keyed on the conversation, and every inbound message
+ * that does not thread gets a new one, so it had never once hit.
+ *
+ * These stub Google at the network boundary, because the point being tested is
+ * exactly how many times we reach it.
+ */
+describe("an address already resolved is not bought again", () => {
+  const AUTOCOMPLETE_BODY = {
+    suggestions: [
+      {
+        placePrediction: {
+          placeId: "place-1",
+          structuredFormat: {
+            mainText: { text: "12 Smith Street" },
+            secondaryText: { text: "Richmond VIC" },
+          },
+          text: { text: "12 Smith Street, Richmond VIC" },
+        },
+      },
+    ],
+  };
+
+  async function withStubbedGoogle(run: (calls: string[]) => Promise<void>) {
+    const calls: string[] = [];
+    const realFetch = globalThis.fetch;
+    const realKey = process.env.GOOGLE_MAPS_API_KEY;
+
+    process.env.GOOGLE_MAPS_API_KEY = "test-key";
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+
+      calls.push(url);
+
+      return new Response(JSON.stringify(AUTOCOMPLETE_BODY), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
+    }) as typeof globalThis.fetch;
+
+    try {
+      await run(calls);
+    } finally {
+      globalThis.fetch = realFetch;
+
+      if (realKey === undefined) {
+        delete process.env.GOOGLE_MAPS_API_KEY;
+      } else {
+        process.env.GOOGLE_MAPS_API_KEY = realKey;
+      }
+    }
+  }
+
+  it("stops after autocomplete when the place is already known", async () => {
+    await withStubbedGoogle(async (calls) => {
+      const result = await verifyAddressText({
+        address: "12 Smith Street, Richmond VIC",
+        findResolvedPlace: async (placeId) =>
+          placeId === "place-1" ? googleAddress() : null,
+        region: "AU",
+        source: "triage",
+      });
+
+      // One call out, not three. Autocomplete is $2.83 per thousand; the two
+      // it skipped are $17 each.
+      assert.equal(calls.length, 1);
+      assert.deepEqual(result.calls, {
+        autocomplete: true,
+        placeDetails: false,
+        validation: false,
+      });
+      // And the answer is the same one the paid lookup would have given.
+      assert.equal(
+        result.updates.address,
+        "12 Smith Street, Richmond VIC 3121, Australia",
+      );
+      assert.equal(result.updates.address_validation_status, "validated");
+      assert.equal(result.updates.address_place_id, "place-1");
+    });
+  });
+
+  it("carries a needs_review verdict through rather than upgrading it", async () => {
+    // address_validated_at is null on these rows, which is why the age limit
+    // reads updated_at. A cached doubt has to stay a doubt.
+    await withStubbedGoogle(async () => {
+      const result = await verifyAddressText({
+        address: "12 Smith Street, Richmond VIC",
+        findResolvedPlace: async () =>
+          googleAddress({ validationStatus: "needs_review" }),
+        region: "AU",
+        source: "triage",
+      });
+
+      assert.equal(result.updates.address_validation_status, "needs_review");
+      assert.match(String(result.verificationNote), /could not confirm/);
+    });
+  });
+
+  it("pays for the full lookup when the place is new", async () => {
+    await withStubbedGoogle(async (calls) => {
+      const result = await verifyAddressText({
+        address: "12 Smith Street, Richmond VIC",
+        findResolvedPlace: async () => null,
+        region: "AU",
+        source: "triage",
+      });
+
+      // Autocomplete, then place details -- a miss must not skip anything.
+      assert.ok(calls.length > 1);
+      assert.equal(result.calls.autocomplete, true);
+      assert.equal(result.calls.placeDetails, true);
+    });
+  });
+
+  it("treats a failing cache as a miss rather than losing the address", async () => {
+    await withStubbedGoogle(async () => {
+      const result = await verifyAddressText({
+        address: "12 Smith Street, Richmond VIC",
+        findResolvedPlace: async () => {
+          throw new Error("cache unavailable");
+        },
+        region: "AU",
+        source: "triage",
+      });
+
+      assert.equal(result.calls.autocomplete, true);
+      assert.ok(result.updates.address);
+    });
+  });
+
+  it("asks Google nothing at all when no cache is offered", async () => {
+    await withStubbedGoogle(async (calls) => {
+      await verifyAddressText({
+        address: "12 Smith Street, Richmond VIC",
+        region: "AU",
+        source: "triage",
+      });
+
+      // No findResolvedPlace means the old behaviour, unchanged.
+      assert.ok(calls.length > 1);
+    });
+  });
+});
+
+describe("the triage cache is scoped to the workspace, not the conversation", () => {
+  const triage = readRepoFile("apps/web/src/lib/ai/triage.ts");
+
+  it("no longer keys the address lookup on conversation_id", () => {
+    // The bug: 475 inquiry_facts rows across 475 conversations, one each, so
+    // a conversation-scoped cache could never find anything.
+    assert.doesNotMatch(
+      triage,
+      /\.eq\("conversation_id", conversationId\)\s*\n\s*\.maybeSingle\(\);\s*\n\s*\n\s*if \(\s*\n\s*stored &&/,
+    );
+  });
+
+  it("hands the place id cache to the verifier", () => {
+    assert.match(triage, /findResolvedPlace:/);
+    assert.match(triage, /findResolvedPlaceForWorkspace/);
+    assert.match(triage, /\.eq\("address_place_id", placeId\)/);
+  });
+
+  it("ages the cache on updated_at, which needs_review rows actually have", () => {
+    assert.match(triage, /\.gt\("updated_at", addressCacheCutoff\(\)\)/);
+    assert.doesNotMatch(
+      triage,
+      /\.gt\("address_validated_at", addressCacheCutoff\(\)\)/,
+    );
+  });
+});
