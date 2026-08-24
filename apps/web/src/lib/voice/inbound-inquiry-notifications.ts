@@ -1,3 +1,4 @@
+import type { Correlation } from "../observability/correlation";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { generateOperatorAlert } from "../ai/customer-message-generation";
 import { customerAnswerableMissingInfo } from "../ai/triage";
@@ -37,6 +38,14 @@ type InquiryNotificationInput = {
   contactName?: string | null;
   contactPhone?: string | null;
   conversationId?: string | null;
+  /**
+   * The inbound event this alert is about.
+   *
+   * Separate from `sourceId`, which is overloaded: the email path passes the
+   * event id and the SMS path passes a Twilio message sid, so it cannot be
+   * joined on. This one always means the same thing.
+   */
+  correlation?: Correlation | null;
   /**
    * Whether an urgent escalation is also running for this inquiry.
    *
@@ -389,6 +398,10 @@ async function writeInboundInquiryNotification(
 
   try {
     const written = await generateOperatorAlert({
+      correlation: {
+        conversationId: input.conversationId,
+        ...input.correlation,
+      },
       contextFacts: {
         arrivedVia: input.channel ?? "phone",
         contactName: textValue(input.contactName),

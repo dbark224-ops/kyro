@@ -614,6 +614,10 @@ export async function processInboundSmsPayload(
       contactName,
       contactPhone: input.from,
       conversationId: result.conversationId,
+      correlation: {
+        conversationId: result.conversationId,
+        eventId: result.eventId,
+      },
       missingInfo: result.inquiryFacts?.missingInfo ?? [],
       ownerQuestion: result.ownerQuestion,
       preferredTime: result.inquiryFacts?.preferredTime ?? null,

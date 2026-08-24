@@ -1008,6 +1008,14 @@ async function writeEscalationAlert(
         "Keep the whole body under 300 characters. It is read on a phone as a text message.",
         "Do not add an acknowledgement link, a greeting, or a sign-off. Those are added around your text.",
       ],
+      // An escalation raised at 2am is the one alert worth tracing back to the
+      // message that caused it, and 220 of them carried nothing to trace with.
+      // These three are already on the input; they cost nothing to record.
+      correlation: {
+        contactId: input.contactId,
+        conversationId: input.conversationId,
+        leadId: input.leadId,
+      },
       supabase,
       task: "Write the urgent escalation alert for the business owner.",
       taskType: "urgent_escalation_alert",

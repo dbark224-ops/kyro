@@ -3354,6 +3354,10 @@ async function processMessage({
         contactNameFromMessage(message) ?? message.fromEmail ?? "email sender",
       contactPhone: promoted.contactPhone,
       conversationId: promoted.conversationId,
+      correlation: {
+        conversationId: promoted.conversationId,
+        eventId: String(event.id),
+      },
       escalationStarted: promoted.escalationStarted,
       missingInfo: promoted.inquiryFacts?.missingInfo ?? [],
       offeredTime: promoted.offeredTime,

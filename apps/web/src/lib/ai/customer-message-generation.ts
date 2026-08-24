@@ -1,3 +1,7 @@
+import {
+  correlationRefs,
+  type Correlation,
+} from "../observability/correlation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertWorkspaceAutomationAllowed } from "../billing/access";
 import {
@@ -255,6 +259,7 @@ type CustomerMessageAttempt = Awaited<ReturnType<typeof runCustomerMessage>>;
 async function recordAttemptUsage(input: {
   attempts: CustomerMessageAttempt[];
   channelType: string;
+  correlation?: Correlation | null;
   failureReason?: string;
   model: string;
   startedAt: number;
@@ -324,6 +329,9 @@ async function recordAttemptUsage(input: {
         attempts: attempts.length,
         channelType: input.channelType,
         source: input.taskType,
+        // Which customer's journey this run belongs to. Without it an alert
+        // cannot be joined back to the message that caused it.
+        ...correlationRefs(input.correlation),
       },
       latency_ms: Date.now() - input.startedAt,
       mode: "copilot",
@@ -407,6 +415,7 @@ function audienceWritingRules(input: {
 
 export async function generateOperatorAlert(input: {
   contextFacts: Record<string, unknown>;
+  correlation?: Correlation | null;
   mustInclude?: string[];
   purposeRules: string[];
   supabase: SupabaseClient;
@@ -424,6 +433,8 @@ export async function generateCustomerMessage(input: {
   audience?: "customer" | "operator";
   channelType: string;
   contextFacts: Record<string, unknown>;
+  /** Ties this run to the inbound event that started it. */
+  correlation?: Correlation | null;
   /** Literals that must survive verbatim -- an approval URL, a reference code. */
   mustInclude?: string[];
   purposeRules: string[];
@@ -512,6 +523,7 @@ export async function generateCustomerMessage(input: {
     await recordAttemptUsage({
       attempts,
       channelType: input.channelType,
+      correlation: input.correlation,
       failureReason,
       model,
       startedAt,
@@ -565,6 +577,7 @@ export async function generateCustomerMessage(input: {
     await recordAttemptUsage({
       attempts,
       channelType: input.channelType,
+      correlation: input.correlation,
       failureReason,
       model,
       startedAt,
@@ -590,6 +603,7 @@ export async function generateCustomerMessage(input: {
   await recordAttemptUsage({
     attempts,
     channelType: input.channelType,
+    correlation: input.correlation,
     model,
     startedAt,
     supabase: input.supabase,
