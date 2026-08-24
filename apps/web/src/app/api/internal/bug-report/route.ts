@@ -85,7 +85,13 @@ export async function POST(request: Request) {
   try {
     workspace = await getPrimaryWorkspace(supabase);
   } catch (workspaceError) {
-    console.error("Unable to load workspace for bug notification", workspaceError);
+    console.error("Unable to load workspace for bug notification", {
+      error:
+        workspaceError instanceof Error
+          ? workspaceError.message
+          : String(workspaceError),
+      userId: user.id,
+    });
   }
 
   const input = notificationInputFromPayload(payload, request);
@@ -103,7 +109,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, notified: result.sent });
   } catch (notificationError) {
-    console.error("Unable to send internal bug notification", notificationError);
+    console.error("Unable to send internal bug notification", {
+      error:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+      userId: user.id,
+      workspaceId: workspace?.id ?? null,
+    });
 
     return NextResponse.json({ ok: true, notified: false });
   }

@@ -625,7 +625,12 @@ async function insertOutboundAuditLog(
   });
 
   if (error) {
-    console.warn("Unable to write outbound audit log", error.message);
+    console.warn("Unable to write outbound audit log", {
+      action: input.action,
+      entityId: input.entityId,
+      error: error.message,
+      workspaceId: input.workspaceId,
+    });
   }
 }
 

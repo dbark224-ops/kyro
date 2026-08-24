@@ -244,7 +244,12 @@ async function processSandboxMessage(input: SandboxMessage) {
     });
     await markInboundEvent(supabase, input.eventId, "processed");
   } catch (error) {
-    console.error("WhatsApp Sandbox assistant turn failed", error);
+    console.error("WhatsApp Sandbox assistant turn failed", {
+      error: error instanceof Error ? error.message : String(error),
+      eventId: input.eventId,
+      messageSid: input.messageSid,
+      workspaceId: input.workspace.id,
+    });
     await markInboundEvent(supabase, input.eventId, "failed");
   }
 }

@@ -534,7 +534,15 @@ export function VapiVoiceConsole({
         keepalive: true,
         method: "POST",
       }).catch((notificationError) => {
-        console.warn("Unable to report visible voice issue", notificationError);
+        console.warn("Unable to report visible voice issue", {
+          error:
+            notificationError instanceof Error
+              ? notificationError.message
+              : String(notificationError),
+          eventKey: key,
+          kind,
+          source,
+        });
       });
     },
     [session, threadId],

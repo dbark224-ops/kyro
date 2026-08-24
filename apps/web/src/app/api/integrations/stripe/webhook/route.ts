@@ -472,7 +472,13 @@ export async function POST(request: Request) {
   try {
     event = JSON.parse(rawBody) as StripeWebhookEvent;
   } catch (error) {
-    console.error("Unable to parse Stripe webhook payload", error);
+    // The event id lives inside the body that would not parse, so the size is
+    // the diagnostic: an empty or truncated payload reads differently from
+    // malformed JSON.
+    console.error("Unable to parse Stripe webhook payload", {
+      bodyBytes: rawBody.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
 
     return NextResponse.json(
       { error: "Invalid Stripe payload." },

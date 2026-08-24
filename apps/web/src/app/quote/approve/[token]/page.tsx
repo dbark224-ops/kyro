@@ -70,7 +70,13 @@ export default async function QuoteApprovalPage({
   const supabase = createServiceSupabaseClient();
   const portal = await getQuoteApprovalPortalByToken(supabase, token).catch(
     (error: unknown) => {
-      console.error("Unable to load quote approval portal.", error);
+      // The token is the only identifier here and it is a bearer credential:
+      // anyone reading the log could approve the quote with it. So this says
+      // what failed and nothing about which quote.
+      console.error("Unable to load quote approval portal.", {
+        error: error instanceof Error ? error.message : String(error),
+        stage: "load_portal",
+      });
       return null;
     },
   );

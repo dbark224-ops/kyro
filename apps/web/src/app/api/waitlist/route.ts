@@ -196,7 +196,15 @@ export async function POST(request: Request) {
       windowSeconds: 60 * 60,
     });
   } catch (rateLimitError) {
-    console.error("Unable to enforce waitlist rate limit", rateLimitError);
+    // The rate-limit identifier is the email, so the route is all that can be
+    // said about which bucket failed.
+    console.error("Unable to enforce waitlist rate limit", {
+      error:
+        rateLimitError instanceof Error
+          ? rateLimitError.message
+          : String(rateLimitError),
+      route: "public.waitlist",
+    });
     return NextResponse.json(
       { error: "Kyro could not save this waitlist request." },
       { status: 503 },
@@ -270,7 +278,15 @@ export async function POST(request: Request) {
       serviceArea,
     });
   } catch (notificationError) {
-    console.error("Unable to send waitlist notification", notificationError);
+    // A waitlist signup is identified by its email and nothing else, and the
+    // upsert returns no id, so the stage is the only safe context here.
+    console.error("Unable to send waitlist notification", {
+      error:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+      stage: "waitlist_notification",
+    });
   }
 
   return NextResponse.json({ ok: true });

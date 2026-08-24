@@ -284,7 +284,15 @@ export async function POST(request: Request) {
       },
     });
   } catch (reservationError) {
-    console.error("Unable to reserve signup identity", reservationError);
+    // No identifier exists yet -- the reservation is what would have created
+    // one, and everything else in scope (email, mobile, name) is the customer.
+    console.error("Unable to reserve signup identity", {
+      error:
+        reservationError instanceof Error
+          ? reservationError.message
+          : String(reservationError),
+      stage: "reserve_identity",
+    });
     return errorResponse(
       "Kyro could not verify account details right now. Please try again shortly.",
       503,
@@ -346,7 +354,15 @@ export async function POST(request: Request) {
     stage: "auth_created",
     status: "auth_created",
   }).catch((trackingError) => {
-    console.error("Unable to record signup Auth stage", trackingError);
+    console.error("Unable to record signup Auth stage", {
+      authUserId: data.user?.id ?? null,
+      error:
+        trackingError instanceof Error
+          ? trackingError.message
+          : String(trackingError),
+      recordId: signupRecordId,
+      stage: "auth_created",
+    });
   });
 
   if (data.user.identities && data.user.identities.length === 0) {

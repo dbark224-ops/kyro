@@ -298,7 +298,11 @@ async function updateConnectionLastError({
     .eq("id", connectionId);
 
   if (error) {
-    console.warn("Unable to update Google integration status", error.message);
+    console.warn("Unable to update Google integration status", {
+      connectionId,
+      error: error.message,
+      workspaceId,
+    });
   }
 }
 

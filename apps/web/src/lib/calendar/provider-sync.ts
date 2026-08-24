@@ -220,7 +220,12 @@ async function markAppointmentExternalSync(
     .eq("id", appointmentId);
 
   if (error) {
-    console.warn("Unable to mark calendar sync status", error.message);
+    console.warn("Unable to mark calendar sync status", {
+      appointmentId,
+      error: error.message,
+      status: result.status,
+      workspaceId,
+    });
   }
 }
 
@@ -242,7 +247,11 @@ async function updateConnectionLastError({
     .eq("id", connectionId);
 
   if (error) {
-    console.warn("Unable to update calendar integration status", error.message);
+    console.warn("Unable to update calendar integration status", {
+      connectionId,
+      error: error.message,
+      workspaceId,
+    });
   }
 }
 

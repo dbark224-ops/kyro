@@ -326,7 +326,12 @@ async function processInternalSmsMessage(input: InternalSmsMessage) {
     });
     await markInternalSmsEvent(supabase, input.eventId, "processed");
   } catch (error) {
-    console.error("Internal SMS assistant turn failed", error);
+    console.error("Internal SMS assistant turn failed", {
+      error: error instanceof Error ? error.message : String(error),
+      eventId: input.eventId,
+      messageSid: input.messageSid,
+      workspaceId: input.workspace.id,
+    });
     await markInternalSmsEvent(supabase, input.eventId, "failed");
   }
 }

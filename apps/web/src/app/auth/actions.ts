@@ -175,7 +175,14 @@ export async function requestPasswordResetAction(formData: FormData) {
       );
     }
 
-    console.error("Unable to request password reset", error);
+    // Logging the whole error would carry Supabase's `details`, which can
+    // quote the address that failed. The code and status are what identify the
+    // failure; the person cannot be named without logging them.
+    console.error("Unable to request password reset", {
+      code: error.code ?? null,
+      error: error.message,
+      status: error.status ?? null,
+    });
   }
 
   redirect(
