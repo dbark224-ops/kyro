@@ -15,6 +15,7 @@ import {
   normalizePhoneRegion,
   type PhoneRegion,
 } from "../crm/identity";
+import { operatingCountryPhoneRegion } from "./operating-countries";
 import { normalizeUsageMarkupRate, usageMarkupRate } from "../usage/pricing";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cache } from "react";
@@ -861,20 +862,36 @@ export function normalizeWorkspaceGeneralSettings(
   // a setting to stop being quoted in Australian dollars.
   //
   // Read before the currency because the currency falls back to it.
+  //
+  // The country is asked for at signup and cannot be skipped: the select is
+  // required, starts empty, and all three entry points reject anything not on
+  // the list. It was then never used for this. defaultPhoneRegion is a
+  // separate field only the settings page writes, so it sat at its "AU"
+  // default, and a plumber in Auckland who chose New Zealand was quoted in
+  // Australian dollars and had "021 123 4567" stored as an Australian number
+  // -- which then failed to match the same person's real +64 when they texted.
+  //
+  // So the answer they already gave decides it, and an explicit setting still
+  // wins over the inferred one.
+  const businessProfile = normalizeWorkspaceBusinessProfileSettings(
+    settings.businessProfile,
+    fallback.businessProfile ??
+      DEFAULT_WORKSPACE_GENERAL_SETTINGS.businessProfile,
+  );
+  const signupCountryRegion = operatingCountryPhoneRegion(
+    businessProfile.operatingCountry,
+  );
   const resolvedPhoneRegion = normalizePhoneRegion(
     textValue(settings.defaultPhoneRegion),
     fallback.defaultPhoneRegion ??
+      signupCountryRegion ??
       DEFAULT_WORKSPACE_GENERAL_SETTINGS.defaultPhoneRegion,
   );
   const fallbackDisplayCurrency =
     fallback.displayCurrency ?? displayCurrencyForRegion(resolvedPhoneRegion);
 
   return {
-    businessProfile: normalizeWorkspaceBusinessProfileSettings(
-      settings.businessProfile,
-      fallback.businessProfile ??
-        DEFAULT_WORKSPACE_GENERAL_SETTINGS.businessProfile,
-    ),
+    businessProfile,
     displayCurrency: normalizeDisplayCurrency(
       settings.displayCurrency,
       fallbackDisplayCurrency,
