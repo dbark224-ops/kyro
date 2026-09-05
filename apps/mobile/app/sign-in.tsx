@@ -8,6 +8,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -77,7 +78,12 @@ export default function SignInScreen() {
         behavior={Platform.select({ ios: "padding", default: undefined })}
         style={styles.keyboard}
       >
-        <View style={styles.shell}>
+        <ScrollView
+          contentContainerStyle={styles.shell}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <BrandLockup />
 
           <View style={styles.content}>
@@ -221,7 +227,7 @@ export default function SignInScreen() {
               <LegalLink label="Terms" url={mobileEnv.termsOfServiceUrl} />
             </View>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -263,7 +269,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     gap: 18,
     justifyContent: "center",
   },
@@ -377,7 +383,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   shell: {
-    flex: 1,
+    flexGrow: 1,
     paddingBottom: 18,
     paddingHorizontal: spacing.pageX,
     paddingTop: spacing.pageY,
