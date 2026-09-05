@@ -679,14 +679,21 @@ export type MobileCrmContactProfile = {
     contactType: string;
     email: string | null;
     id: string;
-    lifecycleReason: string | null;
-    lifecycleReviewedAt: string | null;
-    lifecycleSource: string;
-    lifecycleStage: string;
     mergedIntoContactId: string | null;
     name: string | null;
     notes: string | null;
     phone: string | null;
+    /**
+     * The contact's other number and whose it is.
+     *
+     * Already returned by the API -- the route spreads the shared contact
+     * profile, which has carried these since 29 July -- so this was a missing
+     * type and a missing row, not a missing endpoint. Never matched against an
+     * inbound caller: the partner's number is not the contact's identity.
+     */
+    secondaryPhone: string | null;
+    secondaryPhoneLabel: string | null;
+    secondaryPhoneName: string | null;
     profileConflictContactIds: string[];
     profileResolutionReason: string | null;
     profileResolutionStatus: string;

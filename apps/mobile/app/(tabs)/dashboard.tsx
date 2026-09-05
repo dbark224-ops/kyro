@@ -1481,7 +1481,12 @@ function formatCurrency(value: number, currency: string) {
 function formatCurrencyFromCents(value: number, currency: string) {
   return formatCurrency(
     (Number.isFinite(value) ? value : 0) / 100,
-    currency || "AUD",
+    // Falling back to AUD put Australian dollars in front of a New Mexico
+    // workspace, which is the same fault the web carried until the display
+    // currency learned to follow the workspace's own country. USD is the
+    // server's documented default, so an empty value agrees with it rather
+    // than guessing a different country.
+    currency || "USD",
   );
 }
 

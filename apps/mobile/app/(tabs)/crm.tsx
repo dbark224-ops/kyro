@@ -308,7 +308,6 @@ function ContactProfileScreen({
   const queryClient = useQueryClient();
   const [editValues, setEditValues] = useState<ContactEditValues | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [lifecycleReason, setLifecycleReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const detailQueryKey = [
     "mobile-crm-contact",
@@ -362,7 +361,6 @@ function ContactProfileScreen({
       notes: profile.contact.notes ?? "",
       phone: profile.contact.phone ?? "",
     });
-    setLifecycleReason(profile.contact.lifecycleReason ?? "");
   }, [profile]);
 
   if (!profile) {
@@ -571,10 +569,7 @@ function ContactProfileScreen({
       <SectionCard>
         <SectionHeader
           action={
-            <StatusPill
-              label={formatLabel(contact.lifecycleStage)}
-              tone="purple"
-            />
+            <StatusPill label={formatLabel(contact.contactType)} tone="purple" />
           }
           title="Details"
         />
@@ -582,44 +577,19 @@ function ContactProfileScreen({
           facts={[
             ["Email", contact.email],
             ["Phone", contact.phone],
+            [
+              secondNumberLabel(contact.secondaryPhoneName, contact.secondaryPhoneLabel),
+              contact.secondaryPhone,
+            ],
             ["Company", contact.company],
             ["Address", contact.address],
-            ["Lifecycle", formatLabel(contact.lifecycleStage)],
-            ["Source", formatLabel(contact.source ?? contact.lifecycleSource)],
+            ["Source", formatLabel(contact.source)],
             ["Updated", formatDate(contact.updatedAt)],
           ]}
         />
         {contact.notes ? (
           <Text style={styles.notes}>{contact.notes}</Text>
         ) : null}
-      </SectionCard>
-
-      <SectionCard>
-        <SectionHeader title="Lifecycle" />
-        <FilterGroup
-          label="Stage"
-          onChange={(stage) =>
-            runContactOperation({
-              lifecycleReason,
-              lifecycleStage: stage,
-              operation: "set_lifecycle",
-            })
-          }
-          options={lifecycleOptions}
-          value={contact.lifecycleStage}
-        />
-        <TextInput
-          onChangeText={setLifecycleReason}
-          placeholder="Reason"
-          placeholderTextColor={colors.muted}
-          style={styles.detailInput}
-          value={lifecycleReason}
-        />
-        <Text style={styles.notes}>
-          {contact.lifecycleSource === "manual"
-            ? `Manual override${contact.lifecycleReviewedAt ? ` - ${formatDate(contact.lifecycleReviewedAt)}` : ""}`
-            : "System suggested stage"}
-        </Text>
       </SectionCard>
 
       {profile.leads.length ? (
@@ -862,6 +832,24 @@ function formatLabel(value: string | null) {
     .join(" ");
 }
 
+/**
+ * What to call the contact's other number.
+ *
+ * A second number is only useful if you know whose it is before you ring it --
+ * "Other number" tells the owner nothing, while "Wife (Sarah)" tells them how
+ * to open the call. Falls back through label, then name, then a plain heading.
+ */
+function secondNumberLabel(name: string | null, label: string | null) {
+  const who = name?.trim();
+  const what = label?.trim();
+
+  if (what && who) {
+    return `${what} (${who})`;
+  }
+
+  return what || who || "Other number";
+}
+
 type ContactEditValues = {
   address: string;
   company: string;
@@ -884,12 +872,20 @@ type CrmFilter =
 
 type CrmSort = "alphabetical" | "messages" | "recent";
 
+/**
+ * The contact types the backend actually accepts.
+ *
+ * Kept in the same order as CONTACT_TYPES in the web app, and it has to stay
+ * in step with it: "Builder" was offered here long after the server retired it,
+ * so choosing it saved as "Other" with no explanation, and "Staff" could not be
+ * set or filtered at all because this list had never heard of it.
+ */
 const contactTypeOptions: Array<{ label: string; value: string }> = [
-  { label: "Client", value: "client" },
   { label: "Lead", value: "lead" },
+  { label: "Client", value: "client" },
   { label: "Supplier", value: "supplier" },
   { label: "Contractor", value: "contractor" },
-  { label: "Builder", value: "builder" },
+  { label: "Staff", value: "staff" },
   { label: "Property manager", value: "property_manager" },
   { label: "Other", value: "other" },
 ];
@@ -924,14 +920,6 @@ function sortLabel(value: CrmSort) {
   );
 }
 
-const lifecycleOptions = [
-  { label: "New", value: "new" },
-  { label: "Active", value: "active" },
-  { label: "Lead", value: "lead" },
-  { label: "Client", value: "client" },
-  { label: "Supplier", value: "supplier" },
-  { label: "Inactive", value: "inactive" },
-];
 
 function filterAndSortContacts(
   contacts: ContactListItem[],

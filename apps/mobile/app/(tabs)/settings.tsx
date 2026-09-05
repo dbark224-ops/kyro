@@ -5670,7 +5670,10 @@ function PaymentsSettingsPanel({
   const [draft, setDraft] = useState<PaymentLinkDraft>({
     amount: "",
     contactId: "",
-    currency: "AUD",
+    // Overwritten below from the workspace's own account currency. Until then
+    // this is the server's documented default rather than Australian dollars,
+    // which is money in front of a customer and the owner's to walk back.
+    currency: "USD",
     description: "",
     dueAt: "",
   });
@@ -5729,7 +5732,7 @@ function PaymentsSettingsPanel({
         current.currency ||
         data.account?.defaultCurrency ||
         data.stats.currency ||
-        "AUD",
+        "USD",
     }));
   }, [data]);
 
@@ -8801,7 +8804,7 @@ function parseNullableMoney(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatMoney(value: number | null | undefined, currency = "AUD") {
+function formatMoney(value: number | null | undefined, currency = "USD") {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
   }
