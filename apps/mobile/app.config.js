@@ -149,7 +149,7 @@ module.exports = {
     },
     assetBundlePatterns: ["**/*"],
     ios: {
-      supportsTablet: true,
+      supportsTablet: false,
       bundleIdentifier: "ai.kyro.mobile",
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
