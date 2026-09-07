@@ -71,10 +71,16 @@ Calendar reminders *do* work — those are local notifications the phone fires a
 itself, no server involved. So notifications will appear on the device; that is
 not evidence push works.
 
-**The `app_notification` escalation step is a silent no-op.**
-Worth fixing regardless of whether push gets built, because it reports "sent"
-and ends the escalation chain rather than falling through to SMS or a phone
-call. Every other undelivered channel throws for exactly this reason.
+**`app_notification` reaches the web bell, not the phone.**
+Do not "fix" this by making it throw. The database write *is* the delivery:
+`getNotificationSummary` reads escalation steps with `channel =
+'app_notification'` and `status = 'sent'` on open incidents and renders them in
+the web notification bell. The null provider id is because the app is the
+provider, not because nobody was contacted.
+
+Making it throw once before silently killed the bell's escalation
+notifications. What is actually missing is the phone half — device-token push —
+not the channel.
 
 **The mobile branch is behind main.**
 `codex/mobile-app` carries its own copy of the web app, frozen at 25 July. That
