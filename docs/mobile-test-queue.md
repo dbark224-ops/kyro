@@ -64,8 +64,8 @@ something has gone wrong, not a jitter while typing.
 **Push notifications are entitled but not wired.**
 The App ID carries the capability and the profile has `aps-environment`, so the
 app is *permitted* to receive pushes. Nothing sends or receives them: the app
-never requests a push token, there is no token storage, and the escalation
-`app_notification` step returns success without contacting anyone.
+never requests a push token, and there is no token storage on the server. So
+nothing Kyro's backend does can reach the phone.
 
 Calendar reminders *do* work — those are local notifications the phone fires at
 itself, no server involved. So notifications will appear on the device; that is
