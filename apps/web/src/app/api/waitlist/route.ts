@@ -93,7 +93,7 @@ async function sendWaitlistNotification(details: WaitlistNotification) {
 
   const from =
     process.env.WAITLIST_NOTIFICATION_FROM?.trim() ||
-    "Kyro <onboarding@resend.dev>";
+    "Kyro <no-reply@mail.kyroassistant.com>";
   const rows = notificationRows(details);
   const subject = `New Kyro waitlist signup: ${details.businessName}`;
   const text = rows.map(([label, value]) => `${label}: ${value}`).join("\n");

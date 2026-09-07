@@ -40,7 +40,13 @@ function authEmailFromAddress() {
     process.env.KYRO_AUTH_EMAIL_FROM?.trim() ||
     process.env.AUTH_EMAIL_FROM?.trim() ||
     process.env.WAITLIST_NOTIFICATION_FROM?.trim() ||
-    "Kyro <onboarding@resend.dev>"
+    // mail.kyroassistant.com is verified in Resend; onboarding@resend.dev is
+    // Resend's shared test domain and will only deliver to the address on our
+    // own Resend account. As a production fallback that means the owner can
+    // sign up and nobody else can, and it fails silently from his side
+    // because his own mail arrives. The escalation path already defaults to
+    // this domain -- these now agree.
+    "Kyro <no-reply@mail.kyroassistant.com>"
   );
 }
 

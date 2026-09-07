@@ -79,7 +79,7 @@ function internalNotificationFromAddress() {
     process.env.KYRO_INTERNAL_NOTIFICATION_FROM?.trim() ||
     process.env.WAITLIST_NOTIFICATION_FROM?.trim() ||
     process.env.KYRO_AUTH_EMAIL_FROM?.trim() ||
-    "Kyro <onboarding@resend.dev>"
+    "Kyro <no-reply@mail.kyroassistant.com>"
   );
 }
 
